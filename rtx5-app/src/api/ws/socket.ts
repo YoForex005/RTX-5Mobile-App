@@ -6,7 +6,7 @@ import { useTradingState } from '../../state/tradingState';
 import NetInfo from '@react-native-community/netinfo';
 import { liveCandleStream } from '../../domain/candles/stream/liveCandleStream';
 import { useUserPreferences } from '../../state/userPreferences';
-import { buildBrokerWsUrl } from '../brokerRouting';
+import { buildBrokerWsUrl, normalizeConfiguredWsUrl } from '../brokerRouting';
 
 type SubscriptionMessage = {
   type: 'subscribe' | 'unsubscribe';
@@ -47,8 +47,10 @@ export class WebSocketService {
   }
 
   private resolveSocketUrl(): string {
-    return process.env.EXPO_PUBLIC_WS_URL ||
-      buildBrokerWsUrl(useUserPreferences.getState().brokerServerUrl, '/ws', 'wss://backend.orrnn.com/ws');
+    return normalizeConfiguredWsUrl(
+      process.env.EXPO_PUBLIC_WS_URL,
+      buildBrokerWsUrl(useUserPreferences.getState().brokerServerUrl, '/ws', 'wss://backend.orrnn.com/ws'),
+    );
   }
 
   /**

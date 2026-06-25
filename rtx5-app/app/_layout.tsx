@@ -187,6 +187,7 @@ import { useOtaUpdateOnLaunch } from '../src/utils/otaUpdates';
 import { isDemoTradingAccount } from '../src/domain/accountType';
 import { hydratePersistedCandleCache } from '../src/domain/candles/state/persistedCandleCache';
 import { useDataAnalyzer } from '../src/features/chart/DataAnalyzer';
+import { OtaUpdateModal } from '../src/ui/components/OtaUpdateModal';
 import { scheduleAfterFirstFrame, scheduleIdleWork } from '../src/utils/startupScheduler';
 import { bootstrapApp } from '../src/services/bootstrapApp';
 import { installGlobalStartupErrorHandlers, logStartupDiagnostic } from '../src/utils/startupDiagnostics';
@@ -194,7 +195,7 @@ import { installGlobalStartupErrorHandlers, logStartupDiagnostic } from '../src/
 installGlobalStartupErrorHandlers();
 
 function RootLayout() {
-  useOtaUpdateOnLaunch();
+  const otaUpdatePrompt = useOtaUpdateOnLaunch();
   useDataAnalyzer();
 
   const [fontsLoaded, fontError] = useFonts({
@@ -405,6 +406,7 @@ function RootLayout() {
     <ErrorBoundary>
       <AppProviders>
         {hasHydrated && fontsReady ? <InnerLayout /> : <StartupLogoScreen />}
+        <OtaUpdateModal {...otaUpdatePrompt} />
       </AppProviders>
     </ErrorBoundary>
   );

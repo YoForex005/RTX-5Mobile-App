@@ -30,6 +30,23 @@ export interface TickProcessorBridge {
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 
+const parseJsonStringPayload = (value: unknown): unknown => {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || (!trimmed.startsWith('{') && !trimmed.startsWith('['))) {
+    return value;
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+};
+
 const pickString = (record: Record<string, unknown> | null, keys: readonly string[]): string | null => {
   if (!record) {
     return null;
@@ -106,6 +123,51 @@ const mergeCandleEnvelopeContext = (
     ...(symbol ? { symbol } : {}),
     ...(tf ? { timeframe: tf } : {}),
   };
+};
+
+const QUOTE_ENVELOPE_CONTEXT_KEYS = [
+  'channel',
+  'topic',
+  'stream',
+  'event',
+  'type',
+  'time',
+  'timestamp',
+  't',
+  'server_time',
+  'serverTime',
+  'tick_time',
+  'tickTime',
+  'sequence',
+  'seq',
+  'source_seq',
+  'sourceSeq',
+  'sequenceId',
+  'tick_id',
+  'tickId',
+  'source_tick_id',
+  'sourceTickId',
+] as const;
+
+const mergeQuoteEnvelopeContext = (
+  envelope: Record<string, unknown> | null,
+  candidate: unknown,
+): unknown => {
+  const candidateRecord = asRecord(parseJsonStringPayload(candidate));
+  if (!candidateRecord || !envelope) {
+    return candidateRecord ?? candidate;
+  }
+
+  const context: Record<string, unknown> = {};
+  for (const key of QUOTE_ENVELOPE_CONTEXT_KEYS) {
+    if (envelope[key] !== undefined && candidateRecord[key] === undefined) {
+      context[key] = envelope[key];
+    }
+  }
+
+  return Object.keys(context).length > 0
+    ? { ...context, ...candidateRecord }
+    : candidateRecord;
 };
 
 const routeBackendCandleUpdates = (bridge: TickProcessorBridge, payload: unknown): boolean => {
@@ -190,6 +252,9 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
     ...(normalizedUpdate.digits === undefined ? {} : { digits: normalizedUpdate.digits }),
     ...(normalizedUpdate.point === undefined ? {} : { point: normalizedUpdate.point }),
     ...(normalizedUpdate.tickSize === undefined ? {} : { tickSize: normalizedUpdate.tickSize }),
+    ...(normalizedUpdate.sequence === undefined ? {} : { sequence: normalizedUpdate.sequence }),
+    ...(normalizedUpdate.tickId === undefined ? {} : { tickId: normalizedUpdate.tickId }),
+    ...(normalizedUpdate.source === undefined ? {} : { source: normalizedUpdate.source }),
     feedTickAt: normalizedTimestampMs ?? undefined,
     lastReceivedAt: receivedAt,
     ...(normalizedTimestamp === null
@@ -218,6 +283,9 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
     digits: normalizedUpdate.digits,
     point: normalizedUpdate.point,
     tickSize: normalizedUpdate.tickSize,
+    sequence: normalizedUpdate.sequence,
+    tickId: normalizedUpdate.tickId,
+    source: normalizedUpdate.source,
     feedTickAt: normalizedTimestampMs ?? undefined,
     receivedAt,
     timestamp: liveListenerTimestamp,
@@ -284,21 +352,42 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
   return true;
 };
 
-export const processIncomingPayload = (bridge: TickProcessorBridge, payload: any): boolean => {
-  let hasUpdates = routeBackendCandleUpdates(bridge, payload);
-  const applyCandidate = (candidate: unknown) => {
-    if (processTick(bridge, candidate)) hasUpdates = true;
-  };
-  const payloadRecord = payload && typeof payload === 'object' ? payload : null;
+const getQuoteCandidateItems = (payload: unknown): unknown[] => {
+  const parsed = parseJsonStringPayload(payload);
+  if (Array.isArray(parsed)) {
+    return parsed;
+  }
 
-  if (Array.isArray(payload)) {
-    payload.forEach(applyCandidate);
-  } else if (payloadRecord?.data && Array.isArray(payloadRecord.data)) {
-    payloadRecord.data.forEach(applyCandidate);
-  } else if (payloadRecord?.data && typeof payloadRecord.data === 'object') {
-    applyCandidate(payloadRecord.data);
-  } else {
-    applyCandidate(payload);
+  const record = asRecord(parsed);
+  if (!record) {
+    return [parsed];
+  }
+
+  for (const key of ['data', 'ticks', 'prices', 'quotes', 'items', 'payload', 'message']) {
+    const value = parseJsonStringPayload(record[key]);
+    if (Array.isArray(value)) {
+      return value.map((item) => mergeQuoteEnvelopeContext(record, item));
+    }
+  }
+
+  for (const key of ['data', 'tick', 'quote', 'price', 'payload', 'message']) {
+    const value = parseJsonStringPayload(record[key]);
+    if (asRecord(value)) {
+      return [mergeQuoteEnvelopeContext(record, value)];
+    }
+  }
+
+  return [record];
+};
+
+export const processIncomingPayload = (bridge: TickProcessorBridge, payload: any): boolean => {
+  const parsedPayload = parseJsonStringPayload(payload);
+  let hasUpdates = routeBackendCandleUpdates(bridge, parsedPayload);
+
+  for (const candidate of getQuoteCandidateItems(parsedPayload)) {
+    if (processTick(bridge, candidate)) {
+      hasUpdates = true;
+    }
   }
 
   return hasUpdates;

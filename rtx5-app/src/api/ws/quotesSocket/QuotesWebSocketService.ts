@@ -12,6 +12,7 @@ import NetInfo from '@react-native-community/netinfo';
 
 import {
   buildBrokerWsUrl,
+  normalizeConfiguredWsUrl,
   shouldUseBrokerHostedQuoteFeed,
 } from '../../brokerRouting';
 import {
@@ -134,8 +135,9 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   }
 
   private resolveSocketUrl(): string {
-    if (process.env.EXPO_PUBLIC_QUOTES_WS_URL) {
-      return process.env.EXPO_PUBLIC_QUOTES_WS_URL;
+    const configuredUrl = normalizeConfiguredWsUrl(process.env.EXPO_PUBLIC_QUOTES_WS_URL, '');
+    if (configuredUrl) {
+      return configuredUrl;
     }
 
     const brokerServerUrl = useUserPreferences.getState().brokerServerUrl;
@@ -143,8 +145,9 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   }
 
   private async resolveSocketUrlAsync(): Promise<string> {
-    if (process.env.EXPO_PUBLIC_QUOTES_WS_URL) {
-      return process.env.EXPO_PUBLIC_QUOTES_WS_URL;
+    const configuredUrl = normalizeConfiguredWsUrl(process.env.EXPO_PUBLIC_QUOTES_WS_URL, '');
+    if (configuredUrl) {
+      return configuredUrl;
     }
 
     const state = useUserPreferences.getState();
@@ -432,6 +435,13 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
 
       const staleFor = Date.now() - this.lastMessageAt;
       if (staleFor > QUOTE_WS_SILENT_STALE_MS) {
+        const socketUrl = this.url;
+        // On iOS a broker WSS can open but never send ticks. Do not keep
+        // reconnecting to that silent feed; fall back so bid/ask becomes live.
+        if (this.markBrokerSocketUnavailable(socketUrl, 'silent after open')) {
+          return;
+        }
+
         console.warn(`[Quotes WS] Silent TCP drop detected (${Math.round(staleFor / 1000)}s). Healing invisibly...`);
         this.triggerInvisibleReconnect();
       }

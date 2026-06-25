@@ -80,6 +80,20 @@ export const baseStyles = StyleSheet.create({
     flex: 1, height: '100%', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4,
     position: 'relative', zIndex: 3, elevation: 3,
   },
+  actionLotKeyboardAccessory: {
+    minHeight: 44,
+    paddingHorizontal: 12,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  actionLotKeyboardAccessoryButton: {
+    minHeight: 36,
+    minWidth: 72,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   actionBtnHeader: {
     position: 'absolute', top: 2, left: 6, zIndex: 1,
     flexDirection: 'row', justifyContent: 'flex-start', alignItems: 'center',
@@ -101,6 +115,7 @@ export const lightStyles = StyleSheet.create({
   actionLotAdjustIcon: { color: '#475569' },
   actionLotAdjustIconDisabled: { color: '#94A3B8' },
   actionLotInput: { color: '#0F172A' },
+  actionLotKeyboardAccessory: { backgroundColor: '#F8FAFC', borderTopColor: '#CBD5E1' },
 });
 
 export const darkStyles = StyleSheet.create({
@@ -112,6 +127,7 @@ export const darkStyles = StyleSheet.create({
   actionLotAdjustIcon: { color: '#CBD5E1' },
   actionLotAdjustIconDisabled: { color: '#64748B' },
   actionLotInput: { color: '#F8FAFC' },
+  actionLotKeyboardAccessory: { backgroundColor: '#111827', borderTopColor: '#334155' },
 });
 
 export const textBaseStyles = StyleSheet.create({
@@ -131,5 +147,12 @@ export const textBaseStyles = StyleSheet.create({
     width: '100%', fontSize: 15, lineHeight: 20, fontWeight: '700',
     fontVariant: ['tabular-nums'], textAlign: 'center', paddingVertical: 0,
     includeFontPadding: false,
+  },
+  actionLotKeyboardAccessoryButtonText: {
+    color: '#2563EB',
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '700',
+    textAlign: 'center',
   },
 });

@@ -1,4 +1,6 @@
-export const APP_DISPLAY_VERSION = '1.1.10';
+const APP_DISPLAY_VERSION_OVERRIDE = process.env.EXPO_PUBLIC_APP_DISPLAY_VERSION?.trim();
+
+export const APP_DISPLAY_VERSION = APP_DISPLAY_VERSION_OVERRIDE || '1.1.12';
 
 export function resolveAppDisplayVersion(fallbackVersion?: string | null): string {
   const displayVersion = APP_DISPLAY_VERSION.trim();

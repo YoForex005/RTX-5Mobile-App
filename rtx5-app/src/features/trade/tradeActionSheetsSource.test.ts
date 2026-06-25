@@ -43,6 +43,19 @@ test('trade position long-press action sheet uses the MT5 plain icon action cont
   assert.match(positionSheetSource, /name="analytics-outline"[\s\S]*label: t\('Chart'\)/);
 });
 
+test('trade position swipe drawer stays visible on iOS', () => {
+  const tradeScreenSource = readSource('src/features/trade/TradeScreen/TradeScreen.tsx');
+  const rowSource = readSource('src/ui/components/TradePositionRow/TradePositionRow.tsx');
+
+  assert.match(tradeScreenSource, /import \{ Text, View, FlatList, Platform \} from 'react-native'/);
+  assert.match(tradeScreenSource, /removeClippedSubviews=\{Platform\.OS === 'android'\}/);
+  assert.match(rowSource, /const TRADE_ROW_SWIPE_ACTIVE_OFFSET_X: \[number, number\] = Platform\.OS === 'ios' \? \[-10, 10\] : \[-18, 18\]/);
+  assert.match(rowSource, /const TRADE_ROW_SWIPE_FAIL_OFFSET_Y: \[number, number\] = Platform\.OS === 'ios' \? \[-28, 28\] : \[-10, 10\]/);
+  assert.match(rowSource, /const TRADE_ROW_SWIPE_OPEN_VELOCITY_X = Platform\.OS === 'ios' \? -360 : -500/);
+  assert.match(rowSource, /\.activeOffsetX\(TRADE_ROW_SWIPE_ACTIVE_OFFSET_X\)[\s\S]*\.failOffsetY\(TRADE_ROW_SWIPE_FAIL_OFFSET_Y\)/);
+  assert.match(rowSource, /event\.velocityX < TRADE_ROW_SWIPE_OPEN_VELOCITY_X/);
+});
+
 test('trade rows and summary use direct live websocket quote listeners', () => {
   const tradeScreenSource = readSource('src/features/trade/TradeScreen/TradeScreen.tsx');
   const summaryHeaderSource = readSource('src/features/trade/TradeScreen/SummaryHeader.tsx');

@@ -66,6 +66,49 @@ test('normalizeQuoteTickPayload accepts nested payload tick objects and createdA
   assert.equal(result.update.timestamp, 1711101965000);
 });
 
+test('normalizeQuoteTickPayload accepts channel-scoped quote tick events without inner symbol', () => {
+  const result = normalizeQuoteTickPayload({
+    event: 'quote.tick',
+    channel: 'quotes.EURUSD',
+    data: {
+      bid: '1.07123',
+      tick_time: '2026-06-25T10:00:00.000Z',
+      sequence: '991881',
+      source_tick_id: 'tick-991881',
+    },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.update.symbol, 'EURUSD');
+  assert.equal(result.update.rawSymbol, 'EURUSD');
+  assert.equal(result.update.bid, 1.07123);
+  assert.equal(result.update.ask, 1.07123);
+  assert.equal(result.update.timestamp, 1782381600000);
+  assert.equal(result.update.sequence, '991881');
+  assert.equal(result.update.tickId, 'tick-991881');
+});
+
+test('normalizeQuoteTickPayload accepts nested price envelopes with channel symbol fallback', () => {
+  const result = normalizeQuoteTickPayload({
+    channel: 'ticks.XAUUSD',
+    price: {
+      bid: 2331.1,
+      ask: 2331.4,
+      server_time: '2026-06-25T10:00:00.050Z',
+    },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.update.symbol, 'XAUUSD');
+  assert.equal(result.update.bid, 2331.1);
+  assert.equal(result.update.ask, 2331.4);
+  assert.equal(result.update.timestamp, 1782381600050);
+});
+
 test('normalizeQuoteTickPayload can update bid ask UI store while flagging missing candle timestamp', () => {
   const result = normalizeQuoteTickPayload({
     symbol: 'BTCUSD',

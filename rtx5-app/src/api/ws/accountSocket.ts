@@ -16,7 +16,7 @@ import { useLiveAccountState } from '../../state/liveAccountState';
 import { usePositionsState } from '../../state/positionsState';
 import { resolveTradingLogin } from '../../state/tradingLogin';
 import { useUserPreferences } from '../../state/userPreferences';
-import { buildBrokerWsUrl } from '../brokerRouting';
+import { buildBrokerWsUrl, normalizeConfiguredWsUrl } from '../brokerRouting';
 import {
   extractLiveAccountMetrics,
   resolveAccountWsSession,
@@ -25,8 +25,10 @@ import {
 
 const DEFAULT_ACCOUNT_WS_URL = 'wss://backend.orrnn.com/ws/v2';
 const getAccountWsBaseUrl = () =>
-  process.env.EXPO_PUBLIC_ACCOUNT_WS_URL ||
-  buildBrokerWsUrl(useUserPreferences.getState().brokerServerUrl, '/ws/v2', DEFAULT_ACCOUNT_WS_URL);
+  normalizeConfiguredWsUrl(
+    process.env.EXPO_PUBLIC_ACCOUNT_WS_URL,
+    buildBrokerWsUrl(useUserPreferences.getState().brokerServerUrl, '/ws/v2', DEFAULT_ACCOUNT_WS_URL),
+  );
 const DEBUG_ACCOUNT_WS =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_ACCOUNT_WS === 'true';
 
@@ -278,7 +280,7 @@ class AccountWebSocketService {
         this.startHeartbeat();
         // Different backend deployments still expose either `metrics.LOGIN`
         // or `account.LOGIN` for the same live account-summary stream.
-        ['metrics', 'account', 'positions'].forEach((channelPrefix) => {
+        ['metrics', 'account', 'positions', 'orders', 'deals', 'history'].forEach((channelPrefix) => {
           this.send({ action: 'subscribe', channel: `${channelPrefix}.${session.login}` });
         });
       };

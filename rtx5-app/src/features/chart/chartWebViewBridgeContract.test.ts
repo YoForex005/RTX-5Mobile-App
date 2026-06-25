@@ -136,6 +136,29 @@ test('webview bridge: symbol switches ignore live quotes outside current backend
     /liveBid: hasCoherentLiveChartQuote \? chartLiveQuote\?\.bid : undefined[\s\S]*liveAsk: hasCoherentLiveChartQuote \? chartLiveQuote\?\.ask : undefined/,
     'incoherent quotes must not drive header/footer bid and ask prices',
   );
+  assertSourceContains(
+    source,
+    /const overlayLiveBid = useMemo\([\s\S]*hasLiveChartQuote &&[\s\S]*chartLiveQuote\?\.bid[\s\S]*return Number\.isFinite\(chartBid\) && chartBid > 0 \? chartBid : null;[\s\S]*const overlayLiveAsk = useMemo\([\s\S]*hasLiveChartQuote &&[\s\S]*chartLiveQuote\?\.ask[\s\S]*return Number\.isFinite\(chartAsk\) && chartAsk > 0 \? chartAsk : null;/,
+    'open-position overlay P/L must use fresh quote ticks while falling back to chart bid/ask',
+  );
+});
+
+test('webview bridge: OHLC header follows the latest live candle', () => {
+  assertSourceContains(
+    source,
+    /const chartMetaLiveLastCandle = sanitizedCandles\.length > 0 \? sanitizedCandles\[sanitizedCandles\.length - 1\] : null;[\s\S]*const chartMetaLastCandle = chartMetaLiveLastCandle;/,
+    'O/H/L/C header must read the latest quote-extended live candle, not a filtered chart-window candle',
+  );
+  assertSourceContains(
+    source,
+    /label: 'O', value: formatChartValue\(chartMetaLastCandle\.open\)[\s\S]*label: 'H', value: formatChartValue\(chartMetaLastCandle\.high\)[\s\S]*label: 'L', value: formatChartValue\(chartMetaLastCandle\.low\)[\s\S]*label: 'C', value: formatChartValue\(chartMetaLastCandle\.close\)/,
+    'O/H/L/C values must stay connected to the selected latest candle fields',
+  );
+  assert.doesNotMatch(
+    source,
+    /const \[chartCrosshairCandle, setChartCrosshairCandle\]/,
+    'crosshair candles must not pin the O/H/L/C header to an older inspected candle',
+  );
 });
 
 test('webview bridge: zero-size WebView init is deferred and retried from rAF and ResizeObserver', () => {
@@ -197,14 +220,41 @@ test('webview bridge: updateChartData full reload reapplies overlays and market 
 
 test('webview bridge: updateChartData recenters when a full reload replaces the visible series', () => {
   const body = extractFunctionBody(chartWebViewHtmlSource, 'updateChartData');
+  const doInitBody = extractFunctionBody(chartWebViewHtmlSource, '_doInitChart');
 
   assertSourceContains(
     chartWebViewHtmlSource,
     /function shouldResetViewportForSeriesReplacement\(previousData, nextData\)[\s\S]*return nextData\.length < previousData\.length \|\| nextFirst !== previousFirst \|\| nextLast < previousLast/,
     'series replacement detection must catch shrinks and non-prepend range changes',
   );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /function resetVisiblePriceScaleForFreshSeries\(reason\)[\s\S]*clearManualPriceScaleState\(\)[\s\S]*enableRightPriceAutoScale\(\)[\s\S]*scheduleOverlayPriceScaleLock\(true\)[\s\S]*schedulePriceScaleHealthCheck\(reason \|\| 'fresh_series', true, 5\)/,
+    'fresh symbol/timeframe data must clear stale manual price-scale state and force autoscale recovery',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /function centerVisiblePriceScaleForFreshSeries\(reason, forceRecompute\)[\s\S]*resolvePriceRangeFromVisibleData\(true\)[\s\S]*getBarPriceCenter\(lastRawSeriesData\[lastRawSeriesData\.length - 1\]\)[\s\S]*priceScaleApi\.setVisibleRange\(\{ from: centeredRange\.from, to: centeredRange\.to \}\)[\s\S]*syntheticRightPriceScaleFallbackRange = centeredRange/,
+    'fresh symbol/timeframe data must center the first visible price range around the latest candle value',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /function lockVisiblePriceScaleRange\(forceAutoScale, attempt\)[\s\S]*forceAutoScale !== true && centerVisiblePriceScaleForFreshSeries\('overlay_lock', false\)/,
+    'overlay refreshes must preserve the initial fresh-series center until the user interacts',
+  );
+  assertSourceContains(
+    doInitBody,
+    /lastPostedChartTouchActive = false;[\s\S]*clearManualPriceScaleState\(\)[\s\S]*chart = LightweightCharts\.createChart/,
+    'chart init must clear stale manual price-scale state before creating the new symbol chart',
+  );
+  assertSourceContains(
+    doInitBody,
+    /applyRecentViewport\(currentSeriesLength\)[\s\S]*scheduleOverlayPriceScaleLock\(true\)[\s\S]*scheduleFreshSeriesVerticalCenter\('init_data', true\)/,
+    'initial chart data must center vertically after the recent horizontal viewport is applied',
+  );
   assertSourceContains(body, /var didReplaceVisibleSeries =[\s\S]*shouldResetViewportForSeriesReplacement\(previousRawSeriesData, lastRawSeriesData\)/, 'full reload must detect visible series replacement');
-  assertSourceContains(body, /previousRawSeriesData\.length === 0 \|\| didReplaceVisibleSeries[\s\S]*applyRecentViewport\(mapped\.length\)/, 'replacement reloads must move the viewport to the latest data');
+  assertSourceContains(body, /previousRawSeriesData\.length === 0 \|\| didReplaceVisibleSeries[\s\S]*resetVisiblePriceScaleForFreshSeries\(priceScaleReason\)/, 'replacement reloads must force the right price scale back to the new data range');
+  assertSourceContains(body, /previousRawSeriesData\.length === 0 \|\| didReplaceVisibleSeries[\s\S]*applyRecentViewport\(mapped\.length\)[\s\S]*scheduleFreshSeriesVerticalCenter\(priceScaleReason, true\)/, 'replacement reloads must move the viewport to the latest data and center the first visible price range');
   assertSourceContains(body, /didReplaceVisibleSeries \? 'update_data_replace_series' : 'update_data'/, 'replacement reloads must use a distinct price-scale recovery reason');
   assertSourceContains(body, /didPrependHistory \|\| didReplaceVisibleSeries \? 5 : 1/, 'replacement reloads must retry price-scale recovery like history prepends');
 });
@@ -226,7 +276,6 @@ test('webview bridge: lower move bars show the current amount without a separate
   const ensureMoveBarsBody = extractFunctionBody(chartWebViewHtmlSource, 'ensureMoveBarsSeries');
   const moveBadgeBody = extractFunctionBody(chartWebViewHtmlSource, 'renderMoveDirectionOverlayBadge');
   const moveBadgeLabelBody = extractFunctionBody(chartWebViewHtmlSource, 'formatMoveDirectionOverlayBadgeLabel');
-  const overlayRefreshBody = extractFunctionBody(chartWebViewHtmlSource, 'refreshOverlayDomLabels');
 
   assertSourceContains(
     mapMoveBarsBody,
@@ -269,8 +318,8 @@ test('webview bridge: lower move bars show the current amount without a separate
     'lower move amount must stay a custom overlay badge, never a second native price scale',
   );
   assertSourceContains(
-    overlayRefreshBody,
-    /renderMarketPriceScaleBadges\(layer\)[\s\S]*renderMoveDirectionOverlayBadge\(layer\)/,
+    chartWebViewHtmlSource,
+    /function refreshOverlayDomLabels\(payload\)[\s\S]*refreshMarketPriceScaleDom\(\)[\s\S]*renderMoveDirectionOverlayBadge\(layer\)/,
     'overlay refresh must repaint the custom lower move amount without adding a price-scale badge',
   );
 });
@@ -318,8 +367,132 @@ test('webview bridge: open-position trade labels stay attached to their price li
   );
   assertSourceContains(
     chartWebViewHtmlSource,
-    /priceScaleApi\.setVisibleRange\(nextRange\)[\s\S]*scheduleGestureRightPriceScaleFallbackRefresh\(\)[\s\S]*scheduleOverlayDomRefresh\(\)[\s\S]*return true/,
-    'vertical price panning must refresh trade overlays together with the right price scale',
+    /priceScaleApi\.setVisibleRange\(nextRange\)[\s\S]*deferVerticalGestureDomWork\(\)[\s\S]*return true/,
+    'vertical price panning must move the native price range without rebuilding custom DOM on every touchmove',
+  );
+});
+
+test('webview bridge: horizontal chart panning defers custom DOM rebuilds until release', () => {
+  const markHorizontalBody = extractFunctionBody(chartWebViewHtmlSource, 'markHorizontalScrollGestureActive');
+  const finishHorizontalBody = extractFunctionBody(chartWebViewHtmlSource, 'finishHorizontalScrollGesture');
+  const deferDomWorkBody = extractFunctionBody(chartWebViewHtmlSource, 'deferHorizontalGestureDomWork');
+  const scheduleOverlayRefreshBody = extractFunctionBody(chartWebViewHtmlSource, 'scheduleOverlayDomRefresh');
+  const setChartOverlaysBody = extractFunctionBody(chartWebViewHtmlSource, 'setChartOverlays');
+
+  assertSourceContains(
+    deferDomWorkBody,
+    /visibleRangeIdlePendingAfterGesture = true[\s\S]*cancelOverlayDomRefreshFrame\(\)[\s\S]*cancelGestureRightPriceScaleFallbackRefresh\(\)/,
+    'horizontal pan must cancel pending overlay and right-axis fallback refresh work while the finger is down',
+  );
+  assertSourceContains(
+    markHorizontalBody,
+    /deferHorizontalGestureDomWork\(\)[\s\S]*activeHorizontalScrollGesture = true/,
+    'committing to horizontal pan must switch the WebView into deferred DOM-work mode',
+  );
+  assertSourceContains(
+    scheduleOverlayRefreshBody,
+    /if \(activeHorizontalScrollGesture\) \{[\s\S]*deferHorizontalGestureDomWork\(\)[\s\S]*return;/,
+    'overlay refresh requests must not repaint custom DOM during active horizontal panning',
+  );
+  assertSourceContains(
+    setChartOverlaysBody,
+    /if \(activeHorizontalScrollGesture\) \{[\s\S]*pendingHorizontalOverlayApply = true[\s\S]*deferHorizontalGestureDomWork\(\)[\s\S]*return;/,
+    'live overlay payloads must be cached instead of rebuilding price lines during active horizontal panning',
+  );
+  assertSourceContains(
+    finishHorizontalBody,
+    /visibleRangeIdlePendingAfterGesture \|\| pendingHorizontalOverlayApply[\s\S]*activeHorizontalScrollGesture = false[\s\S]*applyDeferredHorizontalOverlayPayload\(\)[\s\S]*scheduleVisibleRangeIdleWork\(\)/,
+    'release must apply deferred overlay payloads and then run the normal settle work',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /dx > VERT_PAN_THRESHOLD && dx > dy \* 1\.2[\s\S]*ensureRightPriceAutoScaleForHorizontalPan\(\)[\s\S]*markHorizontalScrollGestureActive\(\)/,
+    'horizontal-pan start must avoid a full price-scale reset unless manual vertical state needs clearing',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /if \(point && \(activeHorizontalScrollGesture \|\| vertPanPending\)\) \{[\s\S]*deferHorizontalGestureDomWork\(\)[\s\S]*return;/,
+    'pending and active horizontal moves must leave movement to Lightweight Charts without right-axis fallback repaint',
+  );
+});
+
+test('webview bridge: vertical chart panning defers custom DOM rebuilds until release', () => {
+  const deferDomWorkBody = extractFunctionBody(chartWebViewHtmlSource, 'deferVerticalGestureDomWork');
+  const gestureRightScaleRefreshBody = extractFunctionBody(chartWebViewHtmlSource, 'flushGestureRightPriceScaleFallbackRefresh');
+  const scheduleOverlayRefreshBody = extractFunctionBody(chartWebViewHtmlSource, 'scheduleOverlayDomRefresh');
+  const refreshWhenIdleBody = extractFunctionBody(chartWebViewHtmlSource, 'refreshOverlayDomLabelsWhenIdle');
+  const applyOverlayPayloadBody = extractFunctionBody(chartWebViewHtmlSource, 'applyOverlayPayload');
+  const setChartOverlaysBody = extractFunctionBody(chartWebViewHtmlSource, 'setChartOverlays');
+
+  assertSourceContains(
+    deferDomWorkBody,
+    /verticalGestureDomWorkPending = true[\s\S]*cancelOverlayDomRefreshFrame\(\)[\s\S]*scheduleGestureRightPriceScaleFallbackRefresh\(\)/,
+    'vertical pan must defer heavy custom overlays while keeping the right price scale refreshing under the finger',
+  );
+  assertSourceContains(
+    gestureRightScaleRefreshBody,
+    /renderFallbackRightPriceScaleLabels\(\)[\s\S]*refreshMarketPriceScaleDom\(\)/,
+    'vertical gesture frames must keep bid/ask badges attached to their market price lines like MT5',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /handleScroll\.vertTouchDrag = false/,
+    'RTX5 must own chart-body vertical panning so the final user price range stays stable',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /var VERT_PAN_PRICE_DELTA_MULTIPLIER = 1/,
+    'vertical pan must map finger movement to the price range at MT5-style 1:1 speed',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /var beginVerticalPan = function\(clientY\) \{[\s\S]*clearFreshSeriesVerticalCenterState\(\)[\s\S]*verticalPricePanGestureActive = true[\s\S]*deferVerticalGestureDomWork\(\)/,
+    'committing to vertical pan must cancel bootstrap centering and enter deferred DOM-work mode',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /dy > VERT_PAN_THRESHOLD && dy > dx \* 1\.2[\s\S]*beginVerticalPan\(vertPanPending\.startY\)[\s\S]*continueVerticalPan\(point\.y\)[\s\S]*stopChartEvent\(event\)/,
+    'chart-body vertical movement must apply the visible price range directly while deferring custom DOM work',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /isRightPriceScaleGesturePoint\(point\.x, point\.y\)[\s\S]*verticalPricePanGestureActive = true[\s\S]*deferVerticalGestureDomWork\(\)/,
+    'right price-axis vertical movement must also enter deferred DOM-work mode',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /if \(rightPriceScaleGestureActive\) \{[\s\S]*manualPriceScaleRangeActive = true[\s\S]*deferVerticalGestureDomWork\(\)[\s\S]*return;/,
+    'right price-axis move frames must keep the lightweight right-scale refresh path active without rebuilding custom overlays',
+  );
+  assertSourceContains(
+    scheduleOverlayRefreshBody,
+    /if \(verticalPricePanGestureActive\) \{[\s\S]*deferVerticalGestureDomWork\(\)[\s\S]*return;/,
+    'overlay refresh requests must not repaint custom DOM during active vertical panning',
+  );
+  assertSourceContains(
+    refreshWhenIdleBody,
+    /if \(verticalPricePanGestureActive\) \{[\s\S]*deferVerticalGestureDomWork\(\)[\s\S]*return;/,
+    'tick-driven overlay label refreshes must defer during active vertical panning',
+  );
+  assertSourceContains(
+    applyOverlayPayloadBody,
+    /if \(verticalPricePanGestureActive\) \{[\s\S]*pendingVerticalOverlayApply = true[\s\S]*deferVerticalGestureDomWork\(\)[\s\S]*return;/,
+    'direct overlay payload rebuilds must be cached during active vertical panning',
+  );
+  assertSourceContains(
+    setChartOverlaysBody,
+    /if \(verticalPricePanGestureActive\) \{[\s\S]*pendingVerticalOverlayApply = true[\s\S]*deferVerticalGestureDomWork\(\)[\s\S]*return;/,
+    'live overlay payloads must be cached instead of rebuilding price lines during active vertical panning',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /var endVerticalPan = function\(\) \{[\s\S]*verticalPricePanGestureActive = false[\s\S]*applyManualVerticalPanLockedRange\(\)[\s\S]*applyDeferredVerticalOverlayPayload\(\)[\s\S]*scheduleGestureRightPriceScaleFallbackRefresh\(\)[\s\S]*scheduleOverlayDomRefresh\(\)/,
+    'release must apply deferred vertical overlay payloads and then settle right-axis and trade label DOM',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /var finishRightPriceScaleGesture = function\(\) \{[\s\S]*resolveVerticalPanStartPriceRange\(\)[\s\S]*rightPriceScaleGestureActive = false[\s\S]*verticalPricePanGestureActive = false[\s\S]*applyManualVerticalPanLockedRange\(\)[\s\S]*settleVerticalPriceGestureDomWork\(\)/,
+    'right price-axis release must lock the final visible price range and settle deferred DOM work',
   );
 });
 

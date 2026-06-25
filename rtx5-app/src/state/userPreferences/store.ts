@@ -39,6 +39,9 @@ import type {
 } from './types';
 
 const defaultSymbols: string[] = [];
+const normalizeBrokerConnectionId = (brokerId?: string | null): string =>
+  String(brokerId ?? '').trim().toLowerCase();
+
 type PersistedUserPreferencesState = Omit<
   UserPreferencesState,
   | 'hasHydrated'
@@ -424,27 +427,34 @@ export const useUserPreferences = create<UserPreferencesState>()(
       language: 'en' as LanguageCode,
       setLanguage: (lang) => set({ language: normalizeLanguageCode(lang) }),
       login: (id, name, server, tokens, brokerId, brokerConnection) =>
-        set((state) => ({
-          isLoggedIn: true,
-          ...(typeof brokerConnection?.isDemoAccount === 'boolean'
-            ? { isDemoAccount: brokerConnection.isDemoAccount }
-            : {}),
-          // Persist brokerId atomically with login to prevent race conditions.
-          // Falls back to existing brokerId if not provided (e.g., for register flow).
-          brokerId: brokerId || state.brokerId || '',
-          brokerServerUrl: brokerConnection?.serverUrl ?? state.brokerServerUrl ?? '',
-          brokerLogoUrl: brokerConnection?.logoUrl ?? state.brokerLogoUrl ?? '',
-          accountDetails: {
-            id,
-            name,
-            server,
-            credentials: {
-              accessToken: tokens.access_token,
-              refreshToken: tokens.refresh_token,
-              expiresAt: tokens.expires_at,
+        set((state) => {
+          const nextBrokerId = brokerId || state.brokerId || '';
+          const sameBroker =
+            normalizeBrokerConnectionId(state.brokerId) === normalizeBrokerConnectionId(nextBrokerId);
+          const nextServerUrl = brokerConnection?.serverUrl || (sameBroker ? state.brokerServerUrl : '') || '';
+          const nextLogoUrl = brokerConnection?.logoUrl || (sameBroker ? state.brokerLogoUrl : '') || '';
+          return {
+            isLoggedIn: true,
+            ...(typeof brokerConnection?.isDemoAccount === 'boolean'
+              ? { isDemoAccount: brokerConnection.isDemoAccount }
+              : {}),
+            // Persist brokerId atomically with login to prevent race conditions.
+            // Falls back to existing brokerId if not provided (e.g., for register flow).
+            brokerId: nextBrokerId,
+            brokerServerUrl: nextServerUrl,
+            brokerLogoUrl: nextLogoUrl,
+            accountDetails: {
+              id,
+              name,
+              server,
+              credentials: {
+                accessToken: tokens.access_token,
+                refreshToken: tokens.refresh_token,
+                expiresAt: tokens.expires_at,
+              },
             },
-          },
-        })),
+          };
+        }),
       logout: () => {
         // Clear auth state but preserve brokerId — it's not security-sensitive
         // and preserving it allows the saved-credentials auto-login flow to
@@ -605,7 +615,15 @@ export const useUserPreferences = create<UserPreferencesState>()(
       setIsDemoAccount: (isDemo) => set({ isDemoAccount: isDemo }),
       setBrokerId: (id) => set({ brokerId: id }),
       setBrokerConnection: (brokerId, serverUrl = '', logoUrl = '') =>
-        set({ brokerId, brokerServerUrl: serverUrl, brokerLogoUrl: logoUrl }),
+        set((state) => {
+          const sameBroker =
+            normalizeBrokerConnectionId(state.brokerId) === normalizeBrokerConnectionId(brokerId);
+          return {
+            brokerId,
+            brokerServerUrl: serverUrl || (sameBroker ? state.brokerServerUrl : '') || '',
+            brokerLogoUrl: logoUrl || (sameBroker ? state.brokerLogoUrl : '') || '',
+          };
+        }),
       setHasSetInitialSymbols: (hasSet) => set({ hasSetInitialSymbols: hasSet }),
       setChartColorScheme: (scheme) =>
         set(() => {

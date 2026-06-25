@@ -145,6 +145,8 @@ export const useSavedAccounts = create<SavedAccountsState>()(
           // post-update). A true value can only be cleared by removeAccount.
           const merged: SavedAccount = {
             ...account,
+            serverUrl: account.serverUrl || existing?.serverUrl,
+            logoUrl: account.logoUrl || existing?.logoUrl,
             hasCredentials: account.hasCredentials || !!existing?.hasCredentials,
           };
           return { accounts: [merged, ...others] };

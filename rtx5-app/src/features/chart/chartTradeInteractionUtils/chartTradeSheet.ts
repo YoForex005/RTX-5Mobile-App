@@ -190,14 +190,12 @@ export function resolveFooterTradeDockBottom({
     return Math.max(0, androidFocusedLotEditorBottomGap);
   }
 
-  const editGap =
-    platform === 'ios' &&
-    footerLotEditorFocused &&
-    normalizedKeyboardOffset > 0
-      ? Math.max(0, iosFocusedLotEditorEditGap)
-      : 0;
+  if (platform === 'ios') {
+    void iosFocusedLotEditorEditGap;
+    return normalizedKeyboardOffset;
+  }
 
-  return normalizedKeyboardOffset + editGap;
+  return normalizedKeyboardOffset;
 }
 
 export function shouldHideChartTabBarForTradeInput({

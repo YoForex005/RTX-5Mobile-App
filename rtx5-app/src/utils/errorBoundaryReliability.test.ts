@@ -38,6 +38,8 @@ test('persisted auth restore rejects half sessions without an access token', () 
 test('secure storage reads fail closed during startup restore', () => {
   const source = readSource('src/utils/secureStorage.ts');
 
+  assert.match(source, /keychainAccessible: SecureStore\.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY/);
+  assert.match(source, /Platform\.OS === 'ios' \? IOS_SECURE_STORE_WRITE_OPTIONS : undefined/);
   assert.match(source, /try \{[\s\S]*SecureStore\.getItemAsync\(key\)/);
   assert.match(source, /console\.warn\('\[SecureStorage\] Failed to read secure item'/);
   assert.match(source, /return null;/);

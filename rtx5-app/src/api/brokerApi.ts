@@ -21,6 +21,8 @@ import {
 
 const TOKEN_REFRESH_SKEW_MS = 60_000;
 const AUTH_REFRESH_TIMEOUT_MS = 2500;
+const AUTH_REFRESH_FAILURES_BEFORE_LOGOUT = 2;
+const AUTH_REFRESH_FAILURE_WINDOW_MS = 30_000;
 const DEFAULT_BROKER_WS_URL = 'wss://backend.orrnn.com/ws/v2';
 const AUTH_SESSION_EXPIRED_MESSAGE = 'Refresh token invalid or expired.';
 const AUTH_SESSION_UNAVAILABLE_MESSAGE = 'No authenticated broker session available.';
@@ -116,6 +118,9 @@ export class BrokerAPI {
   private static instance: BrokerAPI | null = null;
   private refreshPromise: Promise<string> | null = null;
   private sessionInvalidated = false;
+  private consecutiveRefreshAuthFailures = 0;
+  private lastRefreshAuthFailureKey = '';
+  private lastRefreshAuthFailureAt = 0;
 
   static getInstance(): BrokerAPI {
     if (!BrokerAPI.instance) {
@@ -291,7 +296,10 @@ export class BrokerAPI {
 
     if (!response.ok) {
       if (isAuthFailureStatus(response.status)) {
-        await this.invalidateAuthSession();
+        this.recordRefreshAuthFailure(session);
+        if (this.consecutiveRefreshAuthFailures >= AUTH_REFRESH_FAILURES_BEFORE_LOGOUT) {
+          await this.invalidateAuthSession();
+        }
         throw new Error(AUTH_SESSION_EXPIRED_MESSAGE);
       }
       throw new Error(`Token refresh failed with status ${response.status}.`);
@@ -328,11 +336,32 @@ export class BrokerAPI {
     ]);
 
     this.sessionInvalidated = false;
+    this.resetRefreshAuthFailures();
     return normalized.accessToken;
+  }
+
+  private recordRefreshAuthFailure(session: BrokerSession): void {
+    const now = Date.now();
+    const failureKey = `${session.brokerId}:${session.refreshToken}`;
+    const sameRecentFailure =
+      this.lastRefreshAuthFailureKey === failureKey &&
+      now - this.lastRefreshAuthFailureAt <= AUTH_REFRESH_FAILURE_WINDOW_MS;
+    this.consecutiveRefreshAuthFailures = sameRecentFailure
+      ? this.consecutiveRefreshAuthFailures + 1
+      : 1;
+    this.lastRefreshAuthFailureKey = failureKey;
+    this.lastRefreshAuthFailureAt = now;
+  }
+
+  private resetRefreshAuthFailures(): void {
+    this.consecutiveRefreshAuthFailures = 0;
+    this.lastRefreshAuthFailureKey = '';
+    this.lastRefreshAuthFailureAt = 0;
   }
 
   private async invalidateAuthSession(): Promise<void> {
     this.sessionInvalidated = true;
+    this.resetRefreshAuthFailures();
     useUserPreferences.getState().logout();
     try {
       await clearAuthSessionTokens();

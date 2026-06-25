@@ -6,6 +6,7 @@ import {
 import { GestureDetector } from 'react-native-gesture-handler';
 import Animated from 'react-native-reanimated';
 import { CHART_ORDER_TYPES, type ChartOrderType, isPendingChartOrderType } from '../chartTradeOrderUtils';
+import { COMPACT_TRADE_FOOTER_ROW_HEIGHT } from './ChartTradeButtonsFeature/styles';
 import {
   resolveChartTradeSheetFrameHeight,
   resolveFooterTradeDockBottom,
@@ -18,7 +19,7 @@ import { useTranslation } from '../../../i18n/useTranslation';
 
 const FOOTER_LOT_PICKER_BASE_OFFSET = 54;
 const FOOTER_TRADE_DOCK_ANDROID_BOTTOM_SAFE_GAP = 12;
-const FOOTER_TRADE_DOCK_EDIT_GAP = 45;
+const INLINE_FOOTER_TRADE_ROW_RESERVE_STYLE = { height: COMPACT_TRADE_FOOTER_ROW_HEIGHT };
 
 type ChartTradeTypeTabLayout = { x: number; width: number };
 
@@ -1338,15 +1339,9 @@ export function ChartTradeOverlayLayer({
     Platform.OS === 'android' &&
     footer.footerLotEditorFocused &&
     footer.showFloatingFooterTradeRow;
-  const tradeFooterDockEditGap =
-    Platform.OS === 'ios' &&
-    footer.footerLotEditorFocused &&
-    footer.footerTradeRowKeyboardOffset > 0
-      ? FOOTER_TRADE_DOCK_EDIT_GAP
-      : 0;
   const fallbackTradeFooterDockBottom = isAndroidFloatingFooterLotEditor
     ? FOOTER_TRADE_DOCK_ANDROID_BOTTOM_SAFE_GAP
-    : footer.footerTradeRowKeyboardOffset + tradeFooterDockEditGap;
+    : footer.footerTradeRowKeyboardOffset;
   const resolvedTradeFooterDockBottom = resolveFooterTradeDockBottom({
     platform: Platform.OS,
     footerLotEditorFocused: !!footer.footerLotEditorFocused,
@@ -1357,7 +1352,6 @@ export function ChartTradeOverlayLayer({
     keyboardResizesHost: footer.keyboardResizesHost,
     footerKeyboardAvoidanceOffset: footer.footerKeyboardAvoidanceOffset,
     androidFocusedLotEditorBottomGap: FOOTER_TRADE_DOCK_ANDROID_BOTTOM_SAFE_GAP,
-    iosFocusedLotEditorEditGap: FOOTER_TRADE_DOCK_EDIT_GAP,
   });
   const tradeFooterDockBottom = Number.isFinite(resolvedTradeFooterDockBottom)
     ? resolvedTradeFooterDockBottom
@@ -1659,6 +1653,7 @@ export function ChartTradeInlineFooter({
   onLayout,
 }: ChartTradeInlineFooterProps) {
   const inlineFooterReceivesTouches = !showFloatingFooterTradeRow && !hideInlineTradeRow;
+  const shouldPreserveInlineFooterSpace = showFloatingFooterTradeRow && !hideInlineTradeRow;
 
   return (
     <Animated.View
@@ -1695,6 +1690,8 @@ export function ChartTradeInlineFooter({
           buyColor={buyColor}
           sellColor={sellColor}
         />
+      ) : shouldPreserveInlineFooterSpace ? (
+        <View pointerEvents="none" style={INLINE_FOOTER_TRADE_ROW_RESERVE_STYLE} />
       ) : null}
     </Animated.View>
   );

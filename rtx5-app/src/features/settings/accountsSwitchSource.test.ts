@@ -67,6 +67,9 @@ test('saved account switch removes stale entries when the broker reports a missi
 
 test('accounts screen uses broker branding and opens long-press delete for other accounts', () => {
   const source = readSource('src/features/settings/AccountsScreen.tsx');
+  const savedAccountsSource = readSource('src/state/savedAccounts.ts');
+  const userPreferencesSource = readSource('src/state/userPreferences/store.ts');
+  const brokerSessionSource = readSource('src/state/brokerSessionStorage.ts');
 
   assert.doesNotMatch(source, /AppLogo/);
   assert.match(source, /import \{ ActivityIndicator, Alert, FlatList, Image, Platform, StyleSheet, Text, View \} from 'react-native'/);
@@ -74,10 +77,19 @@ test('accounts screen uses broker branding and opens long-press delete for other
   assert.match(source, /<FlatList[\s\S]*data=\{otherRows\}[\s\S]*initialNumToRender=/);
   assert.match(source, /import \{ BROKER_CONFIG_KEY, useBrokerConfig, useBrokerServers \} from '\.\.\/\.\.\/query\/broker'/);
   assert.match(source, /const buildBrokerLogoIndex = \(brokerServers\?: readonly BrokerServer\[\]\): BrokerLogoIndex => \{/);
+  assert.match(source, /byBrokerName: Map<string, string>/);
+  assert.match(source, /byServerName: Map<string, string>/);
+  assert.match(source, /addBrokerLogoLookup\(byBrokerName, broker\.broker_name, logoUrl\)/);
+  assert.match(source, /addBrokerLogoLookup\(byServerName, broker\.server, logoUrl\)/);
+  assert.match(source, /const findBrokerLogoLookup = \(/);
   assert.match(source, /const \{ data: brokerServers \} = useBrokerServers\(isScreenFocused\)/);
   assert.match(source, /const brokerLogoIndex = useMemo\(\(\) => buildBrokerLogoIndex\(brokerServers\), \[brokerServers\]\)/);
-  assert.match(source, /const activeBrokerLogoUrl = resolveAccountBrokerLogoUrl\([\s\S]*brokerLogoIndex,[\s\S]*brokerId,[\s\S]*brokerServerUrl,[\s\S]*brokerConfig\?\.logo_url,[\s\S]*brokerLogoUrl,[\s\S]*\)/);
-  assert.match(source, /const savedLogoUrl = sa\.brokerId === activeBrokerId[\s\S]*\? resolveAccountBrokerLogoUrl\(brokerLogoIndex, sa\.brokerId, sa\.serverUrl, activeBrokerLogoUrl, sa\.logoUrl\)[\s\S]*: resolveAccountBrokerLogoUrl\(brokerLogoIndex, sa\.brokerId, sa\.serverUrl, sa\.logoUrl\)/);
+  assert.match(source, /const activeBrokerLogoUrl = resolveAccountBrokerLogoUrl\([\s\S]*brokerLogoIndex,[\s\S]*brokerId,[\s\S]*serverUrl: brokerServerUrl,[\s\S]*brokerName: brokerConfig\?\.broker_name,[\s\S]*serverName: brokerConfig\?\.server_name,[\s\S]*brokerLogoUrl,[\s\S]*brokerConfig\?\.logo_url,[\s\S]*\)/);
+  assert.match(source, /const savedLogoUrl = sa\.brokerId === activeBrokerId[\s\S]*brokerId: sa\.brokerId,[\s\S]*serverUrl: sa\.serverUrl,[\s\S]*brokerName: sa\.server,[\s\S]*serverName: sa\.server,[\s\S]*sa\.logoUrl,[\s\S]*activeBrokerLogoUrl/);
+  assert.match(source, /const nextLogoUrl = activeBrokerLogoUrl \|\| existing\?\.logoUrl \|\| ''/);
+  assert.match(savedAccountsSource, /logoUrl: account\.logoUrl \|\| existing\?\.logoUrl/);
+  assert.match(userPreferencesSource, /brokerLogoUrl: logoUrl \|\| \(sameBroker \? state\.brokerLogoUrl : ''\) \|\| ''/);
+  assert.match(brokerSessionSource, /const shouldKeepStoredLogo =[\s\S]*ACTIVE_BROKER_LOGO_URL_KEY/);
   assert.match(source, /function BrokerLogoAvatar\(/);
   assert.match(source, /source=\{\{ uri: logoUri \}\}/);
 

@@ -1,3 +1,4 @@
+import { JOURNAL_ROUTE_CACHE_KEY, loadJournalScreenRoute } from '../features/settings/JournalScreen/deferredRoute';
 import { preloadDeferredRouteModule } from '../ui/components/DeferredRouteMount';
 import { scheduleIdleWork } from './startupScheduler';
 
@@ -10,7 +11,7 @@ const SIDEBAR_ROUTE_MODULE_LOADERS = [
   { key: 'settings/about', load: () => import('../features/settings/AboutScreen').then((module) => module.AboutScreen) },
   { key: 'settings/user-guide', load: () => import('../features/settings/UserGuideScreen').then((module) => module.UserGuideScreen) },
   { key: 'settings/help', load: () => import('../features/settings/HelpScreen').then((module) => module.HelpScreen) },
-  { key: 'settings/journal', load: () => import('../features/settings/JournalScreen').then((module) => module.JournalScreen) },
+  { key: JOURNAL_ROUTE_CACHE_KEY, load: loadJournalScreenRoute },
   { key: 'settings/economic-calendar', load: () => import('../features/settings/EconomicCalendarScreen').then((module) => module.EconomicCalendarScreen) },
   { key: 'settings/accounts', load: () => import('../features/settings/AccountsScreen').then((module) => module.AccountsScreen) },
   { key: 'settings/interface', load: () => import('../features/settings/InterfaceScreen').then((module) => module.InterfaceScreen) },

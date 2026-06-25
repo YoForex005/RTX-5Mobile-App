@@ -22,10 +22,25 @@ test('resolveCandlesWsUrl upgrades stale quote-feed candle config to channel web
   );
 });
 
+test('resolveCandlesWsUrl keeps configured websocket overrides safe for iOS', () => {
+  assert.equal(
+    resolveCandlesWsUrl('ws://testbrokerbackend.orrnn.com/ws/feed'),
+    'wss://testbrokerbackend.orrnn.com/ws/v2',
+  );
+  assert.equal(
+    resolveCandlesWsUrl('http://testbrokerbackend.orrnn.com/ws/v2?token=abc'),
+    'wss://testbrokerbackend.orrnn.com/ws/v2?token=abc',
+  );
+  assert.equal(
+    resolveCandlesWsUrl('ws://69.197.178.27:8090/ws/v2'),
+    'wss://backend.orrnn.com/ws/v2',
+  );
+});
+
 test('resolveCandlesWsUrl derives broker candle sockets from secure service domains only', () => {
   assert.equal(
     resolveCandlesWsUrl(undefined, 'https://testbrokerbackend.orrnn.com:443/api/v2'),
-    'wss://testbrokerbackend.orrnn.com:443/ws/v2',
+    'wss://testbrokerbackend.orrnn.com/ws/v2',
   );
   assert.equal(
     resolveCandlesWsUrl(undefined, 'http://69.197.178.27:8090'),

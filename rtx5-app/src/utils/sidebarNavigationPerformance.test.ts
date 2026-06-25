@@ -112,10 +112,11 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
   assert.match(source, /const navigateSidebarRoute = useCallback/);
   assert.match(source, /navigationLockedRef\.current = true/);
   assert.doesNotMatch(source, /clearSidebarPrefetchTimer/);
-  assert.doesNotMatch(source, /closeImmediately/);
-  assert.match(source, /function scheduleAfterPressPaint\(action: \(\) => void\)/);
-  assert.match(source, /globalThis\.requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame\(action\);/);
-  assert.match(source, /handleClose\(\(\) => \{\s*unlockSidebarNavigation\(\);[\s\S]*if \(shouldNavigate\) \{\s*scheduleAfterPressPaint\(\(\) => \{/);
+  assert.match(source, /const snapClosedForNavigation = useCallback/);
+  assert.match(source, /snapClosedForNavigation\(\);[\s\S]*runSidebarNavigation\(route\);[\s\S]*unlockSidebarNavigation\(\);/);
+  assert.doesNotMatch(source, /preloadSidebarRouteModule/);
+  assert.doesNotMatch(source, /preloadDeferredRouteModule\(JOURNAL_ROUTE_CACHE_KEY, loadJournalScreenRoute\)/);
+  assert.doesNotMatch(source, /function scheduleAfterPressPaint/);
   assert.match(source, /normalizeSidebarPath\(route\)/);
   assert.doesNotMatch(source, /scheduleAfterFirstVisualFrame/);
   assert.doesNotMatch(source, /showSidebarRouteTransition/);
@@ -200,7 +201,14 @@ test('journal sidebar destination keeps menu access for repeated MT-style drawer
   // Pushed detail routes render their own drawer instance (above this screen),
   // otherwise the hamburger would open the (tabs) drawer hidden underneath.
   assert.match(source, /import \{ SidebarDrawer \} from '..\/..\/..\/ui\/components\/SidebarDrawer'/);
-  assert.match(source, /<SidebarDrawer \/>/);
+  assert.match(source, /const \[drawerReady, setDrawerReady\] = useState\(false\)/);
+  assert.match(source, /requestAnimationFrame\(showDrawer\)/);
+  assert.match(source, /\{drawerReady \? <SidebarDrawer \/> : null\}/);
+  assert.match(source, /<SectionList/);
+  assert.match(source, /initialNumToRender=\{JOURNAL_INITIAL_RENDER_ITEMS\}/);
+  assert.match(source, /maxToRenderPerBatch=\{JOURNAL_RENDER_BATCH_SIZE\}/);
+  assert.match(source, /windowSize=\{JOURNAL_WINDOW_SIZE\}/);
+  assert.doesNotMatch(source, /groups\.map\(\(group\)/);
   assert.match(source, /const hideActionSheet = useUIState\(\(state\) => state\.hideActionSheet\)/);
   assert.match(source, /const handleOpenMenu = useCallback/);
   assert.match(source, /openSidebarDrawerImmediately\(\);\s*scheduleAfterSidebarOpenVisual\(hideActionSheet\);/);
@@ -265,6 +273,20 @@ test('sidebar login prompt opens login from a large first-touch target', () => {
   assert.doesNotMatch(source, /<Pressable[\s\S]*style=\{ds\.getStartedBtn\}[\s\S]*latencyLabel="sidebar\.getStarted"/);
 });
 
+test('sidebar profile avatar shows the logged-in broker logo with RTX5 fallback', () => {
+  const source = readSource('src/ui/components/SidebarDrawer.tsx');
+
+  assert.match(source, /Alert, Animated, BackHandler, Easing, Image, Linking/);
+  assert.match(source, /const brokerLogoUrl = useUserPreferences\(\(s\) => s\.brokerLogoUrl\)/);
+  assert.match(source, /const activeBrokerLogoUrl = useMemo\(/);
+  assert.match(source, /\(\) => \(isLoggedIn \? brokerLogoUrl\.trim\(\) : ''\)/);
+  assert.match(source, /const \[brokerLogoFailed, setBrokerLogoFailed\] = useState\(false\)/);
+  assert.match(source, /useEffect\(\(\) => \{\s*setBrokerLogoFailed\(false\);\s*\}, \[activeBrokerLogoUrl\]\)/);
+  assert.match(source, /activeBrokerLogoUrl && !brokerLogoFailed \? \(/);
+  assert.match(source, /<Image[\s\S]*accessibilityLabel="Broker logo"[\s\S]*source=\{\{ uri: activeBrokerLogoUrl \}\}[\s\S]*onError=\{\(\) => setBrokerLogoFailed\(true\)\}/);
+  assert.match(source, /\) : \(\s*<AppLogo style=\{ds\.avatarImage\} \/>\s*\)/);
+});
+
 test('sidebar keeps the main option routes warm and available', () => {
   const source = readSource('src/ui/components/SidebarDrawer.tsx');
   const rootLayoutSource = readSource('app/_layout.tsx');
@@ -272,12 +294,14 @@ test('sidebar keeps the main option routes warm and available', () => {
   const deferredMountSource = readSource('src/ui/components/DeferredRouteMount.tsx');
   const deferredRouteFiles = [
     'app/settings/accounts.tsx',
-    'app/settings/journal.tsx',
     'app/settings/economic-calendar.tsx',
     'app/settings/user-guide.tsx',
     'app/settings/help.tsx',
     'app/settings/about.tsx',
   ];
+  const journalRouteSource = readSource('app/settings/journal.tsx');
+  const accountsRouteSource = readSource('app/settings/accounts.tsx');
+  const actionWarmupSource = readSource('src/utils/actionRouteWarmup.ts');
 
   assert.match(source, /label: 'Trade'.*route: '\/trade'/);
   assert.doesNotMatch(source, /label: 'News'.*route: '\/settings\/news'/);
@@ -315,8 +339,18 @@ test('sidebar keeps the main option routes warm and available', () => {
   assert.match(deferredMountSource, /const routeModuleCache = new Map<string, CachedRouteModule>\(\)/);
   assert.match(deferredMountSource, /export function preloadDeferredRouteModule/);
   assert.match(deferredMountSource, /preloadDeferredRouteModule\(cacheKey, load\)/);
-  assert.match(deferredMountSource, /if \(!RouteComponent\) \{\s*return null;\s*\}/);
+  assert.match(deferredMountSource, /fallback = null/);
+  assert.match(deferredMountSource, /if \(!RouteComponent\) \{\s*return <>\{fallback\}<\/>;\s*\}/);
   assert.doesNotMatch(deferredMountSource, /DeferredRoutePlaceholder|placeholderTitle|title\?: string/);
+  assert.match(journalRouteSource, /DeferredRouteModule/);
+  assert.match(journalRouteSource, /cacheKey=\{JOURNAL_ROUTE_CACHE_KEY\}/);
+  assert.match(journalRouteSource, /load=\{loadJournalScreenRoute\}/);
+  assert.match(journalRouteSource, /fallback=\{<JournalRouteFallback \/>\}/);
+  assert.doesNotMatch(journalRouteSource, /import \{ JournalScreen \}/);
+  assert.match(accountsRouteSource, /<AccountsScreen \/>/);
+  assert.doesNotMatch(accountsRouteSource, /DeferredRouteScreen/);
+  assert.match(actionWarmupSource, /ACTION_DEFERRED_MODULE_WARMUPS/);
+  assert.match(actionWarmupSource, /preloadDeferredRouteModule\(module\.cacheKey, module\.load\)/);
   for (const file of deferredRouteFiles) {
     const routeSource = readSource(file);
     assert.doesNotMatch(routeSource, /DeferredRouteModule|const load[A-Za-z0-9]+Screen = \(\) => import\('/);

@@ -13,6 +13,7 @@ import {
   liveCandleStream as liveCandlesEngine,
   type CandleParams,
 } from '../stream/liveCandleStream';
+import { quotesWsService } from '../../../api/ws/quotesSocket';
 import { candlesWsService } from '../ws/candlesSocket';
 import {
   normalizeSymbol,
@@ -102,13 +103,17 @@ export function useLiveCandles(symbol: string, timeframe: string, active = true)
       }
 
       candlesWsService.subscribe(normalizedSymbol, normalizedTimeframe);
+      // Keep the quote socket on for this chart too. The quote tick processor
+      // feeds the forming candle, so this makes candles move as fast as bid/ask.
+      const unsubscribeQuoteDemand = quotesWsService.subscribeToSymbol(symbol, () => {});
       const unsubscribeEngine = liveCandlesEngine.subscribe(normalizedSymbol, normalizedTimeframe, listener);
       return () => {
+        unsubscribeQuoteDemand();
         unsubscribeEngine();
         candlesWsService.unsubscribe(normalizedSymbol, normalizedTimeframe);
       };
     },
-    [active, normalizedSymbol, normalizedTimeframe],
+    [active, normalizedSymbol, normalizedTimeframe, symbol],
   );
 
   const getSnapshot = useCallback(() => {

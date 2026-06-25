@@ -97,6 +97,7 @@ export type StreamEntry = {
   /** Events waiting to be flushed into the liveCandleMap on the next tick. */
   bufferedEvents: BufferedLiveEvent[];
   pendingEvents: BufferedLiveEvent[];
+  flushFrame: number | null;
   flushTimer: ReturnType<typeof setTimeout> | null;
   eventOrder: number;
   /**
@@ -137,8 +138,10 @@ export const MAX_RENDERED_HISTORY_CANDLES = Math.max(MAX_CANDLE_SERIES_LENGTH, 1
 export const MAX_RETAINED_HISTORY_CANDLES = Math.max(MAX_RENDERED_HISTORY_CANDLES, MAX_CANDLE_SERIES_LENGTH * 8);
 /** Max buffer size before we forcefully drop ticks to save memory. */
 export const MAX_BUFFERED_LIVE_EVENTS = 4096;
-/** Throttle interval in ms for flushing real-time ticks into the UI. */
-export const FLUSH_INTERVAL_MS = 100;
+// Keep the forming candle as fast as the Quotes bid/ask UI. The stream still
+// batches bursty ticks, but one frame (~16ms) is the longest we should wait
+// before painting the latest active-candle price.
+export const FLUSH_INTERVAL_MS = 16;
 
 export const EMPTY_CANDLES: readonly CandleParams[] = Object.freeze([]) as readonly CandleParams[];
 

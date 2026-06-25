@@ -22,7 +22,6 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { useUserPreferences } from '../../state/userPreferences';
-import { useTradingState } from '../../state/tradingState';
 import { useIsDarkTheme } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
 import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket';
@@ -45,7 +44,7 @@ import { prefetchOrderTicketData } from '../../utils/navigationPrefetch';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { runImmediateAction } from '../../utils/actionLatency';
 import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
-import { hasDisplayableLiveQuotePrice, hasFreshLiveQuote } from './liveQuoteSnapshot';
+import { hasDisplayableLiveQuotePrice } from './liveQuoteSnapshot';
 import {
   buildDefaultQuoteWatchlist,
   DEFAULT_QUOTE_WATCHLIST,
@@ -53,13 +52,18 @@ import {
   resolveQuoteFeedSymbols,
 } from './quoteWatchlistDefaults';
 import { buildAddSymbolCatalog } from './addSymbolCatalog';
-import { useLiveQuoteSnapshot, useWatchlistLiveQuotes } from './useLiveQuotes';
+import {
+  getLiveQuoteFreshnessAnchorForSymbols,
+  subscribeLiveQuoteSnapshots,
+  useLiveQuoteSnapshot,
+  useWatchlistLiveQuotes,
+} from './useLiveQuotes';
 
 /* ───── Helpers ───── */
 
 const LIVE_SYMBOL_STALE_MS = 45_000;
-const SIDEBAR_QUOTE_FEED_PAUSE_DELAY_MS = 260;
-const SIDEBAR_QUOTE_FEED_RESUME_DELAY_MS = 220;
+const QUOTE_SPEED_SAMPLE_INTERVAL_MS = 250;
+const QUOTE_SPEED_WINDOW_MS = 1_000;
 
 const pairLabel = (symbol: string) => fmt.symbol(symbol);
 
@@ -78,42 +82,6 @@ function scheduleQuoteSheetOptionAction(action: () => void) {
   }
 
   setTimeout(action, 0);
-}
-
-function useSidebarQuoteFeedPaused() {
-  const [paused, setPaused] = useState(() => useUIState.getState().sidebarOpen);
-
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    const clearPauseTimer = () => {
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-    };
-
-    const schedulePauseState = (sidebarOpen: boolean) => {
-      clearPauseTimer();
-      timer = setTimeout(() => {
-        timer = null;
-        setPaused(sidebarOpen);
-      }, sidebarOpen ? SIDEBAR_QUOTE_FEED_PAUSE_DELAY_MS : SIDEBAR_QUOTE_FEED_RESUME_DELAY_MS);
-    };
-
-    const unsubscribe = useUIState.subscribe((state, previousState) => {
-      if (state.sidebarOpen !== previousState.sidebarOpen) {
-        schedulePauseState(state.sidebarOpen);
-      }
-    });
-
-    return () => {
-      clearPauseTimer();
-      unsubscribe();
-    };
-  }, []);
-
-  return paused;
 }
 
 const gmtClock = (d: Date) =>
@@ -1644,9 +1612,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
 
   const showQuotesActionSheet = useUIState((s) => s.showQuotesActionSheet);
   const hideQuotesActionSheet = useUIState((s) => s.hideQuotesActionSheet);
-  const quotesActionSheetOpen = useUIState((s) => s.scopedActionSheets.quotes !== null);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
-  const sidebarQuoteFeedPaused = useSidebarQuoteFeedPaused();
   const [quoteSheetRouteActionPending, setQuoteSheetRouteActionPending] = useState(false);
   // isQuotesRouteActive (the /quotes path match) comes from the thin wrapper so
   // this screen only re-renders when its own focus or route-active state flips,
@@ -1813,11 +1779,6 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
     return new Map(entries);
   }, [quoteSymbols, quoteFeedSymbols]);
   const quoteStickyFeedActive = quoteRouteActive;
-  const quoteFeedActive =
-    quoteStickyFeedActive &&
-    !sidebarQuoteFeedPaused &&
-    !quotesActionSheetOpen &&
-    !quoteSheetRouteActionPending;
   const quoteFeedSymbolsKey = quoteFeedSymbols.join('|');
 
   useEffect(() => {
@@ -1832,7 +1793,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
     };
   }, [quoteStickyFeedActive, quoteFeedSymbols, quoteFeedSymbolsKey]);
 
-  const liveTrackedSymbols = useWatchlistLiveQuotes(quoteFeedSymbols, quoteFeedActive);
+  useWatchlistLiveQuotes(quoteFeedSymbols, quoteStickyFeedActive);
 
   const toggleEditMode = () => {
     if (!isEditing) setSearch('');
@@ -2166,7 +2127,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
             <GmtClock style={[s.subLeft, { color: palette.secondaryText }]} active />
 
             <View style={{ alignItems: 'flex-end' }}>
-              <TickCounter T={T} palette={palette} active={quoteFeedActive} symbols={liveTrackedSymbols} />
+              <TickCounter T={T} palette={palette} active={quoteStickyFeedActive} symbols={quoteFeedSymbols} />
             </View>
           </View>
           <View
@@ -2784,77 +2745,90 @@ function TickCounter({
   const { t } = useTranslation();
   const [tps, setTps] = useState(0);
   const [hasFreshFeed, setHasFreshFeed] = useState(false);
-  // Feed-throughput counter tracked locally via the direct WS tick listener.
-  // Speed reports received quote ticks even when the backend repeats an
-  // unchanged bid/ask snapshot.
-  const tickCounterRef = useRef(0);
+  // Speed is based on the same direct symbol subscriptions that feed the rows.
+  // A rolling one-second window prevents a fast feed from being displayed as
+  // "1 tps" just because the React timer sampled at the wrong moment.
+  const tickTimesRef = useRef<number[]>([]);
+  const snapshotTimesRef = useRef<number[]>([]);
   const lastTickAtRef = useRef(0);
   const symbolsKey = symbols.join('|');
-
-  const hasFreshStateSnapshot = useCallback(() => {
-    const liveQuotes = useTradingState.getState().quotes;
-    return symbols.some((symbol) => {
-      const rawKey = normalizeQuoteSymbolKey(symbol);
-      const baseKey = normalizeSymbol(symbol);
-      return hasFreshLiveQuote(liveQuotes[rawKey] ?? liveQuotes[baseKey]);
-    });
-  }, [symbolsKey]);
+  const trackedSymbols = useMemo(
+    () => Array.from(new Set(symbols.map((entry) => normalizeQuoteSymbolKey(entry)).filter(Boolean))),
+    [symbolsKey],
+  );
+  const latestSnapshotAtRef = useRef(0);
 
   useEffect(() => {
-    if (!active || symbols.length === 0) {
+    if (!active || trackedSymbols.length === 0) {
       return;
     }
-    const symbolSet = new Set(
-      symbols.map((entry) => normalizeQuoteSymbolKey(entry)).filter(Boolean),
-    );
 
     const listener = (tick: QuoteTickEvent) => {
-      const tickSymbol = normalizeQuoteSymbolKey(tick.rawSymbol ?? tick.symbol);
-      if (!symbolSet.has(tickSymbol)) {
-        return;
-      }
       const ts =
         typeof tick.receivedAt === 'number' && Number.isFinite(tick.receivedAt)
           ? tick.receivedAt
           : Date.now();
       lastTickAtRef.current = ts;
-      tickCounterRef.current += 1;
+      tickTimesRef.current.push(ts);
     };
 
-    quotesWsService.addTickListener(listener);
+    const unsubscribers = trackedSymbols.map((symbol) =>
+      quotesWsService.subscribeToSymbol(symbol, listener),
+    );
     return () => {
-      quotesWsService.removeTickListener(listener);
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
-  }, [active, symbolsKey]);
+  }, [active, trackedSymbols, trackedSymbols.length]);
 
   useEffect(() => {
-    if (!active) {
+    if (!active || trackedSymbols.length === 0) {
+      return;
+    }
+
+    latestSnapshotAtRef.current = getLiveQuoteFreshnessAnchorForSymbols(trackedSymbols);
+
+    return subscribeLiveQuoteSnapshots(trackedSymbols, () => {
+      const receivedAt = Date.now();
+      latestSnapshotAtRef.current = receivedAt;
+      snapshotTimesRef.current.push(receivedAt);
+    });
+  }, [active, trackedSymbols, trackedSymbols.length]);
+
+  useEffect(() => {
+    if (!active || trackedSymbols.length === 0) {
+      tickTimesRef.current = [];
+      snapshotTimesRef.current = [];
+      lastTickAtRef.current = 0;
+      latestSnapshotAtRef.current = 0;
       setTps(0);
       setHasFreshFeed(false);
       return;
     }
+    const readHasFreshFeed = () => {
+      const last = Math.max(lastTickAtRef.current, latestSnapshotAtRef.current);
+      return last > 0 && Date.now() - last <= LIVE_SYMBOL_STALE_MS;
+    };
     // Reset the counter when the symbol set or focus changes so TPS reflects
     // the current window, not a count carried over from a previous session.
-    tickCounterRef.current = 0;
+    tickTimesRef.current = [];
+    snapshotTimesRef.current = [];
     lastTickAtRef.current = 0;
+    latestSnapshotAtRef.current = getLiveQuoteFreshnessAnchorForSymbols(trackedSymbols);
     setTps(0);
-    setHasFreshFeed(false);
-    let lastSampledTicks = 0;
-    let lastSampledStateTicks = useTradingState.getState().tickCount;
+    setHasFreshFeed(readHasFreshFeed());
     const interval = setInterval(() => {
-      const current = tickCounterRef.current;
-      const wsTickDelta = current - lastSampledTicks;
-      lastSampledTicks = current;
-      const currentStateTicks = useTradingState.getState().tickCount;
-      const stateTickDelta = Math.max(0, currentStateTicks - lastSampledStateTicks);
-      lastSampledStateTicks = currentStateTicks;
-      setTps(Math.max(wsTickDelta, stateTickDelta));
-      const last = lastTickAtRef.current;
-      const fresh = last > 0 && Date.now() - last <= LIVE_SYMBOL_STALE_MS;
-      setHasFreshFeed(fresh || hasFreshStateSnapshot());
-    }, 1000);
+      const cutoff = Date.now() - QUOTE_SPEED_WINDOW_MS;
+      tickTimesRef.current = tickTimesRef.current.filter((time) => time >= cutoff);
+      snapshotTimesRef.current = snapshotTimesRef.current.filter((time) => time >= cutoff);
+      const visibleUpdateCount =
+        tickTimesRef.current.length > 0
+          ? tickTimesRef.current.length
+          : snapshotTimesRef.current.length;
+      setTps(Math.max(0, visibleUpdateCount));
+      setHasFreshFeed(readHasFreshFeed());
+    }, QUOTE_SPEED_SAMPLE_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [active, hasFreshStateSnapshot, symbolsKey]);
+  }, [active, trackedSymbols.length, symbolsKey]);
 
   const statusColor = hasFreshFeed ? T.trading.profit : palette.secondaryText;
 

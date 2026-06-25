@@ -53,6 +53,11 @@ function formatLiveRowPnl(value: number): string {
   return `${safeValue >= 0 ? '+' : ''}${safeValue.toFixed(resolveLivePnlDecimals(safeValue))}`;
 }
 
+const TRADE_ROW_ACTIONS_WIDTH = 270;
+const TRADE_ROW_SWIPE_ACTIVE_OFFSET_X: [number, number] = Platform.OS === 'ios' ? [-10, 10] : [-18, 18];
+const TRADE_ROW_SWIPE_FAIL_OFFSET_Y: [number, number] = Platform.OS === 'ios' ? [-28, 28] : [-10, 10];
+const TRADE_ROW_SWIPE_OPEN_VELOCITY_X = Platform.OS === 'ios' ? -360 : -500;
+
 function TradePositionRowComponent({
   item,
   onPress,
@@ -80,12 +85,11 @@ function TradePositionRowComponent({
   const overlayActionLockRef = useRef(false);
   const overlayActionReleaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const ACTIONS_WIDTH = 270;
-  const translateX = useSharedValue(ACTIONS_WIDTH); // Start deeply closed (pushed right)
+  const translateX = useSharedValue(TRADE_ROW_ACTIONS_WIDTH); // Start deeply closed (pushed right)
   const startX = useSharedValue(0);
 
   const closeOverlay = () => {
-    translateX.value = withSpring(ACTIONS_WIDTH, { damping: 20, stiffness: 200, overshootClamping: true });
+    translateX.value = withSpring(TRADE_ROW_ACTIONS_WIDTH, { damping: 20, stiffness: 200, overshootClamping: true });
   };
 
   useEffect(() => () => {
@@ -124,20 +128,20 @@ function TradePositionRowComponent({
   };
 
   const panGesture = Gesture.Pan()
-    .activeOffsetX([-18, 18])
-    .failOffsetY([-10, 10])
+    .activeOffsetX(TRADE_ROW_SWIPE_ACTIVE_OFFSET_X)
+    .failOffsetY(TRADE_ROW_SWIPE_FAIL_OFFSET_Y)
     .onStart(() => {
       startX.value = translateX.value;
     })
     .onUpdate((event) => {
       const nextX = startX.value + event.translationX;
-      translateX.value = Math.max(0, Math.min(ACTIONS_WIDTH, nextX));
+      translateX.value = Math.max(0, Math.min(TRADE_ROW_ACTIONS_WIDTH, nextX));
     })
     .onEnd((event) => {
-      if (event.velocityX < -500 || translateX.value < ACTIONS_WIDTH / 2) {
+      if (event.velocityX < TRADE_ROW_SWIPE_OPEN_VELOCITY_X || translateX.value < TRADE_ROW_ACTIONS_WIDTH / 2) {
         translateX.value = withSpring(0, { damping: 20, stiffness: 200, overshootClamping: true });
       } else {
-        translateX.value = withSpring(ACTIONS_WIDTH, { damping: 20, stiffness: 200, overshootClamping: true });
+        translateX.value = withSpring(TRADE_ROW_ACTIONS_WIDTH, { damping: 20, stiffness: 200, overshootClamping: true });
       }
     });
 

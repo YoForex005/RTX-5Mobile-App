@@ -29,7 +29,7 @@ import { useLiveTick } from '../../domain/candles/hooks/useLiveCandles';
 import { normalizeSymbol } from '../../domain/symbols';
 import { assertTradeSide, normalizeTradeSide, TRADE_SIDE, type TradeSide } from '../../domain/tradeSide';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
-import { TradeFeedbackModal } from '../../ui/components/TradeFeedbackModal';
+import { TradeFeedbackModal, type TradeFeedbackState } from '../../ui/components/TradeFeedbackModal';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { ActionSheet } from '../../ui/components/ActionSheet';
 import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
@@ -78,14 +78,6 @@ type OrderTicketTradeAction = {
 const ORDER_TICKET_TRADE_CONFIRMATION_VISIBLE_MS = 5000;
 const ORDER_TICKET_TRADE_CONFIRMATION_MAX_ITEMS = 3;
 const ORDER_TICKET_FULL_CONTENT_DELAY_MS = 0;
-
-type OrderTicketFeedbackModalState = {
-  visible: boolean;
-  type: 'error';
-  title: string;
-  message: string;
-  side?: TradeSide;
-};
 
 type OrderTicketTradeConfirmation = {
   id: string;
@@ -343,9 +335,9 @@ function OrderTicketInteractiveContent() {
     }));
   }, [availableSymbols, handleSymbolSelect, marketSymbolsFetching, symbol, t]);
 
-  // Broker or API failures keep the detailed modal; successful executions use
-  // the compact "done" strip below without device vibration.
-  const [modalState, setModalState] = useState<OrderTicketFeedbackModalState>({
+  // Market BUY/SELL executions and broker rejections share the same detailed popup,
+  // without device vibration. Pending-order success still uses the compact strip.
+  const [modalState, setModalState] = useState<TradeFeedbackState>({
     visible: false,
     type: 'error',
     title: '',
@@ -354,7 +346,7 @@ function OrderTicketInteractiveContent() {
   const [tradeConfirmations, setTradeConfirmations] = useState<OrderTicketTradeConfirmation[]>([]);
   const tradeConfirmationTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  const showModal = useCallback((state: OrderTicketFeedbackModalState) => {
+  const showModal = useCallback((state: TradeFeedbackState) => {
     setModalState(state);
   }, []);
 
@@ -846,7 +838,25 @@ function OrderTicketInteractiveContent() {
         void syncOpenedPosition(mt5Login, positionTicket);
       }
 
-      showTradeConfirmation({ side: requestedSide, symbol, volume });
+      const executionPrice = Number(data.price ?? (requestedSide === 'buy' ? ASK : BID));
+      const displaySymbol = symbol.replace(/\//g, '');
+      const successFeedback: TradeFeedbackState = {
+        visible: true,
+        type: 'success',
+        title: 'Order Executed',
+        message: `Successfully placed ${requestedSide.toUpperCase()} ${formatTradeVolume(volume, volumeBounds)} lot(s) on ${displaySymbol}`,
+        side: requestedSide,
+        symbol: displaySymbol,
+        volume,
+        executedAt: new Date().toLocaleTimeString(),
+      };
+      if (positionTicket) {
+        successFeedback.ticket = String(positionTicket);
+      }
+      if (Number.isFinite(executionPrice)) {
+        successFeedback.price = executionPrice;
+      }
+      showModal(successFeedback);
     } catch (error: any) {
       const feedback = classifyTradingError(error, { action: 'place-order' });
       // Extract raw server message so we can see the exact rejection reason
@@ -1378,7 +1388,7 @@ function OrderTicketInteractiveContent() {
         </View>
       ) : null}
 
-      {/* Error modal overlay for rejected order feedback. */}
+      {/* Shared modal overlay for market execution success and rejected order feedback. */}
       <TradeFeedbackModal
         state={modalState}
         onClose={handleModalClose}

@@ -93,11 +93,16 @@ test('expired broker sessions fail fast and do not keep stale secure tokens aliv
   const brokerRealtimeSource = readSource('src/api/ws/BrokerRealtimeService.ts');
 
   assert.match(brokerApiSource, /const AUTH_REFRESH_TIMEOUT_MS = 2500/);
+  assert.match(brokerApiSource, /const AUTH_REFRESH_FAILURES_BEFORE_LOGOUT = 2/);
+  assert.match(brokerApiSource, /const AUTH_REFRESH_FAILURE_WINDOW_MS = 30_000/);
   assert.match(brokerApiSource, /clearAuthSessionTokens/);
   assert.match(brokerApiSource, /private sessionInvalidated = false/);
+  assert.match(brokerApiSource, /private consecutiveRefreshAuthFailures = 0/);
   assert.match(brokerApiSource, /createUnauthenticatedResponse/);
   assert.match(brokerApiSource, /return createUnauthenticatedResponse\(AUTH_SESSION_EXPIRED_MESSAGE\)/);
-  assert.match(brokerApiSource, /await this\.invalidateAuthSession\(\)/);
+  assert.match(brokerApiSource, /this\.recordRefreshAuthFailure\(session\)/);
+  assert.match(brokerApiSource, /this\.consecutiveRefreshAuthFailures >= AUTH_REFRESH_FAILURES_BEFORE_LOGOUT[\s\S]*await this\.invalidateAuthSession\(\)/);
+  assert.match(brokerApiSource, /private resetRefreshAuthFailures\(\): void \{/);
   assert.match(brokerApiSource, /await clearAuthSessionTokens\(\)/);
   assert.match(brokerApiSource, /const liveServerUrl = normalizeBrokerServerUrl\(state\.brokerServerUrl \|\| ''\)/);
   assert.match(brokerApiSource, /if \(state\.isLoggedIn && state\.brokerId && liveServerUrl && liveAccessToken\)/);

@@ -209,7 +209,8 @@ const CHART_DEV_SOURCE_KEY = getDevRefreshKey(
   hashDevRefreshSource(CH_HTML),
 );
 const CHART_BRIDGE_DEBUG = false;
-const CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS = 16;
+// Match the Quotes screen: every bid/ask tick should reach the live candle immediately.
+const CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS = 0;
 const CHART_SYMBOL_HEADER_HIT_SLOP = { top: 10, bottom: 18, left: 16, right: 48 };
 const CHART_OHLC_HIGH_COLOR = '#089981';
 const CHART_OHLC_LOW_COLOR = '#F23645';
@@ -351,33 +352,6 @@ const CHART_INIT_RETRY_MIN_MS = 5000;
 const MT5_LIGHT_GRID_COLOR = 'rgba(0,0,0,0.09)';
 const MT5_DARK_AXIS_BORDER_COLOR = 'rgba(148,163,184,0.38)';
 const MT5_LIGHT_AXIS_BORDER_COLOR = '#CBD5E1';
-const CHART_TRADE_CONFIRMATION_VISIBLE_MS = 5000;
-const CHART_TRADE_CONFIRMATION_MAX_ITEMS = 3;
-
-type ChartTradeConfirmation = {
-  id: string;
-  symbol: string;
-  side: 'buy' | 'sell';
-  volumeLabel: string;
-  priceLabel: string;
-  ticketLabel: string;
-  executedAtLabel: string;
-};
-
-const resolveTradeConfirmationPriceDecimals = (symbol: string): number => {
-  const upper = symbol.toUpperCase();
-  if (upper.includes('JPY')) return 3;
-  if (upper.includes('XAU') || upper.includes('BTC') || upper.includes('ETH')) return 2;
-  return 5;
-};
-
-const formatTradeConfirmationPrice = (
-  price: number | null | undefined,
-  symbol: string,
-): string => {
-  if (!Number.isFinite(price)) return '--';
-  return Number(price).toFixed(resolveTradeConfirmationPriceDecimals(symbol));
-};
 
 const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActive }: { isChartRouteActive: boolean }) {
   const T = useTheme();
@@ -750,45 +724,27 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   const [tradeFeedback, setTradeFeedback] = useState<TradeFeedbackState>(TRADE_MODAL_INITIAL);
   const handleTradeFeedbackClose = useCallback(() => setTradeFeedback(TRADE_MODAL_INITIAL), []);
-  const [chartTradeConfirmations, setChartTradeConfirmations] = useState<ChartTradeConfirmation[]>([]);
-  const chartTradeConfirmationTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const handleChartTradeResult = useCallback((feedback: TradeFeedbackState) => {
     if (feedback.type !== 'success') {
       setTradeFeedback(feedback);
       return;
     }
 
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const volumeLabel =
-      typeof feedback.volume === 'number'
-        ? formatTradeVolume(feedback.volume, tradeVolumeBounds)
-        : String(feedback.volume ?? passiveLotDisplay);
-    const symbol = String(feedback.symbol || chartSymbol).replace(/\//g, '');
-    const ticket = String(feedback.ticket ?? '').trim();
-    const confirmation: ChartTradeConfirmation = {
-      id,
-      symbol,
-      side: feedback.side === 'sell' ? 'sell' : 'buy',
-      volumeLabel,
-      priceLabel: formatTradeConfirmationPrice(feedback.price, symbol),
-      ticketLabel: ticket || 'Confirmed',
-      executedAtLabel: feedback.executedAt || new Date().toLocaleTimeString(),
-    };
-
-    setChartTradeConfirmations((current) =>
-      [confirmation, ...current].slice(0, CHART_TRADE_CONFIRMATION_MAX_ITEMS),
-    );
-
-    const timer = setTimeout(() => {
-      setChartTradeConfirmations((current) => current.filter((item) => item.id !== id));
-    }, CHART_TRADE_CONFIRMATION_VISIBLE_MS);
-    chartTradeConfirmationTimersRef.current.push(timer);
-  }, [chartSymbol, passiveLotDisplay, tradeVolumeBounds]);
-
-  useEffect(() => () => {
-    chartTradeConfirmationTimersRef.current.forEach((timer) => clearTimeout(timer));
-    chartTradeConfirmationTimersRef.current = [];
-  }, []);
+    setTradeFeedback(feedback);
+    if (chartRuntimeActive) {
+      if (accountLogin) {
+        void refreshPositions(String(accountLogin));
+      }
+      void refetchOrders();
+      void refetchAccountSummary();
+    }
+  }, [
+    accountLogin,
+    chartRuntimeActive,
+    refetchAccountSummary,
+    refetchOrders,
+    refreshPositions,
+  ]);
   const [showSignalDetails, setShowSignalDetails] = useState(false);
   const [showChartTradeSheet, setShowChartTradeSheet] = useState(false);
   const [chartTradeOrderType, setChartTradeOrderType] = useState<ChartOrderType>('Market Execution');
@@ -1521,19 +1477,42 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       }),
     [chartLiveQuote?.ask, chartLiveQuote?.bid, hasCoherentLiveChartQuote, latestChartClose],
   );
+  // Trade P/L labels should follow the fresh quote feed even when candle
+  // history is still catching up. The candle chart keeps its stricter
+  // coherence guard above; this path only updates the open-trade value text.
   const overlayLiveBid = useMemo(
-    () =>
-      Number.isFinite(chartBid) && chartBid > 0
-        ? chartBid
-        : null,
-    [chartBid],
+    () => {
+      const liveBid =
+        hasLiveChartQuote &&
+        typeof chartLiveQuote?.bid === 'number' &&
+        Number.isFinite(chartLiveQuote.bid) &&
+        chartLiveQuote.bid > 0
+          ? chartLiveQuote.bid
+          : null;
+      if (liveBid !== null) {
+        return liveBid;
+      }
+
+      return Number.isFinite(chartBid) && chartBid > 0 ? chartBid : null;
+    },
+    [chartBid, chartLiveQuote?.bid, hasLiveChartQuote],
   );
   const overlayLiveAsk = useMemo(
-    () =>
-      Number.isFinite(chartAsk) && chartAsk > 0
-        ? chartAsk
-        : null,
-    [chartAsk],
+    () => {
+      const liveAsk =
+        hasLiveChartQuote &&
+        typeof chartLiveQuote?.ask === 'number' &&
+        Number.isFinite(chartLiveQuote.ask) &&
+        chartLiveQuote.ask > 0
+          ? chartLiveQuote.ask
+          : null;
+      if (liveAsk !== null) {
+        return liveAsk;
+      }
+
+      return Number.isFinite(chartAsk) && chartAsk > 0 ? chartAsk : null;
+    },
+    [chartAsk, chartLiveQuote?.ask, hasLiveChartQuote],
   );
   const chartPointSize = useMemo(() => {
     if (displayDecimals <= 0) return 1;
@@ -2317,7 +2296,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     let frame: number | null = null;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     let attempts = 0;
-    const maxAttempts = Platform.OS === 'android' ? 8 : 2;
+    const maxAttempts = 8;
 
     const focusLotInput = () => {
       if (cancelled) {
@@ -3057,19 +3036,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     (value: number | null | undefined) => (Number.isFinite(value) ? Number(value).toFixed(displayDecimals) : '--'),
     [displayDecimals],
   );
-  const [chartCrosshairCandle, setChartCrosshairCandle] = useState<{
-    close: number;
-    high: number;
-    low: number;
-    open: number;
-    time?: number | null;
-    volume?: number | null;
-  } | null>(null);
-  useEffect(() => {
-    setChartCrosshairCandle(null);
-  }, [chartSymbol, chartTimeframe, chartType]);
-  const chartMetaBackendLast = chartCandles.length > 0 ? chartCandles[chartCandles.length - 1] : null;
-  const chartMetaLastCandle = chartCrosshairCandle ?? chartMetaBackendLast;
+  // Keep the O/H/L/C row tied to the newest live candle under the symbol picker.
+  // Crosshair messages can point at an older inspected candle, so they should not
+  // hold this header row back while bid/ask ticks are moving.
+  const chartMetaLiveLastCandle = sanitizedCandles.length > 0 ? sanitizedCandles[sanitizedCandles.length - 1] : null;
+  const chartMetaLastCandle = chartMetaLiveLastCandle;
   const chartMetaIsUp = chartMetaLastCandle ? chartMetaLastCandle.close >= chartMetaLastCandle.open : true;
   const chartMetaDirectionColor = chartMetaIsUp ? resolvedChartColors.candlesUptrend : resolvedChartColors.candlesDowntrend;
   const chartLatestCandleGap = useMemo(
@@ -5025,28 +4996,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                               pendingMarketPriceLinesRef.current = null;
                             }
                           } catch (_) { }
-                        } else if (msg.type === 'CHART_CROSSHAIR_CANDLE') {
-                          if (!msg.active || !msg.candle || typeof msg.candle !== 'object') {
-                            setChartCrosshairCandle(null);
-                            return;
-                          }
-                          const candle = msg.candle;
-                          const open = typeof candle.open === 'number' && Number.isFinite(candle.open) ? candle.open : null;
-                          const high = typeof candle.high === 'number' && Number.isFinite(candle.high) ? candle.high : null;
-                          const low = typeof candle.low === 'number' && Number.isFinite(candle.low) ? candle.low : null;
-                          const close = typeof candle.close === 'number' && Number.isFinite(candle.close) ? candle.close : null;
-                          if (open === null || high === null || low === null || close === null) {
-                            setChartCrosshairCandle(null);
-                            return;
-                          }
-                          setChartCrosshairCandle({
-                            open,
-                            high,
-                            low,
-                            close,
-                            time: typeof candle.time === 'number' && Number.isFinite(candle.time) ? candle.time : null,
-                            volume: typeof candle.volume === 'number' && Number.isFinite(candle.volume) ? candle.volume : null,
-                          });
                         } else if (msg.type === 'DRAWING_TEXT_EDIT_REQUEST') {
                           const recordId = typeof msg.recordId === 'string' ? msg.recordId : '';
                           if (!recordId) {
@@ -5270,112 +5219,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                       handleOpenSymbolPicker();
                     }}
                   />
-                ) : null}
-                {chartTradeConfirmations.length > 0 ? (
-                  <View
-                    pointerEvents="none"
-                    style={styles.chartTradeConfirmationStack}
-                  >
-                    {chartTradeConfirmations.map((confirmation) => {
-                      const isBuyConfirmation = confirmation.side === 'buy';
-                      const accentColor = isBuyConfirmation ? BLUE : T.trading.sell.primary;
-                      const accentSoft = isBuyConfirmation
-                        ? (isDark ? 'rgba(37,99,235,0.16)' : 'rgba(37,99,235,0.10)')
-                        : (isDark ? 'rgba(220,38,38,0.16)' : 'rgba(220,38,38,0.10)');
-                      const ticketLabel = confirmation.ticketLabel === 'Confirmed'
-                        ? confirmation.ticketLabel
-                        : `#${confirmation.ticketLabel}`;
-                      return (
-                        <View
-                          key={confirmation.id}
-                          style={[
-                            styles.chartTradeConfirmationCard,
-                            { borderLeftColor: accentColor },
-                          ]}
-                        >
-                          <View style={styles.chartTradeConfirmationHeader}>
-                            <View style={styles.chartTradeConfirmationStatusGroup}>
-                              <View
-                                style={[
-                                  styles.chartTradeConfirmationStatusIcon,
-                                  { backgroundColor: accentSoft, borderColor: accentColor },
-                                ]}
-                              >
-                                <Ionicons name="checkmark" size={13} color={accentColor} />
-                              </View>
-                              <View style={styles.chartTradeConfirmationTitleGroup}>
-                                <Text style={styles.chartTradeConfirmationTitle} numberOfLines={1}>
-                                  {t('Order Filled')}
-                                </Text>
-                                <Text style={styles.chartTradeConfirmationTime} numberOfLines={1}>
-                                  {confirmation.executedAtLabel}
-                                </Text>
-                              </View>
-                            </View>
-                            <View
-                              style={[
-                                styles.chartTradeConfirmationSideBadge,
-                                { backgroundColor: accentSoft, borderColor: accentColor },
-                              ]}
-                            >
-                              <Ionicons
-                                name={isBuyConfirmation ? 'arrow-up' : 'arrow-down'}
-                                size={11}
-                                color={accentColor}
-                              />
-                              <Text
-                                style={[
-                                  styles.chartTradeConfirmationSideBadgeText,
-                                  { color: accentColor },
-                                ]}
-                                numberOfLines={1}
-                              >
-                                {isBuyConfirmation ? 'BUY' : 'SELL'}
-                              </Text>
-                            </View>
-                          </View>
-
-                          <View style={styles.chartTradeConfirmationInstrumentRow}>
-                            <Text style={styles.chartTradeConfirmationSymbol} numberOfLines={1}>
-                              {confirmation.symbol}
-                            </Text>
-                            <Text style={styles.chartTradeConfirmationPrice} numberOfLines={1}>
-                              {confirmation.priceLabel}
-                            </Text>
-                          </View>
-
-                          <View style={styles.chartTradeConfirmationDetailsRow}>
-                            <View style={styles.chartTradeConfirmationDetail}>
-                              <Text style={styles.chartTradeConfirmationDetailLabel} numberOfLines={1}>
-                                {t('Volume')}
-                              </Text>
-                              <Text style={styles.chartTradeConfirmationDetailValue} numberOfLines={1}>
-                                {confirmation.volumeLabel}
-                              </Text>
-                            </View>
-                            <View style={styles.chartTradeConfirmationDivider} />
-                            <View style={styles.chartTradeConfirmationDetail}>
-                              <Text style={styles.chartTradeConfirmationDetailLabel} numberOfLines={1}>
-                                {t('Price')}
-                              </Text>
-                              <Text style={styles.chartTradeConfirmationDetailValue} numberOfLines={1}>
-                                {confirmation.priceLabel}
-                              </Text>
-                            </View>
-                            <View style={styles.chartTradeConfirmationDivider} />
-                            <View style={styles.chartTradeConfirmationDetail}>
-                              <Text style={styles.chartTradeConfirmationDetailLabel} numberOfLines={1}>
-                                {t('Ticket')}
-                              </Text>
-                              <Text style={styles.chartTradeConfirmationDetailValue} numberOfLines={1}>
-                                {ticketLabel}
-                              </Text>
-                            </View>
-                          </View>
-                        </View>
-                      );
-                    })}
-                  </View>
                 ) : null}
                 <ChartTimeframePickerOverlay
                   visible={timeframePickerVisible}

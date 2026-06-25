@@ -1,5 +1,5 @@
 import { normalizeSymbol, normalizeTimeframeStrict } from '../core/candles';
-import { buildBrokerWsUrl } from '../../../api/brokerRouting';
+import { buildBrokerWsUrl, normalizeConfiguredWsUrl } from '../../../api/brokerRouting';
 import {
   asRecord,
   CANDLE_CLOSE_KEYS,
@@ -22,7 +22,8 @@ const buildBrokerCandlesWsUrl = (serverUrl?: string | null): string =>
  * Ensures the app connects to the specific `/ws/v2` endpoint required for candlestick data.
  */
 export const resolveCandlesWsUrl = (configuredUrl?: string, brokerServerUrl?: string): string => {
-  const url = (configuredUrl || buildBrokerCandlesWsUrl(brokerServerUrl)).trim();
+  const brokerUrl = buildBrokerCandlesWsUrl(brokerServerUrl);
+  const url = normalizeConfiguredWsUrl(configuredUrl, brokerUrl).trim();
   if (!url) {
     return DEFAULT_CANDLES_WS_URL;
   }

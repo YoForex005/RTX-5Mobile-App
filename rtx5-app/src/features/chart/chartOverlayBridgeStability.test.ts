@@ -207,6 +207,10 @@ test('chart pending CTA submits the pending order and then exposes chart-side le
 });
 
 test('chart market execution submits selected sheet SL and TP levels', () => {
+  const chartTradeResultSource = source.slice(
+    source.indexOf('const handleChartTradeResult = useCallback'),
+    source.indexOf('const [showSignalDetails', source.indexOf('const handleChartTradeResult = useCallback')),
+  );
   assertSourceContains(
     chartTradeFeatureSource,
     /stopLossPrice=\{sheet\.chartTradeSlEnabled \? sheet\.chartTradeSlPrice : undefined\}/,
@@ -237,6 +241,17 @@ test('chart market execution submits selected sheet SL and TP levels', () => {
     /price_sl: stopLossPrice[\s\S]*price_tp: takeProfitPrice/,
     'market payload builder must map selected levels to API price_sl and price_tp fields',
   );
+  assertSourceContains(
+    chartTradeResultSource,
+    /if \(feedback\.type !== 'success'\) \{[\s\S]*setTradeFeedback\(feedback\);[\s\S]*return;[\s\S]*\}/,
+    'chart rejected market submit must keep the detailed error feedback modal',
+  );
+  assertSourceContains(
+    chartTradeResultSource,
+    /if \(feedback\.type !== 'success'\) \{[\s\S]*setTradeFeedback\(feedback\);[\s\S]*return;[\s\S]*\}[\s\S]*setTradeFeedback\(feedback\);[\s\S]*refreshPositions\(String\(accountLogin\)\)[\s\S]*refetchOrders\(\)[\s\S]*refetchAccountSummary\(\)/,
+    'chart one-click success must show the shared feedback popup and refresh trade data for live overlay labels',
+  );
+  assert.doesNotMatch(chartTradeResultSource, /setChartTradeConfirmations/);
 });
 
 test('chart header: OHLC high and low use fixed market colors', () => {

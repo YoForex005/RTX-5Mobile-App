@@ -12,6 +12,7 @@ import {
   applyLiveQuoteTickToSnapshot,
   buildInitialLiveQuoteSnapshot,
   getQuoteFreshnessAnchor,
+  hasDisplayableLiveQuotePrice,
   type LiveQuoteSnapshot,
 } from './liveQuoteSnapshot';
 
@@ -118,7 +119,17 @@ const flushPendingNotifications = (): void => {
   symbols.forEach(notifySymbol);
 };
 
-const scheduleSymbolNotification = (symbol: string): void => {
+const notifySymbolImmediately = (symbol: string): void => {
+  pendingNotifySymbols.delete(symbol);
+  notifySymbol(symbol);
+};
+
+const scheduleSymbolNotification = (symbol: string, immediate = false): void => {
+  if (immediate) {
+    notifySymbolImmediately(symbol);
+    return;
+  }
+
   pendingNotifySymbols.add(symbol);
 
   if (notifyAnimationFrame !== null || notifyTimer) {
@@ -189,14 +200,44 @@ const resolveSnapshot = (symbol: string): LiveQuoteSnapshot | undefined => {
   return snapshots.find((snapshot) => getQuoteFreshnessAnchor(snapshot) !== undefined) ?? snapshots[0];
 };
 
-export const ingestLiveQuoteTick = (tick: QuoteTickEvent): void => {
+export const subscribeLiveQuoteSnapshots = (
+  symbols: string[],
+  listener: SnapshotListener,
+): (() => void) => {
+  const normalizedSymbols = uniqueQuoteSymbolKeys(symbols);
+  if (normalizedSymbols.length === 0) {
+    return () => {};
+  }
+
+  const unsubscribers = normalizedSymbols.map((symbol) =>
+    subscribeSnapshot(symbol, listener),
+  );
+  return () => {
+    unsubscribers.forEach((unsubscribe) => unsubscribe());
+  };
+};
+
+export const getLiveQuoteFreshnessAnchorForSymbols = (symbols: string[]): number => {
+  const normalizedSymbols = uniqueQuoteSymbolKeys(symbols);
+  return normalizedSymbols.reduce((latest, symbol) => {
+    const snapshot = resolveSnapshot(symbol);
+    if (!hasDisplayableLiveQuotePrice(snapshot)) {
+      return latest;
+    }
+
+    const freshnessAnchor = getQuoteFreshnessAnchor(snapshot);
+    return freshnessAnchor === undefined ? latest : Math.max(latest, freshnessAnchor);
+  }, 0);
+};
+
+export const ingestLiveQuoteTick = (tick: QuoteTickEvent, notifyImmediately = true): void => {
   const symbol = getTickSymbolKey(tick);
   if (!symbol) return;
 
   const previous = ensureSnapshot(symbol);
   const next = applyLiveQuoteTickToSnapshot(symbol, previous, tick, ++updateSeq);
   snapshotsBySymbol.set(symbol, next);
-  scheduleSymbolNotification(symbol);
+  scheduleSymbolNotification(symbol, notifyImmediately);
 };
 
 const ingestRestQuoteSnapshot = (requestedSymbol: string, payload: unknown): boolean => {
@@ -215,25 +256,28 @@ const ingestRestQuoteSnapshot = (requestedSymbol: string, payload: unknown): boo
 
   const { update } = normalized;
   const timestamp = update.timestamp ?? now;
-  ingestLiveQuoteTick({
-    symbol: update.symbol,
-    rawSymbol: update.rawSymbol,
-    bid: update.bid,
-    ask: update.ask,
-    last: update.last,
-    high: update.high,
-    low: update.low,
-    open: update.open,
-    dailyOpen: update.dailyOpen,
-    previousClose: update.previousClose,
-    changePct: update.changePct,
-    spread: update.spread,
-    volume: update.volume,
-    digits: update.digits,
-    feedTickAt: timestamp,
-    receivedAt: now,
-    timestamp,
-  });
+  ingestLiveQuoteTick(
+    {
+      symbol: update.symbol,
+      rawSymbol: update.rawSymbol,
+      bid: update.bid,
+      ask: update.ask,
+      last: update.last,
+      high: update.high,
+      low: update.low,
+      open: update.open,
+      dailyOpen: update.dailyOpen,
+      previousClose: update.previousClose,
+      changePct: update.changePct,
+      spread: update.spread,
+      volume: update.volume,
+      digits: update.digits,
+      feedTickAt: timestamp,
+      receivedAt: now,
+      timestamp,
+    },
+    false,
+  );
   useTradingState.getState().setQuote(update.rawSymbol || update.symbol, {
     bid: update.bid,
     ask: update.ask,
@@ -458,14 +502,19 @@ export function useLiveQuoteSubscription(symbol: string, active: boolean): void 
 export function useWatchlistLiveQuotes(symbols: string[], active: boolean): string[] {
   const symbolsKey = JSON.stringify(symbols);
 
+  const subscriptionSymbols = useMemo(
+    () => Array.from(new Set(symbols.map((symbol) => normalizeQuoteSymbolKey(symbol)).filter(Boolean))),
+    [symbolsKey],
+  );
   const normalizedSymbols = useMemo(
     () => uniqueQuoteSymbolKeys(symbols),
     [symbolsKey],
   );
+  const subscriptionSymbolsKey = subscriptionSymbols.join('|');
   const normalizedSymbolsKey = normalizedSymbols.join('|');
 
   useEffect(() => {
-    if (!active || normalizedSymbols.length === 0) {
+    if (!active || subscriptionSymbols.length === 0) {
       return;
     }
 
@@ -477,18 +526,20 @@ export function useWatchlistLiveQuotes(symbols: string[], active: boolean): stri
         return;
       }
 
-      ingestLiveQuoteTick(tick);
+      ingestLiveQuoteTick(tick, true);
     };
 
-    quotesWsService.addTickListener(listener);
+    const unsubscribers = subscriptionSymbols.map((symbol) =>
+      quotesWsService.subscribeToSymbol(symbol, listener),
+    );
     return () => {
-      quotesWsService.removeTickListener(listener);
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
-  }, [active, normalizedSymbolsKey]);
+  }, [active, normalizedSymbolsKey, subscriptionSymbolsKey]);
 
   useRestQuoteSnapshotFallback(normalizedSymbols, active);
 
-  return active ? normalizedSymbols : [];
+  return active ? subscriptionSymbols : [];
 }
 
 export function useLiveQuoteSnapshot(symbol: string): LiveQuoteSnapshot | undefined {
@@ -503,6 +554,36 @@ export function useLiveQuoteSnapshot(symbol: string): LiveQuoteSnapshot | undefi
     () => (normalizedSymbol ? resolveSnapshot(normalizedSymbol) : undefined),
     [normalizedSymbol],
   );
+
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+export function useLiveQuoteFreshnessAnchor(symbols: string[], active: boolean): number {
+  const symbolsKey = JSON.stringify(symbols);
+  const normalizedSymbols = useMemo(
+    () => uniqueQuoteSymbolKeys(symbols),
+    [symbolsKey],
+  );
+  const normalizedSymbolsKey = normalizedSymbols.join('|');
+
+  const subscribe = useCallback(
+    (listener: SnapshotListener) => {
+      if (!active || normalizedSymbols.length === 0) {
+        return () => {};
+      }
+
+      return subscribeLiveQuoteSnapshots(normalizedSymbols, listener);
+    },
+    [active, normalizedSymbolsKey],
+  );
+
+  const getSnapshot = useCallback(() => {
+    if (!active || normalizedSymbols.length === 0) {
+      return 0;
+    }
+
+    return getLiveQuoteFreshnessAnchorForSymbols(normalizedSymbols);
+  }, [active, normalizedSymbolsKey]);
 
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }

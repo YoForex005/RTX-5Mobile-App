@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
 import React, { useMemo, useEffect, useCallback, useRef, useState } from 'react';
-import { Text, View, FlatList } from 'react-native';
+import { Text, View, FlatList, Platform } from 'react-native';
 import { useShallow } from 'zustand/shallow';
 import { Screen } from '../../../ui/components/Screen';
 import { AppHeader } from '../../../ui/components/AppHeader';
@@ -325,7 +325,7 @@ export function TradeScreen() {
         maxToRenderPerBatch={TRADE_POSITION_RENDER_BATCH_SIZE}
         windowSize={2}
         updateCellsBatchingPeriod={80}
-        removeClippedSubviews={true}
+        removeClippedSubviews={Platform.OS === 'android'}
         viewabilityConfig={TRADE_POSITION_VIEWABILITY_CONFIG}
         onViewableItemsChanged={handleViewablePositionRowsChanged}
         extraData={flatListExtraData}

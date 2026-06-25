@@ -10,12 +10,20 @@ import { Platform } from 'react-native';
  * preventing 'Cannot read properties of undefined' crashes.
  */
 
+const IOS_SECURE_STORE_WRITE_OPTIONS: SecureStore.SecureStoreOptions = {
+  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
+};
+
 export const setSecureItemAsync = async (key: string, value: string): Promise<void> => {
   if (Platform.OS === 'web') {
     await AsyncStorage.setItem(key, value);
     return;
   }
-  await SecureStore.setItemAsync(key, value);
+  await SecureStore.setItemAsync(
+    key,
+    value,
+    Platform.OS === 'ios' ? IOS_SECURE_STORE_WRITE_OPTIONS : undefined,
+  );
 };
 
 export const getSecureItemAsync = async (key: string): Promise<string | null> => {

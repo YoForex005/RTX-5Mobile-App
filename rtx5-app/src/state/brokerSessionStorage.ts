@@ -1,4 +1,5 @@
 import {
+  getSecureItemAsync,
   removeSecureItemAsync,
   setSecureItemAsync,
 } from '../utils/secureStorage';
@@ -29,10 +30,21 @@ export async function persistSelectedBrokerSession({
   logoUrl,
 }: BrokerSessionInput): Promise<void> {
   const normalizedServerUrl = normalizeBrokerServerUrl(serverUrl);
+  const normalizedLogoUrl = String(logoUrl ?? '').trim();
+  const [storedBrokerId, storedLogoUrl] = normalizedLogoUrl
+    ? ['', '']
+    : await Promise.all([
+        getSecureItemAsync(ACTIVE_BROKER_ID_KEY).catch(() => ''),
+        getSecureItemAsync(ACTIVE_BROKER_LOGO_URL_KEY).catch(() => ''),
+      ]);
+  const shouldKeepStoredLogo =
+    !normalizedLogoUrl &&
+    String(storedBrokerId ?? '').trim().toLowerCase() === String(brokerId ?? '').trim().toLowerCase();
+  const nextLogoUrl = normalizedLogoUrl || (shouldKeepStoredLogo ? String(storedLogoUrl ?? '').trim() : '');
   await Promise.all([
     setSecureItemAsync(ACTIVE_BROKER_ID_KEY, brokerId),
     setSecureItemAsync(ACTIVE_BROKER_SERVER_URL_KEY, normalizedServerUrl),
-    setSecureItemAsync(ACTIVE_BROKER_LOGO_URL_KEY, logoUrl ?? ''),
+    setSecureItemAsync(ACTIVE_BROKER_LOGO_URL_KEY, nextLogoUrl),
   ]);
 }
 

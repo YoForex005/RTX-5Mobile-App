@@ -219,3 +219,33 @@ export function buildBrokerWsUrl(
   const wsServer = `wss://${brokerHost}`;
   return `${trimTrailingSlash(wsServer)}${path}`;
 }
+
+// iOS blocks cleartext websocket traffic and raw-IP certificates. Keep every
+// live-data override on a secure domain, or use the shared backend fallback.
+export function normalizeConfiguredWsUrl(configuredUrl: string | undefined | null, fallbackUrl: string): string {
+  const raw = String(configuredUrl ?? '').trim();
+  if (!raw) {
+    return fallbackUrl;
+  }
+
+  const withSecureWsScheme = raw
+    .replace(/^https:\/\//i, 'wss://')
+    .replace(/^http:\/\//i, 'wss://')
+    .replace(/^ws:\/\//i, 'wss://');
+  const candidate = hasUrlScheme(withSecureWsScheme)
+    ? withSecureWsScheme
+    : `wss://${withSecureWsScheme}`;
+
+  try {
+    const url = new URL(candidate);
+    const host = url.hostname.trim().toLowerCase();
+    if (url.protocol !== 'wss:' || !isDomainLikeHost(host) || isRawIpHost(url.hostname)) {
+      return fallbackUrl;
+    }
+
+    const path = url.pathname === '/' ? '' : url.pathname;
+    return `${url.protocol}//${url.host}${path}${url.search}`;
+  } catch {
+    return fallbackUrl;
+  }
+}

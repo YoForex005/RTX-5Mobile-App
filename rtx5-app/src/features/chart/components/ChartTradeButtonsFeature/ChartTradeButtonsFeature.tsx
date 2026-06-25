@@ -1,7 +1,7 @@
 import { FastPressable as Pressable } from '../../../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { ActivityIndicator, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, InputAccessoryView, Platform, Text, TextInput, View } from 'react-native';
 import { useLiveSymbolQuote } from '../../../../query/websocket';
 import { formatTradeVolume, type TradeVolumeBounds } from '../../../../utils/tradeVolume';
 import type { TradeSide } from '../../../../domain/tradeSide';
@@ -23,6 +23,7 @@ type FooterLotPickerMode = 'absolute' | 'increase' | 'decrease';
 const LOT_ADJUST_HIT_SLOP = { top: 8, bottom: 8, left: 6, right: 6 } as const;
 const LOT_VALUE_HIT_SLOP = { top: 8, bottom: 8, left: 0, right: 0 } as const;
 const TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS = 16;
+const IOS_LOT_INPUT_ACCESSORY_ID = 'chart-trade-lot-input-accessory';
 
 type ChartTradeButtonsProps = {
   symbol: string;
@@ -143,6 +144,9 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
     }
     return undefined;
   }, [canUseIncreaseLotControl, increaseLotPressBehavior, lotPickerAction, onIncreaseLot]);
+  const handleLotAccessoryApply = React.useCallback(() => {
+    onLotDraftSubmit?.();
+  }, [onLotDraftSubmit]);
 
   const {
     handleTrade,
@@ -242,25 +246,43 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
         />
       </Pressable>
       {isLotEditing ? (
-        <View style={baseStyles.actionLotInputWrap}>
-          <TextInput
-            ref={lotInputRef}
-            style={[textBaseStyles.actionLotInput, themeStyles.actionLotInput]}
-            value={lotDraft}
-            onChangeText={onLotDraftChange}
-            onBlur={onLotDraftBlur}
-            onEndEditing={onLotDraftEndEditing}
-            keyboardType="decimal-pad"
-            returnKeyType="done"
-            selectTextOnFocus
-            autoFocus
-            showSoftInputOnFocus
-            caretHidden={false}
-            onSubmitEditing={onLotDraftSubmit}
-            placeholder={formattedLotSize}
-            placeholderTextColor="#94A3B8"
-          />
-        </View>
+        <>
+          <View style={baseStyles.actionLotInputWrap}>
+            <TextInput
+              ref={lotInputRef}
+              style={[textBaseStyles.actionLotInput, themeStyles.actionLotInput]}
+              value={lotDraft}
+              onChangeText={onLotDraftChange}
+              onBlur={onLotDraftBlur}
+              onEndEditing={onLotDraftEndEditing}
+              keyboardType="decimal-pad"
+              returnKeyType="done"
+              selectTextOnFocus
+              autoFocus
+              showSoftInputOnFocus
+              caretHidden={false}
+              onSubmitEditing={onLotDraftSubmit}
+              inputAccessoryViewID={Platform.OS === 'ios' ? IOS_LOT_INPUT_ACCESSORY_ID : undefined}
+              placeholder={formattedLotSize}
+              placeholderTextColor="#94A3B8"
+            />
+          </View>
+          {Platform.OS === 'ios' ? (
+            <InputAccessoryView nativeID={IOS_LOT_INPUT_ACCESSORY_ID}>
+              <View style={[baseStyles.actionLotKeyboardAccessory, themeStyles.actionLotKeyboardAccessory]}>
+                <Pressable
+                  style={baseStyles.actionLotKeyboardAccessoryButton}
+                  onPress={handleLotAccessoryApply}
+                  accessibilityRole="button"
+                  accessibilityLabel="Apply lot"
+                  testID="chart-trade-lot-ios-apply-button"
+                >
+                  <Text style={textBaseStyles.actionLotKeyboardAccessoryButtonText}>Apply</Text>
+                </Pressable>
+              </View>
+            </InputAccessoryView>
+          ) : null}
+        </>
       ) : hasLotValueEditor ? (
         <Pressable
           style={baseStyles.actionLotPill}

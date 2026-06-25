@@ -17,3 +17,23 @@ test('broker realtime tick equity uses settled balance fallback instead of zero 
   assert.match(brokerRealtimeSource, /const marginFree = equity - margin/);
   assert.match(brokerRealtimeSource, /const marginLevel = margin > 0 \? \(equity \/ margin\) \* 100 : 0/);
 });
+
+test('broker realtime subscribes full account lifecycle channels and dynamic position ticks', () => {
+  const brokerRealtimeSource = source();
+  const accountSocketSource = readFileSync(resolve(process.cwd(), 'src/api/ws/accountSocket.ts'), 'utf8');
+
+  assert.match(brokerRealtimeSource, /ACCOUNT_LIFECYCLE_CHANNELS = \['positions', 'account', 'metrics', 'orders', 'deals', 'history'\] as const/);
+  assert.match(brokerRealtimeSource, /this\.getOpenPositionSymbols\(\)\.map\(\(symbol\) => `ticks\.\$\{symbol\}`\)/);
+  assert.doesNotMatch(brokerRealtimeSource, /const DEFAULT_SYMBOL = 'EURUSD'/);
+  assert.doesNotMatch(brokerRealtimeSource, /const DEFAULT_TIMEFRAME = 'M1'/);
+  assert.match(brokerRealtimeSource, /channel\.startsWith\('orders\.'\)/);
+  assert.match(brokerRealtimeSource, /channel\.startsWith\('deals\.'\)/);
+  assert.match(brokerRealtimeSource, /channel\.startsWith\('history\.'\)/);
+  assert.match(brokerRealtimeSource, /eventName\.startsWith\('order\.'\)/);
+  assert.match(brokerRealtimeSource, /eventName\.startsWith\('deal\.'\)/);
+  assert.match(brokerRealtimeSource, /eventName\.startsWith\('history\.'\)/);
+  assert.match(brokerRealtimeSource, /asRecord\(record\.position\) \?\? asRecord\(record\.item\)/);
+  assert.match(brokerRealtimeSource, /this\.invalidateLifecycleQueries\(eventName\)/);
+  assert.match(brokerRealtimeSource, /this\.send\(\{ action: 'ping' \}\)/);
+  assert.match(accountSocketSource, /\['metrics', 'account', 'positions', 'orders', 'deals', 'history'\]/);
+});

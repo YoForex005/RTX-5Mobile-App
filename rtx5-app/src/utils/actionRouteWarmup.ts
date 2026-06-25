@@ -1,8 +1,11 @@
+import { JOURNAL_ROUTE_CACHE_KEY, loadJournalScreenRoute } from '../features/settings/JournalScreen/deferredRoute';
+import { preloadDeferredRouteModule } from '../ui/components/DeferredRouteMount';
 import { scheduleIdleWork } from './startupScheduler';
 
 const ACTION_ROUTE_WARMUP_BATCH_SIZE = 8;
 const ACTION_ROUTE_WARMUP_BATCH_DELAY_MS = 16;
 const ACTION_ROUTE_WARMUP_INITIAL_DELAY_MS = 0;
+const ACTION_DEFERRED_MODULE_WARMUP_DELAY_MS = 180;
 
 export const ACTION_ROUTE_WARMUP_PATHS = [
   '/quotes',
@@ -37,6 +40,10 @@ export const ACTION_ROUTE_WARMUP_PATHS = [
   '/chart/open-order-mode',
   '/chart/calculator',
   '/chart/analytics',
+] as const;
+
+const ACTION_DEFERRED_MODULE_WARMUPS = [
+  { cacheKey: JOURNAL_ROUTE_CACHE_KEY, load: loadJournalScreenRoute },
 ] as const;
 
 type PrefetchRouter = {
@@ -79,6 +86,18 @@ export function warmActionRoutes(router: PrefetchRouter) {
     cancelScheduledBatches.add(cancel);
   };
 
+  const scheduleDeferredModuleWarmups = () => {
+    const cancel = scheduleIdleWork(() => {
+      for (const module of ACTION_DEFERRED_MODULE_WARMUPS) {
+        void preloadDeferredRouteModule(module.cacheKey, module.load).catch(() => undefined);
+      }
+    }, {
+      delayMs: ACTION_DEFERRED_MODULE_WARMUP_DELAY_MS,
+      timeoutMs: 1200,
+    });
+    cancelScheduledBatches.add(cancel);
+  };
+
   const runBatch = () => {
     if (cancelled) {
       return;
@@ -95,6 +114,8 @@ export function warmActionRoutes(router: PrefetchRouter) {
 
     if (cursor < ACTION_ROUTE_WARMUP_PATHS.length) {
       scheduleBatch(ACTION_ROUTE_WARMUP_BATCH_DELAY_MS);
+    } else {
+      scheduleDeferredModuleWarmups();
     }
   };
 

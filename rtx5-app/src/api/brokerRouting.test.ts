@@ -5,6 +5,7 @@ import {
   AUTH_PROXY_SERVER_URL,
   buildBrokerApiBaseUrl,
   buildBrokerWsUrl,
+  normalizeConfiguredWsUrl,
   normalizeBrokerProxyServerAddress,
   normalizeBrokerServerUrl,
   resolveBrokerProxyServerAddress,
@@ -118,6 +119,25 @@ test('buildBrokerWsUrl falls back only when no broker server url is saved', () =
   assert.equal(
     buildBrokerWsUrl('', '/ws/v2', 'wss://fallback/ws/v2'),
     'wss://fallback/ws/v2',
+  );
+});
+
+test('normalizeConfiguredWsUrl keeps configured websocket overrides safe for iOS', () => {
+  assert.equal(
+    normalizeConfiguredWsUrl('ws://testbrokerbackend.orrnn.com/ws/feed', 'wss://fallback/ws/feed'),
+    'wss://testbrokerbackend.orrnn.com/ws/feed',
+  );
+  assert.equal(
+    normalizeConfiguredWsUrl('http://testbrokerbackend.orrnn.com/ws/v2?token=abc', 'wss://fallback/ws/v2'),
+    'wss://testbrokerbackend.orrnn.com/ws/v2?token=abc',
+  );
+  assert.equal(
+    normalizeConfiguredWsUrl('ws://69.197.178.27:8090/ws/feed', 'wss://fallback/ws/feed'),
+    'wss://fallback/ws/feed',
+  );
+  assert.equal(
+    normalizeConfiguredWsUrl('', 'wss://fallback/ws/feed'),
+    'wss://fallback/ws/feed',
   );
 });
 

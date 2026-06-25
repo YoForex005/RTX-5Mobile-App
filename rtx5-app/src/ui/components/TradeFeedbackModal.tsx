@@ -1,6 +1,6 @@
 import { FastPressable as Pressable } from './FastPressable';
 import React, { useEffect, useRef } from 'react';
-import { View, Text, Animated, StyleSheet } from 'react-native';
+import { View, Text, Animated, StyleSheet, Modal } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -107,7 +107,15 @@ export const TradeFeedbackModal = React.memo(({
   const scale = slideAnim.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] });
 
   return (
-    <View style={tfmStyles.overlay} pointerEvents="box-none">
+    <Modal
+      visible={state.visible}
+      transparent
+      animationType="none"
+      presentationStyle="overFullScreen"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <View style={tfmStyles.overlay} pointerEvents="box-none">
       <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
       <Animated.View style={[
         tfmStyles.card,
@@ -252,7 +260,8 @@ export const TradeFeedbackModal = React.memo(({
           )}
         </View>
       </Animated.View>
-    </View>
+      </View>
+    </Modal>
   );
 });
 

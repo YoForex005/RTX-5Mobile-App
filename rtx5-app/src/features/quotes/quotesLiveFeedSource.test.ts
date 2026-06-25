@@ -19,6 +19,7 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.notEqual(unsubscribeStart, -1);
 
   assert.match(serviceSource, /getSecureItemAsync\(ACTIVE_BROKER_SERVER_URL_KEY\)/);
+  assert.match(serviceSource, /normalizeConfiguredWsUrl/);
   assert.match(serviceSource, /private async resolveSocketUrlAsync\(\): Promise<string>/);
   assert.match(serviceSource, /private failedBrokerSocketUrls: Set<string> = new Set\(\)/);
   assert.match(serviceSource, /private resolveBrokerSocketUrl\(serverUrl\?: string \| null\): string/);
@@ -29,6 +30,10 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(serviceSource, /this\.resolveBrokerSocketUrl\(storedServerUrl\)/);
   assert.match(serviceSource, /shouldUseBrokerHostedQuoteFeed\(serverUrl\)/);
   assert.match(serviceSource, /DEFAULT_QUOTES_WS_URL = 'wss:\/\/backend\.orrnn\.com\/ws\/feed'/);
+  assert.match(
+    serviceSource,
+    /normalizeConfiguredWsUrl\(process\.env\.EXPO_PUBLIC_QUOTES_WS_URL, ''\)/,
+  );
   assert.match(serviceSource, /this\.openResolvedSocket\(nextUrl\)/);
   assert.match(serviceSource, /const QUOTE_WS_RECONNECT_BASE_DELAY_MS = 750/);
   assert.match(serviceSource, /const QUOTE_WS_RECONNECT_MAX_DELAY_MS = 5_000/);
@@ -37,6 +42,11 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(serviceSource, /const QUOTE_WS_WATCHDOG_INTERVAL_MS = 3_000/);
   assert.match(serviceSource, /Math\.min\([\s\S]*QUOTE_WS_RECONNECT_MAX_DELAY_MS[\s\S]*\)/);
   assert.match(serviceSource, /staleFor > QUOTE_WS_SILENT_STALE_MS/);
+  assert.match(serviceSource, /On iOS a broker WSS can open but never send ticks/);
+  assert.match(
+    serviceSource,
+    /const socketUrl = this\.url;[\s\S]*markBrokerSocketUnavailable\(socketUrl, 'silent after open'\)[\s\S]*return;[\s\S]*Silent TCP drop detected[\s\S]*this\.triggerInvisibleReconnect\(\)/,
+  );
 
   const failedBrokerSocketUrlsIndex = serviceSource.indexOf('private failedBrokerSocketUrls');
   const eagerUrlIndex = serviceSource.indexOf('private url = this.resolveSocketUrl()');
@@ -74,16 +84,37 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(queryWebsocketSource, /const restListener: LiveSymbolQuoteListener = applyQuoteTick/);
   assert.match(queryWebsocketSource, /subscribeLiveSymbolRestQuoteFallback\([\s\S]*\(\) => directQuoteTickAtRef\.current/);
   assert.match(liveQuotesSource, /const uniqueQuoteSymbolKeys = \(symbols: string\[\]\): string\[\] =>\s*Array\.from\(new Set\(symbols\.flatMap\(getSnapshotKeys\)\)\)/);
+  assert.match(liveQuotesSource, /const notifySymbolImmediately = \(symbol: string\): void => \{[\s\S]*pendingNotifySymbols\.delete\(symbol\);[\s\S]*notifySymbol\(symbol\);[\s\S]*\}/);
+  assert.match(liveQuotesSource, /export const ingestLiveQuoteTick = \(tick: QuoteTickEvent, notifyImmediately = true\): void =>/);
+  assert.match(liveQuotesSource, /scheduleSymbolNotification\(symbol, notifyImmediately\)/);
   assert.match(liveQuotesSource, /export function useLiveQuoteSubscription\(symbol: string, active: boolean\): void \{[\s\S]*quotesWsService\.subscribeToSymbol\(symbol, ingestLiveQuoteTick\)/);
   const watchlistHookStart = liveQuotesSource.indexOf('export function useWatchlistLiveQuotes');
   const snapshotHookStart = liveQuotesSource.indexOf('export function useLiveQuoteSnapshot', watchlistHookStart);
   assert.notEqual(watchlistHookStart, -1);
   assert.notEqual(snapshotHookStart, -1);
   const watchlistHookSource = liveQuotesSource.slice(watchlistHookStart, snapshotHookStart);
-  assert.match(watchlistHookSource, /quotesWsService\.addTickListener\(listener\)/);
-  assert.match(watchlistHookSource, /ingestLiveQuoteTick\(tick\)/);
+  assert.match(watchlistHookSource, /const subscriptionSymbols = useMemo\(/);
+  assert.match(watchlistHookSource, /quotesWsService\.subscribeToSymbol\(symbol, listener\)/);
+  assert.match(watchlistHookSource, /unsubscribers\.forEach\(\(unsubscribe\) => unsubscribe\(\)\)/);
+  assert.match(watchlistHookSource, /ingestLiveQuoteTick\(tick, true\)/);
   assert.match(watchlistHookSource, /useRestQuoteSnapshotFallback\(normalizedSymbols, active\)/);
-  assert.doesNotMatch(watchlistHookSource, /subscribeToSymbol/);
+  assert.match(watchlistHookSource, /return active \? subscriptionSymbols : \[\]/);
+  assert.doesNotMatch(watchlistHookSource, /addTickListener/);
+  assert.match(liveQuotesSource, /export const subscribeLiveQuoteSnapshots = \(/);
+  assert.match(
+    liveQuotesSource,
+    /subscribeLiveQuoteSnapshots[\s\S]*uniqueQuoteSymbolKeys\(symbols\)[\s\S]*subscribeSnapshot\(symbol, listener\)/,
+  );
+  assert.match(liveQuotesSource, /export const getLiveQuoteFreshnessAnchorForSymbols = \(symbols: string\[\]\): number =>/);
+  assert.match(
+    liveQuotesSource,
+    /getLiveQuoteFreshnessAnchorForSymbols[\s\S]*hasDisplayableLiveQuotePrice\(snapshot\)[\s\S]*getQuoteFreshnessAnchor\(snapshot\)/,
+  );
+  assert.match(liveQuotesSource, /export function useLiveQuoteFreshnessAnchor\(symbols: string\[\], active: boolean\): number \{/);
+  assert.match(
+    liveQuotesSource,
+    /useLiveQuoteFreshnessAnchor[\s\S]*return subscribeLiveQuoteSnapshots\(normalizedSymbols, listener\)[\s\S]*return getLiveQuoteFreshnessAnchorForSymbols\(normalizedSymbols\)/,
+  );
   assert.match(liveQuotesSource, /apiClient\([\s\S]*`\/quotes\?symbols=\$\{symbolsQuery\}`[\s\S]*isLoggedIn \? \{\} : \{ skipAuth: true, skipRefresh: true \}[\s\S]*\)/);
   assert.match(liveQuotesSource, /asQuoteSnapshotArray\(payload\)\.forEach/);
   assert.match(liveQuotesSource, /const QUOTE_REST_SNAPSHOT_STALE_MS = 2_000/);
@@ -111,11 +142,38 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(liveQuotesSource, /void loadVolumeCache\(\)/);
   assert.match(quotesScreenSource, /volumeLabel\(item\.volume \?\? item\.cachedVolume\)/);
   assert.match(quotesScreenSource, /const quoteStickyFeedActive = quoteRouteActive/);
-  assert.match(quotesScreenSource, /const quoteFeedActive =\s*quoteStickyFeedActive/);
   assert.match(quotesScreenSource, /quotesWsService\.setSubscriptions\(quoteFeedSymbols\)/);
   assert.match(
     quotesScreenSource,
-    /const liveTrackedSymbols = useWatchlistLiveQuotes\(quoteFeedSymbols, quoteFeedActive\)/,
+    /useWatchlistLiveQuotes\(quoteFeedSymbols, quoteStickyFeedActive\)/,
   );
+  assert.match(quotesScreenSource, /<TickCounter[\s\S]*active=\{quoteStickyFeedActive\}[\s\S]*symbols=\{quoteFeedSymbols\}/);
+  assert.doesNotMatch(quotesScreenSource, /const quoteFeedActive\s*=/);
+  assert.doesNotMatch(quotesScreenSource, /useSidebarQuoteFeedPaused|SIDEBAR_QUOTE_FEED_PAUSE/);
+  assert.match(quotesScreenSource, /const QUOTE_SPEED_SAMPLE_INTERVAL_MS = 250/);
+  assert.match(quotesScreenSource, /const QUOTE_SPEED_WINDOW_MS = 1_000/);
+  assert.match(quotesScreenSource, /const trackedSymbols = useMemo\([\s\S]*normalizeQuoteSymbolKey/);
+  assert.match(quotesScreenSource, /getLiveQuoteFreshnessAnchorForSymbols,\s*subscribeLiveQuoteSnapshots,/);
+  assert.match(quotesScreenSource, /const tickTimesRef = useRef<number\[\]>\(\[\]\)/);
+  assert.match(quotesScreenSource, /const snapshotTimesRef = useRef<number\[\]>\(\[\]\)/);
+  assert.match(quotesScreenSource, /tickTimesRef\.current\.push\(ts\)/);
+  assert.match(quotesScreenSource, /quotesWsService\.subscribeToSymbol\(symbol, listener\)/);
+  assert.match(quotesScreenSource, /unsubscribers\.forEach\(\(unsubscribe\) => unsubscribe\(\)\)/);
+  assert.doesNotMatch(quotesScreenSource, /quotesWsService\.addTickListener\(listener\)/);
+  assert.doesNotMatch(quotesScreenSource, /quotesWsService\.removeTickListener\(listener\)/);
+  assert.match(
+    quotesScreenSource,
+    /return subscribeLiveQuoteSnapshots\(trackedSymbols, \(\) => \{[\s\S]*const receivedAt = Date\.now\(\)[\s\S]*latestSnapshotAtRef\.current = receivedAt[\s\S]*snapshotTimesRef\.current\.push\(receivedAt\)/,
+  );
+  assert.match(quotesScreenSource, /latestSnapshotAtRef\.current = getLiveQuoteFreshnessAnchorForSymbols\(trackedSymbols\)/);
+  assert.match(quotesScreenSource, /Date\.now\(\) - QUOTE_SPEED_WINDOW_MS/);
+  assert.match(
+    quotesScreenSource,
+    /const visibleUpdateCount =[\s\S]*tickTimesRef\.current\.length > 0[\s\S]*tickTimesRef\.current\.length[\s\S]*snapshotTimesRef\.current\.length/,
+  );
+  assert.match(quotesScreenSource, /setTps\(Math\.max\(0, visibleUpdateCount\)\)/);
+  assert.match(quotesScreenSource, /Math\.max\(lastTickAtRef\.current, latestSnapshotAtRef\.current\)/);
+  assert.doesNotMatch(quotesScreenSource, /lastCountedSnapshotAtRef|useLiveQuoteFreshnessAnchor\(trackedSymbols, active\)/);
+  assert.doesNotMatch(quotesScreenSource, /lastSampledStateTicks|stateTickDelta|useTradingState\.getState\(\)\.tickCount/);
   assert.doesNotMatch(quotesScreenSource, /useLiveQuoteSubscription\(liveSymbol, feedActive\)/);
 });

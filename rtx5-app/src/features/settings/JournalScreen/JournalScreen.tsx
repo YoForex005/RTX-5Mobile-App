@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Platform,
   RefreshControl,
   ScrollView,
+  SectionList,
   StyleSheet,
   Text,
   TextInput,
@@ -43,7 +44,15 @@ type JournalActivityItem = {
   details: JournalDetail[];
 };
 
+type JournalActivitySection = {
+  heading: string;
+  data: JournalActivityItem[];
+};
+
 const FILTERS: JournalFilter[] = ['All', 'Opened', 'Modified', 'Closed', 'Notes'];
+const JOURNAL_INITIAL_RENDER_ITEMS = 6;
+const JOURNAL_RENDER_BATCH_SIZE = 6;
+const JOURNAL_WINDOW_SIZE = 5;
 
 const NOTE_SYMBOL = 'General';
 
@@ -252,15 +261,15 @@ const buildJournalActivity = (trades: TradeJournalEntry[]): JournalActivityItem[
   return items.sort((left, right) => parseDate(right.timestamp).getTime() - parseDate(left.timestamp).getTime());
 };
 
-const groupActivityByDate = (items: JournalActivityItem[]) => {
-  const groups: Array<{ heading: string; items: JournalActivityItem[] }> = [];
+const groupActivityByDate = (items: JournalActivityItem[]): JournalActivitySection[] => {
+  const groups: JournalActivitySection[] = [];
   for (const item of items) {
     const heading = formatDateHeading(item.timestamp);
     const existing = groups.find((group) => group.heading === heading);
     if (existing) {
-      existing.items.push(item);
+      existing.data.push(item);
     } else {
-      groups.push({ heading, items: [item] });
+      groups.push({ heading, data: [item] });
     }
   }
   return groups;
@@ -281,6 +290,37 @@ export function JournalScreen() {
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
   const [isNoteOpen, setIsNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState('');
+  const [drawerReady, setDrawerReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let frameId: number | null = null;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+
+    const showDrawer = () => {
+      if (!cancelled) {
+        setDrawerReady(true);
+      }
+    };
+
+    // The pushed Journal route owns a drawer too, but it is not needed for the
+    // first paint. Mount it one frame later so the activity screen opens first.
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      frameId = globalThis.requestAnimationFrame(showDrawer);
+    } else {
+      timerId = setTimeout(showDrawer, 16);
+    }
+
+    return () => {
+      cancelled = true;
+      if (frameId !== null) {
+        globalThis.cancelAnimationFrame?.(frameId);
+      }
+      if (timerId) {
+        clearTimeout(timerId);
+      }
+    };
+  }, []);
 
   const todayTrades = useMemo(
     () => trades.filter((trade) => isToday(parseDate(trade.date))).length,
@@ -386,6 +426,48 @@ export function JournalScreen() {
     setIsNoteOpen(false);
   }, [addEntry, noteText]);
 
+  const renderActivityItem = useCallback(({ item }: { item: JournalActivityItem }) => (
+    <View style={styles.timelineRow}>
+      <View style={[styles.activityCard, toneStyles.cards[item.tone]]}>
+        <View style={styles.activityTop}>
+          <View style={styles.activityTitleBlock}>
+            <Text style={styles.activityTitle}>{item.title}</Text>
+            <View style={styles.activityMetaRow}>
+              <Text style={styles.activityTime}>{formatTime(item.timestamp)}</Text>
+              {item.symbol ? <Text style={styles.symbolBadge}>{item.symbol}</Text> : null}
+            </View>
+          </View>
+          <View style={[styles.actionPill, toneStyles.pills[item.tone]]}>
+            <Text style={[styles.actionPillText, toneStyles.labels[item.tone]]}>
+              {getActivityBadgeLabel(item)}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.detailGrid}>
+          {item.details.map((detail) => (
+            <View key={`${item.id}-${detail.label}`} style={styles.detailItem}>
+              <Text style={styles.detailLabel}>{detail.label}</Text>
+              <Text
+                style={[
+                  styles.detailValue,
+                  detail.tone === 'profit' && styles.profitText,
+                  detail.tone === 'loss' && styles.lossText,
+                ]}
+                numberOfLines={2}
+              >
+                {detail.value}
+              </Text>
+            </View>
+          ))}
+        </View>
+      </View>
+    </View>
+  ), [styles, toneStyles]);
+
+  const renderActivitySectionHeader = useCallback(({ section }: { section: JournalActivitySection }) => (
+    <Text style={styles.dateHeading}>{section.heading}</Text>
+  ), [styles]);
+
   return (
     <Screen style={styles.screen}>
       <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
@@ -410,7 +492,16 @@ export function JournalScreen() {
         </View>
       </View>
 
-      <ScrollView
+      <SectionList
+        sections={groups}
+        keyExtractor={(item) => item.id}
+        renderItem={renderActivityItem}
+        renderSectionHeader={renderActivitySectionHeader}
+        stickySectionHeadersEnabled={false}
+        initialNumToRender={JOURNAL_INITIAL_RENDER_ITEMS}
+        maxToRenderPerBatch={JOURNAL_RENDER_BATCH_SIZE}
+        windowSize={JOURNAL_WINDOW_SIZE}
+        removeClippedSubviews={Platform.OS !== 'web'}
         keyboardShouldPersistTaps="always"
         canCancelContentTouches={Platform.OS === 'ios'}
         style={styles.container}
@@ -424,77 +515,79 @@ export function JournalScreen() {
             colors={[actionColor]}
           />
         )}
-      >
-        <View style={styles.summaryCard}>
-          <View style={styles.summaryHeader}>
-            <View>
-              <Text style={styles.summaryTitle}>Session Summary</Text>
-              <Text style={styles.summarySub}>Today | {lastSyncLabel}</Text>
-            </View>
-            <View style={styles.summaryStatus}>
-              <Ionicons name="shield-checkmark-outline" size={14} color={actionColor} />
-              <Text style={styles.summaryStatusText}>Audit</Text>
-            </View>
-          </View>
+        ListHeaderComponent={(
+          <>
+            <View style={styles.summaryCard}>
+              <View style={styles.summaryHeader}>
+                <View>
+                  <Text style={styles.summaryTitle}>Session Summary</Text>
+                  <Text style={styles.summarySub}>Today | {lastSyncLabel}</Text>
+                </View>
+                <View style={styles.summaryStatus}>
+                  <Ionicons name="shield-checkmark-outline" size={14} color={actionColor} />
+                  <Text style={styles.summaryStatusText}>Audit</Text>
+                </View>
+              </View>
 
-          <View style={styles.summaryMetrics}>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Today's Trades</Text>
-              <Text style={styles.summaryValue}>{todayTrades}</Text>
+              <View style={styles.summaryMetrics}>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Today's Trades</Text>
+                  <Text style={styles.summaryValue}>{todayTrades}</Text>
+                </View>
+                <View style={styles.summaryDivider} />
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Net P/L</Text>
+                  <Text style={[styles.summaryValue, todayPnl < 0 ? styles.lossText : styles.profitText]}>
+                    {formatMoney(todayPnl)}
+                  </Text>
+                </View>
+                <View style={styles.summaryDivider} />
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Win/Loss</Text>
+                  <Text style={styles.summaryValue}>{todayWins}W / {todayLosses}L</Text>
+                </View>
+              </View>
             </View>
-            <View style={styles.summaryDivider} />
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Net P/L</Text>
-              <Text style={[styles.summaryValue, todayPnl < 0 ? styles.lossText : styles.profitText]}>
-                {formatMoney(todayPnl)}
-              </Text>
-            </View>
-            <View style={styles.summaryDivider} />
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Win/Loss</Text>
-              <Text style={styles.summaryValue}>{todayWins}W / {todayLosses}L</Text>
-            </View>
-          </View>
-        </View>
 
-        <View style={styles.activityToolbar}>
-          <View>
-            <Text style={styles.activityToolbarTitle}>Activity Feed</Text>
-            <Text style={styles.activityToolbarSub}>{filteredItems.length} entries | clears at midnight</Text>
-          </View>
-          <Pressable
-            style={styles.toolbarNoteButton}
-            onPress={() => setIsNoteOpen(true)}
-            latencyLabel="journal.toolbarNote"
-          >
-            <Ionicons name="create-outline" size={15} color={actionColor} />
-            <Text style={styles.toolbarNoteText}>Note</Text>
-          </Pressable>
-        </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          keyboardShouldPersistTaps="always"
-          contentContainerStyle={styles.filterRow}
-        >
-          {FILTERS.map((item) => {
-            const active = filter === item;
-            return (
+            <View style={styles.activityToolbar}>
+              <View>
+                <Text style={styles.activityToolbarTitle}>Activity Feed</Text>
+                <Text style={styles.activityToolbarSub}>{filteredItems.length} entries | clears at midnight</Text>
+              </View>
               <Pressable
-                key={item}
-                style={[styles.filterChip, active && styles.filterChipActive]}
-                onPress={() => setFilter(item)}
-                latencyLabel={`journal.filter.${item}`}
+                style={styles.toolbarNoteButton}
+                onPress={() => setIsNoteOpen(true)}
+                latencyLabel="journal.toolbarNote"
               >
-                <Text style={[styles.filterText, active && styles.filterTextActive]}>{item}</Text>
-                <Text style={[styles.filterCount, active && styles.filterTextActive]}>{filterCounts[item]}</Text>
+                <Ionicons name="create-outline" size={15} color={actionColor} />
+                <Text style={styles.toolbarNoteText}>Note</Text>
               </Pressable>
-            );
-          })}
-        </ScrollView>
+            </View>
 
-        {groups.length === 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="always"
+              contentContainerStyle={styles.filterRow}
+            >
+              {FILTERS.map((item) => {
+                const active = filter === item;
+                return (
+                  <Pressable
+                    key={item}
+                    style={[styles.filterChip, active && styles.filterChipActive]}
+                    onPress={() => setFilter(item)}
+                    latencyLabel={`journal.filter.${item}`}
+                  >
+                    <Text style={[styles.filterText, active && styles.filterTextActive]}>{item}</Text>
+                    <Text style={[styles.filterCount, active && styles.filterTextActive]}>{filterCounts[item]}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </>
+        )}
+        ListEmptyComponent={(
           <View style={styles.emptyCard}>
             <View style={styles.emptyIcon}>
               <Ionicons name="reader-outline" size={22} color={T.textMuted} />
@@ -502,62 +595,18 @@ export function JournalScreen() {
             <Text style={styles.emptyTitle}>{emptyMessage}</Text>
             <Text style={styles.emptySub}>Actions will appear here after trades are opened, modified, closed, or noted.</Text>
           </View>
-        ) : (
-          groups.map((group) => (
-            <View key={group.heading} style={styles.dateGroup}>
-              <Text style={styles.dateHeading}>{group.heading}</Text>
-              <View style={styles.timeline}>
-                {group.items.map((item) => (
-                  <View key={item.id} style={styles.timelineRow}>
-                    <View style={[styles.activityCard, toneStyles.cards[item.tone]]}>
-                      <View style={styles.activityTop}>
-                        <View style={styles.activityTitleBlock}>
-                          <Text style={styles.activityTitle}>{item.title}</Text>
-                          <View style={styles.activityMetaRow}>
-                            <Text style={styles.activityTime}>{formatTime(item.timestamp)}</Text>
-                            {item.symbol ? <Text style={styles.symbolBadge}>{item.symbol}</Text> : null}
-                          </View>
-                        </View>
-                        <View style={[styles.actionPill, toneStyles.pills[item.tone]]}>
-                          <Text style={[styles.actionPillText, toneStyles.labels[item.tone]]}>
-                            {getActivityBadgeLabel(item)}
-                          </Text>
-                        </View>
-                      </View>
-                      <View style={styles.detailGrid}>
-                        {item.details.map((detail) => (
-                          <View key={`${item.id}-${detail.label}`} style={styles.detailItem}>
-                            <Text style={styles.detailLabel}>{detail.label}</Text>
-                            <Text
-                              style={[
-                                styles.detailValue,
-                                detail.tone === 'profit' && styles.profitText,
-                                detail.tone === 'loss' && styles.lossText,
-                              ]}
-                              numberOfLines={2}
-                            >
-                              {detail.value}
-                            </Text>
-                          </View>
-                        ))}
-                      </View>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            </View>
-          ))
         )}
-
-        <Pressable
-          style={[styles.addNoteButton, styles.addNoteButtonSecondary]}
-          onPress={() => setIsNoteOpen(true)}
-          latencyLabel="journal.addNote"
-        >
-          <Ionicons name="add-circle-outline" size={18} color={actionColor} />
-          <Text style={styles.addNoteText}>Add Note</Text>
-        </Pressable>
-      </ScrollView>
+        ListFooterComponent={(
+          <Pressable
+            style={[styles.addNoteButton, styles.addNoteButtonSecondary]}
+            onPress={() => setIsNoteOpen(true)}
+            latencyLabel="journal.addNote"
+          >
+            <Ionicons name="add-circle-outline" size={18} color={actionColor} />
+            <Text style={styles.addNoteText}>Add Note</Text>
+          </Pressable>
+        )}
+      />
 
       {isNoteOpen ? (
         <View style={styles.noteOverlay}>
@@ -593,7 +642,7 @@ export function JournalScreen() {
       {/* Own drawer instance so the hamburger works on this pushed route — the
           (tabs) drawer is below this screen and would open invisibly. Matches
           AboutScreen / UserGuideScreen. */}
-      <SidebarDrawer />
+      {drawerReady ? <SidebarDrawer /> : null}
     </Screen>
   );
 }

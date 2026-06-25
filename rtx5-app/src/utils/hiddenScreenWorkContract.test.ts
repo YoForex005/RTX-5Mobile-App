@@ -84,7 +84,7 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.match(chartSource, /import \{ useDeferredActiveFlag \} from '\.\.\/\.\.\/hooks\/useDeferredActiveFlag'/);
   assert.match(chartSource, /import \{ scheduleIdleWork \} from '\.\.\/\.\.\/utils\/startupScheduler'/);
   assert.match(chartSource, /const CHART_RUNTIME_ACTIVE_DELAY_MS = 0/);
-  assert.match(chartSource, /const CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS = 16/);
+  assert.match(chartSource, /const CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS = 0/);
   assert.match(chartSource, /const CHART_FOCUS_WORK_DELAY_MS = 650/);
   assert.match(chartSource, /const CHART_SURFACE_MOUNT_DELAY_MS = 650/);
   assert.match(chartSource, /const chartRuntimeActive = useDeferredActiveFlag\(isChartRouteActive, CHART_RUNTIME_ACTIVE_DELAY_MS\)/);

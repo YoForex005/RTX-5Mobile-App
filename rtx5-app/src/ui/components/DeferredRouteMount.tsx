@@ -7,6 +7,7 @@ type DeferredRouteMountProps = {
 type DeferredRouteModuleProps = {
   load: () => Promise<ComponentType>;
   cacheKey?: string;
+  fallback?: ReactNode;
 };
 
 const ROUTE_MODULE_LOAD_DELAY_MS = 0;
@@ -31,10 +32,17 @@ export function preloadDeferredRouteModule(
     return cached.promise;
   }
 
-  const promise = load().then((Component) => {
-    routeModuleCache.set(cacheKey, { component: Component });
-    return Component;
-  });
+  const promise = load()
+    .then((Component) => {
+      routeModuleCache.set(cacheKey, { component: Component });
+      return Component;
+    })
+    .catch((error) => {
+      if (routeModuleCache.get(cacheKey)?.promise === promise) {
+        routeModuleCache.delete(cacheKey);
+      }
+      throw error;
+    });
   routeModuleCache.set(cacheKey, { promise });
   return promise;
 }
@@ -161,7 +169,7 @@ export function DeferredRouteScreen({
   return <Screen />;
 }
 
-export function DeferredRouteModule({ load, cacheKey }: DeferredRouteModuleProps) {
+export function DeferredRouteModule({ load, cacheKey, fallback = null }: DeferredRouteModuleProps) {
   const [RouteComponent, setRouteComponent] = useState<ComponentType | null>(() => (
     cacheKey ? routeModuleCache.get(cacheKey)?.component ?? null : null
   ));
@@ -176,11 +184,13 @@ export function DeferredRouteModule({ load, cacheKey }: DeferredRouteModuleProps
       const routeModule = cacheKey
         ? preloadDeferredRouteModule(cacheKey, load)
         : load();
-      void routeModule.then((Component) => {
-        if (!cancelled) {
-          setRouteComponent(() => Component);
-        }
-      });
+      void routeModule
+        .then((Component) => {
+          if (!cancelled) {
+            setRouteComponent(() => Component);
+          }
+        })
+        .catch(() => undefined);
     }, ROUTE_MODULE_LOAD_DELAY_MS);
 
     return () => {
@@ -190,7 +200,7 @@ export function DeferredRouteModule({ load, cacheKey }: DeferredRouteModuleProps
   }, [RouteComponent, cacheKey, load]);
 
   if (!RouteComponent) {
-    return null;
+    return <>{fallback}</>;
   }
 
   return <RouteComponent />;

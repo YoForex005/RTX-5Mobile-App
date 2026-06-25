@@ -237,18 +237,42 @@ test('chart trade one-click and ticket paths keep heavy work out of the tap pain
   assert.doesNotMatch(chartTradeHandlerSource, /usePlaceOrderMutation/);
 });
 
-test('trade success feedback uses compact strips without device vibration', () => {
+test('trade buy/sell success feedback uses the shared popup without device vibration', () => {
   const ticketSource = readSource('src/features/trade/OrderTicketScreen.tsx');
+  const chartSource = readSource('src/features/chart/ChartScreen.native.tsx');
   const feedbackModalSource = readSource('src/ui/components/TradeFeedbackModal.tsx');
+  const chartResultStart = chartSource.indexOf('const handleChartTradeResult = useCallback');
+  const chartResultEnd = chartSource.indexOf('const [showSignalDetails', chartResultStart);
+  assert.notEqual(chartResultStart, -1);
+  assert.notEqual(chartResultEnd, -1);
+  const chartResultSource = chartSource.slice(chartResultStart, chartResultEnd);
 
   assert.doesNotMatch(ticketSource, /\bVibration\b|\.vibrate\(/);
+  assert.doesNotMatch(chartSource, /\bVibration\b|\.vibrate\(/);
   assert.doesNotMatch(feedbackModalSource, /\bVibration\b|\.vibrate\(/);
   assert.match(ticketSource, /without device vibration/);
   assert.match(ticketSource, /const \[tradeConfirmations, setTradeConfirmations\] = useState<OrderTicketTradeConfirmation\[\]>/);
-  assert.match(ticketSource, /showTradeConfirmation\(\{ side: requestedSide, symbol, volume \}\)/);
+  assert.match(ticketSource, /Market BUY\/SELL executions and broker rejections share the same detailed popup/);
+  assert.match(
+    ticketSource,
+    /const successFeedback: TradeFeedbackState = \{[\s\S]*visible:\s*true,[\s\S]*type:\s*'success'[\s\S]*side:\s*requestedSide[\s\S]*symbol:\s*displaySymbol[\s\S]*volume,[\s\S]*executedAt:\s*new Date\(\)\.toLocaleTimeString\(\)[\s\S]*if \(positionTicket\) \{[\s\S]*successFeedback\.ticket = String\(positionTicket\);[\s\S]*if \(Number\.isFinite\(executionPrice\)\) \{[\s\S]*successFeedback\.price = executionPrice;[\s\S]*showModal\(successFeedback\)/,
+  );
+  assert.doesNotMatch(ticketSource, /showTradeConfirmation\(\{ side: requestedSide/);
   assert.match(ticketSource, /showTradeConfirmation\(\{ side: pendingSideValue, symbol, volume \}\)/);
-  assert.match(ticketSource, /Error modal overlay for rejected order feedback/);
-  assert.doesNotMatch(ticketSource, /showModal\(\{\s*visible:\s*true,\s*type:\s*'success'/);
+  assert.match(ticketSource, /Shared modal overlay for market execution success and rejected order feedback/);
+  assert.match(feedbackModalSource, /import \{ View, Text, Animated, StyleSheet, Modal \} from ["']react-native["']/);
+  assert.match(
+    feedbackModalSource,
+    /<Modal[\s\S]*visible=\{state\.visible\}[\s\S]*transparent[\s\S]*animationType="none"[\s\S]*presentationStyle="overFullScreen"[\s\S]*statusBarTranslucent[\s\S]*onRequestClose=\{onClose\}[\s\S]*<View style=\{tfmStyles\.overlay\}/,
+  );
+  assert.match(feedbackModalSource, /const successTitle = sideLabel[\s\S]*`\$\{sideLabel\} Order Executed`[\s\S]*["']Order Executed["']/);
+  assert.match(feedbackModalSource, /tfmStyles\.priceCard[\s\S]*tfmStyles\.detailsGrid[\s\S]*View Position/);
+  assert.match(
+    chartResultSource,
+    /if \(feedback\.type !== 'success'\) \{[\s\S]*setTradeFeedback\(feedback\);[\s\S]*return;[\s\S]*\}[\s\S]*setTradeFeedback\(feedback\);[\s\S]*refreshPositions\(String\(accountLogin\)\)[\s\S]*refetchOrders\(\)[\s\S]*refetchAccountSummary\(\)/,
+  );
+  assert.doesNotMatch(chartResultSource, /setChartTradeConfirmations/);
+  assert.doesNotMatch(chartSource, /ChartTradeConfirmation|CHART_TRADE_CONFIRMATION|chartTradeConfirmationStack|chartTradeConfirmationDone/);
 });
 
 test('action destination routes are warmed in non-blocking batches', () => {
@@ -258,6 +282,10 @@ test('action destination routes are warmed in non-blocking batches', () => {
   assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_BATCH_SIZE = 8/);
   assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_BATCH_DELAY_MS = 16/);
   assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_INITIAL_DELAY_MS = 0/);
+  assert.match(warmupSource, /const ACTION_DEFERRED_MODULE_WARMUP_DELAY_MS = 180/);
+  assert.match(warmupSource, /ACTION_DEFERRED_MODULE_WARMUPS/);
+  assert.match(warmupSource, /JOURNAL_ROUTE_CACHE_KEY/);
+  assert.match(warmupSource, /preloadDeferredRouteModule\(module\.cacheKey, module\.load\)/);
   assert.match(warmupSource, /requestAnimationFrame/);
   assert.match(warmupSource, /\/quotes/);
   assert.match(warmupSource, /\/chart/);

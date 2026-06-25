@@ -99,6 +99,23 @@ test('canonical live stream uses quote ticks only through the managed active-can
   assert.match(source, /ingestLiveCandle\(rawCandle: unknown, symbol\?: string, timeframe\?: string\): void/);
 });
 
+test('canonical live stream flushes quote-fed candle ticks at frame speed', () => {
+  assert.match(source, /export const FLUSH_INTERVAL_MS = 16/);
+  assert.match(source, /flushFrame: number \| null/);
+  assert.match(source, /globalThis\.requestAnimationFrame\(flushPendingEvents\)/);
+  assert.match(source, /setTimeout\(flushPendingEvents, FLUSH_INTERVAL_MS\)/);
+});
+
+test('live candle hook keeps quote socket demand active for fast forming candles', () => {
+  const hookSource = readRepoSource('src/domain/candles/hooks/useLiveCandles.ts');
+
+  assert.match(hookSource, /import \{ quotesWsService \} from '\.\.\/\.\.\/\.\.\/api\/ws\/quotesSocket'/);
+  assert.match(hookSource, /Keep the quote socket on for this chart too/);
+  assert.match(hookSource, /feeds the forming candle, so this makes candles move as fast as bid\/ask/);
+  assert.match(hookSource, /const unsubscribeQuoteDemand = quotesWsService\.subscribeToSymbol\(symbol, \(\) => \{\}\)/);
+  assert.match(hookSource, /unsubscribeQuoteDemand\(\);[\s\S]*unsubscribeEngine\(\);[\s\S]*candlesWsService\.unsubscribe/);
+});
+
 test('backend candle cache bootstrap does not reject valid intraday gaps', () => {
   const domainSource = readRepoSource('src/domain/candles/core/candles.ts');
   const querySource = readRepoSource('src/query/websocket.ts');

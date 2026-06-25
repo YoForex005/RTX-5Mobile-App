@@ -133,6 +133,15 @@ const formatBrokerInitials = (name: string) => {
 type BrokerLogoIndex = {
   byBrokerId: Map<string, string>;
   byServerUrl: Map<string, string>;
+  byBrokerName: Map<string, string>;
+  byServerName: Map<string, string>;
+};
+
+type BrokerLogoIdentity = {
+  brokerId?: string | null;
+  serverUrl?: string | null;
+  brokerName?: string | null;
+  serverName?: string | null;
 };
 
 const normalizeBrokerLogoUrl = (logoUrl?: string | null) => String(logoUrl ?? '').trim();
@@ -140,9 +149,41 @@ const normalizeBrokerLogoUrl = (logoUrl?: string | null) => String(logoUrl ?? ''
 const normalizeBrokerLogoBrokerId = (brokerId?: string | null) =>
   String(brokerId ?? '').trim().toLowerCase();
 
+const normalizeBrokerLogoLookupText = (value?: string | null) =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ');
+
+const addBrokerLogoLookup = (
+  map: Map<string, string>,
+  candidate: string | null | undefined,
+  logoUrl: string,
+) => {
+  const key = normalizeBrokerLogoLookupText(candidate);
+  if (key && !map.has(key)) {
+    map.set(key, logoUrl);
+  }
+};
+
+const findBrokerLogoLookup = (
+  map: Map<string, string>,
+  ...candidates: Array<string | null | undefined>
+) => {
+  for (const candidate of candidates) {
+    const key = normalizeBrokerLogoLookupText(candidate);
+    const logoUrl = key ? map.get(key) : undefined;
+    if (logoUrl) return logoUrl;
+  }
+  return '';
+};
+
 const buildBrokerLogoIndex = (brokerServers?: readonly BrokerServer[]): BrokerLogoIndex => {
   const byBrokerId = new Map<string, string>();
   const byServerUrl = new Map<string, string>();
+  const byBrokerName = new Map<string, string>();
+  const byServerName = new Map<string, string>();
 
   for (const broker of brokerServers ?? []) {
     if (broker.enabled === false) continue;
@@ -153,6 +194,12 @@ const buildBrokerLogoIndex = (brokerServers?: readonly BrokerServer[]): BrokerLo
     if (brokerId && !byBrokerId.has(brokerId)) {
       byBrokerId.set(brokerId, logoUrl);
     }
+    addBrokerLogoLookup(byBrokerName, broker.broker_id, logoUrl);
+    addBrokerLogoLookup(byBrokerName, broker.broker_name, logoUrl);
+    addBrokerLogoLookup(byServerName, broker.server, logoUrl);
+    addBrokerLogoLookup(byServerName, broker.server_domain, logoUrl);
+    addBrokerLogoLookup(byServerName, broker.services_domain, logoUrl);
+    addBrokerLogoLookup(byServerName, broker.domain_name, logoUrl);
 
     const serverCandidates = [
       resolveBrokerServiceBaseUrl(broker),
@@ -174,13 +221,12 @@ const buildBrokerLogoIndex = (brokerServers?: readonly BrokerServer[]): BrokerLo
     }
   }
 
-  return { byBrokerId, byServerUrl };
+  return { byBrokerId, byServerUrl, byBrokerName, byServerName };
 };
 
 const resolveAccountBrokerLogoUrl = (
   logoIndex: BrokerLogoIndex,
-  brokerId?: string | null,
-  serverUrl?: string | null,
+  identity: BrokerLogoIdentity,
   ...preferredLogoUrls: Array<string | null | undefined>
 ) => {
   for (const preferredLogoUrl of preferredLogoUrls) {
@@ -188,11 +234,25 @@ const resolveAccountBrokerLogoUrl = (
     if (logoUrl) return logoUrl;
   }
 
-  const brokerLogo = logoIndex.byBrokerId.get(normalizeBrokerLogoBrokerId(brokerId));
+  const brokerLogo = logoIndex.byBrokerId.get(normalizeBrokerLogoBrokerId(identity.brokerId));
   if (brokerLogo) return brokerLogo;
 
-  const normalizedServerUrl = normalizeBrokerServerUrl(serverUrl);
-  return normalizedServerUrl ? logoIndex.byServerUrl.get(normalizedServerUrl) ?? '' : '';
+  const normalizedServerUrl = normalizeBrokerServerUrl(identity.serverUrl);
+  const serverLogo = normalizedServerUrl ? logoIndex.byServerUrl.get(normalizedServerUrl) : '';
+  if (serverLogo) return serverLogo;
+
+  const brokerNameLogo = findBrokerLogoLookup(
+    logoIndex.byBrokerName,
+    identity.brokerName,
+    identity.brokerId,
+  );
+  if (brokerNameLogo) return brokerNameLogo;
+
+  return findBrokerLogoLookup(
+    logoIndex.byServerName,
+    identity.serverName,
+    identity.serverUrl,
+  );
 };
 
 const isMissingSavedAccountSwitchError = (error: unknown) => {
@@ -298,10 +358,14 @@ export function AccountsScreen() {
   const brokerLogoIndex = useMemo(() => buildBrokerLogoIndex(brokerServers), [brokerServers]);
   const activeBrokerLogoUrl = resolveAccountBrokerLogoUrl(
     brokerLogoIndex,
-    brokerId,
-    brokerServerUrl,
-    brokerConfig?.logo_url,
+    {
+      brokerId,
+      serverUrl: brokerServerUrl,
+      brokerName: brokerConfig?.broker_name,
+      serverName: brokerConfig?.server_name,
+    },
     brokerLogoUrl,
+    brokerConfig?.logo_url,
   );
 
   // Find the active account by matching the login from Zustand state
@@ -335,8 +399,27 @@ export function AccountsScreen() {
       const key = `${sa.brokerId}:${sa.login}`;
       if (key === activeKey) continue;
       const savedLogoUrl = sa.brokerId === activeBrokerId
-        ? resolveAccountBrokerLogoUrl(brokerLogoIndex, sa.brokerId, sa.serverUrl, activeBrokerLogoUrl, sa.logoUrl)
-        : resolveAccountBrokerLogoUrl(brokerLogoIndex, sa.brokerId, sa.serverUrl, sa.logoUrl);
+        ? resolveAccountBrokerLogoUrl(
+            brokerLogoIndex,
+            {
+              brokerId: sa.brokerId,
+              serverUrl: sa.serverUrl,
+              brokerName: sa.server,
+              serverName: sa.server,
+            },
+            sa.logoUrl,
+            activeBrokerLogoUrl,
+          )
+        : resolveAccountBrokerLogoUrl(
+            brokerLogoIndex,
+            {
+              brokerId: sa.brokerId,
+              serverUrl: sa.serverUrl,
+              brokerName: sa.server,
+              serverName: sa.server,
+            },
+            sa.logoUrl,
+          );
       map.set(key, {
         key,
         login: sa.login,
@@ -361,10 +444,14 @@ export function AccountsScreen() {
       const rowServerUrl = existing?.serverUrl || brokerServerUrl;
       const rowLogoUrl = resolveAccountBrokerLogoUrl(
         brokerLogoIndex,
-        activeBrokerId,
-        rowServerUrl,
-        activeBrokerLogoUrl,
+        {
+          brokerId: activeBrokerId,
+          serverUrl: rowServerUrl,
+          brokerName: brokerConfig?.broker_name,
+          serverName: existing?.server || brokerConfig?.server_name,
+        },
         existing?.logoUrl,
+        activeBrokerLogoUrl,
       );
       map.set(key, {
         key,
@@ -386,7 +473,7 @@ export function AccountsScreen() {
       if (!!a.liveAccount !== !!b.liveAccount) return a.liveAccount ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
-  }, [accounts, activeBrokerId, activeKey, activeBrokerLogoUrl, brokerConfig?.server_name, brokerLogoIndex, brokerServerUrl, savedAccounts]);
+  }, [accounts, activeBrokerId, activeKey, activeBrokerLogoUrl, brokerConfig?.broker_name, brokerConfig?.server_name, brokerLogoIndex, brokerServerUrl, savedAccounts]);
 
   // Backfill the active session into the directory so accounts that were
   // logged in before this feature shipped (or pre-existing sessions on first
@@ -401,13 +488,14 @@ export function AccountsScreen() {
     const snapshot = buildSavedAccountSnapshot(activeAccount);
     const nextName = activeAccount.name || `Account ${activeLoginStr}`;
     const nextServer = brokerConfig?.server_name || activeBrokerId;
+    const nextLogoUrl = activeBrokerLogoUrl || existing?.logoUrl || '';
     const nextType = getTradingAccountType(activeAccount.group);
     if (
       existing
       && existing.name === nextName
       && existing.server === nextServer
       && existing.serverUrl === brokerServerUrl
-      && existing.logoUrl === activeBrokerLogoUrl
+      && existing.logoUrl === nextLogoUrl
       && existing.accountType === nextType
       && areSavedAccountSnapshotsEqual(existing.snapshot, snapshot)
     ) {
@@ -419,7 +507,7 @@ export function AccountsScreen() {
       brokerId: activeBrokerId,
       server: nextServer,
       serverUrl: brokerServerUrl,
-      logoUrl: activeBrokerLogoUrl,
+      logoUrl: nextLogoUrl,
       accountType: nextType,
       lastUsedAt: existing?.lastUsedAt ?? Date.now(),
       hasCredentials: existing?.hasCredentials ?? false,

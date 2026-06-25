@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import test from 'node:test';
 
 import {
@@ -30,6 +32,7 @@ const wideLotBounds = { minVolume: 0.01, maxVolume: 10, stepVolume: 0.01 };
 const activeLotRangeLabels = (selectedMultiplier: number, mode: 'increase' | 'decrease' = 'increase') =>
   buildFooterLotPickerValues(mode === 'increase' ? 0.01 : 10, mode, wideLotBounds, selectedMultiplier)
     .map((option: any) => option.label);
+const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
 test('resolveFooterLotCommitDraft prefers the latest non-empty override', () => {
   assert.equal(
@@ -73,6 +76,38 @@ test('resolveFooterLotCommitDraft returns blank only when every source is blank'
     }),
     '',
   );
+});
+
+test('chart footer lot editor has an iOS Apply accessory and stable focus retry', () => {
+  const tradeButtonsSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/ChartTradeButtonsFeature.tsx');
+  const chartScreenSource = readSource('src/features/chart/ChartScreen.native.tsx');
+
+  assert.match(tradeButtonsSource, /InputAccessoryView/);
+  assert.match(tradeButtonsSource, /const IOS_LOT_INPUT_ACCESSORY_ID = 'chart-trade-lot-input-accessory'/);
+  assert.match(
+    tradeButtonsSource,
+    /inputAccessoryViewID=\{Platform\.OS === 'ios' \? IOS_LOT_INPUT_ACCESSORY_ID : undefined\}/,
+  );
+  assert.match(tradeButtonsSource, /<InputAccessoryView nativeID=\{IOS_LOT_INPUT_ACCESSORY_ID\}>/);
+  assert.match(tradeButtonsSource, /testID="chart-trade-lot-ios-apply-button"/);
+  assert.match(tradeButtonsSource, /onPress=\{handleLotAccessoryApply\}/);
+  assert.match(chartScreenSource, /const maxAttempts = 8/);
+});
+
+test('chart footer floating lot dock does not add an extra iOS keyboard gap', () => {
+  const chartTradeFeatureSource = readSource('src/features/chart/components/ChartTradeFeature.tsx');
+
+  assert.doesNotMatch(chartTradeFeatureSource, /FOOTER_TRADE_DOCK_EDIT_GAP/);
+  assert.doesNotMatch(chartTradeFeatureSource, /footerTradeRowKeyboardOffset \+ tradeFooterDockEditGap/);
+});
+
+test('chart footer keeps inline row height reserved while iOS floating lot dock is active', () => {
+  const chartTradeFeatureSource = readSource('src/features/chart/components/ChartTradeFeature.tsx');
+
+  assert.match(chartTradeFeatureSource, /COMPACT_TRADE_FOOTER_ROW_HEIGHT/);
+  assert.match(chartTradeFeatureSource, /INLINE_FOOTER_TRADE_ROW_RESERVE_STYLE = \{ height: COMPACT_TRADE_FOOTER_ROW_HEIGHT \}/);
+  assert.match(chartTradeFeatureSource, /const shouldPreserveInlineFooterSpace = showFloatingFooterTradeRow && !hideInlineTradeRow/);
+  assert.match(chartTradeFeatureSource, /<View pointerEvents="none" style=\{INLINE_FOOTER_TRADE_ROW_RESERVE_STYLE\} \/>/);
 });
 
 test('resolveFooterLotChevronState disables only lot decrease at the minimum volume', () => {
@@ -475,7 +510,7 @@ test('resolveFooterTradeDockBottom keeps normal floating rows on the reported ke
   );
 });
 
-test('resolveFooterTradeDockBottom adds the focused edit gap on iOS only after keyboard offset is known', () => {
+test('resolveFooterTradeDockBottom keeps iOS lot editor on the measured keyboard overlap', () => {
   assert.equal(
     resolveFooterTradeDockBottom({
       platform: 'ios',
@@ -484,7 +519,7 @@ test('resolveFooterTradeDockBottom adds the focused edit gap on iOS only after k
       showInlineFooterDock: false,
       footerTradeRowKeyboardOffset: 288,
     }),
-    333,
+    288,
   );
 });
 
@@ -498,7 +533,7 @@ test('resolveFooterTradeDockBottom docks iOS lot editing from measured keyboard 
       footerTradeRowKeyboardOffset: 76,
       keyboardVisibleHeight: 312,
     }),
-    121,
+    76,
   );
 });
 

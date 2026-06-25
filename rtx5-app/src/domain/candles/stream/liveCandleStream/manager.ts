@@ -410,6 +410,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       abortController: null,
       bufferedEvents: [],
       pendingEvents: [],
+      flushFrame: null,
       flushTimer: null,
       eventOrder: 0,
       historyRetryTimer: null,
@@ -458,6 +459,12 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     }
 
     entry.abortController?.abort();
+    if (entry.flushFrame !== null) {
+      if (typeof globalThis.cancelAnimationFrame === 'function') {
+        globalThis.cancelAnimationFrame(entry.flushFrame);
+      }
+      entry.flushFrame = null;
+    }
     if (entry.flushTimer) {
       clearTimeout(entry.flushTimer);
       entry.flushTimer = null;
@@ -497,11 +504,12 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
   }
 
   private scheduleFlush(entry: StreamEntry): void {
-    if (entry.flushTimer) {
+    if (entry.flushFrame !== null || entry.flushTimer) {
       return;
     }
 
-    entry.flushTimer = setTimeout(() => {
+    const flushPendingEvents = () => {
+      entry.flushFrame = null;
       entry.flushTimer = null;
       const live = this.entries.get(entry.key);
       if (!live || live.pendingEvents.length === 0) {
@@ -515,7 +523,16 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       if (changed) {
         this.commit(live);
       }
-    }, FLUSH_INTERVAL_MS);
+    };
+
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      // Paint the latest quote-fed candle on the next frame, same as the fast
+      // bid/ask UI, while still merging multiple ticks into one chart update.
+      entry.flushFrame = globalThis.requestAnimationFrame(flushPendingEvents);
+      return;
+    }
+
+    entry.flushTimer = setTimeout(flushPendingEvents, FLUSH_INTERVAL_MS);
   }
 
   private applyQuoteTickExtension(

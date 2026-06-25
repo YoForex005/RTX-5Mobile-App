@@ -8,7 +8,7 @@ import Constants from 'expo-constants';
 import { usePathname, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useMemo, useState } from 'react';
 import {
-  Alert, Animated, BackHandler, Easing, Linking, ScrollView, StyleSheet, Text, View,
+  Alert, Animated, BackHandler, Easing, Image, Linking, ScrollView, StyleSheet, Text, View,
   Platform
 } from 'react-native';
 import { GDark, GLight, ThemeColors } from '../theme/glass';
@@ -70,16 +70,6 @@ function scheduleNextFrame(action: () => void) {
   setTimeout(action, 0);
 }
 
-function scheduleAfterPressPaint(action: () => void) {
-  if (typeof globalThis.requestAnimationFrame === 'function') {
-    globalThis.requestAnimationFrame(() => {
-      globalThis.requestAnimationFrame(action);
-    });
-    return;
-  }
-  setTimeout(action, 32);
-}
-
 function normalizeSidebarPath(path: string) {
   return path.replace(/\/\([^)]*\)/g, '') || '/';
 }
@@ -101,6 +91,7 @@ export function SidebarDrawer() {
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const brokerId = useUserPreferences((s) => s.brokerId);
+  const brokerLogoUrl = useUserPreferences((s) => s.brokerLogoUrl);
   const sidebarProfileDataActive = useDeferredActiveFlag(interactive && isLoggedIn, SIDEBAR_PROFILE_DATA_DELAY_MS);
   const { data: brokerConfig } = useBrokerConfig(brokerId, sidebarProfileDataActive && !!brokerId);
   const isDark = themeMode === 'dark';
@@ -109,6 +100,11 @@ export function SidebarDrawer() {
   const appName = Constants.expoConfig?.name ?? 'RTX5';
   const nativeAppVersion = Constants.expoConfig?.version ?? 'Local';
   const appVersion = resolveAppDisplayVersion(nativeAppVersion);
+  const activeBrokerLogoUrl = useMemo(
+    () => (isLoggedIn ? brokerLogoUrl.trim() : ''),
+    [brokerLogoUrl, isLoggedIn],
+  );
+  const [brokerLogoFailed, setBrokerLogoFailed] = useState(false);
 
   const slideAnim = useRef(new Animated.Value(initialSidebarOpenRef.current ? 0 : DRAWER_CLOSED_TRANSLATE_X)).current;
   const overlayAnim = useRef(new Animated.Value(initialSidebarOpenRef.current ? 1 : 0)).current;
@@ -144,6 +140,10 @@ export function SidebarDrawer() {
       navigationUnlockTimerRef.current = null;
     }
   }, []);
+
+  useEffect(() => {
+    setBrokerLogoFailed(false);
+  }, [activeBrokerLogoUrl]);
 
   /* Keep the drawer warm offscreen so opening only has to run native-driver motion. */
   const startOpenAnimation = useCallback(() => {
@@ -266,6 +266,31 @@ export function SidebarDrawer() {
     }, SIDEBAR_NAVIGATION_LOCK_MS);
   }, []);
 
+  const snapClosedForNavigation = useCallback(() => {
+    // Route taps should show the destination immediately. The drawer is below
+    // pushed sidebar routes, so snap it closed before navigation instead of
+    // making the tap wait for the close animation.
+    animatedVisibleRef.current = false;
+    isClosingRef.current = false;
+    slideAnim.stopAnimation();
+    overlayAnim.stopAnimation();
+    slideAnim.setValue(DRAWER_CLOSED_TRANSLATE_X);
+    overlayAnim.setValue(0);
+    hideInteractiveNow();
+    onClose();
+  }, [hideInteractiveNow, onClose, overlayAnim, slideAnim]);
+
+  const runSidebarNavigation = useCallback((route: string) => {
+    if (SIDEBAR_STACK_ROUTES.has(route) || shouldPushSidebarRoute(route)) {
+      // Push detail routes over the (tabs) navigator so it, and the warm chart
+      // WebView, stays mounted; BACK is then an instant pop, not a remount.
+      router.push(route as any);
+      return;
+    }
+
+    router.navigate(route as any);
+  }, [router]);
+
   const navigateSidebarRoute = useCallback((route: string) => {
     if (navigationLockedRef.current) {
       return;
@@ -277,23 +302,20 @@ export function SidebarDrawer() {
     const currentPath = normalizeSidebarPath(pathname);
     const shouldNavigate = currentPath !== targetPath;
 
-    handleClose(() => {
-      unlockSidebarNavigation();
+    if (!shouldNavigate) {
+      handleClose(() => {
+        unlockSidebarNavigation();
+      });
+      return;
+    }
 
-      if (shouldNavigate) {
-        scheduleAfterPressPaint(() => {
-          if (SIDEBAR_STACK_ROUTES.has(route) || shouldPushSidebarRoute(route)) {
-            // Push detail routes over the (tabs) navigator so it, and the warm
-            // chart WebView, stays mounted; BACK is then an instant pop, not a
-            // full tab re-mount.
-            router.push(route as any);
-          } else {
-            router.navigate(route as any);
-          }
-        });
-      }
-    });
-  }, [handleClose, pathname, router, unlockSidebarNavigation]);
+    snapClosedForNavigation();
+    try {
+      runSidebarNavigation(route);
+    } finally {
+      unlockSidebarNavigation();
+    }
+  }, [handleClose, pathname, runSidebarNavigation, snapClosedForNavigation, unlockSidebarNavigation]);
 
   const openSupportEmail = useCallback(async () => {
     const mailtoUrl = buildHelpMailto({
@@ -364,7 +386,17 @@ export function SidebarDrawer() {
           <View style={ds.profileHeader}>
             <View style={ds.profileRow}>
               <View style={ds.avatarWrap}>
-                <AppLogo style={ds.avatarImage} />
+                {activeBrokerLogoUrl && !brokerLogoFailed ? (
+                  <Image
+                    accessibilityLabel="Broker logo"
+                    resizeMode="cover"
+                    source={{ uri: activeBrokerLogoUrl }}
+                    style={ds.avatarImage}
+                    onError={() => setBrokerLogoFailed(true)}
+                  />
+                ) : (
+                  <AppLogo style={ds.avatarImage} />
+                )}
               </View>
               {isLoggedIn && accountDetails ? (
                 <View style={ds.profileText}>
