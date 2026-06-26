@@ -1,5 +1,9 @@
 import { normalizeSymbol, normalizeTimeframeStrict } from '../core/candles';
-import { buildBrokerWsUrl, normalizeConfiguredWsUrl } from '../../../api/brokerRouting';
+import {
+  buildBrokerWsUrl,
+  normalizeBrokerServerUrl,
+  normalizeConfiguredWsUrl,
+} from '../../../api/brokerRouting';
 import {
   asRecord,
   CANDLE_CLOSE_KEYS,
@@ -14,18 +18,31 @@ import {
 
 export const DEFAULT_CANDLES_WS_URL = 'wss://backend.orrnn.com/ws/v2';
 
-const buildBrokerCandlesWsUrl = (serverUrl?: string | null): string =>
-  buildBrokerWsUrl(serverUrl, '/ws/v2', DEFAULT_CANDLES_WS_URL);
+export type ResolveCandlesWsUrlOptions = {
+  requireBrokerUrl?: boolean;
+};
+
+const buildBrokerCandlesWsUrl = (serverUrl?: string | null, fallbackUrl = DEFAULT_CANDLES_WS_URL): string =>
+  buildBrokerWsUrl(serverUrl, '/ws/v2', fallbackUrl);
 
 /**
  * Normalizes the backend WebSocket URL for candle subscriptions.
  * Ensures the app connects to the specific `/ws/v2` endpoint required for candlestick data.
  */
-export const resolveCandlesWsUrl = (configuredUrl?: string, brokerServerUrl?: string): string => {
-  const brokerUrl = buildBrokerCandlesWsUrl(brokerServerUrl);
+export const resolveCandlesWsUrl = (
+  configuredUrl?: string,
+  brokerServerUrl?: string,
+  options: ResolveCandlesWsUrlOptions = {},
+): string => {
+  const requireBrokerUrl = Boolean(options.requireBrokerUrl);
+  const hasBrokerUrl = Boolean(normalizeBrokerServerUrl(brokerServerUrl));
+  const fallbackUrl = requireBrokerUrl ? '' : DEFAULT_CANDLES_WS_URL;
+  const brokerUrl = hasBrokerUrl
+    ? buildBrokerCandlesWsUrl(brokerServerUrl, fallbackUrl)
+    : fallbackUrl;
   const url = normalizeConfiguredWsUrl(configuredUrl, brokerUrl).trim();
   if (!url) {
-    return DEFAULT_CANDLES_WS_URL;
+    return requireBrokerUrl ? '' : DEFAULT_CANDLES_WS_URL;
   }
 
   return url.replace(/\/ws\/feed(\?.*)?$/, '/ws/v2$1');

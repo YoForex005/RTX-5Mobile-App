@@ -31,13 +31,11 @@ type ChartDrawingToolsSidebarProps = {
   };
   isChartExpanded: boolean;
   isDark: boolean;
-  magnetEnabled: boolean;
   onClearDrawings: () => void;
   onOpenDrawingTools: () => void;
   onSelectTool: (tool: string) => void;
   onToggleHide: () => void;
   onToggleLock: () => void;
-  onToggleMagnet: () => void;
   onToggleStickyMode: () => void;
   onZoomTool: () => void;
   showDrawingToolbar: boolean;
@@ -49,14 +47,12 @@ type ChartDrawingToolsActionSheetProps = {
   chartLockAll: boolean;
   dangerIconColor?: string;
   iconColor?: string;
-  magnetEnabled: boolean;
   minimumTopInset?: number;
   onClearDrawings: () => void;
   onClose: () => void;
   onSelectTool: (tool: string) => void;
   onToggleHide: () => void;
   onToggleLock: () => void;
-  onToggleMagnet: () => void;
   onToggleStickyMode: () => void;
   onZoomTool: () => void;
   stickyDrawingMode: boolean;
@@ -188,13 +184,11 @@ export function ChartDrawingToolsSidebar({
   colors,
   isChartExpanded,
   isDark,
-  magnetEnabled,
   onClearDrawings,
   onOpenDrawingTools,
   onSelectTool,
   onToggleHide,
   onToggleLock,
-  onToggleMagnet,
   onToggleStickyMode,
   onZoomTool,
   showDrawingToolbar,
@@ -204,14 +198,12 @@ export function ChartDrawingToolsSidebar({
   const commandState: DrawingToolsCommandState = {
     chartHideAll,
     chartLockAll,
-    magnetEnabled,
     stickyDrawingMode,
   };
   const commandHandlers: DrawingToolCommandHandlers = createDrawingToolsCommandHandlers({
     onClearDrawings,
     onToggleHide,
     onToggleLock,
-    onToggleMagnet,
     onToggleStickyMode,
     onZoomTool,
   });
@@ -287,14 +279,12 @@ export function ChartDrawingToolsActionSheet({
   chartLockAll,
   dangerIconColor = '#DC2626',
   iconColor = '#64748B',
-  magnetEnabled,
   minimumTopInset,
   onClearDrawings,
   onClose,
   onSelectTool,
   onToggleHide,
   onToggleLock,
-  onToggleMagnet,
   onToggleStickyMode,
   onZoomTool,
   stickyDrawingMode,
@@ -314,12 +304,10 @@ export function ChartDrawingToolsActionSheet({
         chartLockAll,
         dangerIconColor,
         iconColor,
-        magnetEnabled,
         onClearDrawings,
         onSelectTool,
         onToggleHide,
         onToggleLock,
-        onToggleMagnet,
         onToggleStickyMode,
         onZoomTool,
         stickyDrawingMode,

@@ -3,8 +3,6 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, Animated, StyleSheet, Modal } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export interface TradeFeedbackState {
   visible: boolean;
@@ -24,7 +22,6 @@ export const TRADE_MODAL_INITIAL: TradeFeedbackState = {
   type: 'success',
 };
 
-// Determines how many decimals to show for a given symbol
 export function priceDecimalsFor(symbol?: string): number {
   if (!symbol) return 5;
   if (symbol.includes('JPY')) return 3;
@@ -41,7 +38,6 @@ export const TradeFeedbackModal = React.memo(({
   onClose: () => void;
   isDark?: boolean;
 }) => {
-  const insets = useSafeAreaInsets();
   const slideAnim = useRef(new Animated.Value(0)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const progressAnim = useRef(new Animated.Value(1)).current;
@@ -71,7 +67,6 @@ export const TradeFeedbackModal = React.memo(({
   const isSuccess = state.type === 'success';
   const sideLabel = state.side === 'buy' ? 'BUY' : state.side === 'sell' ? 'SELL' : '';
   const successTitle = sideLabel ? `${sideLabel} Order Executed` : 'Order Executed';
-  const successBadgeLabel = sideLabel ? `${sideLabel} FILLED` : 'FILLED';
 
   const BUY_HEX = '#2563EB';
   const BUY_GRADIENT_HEX = '#60A5FA';
@@ -85,7 +80,7 @@ export const TradeFeedbackModal = React.memo(({
   const ERR_HEX = '#EF4444';
   const ERR_GRADIENT_HEX = '#F87171';
   const ERR_SOFT_RGBA = 'rgba(239,68,68,0.14)';
-  
+
   const accent = isSuccess ? (isBuy ? BUY_HEX : isSell ? SELL_HEX : SUCCESS_HEX) : ERR_HEX;
   const accentSoft = isSuccess
     ? (isBuy ? BUY_SOFT_RGBA : isSell ? SELL_SOFT_RGBA : SUCCESS_SOFT_RGBA)
@@ -98,12 +93,14 @@ export const TradeFeedbackModal = React.memo(({
   const subtleBorder = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)';
   const textPrimary = isDark ? '#F8FAFC' : '#0F172A';
   const textMuted = isDark ? '#94A3B8' : '#64748B';
-  const rowBg = isDark ? 'rgba(255,255,255,0.03)' : 'rgba(15,23,42,0.03)';
 
-  const formattedPrice = typeof state.price === 'number'
-    ? state.price.toFixed(priceDecimalsFor(state.symbol))
-    : '—';
-
+  const hasExecutionPrice = typeof state.price === 'number' && Number.isFinite(state.price);
+  const formattedPrice = hasExecutionPrice ? state.price!.toFixed(priceDecimalsFor(state.symbol)) : '';
+  const volumeLabel = typeof state.volume === 'number' && Number.isFinite(state.volume)
+    ? `${state.volume.toFixed(2)} lot`
+    : '';
+  const successSummaryText = [state.symbol, volumeLabel].filter(Boolean).join(' - ');
+  const executionLabel = sideLabel ? `${sideLabel} price` : 'Execution price';
   const scale = slideAnim.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] });
 
   return (
@@ -116,150 +113,82 @@ export const TradeFeedbackModal = React.memo(({
       onRequestClose={onClose}
     >
       <View style={tfmStyles.overlay} pointerEvents="box-none">
-      <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
-      <Animated.View style={[
-        tfmStyles.card,
-        {
-          backgroundColor: cardBg,
-          borderColor: subtleBorder,
-          opacity: opacityAnim,
-          transform: [{ scale }],
-        },
-      ]}>
-        {/* Gradient header strip */}
-        <LinearGradient
-          colors={[accent, gradientTo]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={tfmStyles.headerStrip}
-        >
-          {isSuccess && (
-            <Animated.View style={[
-              tfmStyles.headerProgress,
-              {
-                width: progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
-              },
-            ]} />
-          )}
-        </LinearGradient>
+        <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
+        <Animated.View style={[
+          tfmStyles.card,
+          {
+            backgroundColor: cardBg,
+            borderColor: subtleBorder,
+            opacity: opacityAnim,
+            transform: [{ scale }],
+          },
+        ]}>
+          <LinearGradient
+            colors={[accent, gradientTo]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={tfmStyles.headerStrip}
+          >
+            {isSuccess && (
+              <Animated.View style={[
+                tfmStyles.headerProgress,
+                {
+                  width: progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
+                },
+              ]} />
+            )}
+          </LinearGradient>
 
-        {/* Status row — icon + badge */}
-        <View style={tfmStyles.statusRow}>
-          <View style={[tfmStyles.statusIcon, { backgroundColor: accentSoft, borderColor: accent }]}>
-            <Ionicons
-              name={isSuccess ? 'checkmark' : 'close'}
-              size={22}
-              color={accent}
-            />
-          </View>
-          <View style={tfmStyles.statusTextCol}>
-            <Text style={[tfmStyles.statusTitle, { color: textPrimary }]} numberOfLines={1}>
-              {isSuccess ? successTitle : (state.title || 'Order Rejected')}
-            </Text>
-            <View style={tfmStyles.statusSubRow}>
-              <View style={[tfmStyles.statusBadge, { backgroundColor: accentSoft }]}>
-                <View style={[tfmStyles.statusDot, { backgroundColor: accent }]} />
-                <Text style={[tfmStyles.statusBadgeText, { color: accent }]}>
-                  {isSuccess ? successBadgeLabel : 'FAILED'}
-                </Text>
-              </View>
-              {isSuccess && state.executedAt ? (
-                <Text style={[tfmStyles.statusSubText, { color: textMuted }]} numberOfLines={1}>
-                  {state.executedAt}
+          <View style={tfmStyles.statusRow}>
+            <View style={[tfmStyles.statusIcon, { backgroundColor: accentSoft, borderColor: accent }]}>
+              <Ionicons name={isSuccess ? 'checkmark' : 'close'} size={21} color={accent} />
+            </View>
+            <View style={tfmStyles.statusTextCol}>
+              <Text style={[tfmStyles.statusTitle, { color: textPrimary }]} numberOfLines={1}>
+                {isSuccess ? successTitle : (state.title || 'Order Rejected')}
+              </Text>
+              {isSuccess && successSummaryText ? (
+                <Text style={[tfmStyles.statusSubtitle, { color: textMuted }]} numberOfLines={1}>
+                  {successSummaryText}
                 </Text>
               ) : null}
             </View>
+            <Pressable style={tfmStyles.closeBtn} onPress={onClose} hitSlop={10}>
+              <Ionicons name="close" size={18} color={textMuted} />
+            </Pressable>
           </View>
-          <Pressable style={tfmStyles.closeBtn} onPress={onClose} hitSlop={10}>
-            <Ionicons name="close" size={18} color={textMuted} />
-          </Pressable>
-        </View>
 
-        {isSuccess ? (
-          <>
-            {/* Symbol + side chip + price */}
-            <View style={tfmStyles.priceCard}>
-              <View style={tfmStyles.priceHeaderRow}>
-                <Text style={[tfmStyles.symbolText, { color: textPrimary }]} numberOfLines={1}>
-                  {state.symbol}
-                </Text>
-                <View style={[tfmStyles.sideChip, { backgroundColor: accent }]}>
-                  <Ionicons name={isBuy ? 'arrow-up' : 'arrow-down'} size={11} color="#fff" />
-                  <Text style={tfmStyles.sideChipText}>{state.side?.toUpperCase()}</Text>
+          {isSuccess ? (
+            <View style={tfmStyles.successSummary}>
+              {hasExecutionPrice ? (
+                <View style={[tfmStyles.executionRow, { borderColor: subtleBorder }]}>
+                  <Text style={[tfmStyles.executionLabel, { color: textMuted }]} numberOfLines={1}>
+                    {executionLabel}
+                  </Text>
+                  <Text style={[tfmStyles.executionPrice, { color: textPrimary }]} numberOfLines={1} adjustsFontSizeToFit>
+                    {formattedPrice}
+                  </Text>
                 </View>
-              </View>
-              <Text style={[tfmStyles.priceText, { color: textPrimary }]} numberOfLines={1} adjustsFontSizeToFit>
-                {formattedPrice}
-              </Text>
-              <Text style={[tfmStyles.priceLabel, { color: textMuted }]}>
-                {sideLabel ? `${sideLabel} EXECUTION PRICE` : 'EXECUTION PRICE'}
-              </Text>
+              ) : null}
             </View>
-
-            {/* Details grid */}
-            <View style={[tfmStyles.detailsGrid, { backgroundColor: rowBg, borderColor: subtleBorder }]}>
-              <View style={tfmStyles.detailItem}>
-                <Text style={[tfmStyles.detailLabel, { color: textMuted }]}>VOLUME</Text>
-                <Text style={[tfmStyles.detailValue, { color: textPrimary }]} numberOfLines={1}>
-                  {typeof state.volume === 'number' ? state.volume.toFixed(2) : state.volume ?? '—'}
-                </Text>
-              </View>
-              <View style={[tfmStyles.detailSep, { backgroundColor: subtleBorder }]} />
-              <View style={tfmStyles.detailItem}>
-                <Text style={[tfmStyles.detailLabel, { color: textMuted }]}>TICKET</Text>
-                <Text style={[tfmStyles.detailValue, { color: textPrimary }]} numberOfLines={1}>
-                  #{state.ticket ?? '—'}
-                </Text>
-              </View>
-              <View style={[tfmStyles.detailSep, { backgroundColor: subtleBorder }]} />
-              <View style={tfmStyles.detailItem}>
-                <Text style={[tfmStyles.detailLabel, { color: textMuted }]}>SIDE</Text>
-                <Text style={[tfmStyles.detailValue, { color: accent }]} numberOfLines={1}>
-                  {state.side?.toUpperCase() ?? '—'}
-                </Text>
-              </View>
-            </View>
-          </>
-        ) : (
-          <>
+          ) : (
             <View style={[tfmStyles.errorBox, { backgroundColor: accentSoft, borderColor: accent }]}>
-              <Ionicons name="alert-circle" size={18} color={accent} style={{ marginRight: 10 }} />
+              <Ionicons name="alert-circle" size={18} color={accent} style={tfmStyles.errorIcon} />
               <Text style={[tfmStyles.errorMsg, { color: textPrimary }]}>
                 {state.message || 'The broker rejected this order.'}
               </Text>
             </View>
-          </>
-        )}
+          )}
 
-        {/* Action buttons */}
-        <View style={tfmStyles.actionsRow}>
-          {isSuccess ? (
-            <>
-              <Pressable
-                style={[tfmStyles.actionBtnSecondary, { borderColor: subtleBorder }]}
-                onPress={() => { onClose(); try { router.push('/trade'); } catch (_e) { } }}
-              >
-                <Text style={[tfmStyles.actionBtnSecondaryText, { color: textPrimary }]}>
-                  View Position
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[tfmStyles.actionBtnPrimary, { backgroundColor: accent }]}
-                onPress={onClose}
-              >
-                <Text style={tfmStyles.actionBtnPrimaryText}>Done</Text>
-              </Pressable>
-            </>
-          ) : (
+          <View style={tfmStyles.actionsRow}>
             <Pressable
-              style={[tfmStyles.actionBtnPrimary, tfmStyles.actionBtnPrimaryFull, { backgroundColor: accent }]}
+              style={[tfmStyles.actionBtnPrimary, { backgroundColor: accent }]}
               onPress={onClose}
             >
-              <Text style={tfmStyles.actionBtnPrimaryText}>Dismiss</Text>
+              <Text style={tfmStyles.actionBtnPrimaryText}>{isSuccess ? 'Done' : 'Dismiss'}</Text>
             </Pressable>
-          )}
-        </View>
-      </Animated.View>
+          </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -271,22 +200,22 @@ const tfmStyles = StyleSheet.create({
     backgroundColor: 'rgba(3,6,16,0.55)',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 18,
     zIndex: 999,
     elevation: 999,
   },
   card: {
     width: '100%',
-    maxWidth: 380,
-    borderRadius: 20,
+    maxWidth: 328,
+    borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
-    paddingBottom: 16,
+    paddingBottom: 14,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.35,
-    shadowRadius: 32,
-    elevation: 24,
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.28,
+    shadowRadius: 26,
+    elevation: 20,
   },
   headerStrip: {
     height: 4,
@@ -303,57 +232,33 @@ const tfmStyles = StyleSheet.create({
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 14,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
   },
   statusIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1.5,
-    marginRight: 12,
+    borderWidth: 1.25,
+    marginRight: 11,
   },
   statusTextCol: {
     flex: 1,
     minWidth: 0,
   },
   statusTitle: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0,
-    marginBottom: 4,
   },
-  statusSubRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    marginRight: 8,
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 5,
-  },
-  statusBadgeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    letterSpacing: 0.8,
-  },
-  statusSubText: {
+  statusSubtitle: {
+    marginTop: 3,
     fontSize: 12,
-    fontWeight: '500',
-    flex: 1,
-    fontVariant: ['tabular-nums'] as any,
+    fontWeight: '600',
+    letterSpacing: 0,
   },
   closeBtn: {
     width: 30,
@@ -363,88 +268,47 @@ const tfmStyles = StyleSheet.create({
     justifyContent: 'center',
     marginLeft: 8,
   },
-  priceCard: {
-    paddingHorizontal: 18,
+  successSummary: {
+    paddingHorizontal: 16,
     paddingBottom: 14,
   },
-  priceHeaderRow: {
+  executionRow: {
+    minHeight: 42,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    gap: 12,
+    paddingVertical: 9,
   },
-  symbolText: {
-    fontSize: 15,
-    fontWeight: '700',
-    letterSpacing: 0.3,
-  },
-  sideChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-  },
-  sideChipText: {
-    color: '#fff',
+  executionLabel: {
+    flexShrink: 0,
     fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 0.8,
-    marginHorizontal: 4,
+    fontWeight: '700',
+    letterSpacing: 0,
+    textTransform: 'uppercase',
   },
-  priceText: {
-    fontSize: 40,
-    fontWeight: '600',
+  executionPrice: {
+    flex: 1,
+    textAlign: 'right',
+    fontSize: 18,
+    fontWeight: '700',
     fontVariant: ['tabular-nums'] as any,
     letterSpacing: 0,
-    lineHeight: 44,
-    marginTop: 2,
-  },
-  priceLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    letterSpacing: 1,
-    marginTop: 4,
-  },
-  detailsGrid: {
-    flexDirection: 'row',
-    marginHorizontal: 18,
-    marginTop: 4,
-    marginBottom: 18,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: 'hidden',
-  },
-  detailItem: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-  },
-  detailLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    marginBottom: 4,
-    letterSpacing: 1,
-  },
-  detailValue: {
-    fontSize: 13,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'] as any,
-  },
-  detailSep: {
-    width: StyleSheet.hairlineWidth,
-    alignSelf: 'stretch',
   },
   errorBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginHorizontal: 18,
-    marginBottom: 18,
+    marginHorizontal: 16,
+    marginBottom: 14,
     paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 12,
+    paddingHorizontal: 13,
+    borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  errorIcon: {
+    marginRight: 10,
   },
   errorMsg: {
     flex: 1,
@@ -455,35 +319,19 @@ const tfmStyles = StyleSheet.create({
   actionsRow: {
     flexDirection: 'row',
     paddingHorizontal: 14,
-    gap: 10,
   },
   actionBtnPrimary: {
     flex: 1,
-    paddingVertical: 13,
-    borderRadius: 12,
+    minHeight: 44,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  actionBtnPrimaryFull: {
-    flex: 1,
+    paddingHorizontal: 14,
   },
   actionBtnPrimaryText: {
     color: '#fff',
     fontSize: 15,
     fontWeight: '700',
-    letterSpacing: 0.2,
-  },
-  actionBtnSecondary: {
-    flex: 1,
-    paddingVertical: 13,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  actionBtnSecondaryText: {
-    fontSize: 15,
-    fontWeight: '600',
-    letterSpacing: 0.2,
+    letterSpacing: 0,
   },
 });

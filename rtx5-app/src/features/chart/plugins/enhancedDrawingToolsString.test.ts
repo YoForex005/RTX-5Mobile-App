@@ -138,7 +138,6 @@ function createFakeChartEnvironment({
     LightweightCharts: {
       CrosshairMode: {
         Hidden: 2,
-        MagnetOHLC: 3,
         Normal: 0,
       },
     },
@@ -1149,26 +1148,6 @@ test('Zoom To Fit delegates to chart time and price scale APIs', () => {
 
   assert.deepEqual(harness.timeScaleActions, ['fitContent', 'scrollToRealTime']);
   assert.deepEqual(harness.priceScaleActions, [{ id: 'right', options: { autoScale: true } }]);
-});
-
-test('Magnet Mode keeps the visible chart crosshair hidden', () => {
-  const harness = createFakeChartEnvironment();
-
-  harness.manager.setMagnetMode(true);
-  harness.manager.setMagnetMode(false);
-
-  const hiddenCrosshairOptions = {
-    crosshair: {
-      mode: 2,
-      vertLine: { visible: false, labelVisible: false, color: 'transparent', width: 0 },
-      horzLine: { visible: false, labelVisible: false, color: 'transparent', width: 0 },
-    },
-  };
-
-  assert.deepEqual(harness.appliedOptions.slice(-2), [
-    hiddenCrosshairOptions,
-    hiddenCrosshairOptions,
-  ]);
 });
 
 test('Stay in Drawing Mode keeps the same tool active after completion', () => {

@@ -105,14 +105,6 @@ export const TvZoom = ({ color }: { color: string }) => (
   </Svg>
 );
 
-export const TvMagnet = ({ color }: { color: string }) => (
-  <Svg width="26" height="26" viewBox="0 0 28 28" fill="none">
-    <Path d="M7 14v4c0 3.866 3.134 7 7 7s7-3.134 7-7v-4" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
-    <Rect x="5" y="8" width="4" height="6" rx="1" stroke={color} strokeWidth="1.5" />
-    <Rect x="19" y="8" width="4" height="6" rx="1" stroke={color} strokeWidth="1.5" />
-  </Svg>
-);
-
 export const TvPencil = ({ color }: { color: string }) => (
   <Svg width="26" height="26" viewBox="0 0 28 28" fill="none">
     <Path d="M19.5 5.5l3 3-13 13-4.5 1 1-4.5 13-13z" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />

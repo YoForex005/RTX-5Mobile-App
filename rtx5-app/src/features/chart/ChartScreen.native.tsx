@@ -416,6 +416,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     chartDisplay,
     chartViewportShowVolumePane,
     chartViewportShowDrawingToolbar,
+    chartOneClickPanelAtBottom,
+    chartVerticalScrollingLocked,
+    chartAutoScaleEnabled,
     chartDrawingRecordsBySymbol,
     tradeVolume,
     chartTradeVolumeDisplayMode,
@@ -424,6 +427,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     setChartSymbol,
     setChartViewportShowVolumePane,
     setChartViewportShowDrawingToolbar,
+    setChartVerticalScrollingLocked,
+    setChartAutoScaleEnabled,
     setTradeVolume,
     setChartTradeVolumeDisplayMode,
     chartLockAll,
@@ -442,6 +447,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       chartDisplay: state.chartDisplay,
       chartViewportShowVolumePane: state.chartViewportShowVolumePane,
       chartViewportShowDrawingToolbar: state.chartViewportShowDrawingToolbar,
+      chartOneClickPanelAtBottom: state.chartOneClickPanelAtBottom,
+      chartVerticalScrollingLocked: state.chartVerticalScrollingLocked,
+      chartAutoScaleEnabled: state.chartAutoScaleEnabled,
       chartDrawingRecordsBySymbol: state.chartDrawingRecordsBySymbol,
       tradeVolume: state.tradeVolume,
       chartTradeVolumeDisplayMode: state.chartTradeVolumeDisplayMode,
@@ -450,6 +458,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       setChartSymbol: state.setChartSymbol,
       setChartViewportShowVolumePane: state.setChartViewportShowVolumePane,
       setChartViewportShowDrawingToolbar: state.setChartViewportShowDrawingToolbar,
+      setChartVerticalScrollingLocked: state.setChartVerticalScrollingLocked,
+      setChartAutoScaleEnabled: state.setChartAutoScaleEnabled,
       setTradeVolume: state.setTradeVolume,
       setChartTradeVolumeDisplayMode: state.setChartTradeVolumeDisplayMode,
       chartLockAll: state.chartLockAll,
@@ -464,6 +474,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const positions = usePositionsState((s) => s.positions);
   const preferencesHydrated = useUserPreferences((s) => s.hasHydrated);
   const chartShowOnChart = useUserPreferences((s) => s.chartShowOnChart);
+  const isVerticalScrollingLocked = chartVerticalScrollingLocked;
+  const isChartAutoScaleEnabled = chartAutoScaleEnabled;
   const resolvedChartColors = useMemo(
     () => resolveChartColorsForTheme(chartColors, chartColorScheme, isDark),
     [chartColors, chartColorScheme, isDark],
@@ -1040,12 +1052,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const [chartTapMenuBounds, setChartTapMenuBounds] = useState<ChartTapMenuBounds>({ width: 0, height: 0 });
   const [chartTapMenuViewport, setChartTapMenuViewport] = useState<ChartTapMenuViewport>({ x: 0, y: 0, width: 0, height: 0 });
   const [, setChartPlotArea] = useState<FixedHorizontalGridPlotArea | null>(null);
-  const [magnetEnabled, setMagnetEnabled] = useState(false);
   const [stickyDrawingMode, setStickyDrawingMode] = useState(false);
   const [textLevelEditRequest, setTextLevelEditRequest] = useState<TextLevelEditRequest | null>(null);
   const [chartViewportTouchActive, setChartViewportTouchActive] = useState(false);
   const pendingChartDrawingTool = useUIState((s) => s.pendingChartDrawingTool);
   const clearPendingChartDrawingTool = useUIState((s) => s.clearPendingChartDrawingTool);
+  const pendingChartCommand = useUIState((s) => s.pendingChartCommand);
+  const clearPendingChartCommand = useUIState((s) => s.clearPendingChartCommand);
   const shouldCaptureChartGestures =
     isChartExpanded || chartDrawingInputActive || Boolean(pendingChartDrawingTool);
 
@@ -1562,9 +1575,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     [chartAsk, chartBid, chartPendingOffset, latestChartClose, roundTradePrice],
   );
 
-  const injectChartScript = (script: string) => {
+  const injectChartScript = useCallback((script: string) => {
     webViewRef.current?.injectJavaScript(`${script} true;`);
-  };
+  }, []);
 
   const handleCommitTextLevelEdit = useCallback((recordId: string, text: string) => {
     setTextLevelEditRequest(null);
@@ -1614,13 +1627,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     injectChartScript('clearDrawings();');
   };
 
-  const handleToggleMagnet = () => {
-    closeChartTapMenu();
-    const next = !magnetEnabled;
-    setMagnetEnabled(next);
-    injectChartScript(`setMagnetMode(${next});`);
-  };
-
   const handleToggleStickyMode = () => {
     closeChartTapMenu();
     const next = !stickyDrawingMode;
@@ -1649,6 +1655,61 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const handleZoomTool = () => {
     closeChartTapMenu();
     injectChartScript('zoomChart();');
+  };
+
+  const handleToggleVerticalScrollingLock = () => {
+    closeChartTapMenu();
+    const next = !isVerticalScrollingLocked;
+    setChartVerticalScrollingLocked(next);
+    injectChartScript(`setVerticalScrollingLocked(${next});`);
+  };
+
+  const executeScrollToLastBar = useCallback(() => {
+    injectChartScript(`
+      try {
+        if (typeof window.__rtx5ScrollToLastBar === 'function') {
+          window.__rtx5ScrollToLastBar();
+        } else if (chart && chart.timeScale && typeof chart.timeScale().scrollToRealTime === 'function') {
+          chart.timeScale().scrollToRealTime();
+        }
+      } catch (_) {}
+    `);
+  }, [injectChartScript]);
+
+  const handleScrollToLastBar = () => {
+    runImmediateAction('chart.radial.scrollToLastBar', () => {
+      hideActionSheet();
+      closeChartTapMenu();
+      executeScrollToLastBar();
+    });
+  };
+
+  const executeResetVerticalScale = useCallback(() => {
+    injectChartScript(`
+      try {
+        if (typeof window.__rtx5ResetPriceScale === 'function') {
+          window.__rtx5ResetPriceScale();
+        }
+      } catch (_) {}
+    `);
+  }, [injectChartScript]);
+
+  const handleResetVerticalScale = () => {
+    runImmediateAction('chart.radial.resetVerticalScale', () => {
+      hideActionSheet();
+      closeChartTapMenu();
+      executeResetVerticalScale();
+    });
+  };
+
+  const handleToggleChartAutoScale = () => {
+    runImmediateAction('chart.radial.toggleAutoScale', () => {
+      hideActionSheet();
+      closeChartTapMenu();
+      const next = !isChartAutoScaleEnabled;
+      setChartAutoScaleEnabled(next);
+      injectChartScript(`setChartAutoScaleEnabled(${next});`);
+    });
   };
 
   const resolveChartTradeSheetTranslateY = useCallback(
@@ -3365,12 +3426,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       chartLockAll,
       dangerIconColor: T.trading.sell.primary,
       iconColor: TEXT_MUTED,
-      magnetEnabled,
       onClearDrawings: handleClearDrawings,
       onSelectTool: handleSetTool,
       onToggleHide: handleToggleHide,
       onToggleLock: handleToggleLock,
-      onToggleMagnet: handleToggleMagnet,
       onToggleStickyMode: handleToggleStickyMode,
       onZoomTool: handleZoomTool,
       stickyDrawingMode,
@@ -3384,10 +3443,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       handleSetTool,
       handleToggleHide,
       handleToggleLock,
-      handleToggleMagnet,
       handleToggleStickyMode,
       handleZoomTool,
-      magnetEnabled,
       stickyDrawingMode,
     ],
   );
@@ -3522,6 +3579,76 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     ],
   );
 
+  const chartScaleActions = useMemo(
+    () => [
+      {
+        label: t('Scroll to last bar'),
+        icon: <Ionicons name="arrow-forward-outline" size={20} color={TEXT_MUTED} />,
+        onPress: handleScrollToLastBar,
+      },
+      {
+        label: t('Reset vertical scale'),
+        icon: <Ionicons name="refresh-outline" size={20} color={TEXT_MUTED} />,
+        onPress: handleResetVerticalScale,
+      },
+      {
+        label: t(isChartAutoScaleEnabled ? 'Free chart movement' : 'Auto-scale'),
+        icon: (
+          <Ionicons
+            name={isChartAutoScaleEnabled ? 'contract-outline' : 'resize-outline'}
+            size={20}
+            color={TEXT_MUTED}
+          />
+        ),
+        selected: isChartAutoScaleEnabled,
+        onPress: handleToggleChartAutoScale,
+      },
+      {
+        label: t(isVerticalScrollingLocked ? 'Unlock vertical scrolling' : 'Lock vertical scrolling'),
+        icon: (
+          <Ionicons
+            name={isVerticalScrollingLocked ? 'lock-closed-outline' : 'lock-open-outline'}
+            size={20}
+            color={TEXT_MUTED}
+          />
+        ),
+        selected: isVerticalScrollingLocked,
+        onPress: handleToggleVerticalScrollingLock,
+      },
+    ],
+    [
+      TEXT_MUTED,
+      handleResetVerticalScale,
+      handleScrollToLastBar,
+      handleToggleChartAutoScale,
+      handleToggleVerticalScrollingLock,
+      isChartAutoScaleEnabled,
+      isVerticalScrollingLocked,
+      t,
+    ],
+  );
+
+  const handleOpenChartScaleMenu = useCallback(() => {
+    runImmediateAction('chart.radial.scaleMenu.open', () => {
+      closeChartTapMenu();
+      showChartActionSheet({
+        title: t('Chart scale'),
+        presentation: 'mt5Plain',
+        showActionIcons: true,
+        detent: 'auto',
+        instantOpen: true,
+        actions: chartScaleActions,
+      });
+      scheduleChartActionSheetContextReset();
+    });
+  }, [
+    chartScaleActions,
+    closeChartTapMenu,
+    scheduleChartActionSheetContextReset,
+    showChartActionSheet,
+    t,
+  ]);
+
   const handleOpenMoreMenu = useCallback(() => {
     runImmediateAction('chart.moreMenu.open', () => {
       showChartActionSheet({
@@ -3615,11 +3742,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       upColor: resolvedChartColors.candlesUptrend,
       downColor: resolvedChartColors.candlesDowntrend,
       snap: {
-        enabled: magnetEnabled,
-        type: magnetEnabled ? 'ohlc-nearest' : 'none',
+        enabled: false,
+        type: 'none',
       },
     }
-  }), [chartAxisBorderColor, chartDisplay.showGrid, chartGridColor, chartSymbol, chartTimeframe, chartType, isDark, magnetEnabled, resolvedChartColors, showChartVolumePane]);
+  }), [chartAxisBorderColor, chartDisplay.showGrid, chartGridColor, chartSymbol, chartTimeframe, chartType, isDark, resolvedChartColors, showChartVolumePane]);
 
   const [overlaySyncRevision, setOverlaySyncRevision] = useState(0);
   // Monotonic counter — incremented every time the WebView confirms
@@ -3754,10 +3881,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       setDrawingsLocked(${chartLockAll});
       setDrawingsHidden(${chartHideAll});
       setStayInDrawingMode(${stickyDrawingMode});
-      setMagnetMode(${magnetEnabled});
+      setVerticalScrollingLocked(${isVerticalScrollingLocked});
+      setChartAutoScaleEnabled(${isChartAutoScaleEnabled});
       setDrawingTool(${JSON.stringify(bridgedTool)}, { startDrawing: ${shouldStartDrawing} });
     `);
-  }, [activeTool, chartDrawingInputActive, webViewReady, chartCanvasReady, chartLockAll, chartHideAll, stickyDrawingMode, magnetEnabled, chartSymbol, chartTimeframe, chartType]);
+  }, [activeTool, chartDrawingInputActive, webViewReady, chartCanvasReady, chartLockAll, chartHideAll, stickyDrawingMode, isVerticalScrollingLocked, isChartAutoScaleEnabled, chartSymbol, chartTimeframe, chartType]);
 
   useEffect(() => {
     if (!hasCandles || !webViewReady || !chartCanvasReady) {
@@ -3777,6 +3905,27 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     injectChartScript(`setDrawingTool(${JSON.stringify(pendingChartDrawingTool)}, { startDrawing: ${nextDrawingInputActive} });`);
     clearPendingChartDrawingTool();
   }, [pendingChartDrawingTool, chartCanvasReady, webViewReady, clearPendingChartDrawingTool]);
+
+  useEffect(() => {
+    if (!pendingChartCommand || !chartCanvasReady || !webViewReady) {
+      return;
+    }
+
+    if (pendingChartCommand === 'scrollToLastBar') {
+      executeScrollToLastBar();
+    } else if (pendingChartCommand === 'resetVerticalScale') {
+      executeResetVerticalScale();
+    }
+
+    clearPendingChartCommand();
+  }, [
+    pendingChartCommand,
+    chartCanvasReady,
+    webViewReady,
+    executeScrollToLastBar,
+    executeResetVerticalScale,
+    clearPendingChartCommand,
+  ]);
 
   // ─────────────────────────────────────────────────────────────────
   //   Self-healing chart bridge
@@ -4772,6 +4921,47 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           scrollEventThrottle={16}
           onScroll={() => syncChartViewportFrame()}
         >
+          {!isChartExpanded && !chartOneClickPanelAtBottom && (
+            <ChartTradeInlineFooter
+              LiveTradeButtons={ChartTradeButtons}
+              styles={styles}
+              animatedStyle={floatingFooterTradeReserveAnimatedStyle}
+              containerRef={footerTradeRowAnchorRef}
+              isDark={isDark}
+              buyColor={BLUE}
+              sellColor={T.trading.sell.primary}
+              hideInlineTradeRow={Platform.OS === 'android' && isFloatingFooterTradeRowVisible}
+              showFloatingFooterTradeRow={shouldMountFloatingFooterTradeRow}
+              chartSymbol={chartSymbol}
+              displayDecimals={displayDecimals}
+              tradeVolume={tradeVolume}
+              tradeVolumeBounds={tradeVolumeBounds}
+              onTradeResult={handleChartTradeResult}
+              onEditLot={handleFocusFooterLotEditor}
+              onOpenLotEditor={handleOpenFooterLotPicker}
+              isLotEditing={footerLotEditorFocused}
+              lotDraft={lotInput}
+              lotInputRef={footerLotEditorInputRef}
+              onLotDraftChange={handleFooterLotDraftChange}
+              onLotDraftBlur={handleBlurFooterLotEditor}
+              onLotDraftEndEditing={handleEndFooterLotEditor}
+              onLotDraftSubmit={handleSubmitFooterLotEditor}
+              onDecreaseLot={() => handleStepFooterLotEditor(-1)}
+              onIncreaseLot={() => handleStepFooterLotEditor(1)}
+              lotInvalid={footerLotInvalid}
+              invalidLotDisplay={footerLotInvalidDisplay}
+              active={chartRuntimeActive}
+              fallbackBid={chartBid}
+              fallbackAsk={chartAsk}
+              onLayout={(event) => {
+                const nextHeight = Math.max(0, Math.round(event.nativeEvent.layout.height));
+                if (nextHeight > 0) {
+                  setChartTradeInlineFooterHeight((current) => (current === nextHeight ? current : nextHeight));
+                }
+                measureFooterTradeRowAnchorFrame();
+              }}
+            />
+          )}
           <View
             style={[
               styles.chartContainer,
@@ -4790,13 +4980,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                 colors={{ blue: BLUE, textMuted: TEXT_MUTED }}
                 isChartExpanded={isChartExpanded}
                 isDark={isDark}
-                magnetEnabled={magnetEnabled}
                 onClearDrawings={handleClearDrawings}
                 onOpenDrawingTools={handleOpenDrawingTools}
                 onSelectTool={handleSetTool}
                 onToggleHide={handleToggleHide}
                 onToggleLock={handleToggleLock}
-                onToggleMagnet={handleToggleMagnet}
                 onToggleStickyMode={handleToggleStickyMode}
                 onZoomTool={handleZoomTool}
                 showDrawingToolbar={showChartDrawingToolbar}
@@ -5210,14 +5398,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                       router.push('/chart/indicators');
                     }}
 
-                    onOpenSettings={() => {
-                      closeChartTapMenu();
-                      router.push('/chart/settings');
-                    }}
                     onOpenSymbolPicker={() => {
                       closeChartTapMenu();
                       handleOpenSymbolPicker();
                     }}
+                    onOpenScaleControls={handleOpenChartScaleMenu}
                   />
                 ) : null}
                 <ChartTimeframePickerOverlay
@@ -5802,7 +5987,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
               </Animated.View>
             </View>
           )}
-          {!isChartExpanded && (
+          {!isChartExpanded && chartOneClickPanelAtBottom && (
             <ChartTradeInlineFooter
               LiveTradeButtons={ChartTradeButtons}
               styles={styles}
@@ -5843,7 +6028,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
               }}
             />
           )}
-          {!isChartExpanded && showChartTradeSheet && showInlineFooterWhileChartTradeSheetOpen ? (
+          {!isChartExpanded && chartOneClickPanelAtBottom && showChartTradeSheet && showInlineFooterWhileChartTradeSheetOpen ? (
             <ChartTradeInlineFooter
               LiveTradeButtons={ChartTradeButtons}
               styles={styles}

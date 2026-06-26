@@ -223,7 +223,7 @@ export const readChartScreenSource = (): string => {
 };
 
 export const extractFunctionBody = (source: string, functionName: string): string => {
-  const functionStart = source.indexOf(`function ${functionName}`);
+  const functionStart = source.indexOf(`function ${functionName}(`);
   assert.notEqual(functionStart, -1, `function ${functionName} was not found`);
 
   const openBrace = source.indexOf('{', functionStart);

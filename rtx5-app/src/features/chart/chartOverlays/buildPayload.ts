@@ -5,8 +5,10 @@
  *
  * The chart only draws the trader's own open positions, gated by side: the
  * "Show buy trade" / "Show sell trade" preferences. A shown position is drawn
- * with its open line plus its SL/TP lines. Pattern markers from the drawing
- * tools are independent of these preferences and still render when active.
+ * with its open line, while the MT5-style "SL/TP levels" preference controls
+ * its protective Stop Loss / Take Profit lines. Pattern markers from the
+ * drawing tools are independent of these preferences and still render when
+ * active.
  */
 import type { PriceAlert } from '../../../api/alerts';
 import type { LoginOrder } from '../../../api/orders';
@@ -127,7 +129,7 @@ export const buildChartOverlayPayload = ({
     console.log(
       `[ChartOverlay] chart=${chartSymbol} (norm=${normalizedChartSymbol}) | ` +
       `totalPositions=${positions.length} matchingPositions=${symbolPositions.length} | ` +
-      `flags: buy=${showOnChart.buyTrade} sell=${showOnChart.sellTrade}`,
+      `flags: buy=${showOnChart.buyTrade} sell=${showOnChart.sellTrade} sltp=${showOnChart.slTpLevels}`,
     );
     if (symbolPositions.length > 0) {
       symbolPositions.forEach((p) =>
@@ -177,31 +179,32 @@ export const buildChartOverlayPayload = ({
       labelPlacement: 'line',
     });
 
-    // Trades are drawn together with their protective levels.
-    const tpValue = Number(position.tp);
-    if (Number.isFinite(tpValue) && tpValue > 0) {
-      addUniquePriceLine(priceLines, {
-        id: `tp-${position.id}`,
-        price: tpValue,
-        color: colors.tradeTpSl || '#089981',
-        lineWidth: 1,
-        lineStyle: CHART_LINE_STYLE.Dashed,
-        axisLabelVisible: false,
-        title: formatTpSlOverlayLabel('tp', position.symbol, parsedPrice, tpValue, Number(position.volume)),
-      });
-    }
+    if (showOnChart.slTpLevels) {
+      const tpValue = Number(position.tp);
+      if (Number.isFinite(tpValue) && tpValue > 0) {
+        addUniquePriceLine(priceLines, {
+          id: `tp-${position.id}`,
+          price: tpValue,
+          color: colors.tradeTpSl || '#089981',
+          lineWidth: 1,
+          lineStyle: CHART_LINE_STYLE.Dashed,
+          axisLabelVisible: false,
+          title: formatTpSlOverlayLabel('tp', position.symbol, parsedPrice, tpValue, Number(position.volume)),
+        });
+      }
 
-    const slValue = Number(position.sl);
-    if (Number.isFinite(slValue) && slValue > 0) {
-      addUniquePriceLine(priceLines, {
-        id: `sl-${position.id}`,
-        price: slValue,
-        color: colors.tradeStopOut || '#F23645',
-        lineWidth: 1,
-        lineStyle: CHART_LINE_STYLE.Dashed,
-        axisLabelVisible: false,
-        title: formatTpSlOverlayLabel('sl', position.symbol, parsedPrice, slValue, Number(position.volume)),
-      });
+      const slValue = Number(position.sl);
+      if (Number.isFinite(slValue) && slValue > 0) {
+        addUniquePriceLine(priceLines, {
+          id: `sl-${position.id}`,
+          price: slValue,
+          color: colors.tradeStopOut || '#F23645',
+          lineWidth: 1,
+          lineStyle: CHART_LINE_STYLE.Dashed,
+          axisLabelVisible: false,
+          title: formatTpSlOverlayLabel('sl', position.symbol, parsedPrice, slValue, Number(position.volume)),
+        });
+      }
     }
   });
 

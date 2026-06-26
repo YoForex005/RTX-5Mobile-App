@@ -266,7 +266,9 @@ test('trade buy/sell success feedback uses the shared popup without device vibra
     /<Modal[\s\S]*visible=\{state\.visible\}[\s\S]*transparent[\s\S]*animationType="none"[\s\S]*presentationStyle="overFullScreen"[\s\S]*statusBarTranslucent[\s\S]*onRequestClose=\{onClose\}[\s\S]*<View style=\{tfmStyles\.overlay\}/,
   );
   assert.match(feedbackModalSource, /const successTitle = sideLabel[\s\S]*`\$\{sideLabel\} Order Executed`[\s\S]*["']Order Executed["']/);
-  assert.match(feedbackModalSource, /tfmStyles\.priceCard[\s\S]*tfmStyles\.detailsGrid[\s\S]*View Position/);
+  assert.match(feedbackModalSource, /const successSummaryText = \[state\.symbol, volumeLabel\]\.filter\(Boolean\)\.join\(' - '\)/);
+  assert.match(feedbackModalSource, /tfmStyles\.successSummary[\s\S]*tfmStyles\.executionRow[\s\S]*tfmStyles\.executionPrice[\s\S]*Done/);
+  assert.doesNotMatch(feedbackModalSource, /tfmStyles\.detailsGrid|View Position|router\.push\('\/trade'\)/);
   assert.match(
     chartResultSource,
     /if \(feedback\.type !== 'success'\) \{[\s\S]*setTradeFeedback\(feedback\);[\s\S]*return;[\s\S]*\}[\s\S]*setTradeFeedback\(feedback\);[\s\S]*refreshPositions\(String\(accountLogin\)\)[\s\S]*refetchOrders\(\)[\s\S]*refetchAccountSummary\(\)/,

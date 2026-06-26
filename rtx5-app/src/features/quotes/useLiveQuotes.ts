@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { apiClient } from '../../api/apiClient';
+import { normalizeBrokerServerUrl } from '../../api/brokerRouting';
 import { normalizeQuoteTickPayload } from '../../api/ws/quoteTickNormalizer';
 import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket';
 import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
@@ -399,7 +400,12 @@ const fetchRestQuoteSnapshots = async (symbols: string[]): Promise<void> => {
 
   const requestedKeys = new Set(symbols.flatMap(getSnapshotKeys));
   const symbolsQuery = symbols.map(encodeURIComponent).join(',');
-  const isLoggedIn = useUserPreferences.getState().isLoggedIn;
+  const state = useUserPreferences.getState();
+  const isLoggedIn = state.isLoggedIn;
+  if (isLoggedIn && !normalizeBrokerServerUrl(state.brokerServerUrl)) {
+    return;
+  }
+
   const response = await apiClient(
     `/quotes?symbols=${symbolsQuery}`,
     isLoggedIn ? {} : { skipAuth: true, skipRefresh: true },

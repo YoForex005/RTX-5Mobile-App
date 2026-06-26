@@ -17,13 +17,11 @@ export type EnhancedDrawingToolRuntime = {
 export type DrawingToolsCommandState = {
   chartHideAll: boolean;
   chartLockAll: boolean;
-  magnetEnabled: boolean;
   stickyDrawingMode: boolean;
 };
 
 export type DrawingToolCommandKey =
   | 'zoomToFit'
-  | 'magnetMode'
   | 'stayInDrawingMode'
   | 'lockAllDrawings'
   | 'hideAllDrawings'
@@ -60,7 +58,6 @@ export type DrawingToolsActionSheetConfig = DrawingToolsCommandState & {
   onSelectTool: (tool: string) => void;
   onToggleHide: () => void;
   onToggleLock: () => void;
-  onToggleMagnet: () => void;
   onToggleStickyMode: () => void;
   onZoomTool: () => void;
 };

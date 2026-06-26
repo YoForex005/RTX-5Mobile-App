@@ -10,14 +10,14 @@ import {
 } from '../support/chartSourceTestUtils';
 
 const source = readChartScreenSource();
-const stylesSource = (() => {
+const radialMenuSource = (() => {
   const candidates = [
-    resolve(process.cwd(), 'src/features/chart/ChartScreen.styles.ts'),
-    resolve(process.cwd(), 'rtx5-app/src/features/chart/ChartScreen.styles.ts'),
+    resolve(process.cwd(), 'src/features/chart/components/ChartTapRadialMenu.tsx'),
+    resolve(process.cwd(), 'rtx5-app/src/features/chart/components/ChartTapRadialMenu.tsx'),
   ];
-  const stylesPath = candidates.find((candidate) => existsSync(candidate));
-  assert.ok(stylesPath, 'ChartScreen.styles.ts was not found from the test working directory');
-  return readFileSync(stylesPath, 'utf8');
+  const radialPath = candidates.find((candidate) => existsSync(candidate));
+  assert.ok(radialPath, 'ChartTapRadialMenu.tsx was not found from the test working directory');
+  return readFileSync(radialPath, 'utf8');
 })();
 
 test('native viewport layout schedules resize and frame sync', () => {
@@ -46,22 +46,26 @@ test('fullscreen enter and exit cancel stale resize frames and use the fast pres
   );
 });
 
-test('chart viewport renders the bottom horizontal dots menu with bottom-label clearance', () => {
+test('chart viewport keeps scale controls in the radial menu, not price-scale dots', () => {
   assertSourceContains(
     source,
-    /const handleOpenChartViewportMenu = useCallback\(\(\) => \{[\s\S]*title: t\('Chart'\)[\s\S]*label: t\(showChartVolumePane \? 'Hide Volume Bar' : 'Show Volume Bar'\)[\s\S]*label: t\('Reset'\)/,
-    'bottom-right chart dots must open the chart viewport menu actions',
+    /<ChartTapRadialMenu[\s\S]*onOpenScaleControls=\{handleOpenChartScaleMenu\}/,
+    'chart scale controls must be opened from one tap radial menu section',
+  );
+  assertSourceContains(
+    radialMenuSource,
+    /accessibilityLabel: 'Chart scale controls'[\s\S]*onPress: onOpenScaleControls[\s\S]*<Ionicons name="options-outline"/,
+    'radial menu must render one filter-style chart scale button',
   );
   assertSourceContains(
     source,
-    /style=\{styles\.chartViewportMenuButton\}[\s\S]*onPressIn=\{handleOpenChartViewportMenu\}[\s\S]*<Ionicons name="ellipsis-horizontal"/,
-    'chart viewport must render the horizontal three-dots button',
+    /const chartScaleActions = useMemo\([\s\S]*label: t\('Scroll to last bar'\)[\s\S]*label: t\('Reset vertical scale'\)[\s\S]*label: t\(isChartAutoScaleEnabled \? 'Free chart movement' : 'Auto-scale'\)[\s\S]*label: t\(isVerticalScrollingLocked \? 'Unlock vertical scrolling' : 'Lock vertical scrolling'\)/,
+    'chart scale dropdown must contain the four scale commands',
   );
-  assertSourceContains(
-    stylesSource,
-    /chartViewportMenuButton:\s*\{[\s\S]*right:\s*8[\s\S]*bottom:\s*2[\s\S]*minHeight:\s*22/,
-    'chart viewport dots must sit in the bottom gutter below the lowest price label',
-  );
+  assert.doesNotMatch(radialMenuSource, /const scaleActionItems/);
+  assert.doesNotMatch(source, /const chartPriceScaleActions = useMemo\(/);
+  assert.doesNotMatch(source, /handleOpenChartPriceScaleMenu/);
+  assert.doesNotMatch(source, /styles\.chartPriceScaleMenuButton/);
   assertSourceContains(
     source,
     /label: t\(showChartVolumePane \? 'Hide Volume Bar' : 'Show Volume Bar'\)[\s\S]*label: t\('Reset'\)/,

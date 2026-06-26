@@ -1203,7 +1203,6 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._hidden = false;
     this._locked = false;
     this._sticky = false;
-    this._magnetEnabled = false;
     this._crosshairLocked = false;
     this._crosshairVisible = false;
     // True once a touch gesture has ever had >=2 fingers down (a pinch/zoom).
@@ -1708,62 +1707,8 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     return !!this._snapBypassActive;
   };
 
-  AdvancedDrawingToolsManager.prototype._isMagnetActive = function () {
-    return !!this._magnetEnabled && !this._isSnapBypassActive();
-  };
-
   AdvancedDrawingToolsManager.prototype._resolveCrosshairPrice = function (rawPrice, candle, rawY) {
-    if (!this._isMagnetActive() || !candle) {
-      return rawPrice;
-    }
-
-    var snapType = this._crosshairConfig.snapType || 'ohlc-nearest';
-    if (snapType === 'none' || snapType === 'candle-center') {
-      return rawPrice;
-    }
-    if (snapType === 'close') {
-      var closePrice = isFiniteNumber(candle.close) ? candle.close : (isFiniteNumber(candle.value) ? candle.value : rawPrice);
-      return this._isSnapPriceWithinThreshold(closePrice, rawY) ? closePrice : rawPrice;
-    }
-
-    var candidates = [];
-    if (snapType !== 'high-low' && isFiniteNumber(candle.open)) candidates.push(candle.open);
-    if (isFiniteNumber(candle.high)) candidates.push(candle.high);
-    if (isFiniteNumber(candle.low)) candidates.push(candle.low);
-    if (snapType !== 'high-low' && isFiniteNumber(candle.close)) candidates.push(candle.close);
-    if (snapType !== 'high-low' && isFiniteNumber(candle.value)) candidates.push(candle.value);
-    if (!candidates.length) {
-      return rawPrice;
-    }
-    var nearest = candidates[0];
-    var minDistance = Math.abs(nearest - rawPrice);
-    for (var i = 1; i < candidates.length; i += 1) {
-      var distance = Math.abs(candidates[i] - rawPrice);
-      if (distance < minDistance) {
-        nearest = candidates[i];
-        minDistance = distance;
-      }
-    }
-    return this._isSnapPriceWithinThreshold(nearest, rawY) ? nearest : rawPrice;
-  };
-
-  AdvancedDrawingToolsManager.prototype._isSnapPriceWithinThreshold = function (price, rawY) {
-    if (!this._series || typeof this._series.priceToCoordinate !== 'function') {
-      return true;
-    }
-    var threshold = isFiniteNumber(this._crosshairConfig.snapThresholdPx)
-      ? Math.max(0, this._crosshairConfig.snapThresholdPx)
-      : 18;
-    if (!isFiniteNumber(rawY)) {
-      return true;
-    }
-    try {
-      var y = this._series.priceToCoordinate(price);
-      if (!isFiniteNumber(y)) return false;
-      return Math.abs(y - rawY) <= threshold;
-    } catch (_error) {
-      return true;
-    }
+    return rawPrice;
   };
 
   AdvancedDrawingToolsManager.prototype._resolveCrosshairState = function (param) {
@@ -1800,13 +1745,6 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     var candle = nearest.candle;
     var dataIndex = nearest.index;
     var x = rawX;
-    if (this._isMagnetActive() && candle && candle.time !== undefined) {
-      time = candle.time;
-      var snappedX = resolveCoordinateFromTime(this._chart, this._series, candle.time);
-      if (isFiniteNumber(snappedX)) {
-        x = Math.max(0, Math.min(metrics.paneWidth, snappedX));
-      }
-    }
 
     price = this._resolveCrosshairPrice(price, candle, rawY);
     var y = rawY;
@@ -2171,9 +2109,6 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       snapType: snap && typeof snap.type === 'string' ? snap.type : (typeof config.snapType === 'string' ? config.snapType : this._crosshairConfig.snapType),
       snapThresholdPx: snap && isFiniteNumber(snap.thresholdPx) ? snap.thresholdPx : (isFiniteNumber(config.snapThresholdPx) ? config.snapThresholdPx : this._crosshairConfig.snapThresholdPx)
     });
-    if (snap && typeof snap.enabled === 'boolean') {
-      this.setMagnetMode(snap.enabled);
-    }
     this.refreshCrosshairData();
   };
 
@@ -2211,53 +2146,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
 
   AdvancedDrawingToolsManager.prototype._snapPriceToSeriesBar = function (timeScale, time, price) {
-    if (
-      !this._isMagnetActive() ||
-      !timeScale ||
-      typeof timeScale.timeToIndex !== 'function' ||
-      !this._series ||
-      typeof this._series.dataByIndex !== 'function'
-    ) {
-      return null;
-    }
-
-    try {
-      var index = timeScale.timeToIndex(time, true);
-      if (index === null || index === undefined) {
-        return null;
-      }
-
-      var bar = this._series.dataByIndex(index, 0);
-      if (!bar || typeof bar !== 'object') {
-        return null;
-      }
-
-      var candidates = [];
-      if (typeof bar.open === 'number') candidates.push(bar.open);
-      if (typeof bar.high === 'number') candidates.push(bar.high);
-      if (typeof bar.low === 'number') candidates.push(bar.low);
-      if (typeof bar.close === 'number') candidates.push(bar.close);
-      if (typeof bar.value === 'number') candidates.push(bar.value);
-
-      if (!candidates.length) {
-        return null;
-      }
-
-      var nearest = candidates[0];
-      var minDistance = Math.abs(nearest - price);
-      for (var i = 1; i < candidates.length; i++) {
-        var candidate = candidates[i];
-        var distance = Math.abs(candidate - price);
-        if (distance < minDistance) {
-          nearest = candidate;
-          minDistance = distance;
-        }
-      }
-
-      return nearest;
-    } catch (_error) {
-      return null;
-    }
+    return null;
   };
 
   AdvancedDrawingToolsManager.prototype._buildSyntheticPointerParam = function (touch) {
@@ -3612,24 +3501,6 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
   AdvancedDrawingToolsManager.prototype.setStayInDrawingMode = function (sticky) {
     this._sticky = !!sticky;
-  };
-
-  AdvancedDrawingToolsManager.prototype.setMagnetMode = function (enabled) {
-    this._magnetEnabled = !!enabled;
-    if (this._chart && typeof this._chart.applyOptions === 'function') {
-      var hiddenCrosshairMode =
-        LightweightCharts.CrosshairMode && typeof LightweightCharts.CrosshairMode.Hidden === 'number'
-          ? LightweightCharts.CrosshairMode.Hidden
-          : 2;
-      this._chart.applyOptions({
-        crosshair: {
-          mode: hiddenCrosshairMode,
-          vertLine: { visible: false, labelVisible: false, color: 'transparent', width: 0 },
-          horzLine: { visible: false, labelVisible: false, color: 'transparent', width: 0 }
-        }
-      });
-    }
-    this.refreshCrosshairData();
   };
 
   AdvancedDrawingToolsManager.prototype.zoomToFit = function () {

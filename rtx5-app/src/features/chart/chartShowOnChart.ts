@@ -9,6 +9,11 @@ export const CHART_SHOW_ON_CHART_ITEMS = [
     label: 'Show sell trade',
     description: 'Shows your open sell positions, with their SL / TP, on the chart.',
   },
+  {
+    key: 'slTpLevels',
+    label: 'SL/TP levels',
+    description: 'Show Stop Loss and Take Profit values on the chart.',
+  },
 ] as const;
 
 export type ChartShowOnChartKey = (typeof CHART_SHOW_ON_CHART_ITEMS)[number]['key'];
@@ -18,12 +23,13 @@ export type ChartShowOnChartSettings = Record<ChartShowOnChartKey, boolean>;
 export const DEFAULT_CHART_SHOW_ON_CHART: ChartShowOnChartSettings = {
   buyTrade: true,
   sellTrade: true,
+  slTpLevels: true,
 };
 
 // Older builds persisted a richer per-feature show-on-chart object (open
 // positions, TP/SL, closed positions, signals, HMR, alerts, stop-out) and even
-// earlier top-level boolean flags. The model is now just buy/sell trade
-// visibility, so any legacy shape collapses to the defaults (both sides shown).
+// earlier top-level boolean flags. The current model keeps buy/sell trade
+// visibility plus the MT5-style SL/TP levels visibility.
 export type LegacyChartShowOnChartState = Partial<{
   showOpenPositions: boolean;
   showTpSlStopLimit: boolean;
@@ -46,15 +52,21 @@ export function normalizeChartShowOnChartSettings(
       typeof record.buyTrade === 'boolean' ? record.buyTrade : DEFAULT_CHART_SHOW_ON_CHART.buyTrade,
     sellTrade:
       typeof record.sellTrade === 'boolean' ? record.sellTrade : DEFAULT_CHART_SHOW_ON_CHART.sellTrade,
+    slTpLevels:
+      typeof record.slTpLevels === 'boolean' ? record.slTpLevels : DEFAULT_CHART_SHOW_ON_CHART.slTpLevels,
   };
 }
 
 export function buildChartShowOnChartSettingsFromLegacy(
-  _state: LegacyChartShowOnChartState | null | undefined,
+  state: LegacyChartShowOnChartState | null | undefined,
 ): ChartShowOnChartSettings {
-  // Legacy per-feature flags don't map onto buy/sell trade visibility — default
-  // to showing both sides.
-  return { ...DEFAULT_CHART_SHOW_ON_CHART };
+  return {
+    ...DEFAULT_CHART_SHOW_ON_CHART,
+    slTpLevels:
+      typeof state?.showTpSlStopLimit === 'boolean'
+        ? state.showTpSlStopLimit
+        : DEFAULT_CHART_SHOW_ON_CHART.slTpLevels,
+  };
 }
 
 export function hasLegacyChartShowOnChartDefaults(

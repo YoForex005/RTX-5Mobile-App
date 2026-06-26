@@ -1,4 +1,5 @@
 import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
+import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { Animated, Easing, PanResponder, StyleSheet, Text, View } from 'react-native';
 import {
@@ -6,8 +7,6 @@ import {
   TvFx,
   TvLayers,
   TvRadialPencil,
-  TvRadialPlus,
-  TvRadialSettings,
 } from './ChartToolbarIcons';
 
 export type ChartTapMenuAnchor = {
@@ -34,8 +33,8 @@ type ChartTapRadialMenuProps = {
   onOpenDrawingTools: () => void;
   onOpenIndicators: () => void;
 
-  onOpenSettings: () => void;
   onOpenSymbolPicker: () => void;
+  onOpenScaleControls: () => void;
 };
 
 const CHART_TAP_MENU_SIZE = 268;
@@ -218,8 +217,8 @@ export function ChartTapRadialMenu({
   onOpenDrawingTools,
   onOpenIndicators,
 
-  onOpenSettings,
   onOpenSymbolPicker,
+  onOpenScaleControls,
 }: ChartTapRadialMenuProps) {
   const styles = React.useMemo(() => createStyles(isDark), [isDark]);
   const containerWidth = bounds.width;
@@ -380,6 +379,7 @@ export function ChartTapRadialMenu({
     key: string;
     angle: number;
     boxSize?: number;
+    accessibilityLabel: string;
     render: (color: string) => React.ReactNode;
     onPress: () => void;
   }> = [
@@ -387,6 +387,7 @@ export function ChartTapRadialMenu({
       key: 'objects',
       angle: 282,
       boxSize: 26,
+      accessibilityLabel: 'Objects',
       render: (color) => <TvLayers color={color} />,
       onPress: onOpenObjects,
     },
@@ -394,20 +395,23 @@ export function ChartTapRadialMenu({
       key: 'draw',
       angle: 252,
       boxSize: 24,
+      accessibilityLabel: 'Drawing tools',
       render: (color) => <TvRadialPencil color={color} />,
       onPress: onOpenDrawingTools,
     },
     {
-      key: 'settings',
+      key: 'scale',
       angle: 222,
       boxSize: 24,
-      render: (color) => <TvRadialSettings color={color} />,
-      onPress: onOpenSettings,
+      accessibilityLabel: 'Chart scale controls',
+      onPress: onOpenScaleControls,
+      render: (color) => <Ionicons name="options-outline" size={22} color={color} />,
     },
     {
       key: 'symbol',
       angle: 192,
       boxSize: 24,
+      accessibilityLabel: 'Symbol picker',
       render: (color) => <TvFx color={color} />,
       onPress: onOpenSymbolPicker,
     },
@@ -415,11 +419,11 @@ export function ChartTapRadialMenu({
       key: 'indicators',
       angle: 168,
       boxSize: 24,
+      accessibilityLabel: 'Indicators',
       render: (color) => <TvRadialIndicators color={color} />,
       onPress: onOpenIndicators,
     },
   ];
-
   return (
     <View style={styles.layer} pointerEvents="box-none" collapsable={false}>
       <Pressable
@@ -506,6 +510,8 @@ export function ChartTapRadialMenu({
             return (
               <Pressable
                 key={item.key}
+                accessibilityRole="button"
+                accessibilityLabel={item.accessibilityLabel}
                 onPress={item.onPress}
                 unstable_pressDelay={0}
                 style={[styles.actionItem, position, { width: itemBoxSize, height: itemBoxSize }]}

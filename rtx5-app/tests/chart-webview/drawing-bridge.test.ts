@@ -18,7 +18,6 @@ test('required drawing bridge functions remain exposed on window', () => {
     'setDrawingsLocked',
     'setDrawingsHidden',
     'setStayInDrawingMode',
-    'setMagnetMode',
     'zoomChart',
   ].forEach((method) => {
     assertSourceContains(source, new RegExp(`window\\.${method} = ${method}`), `${method} must remain a WebView bridge API`);
@@ -58,10 +57,10 @@ test('DRAWINGS_CHANGED sanitizes payload and persists only when signature change
   );
 });
 
-test('drawing lock hide sticky and magnet state are pushed after WebView chart is ready', () => {
+test('drawing lock hide and sticky state are pushed after WebView chart is ready', () => {
   assertSourceContains(
     source,
-    /if \(!webViewReady \|\| !chartCanvasReady\) return[\s\S]*setDrawingsLocked\(\$\{chartLockAll\}\)[\s\S]*setDrawingsHidden\(\$\{chartHideAll\}\)[\s\S]*setStayInDrawingMode\(\$\{stickyDrawingMode\}\)[\s\S]*setMagnetMode\(\$\{magnetEnabled\}\)/,
+    /if \(!webViewReady \|\| !chartCanvasReady\) return[\s\S]*setDrawingsLocked\(\$\{chartLockAll\}\)[\s\S]*setDrawingsHidden\(\$\{chartHideAll\}\)[\s\S]*setStayInDrawingMode\(\$\{stickyDrawingMode\}\)/,
     'drawing interaction flags must be bridged only after the chart exists',
   );
 });

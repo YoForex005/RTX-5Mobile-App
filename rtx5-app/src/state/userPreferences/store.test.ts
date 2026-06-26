@@ -8,7 +8,7 @@ const source = () => readFileSync(resolve(process.cwd(), 'src/state/userPreferen
 test('persisted user preferences are normalized before second-launch hydration reaches UI', () => {
   const storeSource = source();
 
-  assert.match(storeSource, /const PREFERENCES_STORAGE_VERSION = 17/);
+  assert.match(storeSource, /const PREFERENCES_STORAGE_VERSION = 19/);
   assert.match(storeSource, /const CHART_DRAWING_RECORDS_STORAGE_KEY = 'rtx5-chart-drawing-records-v1'/);
   assert.match(storeSource, /normalizePersistedUserPreferencesState/);
   assert.match(storeSource, /quoteSymbols: asStringArray\(state\.quoteSymbols\)/);
@@ -16,6 +16,8 @@ test('persisted user preferences are normalized before second-launch hydration r
   assert.match(storeSource, /chartTimeframe: normalizeCandleHistoryTimeframe\(state\.chartTimeframe\)/);
   assert.match(storeSource, /const normalizeChartVisualType = \(value: unknown\): ChartVisualType => \{[\s\S]*if \(value === 'bars'\) return 'candles';[\s\S]*value === 'candles' \|\| value === 'line' \|\| value === 'hollow'/);
   assert.match(storeSource, /chartVisualType: normalizeChartVisualType\(state\.chartVisualType\)/);
+  assert.match(storeSource, /chartVerticalScrollingLocked: asBoolean\(state\.chartVerticalScrollingLocked, false\)/);
+  assert.match(storeSource, /chartAutoScaleEnabled: asBoolean\(state\.chartAutoScaleEnabled, false\)/);
   assert.match(storeSource, /setChartVisualType: \(chartType\) => set\(\{ chartVisualType: normalizeChartVisualType\(chartType\) \}\)/);
   assert.doesNotMatch(storeSource, /const isChartVisualType/);
   assert.match(storeSource, /persistChartDrawingRecordsBySymbol\(nextRecordsBySymbol\)/);

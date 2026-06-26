@@ -4,7 +4,6 @@ import { fibZoneDrawingTool } from './fibZoneTool';
 import { hideAllDrawingsDrawingToolAction } from './hideAllDrawingsTool';
 import { lockAllDrawingsDrawingToolAction } from './lockAllDrawingsTool';
 import { longPositionDrawingTool } from './longPositionTool';
-import { magnetModeDrawingToolAction } from './magnetModeTool';
 import { measureRangeDrawingTool } from './measureRangeTool';
 import { stayInDrawingModeDrawingToolAction } from './stayInDrawingModeTool';
 import { textLabelDrawingTool } from './textLabelTool';
@@ -44,7 +43,6 @@ export { hideAllDrawingsDrawingToolAction } from './hideAllDrawingsTool';
 export { highlightBoxDrawingTool } from './highlightBoxTool';
 export { lockAllDrawingsDrawingToolAction } from './lockAllDrawingsTool';
 export { longPositionDrawingTool } from './longPositionTool';
-export { magnetModeDrawingToolAction } from './magnetModeTool';
 export { measureRangeDrawingTool } from './measureRangeTool';
 export { patternPathDrawingTool } from './patternPathTool';
 export { pitchforkDrawingTool } from './pitchforkTool';
@@ -86,7 +84,6 @@ export const DRAWING_SHEET_OPTIONS: SelectableDrawingToolDefinition[] = [
 
 export const DRAWING_TOOL_COMMANDS: DrawingToolCommandDefinition[] = [
   zoomToFitDrawingToolAction,
-  magnetModeDrawingToolAction,
   stayInDrawingModeDrawingToolAction,
   lockAllDrawingsDrawingToolAction,
   hideAllDrawingsDrawingToolAction,
@@ -108,7 +105,6 @@ export const DRAWING_TOOL_SIDEBAR_GROUPS: DrawingToolSidebarGroup[] = [
   {
     key: 'drawing-state',
     entries: [
-      { kind: 'command', definition: magnetModeDrawingToolAction },
       { kind: 'command', definition: stayInDrawingModeDrawingToolAction },
       { kind: 'command', definition: lockAllDrawingsDrawingToolAction },
       { kind: 'command', definition: hideAllDrawingsDrawingToolAction },
@@ -126,18 +122,16 @@ function createDrawingToolCommandHandlers({
   onClearDrawings,
   onToggleHide,
   onToggleLock,
-  onToggleMagnet,
   onToggleStickyMode,
   onZoomTool,
 }: Pick<
   DrawingToolsActionSheetConfig,
-  'onClearDrawings' | 'onToggleHide' | 'onToggleLock' | 'onToggleMagnet' | 'onToggleStickyMode' | 'onZoomTool'
+  'onClearDrawings' | 'onToggleHide' | 'onToggleLock' | 'onToggleStickyMode' | 'onZoomTool'
 >): DrawingToolCommandHandlers {
   return {
     clearDrawings: onClearDrawings,
     hideAllDrawings: onToggleHide,
     lockAllDrawings: onToggleLock,
-    magnetMode: onToggleMagnet,
     stayInDrawingMode: onToggleStickyMode,
     zoomToFit: onZoomTool,
   };
@@ -146,7 +140,7 @@ function createDrawingToolCommandHandlers({
 export function createDrawingToolsCommandHandlers(
   config: Pick<
     DrawingToolsActionSheetConfig,
-    'onClearDrawings' | 'onToggleHide' | 'onToggleLock' | 'onToggleMagnet' | 'onToggleStickyMode' | 'onZoomTool'
+    'onClearDrawings' | 'onToggleHide' | 'onToggleLock' | 'onToggleStickyMode' | 'onZoomTool'
   >,
 ): DrawingToolCommandHandlers {
   return createDrawingToolCommandHandlers(config);
@@ -160,7 +154,6 @@ export function createDrawingToolsActionSheetActions(
   const commandState: DrawingToolsCommandState = {
     chartHideAll: config.chartHideAll,
     chartLockAll: config.chartLockAll,
-    magnetEnabled: config.magnetEnabled,
     stickyDrawingMode: config.stickyDrawingMode,
   };
   const commandHandlers = createDrawingToolCommandHandlers(config);

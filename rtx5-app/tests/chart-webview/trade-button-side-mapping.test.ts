@@ -357,13 +357,14 @@ test('trade feedback modal clearly differentiates buy and sell success popups', 
 
   assert.match(source, /const sideLabel = state\.side === 'buy' \? 'BUY' : state\.side === 'sell' \? 'SELL' : '';/);
   assert.match(source, /const successTitle = sideLabel \? `\$\{sideLabel\} Order Executed` : 'Order Executed';/);
-  assert.match(source, /const successBadgeLabel = sideLabel \? `\$\{sideLabel\} FILLED` : 'FILLED';/);
   assert.match(source, /const BUY_HEX = '#2563EB';/);
   assert.match(source, /const SELL_HEX = '#DC2626';/);
   assert.match(source, /const accent = isSuccess \? \(isBuy \? BUY_HEX : isSell \? SELL_HEX : SUCCESS_HEX\) : ERR_HEX;/);
   assert.match(source, /\{isSuccess \? successTitle : \(state\.title \|\| 'Order Rejected'\)\}/);
-  assert.match(source, /\{isSuccess \? successBadgeLabel : 'FAILED'\}/);
-  assert.match(source, /\{sideLabel \? `\$\{sideLabel\} EXECUTION PRICE` : 'EXECUTION PRICE'\}/);
+  assert.match(source, /const successSummaryText = \[state\.symbol, volumeLabel\]\.filter\(Boolean\)\.join\(' - '\);/);
+  assert.match(source, /const executionLabel = sideLabel \? `\$\{sideLabel\} price` : 'Execution price';/);
+  assert.match(source, /tfmStyles\.successSummary[\s\S]*tfmStyles\.executionRow[\s\S]*tfmStyles\.executionPrice/);
+  assert.doesNotMatch(source, /successBadgeLabel|tfmStyles\.detailsGrid|View Position/);
   assert.doesNotMatch(source, /successful[\s\S]*share the exact same professional Green success theme/);
 });
 

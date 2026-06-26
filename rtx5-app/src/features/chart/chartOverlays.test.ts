@@ -36,8 +36,8 @@ const candles: ChartOverlayCandle[] = Array.from({ length: 40 }, (_, index) => {
   };
 });
 
-const BOTH_SIDES = { buyTrade: true, sellTrade: true } as const;
-const NO_SIDES = { buyTrade: false, sellTrade: false } as const;
+const BOTH_SIDES = { buyTrade: true, sellTrade: true, slTpLevels: true } as const;
+const NO_SIDES = { buyTrade: false, sellTrade: false, slTpLevels: false } as const;
 
 test('normalizeChartOverlaySymbol strips broker suffix variants consistently', () => {
   // Separator-based suffixes
@@ -299,7 +299,7 @@ test('buildChartOverlayPayload filters open trades by side via the buy/sell togg
     colors: TEST_CHART_COLORS,
     sellColor: '#EF5350',
     liveAccount: null,
-    showOnChart: { buyTrade: true, sellTrade: false },
+    showOnChart: { buyTrade: true, sellTrade: false, slTpLevels: true },
   });
   assert.deepEqual(
     buyOnly.priceLines.map((line: any) => line.id),
@@ -313,7 +313,7 @@ test('buildChartOverlayPayload filters open trades by side via the buy/sell togg
     colors: TEST_CHART_COLORS,
     sellColor: '#EF5350',
     liveAccount: null,
-    showOnChart: { buyTrade: false, sellTrade: true },
+    showOnChart: { buyTrade: false, sellTrade: true, slTpLevels: true },
   });
   assert.deepEqual(
     sellOnly.priceLines.map((line: any) => line.id),
@@ -437,6 +437,34 @@ test('buildChartOverlayPayload shows or hides trades directly from the buy/sell 
     ['open-1', 'sl-1', 'tp-1'].sort(),
   );
   assert.equal(hiddenPayload.priceLines.length, 0);
+});
+
+test('buildChartOverlayPayload hides SL/TP levels while keeping visible trade entries', () => {
+  const payload = buildChartOverlayPayload({
+    chartSymbol: 'EURUSD',
+    candles,
+    positions: [
+      {
+        id: 'sltp-filter',
+        symbol: 'EURUSDm',
+        side: 'buy',
+        volume: 0.2,
+        openPrice: 1.11111,
+        currentPrice: 1.1185,
+        pnl: 42,
+        swap: 0,
+        openTime: new Date(candles[5].time * 1000).toISOString(),
+        sl: 1.106,
+        tp: 1.124,
+      },
+    ],
+    colors: TEST_CHART_COLORS,
+    sellColor: '#EF5350',
+    liveAccount: null,
+    showOnChart: { buyTrade: true, sellTrade: true, slTpLevels: false },
+  });
+
+  assert.deepEqual(payload.priceLines.map((line: any) => line.id), ['open-sltp-filter']);
 });
 
 test('buildChartOverlayPayload matches all open positions across slash and suffix symbol variants', () => {

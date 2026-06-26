@@ -14,6 +14,7 @@ import { Screen } from '../../ui/components/Screen';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { safeRouterBack } from '../../utils/navigation';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useUIState, type PendingChartCommand } from '../../state/uiState';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useTheme } from '../../ui/theme/useTheme';
 import {
@@ -25,6 +26,7 @@ import {
 const SHOW_ON_CHART_ICONS: Record<ChartShowOnChartKey, keyof typeof Ionicons.glyphMap> = {
   buyTrade: 'trending-up-outline',
   sellTrade: 'trending-down-outline',
+  slTpLevels: 'shield-checkmark-outline',
 };
 
 export function ChartSettingsScreen() {
@@ -35,13 +37,27 @@ export function ChartSettingsScreen() {
 
   const priceSource = useUserPreferences((s) => s.priceSource);
   const openOrderMode = useUserPreferences((s) => s.openOrderMode);
+  const chartOneClickPanelAtBottom = useUserPreferences((s) => s.chartOneClickPanelAtBottom);
+  const chartVerticalScrollingLocked = useUserPreferences((s) => s.chartVerticalScrollingLocked);
+  const chartAutoScaleEnabled = useUserPreferences((s) => s.chartAutoScaleEnabled);
   const chartShowOnChart = useUserPreferences((s) => s.chartShowOnChart);
+  const setChartOneClickPanelAtBottom = useUserPreferences((s) => s.setChartOneClickPanelAtBottom);
+  const setChartVerticalScrollingLocked = useUserPreferences((s) => s.setChartVerticalScrollingLocked);
+  const setChartAutoScaleEnabled = useUserPreferences((s) => s.setChartAutoScaleEnabled);
   const setChartShowOnChartItem = useUserPreferences((s) => s.setChartShowOnChartItem);
+  const queueChartCommand = useUIState((s) => s.queueChartCommand);
   const handleToggleShowOnChart = useCallback(
     (key: ChartShowOnChartKey, value: boolean) => {
       setChartShowOnChartItem(key, value);
     },
     [setChartShowOnChartItem],
+  );
+  const handleRunChartCommand = useCallback(
+    (command: PendingChartCommand) => {
+      queueChartCommand(command);
+      safeRouterBack(router, '/(tabs)/chart');
+    },
+    [queueChartCommand],
   );
 
   return (
@@ -94,6 +110,71 @@ export function ChartSettingsScreen() {
             value={openOrderMode}
             onPress={() => router.push('/chart/open-order-mode')}
             styles={styles}
+          />
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Ionicons name="resize-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
+          <Text style={styles.sectionTitle}>CHART SCALE</Text>
+        </View>
+        <View style={styles.card}>
+          <ActionPreferenceRow
+            title="Scroll to last bar"
+            description="Move the chart to the newest candle"
+            iconName="arrow-forward-outline"
+            onPress={() => handleRunChartCommand('scrollToLastBar')}
+            styles={styles}
+            isDark={isDark}
+            latencyLabel="chartSettings.scrollToLastBar"
+          />
+          <View style={styles.separator} />
+          <ActionPreferenceRow
+            title="Reset vertical scale"
+            description="Fit the vertical price scale again"
+            iconName="refresh-outline"
+            onPress={() => handleRunChartCommand('resetVerticalScale')}
+            styles={styles}
+            isDark={isDark}
+            latencyLabel="chartSettings.resetVerticalScale"
+          />
+          <View style={styles.separator} />
+          <PreferenceToggleRow
+            title="Auto-scale"
+            description="Keep the vertical scale fitted to visible prices"
+            iconName="resize-outline"
+            enabled={chartAutoScaleEnabled}
+            isDark={isDark}
+            onValueChange={setChartAutoScaleEnabled}
+            styles={styles}
+            latencyLabel="chartSettings.autoScale"
+          />
+          <View style={styles.separator} />
+          <PreferenceToggleRow
+            title="Lock vertical scrolling"
+            description="Block manual up and down chart movement"
+            iconName={chartVerticalScrollingLocked ? 'lock-closed-outline' : 'lock-open-outline'}
+            enabled={chartVerticalScrollingLocked}
+            isDark={isDark}
+            onValueChange={setChartVerticalScrollingLocked}
+            styles={styles}
+            latencyLabel="chartSettings.lockVerticalScrolling"
+          />
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Ionicons name="swap-horizontal-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
+          <Text style={styles.sectionTitle}>TRADING</Text>
+        </View>
+        <View style={styles.card}>
+          <PreferenceToggleRow
+            title="One Click panel at the bottom"
+            description="Show one click trading panel at the bottom of the chart"
+            iconName="trail-sign-outline"
+            enabled={chartOneClickPanelAtBottom}
+            isDark={isDark}
+            onValueChange={setChartOneClickPanelAtBottom}
+            styles={styles}
+            latencyLabel="chartSettings.oneClickPanelAtBottom"
           />
         </View>
 
@@ -177,7 +258,10 @@ function ToggleRow({
         <View style={styles.toggleIconWrap}>
           <Ionicons name={iconName} size={17} color={isDark ? '#94A3B8' : '#64748B'} />
         </View>
-        <Text style={styles.toggleLabel} numberOfLines={1}>{item.label}</Text>
+        <View style={styles.preferenceToggleText}>
+          <Text style={styles.toggleLabel} numberOfLines={2}>{item.label}</Text>
+          <Text style={styles.toggleDescription} numberOfLines={2}>{item.description}</Text>
+        </View>
       </View>
       <Switch
         pointerEvents="none"
@@ -191,6 +275,93 @@ function ToggleRow({
     </FastPressable>
   );
 }
+
+function PreferenceToggleRow({
+  title,
+  description,
+  iconName,
+  enabled,
+  isDark,
+  onValueChange,
+  styles,
+  latencyLabel,
+}: {
+  title: string;
+  description: string;
+  iconName: keyof typeof Ionicons.glyphMap;
+  enabled: boolean;
+  isDark: boolean;
+  onValueChange: (value: boolean) => void;
+  styles: ReturnType<typeof makeStyles>;
+  latencyLabel: string;
+}) {
+  const accentColor = isDark ? '#60A5FA' : '#2563EB';
+
+  return (
+    <FastPressable
+      style={({ pressed }) => [styles.preferenceToggleRow, pressed && styles.rowPressed]}
+      onPress={() => onValueChange(!enabled)}
+      latencyLabel={latencyLabel}
+    >
+      <View style={styles.toggleLeft}>
+        <View style={styles.toggleIconWrap}>
+          <Ionicons name={iconName} size={17} color={isDark ? '#94A3B8' : '#64748B'} />
+        </View>
+        <View style={styles.preferenceToggleText}>
+          <Text style={styles.preferenceToggleTitle} numberOfLines={2}>{title}</Text>
+          <Text style={styles.toggleDescription} numberOfLines={2}>{description}</Text>
+        </View>
+      </View>
+      <Switch
+        pointerEvents="none"
+        value={enabled}
+        onValueChange={onValueChange}
+        trackColor={{ false: isDark ? 'rgba(148,163,184,0.24)' : '#CBD5E1', true: isDark ? 'rgba(96,165,250,0.42)' : '#BFDBFE' }}
+        thumbColor={enabled ? accentColor : (isDark ? '#CBD5E1' : '#FFFFFF')}
+        ios_backgroundColor={isDark ? 'rgba(148,163,184,0.24)' : '#CBD5E1'}
+        style={styles.toggleSwitch}
+      />
+    </FastPressable>
+  );
+}
+
+function ActionPreferenceRow({
+  title,
+  description,
+  iconName,
+  onPress,
+  styles,
+  isDark,
+  latencyLabel,
+}: {
+  title: string;
+  description: string;
+  iconName: keyof typeof Ionicons.glyphMap;
+  onPress: () => void;
+  styles: ReturnType<typeof makeStyles>;
+  isDark: boolean;
+  latencyLabel: string;
+}) {
+  return (
+    <FastPressable
+      style={({ pressed }) => [styles.preferenceToggleRow, pressed && styles.rowPressed]}
+      onPress={onPress}
+      latencyLabel={latencyLabel}
+    >
+      <View style={styles.toggleLeft}>
+        <View style={styles.toggleIconWrap}>
+          <Ionicons name={iconName} size={17} color={isDark ? '#94A3B8' : '#64748B'} />
+        </View>
+        <View style={styles.preferenceToggleText}>
+          <Text style={styles.preferenceToggleTitle} numberOfLines={2}>{title}</Text>
+          <Text style={styles.toggleDescription} numberOfLines={2}>{description}</Text>
+        </View>
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={isDark ? '#64748B' : '#94A3B8'} />
+    </FastPressable>
+  );
+}
+
 function NavRow({
   label,
   value,
@@ -301,8 +472,18 @@ function makeStyles(_T: ThemeColors, isDark: boolean) {
       backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
     },
     toggleRow: {
-      minHeight: 56,
+      minHeight: 74,
       paddingHorizontal: 14,
+      paddingVertical: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+    },
+    preferenceToggleRow: {
+      minHeight: 74,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
@@ -315,6 +496,11 @@ function makeStyles(_T: ThemeColors, isDark: boolean) {
       gap: 12,
       minWidth: 0,
     },
+    preferenceToggleText: {
+      flex: 1,
+      minWidth: 0,
+      gap: 3,
+    },
     toggleIconWrap: {
       width: 30,
       height: 30,
@@ -324,10 +510,22 @@ function makeStyles(_T: ThemeColors, isDark: boolean) {
       backgroundColor: isDark ? 'rgba(148,163,184,0.10)' : '#F1F5F9',
     },
     toggleLabel: {
-      flex: 1,
       color: isDark ? '#F8FAFC' : '#0F172A',
       fontSize: 15,
       fontWeight: '500',
+      lineHeight: 19,
+    },
+    preferenceToggleTitle: {
+      color: isDark ? '#F8FAFC' : '#0F172A',
+      fontSize: 15,
+      fontWeight: '500',
+      lineHeight: 19,
+    },
+    toggleDescription: {
+      color: isDark ? '#94A3B8' : '#64748B',
+      fontSize: 12,
+      fontWeight: '500',
+      lineHeight: 16,
     },
     toggleSwitch: {
       transform: [{ scaleX: 0.86 }, { scaleY: 0.86 }],

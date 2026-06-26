@@ -58,12 +58,15 @@ export class CandlesWebSocketService {
   }
 
   private resolveSocketUrl(): string {
-    const configuredUrl = resolveCandlesWsUrl(process.env.EXPO_PUBLIC_CANDLES_WS_URL);
-    const hasConfiguredUrl = Boolean(process.env.EXPO_PUBLIC_CANDLES_WS_URL?.trim());
-    if (hasConfiguredUrl) {
-      return configuredUrl;
+    const state = useUserPreferences.getState();
+    if (!state.isLoggedIn) {
+      const configuredUrl = resolveCandlesWsUrl(process.env.EXPO_PUBLIC_CANDLES_WS_URL);
+      const hasConfiguredUrl = Boolean(process.env.EXPO_PUBLIC_CANDLES_WS_URL?.trim());
+      if (hasConfiguredUrl) {
+        return configuredUrl;
+      }
     }
-    return resolveCandlesWsUrl(undefined, useUserPreferences.getState().brokerServerUrl);
+    return resolveCandlesWsUrl(undefined, state.brokerServerUrl, { requireBrokerUrl: state.isLoggedIn });
   }
 
   /**
@@ -77,6 +80,16 @@ export class CandlesWebSocketService {
 
     const token = this.resolveConnectionToken();
     const nextUrl = this.resolveSocketUrl();
+    if (!nextUrl) {
+      if (this.url !== nextUrl) {
+        this.url = nextUrl;
+        this.tearDownSocketSafe();
+      }
+      console.warn('[Candles WS] No broker candle websocket URL available for logged-in session. Waiting for broker domain.');
+      this.scheduleReconnect();
+      return;
+    }
+
     // If the socket is already up but the token has rotated, tear it down so
     // the new connection can use the fresh JWT for any account/broker-scoped
     // routing while public candle channels continue to work anonymously.

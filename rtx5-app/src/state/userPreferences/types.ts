@@ -71,6 +71,9 @@ export type UserPreferencesState = {
   chartVisualType: ChartVisualType;
   chartViewportShowVolumePane: boolean;
   chartViewportShowDrawingToolbar: boolean;
+  chartOneClickPanelAtBottom: boolean;
+  chartVerticalScrollingLocked: boolean;
+  chartAutoScaleEnabled: boolean;
   chartDrawings: string[];
   chartDrawingRecordsBySymbol: PersistedChartDrawingsBySymbol;
   chartLockAll: boolean;
@@ -138,6 +141,9 @@ export type UserPreferencesState = {
   setChartVisualType: (chartType: ChartVisualType) => void;
   setChartViewportShowVolumePane: (visible: boolean) => void;
   setChartViewportShowDrawingToolbar: (visible: boolean) => void;
+  setChartOneClickPanelAtBottom: (visible: boolean) => void;
+  setChartVerticalScrollingLocked: (locked: boolean) => void;
+  setChartAutoScaleEnabled: (enabled: boolean) => void;
   addChartDrawing: (drawing: string) => void;
   removeChartDrawing: (drawing: string) => void;
   setChartDrawings: (drawings: string[]) => void;

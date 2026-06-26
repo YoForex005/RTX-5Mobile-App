@@ -6,6 +6,8 @@ import React from 'react';
 import { create } from 'zustand';
 import type { ChartDrawingKind } from '../features/chart/drawingPersistence';
 
+export type PendingChartCommand = 'scrollToLastBar' | 'resetVerticalScale';
+
 /** Represents a single interactive button in an ActionSheet */
 type ActionSheetAction = {
   /** Display label for the button */
@@ -156,6 +158,11 @@ type UIState = {
   queueChartDrawingTool: (tool: ChartDrawingKind) => void;
   clearPendingChartDrawingTool: () => void;
 
+  /** One-shot chart viewport command requested from another chart screen. */
+  pendingChartCommand: PendingChartCommand | null;
+  queueChartCommand: (command: PendingChartCommand) => void;
+  clearPendingChartCommand: () => void;
+
   /** Current active action sheet config. Null means closed. */
   actionSheet: ActionSheetConfig | null;
   /** Action sheet config to render invisibly in the background to pre-warm the layout engine */
@@ -215,6 +222,9 @@ export const useUIState = create<UIState>((set) => ({
   pendingChartDrawingTool: null,
   queueChartDrawingTool: (tool) => set({ pendingChartDrawingTool: tool }),
   clearPendingChartDrawingTool: () => set({ pendingChartDrawingTool: null }),
+  pendingChartCommand: null,
+  queueChartCommand: (command) => set({ pendingChartCommand: command }),
+  clearPendingChartCommand: () => set({ pendingChartCommand: null }),
 
   actionSheet: null,
   preloadedActionSheet: null,

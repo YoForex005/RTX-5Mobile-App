@@ -12,6 +12,7 @@ import NetInfo from '@react-native-community/netinfo';
 
 import {
   buildBrokerWsUrl,
+  normalizeBrokerServerUrl,
   normalizeConfiguredWsUrl,
   shouldUseBrokerHostedQuoteFeed,
 } from '../../brokerRouting';
@@ -135,24 +136,28 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   }
 
   private resolveSocketUrl(): string {
-    const configuredUrl = normalizeConfiguredWsUrl(process.env.EXPO_PUBLIC_QUOTES_WS_URL, '');
-    if (configuredUrl) {
-      return configuredUrl;
+    const state = useUserPreferences.getState();
+    if (!state.isLoggedIn) {
+      const configuredUrl = normalizeConfiguredWsUrl(process.env.EXPO_PUBLIC_QUOTES_WS_URL, '');
+      if (configuredUrl) {
+        return configuredUrl;
+      }
     }
 
-    const brokerServerUrl = useUserPreferences.getState().brokerServerUrl;
-    return this.resolveBrokerSocketUrl(brokerServerUrl);
+    return this.resolveBrokerSocketUrl(state.brokerServerUrl, { requireBrokerUrl: state.isLoggedIn });
   }
 
   private async resolveSocketUrlAsync(): Promise<string> {
-    const configuredUrl = normalizeConfiguredWsUrl(process.env.EXPO_PUBLIC_QUOTES_WS_URL, '');
-    if (configuredUrl) {
-      return configuredUrl;
+    const state = useUserPreferences.getState();
+    if (!state.isLoggedIn) {
+      const configuredUrl = normalizeConfiguredWsUrl(process.env.EXPO_PUBLIC_QUOTES_WS_URL, '');
+      if (configuredUrl) {
+        return configuredUrl;
+      }
     }
 
-    const state = useUserPreferences.getState();
     if (state.brokerServerUrl) {
-      return this.resolveBrokerSocketUrl(state.brokerServerUrl);
+      return this.resolveBrokerSocketUrl(state.brokerServerUrl, { requireBrokerUrl: state.isLoggedIn });
     }
 
     const [storedBrokerId, storedServerUrl, storedLogoUrl] = await Promise.all([
@@ -162,7 +167,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     ]);
 
     if (!storedServerUrl) {
-      return DEFAULT_QUOTES_WS_URL;
+      return state.isLoggedIn ? '' : DEFAULT_QUOTES_WS_URL;
     }
 
     const latestState = useUserPreferences.getState();
@@ -174,21 +179,53 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       );
     }
 
-    return this.resolveBrokerSocketUrl(storedServerUrl);
+    return this.resolveBrokerSocketUrl(storedServerUrl, { requireBrokerUrl: latestState.isLoggedIn });
   }
 
-  private resolveBrokerSocketUrl(serverUrl?: string | null): string {
+  private resolveBrokerSocketUrl(
+    serverUrl?: string | null,
+    options: { requireBrokerUrl?: boolean } = {},
+  ): string {
+    const requireBrokerUrl = Boolean(options.requireBrokerUrl);
     if (!shouldUseBrokerHostedQuoteFeed(serverUrl)) {
-      return DEFAULT_QUOTES_WS_URL;
+      return requireBrokerUrl ? '' : DEFAULT_QUOTES_WS_URL;
     }
 
-    const brokerSocketUrl = buildBrokerWsUrl(serverUrl, '/ws/feed', DEFAULT_QUOTES_WS_URL);
-    return this.failedBrokerSocketUrls.has(brokerSocketUrl)
+    const normalizedServerUrl = normalizeBrokerServerUrl(serverUrl);
+    const brokerSocketUrl = buildBrokerWsUrl(
+      normalizedServerUrl,
+      '/ws/feed',
+      requireBrokerUrl ? '' : DEFAULT_QUOTES_WS_URL,
+    );
+    return !requireBrokerUrl && this.failedBrokerSocketUrls.has(brokerSocketUrl)
       ? DEFAULT_QUOTES_WS_URL
       : brokerSocketUrl;
   }
 
+  private shouldStayOnBrokerQuoteFeed(socketUrl: string): boolean {
+    const state = useUserPreferences.getState();
+    if (!state.isLoggedIn) {
+      return false;
+    }
+
+    const brokerSocketUrl = this.resolveBrokerSocketUrl(state.brokerServerUrl, {
+      requireBrokerUrl: true,
+    });
+    return Boolean(brokerSocketUrl && socketUrl === brokerSocketUrl);
+  }
+
   private markBrokerSocketUnavailable(socketUrl: string, reason: string): boolean {
+    if (this.shouldStayOnBrokerQuoteFeed(socketUrl)) {
+      console.warn(
+        `[Quotes WS] Broker quote feed unavailable (${reason}). Staying on broker feed.`,
+        { socketUrl },
+      );
+      this.clearReconnectTimer();
+      this.teardownSocket(false);
+      this.attemptReconnect();
+      return true;
+    }
+
     if (
       process.env.EXPO_PUBLIC_QUOTES_WS_URL ||
       socketUrl === DEFAULT_QUOTES_WS_URL ||
@@ -332,6 +369,16 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       return;
     }
 
+    if (!nextUrl) {
+      if (this.url !== nextUrl) {
+        this.url = nextUrl;
+        this.teardownSocket();
+      }
+      console.warn('[Quotes WS] No broker quote feed URL available for logged-in session. Waiting for broker domain.');
+      this.attemptReconnect();
+      return;
+    }
+
     if (this.url !== nextUrl) {
       this.url = nextUrl;
       this.teardownSocket();
@@ -436,8 +483,8 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       const staleFor = Date.now() - this.lastMessageAt;
       if (staleFor > QUOTE_WS_SILENT_STALE_MS) {
         const socketUrl = this.url;
-        // On iOS a broker WSS can open but never send ticks. Do not keep
-        // reconnecting to that silent feed; fall back so bid/ask becomes live.
+        // In logged-in broker mode, reconnect only to the selected broker feed
+        // so mobile stays in parity with the web terminal's data source.
         if (this.markBrokerSocketUnavailable(socketUrl, 'silent after open')) {
           return;
         }

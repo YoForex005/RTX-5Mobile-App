@@ -22,17 +22,28 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(serviceSource, /normalizeConfiguredWsUrl/);
   assert.match(serviceSource, /private async resolveSocketUrlAsync\(\): Promise<string>/);
   assert.match(serviceSource, /private failedBrokerSocketUrls: Set<string> = new Set\(\)/);
-  assert.match(serviceSource, /private resolveBrokerSocketUrl\(serverUrl\?: string \| null\): string/);
+  assert.match(
+    serviceSource,
+    /private resolveBrokerSocketUrl\([\s\S]*serverUrl\?: string \| null,[\s\S]*options: \{ requireBrokerUrl\?: boolean \} = \{\},[\s\S]*\): string/,
+  );
   assert.match(serviceSource, /private markBrokerSocketUnavailable\(socketUrl: string, reason: string\): boolean/);
+  assert.match(serviceSource, /private shouldStayOnBrokerQuoteFeed\(socketUrl: string\): boolean/);
+  assert.match(serviceSource, /Staying on broker feed/);
   assert.match(serviceSource, /Falling back to shared feed/);
   assert.match(serviceSource, /this\.scheduleReconnect\(250\)/);
-  assert.match(serviceSource, /this\.resolveBrokerSocketUrl\(state\.brokerServerUrl\)/);
-  assert.match(serviceSource, /this\.resolveBrokerSocketUrl\(storedServerUrl\)/);
+  assert.match(serviceSource, /this\.resolveBrokerSocketUrl\(state\.brokerServerUrl, \{ requireBrokerUrl: state\.isLoggedIn \}\)/);
+  assert.match(serviceSource, /this\.resolveBrokerSocketUrl\(storedServerUrl, \{ requireBrokerUrl: latestState\.isLoggedIn \}\)/);
+  assert.match(serviceSource, /return state\.isLoggedIn \? '' : DEFAULT_QUOTES_WS_URL/);
+  assert.match(serviceSource, /return requireBrokerUrl \? '' : DEFAULT_QUOTES_WS_URL/);
   assert.match(serviceSource, /shouldUseBrokerHostedQuoteFeed\(serverUrl\)/);
   assert.match(serviceSource, /DEFAULT_QUOTES_WS_URL = 'wss:\/\/backend\.orrnn\.com\/ws\/feed'/);
   assert.match(
     serviceSource,
     /normalizeConfiguredWsUrl\(process\.env\.EXPO_PUBLIC_QUOTES_WS_URL, ''\)/,
+  );
+  assert.match(
+    serviceSource,
+    /if \(!state\.isLoggedIn\) \{[\s\S]*normalizeConfiguredWsUrl\(process\.env\.EXPO_PUBLIC_QUOTES_WS_URL, ''\)/,
   );
   assert.match(serviceSource, /this\.openResolvedSocket\(nextUrl\)/);
   assert.match(serviceSource, /const QUOTE_WS_RECONNECT_BASE_DELAY_MS = 750/);
@@ -42,7 +53,7 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(serviceSource, /const QUOTE_WS_WATCHDOG_INTERVAL_MS = 3_000/);
   assert.match(serviceSource, /Math\.min\([\s\S]*QUOTE_WS_RECONNECT_MAX_DELAY_MS[\s\S]*\)/);
   assert.match(serviceSource, /staleFor > QUOTE_WS_SILENT_STALE_MS/);
-  assert.match(serviceSource, /On iOS a broker WSS can open but never send ticks/);
+  assert.match(serviceSource, /In logged-in broker mode, reconnect only to the selected broker feed/);
   assert.match(
     serviceSource,
     /const socketUrl = this\.url;[\s\S]*markBrokerSocketUnavailable\(socketUrl, 'silent after open'\)[\s\S]*return;[\s\S]*Silent TCP drop detected[\s\S]*this\.triggerInvisibleReconnect\(\)/,
@@ -71,9 +82,15 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.doesNotMatch(tickProcessorSource, /if \(normalizedUpdate\.rawSymbol !== normalizedUpdate\.symbol\) \{[\s\S]*bridge\.emitSymbolTick\(normalizedUpdate\.symbol, tickEvent\)/);
 
   assert.match(tickProcessorSource, /const tickEvent: QuoteTickEvent = \{[\s\S]*rawSymbol: normalizedUpdate\.rawSymbol/);
+  assert.match(liveQuotesSource, /import \{ normalizeBrokerServerUrl \} from '\.\.\/\.\.\/api\/brokerRouting'/);
+  assert.match(queryWebsocketSource, /import \{ normalizeBrokerServerUrl \} from '\.\.\/api\/brokerRouting'/);
   assert.match(queryWebsocketSource, /const LIVE_SYMBOL_REST_DIRECT_TICK_SUPPRESS_MS = 2_000/);
   assert.match(queryWebsocketSource, /const hasRecentDirectSymbolTick = \(entry: RestQuoteFallbackEntry/);
   assert.match(queryWebsocketSource, /if \(hasRecentDirectSymbolTick\(entry\)\) \{[\s\S]*return;/);
+  assert.match(
+    queryWebsocketSource,
+    /const state = useUserPreferences\.getState\(\);[\s\S]*const isLoggedIn = state\.isLoggedIn;[\s\S]*if \(isLoggedIn && !normalizeBrokerServerUrl\(state\.brokerServerUrl\)\) \{[\s\S]*return;/,
+  );
   assert.match(
     queryWebsocketSource,
     /if \(!selectedTick\) \{[\s\S]*return;[\s\S]*\}[\s\S]*if \(hasRecentDirectSymbolTick\(entry\)\) \{[\s\S]*return;[\s\S]*\}[\s\S]*publishQuoteTickToSharedStores\(selectedTick\)/,
@@ -116,6 +133,10 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
     /useLiveQuoteFreshnessAnchor[\s\S]*return subscribeLiveQuoteSnapshots\(normalizedSymbols, listener\)[\s\S]*return getLiveQuoteFreshnessAnchorForSymbols\(normalizedSymbols\)/,
   );
   assert.match(liveQuotesSource, /apiClient\([\s\S]*`\/quotes\?symbols=\$\{symbolsQuery\}`[\s\S]*isLoggedIn \? \{\} : \{ skipAuth: true, skipRefresh: true \}[\s\S]*\)/);
+  assert.match(
+    liveQuotesSource,
+    /const state = useUserPreferences\.getState\(\);[\s\S]*const isLoggedIn = state\.isLoggedIn;[\s\S]*if \(isLoggedIn && !normalizeBrokerServerUrl\(state\.brokerServerUrl\)\) \{[\s\S]*return;/,
+  );
   assert.match(liveQuotesSource, /asQuoteSnapshotArray\(payload\)\.forEach/);
   assert.match(liveQuotesSource, /const QUOTE_REST_SNAPSHOT_STALE_MS = 2_000/);
   assert.match(liveQuotesSource, /const needsRestQuoteSnapshot = \(symbol: string, now = Date\.now\(\)\): boolean =>/);

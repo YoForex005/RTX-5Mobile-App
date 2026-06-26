@@ -187,6 +187,9 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   const timeframePickerSource = readSource('src/features/chart/components/ChartTimeframePickerSheet.tsx');
   const menuSource = readSource('src/features/chart/components/ChartToolbarMenuFeature.tsx');
   const drawingSource = readSource('src/features/chart/components/ChartDrawingToolsFeature.tsx');
+  const radialSource = readSource('src/features/chart/components/ChartTapRadialMenu.tsx');
+  const chartSettingsSource = readSource('src/features/chart/ChartSettingsScreen.tsx');
+  const uiStateSource = readSource('src/state/uiState.ts');
   const drawingToolsSource = readSource('src/features/chart/drawingTools/index.ts');
   const drawingTypesSource = readSource('src/features/chart/drawingTools/types.ts');
   const tradeFeatureSource = readSource('src/features/chart/components/ChartTradeFeature.tsx');
@@ -227,6 +230,8 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(source, /const drawingToolsActions = useMemo\(/);
   assert.match(source, /const chartTypePickerActions = useMemo\(/);
   assert.match(source, /const chartMoreActions = useMemo\(/);
+  assert.match(source, /chartVerticalScrollingLocked: state\.chartVerticalScrollingLocked/);
+  assert.match(source, /chartAutoScaleEnabled: state\.chartAutoScaleEnabled/);
   assert.match(source, /const scheduleChartActionSheetContextReset = useCallback/);
   assert.match(source, /requestAnimationFrame\(resetChartActionSheetContext\)/);
   assert.match(source, /const handleTimeframeSelect = useCallback[\s\S]*setTimeframePickerVisible\(false\)[\s\S]*warmChartContextAndCommit\(chartSymbol, nextTimeframe\)/);
@@ -243,6 +248,21 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(drawingToolsSource, /DRAWING_TOOL_COMMANDS\.map\(\(definition\) => \(\{[\s\S]*icon: definition\.renderIcon\(definition\.danger \? dangerIconColor : iconColor\)/);
   assert.match(source, /title: t\('Chart Type'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: chartTypePickerActions/);
   assert.match(source, /runImmediateAction\('chart\.moreMenu\.open'[\s\S]*showChartActionSheet\(\{[\s\S]*presentation:\s*'mt5Plain'[\s\S]*showActionIcons:\s*true[\s\S]*instantOpen:\s*true[\s\S]*actions: chartMoreActions/);
+  assert.doesNotMatch(source, /label: t\(isVerticalScrollingLocked \? 'Unlock Vertical Scrolling' : 'Lock Vertical Scrolling'\)[\s\S]*onPress: handleToggleVerticalScrollingLock/);
+  assert.match(source, /const handleToggleVerticalScrollingLock = \(\) => \{[\s\S]*setChartVerticalScrollingLocked\(next\)[\s\S]*setVerticalScrollingLocked\(\$\{next\}\)/);
+  assert.match(source, /setVerticalScrollingLocked\(\$\{isVerticalScrollingLocked\}\)/);
+  assert.match(source, /<ChartTapRadialMenu[\s\S]*onOpenScaleControls=\{handleOpenChartScaleMenu\}/);
+  assert.match(radialSource, /accessibilityLabel: 'Chart scale controls'[\s\S]*onPress: onOpenScaleControls[\s\S]*<Ionicons name="options-outline"/);
+  assert.match(source, /const chartScaleActions = useMemo\([\s\S]*label: t\('Scroll to last bar'\)[\s\S]*label: t\('Reset vertical scale'\)[\s\S]*label: t\(isChartAutoScaleEnabled \? 'Free chart movement' : 'Auto-scale'\)[\s\S]*label: t\(isVerticalScrollingLocked \? 'Unlock vertical scrolling' : 'Lock vertical scrolling'\)/);
+  assert.match(source, /runImmediateAction\('chart\.radial\.scaleMenu\.open'[\s\S]*showChartActionSheet\(\{[\s\S]*title: t\('Chart scale'\)[\s\S]*presentation: 'mt5Plain'[\s\S]*showActionIcons: true[\s\S]*detent: 'auto'[\s\S]*actions: chartScaleActions/);
+  assert.doesNotMatch(radialSource, /const scaleActionItems/);
+  assert.match(source, /const handleToggleChartAutoScale = \(\) => \{[\s\S]*setChartAutoScaleEnabled\(next\)[\s\S]*setChartAutoScaleEnabled\(\$\{next\}\)/);
+  assert.match(source, /setChartAutoScaleEnabled\(\$\{isChartAutoScaleEnabled\}\)/);
+  assert.match(uiStateSource, /pendingChartCommand: PendingChartCommand \| null[\s\S]*queueChartCommand: \(command: PendingChartCommand\) => void[\s\S]*clearPendingChartCommand: \(\) => void/);
+  assert.match(chartSettingsSource, /title="Scroll to last bar"[\s\S]*handleRunChartCommand\('scrollToLastBar'\)[\s\S]*title="Reset vertical scale"[\s\S]*handleRunChartCommand\('resetVerticalScale'\)[\s\S]*title="Auto-scale"[\s\S]*enabled=\{chartAutoScaleEnabled\}[\s\S]*title="Lock vertical scrolling"[\s\S]*enabled=\{chartVerticalScrollingLocked\}/);
+  assert.doesNotMatch(source, /const chartPriceScaleActions = useMemo\(/);
+  assert.doesNotMatch(source, /runImmediateAction\('chart\.priceScaleMenu\.open'/);
+  assert.doesNotMatch(source, /style=\{styles\.chartPriceScaleMenuButton\}/);
   assert.doesNotMatch(source, /title:\s*(?:t\('Options'\)|'⋮')[\s\S]*presentation:\s*'mt5Plain'[\s\S]*showActionIcons:\s*true/);
   assert.match(
     source,

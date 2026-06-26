@@ -20,7 +20,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../ui/components/ActionSheet';
 import { runCriticalTradeAction, runImmediateAction } from '../../utils/actionLatency';
 import {
-  TvCrosshair, TvTrendLine, TvFib, TvText, TvMeasure, TvZoom, TvMagnet, TvPencil, TvLock, TvHide, TvTrash, TvLayers,
+  TvCrosshair, TvTrendLine, TvFib, TvText, TvMeasure, TvZoom, TvPencil, TvLock, TvHide, TvTrash, TvLayers,
   TvCandles, TvGrid4, TvUndo, TvRedo, TvSaveSquare, TvPrediction, TvStayInDrawingMode, TvRadialObjects
 } from './components/ChartToolbarIcons';
 import { DrawingToolsManager } from './plugins/drawing-tools-manager';
@@ -1589,9 +1589,6 @@ export function ChartScreen() {
                   <Pressable style={[styles.toolIcon, activeTool === 'zoom' && styles.toolIconActive]} onPress={() => { setActiveTool('zoom'); drawingToolsRef.current?.setActiveTool('zoom'); setShowDrawingToolbar(false); }}><TvZoom color={activeTool === 'zoom' ? BLUE : TEXT_MUTED} /></Pressable>
                 </div>
                 <View style={styles.toolSeparator} />
-                <div title="Magnet Mode" style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
-                  <Pressable style={[styles.toolIcon, activeTool === 'magnet' && styles.toolIconActive]} onPress={() => { setActiveTool('magnet'); drawingToolsRef.current?.setActiveTool('magnet'); setShowDrawingToolbar(false); }}><TvMagnet color={activeTool === 'magnet' ? BLUE : TEXT_MUTED} /></Pressable>
-                </div>
                 <div title="Stay in Drawing Mode" style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
                   <Pressable style={[styles.toolIcon, activeTool === 'stay_in_drawing_mode' && styles.toolIconActive]} onPress={() => { setActiveTool('stay_in_drawing_mode'); drawingToolsRef.current?.setActiveTool('stay_in_drawing_mode'); setShowDrawingToolbar(false); }}><TvStayInDrawingMode color={activeTool === 'stay_in_drawing_mode' ? BLUE : TEXT_MUTED} /></Pressable>
                 </div>

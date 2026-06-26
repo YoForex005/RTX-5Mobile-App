@@ -40,6 +40,10 @@ const chartSettingsScreenSource = readFileSync(
   resolve(process.cwd(), 'src/features/chart/ChartSettingsScreen.tsx'),
   'utf8',
 );
+const chartShowOnChartSource = readFileSync(
+  resolve(process.cwd(), 'src/features/chart/chartShowOnChart.ts'),
+  'utf8',
+);
 
 const TEST_CHART_COLORS = {
   background: '#000000',
@@ -115,8 +119,8 @@ test('overlay bridge: chart movement keeps DOM overlay rebuilds off the hot path
 
   assertSourceContains(
     touchBody,
-    /var renderVerticalPanRange = function\(nextRange\)[\s\S]*priceScaleApi\.setVisibleRange\(nextRange\)[\s\S]*scheduleGestureRightPriceScaleFallbackRefresh\(\)[\s\S]*var applyVerticalPanAt = function\(clientY\)[\s\S]*vertPanState\.latestRange = nextRange[\s\S]*renderVerticalPanRange\(nextRange\)/,
-    'vertical chart movement must set the target price range during the active move while keeping the right scale on the lightweight repaint path',
+    /var renderVerticalPanRange = function\(nextRange\)[\s\S]*priceScaleApi\.setVisibleRange\(nextRange\)[\s\S]*refreshVerticalGestureOverlayPositions\(\)[\s\S]*var applyVerticalPanAt = function\(clientY\)[\s\S]*vertPanState\.latestRange = nextRange[\s\S]*renderVerticalPanRange\(nextRange\)/,
+    'vertical chart movement must set the target price range during the active move while keeping trade labels and right-axis boxes attached',
   );
   assertSourceContains(
     touchBody,
@@ -297,31 +301,68 @@ test('overlay bridge: anchored trade labels stay below the chart header', () => 
   const boundsBody = extractFunctionBody(source, 'resolveAnchoredOverlayLabelBounds');
   const refreshBody = extractFunctionBody(source, 'refreshOverlayDomLabels');
   const anchoredLineBody = extractFunctionBody(source, 'renderAnchoredTradeLine');
+  const anchoredLeftsBody = extractFunctionBody(source, 'resolveAnchoredOverlayLabelLefts');
+  const applyOverlayBody = extractFunctionBody(source, 'applyOverlayPayload');
 
   assertSourceContains(
     boundsBody,
-    /var minTop = Math\.max\(OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING, plotTop \+ 6\)/,
-    'line-anchored open-position labels must reserve the full chart header safe area',
+    /var minTop = Math\.max\(OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING, plotTop \+ 2\)/,
+    'line-anchored open-position labels must clamp only to the chart edge so their price line stays glued to the real coordinate',
   );
   assertSourceContains(
     refreshBody,
     /anchoredLabels\.sort\(function\(left, right\) \{ return left\.y - right\.y; \}\)/,
-    'line-anchored open-position labels must be sorted before stacking',
+    'line-anchored open-position labels must be sorted for stable draw order',
   );
   assertSourceContains(
     refreshBody,
-    /anchoredTops\[anchoredTopIndex\] = Math\.max\(anchoredBounds\.minTop, Math\.min\(anchoredBounds\.maxTop, anchoredDesiredTop\)\)/,
-    'line-anchored open-position labels must be clamped through the stacked top array',
+    /var anchoredDesiredTop = Math\.round\(anchoredLabels\[anchoredTopIndex\]\.y - OVERLAY_LABEL_LINE_HEIGHT - OVERLAY_LABEL_LINE_GAP\)[\s\S]*anchoredTops\[anchoredTopIndex\] = Math\.max\(anchoredBounds\.minTop, Math\.min\(anchoredBounds\.maxTop, anchoredDesiredTop\)\)/,
+    'MT5-style open-position labels must stay fixed to their own trade price line instead of floating away from nearby lines',
   );
   assertSourceContains(
     refreshBody,
-    /renderAnchoredTradeLine\(layer, anchoredItem\)[\s\S]*renderLabel\(anchoredItem, anchoredTop\)/,
+    /var anchoredLefts = resolveAnchoredOverlayLabelLefts\(anchoredLabels, anchoredTops, layer\)/,
+    'close line-anchored labels must resolve sideways lanes after their fixed price tops are known',
+  );
+  assertSourceContains(
+    anchoredLeftsBody,
+    /candidateLeft = OVERLAY_ANCHORED_LABEL_LEFT[\s\S]*candidateLeft <= maxLeft[\s\S]*candidateLeft \+= laneWidth/,
+    'line-anchored open-position label collision handling must search horizontal lanes instead of changing price-based tops',
+  );
+  assertSourceContains(
+    anchoredLeftsBody,
+    /doOverlayLabelBoxesOverlap\(candidateBox, placedBoxes\[boxIndex\]\)/,
+    'line-anchored open-position labels must only move sideways when their text boxes overlap',
+  );
+  assertSourceContains(
+    anchoredLeftsBody,
+    /lefts\[i\] = chosenLeft/,
+    'line-anchored open-position labels must return the resolved left lane for each fixed-top label',
+  );
+  assertSourceContains(
+    refreshBody,
+    /var renderLabel = function\(item, top, left\)[\s\S]*var labelLeft = typeof left === 'number' && isFinite\(left\)[\s\S]*label\.style\.left = labelLeft \+ 'px'/,
+    'label rendering must use the resolved horizontal lane without changing the fixed top coordinate',
+  );
+  assertSourceContains(
+    refreshBody,
+    /if \(isAnchoredTradeLabel\) \{[\s\S]*labelMaxWidth = Math\.min\(OVERLAY_ANCHORED_LABEL_LANE_WIDTH, labelMaxWidth\)/,
+    'anchored trade labels must stay inside their horizontal lane when close entries are visible together',
+  );
+  assertSourceContains(
+    refreshBody,
+    /renderAnchoredTradeLine\(layer, anchoredItem\)[\s\S]*renderLabel\(anchoredItem, anchoredTop, anchoredLefts\[anchoredIndex\]\)/,
     'line-anchored open-position labels must draw the owned dotted line and label from the same payload',
   );
   assertSourceContains(
     anchoredLineBody,
-    /item\.drawAnchoredTradeLine !== true[\s\S]*line\.className = 'rtx5-anchored-trade-line'[\s\S]*line\.style\.top = Math\.round\(item\.y\) \+ 'px'[\s\S]*resolveOverlayDomLineBorderStyle\(item\.lineStyle\)/,
-    'owned open-position dotted lines must stay fixed to the label coordinate and style',
+    /line\.style\.left = Math\.max\(0, Math\.round\(metrics\.leftAxisWidth \|\| 0\)\) \+ 'px'[\s\S]*line\.style\.width = paneWidth \+ 'px'/,
+    'owned open-position dotted lines must draw as normal full-width horizontal chart lines',
+  );
+  assertSourceContains(
+    applyOverlayBody,
+    /lineVisible: ln\.labelPlacement === 'line' \? false : true/,
+    'line-placement open trades must not also create a full-width canvas price line under the plain label',
   );
   assertSourceContains(
     refreshBody,
@@ -333,7 +374,16 @@ test('overlay bridge: anchored trade labels stay below the chart header', () => 
     /label\.style\.textShadow = 'none'/,
     'line-anchored open-position labels must render without text shadow',
   );
+  assertSourceContains(
+    refreshBody,
+    /renderAnchoredTradeLine\(layer, anchoredItem\)[\s\S]*renderLabel\(anchoredItem, anchoredTop, anchoredLefts\[anchoredIndex\]\)/,
+    'line-anchored open-position labels must draw the full-width line and live P/L label from the same fixed price coordinate',
+  );
+  assert.doesNotMatch(refreshBody, /anchoredInitialBackIndex/);
+  assert.doesNotMatch(refreshBody, /nudgeAnchoredLabelsAwayFrom/);
   assert.doesNotMatch(refreshBody, /label\.style\.textShadow = '0 1px 1px/);
+  assert.doesNotMatch(refreshBody, /label\.style\.background/);
+  assert.doesNotMatch(refreshBody, /label\.style\.boxShadow/);
 });
 
 test('overlay bridge: right-axis trade price boxes keep close entries visible', () => {
@@ -351,8 +401,8 @@ test('overlay bridge: right-axis trade price boxes keep close entries visible', 
   );
   assertSourceContains(
     refreshBody,
-    /positionBoxes\.sort\(function\(left, right\) \{ return left\.desiredTop - right\.desiredTop; \}\)[\s\S]*positionBoxStep[\s\S]*positionBoxes\[boxLayoutIndex\]\.top/,
-    'right-axis trade boxes must stack nearby labels instead of covering close entry markers',
+    /positionBoxes\.sort\(function\(left, right\) \{ return left\.desiredTop - right\.desiredTop; \}\)[\s\S]*var positionBoxStep = POSITION_BOX_HEIGHT \+ resolvePositionBoxGap\(positionBoxes\.length\)[\s\S]*positionBoxes\[boxLayoutIndex\]\.top/,
+    'right-axis trade boxes must use a wider dense-trade gap so nearby entry markers do not cover each other',
   );
   assertSourceContains(
     refreshBody,
@@ -364,6 +414,7 @@ test('overlay bridge: right-axis trade price boxes keep close entries visible', 
 });
 test('overlay bridge: trade overlays participate in price-scale autoscale', () => {
   const autoscaleBody = extractFunctionBody(source, 'buildOverlayAwareAutoscaleInfo');
+  const expandTradeOverlayBody = extractFunctionBody(source, 'expandPriceRangeForTradeOverlays');
   const visibleRangeBody = extractFunctionBody(source, 'resolvePriceRangeFromVisibleData');
   const healthBody = extractFunctionBody(source, 'healCollapsedPriceScaleRange');
   const setOverlayBody = extractFunctionBody(source, 'setChartOverlays');
@@ -372,6 +423,11 @@ test('overlay bridge: trade overlays participate in price-scale autoscale', () =
     autoscaleBody,
     /expandPriceRangeForTradeOverlays\(baseRange\)[\s\S]*expandPriceRangeForMarketPriceBadges\(expandedRange\)/,
     'series autoscale must include visible trade overlay prices before market badges are applied',
+  );
+  assertSourceContains(
+    expandTradeOverlayBody,
+    /overlayNearEdge[\s\S]*makeTradeOverlayPaddedPriceRange\(minPrice, maxPrice, overlayPrices\.length\)/,
+    'trade overlay autoscale must add extra edge padding when old or clustered entries sit near a chart edge',
   );
   assertSourceContains(
     visibleRangeBody,
@@ -385,8 +441,8 @@ test('overlay bridge: trade overlays participate in price-scale autoscale', () =
   );
   assertSourceContains(
     setOverlayBody,
-    /scheduleOverlayPriceScaleLock\(true\)[\s\S]*applyOverlayPayload\(_overlayPayload\)/,
-    'overlay updates must force the right price scale to recalculate before redrawing labels',
+    /scheduleOverlayPriceScaleLock\(false\)[\s\S]*applyOverlayPayload\(_overlayPayload\)/,
+    'live overlay updates must recalculate the right price scale without resetting the user-owned vertical range',
   );
   assertSourceContains(
     source,
@@ -396,13 +452,23 @@ test('overlay bridge: trade overlays participate in price-scale autoscale', () =
 });
 
 test('chart preferences exposes persistent show-on-chart filters', () => {
-  // The "Show on chart" section now exposes only the buy/sell trade toggles.
+  // The "Show on chart" section exposes buy/sell trade visibility and MT5-style SL/TP level visibility.
   assert.match(chartSettingsScreenSource, /CHART_SHOW_ON_CHART_ITEMS\.map/);
   assert.match(chartSettingsScreenSource, /setChartShowOnChartItem\(key, value\)/);
   assert.match(chartSettingsScreenSource, /SHOW ON CHART/);
   assert.match(chartSettingsScreenSource, /buyTrade: 'trending-up-outline'/);
   assert.match(chartSettingsScreenSource, /sellTrade: 'trending-down-outline'/);
+  assert.match(chartSettingsScreenSource, /slTpLevels: 'shield-checkmark-outline'/);
+  assert.match(chartShowOnChartSource, /SL\/TP levels/);
+  assert.match(chartShowOnChartSource, /Show Stop Loss and Take Profit values on the chart/);
   assert.match(chartSettingsScreenSource, /pointerEvents="none"/);
+});
+
+test('chart preferences exposes MT5 one-click panel bottom placement toggle', () => {
+  assert.match(chartSettingsScreenSource, /chartOneClickPanelAtBottom/);
+  assert.match(chartSettingsScreenSource, /setChartOneClickPanelAtBottom/);
+  assert.match(chartSettingsScreenSource, /One Click panel at the bottom/);
+  assert.match(chartSettingsScreenSource, /Show one click trading panel at the bottom of the chart/);
 });
 test('overlay payload: duplicate position inputs produce unique line ids', () => {
   const payload = buildChartOverlayPayload({
@@ -439,7 +505,7 @@ test('overlay payload: duplicate position inputs produce unique line ids', () =>
     colors: TEST_CHART_COLORS,
     sellColor: '#EF5350',
     liveAccount: null,
-    showOnChart: { buyTrade: true, sellTrade: true },
+    showOnChart: { buyTrade: true, sellTrade: true, slTpLevels: true },
   });
 
   const ids = payload.priceLines.map((line: any) => line.id);

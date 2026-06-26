@@ -180,6 +180,8 @@ test('webview bridge: exposes required bridge methods for updates and recovery',
     'resizeChartViewport',
     'recoverChartSurface',
     'setChartOverlays',
+    'setVerticalScrollingLocked',
+    'setChartAutoScaleEnabled',
     'setSerializedDrawings',
     'publishSerializedDrawings',
     'applyDrawingTextEdit',
@@ -354,7 +356,7 @@ test('webview bridge: open-position labels separate trade side color from live P
   );
 });
 
-test('webview bridge: open-position trade labels stay attached to their price line while panning', () => {
+test('webview bridge: open-position trade labels stay attached to their price line while vertical panning', () => {
   assertSourceContains(
     chartWebViewHtmlSource,
     /var OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING = 2/,
@@ -367,8 +369,8 @@ test('webview bridge: open-position trade labels stay attached to their price li
   );
   assertSourceContains(
     chartWebViewHtmlSource,
-    /priceScaleApi\.setVisibleRange\(nextRange\)[\s\S]*deferVerticalGestureDomWork\(\)[\s\S]*return true/,
-    'vertical price panning must move the native price range without rebuilding custom DOM on every touchmove',
+    /priceScaleApi\.setVisibleRange\(nextRange\)[\s\S]*refreshVerticalGestureOverlayPositions\(\)[\s\S]*return true/,
+    'vertical price panning must move the native price range and repaint trade labels on the same touchmove',
   );
 });
 
@@ -416,8 +418,9 @@ test('webview bridge: horizontal chart panning defers custom DOM rebuilds until 
   );
 });
 
-test('webview bridge: vertical chart panning defers custom DOM rebuilds until release', () => {
+test('webview bridge: vertical chart panning defers price-line rebuilds while moving trade labels', () => {
   const deferDomWorkBody = extractFunctionBody(chartWebViewHtmlSource, 'deferVerticalGestureDomWork');
+  const refreshVerticalOverlayBody = extractFunctionBody(chartWebViewHtmlSource, 'refreshVerticalGestureOverlayPositions');
   const gestureRightScaleRefreshBody = extractFunctionBody(chartWebViewHtmlSource, 'flushGestureRightPriceScaleFallbackRefresh');
   const scheduleOverlayRefreshBody = extractFunctionBody(chartWebViewHtmlSource, 'scheduleOverlayDomRefresh');
   const refreshWhenIdleBody = extractFunctionBody(chartWebViewHtmlSource, 'refreshOverlayDomLabelsWhenIdle');
@@ -428,6 +431,11 @@ test('webview bridge: vertical chart panning defers custom DOM rebuilds until re
     deferDomWorkBody,
     /verticalGestureDomWorkPending = true[\s\S]*cancelOverlayDomRefreshFrame\(\)[\s\S]*scheduleGestureRightPriceScaleFallbackRefresh\(\)/,
     'vertical pan must defer heavy custom overlays while keeping the right price scale refreshing under the finger',
+  );
+  assertSourceContains(
+    refreshVerticalOverlayBody,
+    /verticalGestureDomWorkPending = true[\s\S]*cancelOverlayDomRefreshFrame\(\)[\s\S]*cancelGestureRightPriceScaleFallbackRefresh\(\)[\s\S]*refreshOverlayDomLabels\(_appliedOverlayPayload \|\| _overlayPayload\)/,
+    'vertical pan frames must refresh the already-applied trade labels and right-axis boxes without applying a new overlay payload',
   );
   assertSourceContains(
     gestureRightScaleRefreshBody,
@@ -446,18 +454,43 @@ test('webview bridge: vertical chart panning defers custom DOM rebuilds until re
   );
   assertSourceContains(
     chartWebViewHtmlSource,
+    /var verticalScrollingLocked = false[\s\S]*function setVerticalScrollingLocked\(locked\) \{[\s\S]*verticalScrollingLocked = locked === true/,
+    'native more-menu lock must bridge into the WebView vertical scrolling guard',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /var chartAutoScaleEnabled = false[\s\S]*function setChartAutoScaleEnabled\(enabled\) \{[\s\S]*chartAutoScaleEnabled = enabled === true[\s\S]*resetChartVerticalScale\(\)/,
+    'MT5-style auto-scale must bridge into the WebView and reset the visible vertical scale when enabled',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /function resetChartVerticalScale\(\) \{[\s\S]*clearManualPriceScaleState\(\)[\s\S]*enableRightPriceAutoScale\(\)[\s\S]*scheduleOverlayPriceScaleLock\(true\)/,
+    'reset vertical scale must clear manual price-axis movement and fit the visible range',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /var beginVerticalPan = function\(clientY\) \{[\s\S]*if \(isVerticalChartMovementBlocked\(\)\) return false/,
+    'body vertical panning must not start while vertical scrolling is locked or auto-scale is active',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
     /var beginVerticalPan = function\(clientY\) \{[\s\S]*clearFreshSeriesVerticalCenterState\(\)[\s\S]*verticalPricePanGestureActive = true[\s\S]*deferVerticalGestureDomWork\(\)/,
     'committing to vertical pan must cancel bootstrap centering and enter deferred DOM-work mode',
   );
   assertSourceContains(
     chartWebViewHtmlSource,
     /dy > VERT_PAN_THRESHOLD && dy > dx \* 1\.2[\s\S]*beginVerticalPan\(vertPanPending\.startY\)[\s\S]*continueVerticalPan\(point\.y\)[\s\S]*stopChartEvent\(event\)/,
-    'chart-body vertical movement must apply the visible price range directly while deferring custom DOM work',
+    'chart-body vertical movement must apply the visible price range directly while keeping trade labels attached',
   );
   assertSourceContains(
     chartWebViewHtmlSource,
     /isRightPriceScaleGesturePoint\(point\.x, point\.y\)[\s\S]*verticalPricePanGestureActive = true[\s\S]*deferVerticalGestureDomWork\(\)/,
     'right price-axis vertical movement must also enter deferred DOM-work mode',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /isRightPriceScaleGesturePoint\(point\.x, point\.y\)\) \{[\s\S]*if \(isVerticalChartMovementBlocked\(\)\) \{[\s\S]*vertPanPending = null[\s\S]*stopChartEvent\(event\)[\s\S]*return;/,
+    'right price-axis vertical movement must also be blocked while vertical scrolling is locked or auto-scale is active',
   );
   assertSourceContains(
     chartWebViewHtmlSource,

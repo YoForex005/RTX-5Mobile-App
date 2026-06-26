@@ -208,6 +208,8 @@ export const CH_HTML = `
       var AXIS_DIVIDER_STROKE_WIDTH = ${CHART_AXIS_DIVIDER_STROKE_WIDTH};
       var manualPriceScaleRangeActive = false;
       var verticalPricePanGestureActive = false;
+      var verticalScrollingLocked = false;
+      var chartAutoScaleEnabled = false;
       var manualVerticalPanRangeActive = false;
       var manualVerticalPanLockedRange = null;
       var manualVerticalPanPreserveUntil = 0;
@@ -223,6 +225,9 @@ export const CH_HTML = `
       var OVERLAY_LABEL_LINE_GAP = 1;
       var OVERLAY_LABEL_TOP_SAFE_PADDING = 42;
       var OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING = 2;
+      var OVERLAY_ANCHORED_LABEL_LEFT = 8;
+      var OVERLAY_ANCHORED_LABEL_LANE_WIDTH = 164;
+      var OVERLAY_ANCHORED_LABEL_RIGHT_PADDING = 16;
       var OVERLAY_LABEL_BOTTOM_SAFE_PADDING = 10;
       var MARKET_PRICE_SCALE_EXTENSION_HEIGHT = 1;
       var MARKET_PRICE_SCALE_BADGE_HEIGHT = 22;
@@ -2317,6 +2322,30 @@ export const CH_HTML = `
         };
       }
 
+      function resolveTradeOverlayPaddingRatio(overlayCount) {
+        var count = Math.max(1, Math.min(8, Math.floor(overlayCount || 1)));
+        return Math.min(0.32, 0.12 + count * 0.025);
+      }
+
+      function makeTradeOverlayPaddedPriceRange(minPrice, maxPrice, overlayCount) {
+        if (!isFinite(minPrice) || !isFinite(maxPrice)) {
+          return null;
+        }
+        var span = maxPrice - minPrice;
+        if (!(span > 0)) {
+          span = Math.max(Math.abs(maxPrice || minPrice || 1) * 0.0002, 1);
+        }
+        var padding = Math.max(
+          span * resolveTradeOverlayPaddingRatio(overlayCount),
+          Math.abs(maxPrice || minPrice || 1) * 0.0002
+        );
+        if (!(padding > 0)) padding = 1;
+        return normalizePriceRange({
+          from: minPrice - padding,
+          to: maxPrice + padding,
+        });
+      }
+
       function collectFiniteBarPrices(bars) {
         var prices = [];
         if (!bars || bars.length === 0) {
@@ -2445,6 +2474,18 @@ export const CH_HTML = `
         return prices;
       }
 
+      function isTradeOverlayNearRangeEdge(price, minPrice, maxPrice) {
+        if (typeof price !== 'number' || !isFinite(price)) {
+          return false;
+        }
+        var span = maxPrice - minPrice;
+        if (!(span > 0)) {
+          return true;
+        }
+        var edgeDistance = Math.max(span * 0.12, Math.abs(maxPrice || minPrice || 1) * 0.0002);
+        return price - minPrice <= edgeDistance || maxPrice - price <= edgeDistance;
+      }
+
       function expandPriceRangeForTradeOverlays(range) {
         var normalized = normalizePriceRange(range);
         var overlayPrices = getTradeOverlayPriceValues();
@@ -2464,7 +2505,16 @@ export const CH_HTML = `
             expanded = true;
           }
         }
-        return expanded ? makePaddedPriceRange(minPrice, maxPrice) : normalized;
+        var overlayNearEdge = false;
+        for (var edgeIndex = 0; edgeIndex < overlayPrices.length; edgeIndex += 1) {
+          if (isTradeOverlayNearRangeEdge(overlayPrices[edgeIndex], minPrice, maxPrice)) {
+            overlayNearEdge = true;
+            break;
+          }
+        }
+        return expanded || overlayNearEdge || overlayPrices.length > 1
+          ? makeTradeOverlayPaddedPriceRange(minPrice, maxPrice, overlayPrices.length)
+          : normalized;
       }
 
       function rangeContainsTradeOverlays(range) {
@@ -3065,6 +3115,26 @@ export const CH_HTML = `
         schedulePriceScaleHealthCheck(reason || 'fresh_series', true, 5);
       }
 
+      function isVerticalChartMovementBlocked() {
+        return verticalScrollingLocked || chartAutoScaleEnabled;
+      }
+
+      function resetChartVerticalScale() {
+        clearManualPriceScaleState();
+        enableRightPriceAutoScale();
+        scheduleOverlayPriceScaleLock(true);
+        schedulePriceScaleHealthCheck('manual_vertical_scale_reset', true, 3);
+        scheduleOverlayDomRefresh();
+        postChartGeometry();
+      }
+
+      function setChartAutoScaleEnabled(enabled) {
+        chartAutoScaleEnabled = enabled === true;
+        if (chartAutoScaleEnabled) {
+          resetChartVerticalScale();
+        }
+      }
+
       function rememberManualVerticalPanRange(range) {
         var normalizedRange = normalizePriceRange(range);
         if (!normalizedRange) {
@@ -3503,6 +3573,13 @@ export const CH_HTML = `
         scheduleGestureRightPriceScaleFallbackRefresh();
       }
 
+      function refreshVerticalGestureOverlayPositions() {
+        verticalGestureDomWorkPending = true;
+        cancelOverlayDomRefreshFrame();
+        cancelGestureRightPriceScaleFallbackRefresh();
+        refreshOverlayDomLabels(_appliedOverlayPayload || _overlayPayload);
+      }
+
       function refreshOverlayDomLabelsWhenIdle(payload) {
         if (activeHorizontalScrollGesture) {
           deferHorizontalGestureDomWork();
@@ -3780,6 +3857,7 @@ export const CH_HTML = `
         };
 
         var beginVerticalPan = function(clientY) {
+          if (isVerticalChartMovementBlocked()) return false;
           if (!chart || !series) return false;
           var priceScaleApi = getRightPriceScaleApi();
           if (!priceScaleApi) return false;
@@ -3835,10 +3913,9 @@ export const CH_HTML = `
           syntheticRightPriceScaleFallbackRange = nextRange;
           rememberManualVerticalPanRange(nextRange);
           priceScaleApi.setVisibleRange(nextRange);
-          // Keep the touchmove hot path tiny: move the visible price range and
-          // refresh the right scale only; heavier custom overlay DOM settles
-          // after release.
-          deferVerticalGestureDomWork();
+          // MT5 parity: the price line moves with the visible range, and its
+          // label/right-axis price box must follow during the active drag.
+          refreshVerticalGestureOverlayPositions();
           return true;
         };
 
@@ -4101,6 +4178,12 @@ export const CH_HTML = `
           var point = getClientPoint(event);
           if (!point) return;
           if (isRightPriceScaleGesturePoint(point.x, point.y)) {
+            if (isVerticalChartMovementBlocked()) {
+              pendingPointerTap = null;
+              vertPanPending = null;
+              stopChartEvent(event);
+              return;
+            }
             clearFreshSeriesVerticalCenterState();
             rightPriceScaleGestureActive = true;
             verticalPricePanGestureActive = true;
@@ -4164,6 +4247,11 @@ export const CH_HTML = `
             // commit to a vertical pan (candle up/down movement).
             if (dy > VERT_PAN_THRESHOLD && dy > dx * 1.2) {
               pendingPointerTap = null;
+              if (isVerticalChartMovementBlocked()) {
+                vertPanPending = null;
+                stopChartEvent(event);
+                return;
+              }
               if (beginVerticalPan(vertPanPending.startY)) {
                 continueVerticalPan(point.y);
                 stopChartEvent(event);
@@ -4593,6 +4681,22 @@ export const CH_HTML = `
         } catch (_e) {}
       }
 
+      function scrollChartToLastBar() {
+        try {
+          if (!chart || !chart.timeScale) return;
+          var timeScale = chart.timeScale();
+          if (timeScale && typeof timeScale.scrollToRealTime === 'function') {
+            timeScale.scrollToRealTime();
+          } else {
+            applyRecentViewport(currentSeriesLength);
+          }
+          scheduleOverlayPriceScaleLock(chartAutoScaleEnabled === true);
+          schedulePriceScaleHealthCheck('scroll_to_last_bar', chartAutoScaleEnabled === true, 2);
+          refreshOverlayDomLabels(_overlayPayload);
+          postChartGeometry();
+        } catch (_e) {}
+      }
+
       function getVisibleLogicalRangeSnapshot() {
         try {
           if (
@@ -4790,10 +4894,11 @@ export const CH_HTML = `
       }
 
       window.__rtx5ApplyRecentViewport = applyRecentViewport;
+      window.__rtx5ScrollToLastBar = scrollChartToLastBar;
       window.__rtx5ResetTimeScale = resetTimeScaleDefaults;
       window.__rtx5ClampLiveRightEdge = clampVisibleLogicalRangeToLiveEdge;
       window.__rtx5ResetPriceScale = function() {
-        scheduleOverlayPriceScaleLock(true);
+        resetChartVerticalScale();
       };
 
       function makePriceFormat(displayDecimals) {
@@ -6535,10 +6640,8 @@ export const CH_HTML = `
           window._drawingManager.setStayInDrawingMode(sticky);
         }
       }
-      function setMagnetMode(enabled) {
-        if (window._drawingManager && typeof window._drawingManager.setMagnetMode === 'function') {
-          window._drawingManager.setMagnetMode(enabled);
-        }
+      function setVerticalScrollingLocked(locked) {
+        verticalScrollingLocked = locked === true;
       }
       function zoomChart() {
         if (window._drawingManager && typeof window._drawingManager.zoomToFit === 'function') {
@@ -6553,6 +6656,7 @@ export const CH_HTML = `
       var _overlayPriceLinesByDragKey = Object.create(null);
       var _overlayMarkers = null;
       var _overlayPayload = { priceLines: [], markers: [] };
+      var _appliedOverlayPayload = { priceLines: [], markers: [] };
       var _overlayResyncTimer = null;
       var _overlayLabelLayer = null;
       var activeTradeLineDrag = null;
@@ -6761,6 +6865,16 @@ export const CH_HTML = `
           return line;
         });
         _overlayPayload = Object.assign({}, _overlayPayload || {}, { priceLines: nextLines });
+        if (_appliedOverlayPayload && Array.isArray(_appliedOverlayPayload.priceLines)) {
+          _appliedOverlayPayload = Object.assign({}, _appliedOverlayPayload, {
+            priceLines: _appliedOverlayPayload.priceLines.map(function(line) {
+              if (line && line.dragKey === dragKey) {
+                return Object.assign({}, line, { price: price });
+              }
+              return line;
+            }),
+          });
+        }
         var entry = _overlayPriceLinesByDragKey[dragKey];
         if (entry && entry.line) {
           entry.line.price = price;
@@ -6839,6 +6953,73 @@ export const CH_HTML = `
         if (lineStyle === 1 || lineStyle === 4) return 'dotted';
         if (lineStyle === 2 || lineStyle === 3) return 'dashed';
         return 'solid';
+      }
+
+      function resolvePositionBoxGap(boxCount) {
+        return boxCount > 1 ? 4 : 2;
+      }
+
+      function doOverlayLabelBoxesOverlap(leftBox, rightBox) {
+        return leftBox.left < rightBox.right &&
+          leftBox.right > rightBox.left &&
+          leftBox.top < rightBox.bottom &&
+          leftBox.bottom > rightBox.top;
+      }
+
+      function resolveAnchoredOverlayLabelLefts(labels, tops, layer) {
+        var lefts = [];
+        var placedBoxes = [];
+        var layerWidth = layer && layer.clientWidth ? Math.max(0, Math.round(layer.clientWidth)) : 0;
+        var availableWidth = Math.max(80, layerWidth - OVERLAY_ANCHORED_LABEL_LEFT - OVERLAY_ANCHORED_LABEL_RIGHT_PADDING);
+        var laneWidth = Math.min(OVERLAY_ANCHORED_LABEL_LANE_WIDTH, availableWidth);
+        var maxLeft = Math.max(
+          OVERLAY_ANCHORED_LABEL_LEFT,
+          layerWidth - laneWidth - OVERLAY_ANCHORED_LABEL_RIGHT_PADDING
+        );
+
+        for (var i = 0; i < labels.length; i++) {
+          var top = typeof tops[i] === 'number' && isFinite(tops[i]) ? Math.round(tops[i]) : 0;
+          var chosenLeft = OVERLAY_ANCHORED_LABEL_LEFT;
+          var chosenBox = null;
+          for (
+            var candidateLeft = OVERLAY_ANCHORED_LABEL_LEFT;
+            candidateLeft <= maxLeft;
+            candidateLeft += laneWidth
+          ) {
+            var candidateBox = {
+              left: candidateLeft,
+              right: Math.min(layerWidth, candidateLeft + laneWidth),
+              top: top,
+              bottom: top + OVERLAY_LABEL_LINE_HEIGHT,
+            };
+            var collides = false;
+            for (var boxIndex = 0; boxIndex < placedBoxes.length; boxIndex++) {
+              if (doOverlayLabelBoxesOverlap(candidateBox, placedBoxes[boxIndex])) {
+                collides = true;
+                break;
+              }
+            }
+            if (!collides) {
+              chosenLeft = candidateLeft;
+              chosenBox = candidateBox;
+              break;
+            }
+          }
+
+          if (!chosenBox) {
+            chosenBox = {
+              left: chosenLeft,
+              right: Math.min(layerWidth, chosenLeft + laneWidth),
+              top: top,
+              bottom: top + OVERLAY_LABEL_LINE_HEIGHT,
+            };
+          }
+
+          placedBoxes.push(chosenBox);
+          lefts[i] = chosenLeft;
+        }
+
+        return lefts;
       }
 
       function renderAnchoredTradeLine(layer, item) {
@@ -7219,37 +7400,27 @@ export const CH_HTML = `
             }
           }
           anchoredLabels.sort(function(left, right) { return left.y - right.y; });
-          var anchoredStep = OVERLAY_LABEL_LINE_HEIGHT + OVERLAY_LABEL_LINE_GAP;
           var anchoredTops = [];
           for (var anchoredTopIndex = 0; anchoredTopIndex < anchoredLabels.length; anchoredTopIndex++) {
             var anchoredDesiredTop = Math.round(anchoredLabels[anchoredTopIndex].y - OVERLAY_LABEL_LINE_HEIGHT - OVERLAY_LABEL_LINE_GAP);
-            if (anchoredTopIndex > 0) {
-              anchoredDesiredTop = Math.max(anchoredDesiredTop, anchoredTops[anchoredTopIndex - 1] + anchoredStep);
-            }
             anchoredTops[anchoredTopIndex] = Math.max(anchoredBounds.minTop, Math.min(anchoredBounds.maxTop, anchoredDesiredTop));
           }
-          if (anchoredTops.length > 0 && anchoredTops[anchoredTops.length - 1] > anchoredBounds.maxTop) {
-            anchoredTops[anchoredTops.length - 1] = anchoredBounds.maxTop;
-            for (var anchoredBackIndex = anchoredTops.length - 2; anchoredBackIndex >= 0; anchoredBackIndex--) {
-              anchoredTops[anchoredBackIndex] = Math.min(
-                anchoredTops[anchoredBackIndex],
-                anchoredTops[anchoredBackIndex + 1] - anchoredStep
-              );
-            }
-            if (anchoredTops[0] < anchoredBounds.minTop) {
-              anchoredTops[0] = anchoredBounds.minTop;
-              for (var anchoredForwardIndex = 1; anchoredForwardIndex < anchoredTops.length; anchoredForwardIndex++) {
-                anchoredTops[anchoredForwardIndex] = Math.max(
-                  anchoredTops[anchoredForwardIndex],
-                  anchoredTops[anchoredForwardIndex - 1] + anchoredStep
-                );
-              }
-            }
-          }
+          var anchoredLefts = resolveAnchoredOverlayLabelLefts(anchoredLabels, anchoredTops, layer);
 
-          var renderLabel = function(item, top) {
+          var renderLabel = function(item, top, left) {
             var label = document.createElement('div');
             var hasSplitTradeLabel = !!(item.labelSideText && item.labelValueText);
+            var isAnchoredTradeLabel = item.drawAnchoredTradeLine === true;
+            var labelLeft = typeof left === 'number' && isFinite(left)
+              ? Math.max(OVERLAY_ANCHORED_LABEL_LEFT, Math.round(left))
+              : OVERLAY_ANCHORED_LABEL_LEFT;
+            var labelMaxWidth = Math.max(
+              80,
+              (layer.clientWidth || 0) - labelLeft - OVERLAY_ANCHORED_LABEL_RIGHT_PADDING
+            );
+            if (isAnchoredTradeLabel) {
+              labelMaxWidth = Math.min(OVERLAY_ANCHORED_LABEL_LANE_WIDTH, labelMaxWidth);
+            }
             if (hasSplitTradeLabel) {
               var sideSpan = document.createElement('span');
               sideSpan.textContent = item.labelSideText;
@@ -7267,7 +7438,7 @@ export const CH_HTML = `
               label.textContent = item.text;
             }
             label.style.position = 'absolute';
-            label.style.left = '8px';
+            label.style.left = labelLeft + 'px';
             label.style.top = top + 'px';
             label.style.color = item.labelSideColor || item.color;
             label.style.fontSize = '12px';
@@ -7275,10 +7446,12 @@ export const CH_HTML = `
             label.style.height = OVERLAY_LABEL_LINE_HEIGHT + 'px';
             label.style.lineHeight = OVERLAY_LABEL_LINE_HEIGHT + 'px';
             label.style.whiteSpace = 'nowrap';
-            label.style.maxWidth = Math.max(80, (layer.clientWidth || 0) - 24) + 'px';
+            label.style.maxWidth = labelMaxWidth + 'px';
             label.style.overflow = 'hidden';
             label.style.textOverflow = 'ellipsis';
             label.style.textShadow = 'none';
+            label.style.zIndex = isAnchoredTradeLabel ? '18' : '11';
+            label.style.pointerEvents = 'none';
             layer.appendChild(label);
           };
 
@@ -7292,7 +7465,7 @@ export const CH_HTML = `
             var anchoredItem = anchoredLabels[anchoredIndex];
             var anchoredTop = Math.max(anchoredBounds.minTop, Math.min(anchoredBounds.maxTop, anchoredTops[anchoredIndex]));
             renderAnchoredTradeLine(layer, anchoredItem);
-            renderLabel(anchoredItem, anchoredTop);
+            renderLabel(anchoredItem, anchoredTop, anchoredLefts[anchoredIndex]);
           }
 
           // MT5-parity: render OUTLINED right-axis price box for every
@@ -7309,7 +7482,6 @@ export const CH_HTML = `
           var positionBoxes = [];
           var positionBoxMetrics = resolveMarketPriceScaleAxisMetrics(layer);
           var POSITION_BOX_HEIGHT = 18;
-          var POSITION_BOX_GAP = 2;
           for (var pi = 0; pi < lines.length; pi++) {
             var pln = lines[pi];
             if (!pln || typeof pln.id !== 'string' || !POSITION_BOX_ID.test(pln.id)) continue;
@@ -7336,7 +7508,7 @@ export const CH_HTML = `
             positionBoxMinTop,
             (positionBoxMetrics ? positionBoxMetrics.plotBottom : (layer && layer.clientHeight ? layer.clientHeight : 0)) - POSITION_BOX_HEIGHT
           );
-          var positionBoxStep = POSITION_BOX_HEIGHT + POSITION_BOX_GAP;
+          var positionBoxStep = POSITION_BOX_HEIGHT + resolvePositionBoxGap(positionBoxes.length);
           for (var boxLayoutIndex = 0; boxLayoutIndex < positionBoxes.length; boxLayoutIndex++) {
             var nextBoxTop = positionBoxes[boxLayoutIndex].desiredTop;
             if (boxLayoutIndex > 0) {
@@ -7430,7 +7602,7 @@ export const CH_HTML = `
                 color: ln.color || '#2962FF',
                 lineWidth: ln.lineWidth || 1,
                 lineStyle: typeof ln.lineStyle === 'number' ? ln.lineStyle : (LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0),
-                lineVisible: true,
+                lineVisible: ln.labelPlacement === 'line' ? false : true,
                 axisLabelVisible: false,
                 title: '',
               });
@@ -7465,7 +7637,8 @@ export const CH_HTML = `
               postError('createSeriesMarkers', markerErr);
             }
           }
-          refreshOverlayDomLabels(payload);
+          _appliedOverlayPayload = payload;
+          refreshOverlayDomLabels(_appliedOverlayPayload);
         } catch (e) {
           postError('applyOverlayPayload', e);
         }
@@ -7556,7 +7729,8 @@ export const CH_HTML = `
       window.setDrawingsLocked = setDrawingsLocked;
       window.setDrawingsHidden = setDrawingsHidden;
       window.setStayInDrawingMode = setStayInDrawingMode;
-      window.setMagnetMode = setMagnetMode;
+      window.setVerticalScrollingLocked = setVerticalScrollingLocked;
+      window.setChartAutoScaleEnabled = setChartAutoScaleEnabled;
       window.zoomChart = zoomChart;
       window.setChartOverlays = setChartOverlays;
       window.setPriceLines = setPriceLines;

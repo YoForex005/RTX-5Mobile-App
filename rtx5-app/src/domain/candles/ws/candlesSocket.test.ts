@@ -48,6 +48,22 @@ test('resolveCandlesWsUrl derives broker candle sockets from secure service doma
   );
 });
 
+test('resolveCandlesWsUrl can require logged-in broker candle sockets without shared fallback', () => {
+  assert.equal(
+    resolveCandlesWsUrl(undefined, 'https://testbrokerbackend.orrnn.com:443/api/v2', {
+      requireBrokerUrl: true,
+    }),
+    'wss://testbrokerbackend.orrnn.com/ws/v2',
+  );
+  assert.equal(
+    resolveCandlesWsUrl(undefined, 'http://69.197.178.27:8090', {
+      requireBrokerUrl: true,
+    }),
+    '',
+  );
+  assert.equal(resolveCandlesWsUrl(undefined, '', { requireBrokerUrl: true }), '');
+});
+
 test('appendCandleWsToken keeps the URL anonymous when no token is available', () => {
   assert.equal(
     appendCandleWsToken('wss://backend.orrnn.com/ws/v2', null),

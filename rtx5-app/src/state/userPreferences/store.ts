@@ -61,6 +61,9 @@ type PersistedUserPreferencesState = Omit<
   | 'setChartVisualType'
   | 'setChartViewportShowVolumePane'
   | 'setChartViewportShowDrawingToolbar'
+  | 'setChartOneClickPanelAtBottom'
+  | 'setChartVerticalScrollingLocked'
+  | 'setChartAutoScaleEnabled'
   | 'addChartDrawing'
   | 'removeChartDrawing'
   | 'setChartDrawings'
@@ -92,7 +95,7 @@ type PersistedUserPreferencesState = Omit<
 const pendingPreferenceWrites = new Map<string, StorageValue<PersistedUserPreferencesState>>();
 let pendingThemeModeCommit: ThemeMode | null = null;
 let themeModeCommitScheduled = false;
-const PREFERENCES_STORAGE_VERSION = 17;
+const PREFERENCES_STORAGE_VERSION = 19;
 const CHART_DRAWING_RECORDS_STORAGE_KEY = 'rtx5-chart-drawing-records-v1';
 
 const asRecord = (value: unknown): Record<string, unknown> =>
@@ -262,6 +265,9 @@ export function normalizePersistedUserPreferencesState(
     chartVisualType: normalizeChartVisualType(state.chartVisualType),
     chartViewportShowVolumePane: asBoolean(state.chartViewportShowVolumePane, false),
     chartViewportShowDrawingToolbar: asBoolean(state.chartViewportShowDrawingToolbar, false),
+    chartOneClickPanelAtBottom: asBoolean(state.chartOneClickPanelAtBottom, true),
+    chartVerticalScrollingLocked: asBoolean(state.chartVerticalScrollingLocked, false),
+    chartAutoScaleEnabled: asBoolean(state.chartAutoScaleEnabled, false),
     chartDrawings: activeDrawingLabels.length > 0 ? activeDrawingLabels : asStringArray(state.chartDrawings),
     chartDrawingRecordsBySymbol: nextDrawingRecordsBySymbol,
     chartLockAll: asBoolean(state.chartLockAll, false),
@@ -358,6 +364,9 @@ function partializeUserPreferences(state: UserPreferencesState): PersistedUserPr
     chartVisualType: state.chartVisualType,
     chartViewportShowVolumePane: state.chartViewportShowVolumePane,
     chartViewportShowDrawingToolbar: state.chartViewportShowDrawingToolbar,
+    chartOneClickPanelAtBottom: state.chartOneClickPanelAtBottom,
+    chartVerticalScrollingLocked: state.chartVerticalScrollingLocked,
+    chartAutoScaleEnabled: state.chartAutoScaleEnabled,
     chartDrawings: state.chartDrawings,
     chartDrawingRecordsBySymbol: state.chartDrawingRecordsBySymbol,
     chartLockAll: state.chartLockAll,
@@ -400,6 +409,9 @@ export const useUserPreferences = create<UserPreferencesState>()(
       chartVisualType: 'candles',
       chartViewportShowVolumePane: false,
       chartViewportShowDrawingToolbar: false,
+      chartOneClickPanelAtBottom: true,
+      chartVerticalScrollingLocked: false,
+      chartAutoScaleEnabled: false,
       chartDrawings: [],
       chartDrawingRecordsBySymbol: {},
       chartLockAll: false,
@@ -531,6 +543,9 @@ export const useUserPreferences = create<UserPreferencesState>()(
       setChartVisualType: (chartType) => set({ chartVisualType: normalizeChartVisualType(chartType) }),
       setChartViewportShowVolumePane: (visible) => set({ chartViewportShowVolumePane: visible }),
       setChartViewportShowDrawingToolbar: (visible) => set({ chartViewportShowDrawingToolbar: visible }),
+      setChartOneClickPanelAtBottom: (visible) => set({ chartOneClickPanelAtBottom: visible }),
+      setChartVerticalScrollingLocked: (locked) => set({ chartVerticalScrollingLocked: locked }),
+      setChartAutoScaleEnabled: (enabled) => set({ chartAutoScaleEnabled: enabled }),
       addChartDrawing: (drawing) => {
         const list = get().chartDrawings;
         set({ chartDrawings: [...list, drawing] });
@@ -577,20 +592,12 @@ export const useUserPreferences = create<UserPreferencesState>()(
       setChartLockAll: (lock) => set({ chartLockAll: lock }),
       setChartHideAll: (hide) => set({ chartHideAll: hide }),
       setChartShowOnChartItem: (key, value) =>
-        set((state) => {
-          const nextChartShowOnChart = {
+        set((state) => ({
+          chartShowOnChart: {
             ...state.chartShowOnChart,
             [key]: value,
-          };
-          console.log('[SHOW-ON-CHART]', {
-            changedOption: key,
-            enabled: value,
-            chartShowOnChart: nextChartShowOnChart,
-          });
-          return {
-            chartShowOnChart: nextChartShowOnChart,
-          };
-        }),
+          },
+        })),
       setHistorySummaryDetailsVisible: (visible) => set({ historySummaryDetailsVisible: visible }),
       setTradeSummaryDetailsVisible: (visible) => set({ tradeSummaryDetailsVisible: visible }),
       setPriceSource: (source) => set({ priceSource: source }),
