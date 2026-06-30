@@ -52,6 +52,7 @@ import { Screen } from '../../ui/components/Screen';
 import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../ui/components/sidebarDrawerController';
 import { useTranslation } from '../../i18n/useTranslation';
 import {
+  type ChartDisplaySettings,
   type ChartTradeVolumeDisplayMode,
   resolveChartColorsForTheme,
   useUserPreferences,
@@ -62,6 +63,7 @@ import { fmt } from '../../utils/format';
 import { useTheme } from '../../ui/theme/useTheme';
 import { resolveBottomTabBarHeight } from '../../ui/layout/bottomTabBar';
 import { useLiveCandles } from '../../domain/candles/hooks/useLiveCandles';
+import { CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE } from '../../domain/candles/api/candles';
 import { liveCandlesEngine } from '../../api/ws/liveCandlesEngine';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { useOrdersByLoginQuery } from '../../query/orders';
@@ -100,6 +102,7 @@ import {
   getChartSeriesUpdateMode,
   resolveLatestCandleGap,
 } from './liveChartSync';
+import { getPeriodSeparators } from './periodSeparators';
 import { useShallow } from 'zustand/shallow';
 import { recordUiFeedGap } from '../../dev/uiInteractionDiagnostics';
 import { runImmediateAction } from '../../utils/actionLatency';
@@ -161,6 +164,7 @@ import {
   resolveChartSymbolFullName,
   resolveChartSymbolKey,
 } from './chartSymbolMetadata';
+import { type ChartShowOnChartKey } from './chartShowOnChart';
 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
 // Uses quotes WS (bid/ask) as primary price source and falls back to candle close.
@@ -214,6 +218,26 @@ const CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS = 0;
 const CHART_SYMBOL_HEADER_HIT_SLOP = { top: 10, bottom: 18, left: 16, right: 48 };
 const CHART_OHLC_HIGH_COLOR = '#089981';
 const CHART_OHLC_LOW_COLOR = '#F23645';
+const CHART_SCALE_DISPLAY_ITEMS: Array<{
+  key: keyof ChartDisplaySettings;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}> = [
+  { key: 'showTicker', label: 'Show ticker', icon: 'pricetag-outline' },
+  { key: 'showOHLC', label: 'Show OHLC', icon: 'stats-chart-outline' },
+  { key: 'showQuickTradingButtons', label: 'Show quick trading buttons', icon: 'flash-outline' },
+  { key: 'showBidPriceLine', label: 'Show bid price line', icon: 'trending-down-outline' },
+  { key: 'showAskPriceLine', label: 'Show ask price line', icon: 'trending-up-outline' },
+  { key: 'showLastPriceLine', label: 'Show last price line', icon: 'ellipse-outline' },
+  { key: 'showGrid', label: 'Show grid', icon: 'grid-outline' },
+  { key: 'periodSeparators', label: 'Period separators', icon: 'reorder-three-outline' },
+  { key: 'showObjectDescriptions', label: 'Show object descriptions', icon: 'text-outline' },
+  { key: 'showTradeLevels', label: 'Show trade levels', icon: 'shield-checkmark-outline' },
+];
+
+const CHART_DISPLAY_TO_SHOW_ON_CHART_KEY: Partial<Record<keyof ChartDisplaySettings, ChartShowOnChartKey>> = {
+  showTradeLevels: 'slTpLevels',
+};
 
 type ChartLiveQuoteTickFields = {
   time?: unknown;
@@ -427,8 +451,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     setChartSymbol,
     setChartViewportShowVolumePane,
     setChartViewportShowDrawingToolbar,
+    setChartOneClickPanelAtBottom,
     setChartVerticalScrollingLocked,
     setChartAutoScaleEnabled,
+    setChartDisplaySetting,
     setTradeVolume,
     setChartTradeVolumeDisplayMode,
     chartLockAll,
@@ -458,8 +484,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       setChartSymbol: state.setChartSymbol,
       setChartViewportShowVolumePane: state.setChartViewportShowVolumePane,
       setChartViewportShowDrawingToolbar: state.setChartViewportShowDrawingToolbar,
+      setChartOneClickPanelAtBottom: state.setChartOneClickPanelAtBottom,
       setChartVerticalScrollingLocked: state.setChartVerticalScrollingLocked,
       setChartAutoScaleEnabled: state.setChartAutoScaleEnabled,
+      setChartDisplaySetting: state.setChartDisplaySetting,
       setTradeVolume: state.setTradeVolume,
       setChartTradeVolumeDisplayMode: state.setChartTradeVolumeDisplayMode,
       chartLockAll: state.chartLockAll,
@@ -473,7 +501,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const TEXT_MUTED = T.textMuted;
   const positions = usePositionsState((s) => s.positions);
   const preferencesHydrated = useUserPreferences((s) => s.hasHydrated);
+  const hasAuthenticatedChartSession = useUserPreferences((state) =>
+    Boolean(state.isLoggedIn && state.accountDetails?.credentials?.accessToken),
+  );
   const chartShowOnChart = useUserPreferences((s) => s.chartShowOnChart);
+  const setChartShowOnChartItem = useUserPreferences((s) => s.setChartShowOnChartItem);
   const isVerticalScrollingLocked = chartVerticalScrollingLocked;
   const isChartAutoScaleEnabled = chartAutoScaleEnabled;
   const resolvedChartColors = useMemo(
@@ -1341,14 +1373,15 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     cancelChartViewportRecovery,
     requestChartViewportRecovery,
   ]);
-  const { candles, hasHistoryCandles, paginate } = useLiveCandles(chartSymbol, chartTimeframe, chartRuntimeActive);
+  const chartDataActive = chartRuntimeActive && hasAuthenticatedChartSession;
+  const { candles, paginate } = useLiveCandles(chartSymbol, chartTimeframe, chartDataActive);
   const sanitizedBackendCandles = useMemo(
     () => (
-      hasHistoryCandles
+      candles.length > 0
         ? sanitizeCandlesForChart(candles, { timeframe: chartTimeframe })
         : EMPTY_DISPLAY_CANDLES
     ),
-    [candles, chartTimeframe, hasHistoryCandles],
+    [candles, chartTimeframe],
   );
   const chartDrawingRecords = useMemo(
     () =>
@@ -1440,7 +1473,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   }
   const displayDecimals = displayDecimalsLatchRef.current.value;
   const liveChartPrice = useMemo(() => {
-    if (!hasCoherentLiveChartQuote) {
+    if (!hasLiveChartQuote) {
       return null;
     }
 
@@ -1456,16 +1489,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     return priceSource === 'ask'
       ? ask ?? bid
       : bid ?? ask;
-  }, [chartLiveQuote?.ask, chartLiveQuote?.bid, hasCoherentLiveChartQuote, priceSource]);
+  }, [chartLiveQuote?.ask, chartLiveQuote?.bid, hasLiveChartQuote, priceSource]);
   const sanitizedCandles = useMemo(
     () => {
-      // Until real (or cached) history is present, do NOT synthesize a lone
-      // live-price candle. With no backend bars, resolveLivePriceCoherentCandles
-      // returns just [liveCandle], which paints as an empty, tightly auto-scaled
-      // chart (wrong price range) while the ~5s REST history fetch is still in
-      // flight — it looks broken. Returning empty keeps the chart's loading
-      // state until history actually arrives, so the first real paint is the
-      // full history series.
       if (sanitizedBackendCandles.length === 0) {
         return EMPTY_DISPLAY_CANDLES;
       }
@@ -1483,16 +1509,17 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const { bid: chartBid, ask: chartAsk } = useMemo(
     () =>
       resolveChartTradeButtonQuote({
-        liveBid: hasCoherentLiveChartQuote ? chartLiveQuote?.bid : undefined,
-        liveAsk: hasCoherentLiveChartQuote ? chartLiveQuote?.ask : undefined,
+        liveBid: hasLiveChartQuote ? chartLiveQuote?.bid : undefined,
+        liveAsk: hasLiveChartQuote ? chartLiveQuote?.ask : undefined,
         fallbackBid: latestChartClose,
         fallbackAsk: latestChartClose,
       }),
-    [chartLiveQuote?.ask, chartLiveQuote?.bid, hasCoherentLiveChartQuote, latestChartClose],
+    [chartLiveQuote?.ask, chartLiveQuote?.bid, hasLiveChartQuote, latestChartClose],
   );
   // Trade P/L labels should follow the fresh quote feed even when candle
-  // history is still catching up. The candle chart keeps its stricter
-  // coherence guard above; this path only updates the open-trade value text.
+  // history is still catching up. Display precision stays guarded by
+  // hasCoherentLiveChartQuote above so bad quote metadata cannot churn chart
+  // rebuilds.
   const overlayLiveBid = useMemo(
     () => {
       const liveBid =
@@ -1711,6 +1738,47 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       injectChartScript(`setChartAutoScaleEnabled(${next});`);
     });
   };
+
+  const handleToggleOneClickPanelAtBottom = () => {
+    runImmediateAction('chart.radial.toggleOneClickPanelAtBottom', () => {
+      hideActionSheet();
+      closeChartTapMenu();
+      setChartOneClickPanelAtBottom(!chartOneClickPanelAtBottom);
+    });
+  };
+
+  const getChartDisplayActionEnabled = useCallback(
+    (key: keyof ChartDisplaySettings) => {
+      const linkedShowOnChartKey = CHART_DISPLAY_TO_SHOW_ON_CHART_KEY[key];
+      if (linkedShowOnChartKey) {
+        return chartShowOnChart[linkedShowOnChartKey];
+      }
+      return Boolean(chartDisplay[key]);
+    },
+    [chartDisplay, chartShowOnChart],
+  );
+
+  const handleToggleChartDisplayAction = useCallback(
+    (key: keyof ChartDisplaySettings) => {
+      runImmediateAction(`chart.radial.toggleDisplay.${key}`, () => {
+        hideActionSheet();
+        closeChartTapMenu();
+        const next = !getChartDisplayActionEnabled(key);
+        setChartDisplaySetting(key, next);
+        const linkedShowOnChartKey = CHART_DISPLAY_TO_SHOW_ON_CHART_KEY[key];
+        if (linkedShowOnChartKey) {
+          setChartShowOnChartItem(linkedShowOnChartKey, next);
+        }
+      });
+    },
+    [
+      closeChartTapMenu,
+      getChartDisplayActionEnabled,
+      hideActionSheet,
+      setChartDisplaySetting,
+      setChartShowOnChartItem,
+    ],
+  );
 
   const resolveChartTradeSheetTranslateY = useCallback(
     (mode: 'hidden' | 'collapsed' | 'expanded') => {
@@ -3228,12 +3296,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   }, [resetChartActionSheetContext]);
 
   const prefetchChartTimeframeHistory = useCallback((nextSymbol: string, nextTimeframe: string) => {
+    if (!hasAuthenticatedChartSession) {
+      return Promise.resolve(0);
+    }
+
     return liveCandlesEngine.prefetchHistory(nextSymbol, nextTimeframe);
-  }, []);
+  }, [hasAuthenticatedChartSession]);
   const startupChartPrefetchKeyRef = useRef('');
 
   useEffect(() => {
-    if (!chartSymbol || !chartTimeframe) {
+    if (!hasAuthenticatedChartSession || !chartSymbol || !chartTimeframe) {
       return undefined;
     }
 
@@ -3260,7 +3332,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       delayMs: CHART_STARTUP_HISTORY_PREWARM_DELAY_MS,
       timeoutMs: 1500,
     });
-  }, [chartSymbol, chartTimeframe, prefetchChartTimeframeHistory]);
+  }, [chartSymbol, chartTimeframe, hasAuthenticatedChartSession, prefetchChartTimeframeHistory]);
 
   const warmChartContextAndCommit = useCallback(
     (nextSymbol: string, nextTimeframe: string) => {
@@ -3328,6 +3400,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       showChartActionSheet({
         title: t('Select Symbol'),
         searchable: true,
+        compactText: true,
         detent: 'large',
         instantOpen: true,
         // Keep the sheet fixed when the search keyboard opens (no rise/jump);
@@ -3592,7 +3665,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         onPress: handleResetVerticalScale,
       },
       {
-        label: t(isChartAutoScaleEnabled ? 'Free chart movement' : 'Auto-scale'),
+        label: t('Auto-scale'),
         icon: (
           <Ionicons
             name={isChartAutoScaleEnabled ? 'contract-outline' : 'resize-outline'}
@@ -3600,11 +3673,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
             color={TEXT_MUTED}
           />
         ),
-        selected: isChartAutoScaleEnabled,
+        muted: isChartAutoScaleEnabled,
         onPress: handleToggleChartAutoScale,
       },
       {
-        label: t(isVerticalScrollingLocked ? 'Unlock vertical scrolling' : 'Lock vertical scrolling'),
+        label: t('Vertical movement'),
         icon: (
           <Ionicons
             name={isVerticalScrollingLocked ? 'lock-closed-outline' : 'lock-open-outline'}
@@ -3612,15 +3685,34 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
             color={TEXT_MUTED}
           />
         ),
-        selected: isVerticalScrollingLocked,
+        muted: !isVerticalScrollingLocked,
         onPress: handleToggleVerticalScrollingLock,
       },
+      {
+        label: t('One Click panel at the bottom'),
+        icon: <Ionicons name="trail-sign-outline" size={20} color={TEXT_MUTED} />,
+        muted: chartOneClickPanelAtBottom,
+        onPress: handleToggleOneClickPanelAtBottom,
+      },
+      ...CHART_SCALE_DISPLAY_ITEMS.map((item) => {
+        const enabled = getChartDisplayActionEnabled(item.key);
+        return {
+          label: t(item.label),
+          icon: <Ionicons name={item.icon} size={20} color={TEXT_MUTED} />,
+          muted: enabled,
+          onPress: () => handleToggleChartDisplayAction(item.key),
+        };
+      }),
     ],
     [
       TEXT_MUTED,
+      chartOneClickPanelAtBottom,
+      getChartDisplayActionEnabled,
       handleResetVerticalScale,
       handleScrollToLastBar,
       handleToggleChartAutoScale,
+      handleToggleChartDisplayAction,
+      handleToggleOneClickPanelAtBottom,
       handleToggleVerticalScrollingLock,
       isChartAutoScaleEnabled,
       isVerticalScrollingLocked,
@@ -3632,7 +3724,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     runImmediateAction('chart.radial.scaleMenu.open', () => {
       closeChartTapMenu();
       showChartActionSheet({
-        title: t('Chart scale'),
+        title: t('Chart settings'),
+        titleAlign: 'center',
         presentation: 'mt5Plain',
         showActionIcons: true,
         detent: 'auto',
@@ -3661,6 +3754,26 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       scheduleChartActionSheetContextReset();
     });
   }, [chartMoreActions, scheduleChartActionSheetContextReset, showChartActionSheet]);
+
+  const periodSeparatorOptions = useMemo(() => ({
+    enabled: chartDisplay.periodSeparators,
+    color: isDark ? 'rgba(148, 163, 184, 0.42)' : 'rgba(100, 116, 139, 0.45)',
+    width: 1,
+    dashPattern: '1 5',
+  }), [chartDisplay.periodSeparators, isDark]);
+
+  const periodSeparatorPayload = useMemo(
+    () =>
+      getPeriodSeparators(sanitizedCandles, chartTimeframe, {
+        periodSeparators: chartDisplay.periodSeparators,
+      }),
+    [chartDisplay.periodSeparators, chartTimeframe, sanitizedCandles],
+  );
+
+  const periodSeparatorPayloadSignature = useMemo(
+    () => JSON.stringify({ options: periodSeparatorOptions, separators: periodSeparatorPayload }),
+    [periodSeparatorOptions, periodSeparatorPayload],
+  );
 
   const chartOptions = useMemo(() => ({
     layout: {
@@ -3745,8 +3858,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         enabled: false,
         type: 'none',
       },
-    }
-  }), [chartAxisBorderColor, chartDisplay.showGrid, chartGridColor, chartSymbol, chartTimeframe, chartType, isDark, resolvedChartColors, showChartVolumePane]);
+    },
+    periodSeparators: periodSeparatorOptions,
+  }), [chartAxisBorderColor, chartDisplay.showGrid, chartGridColor, chartSymbol, chartTimeframe, chartType, isDark, periodSeparatorOptions, resolvedChartColors, showChartVolumePane]);
 
   const [overlaySyncRevision, setOverlaySyncRevision] = useState(0);
   // Monotonic counter — incremented every time the WebView confirms
@@ -3863,7 +3977,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     return () => subscription.remove();
   }, [isScreenFocused, refreshShowOnChartSources, requestChartViewportRecovery]);
   const shouldShowImmediateHistoryLoading = !candlesAvailable;
+  const shouldShowChartLoginPrompt = !hasAuthenticatedChartSession;
   const isLoading =
+    !shouldShowChartLoginPrompt &&
     (!chartCanvasReady || !candlesAvailable) &&
     (shouldShowImmediateHistoryLoading || loadingDelayPassed) &&
     !loadingFallback;
@@ -3871,7 +3987,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   // Recovery can still run underneath, but the startup loader stays one-time.
   const shouldShowChartLoadingOverlay = !hasPaintedChartOnce && (!chartSurfaceReady || isLoading);
   const isError = false;
-  const isNoMarketData = sanitizedCandles.length === 0 && !isLoading && loadingFallback;
+  const isNoMarketData = sanitizedCandles.length === 0 && !shouldShowChartLoginPrompt && !isLoading && loadingFallback;
 
   useEffect(() => {
     if (!webViewReady || !chartCanvasReady) return;
@@ -4194,6 +4310,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
     const js = `
       initChart(${JSON.stringify(chartOptions)}, ${JSON.stringify(chartType)}, ${JSON.stringify(mapped)}, ${displayDecimals}, ${showChartVolumePane}, ${JSON.stringify(initAttemptSig)}, ${JSON.stringify(currentSig)});
+      if (typeof setPeriodSeparators === 'function') {
+        setPeriodSeparators(${JSON.stringify(periodSeparatorPayload)}, ${JSON.stringify(periodSeparatorOptions)});
+      }
       true;
     `;
     try {
@@ -4202,7 +4321,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       lastInitDispatchRef.current = { signature: initAttemptSig, configSig: currentSig, at: now };
       pendingInitSnapshotRef.current = initSnapshot;
     } catch (_e) { /* WebView may have been disposed */ }
-  }, [webViewReady, currentSig, chartOptions, chartType, displayDecimals, buildMappedData, showChartVolumePane]);
+  }, [webViewReady, currentSig, chartOptions, chartType, displayDecimals, buildMappedData, showChartVolumePane, periodSeparatorOptions, periodSeparatorPayload]);
 
   // Effect 1 — request initChart whenever data or config changes.
   useEffect(() => {
@@ -4286,20 +4405,33 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   }, [sanitizedCandles, chartCanvasReady, chartReadyEpoch, chartType, buildMappedData, chartSymbol, chartTimeframe]);
 
   useEffect(() => {
+    if (!webViewRef.current || !webViewReady) {
+      return;
+    }
+
+    try {
+      webViewRef.current.injectJavaScript(`
+        if (typeof setPeriodSeparators === 'function') {
+          setPeriodSeparators(${JSON.stringify(periodSeparatorPayload)}, ${JSON.stringify(periodSeparatorOptions)});
+        }
+        true;
+      `);
+    } catch (_e) { /* WebView may have been disposed */ }
+  }, [webViewReady, chartReadyEpoch, periodSeparatorOptions, periodSeparatorPayload, periodSeparatorPayloadSignature]);
+
+  useEffect(() => {
     if (!webViewRef.current || !chartInitializedRef.current || !chartCanvasReady) {
       return;
     }
 
     const hasBid = Number.isFinite(chartBid) && chartBid > 0;
     const hasAsk = Number.isFinite(chartAsk) && chartAsk > 0;
-
-    if (!hasBid && !hasAsk) {
-      return;
-    }
+    const visibleBid = chartDisplay.showBidPriceLine && hasBid ? chartBid : null;
+    const visibleAsk = chartDisplay.showAskPriceLine && hasAsk ? chartAsk : null;
 
     const nextSignature = [
-      hasBid ? chartBid.toFixed(displayDecimals) : 'na',
-      hasAsk ? chartAsk.toFixed(displayDecimals) : 'na',
+      visibleBid !== null ? visibleBid.toFixed(displayDecimals) : chartDisplay.showBidPriceLine ? 'na' : 'off',
+      visibleAsk !== null ? visibleAsk.toFixed(displayDecimals) : chartDisplay.showAskPriceLine ? 'na' : 'off',
     ].join('|');
 
     if (
@@ -4313,8 +4445,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     // so the candle close and market price lines move from one tick source.
     // The scheduled bridge flush calls setMarketPriceLines( after coalescing.
     pendingMarketPriceLinesRef.current = {
-      bid: hasBid ? chartBid : null,
-      ask: hasAsk ? chartAsk : null,
+      bid: visibleBid,
+      ask: visibleAsk,
       signature: nextSignature,
     };
     requestMarketPriceLineFlush();
@@ -4322,12 +4454,33 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     chartAsk,
     chartBid,
     chartCanvasReady,
+    chartDisplay.showAskPriceLine,
+    chartDisplay.showBidPriceLine,
     chartReadyEpoch,
     chartSymbol,
     chartTimeframe,
     displayDecimals,
     requestMarketPriceLineFlush,
   ]);
+
+  useEffect(() => {
+    if (!webViewRef.current || !chartInitializedRef.current || !chartCanvasReady) {
+      return;
+    }
+
+    try {
+      webViewRef.current.injectJavaScript(`
+        try {
+          if (typeof setLastPriceLineVisible === 'function') {
+            setLastPriceLineVisible(${chartDisplay.showLastPriceLine});
+          }
+        } catch (_) {}
+        true;
+      `);
+    } catch (_e) {
+      /* WebView may have been disposed */
+    }
+  }, [chartCanvasReady, chartDisplay.showLastPriceLine, chartReadyEpoch]);
 
   // Watchdog — if CHART_READY hasn't arrived, keep retrying every 3s.
   // Also acts as a self-heal: if the WebView silently loses the chart
@@ -4921,7 +5074,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           scrollEventThrottle={16}
           onScroll={() => syncChartViewportFrame()}
         >
-          {!isChartExpanded && !chartOneClickPanelAtBottom && (
+          {!isChartExpanded && chartDisplay.showQuickTradingButtons && !chartOneClickPanelAtBottom && (
             <ChartTradeInlineFooter
               LiveTradeButtons={ChartTradeButtons}
               styles={styles}
@@ -5014,6 +5167,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                   <View pointerEvents="none" style={styles.chartOverlay}>
                     <ActivityIndicator size="large" color={BLUE} />
                     <Text style={styles.overlayText}>{t('Loading chart data...')}</Text>
+                  </View>
+                )}
+
+                {shouldShowChartLoginPrompt && (
+                  <View pointerEvents="none" style={styles.chartOverlay}>
+                    <Ionicons name="lock-closed-outline" size={36} color={TEXT_MUTED} />
+                    <Text style={styles.overlayText}>{t(CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE)}</Text>
                   </View>
                 )}
 
@@ -5165,9 +5325,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                             const latestOverlay = overlayPayloadRef.current ?? { priceLines: [], markers: [] };
                             const hasBid = Number.isFinite(chartBid) && chartBid > 0;
                             const hasAsk = Number.isFinite(chartAsk) && chartAsk > 0;
+                            const visibleBid = chartDisplay.showBidPriceLine && hasBid ? chartBid : null;
+                            const visibleAsk = chartDisplay.showAskPriceLine && hasAsk ? chartAsk : null;
                             const nextMarketLineSignature = [
-                              hasBid ? chartBid.toFixed(displayDecimals) : 'na',
-                              hasAsk ? chartAsk.toFixed(displayDecimals) : 'na',
+                              visibleBid !== null ? visibleBid.toFixed(displayDecimals) : chartDisplay.showBidPriceLine ? 'na' : 'off',
+                              visibleAsk !== null ? visibleAsk.toFixed(displayDecimals) : chartDisplay.showAskPriceLine ? 'na' : 'off',
                             ].join('|');
                             if (webViewRef.current) {
                               webViewRef.current.injectJavaScript(`
@@ -5175,7 +5337,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                               setChartOverlays(${JSON.stringify(latestOverlay)});
                             }
                             if (typeof setMarketPriceLines === 'function') {
-                              setMarketPriceLines(${hasBid ? chartBid : 'null'}, ${hasAsk ? chartAsk : 'null'});
+                              setMarketPriceLines(${visibleBid ?? 'null'}, ${visibleAsk ?? 'null'});
                             }
                             true;
                           `);
@@ -5330,52 +5492,58 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                     }}
                   />
                 ) : null}
-                <View style={styles.chartOverlaySymbolSection}>
-                  <View style={[styles.symbolSection, { minHeight: 'auto' }]}>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={t('Select Symbol')}
-                      style={styles.symbolSectionTapTarget}
-                      onPress={handleOpenSymbolPicker}
-                      activateOnPressIn
-                      activateOnTouchStart
-                      hitSlop={8}
-                      unstable_pressDelay={0}
-                    >
-                      <View style={styles.symbolSectionContent}>
-                        <View style={styles.symbolNameRow}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                            <Text style={[styles.symbolText, { opacity: 0.9, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]} numberOfLines={1} adjustsFontSizeToFit>{displaySymbol}</Text>
-                            <Ionicons name="chevron-down" size={10} color={T.text} />
-                            {symbolCategory ? (
-                              <View style={[styles.fxBadge, { marginLeft: 4 }]}>
-                                <Text style={styles.fxBadgeText} numberOfLines={1}>{symbolCategory}</Text>
+                {(chartDisplay.showTicker || showChartMetaRow) && (
+                  <View style={styles.chartOverlaySymbolSection}>
+                    <View style={[styles.symbolSection, { minHeight: 'auto' }]}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={t('Select Symbol')}
+                        style={styles.symbolSectionTapTarget}
+                        onPress={handleOpenSymbolPicker}
+                        activateOnPressIn
+                        activateOnTouchStart
+                        hitSlop={8}
+                        unstable_pressDelay={0}
+                      >
+                        <View style={styles.symbolSectionContent}>
+                          {chartDisplay.showTicker ? (
+                            <>
+                              <View style={styles.symbolNameRow}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                                  <Text style={[styles.symbolText, { opacity: 0.9, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]} numberOfLines={1} adjustsFontSizeToFit>{displaySymbol}</Text>
+                                  <Ionicons name="chevron-down" size={10} color={T.text} />
+                                  {symbolCategory ? (
+                                    <View style={[styles.fxBadge, { marginLeft: 4 }]}>
+                                      <Text style={styles.fxBadgeText} numberOfLines={1}>{symbolCategory}</Text>
+                                    </View>
+                                  ) : null}
+                                </View>
                               </View>
-                            ) : null}
-                          </View>
-                        </View>
 
-                        <View style={styles.symbolMetaRow}>
-                          <Text style={[styles.symbolSubText, { textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]} numberOfLines={1} adjustsFontSizeToFit>{symbolName}</Text>
-                        </View>
-                        {showChartMetaRow && (
-                          <View style={styles.symbolOhlcRow}>
-                            {chartMetaItems.map((item) => (
-                              <View key={item.label} style={styles.symbolOhlcPair}>
-                                <Text style={[styles.symbolOhlcLabel, { textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]}>
-                                  {item.label}:
-                                </Text>
-                                <Text style={[styles.symbolOhlcValue, { color: item.color, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]}>
-                                  {item.value}
-                                </Text>
+                              <View style={styles.symbolMetaRow}>
+                                <Text style={[styles.symbolSubText, { textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]} numberOfLines={1} adjustsFontSizeToFit>{symbolName}</Text>
                               </View>
-                            ))}
-                          </View>
-                        )}
-                      </View>
-                    </Pressable>
+                            </>
+                          ) : null}
+                          {showChartMetaRow && (
+                            <View style={styles.symbolOhlcRow}>
+                              {chartMetaItems.map((item) => (
+                                <View key={item.label} style={styles.symbolOhlcPair}>
+                                  <Text style={[styles.symbolOhlcLabel, { textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]}>
+                                    {item.label}:
+                                  </Text>
+                                  <Text style={[styles.symbolOhlcValue, { color: item.color, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]}>
+                                    {item.value}
+                                  </Text>
+                                </View>
+                              ))}
+                            </View>
+                          )}
+                        </View>
+                      </Pressable>
+                    </View>
                   </View>
-                </View>
+                )}
                 {chartTapMenuAnchor ? (
                   <ChartTapRadialMenu
                     anchor={chartTapMenuAnchor}
@@ -5987,7 +6155,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
               </Animated.View>
             </View>
           )}
-          {!isChartExpanded && chartOneClickPanelAtBottom && (
+          {!isChartExpanded && chartDisplay.showQuickTradingButtons && chartOneClickPanelAtBottom && (
             <ChartTradeInlineFooter
               LiveTradeButtons={ChartTradeButtons}
               styles={styles}
@@ -6028,7 +6196,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
               }}
             />
           )}
-          {!isChartExpanded && chartOneClickPanelAtBottom && showChartTradeSheet && showInlineFooterWhileChartTradeSheetOpen ? (
+          {!isChartExpanded && chartDisplay.showQuickTradingButtons && chartOneClickPanelAtBottom && showChartTradeSheet && showInlineFooterWhileChartTradeSheetOpen ? (
             <ChartTradeInlineFooter
               LiveTradeButtons={ChartTradeButtons}
               styles={styles}

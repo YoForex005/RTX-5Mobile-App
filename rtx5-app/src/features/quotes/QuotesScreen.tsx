@@ -28,6 +28,7 @@ import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket'
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useMarketSymbols } from '../../query/market';
+import { useFeedStatusActiveSymbols } from '../../query/feedStatus';
 import {
   useWatchlistQuery,
   useAddToWatchlistMutation,
@@ -53,7 +54,9 @@ import {
 } from './quoteWatchlistDefaults';
 import { buildAddSymbolCatalog } from './addSymbolCatalog';
 import {
+  areLiveQuoteSnapshotNotificationsPaused,
   getLiveQuoteFreshnessAnchorForSymbols,
+  pauseLiveQuoteSnapshotNotifications,
   subscribeLiveQuoteSnapshots,
   useLiveQuoteSnapshot,
   useWatchlistLiveQuotes,
@@ -64,6 +67,12 @@ import {
 const LIVE_SYMBOL_STALE_MS = 45_000;
 const QUOTE_SPEED_SAMPLE_INTERVAL_MS = 250;
 const QUOTE_SPEED_WINDOW_MS = 1_000;
+const QUOTE_ROW_HEIGHT = 88;
+const QUOTE_ROW_SIMPLE_HEIGHT = 64;
+const QUOTE_ROW_SPACING = 16;
+const QUOTE_SHEET_OPEN_FEED_PAUSE_MS = 15_000;
+const QUOTE_SHEET_OPTION_FEED_PAUSE_MS = 900;
+const QUOTE_SHEET_ROUTE_FEED_PAUSE_MS = 2_500;
 
 const pairLabel = (symbol: string) => fmt.symbol(symbol);
 
@@ -73,10 +82,12 @@ const volumeLabel = (volume?: number) => {
   return volume.toLocaleString('en-US');
 };
 
-function scheduleQuoteSheetOptionAction(action: () => void) {
-  if (typeof globalThis.requestAnimationFrame === 'function') {
+function scheduleQuoteSheetOptionAction(action: () => void, deferUntilNextFrame = false) {
+  if (deferUntilNextFrame && typeof globalThis.requestAnimationFrame === 'function') {
     globalThis.requestAnimationFrame(() => {
-      setTimeout(action, 0);
+      globalThis.requestAnimationFrame(() => {
+        setTimeout(action, 0);
+      });
     });
     return;
   }
@@ -256,6 +267,7 @@ const QuoteCard = React.memo(function QuoteCard({
   isDark,
   cardBackground,
   viewMode,
+  liveUpdatesActive = true,
   onPress,
   onPressIn,
   onLongPress,
@@ -267,6 +279,7 @@ const QuoteCard = React.memo(function QuoteCard({
   isDark: boolean;
   cardBackground: AnimatedColorValue | string;
   viewMode: 'list' | 'table' | 'edit';
+  liveUpdatesActive?: boolean;
   onPress?: () => void;
   onPressIn?: () => void;
   onLongPress: () => void;
@@ -276,7 +289,7 @@ const QuoteCard = React.memo(function QuoteCard({
   const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
   const isSimpleMode = viewMode === 'table';
   const liveSymbol = feedSymbol ?? symbol;
-  const liveItem = useLiveQuoteSnapshot(liveSymbol);
+  const liveItem = useLiveQuoteSnapshot(liveSymbol, liveUpdatesActive);
   const noData = !hasDisplayableLiveQuotePrice(liveItem);
 
   if (!isSimpleMode && noData && (!liveItem || typeof liveItem.bid !== 'number' || typeof liveItem.ask !== 'number')) {
@@ -288,7 +301,7 @@ const QuoteCard = React.memo(function QuoteCard({
           sc.card,
           isSimpleMode && sc.cardSimple,
           {
-            height: isSimpleMode ? 64 : 74,
+            height: isSimpleMode ? QUOTE_ROW_SIMPLE_HEIGHT : QUOTE_ROW_HEIGHT,
             paddingVertical: 0,
             paddingLeft: 24,
             justifyContent: 'center',
@@ -374,6 +387,15 @@ const QuoteCard = React.memo(function QuoteCard({
     typeof item.digits === 'number' && Number.isFinite(item.digits)
       ? item.digits
       : 2;
+  const rawLastPrice = item.close ?? item.last;
+  const parsedLastPrice = typeof rawLastPrice === 'number'
+    ? rawLastPrice
+    : typeof rawLastPrice === 'string'
+      ? Number(rawLastPrice)
+      : NaN;
+  const lastPrice = Number.isFinite(parsedLastPrice) && parsedLastPrice > 0
+    ? parsedLastPrice
+    : undefined;
 
   const bidDirection = item.prevBid
     ? item.bid > item.prevBid
@@ -483,6 +505,17 @@ const QuoteCard = React.memo(function QuoteCard({
                 adjustsFontSizeToFit
               >
                 {t('Vol')}: <Text style={[sc.statValue, { color: T.text }]}>{volumeLabel(item.volume ?? item.cachedVolume)}</Text>
+              </Text>
+
+              <Text
+                style={[sc.spreadText, { color: T.textSub, flexShrink: 1 }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {t('Last')}:{' '}
+                <Text style={[sc.statValue, { color: T.text }]}>
+                  {lastPrice === undefined ? '--' : fmt.price(lastPrice, priceDigits)}
+                </Text>
               </Text>
 
               <Text
@@ -1611,9 +1644,9 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
   const setChartSymbol = useUserPreferences((st) => st.setChartSymbol);
 
   const showQuotesActionSheet = useUIState((s) => s.showQuotesActionSheet);
-  const hideQuotesActionSheet = useUIState((s) => s.hideQuotesActionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const [quoteSheetRouteActionPending, setQuoteSheetRouteActionPending] = useState(false);
+  const quoteSheetFeedPauseReleaseRef = useRef<(() => void) | null>(null);
   // isQuotesRouteActive (the /quotes path match) comes from the thin wrapper so
   // this screen only re-renders when its own focus or route-active state flips,
   // not on every unrelated tab switch (usePathname re-renders on any path change).
@@ -1621,6 +1654,13 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
   const quoteCatalogActive = quoteRouteActive && !quoteSheetRouteActionPending;
   const quoteWatchlistActive = quoteCatalogActive && isLoggedIn;
   const { data: apiSymbols = [] } = useMarketSymbols(quoteCatalogActive);
+  const { data: activeFeedSymbols = [] } = useFeedStatusActiveSymbols(quoteCatalogActive);
+  const feedAwareSymbols = useMemo(
+    () => activeFeedSymbols.length > 0
+      ? Array.from(new Set([...activeFeedSymbols, ...apiSymbols]))
+      : apiSymbols,
+    [activeFeedSymbols, apiSymbols],
+  );
 
   // ── Server-side watchlist sync ──────────────────────────────────────────
   // Fetch the server watchlist and sync mutations. Local Zustand state stays
@@ -1672,13 +1712,13 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
 
   useEffect(() => {
     const currentSymbols = quoteSymbolsRef.current;
-    const availableSymbolsSet = new Set(apiSymbols);
+    const availableSymbolsSet = new Set(feedAwareSymbols);
     const resolveAvailableSymbols = (symbols: readonly string[]) => (
-      resolveQuoteFeedSymbols(symbols, apiSymbols)
+      resolveQuoteFeedSymbols(symbols, feedAwareSymbols)
         .filter((symbol) => availableSymbolsSet.has(symbol))
     );
 
-    if (apiSymbols.length === 0) {
+    if (feedAwareSymbols.length === 0) {
       if (!hasSetInitialSymbols && currentSymbols.length === 0) {
         setQuoteSymbols([...DEFAULT_QUOTE_WATCHLIST]);
         setHasSetInitialSymbols(true);
@@ -1698,16 +1738,16 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
       // If the user removed every symbol (or state is empty after a bug),
       // re-seed with curated defaults so the screen is never permanently blank.
       if (currentSymbols.length === 0) {
-        setQuoteSymbols(buildDefaultQuoteWatchlist(apiSymbols));
+        setQuoteSymbols(buildDefaultQuoteWatchlist(feedAwareSymbols));
         return;
       }
       // Fix bloated legacy state (old versions seeded the entire catalog)
-      const bloated = currentSymbols.length >= Math.max(20, Math.floor(apiSymbols.length * 0.8));
+      const bloated = currentSymbols.length >= Math.max(20, Math.floor(feedAwareSymbols.length * 0.8));
       if (bloated) {
-        setQuoteSymbols(buildDefaultQuoteWatchlist(apiSymbols));
+        setQuoteSymbols(buildDefaultQuoteWatchlist(feedAwareSymbols));
         return;
       }
-      if (isMarketSymbolCatalogScopedToWatchlist(apiSymbols, currentSymbols)) {
+      if (isMarketSymbolCatalogScopedToWatchlist(feedAwareSymbols, currentSymbols)) {
         return;
       }
       // Strip any symbols the broker has since delisted and migrate legacy
@@ -1748,10 +1788,10 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
     }
 
     // ── First launch fallback: curated defaults ───────────────────────────
-    setQuoteSymbols(buildDefaultQuoteWatchlist(apiSymbols));
+    setQuoteSymbols(buildDefaultQuoteWatchlist(feedAwareSymbols));
     setHasSetInitialSymbols(true);
   }, [
-    apiSymbols,
+    feedAwareSymbols,
     serverWatchlist,
     setQuoteSymbols,
     hasSetInitialSymbols,
@@ -1768,8 +1808,8 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
   // transitions and pushed quote sub-screens, which leaves the visible Quotes
   // list mounted but unsubscribed.
   const quoteFeedSymbols = useMemo(
-    () => resolveQuoteFeedSymbols(quoteSymbols, apiSymbols),
-    [quoteSymbols, apiSymbols],
+    () => resolveQuoteFeedSymbols(quoteSymbols, feedAwareSymbols),
+    [quoteSymbols, feedAwareSymbols],
   );
   const quoteFeedSymbolByDisplay = useMemo(() => {
     const entries = quoteSymbols.map((symbol, index) => [
@@ -1778,7 +1818,8 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
     ] as const);
     return new Map(entries);
   }, [quoteSymbols, quoteFeedSymbols]);
-  const quoteStickyFeedActive = quoteRouteActive;
+  const quoteStickyFeedActive = quoteCatalogActive;
+  const quoteRestFallbackActive = quoteCatalogActive;
   const quoteFeedSymbolsKey = quoteFeedSymbols.join('|');
 
   useEffect(() => {
@@ -1793,7 +1834,21 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
     };
   }, [quoteStickyFeedActive, quoteFeedSymbols, quoteFeedSymbolsKey]);
 
-  useWatchlistLiveQuotes(quoteFeedSymbols, quoteStickyFeedActive);
+  useWatchlistLiveQuotes(quoteFeedSymbols, quoteStickyFeedActive, {
+    restFallbackActive: quoteRestFallbackActive,
+  });
+
+  const pauseQuoteSheetFeed = useCallback((durationMs = QUOTE_SHEET_OPEN_FEED_PAUSE_MS) => {
+    quotesWsService.deferReconnectForInteraction?.(durationMs);
+    const release = pauseLiveQuoteSnapshotNotifications(durationMs);
+    quoteSheetFeedPauseReleaseRef.current?.();
+    quoteSheetFeedPauseReleaseRef.current = release;
+  }, []);
+
+  const releaseQuoteSheetFeedPause = useCallback(() => {
+    quoteSheetFeedPauseReleaseRef.current?.();
+    quoteSheetFeedPauseReleaseRef.current = null;
+  }, []);
 
   const toggleEditMode = () => {
     if (!isEditing) setSearch('');
@@ -1864,14 +1919,20 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
     return () => clearTimeout(timeoutId);
   }, [quoteSheetRouteActionPending]);
 
+  useEffect(() => {
+    return releaseQuoteSheetFeedPause;
+  }, [releaseQuoteSheetFeedPause]);
+
   const runQuoteSheetOption = useCallback((action: () => void, options?: QuoteSheetOptionOptions) => {
     const routeChange = options?.routeChange === true;
+    pauseQuoteSheetFeed(routeChange ? QUOTE_SHEET_ROUTE_FEED_PAUSE_MS : QUOTE_SHEET_OPTION_FEED_PAUSE_MS);
     if (routeChange) {
-      setQuoteSheetRouteActionPending(true);
+      React.startTransition(() => {
+        setQuoteSheetRouteActionPending(true);
+      });
     }
-    hideQuotesActionSheet();
-    scheduleQuoteSheetOptionAction(action);
-  }, [hideQuotesActionSheet]);
+    scheduleQuoteSheetOptionAction(action, routeChange);
+  }, [pauseQuoteSheetFeed]);
 
   const goDetail = useCallback((sym: string) => {
     runQuoteSheetOption(() => {
@@ -1891,7 +1952,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
         presentation: 'mt5Plain',
         detent: 'auto',
         instantOpen: true,
-        runActionAfterClose: false,
+        runActionAfterClose: true,
         actions: [
           {
             label: t('New Order'),
@@ -1966,7 +2027,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
         presentation: 'mt5Plain',
         detent: 'auto',
         instantOpen: true,
-        runActionAfterClose: false,
+        runActionAfterClose: true,
         actions: [
           {
             label: t('Chart'),
@@ -2011,17 +2072,23 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
     if (showAddModal) return;
     const config = quoteTapActionSheetConfigs.get(sym);
     if (config) {
-      runImmediateAction('quotes.symbolSheet.tap.open', () => showQuotesActionSheet(config));
+      runImmediateAction('quotes.symbolSheet.tap.open', () => {
+        pauseQuoteSheetFeed();
+        showQuotesActionSheet(config);
+      });
     }
-  }, [quoteTapActionSheetConfigs, showQuotesActionSheet, showAddModal]);
+  }, [pauseQuoteSheetFeed, quoteTapActionSheetConfigs, showQuotesActionSheet, showAddModal]);
 
   const handleSymbolLongPress = useCallback((sym: string) => {
     if (showAddModal) return;
     const config = quoteLongPressActionSheetConfigs.get(sym);
     if (config) {
-      runImmediateAction('quotes.symbolSheet.longPress.open', () => showQuotesActionSheet(config));
+      runImmediateAction('quotes.symbolSheet.longPress.open', () => {
+        pauseQuoteSheetFeed();
+        showQuotesActionSheet(config);
+      });
     }
-  }, [quoteLongPressActionSheetConfigs, showQuotesActionSheet, showAddModal]);
+  }, [pauseQuoteSheetFeed, quoteLongPressActionSheetConfigs, showQuotesActionSheet, showAddModal]);
 
   const handleSearchChange = useCallback((text: string) => {
     setSearch(text);
@@ -2053,6 +2120,8 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
         isDark={isDark}
         cardBackground={animatedCardBackground}
         viewMode={quoteViewMode}
+        liveUpdatesActive={quoteStickyFeedActive}
+        onPressIn={() => pauseQuoteSheetFeed()}
         onPress={() => handleSymbolTap(sym)}
         suppressPressFeedback
         onLongPress={() => handleSymbolLongPress(sym)}
@@ -2066,12 +2135,21 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
     isDark,
     isEditing,
     moveQuote,
+    pauseQuoteSheetFeed,
     quoteSymbols,
     quoteFeedSymbolByDisplay,
     quoteViewMode,
+    quoteStickyFeedActive,
     removeQuoteSymbol,
     syncServerRemove,
   ]);
+  const getQuoteItemLayout = useCallback((_: ArrayLike<string> | null | undefined, index: number) => {
+    const rowHeight = !isEditing && quoteViewMode === 'table'
+      ? QUOTE_ROW_SIMPLE_HEIGHT
+      : QUOTE_ROW_HEIGHT;
+    const length = rowHeight + QUOTE_ROW_SPACING;
+    return { length, offset: length * index, index };
+  }, [isEditing, quoteViewMode]);
 
   return (
     <View style={s.root}>
@@ -2161,6 +2239,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
             keyExtractor={(sym) => sym}
             extraData={`${isEditing ? 'edit' : 'view'}:${quoteViewMode}`}
             renderItem={renderQuoteItem}
+            getItemLayout={getQuoteItemLayout}
             style={s.list}
             contentContainerStyle={s.listPad}
             showsVerticalScrollIndicator={false}
@@ -2580,7 +2659,8 @@ const s = StyleSheet.create({
 
 const sc = StyleSheet.create({
   card: {
-    marginBottom: 16,
+    height: QUOTE_ROW_HEIGHT,
+    marginBottom: QUOTE_ROW_SPACING,
     borderRadius: 16,
     borderWidth: 1,
     paddingVertical: 22,
@@ -2590,6 +2670,7 @@ const sc = StyleSheet.create({
   },
 
   cardSimple: {
+    height: QUOTE_ROW_SIMPLE_HEIGHT,
     paddingVertical: 16,
     paddingLeft: 20,
     paddingRight: 18,
@@ -2764,6 +2845,10 @@ function TickCounter({
     }
 
     const listener = (tick: QuoteTickEvent) => {
+      if (areLiveQuoteSnapshotNotificationsPaused()) {
+        return;
+      }
+
       const ts =
         typeof tick.receivedAt === 'number' && Number.isFinite(tick.receivedAt)
           ? tick.receivedAt
@@ -2817,6 +2902,10 @@ function TickCounter({
     setTps(0);
     setHasFreshFeed(readHasFreshFeed());
     const interval = setInterval(() => {
+      if (areLiveQuoteSnapshotNotificationsPaused()) {
+        return;
+      }
+
       const cutoff = Date.now() - QUOTE_SPEED_WINDOW_MS;
       tickTimesRef.current = tickTimesRef.current.filter((time) => time >= cutoff);
       snapshotTimesRef.current = snapshotTimesRef.current.filter((time) => time >= cutoff);

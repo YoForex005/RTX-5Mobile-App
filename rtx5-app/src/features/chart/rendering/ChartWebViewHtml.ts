@@ -60,6 +60,17 @@ export const CH_HTML = `
         overflow: visible;
         z-index: 0;
       }
+      #rtx5-period-separators {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        overflow: visible;
+        z-index: 0;
+        shape-rendering: crispEdges;
+      }
       #rtx5-axis-dividers {
         position: absolute;
         left: 0;
@@ -76,6 +87,7 @@ export const CH_HTML = `
 <body>
     <div id="chart"></div>
     <svg id="rtx5-moving-vertical-grid" aria-hidden="true"></svg>
+    <svg id="rtx5-period-separators" aria-hidden="true"></svg>
     <svg id="rtx5-axis-dividers" aria-hidden="true"></svg>
     <script>
       // ─────────────────────────────────────────────────────────────────
@@ -120,6 +132,7 @@ export const CH_HTML = `
       // candle series (which internally forces a full data redraw and was
       // causing history to blank on bucket updates).
       var directionPriceLine = null;
+      var directionPriceLineVisible = true;
       // Same idea on the move-bars pane — horizontal line at the live bar's
       // move magnitude, tinted blue / red in lockstep with the candle.
       var moveDirectionPriceLine = null;
@@ -195,6 +208,14 @@ export const CH_HTML = `
       var movingGridLayerSignature = '';
       var movingGridVerticalSignature = '';
       var movingGridHorizontalSignature = '';
+      var periodSeparatorsRaf = 0;
+      var periodSeparatorsVisible = true;
+      var periodSeparatorColor = 'rgba(120, 120, 120, 0.45)';
+      var periodSeparatorWidth = 1;
+      var periodSeparatorDashPattern = '1 5';
+      var periodSeparatorData = [];
+      var periodSeparatorLines = [];
+      var periodSeparatorSignature = '';
       var chartAxisDividerRaf = 0;
       var chartAxisDividerColor = 'transparent';
       var chartAxisDividerVisible = false;
@@ -2221,6 +2242,224 @@ export const CH_HTML = `
           }
         } catch (_e) {
           clearMovingVerticalGrid();
+        }
+      }
+
+      function getPeriodSeparatorLayer() {
+        return document.getElementById('rtx5-period-separators');
+      }
+
+      function clearPeriodSeparatorLayer() {
+        if (periodSeparatorsRaf) {
+          try { cancelAnimationFrame(periodSeparatorsRaf); } catch (_e) {}
+          periodSeparatorsRaf = 0;
+        }
+        var layer = getPeriodSeparatorLayer();
+        if (!layer) {
+          return;
+        }
+        layer.textContent = '';
+        layer.style.display = 'none';
+        periodSeparatorLines = [];
+        periodSeparatorSignature = '';
+      }
+
+      function sanitizePeriodSeparatorData(separators) {
+        if (!Array.isArray(separators) || separators.length === 0) {
+          return [];
+        }
+        var sanitized = [];
+        var seen = {};
+        for (var index = 0; index < separators.length; index += 1) {
+          var item = separators[index];
+          if (!item || typeof item.time !== 'number' || !isFinite(item.time) || item.time <= 0) {
+            continue;
+          }
+          var separatorIndex =
+            typeof item.index === 'number' && isFinite(item.index) && item.index >= 0
+              ? Math.floor(item.index)
+              : -1;
+          var key = separatorIndex >= 0 ? 'i:' + separatorIndex : 't:' + item.time;
+          if (seen[key]) {
+            continue;
+          }
+          seen[key] = true;
+          sanitized.push({
+            time: item.time,
+            index: separatorIndex,
+            type: typeof item.type === 'string' ? item.type : 'day',
+          });
+        }
+        return sanitized;
+      }
+
+      function applyPeriodSeparatorOptions(options) {
+        var nextOptions = options && typeof options === 'object' ? options : {};
+        periodSeparatorsVisible = nextOptions.enabled !== false;
+        periodSeparatorColor =
+          typeof nextOptions.color === 'string' && nextOptions.color.length > 0
+            ? nextOptions.color
+            : 'rgba(120, 120, 120, 0.45)';
+        periodSeparatorWidth =
+          typeof nextOptions.width === 'number' && isFinite(nextOptions.width) && nextOptions.width > 0
+            ? Math.max(0.5, Math.min(2, nextOptions.width))
+            : 1;
+        periodSeparatorDashPattern =
+          typeof nextOptions.dashPattern === 'string' && nextOptions.dashPattern.length > 0
+            ? nextOptions.dashPattern
+            : '1 5';
+        if (!periodSeparatorsVisible) {
+          clearPeriodSeparatorLayer();
+        }
+      }
+
+      function setPeriodSeparators(separators, options) {
+        periodSeparatorData = sanitizePeriodSeparatorData(separators);
+        applyPeriodSeparatorOptions(options);
+        schedulePeriodSeparatorsUpdate();
+      }
+
+      function schedulePeriodSeparatorsUpdate() {
+        if (periodSeparatorsRaf) {
+          return;
+        }
+        periodSeparatorsRaf = requestAnimationFrame(function() {
+          periodSeparatorsRaf = 0;
+          updatePeriodSeparators();
+        });
+      }
+
+      function resolvePeriodSeparatorX(separator, timeScaleApi) {
+        var coordinate = null;
+        if (
+          separator &&
+          typeof separator.index === 'number' &&
+          separator.index >= 0 &&
+          typeof timeScaleApi.logicalToCoordinate === 'function'
+        ) {
+          coordinate = timeScaleApi.logicalToCoordinate(separator.index);
+        }
+        if (
+          (typeof coordinate !== 'number' || !isFinite(coordinate)) &&
+          separator &&
+          typeof timeScaleApi.timeToCoordinate === 'function'
+        ) {
+          coordinate = timeScaleApi.timeToCoordinate(separator.time);
+        }
+        return typeof coordinate === 'number' && isFinite(coordinate) ? coordinate : null;
+      }
+
+      function applyPeriodSeparatorLineStyle(line) {
+        var styleSignature = [
+          periodSeparatorColor,
+          periodSeparatorWidth,
+          periodSeparatorDashPattern
+        ].join('|');
+        if (line.__rtx5PeriodSeparatorStyleSignature !== styleSignature) {
+          line.setAttribute('stroke', periodSeparatorColor);
+          line.setAttribute('stroke-width', String(periodSeparatorWidth));
+          line.setAttribute('stroke-linecap', 'round');
+          if (periodSeparatorDashPattern) {
+            line.setAttribute('stroke-dasharray', periodSeparatorDashPattern);
+          } else {
+            line.removeAttribute('stroke-dasharray');
+          }
+          line.setAttribute('vector-effect', 'non-scaling-stroke');
+          line.__rtx5PeriodSeparatorStyleSignature = styleSignature;
+        }
+        line.style.pointerEvents = 'none';
+        line.style.display = 'block';
+      }
+
+      function resolvePeriodSeparatorLine(layer, namespace, index) {
+        var line = periodSeparatorLines[index];
+        if (!line || line.parentNode !== layer) {
+          line = document.createElementNS(namespace, 'line');
+          layer.appendChild(line);
+          periodSeparatorLines[index] = line;
+        }
+        applyPeriodSeparatorLineStyle(line);
+        return line;
+      }
+
+      function hideUnusedPeriodSeparatorLines(startIndex) {
+        for (var index = startIndex; index < periodSeparatorLines.length; index += 1) {
+          if (periodSeparatorLines[index]) {
+            periodSeparatorLines[index].style.display = 'none';
+          }
+        }
+      }
+
+      function updatePeriodSeparators() {
+        var layer = getPeriodSeparatorLayer();
+        if (!layer || !chart || !periodSeparatorsVisible || !periodSeparatorData.length) {
+          clearPeriodSeparatorLayer();
+          return;
+        }
+        try {
+          var metrics = resolvePrimaryPaneMetrics();
+          var timeScaleApi = chart && typeof chart.timeScale === 'function' ? chart.timeScale() : null;
+          if (!timeScaleApi || !(metrics.paneWidth > 0) || !(metrics.paneHeight > 0)) {
+            clearPeriodSeparatorLayer();
+            return;
+          }
+
+          var visible = [];
+          for (var index = 0; index < periodSeparatorData.length; index += 1) {
+            var separator = periodSeparatorData[index];
+            var coordinate = resolvePeriodSeparatorX(separator, timeScaleApi);
+            if (typeof coordinate !== 'number' || !isFinite(coordinate)) {
+              continue;
+            }
+            var x = Math.round(coordinate);
+            if (x >= -1 && x <= metrics.paneWidth + 1) {
+              visible.push({ x: x, type: separator.type });
+            }
+          }
+
+          if (!visible.length) {
+            hideUnusedPeriodSeparatorLines(0);
+            periodSeparatorSignature = '';
+            layer.style.display = 'none';
+            return;
+          }
+
+          layer.style.display = 'block';
+          layer.style.left = metrics.leftAxisWidth + 'px';
+          layer.style.top = '0px';
+          layer.style.width = metrics.paneWidth + 'px';
+          layer.style.height = metrics.paneHeight + 'px';
+          layer.setAttribute('width', String(metrics.paneWidth));
+          layer.setAttribute('height', String(metrics.paneHeight));
+          layer.setAttribute('viewBox', '0 0 ' + metrics.paneWidth + ' ' + metrics.paneHeight);
+
+          var signature = [
+            metrics.leftAxisWidth,
+            metrics.paneWidth,
+            metrics.paneHeight,
+            periodSeparatorColor,
+            periodSeparatorWidth,
+            periodSeparatorDashPattern,
+            visible.map(function(item) { return item.x + ':' + item.type; }).join(',')
+          ].join('|');
+          if (signature === periodSeparatorSignature) {
+            return;
+          }
+
+          var namespace = 'http://www.w3.org/2000/svg';
+          for (var lineIndex = 0; lineIndex < visible.length; lineIndex += 1) {
+            var line = resolvePeriodSeparatorLine(layer, namespace, lineIndex);
+            var xPosition = visible[lineIndex].x;
+            setMovingGridAttribute(line, 'x1', xPosition);
+            setMovingGridAttribute(line, 'y1', 0);
+            setMovingGridAttribute(line, 'x2', xPosition);
+            setMovingGridAttribute(line, 'y2', metrics.paneHeight);
+            line.setAttribute('data-separator-type', visible[lineIndex].type);
+          }
+          hideUnusedPeriodSeparatorLines(visible.length);
+          periodSeparatorSignature = signature;
+        } catch (_e) {
+          clearPeriodSeparatorLayer();
         }
       }
 
@@ -5240,10 +5479,13 @@ export const CH_HTML = `
         safeOpts = hideChartCrosshairOptions(makeChartCanvasBackgroundTransparent(safeOpts));
         var customCols = safeOpts.customColors;
         var customCrosshairConfig = safeOpts.customCrosshair || {};
+        var customPeriodSeparatorConfig = safeOpts.periodSeparators || {};
         applyMovingVerticalGridColor(customCols && customCols.grid);
         applyChartAxisDividerColor(customCols && customCols.axisDivider);
+        applyPeriodSeparatorOptions(customPeriodSeparatorConfig);
         if (safeOpts.customColors) { delete safeOpts.customColors; }
         if (safeOpts.customCrosshair) { delete safeOpts.customCrosshair; }
+        if (safeOpts.periodSeparators) { delete safeOpts.periodSeparators; }
         if (!safeOpts.timeScale) {
           safeOpts.timeScale = {};
         }
@@ -5291,6 +5533,7 @@ export const CH_HTML = `
               }
               var isActiveHorizontalGesture = activeHorizontalScrollGesture === true;
               scheduleMovingVerticalGridUpdate(isActiveHorizontalGesture);
+              schedulePeriodSeparatorsUpdate();
               if (isActiveHorizontalGesture) {
                 // Keep the active scroll loop tiny. The deferred idle/recovery
                 // work runs from finishHorizontalScrollGesture on release.
@@ -5418,6 +5661,7 @@ export const CH_HTML = `
 
         applyOverlayPayload(_overlayPayload);
         setMarketPriceLines(lastBidPrice, lastAskPrice);
+        schedulePeriodSeparatorsUpdate();
         postChartGeometry();
         postChartReadyWhenPriceScaleHealthy('init_ready', 0, readyGeneration, readyInitSignature, readyConfigSig);
       }
@@ -5506,6 +5750,7 @@ export const CH_HTML = `
             chart.resize(w, h);
             updateChartPaneBackgroundLayer();
             ensureMoveBarsSeries(lastDisplayDecimals);
+            schedulePeriodSeparatorsUpdate();
             schedulePriceScaleHealthCheck('resize', false);
             scheduleRightPriceScaleLayoutRecovery('resize', 4);
             refreshOverlayDomLabels(_overlayPayload);
@@ -5602,6 +5847,7 @@ export const CH_HTML = `
           refreshDirectionPriceLine();
           ensureMoveDirectionPriceLine();
           refreshMoveDirectionPriceLine();
+          schedulePeriodSeparatorsUpdate();
           scheduleOverlayPriceScaleLock(true);
           scheduleRightPriceScaleLayoutRecovery('recover_surface', RIGHT_PRICE_SCALE_LAYOUT_RECOVERY_MAX_ATTEMPTS);
           postChartGeometry();
@@ -5637,6 +5883,7 @@ export const CH_HTML = `
                 chart.resize(w, h);
                 updateChartPaneBackgroundLayer();
                 ensureMoveBarsSeries(lastDisplayDecimals);
+                schedulePeriodSeparatorsUpdate();
                 schedulePriceScaleHealthCheck('resize_observer', false);
                 scheduleRightPriceScaleLayoutRecovery('resize_observer', 4);
                 refreshOverlayDomLabels(_overlayPayload);
@@ -6172,6 +6419,7 @@ export const CH_HTML = `
             applyOverlayPayload(_overlayPayload);
           }
           setMarketPriceLines(lastBidPrice, lastAskPrice);
+          schedulePeriodSeparatorsUpdate();
 
           if (mapped.length > 0) {
             lastBarTime = mapped[mapped.length - 1].time;
@@ -6260,6 +6508,7 @@ export const CH_HTML = `
         }
         schedulePriceScaleHealthCheck('tick_update', false);
         currentSeriesLength = lastRawSeriesData.length;
+        schedulePeriodSeparatorsUpdate();
         if (shouldFollowLiveEdge) {
           followLiveRightEdge(previousVisibleRange, currentSeriesLength);
         }
@@ -6315,6 +6564,7 @@ export const CH_HTML = `
       // instance is bound.
       function ensureDirectionPriceLine() {
         try {
+          if (!directionPriceLineVisible) return;
           if (marketPriceLinesVisible) return;
           if (directionPriceLine || !series) return;
           if (!_liveBar || typeof _liveBar.close !== 'number') return;
@@ -6337,7 +6587,7 @@ export const CH_HTML = `
       // so the next tick recreates a fresh instance on the live series.
       function refreshDirectionPriceLine() {
         if (!_liveBar || typeof _liveBar.close !== 'number') return;
-        if (marketPriceLinesVisible) {
+        if (!directionPriceLineVisible || marketPriceLinesVisible) {
           if (directionPriceLine && series) {
             try { series.removePriceLine(directionPriceLine); } catch (_e) {}
             directionPriceLine = null;
@@ -6354,6 +6604,11 @@ export const CH_HTML = `
         } catch (_e) {
           directionPriceLine = null;
         }
+      }
+
+      function setLastPriceLineVisible(visible) {
+        directionPriceLineVisible = visible !== false;
+        refreshDirectionPriceLine();
       }
 
       // Current move magnitude for the active bar (|close − open|). This is
@@ -7717,9 +7972,11 @@ export const CH_HTML = `
       window.initChart = initChart;
       window.updateChartData = updateChartData;
       window.updateTick = updateTick;
+      window.setPeriodSeparators = setPeriodSeparators;
       window.setBidPriceLine = setBidPriceLine;
       window.setAskPriceLine = setAskPriceLine;
       window.setMarketPriceLines = setMarketPriceLines;
+      window.setLastPriceLineVisible = setLastPriceLineVisible;
       window.setDrawingTool = setDrawingTool;
       window.clearDrawings = clearDrawings;
       window.setSerializedDrawings = setSerializedDrawings;

@@ -77,7 +77,9 @@ type OrderTicketTradeAction = {
 
 const ORDER_TICKET_TRADE_CONFIRMATION_VISIBLE_MS = 5000;
 const ORDER_TICKET_TRADE_CONFIRMATION_MAX_ITEMS = 3;
-const ORDER_TICKET_FULL_CONTENT_DELAY_MS = 0;
+const ORDER_TICKET_FULL_CONTENT_DELAY_MS = 48;
+const ORDER_TICKET_DATA_READY_DELAY_MS = 180;
+const ORDER_TICKET_HEAVY_CONTENT_DELAY_MS = 240;
 
 type OrderTicketTradeConfirmation = {
   id: string;
@@ -238,8 +240,10 @@ function OrderTicketInteractiveContent() {
   const { t } = useTranslation();
   const isDark = themeMode === 'dark';
   const styles = makeStyles(T, isDark);
-  const heavyContentReady = useDeferredRouteContentReady(0);
-  const { data: marketSymbols = [], isFetching: marketSymbolsFetching } = useMarketSymbols(isScreenFocused || symbolPickerOpen);
+  const routeDataReady = useDeferredRouteContentReady(ORDER_TICKET_DATA_READY_DELAY_MS);
+  const heavyContentReady = useDeferredRouteContentReady(ORDER_TICKET_HEAVY_CONTENT_DELAY_MS);
+  const routeQueriesActive = isScreenFocused && routeDataReady;
+  const { data: marketSymbols = [], isFetching: marketSymbolsFetching } = useMarketSymbols(routeQueriesActive || symbolPickerOpen);
 
   useEffect(() => {
     if (routeSymbolRef.current === routeInitialSymbol) {
@@ -261,7 +265,7 @@ function OrderTicketInteractiveContent() {
   const orderTypeTabsRef = useRef<ScrollView | null>(null);
   const orderTypeTabsViewportWidthRef = useRef(0);
   const orderTypeTabLayoutsRef = useRef<Partial<Record<ChartOrderType, { x: number; width: number }>>>({});
-  const { data: instrumentMeta } = useInstrumentMeta(symbol, isScreenFocused);
+  const { data: instrumentMeta } = useInstrumentMeta(symbol, routeQueriesActive);
   // Broker metadata defines the valid lot range and step size for the symbol.
   const volumeBounds = useMemo(
     () => ({
@@ -398,7 +402,7 @@ function OrderTicketInteractiveContent() {
   }, [tradeVolume, volumeBounds]);
 
   // Live WebSocket pricing drives the BID/ASK buttons and every price preview.
-  const latestTick = useLiveTick(symbol, undefined, isScreenFocused);
+  const latestTick = useLiveTick(symbol, undefined, routeQueriesActive);
   const latestClose = latestTick?.close || 0;
   // Some tick payloads only include close price, so create a conservative ASK
   // fallback until true bid/ask data arrives.
@@ -417,7 +421,7 @@ function OrderTicketInteractiveContent() {
   // Reactive numeric login — the codebase's standard source for query hooks
   // keyed by account login (see useResolvedTradingLogin docs).
   const loginNum = useResolvedTradingLogin();
-  const { data: accountSummary } = useAccountSummary(loginStr);
+  const { data: accountSummary } = useAccountSummary(loginStr, { enabled: routeQueriesActive });
   const leverage = accountSummary?.leverage || 100;
   const currency = accountSummary?.currency || 'USD';
 
@@ -442,10 +446,11 @@ function OrderTicketInteractiveContent() {
   // on (login, symbol, side, volume) so it refetches as the user edits volume.
   // Margin is direction-independent for display, so 'buy' is representative.
   const marginCalcPayload = useMemo<MarginCalcPayload | null>(() => {
+    if (!routeQueriesActive) return null;
     if (loginNum === undefined || loginNum <= 0) return null;
     if (!symbol || !(volume > 0)) return null;
     return { account_login: loginNum, symbol, side: 'buy', volume };
-  }, [loginNum, symbol, volume]);
+  }, [loginNum, routeQueriesActive, symbol, volume]);
   const { data: serverMargin } = useMarginCalculation(marginCalcPayload);
 
   const serverRequiredMargin =
@@ -1400,6 +1405,7 @@ function OrderTicketInteractiveContent() {
         onClose={() => setSymbolPickerOpen(false)}
         title={t('Select Symbol')}
         searchable
+        compactText
         searchPlaceholder={t('Search symbols...')}
         detent="large"
         instantOpen

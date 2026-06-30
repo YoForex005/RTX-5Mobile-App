@@ -6,7 +6,7 @@ import React, { useEffect, useCallback } from 'react';
 import { useShallow } from 'zustand/shallow';
 
 import { apiClient } from '../api/apiClient';
-import { normalizeBrokerServerUrl } from '../api/brokerRouting';
+import { isBrokerServiceBaseUrl } from '../api/brokerRouting';
 import { wsService } from '../api/ws/socket';
 import { quotesWsService } from '../api/ws/quotesSocket';
 import type { QuoteTickEvent } from '../api/ws/quoteTickNormalizer';
@@ -145,7 +145,7 @@ const fetchRestQuoteSnapshotForEntry = async (entry: RestQuoteFallbackEntry): Pr
   try {
     const state = useUserPreferences.getState();
     const isLoggedIn = state.isLoggedIn;
-    if (isLoggedIn && !normalizeBrokerServerUrl(state.brokerServerUrl)) {
+    if (isLoggedIn && !isBrokerServiceBaseUrl(state.brokerServerUrl)) {
       return;
     }
 

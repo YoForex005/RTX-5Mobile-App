@@ -1,14 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  AUTH_PROXY_API_BASE_URL,
-  AUTH_PROXY_SERVER_URL,
   buildBrokerApiBaseUrl,
   buildBrokerWsUrl,
+  isBrokerServiceBaseUrl,
+  isSharedBackendOrigin,
   normalizeConfiguredWsUrl,
-  normalizeBrokerProxyServerAddress,
   normalizeBrokerServerUrl,
-  resolveBrokerProxyServerAddress,
   resolveBrokerServiceBaseUrl,
   shouldUseBrokerHostedQuoteFeed,
 } from './brokerRouting';
@@ -62,39 +60,23 @@ test('resolveBrokerServiceBaseUrl uses the discovery service domain instead of s
   );
 });
 
-test('resolveBrokerProxyServerAddress uses broker domains for gateway login', () => {
+test('resolveBrokerServiceBaseUrl rejects shared backends as broker service domains', () => {
+  assert.equal(isSharedBackendOrigin('https://backend.orrnn.com/api/v2'), true);
+  assert.equal(isBrokerServiceBaseUrl('https://backend.orrnn.com/api/v2'), false);
   assert.equal(
-    resolveBrokerProxyServerAddress({
-      server_url: 'https://services.growtradingacademy.com',
-      market_api_url: 'https://services.growtradingacademy.com',
-      protocol: 'https',
-      server: 'services.growtradingacademy.com:443',
-      server_ip: '103.91.186.142',
+    resolveBrokerServiceBaseUrl({
+      server_url: 'https://backend.orrnn.com/api/v2',
+      services_domain: 'https://services.myprop.trade',
     }),
-    'services.growtradingacademy.com:443',
+    'https://services.myprop.trade',
   );
   assert.equal(
-    resolveBrokerProxyServerAddress({
-      server_url: 'https://services.growtradingacademy.com',
-      protocol: 'https',
-      server: '103.91.186.142:443',
-    }),
-    'services.growtradingacademy.com',
-  );
-  assert.equal(
-    resolveBrokerProxyServerAddress({
-      server_url: '',
-      protocol: 'https',
-      server: '103.91.186.142:443',
+    resolveBrokerServiceBaseUrl({
+      server_url: 'https://backend.orrnn.com/api/v2',
+      market_api_url: 'https://testsuperbackend.orrnn.com/api/v1',
     }),
     '',
   );
-  assert.equal(normalizeBrokerProxyServerAddress('https://103.91.186.142:443/api/v2'), '103.91.186.142:443');
-});
-
-test('auth proxy uses the trusted shared gateway origin by default', () => {
-  assert.equal(AUTH_PROXY_API_BASE_URL, 'https://backend.orrnn.com/api/v2');
-  assert.equal(AUTH_PROXY_SERVER_URL, 'https://backend.orrnn.com');
 });
 
 test('buildBrokerApiBaseUrl falls back instead of constructing raw-ip broker requests', () => {

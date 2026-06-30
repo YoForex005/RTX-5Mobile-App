@@ -25,21 +25,22 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
 
   assert.match(quotesSource, /import \{ usePathname, useRouter \} from 'expo-router'/);
   assert.match(quotesSource, /const pathname = usePathname\(\)/);
-  assert.match(quotesSource, /const SIDEBAR_QUOTE_FEED_PAUSE_DELAY_MS = 260/);
-  assert.match(quotesSource, /const SIDEBAR_QUOTE_FEED_RESUME_DELAY_MS = 220/);
-  assert.match(quotesSource, /function useSidebarQuoteFeedPaused\(\)/);
-  assert.match(quotesSource, /useUIState\.subscribe\(\(state, previousState\) => \{/);
   assert.doesNotMatch(quotesSource, /const sidebarOpen = useUIState\(\(s\) => s\.sidebarOpen\)/);
   assert.match(quotesSource, /const quoteRouteActive =[\s\S]*isScreenFocused[\s\S]*pathname === '\/quotes'[\s\S]*pathname\.startsWith\('\/quotes\/'\)[\s\S]*pathname === '\/\(tabs\)\/quotes'[\s\S]*pathname\.startsWith\('\/\(tabs\)\/quotes\/'\)/);
   assert.match(quotesSource, /const quoteCatalogActive = quoteRouteActive && !quoteSheetRouteActionPending/);
   assert.match(quotesSource, /const quoteWatchlistActive = quoteCatalogActive && isLoggedIn/);
   assert.match(quotesSource, /useMarketSymbols\(quoteCatalogActive\)/);
   assert.match(quotesSource, /useWatchlistQuery\(quoteWatchlistActive\)/);
-  assert.match(quotesSource, /const quoteStickyFeedActive = quoteRouteActive/);
-  assert.match(quotesSource, /const quoteFeedActive =[\s\S]*quoteStickyFeedActive[\s\S]*!sidebarQuoteFeedPaused[\s\S]*!quotesActionSheetOpen[\s\S]*!quoteSheetRouteActionPending/);
+  assert.match(quotesSource, /const quoteStickyFeedActive = quoteCatalogActive/);
+  assert.match(quotesSource, /const quoteRestFallbackActive = quoteCatalogActive/);
+  assert.match(quotesSource, /pauseLiveQuoteSnapshotNotifications/);
+  assert.match(quotesSource, /const quoteSheetFeedPauseReleaseRef = useRef<\(\(\) => void\) \| null>\(null\)/);
+  assert.match(quotesSource, /const pauseQuoteSheetFeed = useCallback\(\(durationMs = QUOTE_SHEET_OPEN_FEED_PAUSE_MS\) => \{/);
+  assert.doesNotMatch(quotesSource, /quotesActionSheetOpen|quoteSheetTouchPending|quoteSheetInteractionBusy|quoteVisibleFeedActive/);
   assert.match(quotesSource, /quotesWsService\.setSubscriptions\(quoteFeedSymbols\)/);
-  assert.match(quotesSource, /useWatchlistLiveQuotes\(quoteFeedSymbols, quoteFeedActive\)/);
-  assert.match(quotesSource, /<TickCounter[\s\S]*active=\{quoteFeedActive\}/);
+  assert.match(quotesSource, /useWatchlistLiveQuotes\(quoteFeedSymbols, quoteStickyFeedActive, \{[\s\S]*restFallbackActive: quoteRestFallbackActive,[\s\S]*\}\)/);
+  assert.match(quotesSource, /liveUpdatesActive=\{quoteStickyFeedActive\}/);
+  assert.match(quotesSource, /<TickCounter[\s\S]*active=\{quoteStickyFeedActive\}/);
   assert.doesNotMatch(quotesSource, /useWatchlistLiveQuotes\(quoteFeedSymbols, true\)/);
 
   assert.match(marketDataSource, /export function useMarketData\(symbols: string\[\] = \[\], active = true\)/);
@@ -73,7 +74,7 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.match(publicDemoSource, /refetchInterval: enabled \? 30 \* 1000 : false/);
 
   assert.match(liveCandlesSource, /export function useLiveCandles\(symbol: string, timeframe: string, active = true\)/);
-  assert.match(liveCandlesSource, /if \(!active \|\| !normalizedSymbol \|\| !normalizedTimeframe\)/);
+  assert.match(liveCandlesSource, /if \(!active \|\| !hasAuthenticatedCandleSession \|\| !normalizedSymbol \|\| !normalizedTimeframe\)/);
   assert.match(liveCandlesSource, /export function useLiveTick\(symbol: string, _timeframe\?: string, active = true\)/);
   assert.match(liveCandlesSource, /useMarketData\(symbol \? \[symbol\] : \[\], active\)/);
   assert.doesNotMatch(rootLayoutSource, /prefetchChartCandles/);
@@ -101,11 +102,11 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.doesNotMatch(chartSource, /const chartSurfaceReady = useDeferredActiveFlag\(/);
   assert.match(chartSource, /useLiveSymbolQuote\(chartSymbol, chartRuntimeActive, CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS\)/);
   assert.doesNotMatch(chartLiveHeadersSource, /useMarketData|useLiveTick/);
-  assert.match(chartTradeButtonsSource, /const TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS = 16/);
+  assert.match(chartTradeButtonsSource, /const TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS = 0/);
   assert.match(chartTradeButtonsSource, /useLiveSymbolQuote\(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS\)/);
   assert.match(chartSource, /useMarketSymbols\(chartRuntimeActive\)/);
   assert.match(chartSource, /useInstrumentMeta\(chartSymbol, chartRuntimeActive\)/);
-  assert.match(chartSource, /useLiveCandles\(chartSymbol, chartTimeframe, chartRuntimeActive\)/);
+  assert.match(chartSource, /useLiveCandles\(chartSymbol, chartTimeframe, chartDataActive\)/);
   assert.match(chartSource, /const refreshShowOnChartSources = useCallback\(\(\) => \{[\s\S]*if \(!chartRuntimeActive\) \{[\s\S]*return;[\s\S]*\}/);
   assert.match(chartSource, /scheduleIdleWork\([\s\S]*refreshShowOnChartSources\(\);[\s\S]*requestChartViewportRecovery\(3\);[\s\S]*delayMs: CHART_FOCUS_WORK_DELAY_MS/);
   assert.match(chartSource, /const shouldShowChartLoadingOverlay = !hasPaintedChartOnce && \(!chartSurfaceReady \|\| isLoading\)/);

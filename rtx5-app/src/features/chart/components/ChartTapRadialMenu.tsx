@@ -47,6 +47,7 @@ const CHART_TAP_MENU_DISMISS_GRACE_MS = 32;
 const CHART_TAP_MENU_OPEN_DURATION_MS = 140;
 const CHART_TAP_MENU_OPEN_SCALE_FROM = 0.58;
 const CHART_TAP_MENU_OPEN_OPACITY_FROM = 0.92;
+const CHART_TAP_ACTION_HIT_SLOP = { top: 14, bottom: 14, left: 14, right: 14 } as const;
 
 const TIMEFRAME_ITEMS: Array<{ key: string; angle: number; width: number }> = [
   { key: 'M1', angle: 312, width: 38 },
@@ -375,6 +376,11 @@ export function ChartTapRadialMenu({
     onDismiss();
   }, [onDismiss]);
 
+  const handleActionItemPress = React.useCallback((event: any, onPress: () => void) => {
+    event.stopPropagation?.();
+    onPress();
+  }, []);
+
   const actionItems: Array<{
     key: string;
     angle: number;
@@ -512,7 +518,9 @@ export function ChartTapRadialMenu({
                 key={item.key}
                 accessibilityRole="button"
                 accessibilityLabel={item.accessibilityLabel}
-                onPress={item.onPress}
+                onPress={(event) => handleActionItemPress(event, item.onPress)}
+                activateOnPressIn
+                hitSlop={CHART_TAP_ACTION_HIT_SLOP}
                 unstable_pressDelay={0}
                 style={[styles.actionItem, position, { width: itemBoxSize, height: itemBoxSize }]}
               >

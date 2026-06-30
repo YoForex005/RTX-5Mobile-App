@@ -13,12 +13,14 @@ import { useUserPreferences } from '../src/state/userPreferences';
 import { useThemeMode } from '../src/state/themeMode';
 import { useSavedAccounts, setSavedAccountPassword } from '../src/state/savedAccounts';
 import { loginAPI } from '../src/api/auth';
+import { extractFeedBrokerToken } from '../src/api/feedAuth';
+import { redactAuthPayload } from '../src/api/authRedaction';
 // Broker config API — validates broker_id before login and provides server_name
 import { checkBrokerServerHealth, getBrokerConfig, type BrokerServer } from '../src/api/broker';
 import {
-  AUTH_PROXY_SERVER_URL,
+  getBrokerBackendDomainUnavailableMessage,
+  isBrokerServiceBaseUrl,
   normalizeBrokerServerUrl,
-  resolveBrokerProxyServerAddress,
   resolveBrokerServiceBaseUrl,
 } from '../src/api/brokerRouting';
 import { useTheme, type ThemeColors } from '../src/ui/theme/useTheme';
@@ -72,7 +74,6 @@ type LoginBrokerOption = {
   logoUrl: string;
   region: string;
   protocol: string;
-  proxyServer: string;
   domain?: string;
 };
 
@@ -131,7 +132,6 @@ const scheduleLoginKeyboardDismiss = () => {
 type LoginCredentialsSnapshot = {
   brokerId: string;
   serverUrl: string;
-  proxyServer: string;
   logoUrl: string;
   accountId: string;
   password: string;
@@ -346,7 +346,6 @@ export function AccountLoginScreen() {
         brokerId: brokerIdValue,
         brokerName: broker.broker_name?.trim() || brokerIdValue,
         serverUrl: resolveBrokerServiceBaseUrl(broker),
-        proxyServer: resolveBrokerProxyServerAddress(broker),
         logoUrl: broker.logo_url?.trim() || '',
         region: broker.region?.trim() || '',
         protocol: broker.protocol?.trim() || '',
@@ -419,7 +418,6 @@ export function AccountLoginScreen() {
       brokerId: DEV_DEFAULT_LOGIN.brokerId,
       brokerName: directoryOption?.brokerName || DEV_DEFAULT_LOGIN.brokerName,
       serverUrl: directoryOption?.serverUrl || DEV_DEFAULT_LOGIN.serverUrl,
-      proxyServer: directoryOption?.proxyServer || '',
       logoUrl: directoryOption?.logoUrl || '',
       region: directoryOption?.region || 'Demo',
       protocol: directoryOption?.protocol || 'https',
@@ -470,18 +468,12 @@ export function AccountLoginScreen() {
   ]);
 
   const getLoginCredentialsSnapshot = (): LoginCredentialsSnapshot => {
-    const selectedProxyServer = selectedBrokerOption?.serverUrl
-      ? ''
-      : selectedBrokerOption?.proxyServer || '';
-
+    const candidateServerUrl = normalizeBrokerServerUrl(
+      brokerServerUrlValueRef.current || selectedBrokerServerUrl,
+    );
     return {
       brokerId: (brokerIdValueRef.current ?? brokerId).trim(),
-      serverUrl: selectedProxyServer
-        ? AUTH_PROXY_SERVER_URL
-        : normalizeBrokerServerUrl(
-          brokerServerUrlValueRef.current || selectedBrokerServerUrl,
-        ),
-      proxyServer: selectedProxyServer,
+      serverUrl: isBrokerServiceBaseUrl(candidateServerUrl) ? candidateServerUrl : '',
       logoUrl: brokerLogoUrlValueRef.current ?? selectedBrokerLogoUrl,
       accountId: (accountIdValueRef.current ?? accountId).trim(),
       password: passwordValueRef.current ?? password,
@@ -501,7 +493,6 @@ export function AccountLoginScreen() {
     }
     const normalizedBrokerId = snapshot.brokerId;
     const normalizedServerUrl = snapshot.serverUrl;
-    const proxyServer = snapshot.proxyServer;
     const selectedLogoUrl = snapshot.logoUrl;
     const normalizedAccountId = snapshot.accountId;
     const currentPassword = snapshot.password;
@@ -517,7 +508,7 @@ export function AccountLoginScreen() {
         visible: true,
         type: 'error',
         title: t('Error'),
-        message: t('Please select a broker from the list.'),
+        message: getBrokerBackendDomainUnavailableMessage(normalizedBrokerId),
       });
       return;
     }
@@ -535,7 +526,7 @@ export function AccountLoginScreen() {
         username: normalizedAccountId,
         password: currentPassword,
         broker_id: normalizedBrokerId,
-      }, { serverUrl: normalizedServerUrl, proxyServer });
+      }, { serverUrl: normalizedServerUrl });
 
       // ── Defensive response parsing ──
       // The V2 server's spec (AuthTokenResponse) returns `token` + nested
@@ -544,6 +535,7 @@ export function AccountLoginScreen() {
       // can't silently break login and leave trades with an undefined JWT.
       const accessToken = response.access_token ?? response.token;
       const refreshToken = response.refresh_token ?? response.refreshToken;
+      const feedToken = extractFeedBrokerToken(response);
       const accountLogin =
         response.account_login ??
         response.accountLogin ??
@@ -569,7 +561,7 @@ export function AccountLoginScreen() {
         // Without a token or a resolvable account login every downstream
         // REST/WS call is broken. Fail the login here with a clear message
         // instead of allowing a half-authenticated session.
-        console.warn('[Login] Unexpected auth response shape:', JSON.stringify(response));
+        console.warn('[Login] Unexpected auth response shape:', redactAuthPayload(response));
         throw new Error(
           !accessToken
             ? t('Login server did not return an access token.')
@@ -594,7 +586,7 @@ export function AccountLoginScreen() {
       // the user-typed value if the response doesn't include it.
       const canonicalBrokerId = response.broker_id || response.brokerId || normalizedBrokerId;
       const accountType = getTradingAccountTypeFromBackend(response);
-      const immediateServerName = serverName || proxyServer || canonicalBrokerId;
+      const immediateServerName = serverName || canonicalBrokerId;
       const savedLogin = String(accountLogin);
 
       // brokerId is persisted atomically inside login() to prevent race
@@ -630,6 +622,7 @@ export function AccountLoginScreen() {
             accessToken,
             refreshToken: refreshToken ?? '',
             expiresAt: expiresAtIso,
+            feedToken,
           }),
         ]).catch((err) => {
           console.warn('[Login] Failed to persist secure broker session', err);

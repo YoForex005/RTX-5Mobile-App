@@ -7,6 +7,7 @@
  */
 
 import { loginAPI } from './auth';
+import { extractFeedBrokerToken } from './feedAuth';
 import {
   getTradingAccountTypeFromBackend,
   type TradingAccountType,
@@ -31,6 +32,7 @@ export interface SignInResult {
   serverUrl: string;
   logoUrl: string;
   accountType: TradingAccountType;
+  feedToken?: string;
 }
 
 export class SignInError extends Error {
@@ -55,6 +57,7 @@ export async function signInWithCredentials({
 
   const accessToken = response.access_token ?? response.token;
   const refreshToken = response.refresh_token ?? response.refreshToken ?? '';
+  const feedToken = extractFeedBrokerToken(response);
   const accountLoginRaw =
     response.account_login ??
     response.accountLogin ??
@@ -106,5 +109,6 @@ export async function signInWithCredentials({
     serverUrl: serverUrl ?? '',
     logoUrl: logoUrl ?? '',
     accountType,
+    feedToken,
   };
 }

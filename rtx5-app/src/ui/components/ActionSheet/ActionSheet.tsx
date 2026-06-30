@@ -42,6 +42,7 @@ type ActionSheetAction = {
   label: string;
   subtitle?: string;
   selected?: boolean;
+  muted?: boolean;
   danger?: boolean;
   disabled?: boolean;
   activateOnPressIn?: boolean;
@@ -52,6 +53,8 @@ type ActionSheetAction = {
 type ActionSheetProps = {
   visible: boolean;
   title?: string;
+  titleAlign?: 'left' | 'center';
+  compactText?: boolean;
   presentation?: 'default' | 'mt5Plain' | 'mt5TimeframeGrid';
   showActionIcons?: boolean;
   actions: ActionSheetAction[];
@@ -68,7 +71,7 @@ type ActionSheetProps = {
 
 type CachedActionSheetConfig = Pick<
   ActionSheetProps,
-  'title' | 'presentation' | 'showActionIcons' | 'actions' | 'searchable' | 'searchPlaceholder' | 'detent' | 'minimumTopInset' | 'instantOpen' | 'runActionAfterClose' | 'androidKeyboardAvoidance' | 'keepFullHeightOnKeyboard'
+  'title' | 'titleAlign' | 'compactText' | 'presentation' | 'showActionIcons' | 'actions' | 'searchable' | 'searchPlaceholder' | 'detent' | 'minimumTopInset' | 'instantOpen' | 'runActionAfterClose' | 'androidKeyboardAvoidance' | 'keepFullHeightOnKeyboard'
 >;
 
 const ACTION_SHEET_ROW_MIN_HEIGHT = 48;
@@ -126,6 +129,8 @@ const TAPPABLE_TOP_DISMISS_MARGIN = 80;
 export function ActionSheet({
   visible,
   title,
+  titleAlign,
+  compactText = false,
   presentation = 'default',
   showActionIcons = false,
   actions,
@@ -164,6 +169,8 @@ export function ActionSheet({
   const openedAtRef = useRef(visible ? Date.now() : 0);
   const cachedConfigRef = useRef<CachedActionSheetConfig>({
     title,
+    titleAlign,
+    compactText,
     presentation,
     showActionIcons,
     actions,
@@ -178,6 +185,8 @@ export function ActionSheet({
   });
   const incomingConfig: CachedActionSheetConfig = {
     title,
+    titleAlign,
+    compactText,
     presentation,
     showActionIcons,
     actions,
@@ -203,6 +212,8 @@ export function ActionSheet({
   }
 
   const activeTitle = activeConfig.title;
+  const activeTitleAlign = activeConfig.titleAlign;
+  const activeCompactText = activeConfig.compactText ?? false;
   const activePresentation = activeConfig.presentation ?? 'default';
   const activeShowActionIcons = activeConfig.showActionIcons ?? false;
   const activeActions = activeConfig.actions;
@@ -252,6 +263,7 @@ export function ActionSheet({
   const isTimeframeGridPresentation = activePresentation === 'mt5TimeframeGrid';
   const isMt5PlainPresentation = activePresentation === 'mt5Plain';
   const isMt5StylePresentation = isMt5PlainPresentation || isTimeframeGridPresentation;
+  const isTitleCentered = activeTitleAlign === 'center';
   const actionRowMinHeight = isMt5StylePresentation
     ? ACTION_SHEET_MT5_PLAIN_ROW_MIN_HEIGHT
     : ACTION_SHEET_ROW_MIN_HEIGHT;
@@ -605,13 +617,20 @@ export function ActionSheet({
     // disabled (greyed, non-tappable) across every action sheet — you can't
     // re-select what's already active; you tap one of the other options.
     const isActiveDisabled = action.disabled || action.selected === true;
+    const isVisuallyMuted = isActiveDisabled || action.muted === true;
+    const activateInlineActionOnTouchStart =
+      isMt5PlainPresentation &&
+      shouldRenderInlineActions &&
+      action.activateOnPressIn === true &&
+      !isActiveDisabled;
     return (
       <FastPressable
         latencyLabel={`actionSheet.${action.label}`}
-        onPressIn={recordActionRowPressStart}
-        onTouchMove={recordActionRowPressMove}
+        onPressIn={activateInlineActionOnTouchStart ? undefined : recordActionRowPressStart}
+        onTouchMove={activateInlineActionOnTouchStart ? undefined : recordActionRowPressMove}
         onPress={isActiveDisabled ? undefined : () => handleActionRowPress(action.onPress)}
-        activateOnPressIn={action.activateOnPressIn === true && !isActiveDisabled}
+        activateOnPressIn={action.activateOnPressIn === true && !isActiveDisabled && !activateInlineActionOnTouchStart}
+        activateOnTouchStart={activateInlineActionOnTouchStart}
         disabled={isActiveDisabled}
         style={({ pressed }) => [
           styles.action,
@@ -631,10 +650,11 @@ export function ActionSheet({
               style={[
                 styles.actionText,
                 isMt5PlainPresentation && styles.actionTextMt5Plain,
+                activeCompactText && styles.actionTextCompact,
                 action.danger
                   ? styles.actionTextDanger
                   : (isMt5PlainPresentation ? styles.actionTextNormalMt5Plain : styles.actionTextNormal),
-                isActiveDisabled && (
+                isVisuallyMuted && (
                   isMt5PlainPresentation ? styles.actionTextDisabledMt5Plain : styles.actionTextDisabled
                 ),
               ]}
@@ -646,7 +666,8 @@ export function ActionSheet({
               <Text
                 style={[
                   styles.actionSubtitle,
-                  isActiveDisabled && styles.actionTextDisabled,
+                  activeCompactText && styles.actionSubtitleCompact,
+                  isVisuallyMuted && styles.actionTextDisabled,
                 ]}
                 numberOfLines={1}
               >
@@ -661,8 +682,10 @@ export function ActionSheet({
     handleActionRowPress,
     activeShowActionIcons,
     isMt5PlainPresentation,
+    activeCompactText,
     recordActionRowPressMove,
     recordActionRowPressStart,
+    shouldRenderInlineActions,
     styles,
     t,
   ]);
@@ -765,19 +788,50 @@ export function ActionSheet({
         {isMt5StylePresentation ? null : <View style={styles.handle} />}
 
         {activeTitle ? (
-          <View style={[styles.titleContainer, isMt5StylePresentation && styles.titleContainerMt5Plain]}>
+          <View
+            style={[
+              styles.titleContainer,
+              isMt5StylePresentation && styles.titleContainerMt5Plain,
+              isTitleCentered && styles.titleContainerCentered,
+            ]}
+          >
             {activeTitle.includes(': ') ? (
-              <Text style={isMt5StylePresentation ? styles.titleTextMt5Plain : undefined} numberOfLines={1}>
-                <Text style={[styles.titlePrefix, isMt5StylePresentation && styles.titlePrefixMt5Plain]}>
+              <Text
+                style={[
+                  isMt5StylePresentation && styles.titleTextMt5Plain,
+                  isTitleCentered && styles.titleTextCentered,
+                ]}
+                numberOfLines={1}
+              >
+                <Text
+                  style={[
+                    styles.titlePrefix,
+                    isMt5StylePresentation && styles.titlePrefixMt5Plain,
+                    activeCompactText && styles.titlePrefixCompact,
+                    isTitleCentered && styles.titleTextCentered,
+                  ]}
+                >
                   {t(activeTitle.split(': ')[0])}
                 </Text>
-                <Text style={[styles.titleSuffix, isMt5StylePresentation && styles.titleSuffixMt5Plain]}>
+                <Text
+                  style={[
+                    styles.titleSuffix,
+                    isMt5StylePresentation && styles.titleSuffixMt5Plain,
+                    activeCompactText && styles.titleSuffixCompact,
+                    isTitleCentered && styles.titleTextCentered,
+                  ]}
+                >
                   : {activeTitle.split(': ')[1]}
                 </Text>
               </Text>
             ) : (
               <Text
-                style={[styles.titlePrefix, isMt5StylePresentation && styles.titlePrefixMt5Plain]}
+                style={[
+                  styles.titlePrefix,
+                  isMt5StylePresentation && styles.titlePrefixMt5Plain,
+                  activeCompactText && styles.titlePrefixCompact,
+                  isTitleCentered && styles.titleTextCentered,
+                ]}
                 numberOfLines={1}
               >
                 {t(activeTitle)}
@@ -792,7 +846,7 @@ export function ActionSheet({
           <View style={styles.searchContainer}>
             <Ionicons name="search" size={16} color={T.textSub} style={{ marginRight: 8 }} />
             <TextInput
-              style={[styles.searchInput, { outlineStyle: 'none' } as any]}
+              style={[styles.searchInput, activeCompactText && styles.searchInputCompact, { outlineStyle: 'none' } as any]}
               placeholder={t(activeSearchPlaceholder ?? 'Search symbol...')}
               placeholderTextColor={T.textMuted}
               value={query}

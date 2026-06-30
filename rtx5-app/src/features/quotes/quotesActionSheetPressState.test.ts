@@ -27,7 +27,7 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.doesNotMatch(quoteCardSource, /activateOnTouchStart/);
   assert.match(
     source,
-    /<QuoteCard[\s\S]*onPress=\{\(\) => handleSymbolTap\(sym\)\}[\s\S]*suppressPressFeedback[\s\S]*onLongPress=/,
+    /<QuoteCard[\s\S]*onPressIn=\{\(\) => pauseQuoteSheetFeed\(\)\}[\s\S]*onPress=\{\(\) => handleSymbolTap\(sym\)\}[\s\S]*suppressPressFeedback[\s\S]*onLongPress=/,
   );
   assert.doesNotMatch(source, /onPressIn=\{\(\) => handleSymbolTap\(sym\)\}/);
 
@@ -46,25 +46,36 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.match(tapConfigSource, /presentation: 'mt5Plain'/);
   assert.match(tapConfigSource, /detent: 'auto'/);
   assert.match(tapConfigSource, /instantOpen: true/);
+  assert.match(tapConfigSource, /runActionAfterClose: true/);
   assert.match(longPressConfigSource, /quoteSymbols\.forEach\(\(sym\) => \{/);
   assert.match(longPressConfigSource, /title: fmt\.symbol\(sym\)/);
   assert.match(longPressConfigSource, /presentation: 'mt5Plain'/);
   assert.match(longPressConfigSource, /detent: 'auto'/);
   assert.match(longPressConfigSource, /instantOpen: true/);
-  assert.match(source, /const hideQuotesActionSheet = useUIState\(\(s\) => s\.hideQuotesActionSheet\)/);
-  assert.match(source, /const quotesActionSheetOpen = useUIState\(\(s\) => s\.scopedActionSheets\.quotes !== null\)/);
+  assert.match(longPressConfigSource, /runActionAfterClose: true/);
+  assert.doesNotMatch(source, /const hideQuotesActionSheet = useUIState\(\(s\) => s\.hideQuotesActionSheet\)/);
   assert.match(source, /type QuoteSheetOptionOptions = \{[\s\S]*routeChange\?: boolean;[\s\S]*\}/);
   assert.match(source, /const \[quoteSheetRouteActionPending, setQuoteSheetRouteActionPending\] = useState\(false\)/);
+  assert.match(source, /pauseLiveQuoteSnapshotNotifications/);
+  assert.match(source, /const quoteSheetFeedPauseReleaseRef = useRef<\(\(\) => void\) \| null>\(null\)/);
+  assert.match(source, /const QUOTE_SHEET_OPEN_FEED_PAUSE_MS = 15_000/);
+  assert.doesNotMatch(source, /quotesSheetVisible/);
   assert.match(source, /const quoteCatalogActive = quoteRouteActive && !quoteSheetRouteActionPending/);
   assert.match(source, /const quoteWatchlistActive = quoteCatalogActive && isLoggedIn/);
-  assert.match(source, /function useSidebarQuoteFeedPaused\(\)/);
-  assert.match(source, /useUIState\.subscribe\(\(state, previousState\) => \{/);
-  assert.match(source, /const sidebarQuoteFeedPaused = useSidebarQuoteFeedPaused\(\)/);
-  assert.match(source, /const quoteFeedActive =[\s\S]*quoteStickyFeedActive[\s\S]*!sidebarQuoteFeedPaused[\s\S]*!quotesActionSheetOpen[\s\S]*!quoteSheetRouteActionPending/);
-  assert.match(source, /function scheduleQuoteSheetOptionAction\(action: \(\) => void\) \{/);
+  assert.match(source, /const quoteRestFallbackActive = quoteCatalogActive/);
+  assert.match(source, /useWatchlistLiveQuotes\(quoteFeedSymbols, quoteStickyFeedActive, \{[\s\S]*restFallbackActive: quoteRestFallbackActive,[\s\S]*\}\)/);
+  assert.match(source, /liveUpdatesActive=\{quoteStickyFeedActive\}/);
+  assert.match(source, /<TickCounter[\s\S]*active=\{quoteStickyFeedActive\}/);
+  assert.match(source, /const pauseQuoteSheetFeed = useCallback\(\(durationMs = QUOTE_SHEET_OPEN_FEED_PAUSE_MS\) => \{/);
+  assert.match(source, /quotesWsService\.deferReconnectForInteraction\?\.\(durationMs\)/);
+  assert.match(source, /const releaseQuoteSheetFeedPause = useCallback\(\(\) => \{/);
+  assert.doesNotMatch(source, /quotesActionSheetOpen|quoteSheetTouchPending|quoteSheetInteractionBusy|quoteVisibleFeedActive/);
+  assert.match(source, /function scheduleQuoteSheetOptionAction\(action: \(\) => void, deferUntilNextFrame = false\) \{/);
+  assert.match(source, /deferUntilNextFrame && typeof globalThis\.requestAnimationFrame === 'function'/);
+  assert.match(source, /globalThis\.requestAnimationFrame\(\(\) => \{[\s\S]*globalThis\.requestAnimationFrame\(\(\) => \{[\s\S]*setTimeout\(action, 0\)/);
   assert.match(
     source,
-    /const runQuoteSheetOption = useCallback\(\(action: \(\) => void, options\?: QuoteSheetOptionOptions\) => \{[\s\S]*options\?\.routeChange === true[\s\S]*setQuoteSheetRouteActionPending\(true\);[\s\S]*hideQuotesActionSheet\(\);[\s\S]*scheduleQuoteSheetOptionAction\(action\);/,
+    /const runQuoteSheetOption = useCallback\(\(action: \(\) => void, options\?: QuoteSheetOptionOptions\) => \{[\s\S]*options\?\.routeChange === true[\s\S]*pauseQuoteSheetFeed\(routeChange \? QUOTE_SHEET_ROUTE_FEED_PAUSE_MS : QUOTE_SHEET_OPTION_FEED_PAUSE_MS\);[\s\S]*React\.startTransition\(\(\) => \{[\s\S]*setQuoteSheetRouteActionPending\(true\);[\s\S]*\}\);[\s\S]*scheduleQuoteSheetOptionAction\(action, routeChange\);/,
   );
   assert.match(tapConfigSource, /label: t\('New Order'\),[\s\S]*activateOnPressIn: true/);
   assert.match(tapConfigSource, /label: t\('Chart'\),[\s\S]*activateOnPressIn: true/);
@@ -85,11 +96,11 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.match(tapConfigSource, /router\.push\(\{ pathname: '\/quotes\/market-statistics'[\s\S]*\}, \{ routeChange: true \}/);
   assert.match(
     source,
-    /const handleSymbolTap = useCallback[\s\S]*quoteTapActionSheetConfigs\.get\(sym\)[\s\S]*runImmediateAction\('quotes\.symbolSheet\.tap\.open'[\s\S]*showQuotesActionSheet\(config\)/,
+    /const handleSymbolTap = useCallback[\s\S]*quoteTapActionSheetConfigs\.get\(sym\)[\s\S]*runImmediateAction\('quotes\.symbolSheet\.tap\.open'[\s\S]*pauseQuoteSheetFeed\(\);[\s\S]*showQuotesActionSheet\(config\)/,
   );
   assert.match(
     source,
-    /const handleSymbolLongPress = useCallback[\s\S]*quoteLongPressActionSheetConfigs\.get\(sym\)[\s\S]*runImmediateAction\('quotes\.symbolSheet\.longPress\.open'[\s\S]*showQuotesActionSheet\(config\)/,
+    /const handleSymbolLongPress = useCallback[\s\S]*quoteLongPressActionSheetConfigs\.get\(sym\)[\s\S]*runImmediateAction\('quotes\.symbolSheet\.longPress\.open'[\s\S]*pauseQuoteSheetFeed\(\);[\s\S]*showQuotesActionSheet\(config\)/,
   );
   assert.match(source, /onLongPress=\{\(\) => handleSymbolLongPress\(sym\)\}/);
 });

@@ -301,6 +301,47 @@ test('identical backend snapshot records backend confirmation metadata', () => {
   assert.equal(stored?.lastBackendUpdateTime, BUCKET + 8);
 });
 
+test('backend server_time prevents delayed forming snapshots from overwriting newer ones', () => {
+  const candleMap = buildEmptyMap();
+  applyLiveCandleToCandleMap(
+    candleMap,
+    {
+      time: BUCKET,
+      updateTime: BUCKET + 20,
+      open: 1.0805,
+      high: 1.0820,
+      low: 1.0800,
+      close: 1.0818,
+      volume: 20,
+      closed: false,
+    },
+    TIMEFRAME,
+    { historyCutoffTime: BUCKET - 60 },
+  );
+
+  const delayed = applyLiveCandleToCandleMap(
+    candleMap,
+    {
+      time: BUCKET,
+      updateTime: BUCKET + 10,
+      open: 1.0805,
+      high: 1.0810,
+      low: 1.0802,
+      close: 1.0808,
+      volume: 12,
+      closed: false,
+    },
+    TIMEFRAME,
+    { historyCutoffTime: BUCKET - 60 },
+  );
+
+  assert.equal(delayed.ignored, false);
+  assert.equal(delayed.reason, 'merged_out_of_order_live_candle');
+  assert.equal(delayed.candle!.close, 1.0818, 'older snapshot must not rewind close');
+  assert.equal(delayed.candle!.high, 1.0820, 'newer high persists');
+  assert.equal(candleMap.get(BUCKET)?.lastBackendUpdateTime, BUCKET + 20);
+});
+
 test('opens tick-only bucket when REST seed for the same bucket is stale', () => {
   // REST returned a current candle for this bucket but the broker's price
   // jumped (news event, weekend reopen) so the tick is far outside REST's

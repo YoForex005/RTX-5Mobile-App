@@ -70,14 +70,25 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       borderBottomWidth: 0,
       marginBottom: 0,
     },
+    titleContainerCentered: {
+      justifyContent: 'center',
+    },
     titleTextMt5Plain: {
       flexShrink: 1,
+    },
+    titleTextCentered: {
+      textAlign: 'center',
     },
     titlePrefix: {
       fontSize: 12,
       fontWeight: '600',
       color: T.textSub,
       textAlign: 'center',
+    },
+    titlePrefixCompact: {
+      fontSize: 13,
+      lineHeight: 18,
+      fontWeight: '500',
     },
     titlePrefixMt5Plain: {
       fontSize: 16,
@@ -91,6 +102,11 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       fontWeight: '600',
       color: T.textSub,
       textAlign: 'center',
+    },
+    titleSuffixCompact: {
+      fontSize: 13,
+      lineHeight: 18,
+      fontWeight: '500',
     },
     titleSuffixMt5Plain: {
       fontSize: 16,
@@ -116,6 +132,10 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       color: T.text,
       fontSize: 15,
       height: '100%',
+    },
+    searchInputCompact: {
+      fontSize: 13,
+      fontWeight: '500',
     },
     actionsScroll: {
       flexGrow: 0,
@@ -174,6 +194,11 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 17,
       fontWeight: '500',
     },
+    actionTextCompact: {
+      fontSize: 13,
+      lineHeight: 18,
+      fontWeight: '500',
+    },
     actionTextMt5Plain: {
       fontSize: 16,
       lineHeight: 22,
@@ -184,6 +209,10 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 12,
       fontWeight: '500',
       color: T.textMuted,
+    },
+    actionSubtitleCompact: {
+      fontSize: 13,
+      fontWeight: '500',
     },
     actionTextNormal: {
       color: isDark ? T.text : '#111827',
@@ -239,9 +268,9 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
     },
     timeframeGridText: {
       color: isDark ? '#EEF1F5' : '#4F535C',
-      fontSize: 15,
-      lineHeight: 19,
-      fontWeight: '700',
+      fontSize: 13,
+      lineHeight: 18,
+      fontWeight: '500',
       textAlign: 'center',
     },
     timeframeGridTextSelected: {

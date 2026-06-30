@@ -37,6 +37,7 @@ export type MutableCandle = Candle & {
 export type LiveCandle = Candle & {
   symbol?: string;
   timeframe?: string;
+  updateTime?: number;
   closed?: boolean;
 };
 

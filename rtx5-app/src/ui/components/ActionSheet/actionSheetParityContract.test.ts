@@ -53,6 +53,8 @@ test('ActionSheet surfaces use the shared instant Quotes-style sheet contract', 
 
   assert.match(actionSheetSource, /activeConfig\.instantOpen \?\? true/);
   assert.match(actionSheetSource, /activateOnPressIn/);
+  assert.match(actionSheetSource, /const activateInlineActionOnTouchStart =[\s\S]*isMt5PlainPresentation[\s\S]*shouldRenderInlineActions[\s\S]*action\.activateOnPressIn === true/);
+  assert.match(actionSheetSource, /activateOnTouchStart=\{activateInlineActionOnTouchStart\}/);
   assert.match(tabsLayoutSource, /presentation=\{activeConfig\?\.presentation\}/);
   assert.match(tabsLayoutSource, /showActionIcons=\{activeConfig\?\.showActionIcons\}/);
   assert.match(tabsLayoutSource, /androidKeyboardAvoidance=\{activeConfig\?\.androidKeyboardAvoidance\}/);

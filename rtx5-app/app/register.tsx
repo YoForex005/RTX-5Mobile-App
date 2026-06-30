@@ -24,6 +24,7 @@ import { useUserPreferences } from '../src/state/userPreferences';
 import { useThemeMode } from '../src/state/themeMode';
 import { useSavedAccounts, setSavedAccountPassword } from '../src/state/savedAccounts';
 import { loginAPI } from '../src/api/auth';
+import { extractFeedBrokerToken } from '../src/api/feedAuth';
 import { getBrokerConfig, type BrokerServer } from '../src/api/broker';
 import { useTheme, type ThemeColors } from '../src/ui/theme/useTheme';
 import { useDeferredRouteContentReady } from '../src/ui/components/DeferredRouteMount';
@@ -420,6 +421,7 @@ export default function RegisterScreen() {
       let sessionToken = response.api_key ?? '';
       let sessionRefreshToken = '';
       let sessionExpiresAt = new Date(Date.now() + 86400 * 1000).toISOString();
+      let sessionFeedToken = extractFeedBrokerToken(response);
 
       if (!sessionToken) {
         // The documented public endpoint returns `api_key`, but current live
@@ -433,10 +435,10 @@ export default function RegisterScreen() {
           broker_id: canonicalBrokerId,
         }, {
           serverUrl: demoAuthRoute.serverUrl,
-          proxyServer: demoAuthRoute.proxyServer,
         });
         sessionToken = authResponse.access_token ?? authResponse.token ?? '';
         sessionRefreshToken = authResponse.refresh_token ?? authResponse.refreshToken ?? '';
+        sessionFeedToken = extractFeedBrokerToken(authResponse) || sessionFeedToken;
         sessionLogin =
           authResponse.account_login ??
           authResponse.accountLogin ??
@@ -483,6 +485,7 @@ export default function RegisterScreen() {
           accessToken: sessionToken,
           refreshToken: sessionRefreshToken,
           expiresAt: sessionExpiresAt,
+          feedToken: sessionFeedToken,
         }),
       ]).catch((err) => {
         console.warn('[Register] Failed to persist secure broker session', err);

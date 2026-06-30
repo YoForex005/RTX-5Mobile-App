@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { apiClient } from '../../api/apiClient';
-import { normalizeBrokerServerUrl } from '../../api/brokerRouting';
+import { isBrokerServiceBaseUrl } from '../../api/brokerRouting';
 import { normalizeQuoteTickPayload } from '../../api/ws/quoteTickNormalizer';
 import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket';
 import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
@@ -29,9 +29,11 @@ const restPrimedSymbols = new Set<string>();
 let updateSeq = 0;
 let notifyAnimationFrame: number | null = null;
 let notifyTimer: ReturnType<typeof setTimeout> | null = null;
+let snapshotNotificationPauseDepth = 0;
 const WATCHLIST_QUOTE_NOTIFY_INTERVAL_MS = 16;
 const QUOTE_REST_SNAPSHOT_POLL_MS = 500;
 const QUOTE_REST_SNAPSHOT_STALE_MS = 2_000;
+const QUOTE_SNAPSHOT_NOTIFICATION_PAUSE_MS = 2_500;
 
 // Volume is REST-only (WS ticks omit it) and the quotes store has no `persist`,
 // so on cold open "Vol: --" lingered for ~1s+ until the slow /quotes response.
@@ -115,9 +117,42 @@ const flushPendingNotifications = (): void => {
     return;
   }
 
+  if (snapshotNotificationPauseDepth > 0) {
+    return;
+  }
+
   const symbols = Array.from(pendingNotifySymbols);
   pendingNotifySymbols.clear();
   symbols.forEach(notifySymbol);
+};
+
+export const areLiveQuoteSnapshotNotificationsPaused = (): boolean =>
+  snapshotNotificationPauseDepth > 0;
+
+export const pauseLiveQuoteSnapshotNotifications = (
+  durationMs = QUOTE_SNAPSHOT_NOTIFICATION_PAUSE_MS,
+): (() => void) => {
+  snapshotNotificationPauseDepth += 1;
+  let released = false;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  const release = () => {
+    if (released) {
+      return;
+    }
+    released = true;
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+    snapshotNotificationPauseDepth = Math.max(0, snapshotNotificationPauseDepth - 1);
+    if (snapshotNotificationPauseDepth === 0) {
+      flushPendingNotifications();
+    }
+  };
+
+  timeoutId = setTimeout(release, Math.max(0, durationMs));
+  return release;
 };
 
 const notifySymbolImmediately = (symbol: string): void => {
@@ -126,6 +161,11 @@ const notifySymbolImmediately = (symbol: string): void => {
 };
 
 const scheduleSymbolNotification = (symbol: string, immediate = false): void => {
+  if (snapshotNotificationPauseDepth > 0) {
+    pendingNotifySymbols.add(symbol);
+    return;
+  }
+
   if (immediate) {
     notifySymbolImmediately(symbol);
     return;
@@ -402,7 +442,7 @@ const fetchRestQuoteSnapshots = async (symbols: string[]): Promise<void> => {
   const symbolsQuery = symbols.map(encodeURIComponent).join(',');
   const state = useUserPreferences.getState();
   const isLoggedIn = state.isLoggedIn;
-  if (isLoggedIn && !normalizeBrokerServerUrl(state.brokerServerUrl)) {
+  if (isLoggedIn && !isBrokerServiceBaseUrl(state.brokerServerUrl)) {
     return;
   }
 
@@ -455,7 +495,7 @@ const useRestQuoteSnapshotFallback = (symbols: string[], active: boolean): void 
     let inFlight = false;
 
     const refreshSnapshots = async () => {
-      if (cancelled || inFlight) {
+      if (cancelled || inFlight || areLiveQuoteSnapshotNotificationsPaused()) {
         return;
       }
 
@@ -505,7 +545,11 @@ export function useLiveQuoteSubscription(symbol: string, active: boolean): void 
   }, [active, symbol, symbolKeysKey]);
 }
 
-export function useWatchlistLiveQuotes(symbols: string[], active: boolean): string[] {
+export function useWatchlistLiveQuotes(
+  symbols: string[],
+  active: boolean,
+  options?: { restFallbackActive?: boolean },
+): string[] {
   const symbolsKey = JSON.stringify(symbols);
 
   const subscriptionSymbols = useMemo(
@@ -543,17 +587,23 @@ export function useWatchlistLiveQuotes(symbols: string[], active: boolean): stri
     };
   }, [active, normalizedSymbolsKey, subscriptionSymbolsKey]);
 
-  useRestQuoteSnapshotFallback(normalizedSymbols, active);
+  useRestQuoteSnapshotFallback(normalizedSymbols, options?.restFallbackActive ?? active);
 
   return active ? subscriptionSymbols : [];
 }
 
-export function useLiveQuoteSnapshot(symbol: string): LiveQuoteSnapshot | undefined {
+export function useLiveQuoteSnapshot(symbol: string, active = true): LiveQuoteSnapshot | undefined {
   const normalizedSymbol = useMemo(() => normalizeQuoteSymbolKey(symbol), [symbol]);
 
   const subscribe = useCallback(
-    (listener: SnapshotListener) => subscribeSnapshot(normalizedSymbol, listener),
-    [normalizedSymbol],
+    (listener: SnapshotListener) => {
+      if (!active) {
+        return () => {};
+      }
+
+      return subscribeSnapshot(normalizedSymbol, listener);
+    },
+    [active, normalizedSymbol],
   );
 
   const getSnapshot = useCallback(

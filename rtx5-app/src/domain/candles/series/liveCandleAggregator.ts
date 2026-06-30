@@ -140,7 +140,10 @@ export const applyLiveCandleToCandleMap = (
     return { candle: toPublicCandle(existing), changed: false, ignored: true, reason: 'closed_live_candle' };
   }
 
-  const eventTime = normalizeTimestampToSeconds(liveCandle.time) ?? incoming.time;
+  const eventTime =
+    finiteOrNull(liveCandle.updateTime) ??
+    normalizeTimestampToSeconds(liveCandle.time) ??
+    incoming.time;
   if (existing && areCandleValuesEqual(toPublicCandle(existing), incoming)) {
     const next: MutableCandle = {
       ...existing,

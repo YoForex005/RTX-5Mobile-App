@@ -35,7 +35,7 @@ test('buildRestQuoteTickEvent normalizes a REST quote snapshot for live chart us
 
 test('buildRestQuoteTickEvent rejects snapshots without a usable bid/ask pair', () => {
   assert.equal(
-    buildRestQuoteTickEvent('BTCUSD', { symbol: 'BTCUSD', bid: 77522.17 }, 1_764_059_100_000),
+    buildRestQuoteTickEvent('BTCUSD', { symbol: 'BTCUSD', lastPrice: 77522.17 }, 1_764_059_100_000),
     null,
   );
 });

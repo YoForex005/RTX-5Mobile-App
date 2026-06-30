@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { AUTH_PROXY_SERVER_URL } from './brokerRouting';
 import {
   OrrnnDemoApiError,
   PUBLIC_DEMO_API_BASE_URL,
@@ -96,12 +95,11 @@ test('resolveOrrnnDemoBrokerAuthRoute prefers the Orrnn broker services domain',
   }]);
 
   assert.equal(route.serverUrl, 'https://trade.orrnn.example');
-  assert.equal(route.proxyServer, '');
   assert.equal(route.logoUrl, 'https://cdn.orrnn.example/logo.png');
   assert.equal(route.source, 'broker-directory');
 });
 
-test('resolveOrrnnDemoBrokerAuthRoute uses auth proxy route for non-URL broker servers', () => {
+test('resolveOrrnnDemoBrokerAuthRoute rejects non-URL broker servers', () => {
   const route = resolveOrrnnDemoBrokerAuthRoute('orrnn', [{
     broker_id: 'orrnn',
     broker_name: 'Orrnn',
@@ -109,17 +107,15 @@ test('resolveOrrnnDemoBrokerAuthRoute uses auth proxy route for non-URL broker s
     server_ip: '69.197.178.27',
   }]);
 
-  assert.equal(route.serverUrl, AUTH_PROXY_SERVER_URL);
-  assert.equal(route.proxyServer, 'Orrnn-Demo');
-  assert.equal(route.source, 'broker-directory');
+  assert.equal(route.serverUrl, '');
+  assert.equal(route.source, 'missing');
 });
 
-test('resolveOrrnnDemoBrokerAuthRoute falls back to the configured public demo origin for Orrnn', () => {
+test('resolveOrrnnDemoBrokerAuthRoute requires a broker directory services domain for Orrnn login', () => {
   const route = resolveOrrnnDemoBrokerAuthRoute('orrnn', []);
 
-  assert.equal(route.serverUrl, 'https://backend.orrnn.com');
-  assert.equal(route.proxyServer, '');
-  assert.equal(route.source, 'public-demo-config');
+  assert.equal(route.serverUrl, '');
+  assert.equal(route.source, 'missing');
 });
 
 test('register fallback login uses resolved Orrnn broker route and persists secure session', () => {
@@ -130,7 +126,7 @@ test('register fallback login uses resolved Orrnn broker route and persists secu
   assert.match(source, /refetchBrokerServers\(\)/);
   assert.match(
     source,
-    /loginAPI\(\{[\s\S]*broker_id: canonicalBrokerId,[\s\S]*\}, \{[\s\S]*serverUrl: demoAuthRoute\.serverUrl,[\s\S]*proxyServer: demoAuthRoute\.proxyServer,[\s\S]*\}\)/,
+    /loginAPI\(\{[\s\S]*broker_id: canonicalBrokerId,[\s\S]*\}, \{[\s\S]*serverUrl: demoAuthRoute\.serverUrl,[\s\S]*\}\)/,
   );
   assert.match(
     source,

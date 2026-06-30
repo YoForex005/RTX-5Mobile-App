@@ -1,9 +1,6 @@
 import { timedFetch } from '../utils/apiLatency';
 import {
-  AUTH_PROXY_SERVER_URL,
   type BrokerServiceDiscovery,
-  normalizeBrokerServerUrl,
-  resolveBrokerProxyServerAddress,
   resolveBrokerServiceBaseUrl,
 } from './brokerRouting';
 
@@ -32,7 +29,6 @@ export const PUBLIC_DEMO_API_BASE_URL =
   process.env.EXPO_PUBLIC_DEMO_API_BASE_URL ||
   process.env.EXPO_PUBLIC_API_V1_BASE_URL ||
   DEFAULT_PUBLIC_DEMO_API_BASE_URL;
-const PUBLIC_DEMO_AUTH_SERVER_URL = normalizeBrokerServerUrl(PUBLIC_DEMO_API_BASE_URL);
 
 export interface OrrnnDemoStatusResponse {
   service: string;
@@ -162,9 +158,8 @@ type OrrnnDemoBrokerDiscovery = BrokerServiceDiscovery & {
 export type OrrnnDemoBrokerAuthRoute = {
   brokerId: string;
   serverUrl: string;
-  proxyServer: string;
   logoUrl: string;
-  source: 'broker-directory' | 'public-demo-config' | 'missing';
+  source: 'broker-directory' | 'missing';
 };
 
 const normalizeDemoBrokerId = (brokerId: string | null | undefined) =>
@@ -176,10 +171,6 @@ export function resolveOrrnnDemoBrokerAuthRoute(
 ): OrrnnDemoBrokerAuthRoute {
   const normalizedBrokerId = normalizeDemoBrokerId(brokerId);
   const routeBrokerId = brokerId.trim();
-  const fallbackServerUrl =
-    normalizedBrokerId === normalizeDemoBrokerId(ORRNN_DEMO_BROKER_ID)
-      ? PUBLIC_DEMO_AUTH_SERVER_URL
-      : '';
   const broker = brokers.find(
     (candidate) => normalizeDemoBrokerId(candidate.broker_id) === normalizedBrokerId,
   );
@@ -187,27 +178,21 @@ export function resolveOrrnnDemoBrokerAuthRoute(
   if (!broker) {
     return {
       brokerId: routeBrokerId,
-      serverUrl: fallbackServerUrl,
-      proxyServer: '',
+      serverUrl: '',
       logoUrl: '',
-      source: fallbackServerUrl ? 'public-demo-config' : 'missing',
+      source: 'missing',
     };
   }
 
   const directServerUrl = resolveBrokerServiceBaseUrl(broker);
-  const proxyServer = directServerUrl ? '' : resolveBrokerProxyServerAddress(broker);
-  const hasBrokerRoute = Boolean(directServerUrl || proxyServer);
 
   return {
     brokerId: routeBrokerId,
-    serverUrl: directServerUrl || (proxyServer ? AUTH_PROXY_SERVER_URL : fallbackServerUrl),
-    proxyServer,
+    serverUrl: directServerUrl,
     logoUrl: broker.logo_url?.trim() ?? '',
-    source: hasBrokerRoute
+    source: directServerUrl
       ? 'broker-directory'
-      : fallbackServerUrl
-        ? 'public-demo-config'
-        : 'missing',
+      : 'missing',
   };
 }
 

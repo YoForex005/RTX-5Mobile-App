@@ -97,6 +97,51 @@ const isNearBlackChartColor = (color: string): boolean => {
   return Number(red) <= 16 && Number(green) <= 16 && Number(blue) <= 16;
 };
 
+const parseChartColorChannels = (color: string): { red: number; green: number; blue: number; alpha: number } | null => {
+  const normalized = normalizeStructuralChartColor(color);
+  if (normalized === 'white') {
+    return { red: 255, green: 255, blue: 255, alpha: 1 };
+  }
+
+  const hexMatch = normalized.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hexMatch) {
+    const hex = hexMatch[1].length === 3
+      ? hexMatch[1].split('').map((part) => `${part}${part}`).join('')
+      : hexMatch[1];
+    return {
+      red: parseInt(hex.slice(0, 2), 16),
+      green: parseInt(hex.slice(2, 4), 16),
+      blue: parseInt(hex.slice(4, 6), 16),
+      alpha: 1,
+    };
+  }
+
+  const rgbMatch = normalized.match(/^rgba?\((\d+),(\d+),(\d+)(?:,([0-9.]+))?\)$/);
+  if (rgbMatch) {
+    return {
+      red: Number(rgbMatch[1]),
+      green: Number(rgbMatch[2]),
+      blue: Number(rgbMatch[3]),
+      alpha: rgbMatch[4] === undefined ? 1 : Number(rgbMatch[4]),
+    };
+  }
+
+  return null;
+};
+
+const isLightChartColor = (color: string): boolean => {
+  const channels = parseChartColorChannels(color);
+  if (!channels || channels.alpha <= 0) {
+    return false;
+  }
+
+  const luminance =
+    0.2126 * channels.red +
+    0.7152 * channels.green +
+    0.0722 * channels.blue;
+  return luminance >= 210;
+};
+
 const LIGHT_THEME_CHART_FALLBACKS: StructuralChartColors = {
   background: CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.background,
   foreground: CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.foreground,
@@ -159,11 +204,17 @@ export function resolveChartColorsForTheme(
   const resolvedColors = { ...mergedColors };
   const themeStructuralColors = isDark ? DARK_THEME_CHART_FALLBACKS : LIGHT_THEME_CHART_FALLBACKS;
   const forceThemeStructure = Boolean(chartColorScheme && chartColorScheme !== 'custom');
+  const darkThemeHasLightCanvas = isDark && isLightChartColor(mergedColors.background);
 
   (Object.keys(themeStructuralColors) as Array<keyof StructuralChartColors>).forEach((key) => {
     const normalizedValue = normalizeStructuralChartColor(mergedColors[key]);
     const isInvisibleDarkGrid = key === 'grid' && isDark && isNearBlackChartColor(mergedColors[key]);
-    if (forceThemeStructure || isInvisibleDarkGrid || BUILTIN_STRUCTURAL_VALUES[key].has(normalizedValue)) {
+    if (
+      forceThemeStructure ||
+      darkThemeHasLightCanvas ||
+      isInvisibleDarkGrid ||
+      BUILTIN_STRUCTURAL_VALUES[key].has(normalizedValue)
+    ) {
       resolvedColors[key] = themeStructuralColors[key];
     }
   });
@@ -184,6 +235,7 @@ export const DEFAULT_CHART_DISPLAY_SETTINGS: ChartDisplaySettings = {
   // chart canvas.
   showLastPriceLine: true,
   showGrid: true,
+  periodSeparators: true,
   showTickVolumes: true,
   showRealVolumes: false,
   showObjectDescriptions: false,

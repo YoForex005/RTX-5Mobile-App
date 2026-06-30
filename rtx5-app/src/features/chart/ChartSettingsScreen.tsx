@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useCallback, useMemo } from 'react';
 import {
+  PanResponder,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { safeRouterBack } from '../../utils/navigation';
-import { useUserPreferences } from '../../state/userPreferences';
+import { useUserPreferences, type ChartDisplaySettings } from '../../state/userPreferences';
 import { useUIState, type PendingChartCommand } from '../../state/uiState';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useTheme } from '../../ui/theme/useTheme';
@@ -29,6 +30,58 @@ const SHOW_ON_CHART_ICONS: Record<ChartShowOnChartKey, keyof typeof Ionicons.gly
   slTpLevels: 'shield-checkmark-outline',
 };
 
+const CHART_SETTINGS_DISPLAY_ITEMS: Array<{
+  key: keyof ChartDisplaySettings;
+  label: string;
+  description: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}> = [
+  { key: 'showTicker', label: 'Show ticker', description: 'Show the symbol ticker on the chart', icon: 'pricetag-outline' },
+  { key: 'showOHLC', label: 'Show OHLC', description: 'Show open, high, low, and close values', icon: 'stats-chart-outline' },
+  { key: 'showQuickTradingButtons', label: 'Show quick trading buttons', description: 'Show quick buy and sell buttons on the chart', icon: 'flash-outline' },
+  { key: 'showBidPriceLine', label: 'Show bid price line', description: 'Show the bid price line on the chart', icon: 'trending-down-outline' },
+  { key: 'showAskPriceLine', label: 'Show ask price line', description: 'Show the ask price line on the chart', icon: 'trending-up-outline' },
+  { key: 'showLastPriceLine', label: 'Show last price line', description: 'Show the last price marker on the chart', icon: 'ellipse-outline' },
+  { key: 'showGrid', label: 'Show grid', description: 'Show the chart grid lines', icon: 'grid-outline' },
+  { key: 'periodSeparators', label: 'Period separators', description: 'Show MT5-style period separator lines', icon: 'reorder-three-outline' },
+  { key: 'showObjectDescriptions', label: 'Show object descriptions', description: 'Show labels for chart objects', icon: 'text-outline' },
+  { key: 'showTradeLevels', label: 'Show trade levels', description: 'Show trade level lines on the chart', icon: 'shield-checkmark-outline' },
+];
+
+const CHART_DISPLAY_TO_SHOW_ON_CHART_KEY: Partial<Record<keyof ChartDisplaySettings, ChartShowOnChartKey>> = {
+  showTradeLevels: 'slTpLevels',
+};
+
+const CHART_TRADE_VISIBILITY_ITEMS = CHART_SHOW_ON_CHART_ITEMS.filter(
+  (item) => item.key !== 'slTpLevels',
+);
+
+const CHART_SETTINGS_LEFT_SWIPE_CLAIM_DISTANCE = 18;
+const CHART_SETTINGS_LEFT_SWIPE_NAVIGATE_DISTANCE = 72;
+const CHART_SETTINGS_LEFT_SWIPE_NAVIGATE_VELOCITY = 0.45;
+const CHART_SETTINGS_HORIZONTAL_SWIPE_RATIO = 1.35;
+
+const isChartSettingsLeftSwipeIntent = (dx: number, dy: number) => {
+  const horizontalDistance = Math.abs(dx);
+  const verticalDistance = Math.abs(dy);
+  return (
+    dx < 0 &&
+    horizontalDistance >= CHART_SETTINGS_LEFT_SWIPE_CLAIM_DISTANCE &&
+    horizontalDistance > verticalDistance * CHART_SETTINGS_HORIZONTAL_SWIPE_RATIO
+  );
+};
+
+const shouldNavigateFromChartSettingsSwipe = (dx: number, dy: number, vx: number) => {
+  if (!isChartSettingsLeftSwipeIntent(dx, dy)) {
+    return false;
+  }
+
+  return (
+    Math.abs(dx) >= CHART_SETTINGS_LEFT_SWIPE_NAVIGATE_DISTANCE ||
+    vx <= -CHART_SETTINGS_LEFT_SWIPE_NAVIGATE_VELOCITY
+  );
+};
+
 export function ChartSettingsScreen() {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
@@ -40,12 +93,43 @@ export function ChartSettingsScreen() {
   const chartOneClickPanelAtBottom = useUserPreferences((s) => s.chartOneClickPanelAtBottom);
   const chartVerticalScrollingLocked = useUserPreferences((s) => s.chartVerticalScrollingLocked);
   const chartAutoScaleEnabled = useUserPreferences((s) => s.chartAutoScaleEnabled);
+  const chartDisplay = useUserPreferences((s) => s.chartDisplay);
   const chartShowOnChart = useUserPreferences((s) => s.chartShowOnChart);
   const setChartOneClickPanelAtBottom = useUserPreferences((s) => s.setChartOneClickPanelAtBottom);
   const setChartVerticalScrollingLocked = useUserPreferences((s) => s.setChartVerticalScrollingLocked);
   const setChartAutoScaleEnabled = useUserPreferences((s) => s.setChartAutoScaleEnabled);
+  const setChartDisplaySetting = useUserPreferences((s) => s.setChartDisplaySetting);
   const setChartShowOnChartItem = useUserPreferences((s) => s.setChartShowOnChartItem);
   const queueChartCommand = useUIState((s) => s.queueChartCommand);
+  const handleReturnToChart = useCallback(() => {
+    safeRouterBack(router, '/(tabs)/chart');
+  }, []);
+  const getChartDisplaySettingEnabled = useCallback(
+    (key: keyof ChartDisplaySettings) => {
+      const linkedShowOnChartKey = CHART_DISPLAY_TO_SHOW_ON_CHART_KEY[key];
+      if (linkedShowOnChartKey) {
+        return chartShowOnChart[linkedShowOnChartKey];
+      }
+      return Boolean(chartDisplay[key]);
+    },
+    [chartDisplay, chartShowOnChart],
+  );
+  const handleToggleChartDisplaySetting = useCallback(
+    (key: keyof ChartDisplaySettings, value: boolean) => {
+      setChartDisplaySetting(key, value);
+      const linkedShowOnChartKey = CHART_DISPLAY_TO_SHOW_ON_CHART_KEY[key];
+      if (linkedShowOnChartKey) {
+        setChartShowOnChartItem(linkedShowOnChartKey, value);
+      }
+    },
+    [setChartDisplaySetting, setChartShowOnChartItem],
+  );
+  const handleToggleChartVerticalMovement = useCallback(
+    (enabled: boolean) => {
+      setChartVerticalScrollingLocked(!enabled);
+    },
+    [setChartVerticalScrollingLocked],
+  );
   const handleToggleShowOnChart = useCallback(
     (key: ChartShowOnChartKey, value: boolean) => {
       setChartShowOnChartItem(key, value);
@@ -55,27 +139,51 @@ export function ChartSettingsScreen() {
   const handleRunChartCommand = useCallback(
     (command: PendingChartCommand) => {
       queueChartCommand(command);
-      safeRouterBack(router, '/(tabs)/chart');
+      handleReturnToChart();
     },
-    [queueChartCommand],
+    [handleReturnToChart, queueChartCommand],
+  );
+  const chartReturnSwipePanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_event, gestureState) =>
+          isChartSettingsLeftSwipeIntent(gestureState.dx, gestureState.dy),
+        onMoveShouldSetPanResponderCapture: (_event, gestureState) =>
+          isChartSettingsLeftSwipeIntent(gestureState.dx, gestureState.dy),
+        onPanResponderRelease: (_event, gestureState) => {
+          if (
+            shouldNavigateFromChartSettingsSwipe(
+              gestureState.dx,
+              gestureState.dy,
+              gestureState.vx,
+            )
+          ) {
+            handleReturnToChart();
+          }
+        },
+        onPanResponderTerminationRequest: () => true,
+      }),
+    [handleReturnToChart],
   );
 
   return (
     <Screen style={styles.screen}>
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
-        <View style={styles.headerRow}>
-          <FastPressable onPress={() => safeRouterBack(router, '/(tabs)/chart')} latencyLabel="chartSettings.back" hitSlop={16} style={styles.headerBackBtn}>
-            <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
-          </FastPressable>
-          <View style={styles.headerTitleWrap} pointerEvents="none">
-            <Text style={styles.headerTitle} numberOfLines={1}>Chart Preferences</Text>
+      <View style={styles.swipeHost} {...chartReturnSwipePanResponder.panHandlers}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+          <View style={styles.headerRow}>
+            <FastPressable onPress={handleReturnToChart} latencyLabel="chartSettings.back" hitSlop={16} style={styles.headerBackBtn}>
+              <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
+            </FastPressable>
+            <View style={styles.headerTitleWrap} pointerEvents="none">
+              <Text style={styles.headerTitle} numberOfLines={1}>Chart Preferences</Text>
+            </View>
+            <View style={styles.headerBackBtn} />
           </View>
-          <View style={styles.headerBackBtn} />
         </View>
-      </View>
-      <ScrollView
-        keyboardShouldPersistTaps="always"
-        canCancelContentTouches={Platform.OS === 'ios'} style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          keyboardShouldPersistTaps="always"
+          canCancelContentTouches={Platform.OS === 'ios'} style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
 
 
@@ -150,14 +258,14 @@ export function ChartSettingsScreen() {
           />
           <View style={styles.separator} />
           <PreferenceToggleRow
-            title="Lock vertical scrolling"
-            description="Block manual up and down chart movement"
+            title="Vertical movement"
+            description="Allow manual up and down chart movement"
             iconName={chartVerticalScrollingLocked ? 'lock-closed-outline' : 'lock-open-outline'}
-            enabled={chartVerticalScrollingLocked}
+            enabled={!chartVerticalScrollingLocked}
             isDark={isDark}
-            onValueChange={setChartVerticalScrollingLocked}
+            onValueChange={handleToggleChartVerticalMovement}
             styles={styles}
-            latencyLabel="chartSettings.lockVerticalScrolling"
+            latencyLabel="chartSettings.verticalMovement"
           />
         </View>
 
@@ -179,6 +287,40 @@ export function ChartSettingsScreen() {
         </View>
 
         <View style={styles.sectionHeader}>
+          <Ionicons name="funnel-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
+          <Text style={styles.sectionTitle}>SHOW ON CHART</Text>
+        </View>
+        <View style={styles.card}>
+          {CHART_SETTINGS_DISPLAY_ITEMS.map((item) => (
+            <React.Fragment key={item.key}>
+              <PreferenceToggleRow
+                title={item.label}
+                description={item.description}
+                iconName={item.icon}
+                enabled={getChartDisplaySettingEnabled(item.key)}
+                isDark={isDark}
+                onValueChange={(value) => handleToggleChartDisplaySetting(item.key, value)}
+                styles={styles}
+                latencyLabel={`chartSettings.display.${item.key}`}
+              />
+              <View style={styles.separator} />
+            </React.Fragment>
+          ))}
+          {CHART_TRADE_VISIBILITY_ITEMS.map((item, index) => (
+            <React.Fragment key={item.key}>
+              <ToggleRow
+                item={item}
+                enabled={chartShowOnChart[item.key]}
+                isDark={isDark}
+                onValueChange={(value) => handleToggleShowOnChart(item.key, value)}
+                styles={styles}
+              />
+              {index < CHART_TRADE_VISIBILITY_ITEMS.length - 1 && <View style={styles.separator} />}
+            </React.Fragment>
+          ))}
+        </View>
+
+        <View style={styles.sectionHeader}>
           <Ionicons name="notifications-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
           <Text style={styles.sectionTitle}>ALERTS</Text>
         </View>
@@ -190,44 +332,14 @@ export function ChartSettingsScreen() {
             styles={styles}
           />
         </View>
-
-        <View style={styles.sectionHeader}>
-          <Ionicons name="funnel-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
-          <Text style={styles.sectionTitle}>SHOW ON CHART</Text>
-        </View>
-        <View style={styles.card}>
-          {CHART_SHOW_ON_CHART_ITEMS.map((item, index) => (
-            <React.Fragment key={item.key}>
-              <ToggleRow
-                item={item}
-                enabled={chartShowOnChart[item.key]}
-                isDark={isDark}
-                onValueChange={(value) => handleToggleShowOnChart(item.key, value)}
-                styles={styles}
-              />
-              {index < CHART_SHOW_ON_CHART_ITEMS.length - 1 && <View style={styles.separator} />}
-            </React.Fragment>
-          ))}
-        </View>
-        <View style={styles.sectionHeader}>
-          <Ionicons name="menu-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
-          <Text style={styles.sectionTitle}>NAVIGATION</Text>
-        </View>
-        <View style={styles.card}>
-          <NavRow
-            label="Order of menu items"
-            value=""
-            onPress={() => router.push('/chart/menu-order')}
-            styles={styles}
-          />
-        </View>
         <View style={styles.noteRow}>
           <Ionicons name="information-circle-outline" size={13} color={isDark ? '#475569' : '#94A3B8'} />
           <Text style={styles.preferencesNote}>
-            Chart preferences are applied to all trading accounts and instruments
+            Chart preferences are applied to all trading accounts
           </Text>
         </View>
-      </ScrollView>
+        </ScrollView>
+      </View>
     </Screen>
   );
 }
@@ -393,6 +505,9 @@ function makeStyles(_T: ThemeColors, isDark: boolean) {
     screen: {
       backgroundColor: isDark ? '#06080D' : '#F4F5F7',
     },
+    swipeHost: {
+      flex: 1,
+    },
     scroll: {
       flex: 1,
     },
@@ -438,9 +553,9 @@ function makeStyles(_T: ThemeColors, isDark: boolean) {
     },
     sectionTitle: {
       color: isDark ? '#94A3B8' : '#64748B',
-      fontSize: 12,
+      fontSize: 11,
       fontWeight: '600',
-      letterSpacing: 0.4,
+      letterSpacing: 0,
       textTransform: 'uppercase',
     },
     card: {
@@ -511,15 +626,15 @@ function makeStyles(_T: ThemeColors, isDark: boolean) {
     },
     toggleLabel: {
       color: isDark ? '#F8FAFC' : '#0F172A',
-      fontSize: 15,
+      fontSize: 13,
       fontWeight: '500',
-      lineHeight: 19,
+      lineHeight: 18,
     },
     preferenceToggleTitle: {
       color: isDark ? '#F8FAFC' : '#0F172A',
-      fontSize: 15,
+      fontSize: 13,
       fontWeight: '500',
-      lineHeight: 19,
+      lineHeight: 18,
     },
     toggleDescription: {
       color: isDark ? '#94A3B8' : '#64748B',
@@ -533,7 +648,7 @@ function makeStyles(_T: ThemeColors, isDark: boolean) {
     rowLabel: {
       flex: 1,
       color: isDark ? '#F8FAFC' : '#0F172A',
-      fontSize: 15,
+      fontSize: 13,
       fontWeight: '500',
     },
     navRight: {
@@ -543,7 +658,7 @@ function makeStyles(_T: ThemeColors, isDark: boolean) {
     },
     navValue: {
       color: isDark ? '#94A3B8' : '#64748B',
-      fontSize: 14,
+      fontSize: 13,
       fontWeight: '500',
       fontVariant: ['tabular-nums'],
     },

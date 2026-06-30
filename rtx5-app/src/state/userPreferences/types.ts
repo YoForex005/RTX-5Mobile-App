@@ -52,6 +52,7 @@ export type ChartDisplaySettings = {
   showAskPriceLine: boolean;
   showLastPriceLine: boolean;
   showGrid: boolean;
+  periodSeparators: boolean;
   showTickVolumes: boolean;
   showRealVolumes: boolean;
   showObjectDescriptions: boolean;

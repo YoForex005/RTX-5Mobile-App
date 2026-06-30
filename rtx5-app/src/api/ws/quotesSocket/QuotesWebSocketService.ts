@@ -17,9 +17,17 @@ import {
   shouldUseBrokerHostedQuoteFeed,
 } from '../../brokerRouting';
 import {
+  appendFeedAuthToWsUrl,
+  redactFeedAuthFromWsUrl,
+  resolveConfiguredFeedBrokerId,
+  resolveConfiguredFeedBrokerTokenForBroker,
+  stripFeedAuthQueryFromWsUrl,
+} from '../../feedAuth';
+import {
   ACTIVE_BROKER_ID_KEY,
   ACTIVE_BROKER_LOGO_URL_KEY,
   ACTIVE_BROKER_SERVER_URL_KEY,
+  getStoredFeedBrokerToken,
 } from '../../../state/brokerSessionStorage';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { getSecureItemAsync } from '../../../utils/secureStorage';
@@ -53,7 +61,11 @@ const QUOTE_WS_RECONNECT_MAX_DELAY_MS = 5_000;
 const QUOTE_WS_RECONNECT_COOLDOWN_MS = 10_000;
 const QUOTE_WS_SILENT_STALE_MS = 8_000;
 const QUOTE_WS_WATCHDOG_INTERVAL_MS = 3_000;
+const QUOTE_WS_INTERACTION_RECONNECT_DEFER_MS = 2_500;
 const DEFAULT_QUOTES_WS_URL = 'wss://backend.orrnn.com/ws/feed';
+const BROKER_FEED_AUTH_FAILURE_CLOSE_CODES = new Set([1008, 4001]);
+
+type BrokerFeedBlockReason = 'broker_domain' | 'broker_id' | null;
 
 const resolveQuoteListenerKeys = (symbol: string): string[] => {
   const rawKey = normalizeQuoteSymbolKey(symbol);
@@ -64,9 +76,6 @@ const resolveQuoteListenerKeys = (symbol: string): string[] => {
 export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelineState {
   private static instance: QuotesWebSocketService;
   private ws: WebSocket | null = null;
-  // Must be initialized before `url`: resolveSocketUrl() checks this set while
-  // class fields are still being evaluated during construction.
-  private failedBrokerSocketUrls: Set<string> = new Set();
   private url = this.resolveSocketUrl();
   private reconnectAttempts = 0;
   private maxReconnectAttempts = QUOTE_WS_MAX_RECONNECT_ATTEMPTS;
@@ -75,6 +84,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   private isConnected = false;
   private shouldReconnect = false;
   private isResolvingSocketUrl = false;
+  private pendingBrokerFeedBlockReason: BrokerFeedBlockReason = null;
 
   private activeSymbols: Set<string> = new Set();
   private stickySymbols: Set<string> = new Set();
@@ -91,6 +101,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private appStateSubscription: NativeEventSubscription | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectDeferredUntil = 0;
   private netInfoUnsubscribe: (() => void) | null = null;
   private lastMessageAt: number = Date.now();
   private lastRecordedFeedGapAt: number = 0;
@@ -117,6 +128,12 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       return;
     }
 
+    const deferredMs = this.getInteractionReconnectDelay();
+    if (deferredMs > 0) {
+      this.scheduleReconnect(deferredMs);
+      return;
+    }
+
     this.clearReconnectTimer();
     this.clearNetInfoListener();
     this.reconnectAttempts = 0;
@@ -135,51 +152,72 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     return this.isConnected;
   }
 
+  public deferReconnectForInteraction(durationMs = QUOTE_WS_INTERACTION_RECONNECT_DEFER_MS): void {
+    const until = Date.now() + Math.max(0, durationMs);
+    if (until <= this.reconnectDeferredUntil) {
+      return;
+    }
+
+    this.reconnectDeferredUntil = until;
+    if (this.reconnectTimer) {
+      this.clearReconnectTimer();
+      this.scheduleReconnect(0);
+    }
+  }
+
+  private getInteractionReconnectDelay(now = Date.now()): number {
+    return Math.max(0, this.reconnectDeferredUntil - now);
+  }
+
+  private resolveLoggedOutSocketUrl(): string {
+    const configuredUrl = normalizeConfiguredWsUrl(process.env.EXPO_PUBLIC_QUOTES_WS_URL, '');
+    return configuredUrl || DEFAULT_QUOTES_WS_URL;
+  }
+
   private resolveSocketUrl(): string {
     const state = useUserPreferences.getState();
     if (!state.isLoggedIn) {
-      const configuredUrl = normalizeConfiguredWsUrl(process.env.EXPO_PUBLIC_QUOTES_WS_URL, '');
-      if (configuredUrl) {
-        return configuredUrl;
-      }
+      return this.resolveLoggedOutSocketUrl();
     }
 
-    return this.resolveBrokerSocketUrl(state.brokerServerUrl, { requireBrokerUrl: state.isLoggedIn });
+    return this.resolveAuthenticatedBrokerSocketUrl(
+      state.brokerServerUrl,
+      state.brokerId,
+      resolveConfiguredFeedBrokerTokenForBroker(state.brokerId),
+    );
   }
 
   private async resolveSocketUrlAsync(): Promise<string> {
     const state = useUserPreferences.getState();
     if (!state.isLoggedIn) {
-      const configuredUrl = normalizeConfiguredWsUrl(process.env.EXPO_PUBLIC_QUOTES_WS_URL, '');
-      if (configuredUrl) {
-        return configuredUrl;
-      }
+      return this.resolveLoggedOutSocketUrl();
     }
 
-    if (state.brokerServerUrl) {
-      return this.resolveBrokerSocketUrl(state.brokerServerUrl, { requireBrokerUrl: state.isLoggedIn });
-    }
-
-    const [storedBrokerId, storedServerUrl, storedLogoUrl] = await Promise.all([
+    const [storedBrokerId, storedServerUrl, storedLogoUrl, storedFeedToken] = await Promise.all([
       getSecureItemAsync(ACTIVE_BROKER_ID_KEY).catch(() => ''),
       getSecureItemAsync(ACTIVE_BROKER_SERVER_URL_KEY).catch(() => ''),
       getSecureItemAsync(ACTIVE_BROKER_LOGO_URL_KEY).catch(() => ''),
+      getStoredFeedBrokerToken(),
     ]);
 
-    if (!storedServerUrl) {
-      return state.isLoggedIn ? '' : DEFAULT_QUOTES_WS_URL;
+    const latestState = useUserPreferences.getState();
+    if (!latestState.isLoggedIn) {
+      return this.resolveLoggedOutSocketUrl();
     }
 
-    const latestState = useUserPreferences.getState();
-    if (!latestState.brokerServerUrl) {
+    const brokerId = latestState.brokerId || state.brokerId || storedBrokerId || '';
+    const serverUrl = latestState.brokerServerUrl || state.brokerServerUrl || storedServerUrl || '';
+    const feedToken = resolveConfiguredFeedBrokerTokenForBroker(brokerId) || storedFeedToken || '';
+
+    if (serverUrl && !latestState.brokerServerUrl) {
       latestState.setBrokerConnection(
-        latestState.brokerId || storedBrokerId || '',
-        storedServerUrl,
+        brokerId,
+        serverUrl,
         latestState.brokerLogoUrl || storedLogoUrl || '',
       );
     }
 
-    return this.resolveBrokerSocketUrl(storedServerUrl, { requireBrokerUrl: latestState.isLoggedIn });
+    return this.resolveAuthenticatedBrokerSocketUrl(serverUrl, brokerId, feedToken);
   }
 
   private resolveBrokerSocketUrl(
@@ -197,9 +235,31 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       '/ws/feed',
       requireBrokerUrl ? '' : DEFAULT_QUOTES_WS_URL,
     );
-    return !requireBrokerUrl && this.failedBrokerSocketUrls.has(brokerSocketUrl)
-      ? DEFAULT_QUOTES_WS_URL
-      : brokerSocketUrl;
+    return brokerSocketUrl;
+  }
+
+  private resolveAuthenticatedBrokerSocketUrl(
+    serverUrl?: string | null,
+    brokerId?: string | null,
+    feedToken?: string | null,
+  ): string {
+    this.pendingBrokerFeedBlockReason = null;
+    const baseUrl = this.resolveBrokerSocketUrl(serverUrl, { requireBrokerUrl: true });
+    if (!baseUrl) {
+      this.pendingBrokerFeedBlockReason = 'broker_domain';
+      return '';
+    }
+
+    const resolvedBrokerId = String(brokerId || resolveConfiguredFeedBrokerId() || '').trim();
+    const resolvedFeedToken = String(
+      feedToken || resolveConfiguredFeedBrokerTokenForBroker(resolvedBrokerId) || '',
+    ).trim();
+    if (!resolvedBrokerId) {
+      this.pendingBrokerFeedBlockReason = 'broker_id';
+      return '';
+    }
+
+    return appendFeedAuthToWsUrl(baseUrl, resolvedBrokerId, resolvedFeedToken);
   }
 
   private shouldStayOnBrokerQuoteFeed(socketUrl: string): boolean {
@@ -211,14 +271,14 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     const brokerSocketUrl = this.resolveBrokerSocketUrl(state.brokerServerUrl, {
       requireBrokerUrl: true,
     });
-    return Boolean(brokerSocketUrl && socketUrl === brokerSocketUrl);
+    return Boolean(brokerSocketUrl && stripFeedAuthQueryFromWsUrl(socketUrl) === brokerSocketUrl);
   }
 
   private markBrokerSocketUnavailable(socketUrl: string, reason: string): boolean {
     if (this.shouldStayOnBrokerQuoteFeed(socketUrl)) {
       console.warn(
         `[Quotes WS] Broker quote feed unavailable (${reason}). Staying on broker feed.`,
-        { socketUrl },
+        { socketUrl: redactFeedAuthFromWsUrl(socketUrl) },
       );
       this.clearReconnectTimer();
       this.teardownSocket(false);
@@ -228,16 +288,14 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
 
     if (
       process.env.EXPO_PUBLIC_QUOTES_WS_URL ||
-      socketUrl === DEFAULT_QUOTES_WS_URL ||
-      this.failedBrokerSocketUrls.has(socketUrl)
+      socketUrl === DEFAULT_QUOTES_WS_URL
     ) {
       return false;
     }
 
-    this.failedBrokerSocketUrls.add(socketUrl);
     console.warn(
-      `[Quotes WS] Broker quote feed unavailable (${reason}). Falling back to shared feed.`,
-      { socketUrl, fallbackUrl: DEFAULT_QUOTES_WS_URL },
+      `[Quotes WS] Broker quote feed unavailable (${reason}). Retrying broker feed.`,
+      { socketUrl: redactFeedAuthFromWsUrl(socketUrl) },
     );
     this.reconnectAttempts = 0;
     this.clearReconnectTimer();
@@ -345,6 +403,12 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     }
 
     this.shouldReconnect = true;
+    const deferredMs = this.getInteractionReconnectDelay();
+    if (deferredMs > 0) {
+      this.scheduleReconnect(deferredMs);
+      return;
+    }
+
     this.clearReconnectTimer();
 
     if (this.isResolvingSocketUrl) {
@@ -369,12 +433,23 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       return;
     }
 
+    const deferredMs = this.getInteractionReconnectDelay();
+    if (deferredMs > 0) {
+      this.scheduleReconnect(deferredMs);
+      return;
+    }
+
     if (!nextUrl) {
       if (this.url !== nextUrl) {
         this.url = nextUrl;
         this.teardownSocket();
       }
-      console.warn('[Quotes WS] No broker quote feed URL available for logged-in session. Waiting for broker domain.');
+      const reason = this.pendingBrokerFeedBlockReason;
+      console.warn(
+        reason === 'broker_id'
+          ? '[Quotes WS] Broker quote feed broker_id unavailable. Deferring connect until broker_id is available.'
+          : '[Quotes WS] No broker quote feed URL available for logged-in session. Waiting for broker domain.',
+      );
       this.attemptReconnect();
       return;
     }
@@ -395,7 +470,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
 
       this.ws.onopen = () => {
         didOpen = true;
-        console.log('[Quotes WS] Connected to', socketUrl);
+        console.log('[Quotes WS] Connected to', redactFeedAuthFromWsUrl(socketUrl));
         this.isConnected = true;
         this.reconnectAttempts = 0;
         this.lastMessageAt = Date.now();
@@ -424,7 +499,18 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
         }
       };
 
-      this.ws.onclose = () => {
+      this.ws.onclose = (event) => {
+        if (this.isBrokerFeedAuthFailure(socketUrl, event?.code)) {
+          console.warn('[Quotes WS] Broker quote feed auth rejected. Stopping reconnect until a fresh token is available.', {
+            code: event?.code,
+            socketUrl: redactFeedAuthFromWsUrl(socketUrl),
+          });
+          this.shouldReconnect = false;
+          this.reconnectAttempts = 0;
+          this.clearReconnectTimer();
+          this.teardownSocket(false);
+          return;
+        }
         if (!didOpen && this.markBrokerSocketUnavailable(socketUrl, 'closed before open')) {
           return;
         }
@@ -444,6 +530,14 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       this.teardownSocket();
       this.attemptReconnect();
     }
+  }
+
+  private isBrokerFeedAuthFailure(socketUrl: string, code: number | undefined): boolean {
+    return (
+      typeof code === 'number' &&
+      BROKER_FEED_AUTH_FAILURE_CLOSE_CODES.has(code) &&
+      this.shouldStayOnBrokerQuoteFeed(socketUrl)
+    );
   }
 
   public disconnect(): void {
@@ -589,6 +683,12 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       return;
     }
 
+    const deferredMs = this.getInteractionReconnectDelay();
+    if (deferredMs > 0) {
+      this.scheduleReconnect(deferredMs);
+      return;
+    }
+
     NetInfo.fetch()
       .then((state) => {
         if (!this.shouldReconnect || !this.hasActiveDemand()) {
@@ -671,10 +771,11 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       return;
     }
 
+    const resolvedDelayMs = Math.max(delayMs, this.getInteractionReconnectDelay());
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
-    }, delayMs);
+    }, resolvedDelayMs);
   }
 
   private clearReconnectTimer(): void {

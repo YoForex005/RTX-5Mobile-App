@@ -8,15 +8,17 @@ import { FastPressable as Pressable } from '../../../ui/components/FastPressable
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
-import { router } from 'expo-router';
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { Animated, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../../ui/components/Screen';
 import { useUserPreferences } from '../../../state/userPreferences';
+import { useUIState } from '../../../state/uiState';
 import { useTheme } from '../../../ui/theme/useTheme';
 import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
+import { SidebarDrawer } from '../../../ui/components/SidebarDrawer';
+import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../../ui/components/sidebarDrawerController';
 import { fetchEconomicCalendarData, type EconomicEvent, type ImpactLevel } from '../../../dev/mock/calendarData';
 import {
   CURRENCY_FILTERS,
@@ -28,7 +30,6 @@ import {
 } from './eventHelpers';
 import { CountryBadge, PulseDot } from './subComponents';
 import { makeEconomicCalendarStyles } from './styles';
-import { safeRouterBack } from '../../../utils/navigation';
 
 const CALENDAR_INITIAL_DATA_DELAY_MS = 120;
 const CALENDAR_FULL_EVENT_LIST_DELAY_MS = 320;
@@ -39,6 +40,7 @@ export function EconomicCalendarScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeEconomicCalendarStyles(T, isDark), [T, isDark]);
   const insets = useSafeAreaInsets();
+  const hideActionSheet = useUIState((state) => state.hideActionSheet);
   const calendarDataReady = useDeferredRouteContentReady(CALENDAR_INITIAL_DATA_DELAY_MS);
   const fullEventListReady = useDeferredRouteContentReady(CALENDAR_FULL_EVENT_LIST_DELAY_MS);
 
@@ -87,6 +89,11 @@ export function EconomicCalendarScreen() {
       return next;
     });
   }, []);
+
+  const handleOpenMenu = useCallback(() => {
+    openSidebarDrawerImmediately();
+    scheduleAfterSidebarOpenVisual(hideActionSheet);
+  }, [hideActionSheet]);
 
   const sections = useMemo(() => {
     const raw = getEventsForTab(activeTab, dataEvents);
@@ -255,8 +262,17 @@ export function EconomicCalendarScreen() {
         borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
       }}>
         <View style={{ height: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 }}>
-          <Pressable onPress={() => safeRouterBack(router, '/(tabs)/settings')} hitSlop={15} style={{ width: 46, alignItems: 'flex-start', padding: 4 }}>
-            <Ionicons name="arrow-back" size={26} color={T.text} />
+          <Pressable
+            onPress={handleOpenMenu}
+            activateOnTouchStart
+            latencyLabel="economicCalendar.menu"
+            unstable_pressDelay={0}
+            hitSlop={15}
+            style={{ width: 46, alignItems: 'flex-start', padding: 4 }}
+            accessibilityRole="button"
+            accessibilityLabel="Open menu"
+          >
+            <Ionicons name="menu" size={28} color={T.text} />
           </Pressable>
           <Text style={{ flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '600', color: T.text }}>
             Economic Calender
@@ -437,6 +453,7 @@ export function EconomicCalendarScreen() {
           </Pressable>
         </Pressable>
       )}
+      <SidebarDrawer />
     </Screen>
   );
 }

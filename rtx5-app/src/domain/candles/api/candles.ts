@@ -6,14 +6,12 @@
  */
 
 import { apiClient } from '../../../api/apiClient';
-import { timedFetch } from '../../../utils/apiLatency';
 import {
   buildCandleHistorySearchParams,
   extractCandleHistoryPayload,
   getCandleHistoryRequestTimeframes,
 } from './candleHistoryQuery';
 import type { CandleHistoryRequestOptions } from './candleHistoryQuery';
-import { PUBLIC_API_V1_BASE_URL } from '../../../api/publicDemo';
 import { Candle } from '../../../state/tradingState';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { DEFAULT_CANDLE_HISTORY_LIMIT, normalizeCandleSeries, normalizeSymbol, normalizeTimeframeStrict } from '../core/candles';
@@ -25,7 +23,7 @@ import {
   type TrustedHistoryCandle,
 } from '../core/candleProvenance';
 
-/** Response shape from GET /api/v1/candles */
+/** Response shape from GET /api/v2/candles */
 export interface CandleHistoryResponse {
   symbol: string;
   timeframe: string;
@@ -37,9 +35,12 @@ export interface CandleHistoryResponse {
 }
 export type { CandleHistoryRequestOptions } from './candleHistoryQuery';
 
+export const CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE =
+  'Please login or create a demo account to see chart data.';
+
 /** 
  * Represents a single attempt to fetch and parse historical candle data.
- * Used internally to aggregate results from potentially multiple fallback requests.
+ * Used internally to aggregate results from authenticated history requests.
  */
 type CandleHistoryAttempt = {
   extractedPayload: ReturnType<typeof extractCandleHistoryPayload>;
@@ -65,9 +66,6 @@ const isAbortError = (error: unknown): boolean => {
 
 const getStoredAccessToken = (): string | null =>
   useUserPreferences.getState().accountDetails?.credentials?.accessToken ?? null;
-
-const appendCacheBust = (url: string): string =>
-  `${url}${url.includes('?') ? '&' : '?'}_t=${Date.now()}`;
 
 /**
  * Processes a raw HTTP response from the backend candle API.
@@ -136,66 +134,9 @@ const fetchAuthenticatedCandleHistory = async (
 };
 
 /**
- * Fallback mechanism for fetching history from public demo endpoints.
- * 
- * Tries multiple URL routing structures since different backend versions 
- * might expose the candle API via path params vs query params.
- * Returns the first successful attempt that yields actual candles.
- */
-const fetchPublicCandleHistory = async (
-  requestedSymbol: string,
-  requestTimeframe: string,
-  count: number,
-  requestOptions: CandleHistoryRequestOptions | undefined,
-  currentPriceBasis: CandlePriceBasis,
-): Promise<CandleHistoryAttempt> => {
-  const pathParams = buildCandleHistorySearchParams(requestTimeframe, count, requestOptions);
-  const queryParams = buildCandleHistorySearchParams(requestTimeframe, count, requestOptions);
-  queryParams.set('symbol', requestedSymbol);
-
-  const urls = [
-    `${PUBLIC_API_V1_BASE_URL}/candles/${encodeURIComponent(requestedSymbol)}?${pathParams.toString()}`,
-    `${PUBLIC_API_V1_BASE_URL}/candles?${queryParams.toString()}`,
-  ];
-  let lastError: Error | null = null;
-  let lastEmptyAttempt: CandleHistoryAttempt | null = null;
-
-  for (const url of urls) {
-    try {
-      const response = await timedFetch(appendCacheBust(url), {
-        method: 'GET',
-        headers: { accept: 'application/json' },
-        signal: requestOptions?.signal,
-      }, {
-        label: 'candles.publicHistory',
-        method: 'GET',
-        endpoint: url,
-        source: 'candles',
-      });
-      const attempt = await readCandleHistoryResponse(response, requestTimeframe, count, currentPriceBasis);
-      if (attempt.normalizedCandles.length > 0) {
-        return attempt;
-      }
-      lastEmptyAttempt = attempt;
-    } catch (error) {
-      if (isAbortError(error)) {
-        throw error;
-      }
-      lastError = error instanceof Error ? error : new Error(String(error));
-    }
-  }
-
-  if (lastEmptyAttempt) {
-    return lastEmptyAttempt;
-  }
-
-  throw lastError ?? new Error('Failed to fetch public candle history');
-};
-
-/**
  * Fetches historical candlestick data for a given symbol and timeframe.
  *
- * GET /api/v1/candles?symbol={symbol}&timeframe={timeframe}&count={count}
+ * GET /api/v2/candles/{symbol}?timeframe={timeframe}&limit={count}
  *
  * @param symbol    - Trading pair (e.g. 'EURUSD', 'XAUUSD')
  * @param timeframe - Candle period (e.g. 'M1', 'M5', 'H1', 'D1')
@@ -215,6 +156,11 @@ export async function getCandleHistory(
   const requestOptions = isAbortSignalLike(options)
     ? { signal: options }
     : options;
+  const hasAuthenticatedCandleSession = Boolean(getStoredAccessToken());
+  if (!hasAuthenticatedCandleSession) {
+    throw new Error(CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE);
+  }
+
   const requestTimeframes = getCandleHistoryRequestTimeframes(requestedTimeframe);
 
   let extractedPayload = extractCandleHistoryPayload([]);
@@ -223,7 +169,6 @@ export async function getCandleHistory(
   let resolvedPriceBasis = getConfiguredCandlePriceBasis();
   let lastHttpError: Error | null = null;
   let hadSuccessfulResponse = false;
-  const hasAuthToken = Boolean(getStoredAccessToken());
 
   const applyAttempt = (attempt: CandleHistoryAttempt): void => {
     extractedPayload = attempt.extractedPayload;
@@ -240,28 +185,8 @@ export async function getCandleHistory(
 
   for (let index = 0; index < requestTimeframes.length; index += 1) {
     const requestTimeframe = requestTimeframes[index];
-    if (hasAuthToken) {
-      try {
-        const attempt = await fetchAuthenticatedCandleHistory(
-          requestedSymbol,
-          requestTimeframe,
-          count,
-          requestOptions,
-          resolvedPriceBasis,
-        );
-        if (acceptAttempt(attempt)) {
-          break;
-        }
-      } catch (error) {
-        if (isAbortError(error)) {
-          throw error;
-        }
-        lastHttpError = error instanceof Error ? error : new Error(String(error));
-      }
-    }
-
     try {
-      const attempt = await fetchPublicCandleHistory(
+      const attempt = await fetchAuthenticatedCandleHistory(
         requestedSymbol,
         requestTimeframe,
         count,

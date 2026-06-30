@@ -34,6 +34,7 @@ import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useLiveCandles, useLiveTick } from '../../domain/candles/hooks/useLiveCandles';
+import { CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE } from '../../domain/candles/api/candles';
 import { liveCandleStream as liveCandlesEngine } from '../../domain/candles/stream/liveCandleStream';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { useOrdersByLoginQuery, usePlaceOrderMutation } from '../../query/orders';
@@ -620,6 +621,9 @@ export function ChartScreen() {
     })),
   );
   const preferencesHydrated = useUserPreferences((s) => s.hasHydrated);
+  const hasAuthenticatedChartSession = useUserPreferences((state) =>
+    Boolean(state.isLoggedIn && state.accountDetails?.credentials?.accessToken),
+  );
   const chartShowOnChart = useUserPreferences((s) => s.chartShowOnChart);
   const resolvedChartColors = useMemo(
     () => resolveChartColorsForTheme(chartColors, chartColorScheme, isDark),
@@ -762,7 +766,8 @@ export function ChartScreen() {
 
   const [activeDateRange, setActiveDateRange] = useState<ChartTimeRange>('auto');
   const [customDateValue, setCustomDateValue] = useState<Date | null>(null);
-  const { candles } = useLiveCandles(chartSymbol, chartTimeframe, isScreenFocused);
+  const chartDataActive = isScreenFocused && hasAuthenticatedChartSession;
+  const { candles } = useLiveCandles(chartSymbol, chartTimeframe, chartDataActive);
   const sanitizedCandles = useMemo(
     () =>
       resolveLivePriceCoherentCandles(
@@ -937,9 +942,10 @@ export function ChartScreen() {
     }
   }, [candlesAvailable, forceHideLoading]);
 
-  const isLoading = sanitizedCandles.length === 0 && !forceHideLoading;
+  const shouldShowChartLoginPrompt = !hasAuthenticatedChartSession;
+  const isLoading = sanitizedCandles.length === 0 && !shouldShowChartLoginPrompt && !forceHideLoading;
   const isError = false;
-  const isNoMarketData = sanitizedCandles.length === 0 && !isLoading && !isError;
+  const isNoMarketData = sanitizedCandles.length === 0 && !shouldShowChartLoginPrompt && !isLoading && !isError;
 
   // Initialize Lightweight Chart
   useEffect(() => {
@@ -1182,6 +1188,10 @@ export function ChartScreen() {
   };
 
   const prefetchChartContext = useCallback((targetSymbol: string, targetTimeframe: string) => {
+    if (!hasAuthenticatedChartSession) {
+      return;
+    }
+
     const normalizedSymbol = normalizeSymbol(targetSymbol);
     const normalizedTimeframe = normalizeTimeframeStrict(targetTimeframe);
     if (!normalizedSymbol || !normalizedTimeframe) {
@@ -1197,7 +1207,7 @@ export function ChartScreen() {
         });
       }
     });
-  }, []);
+  }, [hasAuthenticatedChartSession]);
 
   const handleOpenSymbolPicker = useCallback(() => {
     runImmediateAction('chart.web.symbolPicker.open', () => {
@@ -1626,6 +1636,13 @@ export function ChartScreen() {
                 </View>
               )}
 
+              {shouldShowChartLoginPrompt && (
+                <View style={styles.chartOverlay}>
+                  <Ionicons name="lock-closed-outline" size={36} color={TEXT_MUTED} />
+                  <Text style={styles.overlayText}>{CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE}</Text>
+                </View>
+              )}
+
               {/* Loading Spinner */}
               {isLoading && (
                 <View style={styles.chartOverlay}>
@@ -1774,6 +1791,7 @@ export function ChartScreen() {
         onClose={() => setSymbolPickerOpen(false)}
         title='Select Symbol'
         searchable={true}
+        compactText
         detent='adaptive'
         instantOpen
         runActionAfterClose={false}
@@ -1918,9 +1936,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     symbolText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
-      fontSize: 17,
-      fontWeight: '600',
-      letterSpacing: 0.3,
+      fontSize: 13,
+      fontWeight: '500',
+      letterSpacing: 0,
     },
     fxBadge: {
       backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',

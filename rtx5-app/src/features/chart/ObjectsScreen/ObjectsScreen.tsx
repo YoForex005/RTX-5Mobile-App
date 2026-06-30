@@ -353,7 +353,7 @@ export function ObjectsScreen() {
         visible={showAddObjectSheet}
         onClose={() => setShowAddObjectSheet(false)}
         title="Add object"
-        detent="adaptive"
+        detent="auto"
         instantOpen
         actions={addObjectActions}
       />

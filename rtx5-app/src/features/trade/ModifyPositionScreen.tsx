@@ -867,6 +867,7 @@ export function ModifyPositionScreen() {
         onClose={() => setPositionPickerOpen(false)}
         title="Select Symbol"
         searchable
+        compactText
         searchPlaceholder="Search symbols..."
         detent="large"
         instantOpen

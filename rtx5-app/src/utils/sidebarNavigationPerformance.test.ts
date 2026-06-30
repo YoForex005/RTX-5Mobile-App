@@ -7,6 +7,7 @@ const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 
 
 test('hamburger opens the sidebar on the zero-delay stable press path', () => {
   const source = readSource('src/ui/components/AppHeader.tsx');
+  const controllerSource = readSource('src/ui/components/sidebarDrawerController.ts');
 
   assert.match(source, /const handleOpenSidebar = useCallback/);
   assert.match(source, /import \{ openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual \} from '\.\/sidebarDrawerController'/);
@@ -34,25 +35,38 @@ test('hamburger opens the sidebar on the zero-delay stable press path', () => {
   assert.match(source, /unstable_pressDelay=\{0\}/);
   assert.doesNotMatch(source, /traceUiInteraction/);
   assert.doesNotMatch(source, /ANDROID_EDGE_GESTURE_SAFE_PAD/);
+  assert.match(controllerSource, /const sidebarOpenHandlers: SidebarOpenHandler\[\] = \[\]/);
+  assert.match(controllerSource, /sidebarOpenHandlers\.push\(handler\)/);
+  assert.match(controllerSource, /const index = sidebarOpenHandlers\.lastIndexOf\(handler\)/);
+  assert.match(controllerSource, /sidebarOpenHandlers\.splice\(index, 1\)/);
+  assert.match(controllerSource, /sidebarOpenHandlers\[sidebarOpenHandlers\.length - 1\]\?\.\(\)/);
+  assert.match(controllerSource, /const SIDEBAR_OPEN_VISUAL_SYNC_DELAY_MS = 130/);
+  assert.doesNotMatch(controllerSource, /let openSidebarHandler/);
 });
 
 test('sidebar drawer uses native-driver motion and non-blocking navigation for menu rows', () => {
   const source = readSource('src/ui/components/SidebarDrawer.tsx');
 
-  assert.match(source, /const DRAWER_OPEN_ANIMATION_MS = 190/);
-  assert.match(source, /const DRAWER_CLOSE_ANIMATION_MS = 160/);
+  assert.match(source, /const DRAWER_OPEN_ANIMATION_MS = 110/);
+  assert.match(source, /const DRAWER_CLOSE_ANIMATION_MS = 90/);
   assert.match(source, /const DRAWER_CLOSED_TRANSLATE_X = -DRAWER_WIDTH - 2/);
   assert.match(source, /const SIDEBAR_NAVIGATION_LOCK_MS = 50/);
   assert.match(source, /import \{ useDeferredActiveFlag \} from '..\/..\/hooks\/useDeferredActiveFlag'/);
+  assert.match(source, /import \{ warmSidebarRouteModules \} from '..\/..\/utils\/sidebarRouteModuleWarmup'/);
   assert.match(source, /const SIDEBAR_PROFILE_DATA_DELAY_MS = 1200/);
   assert.doesNotMatch(source, /const visible = useUIState\(\(s\) => s\.sidebarOpen\)/);
   assert.match(source, /const initialSidebarOpenRef = useRef\(useUIState\.getState\(\)\.sidebarOpen\)/);
   assert.match(source, /const \[interactive, setInteractive\] = useState\(initialSidebarOpenRef\.current\)/);
   assert.match(source, /const sidebarProfileDataActive = useDeferredActiveFlag\(interactive && isLoggedIn, SIDEBAR_PROFILE_DATA_DELAY_MS\)/);
+  assert.match(source, /useEffect\(\(\) => warmSidebarRouteModules\(\), \[\]\)/);
   assert.doesNotMatch(source, /profileDataReady/);
   assert.match(source, /const LOGGED_OUT_PREFETCH_ROUTES = \['\/login'\] as const/);
   assert.match(source, /const SIDEBAR_STACK_ROUTES = new Set<string>\(LOGGED_OUT_PREFETCH_ROUTES\)/);
   assert.match(source, /const SIDEBAR_PUSH_ROUTE_PREFIXES = \['\/settings\/'\] as const/);
+  assert.match(source, /const SIDEBAR_PRIMARY_TAB_ROUTES = new Set<string>/);
+  assert.match(source, /let lastSidebarDetailBasePath: string \| null = null/);
+  assert.match(source, /function scheduleAfterTapVisualFrame\(action: \(\) => void\)/);
+  assert.match(source, /const runAfterFrame = \(\) => setTimeout\(action, 0\)/);
   assert.match(source, /function shouldPushSidebarRoute\(route: string\)/);
   assert.match(source, /const animatedVisibleRef = useRef\(initialSidebarOpenRef\.current\)/);
   assert.match(source, /const interactiveGenerationRef = useRef\(0\)/);
@@ -63,6 +77,30 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
   assert.match(source, /scheduleNextFrame\(\(\) => \{[\s\S]*setInteractive\(true\);/);
   assert.match(source, /const hideInteractiveNow = useCallback/);
   assert.match(source, /setInteractive\(false\);/);
+  const snapCloseStart = source.indexOf('const snapClosedForNavigation = useCallback');
+  const runNavigationStart = source.indexOf('const runSidebarNavigation = useCallback', snapCloseStart);
+  assert.notEqual(snapCloseStart, -1);
+  assert.notEqual(runNavigationStart, -1);
+  const snapCloseSource = source.slice(snapCloseStart, runNavigationStart);
+  assert.match(snapCloseSource, /slideAnim\.setValue\(DRAWER_CLOSED_TRANSLATE_X\)/);
+  assert.match(snapCloseSource, /overlayAnim\.setValue\(0\)/);
+  assert.match(snapCloseSource, /interactiveGenerationRef\.current \+= 1/);
+  assert.doesNotMatch(snapCloseSource, /hideInteractiveNow\(\)/);
+  assert.doesNotMatch(snapCloseSource, /onClose\(\)/);
+  const navigateStart = source.indexOf('const navigateSidebarRoute = useCallback', runNavigationStart);
+  assert.notEqual(navigateStart, -1);
+  const runNavigationSource = source.slice(runNavigationStart, navigateStart);
+  assert.match(runNavigationSource, /const currentPath = normalizeSidebarPath\(pathname\)/);
+  assert.match(runNavigationSource, /SIDEBAR_PRIMARY_TAB_ROUTES\.has\(route\) && shouldPushSidebarRoute\(currentPath\)/);
+  assert.match(runNavigationSource, /const detailBasePath = lastSidebarDetailBasePath/);
+  assert.match(runNavigationSource, /lastSidebarDetailBasePath = null;[\s\S]*router\.back\(\);/);
+  assert.match(runNavigationSource, /if \(detailBasePath !== route\) \{[\s\S]*scheduleAfterTapVisualFrame\(\(\) => router\.navigate\(route as any\)\)/);
+  assert.match(runNavigationSource, /useUIState\.getState\(\)\.setSidebarOpen\(false\)/);
+  assert.match(runNavigationSource, /if \(SIDEBAR_PRIMARY_TAB_ROUTES\.has\(currentPath\)\) \{[\s\S]*lastSidebarDetailBasePath = currentPath;/);
+  const supportStart = source.indexOf('const openSupportEmail = useCallback', navigateStart);
+  assert.notEqual(supportStart, -1);
+  const navigateSource = source.slice(navigateStart, supportStart);
+  assert.match(navigateSource, /snapClosedForNavigation\(\);[\s\S]*scheduleAfterTapVisualFrame\(\(\) => \{[\s\S]*runSidebarNavigation\(route\);[\s\S]*scheduleAfterTapVisualFrame\(\(\) => \{[\s\S]*hideInteractiveNow\(\);[\s\S]*onClose\(\);[\s\S]*unlockSidebarNavigation\(\);/);
   assert.match(source, /import \{ registerSidebarOpenHandler \} from '\.\/sidebarDrawerController'/);
   assert.match(source, /useEffect\(\(\) => registerSidebarOpenHandler\(\(\) => \{[\s\S]*startOpenAnimation\(\);[\s\S]*showInteractiveAfterVisualFrame\(\);/);
   assert.match(source, /useUIState\.subscribe\(\(state, previousState\) => \{/);
@@ -113,7 +151,10 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
   assert.match(source, /navigationLockedRef\.current = true/);
   assert.doesNotMatch(source, /clearSidebarPrefetchTimer/);
   assert.match(source, /const snapClosedForNavigation = useCallback/);
-  assert.match(source, /snapClosedForNavigation\(\);[\s\S]*runSidebarNavigation\(route\);[\s\S]*unlockSidebarNavigation\(\);/);
+  assert.match(source, /snapClosedForNavigation\(\);[\s\S]*scheduleAfterTapVisualFrame\(\(\) => \{[\s\S]*runSidebarNavigation\(route\);[\s\S]*unlockSidebarNavigation\(\);/);
+  assert.match(source, /const openSupportEmailFromSidebar = useCallback/);
+  assert.match(source, /snapClosedForNavigation\(\);[\s\S]*void openSupportEmail\(\)\.finally\(\(\) => \{[\s\S]*unlockSidebarNavigation\(\);/);
+  assert.doesNotMatch(source, /if \(item\.action === 'support-email'\) \{[\s\S]*handleClose\(\(\) => \{[\s\S]*void openSupportEmail\(\)/);
   assert.doesNotMatch(source, /preloadSidebarRouteModule/);
   assert.doesNotMatch(source, /preloadDeferredRouteModule\(JOURNAL_ROUTE_CACHE_KEY, loadJournalScreenRoute\)/);
   assert.doesNotMatch(source, /function scheduleAfterPressPaint/);
@@ -216,12 +257,27 @@ test('journal sidebar destination keeps menu access for repeated MT-style drawer
   assert.doesNotMatch(source, /latencyLabel="journal\.back"/);
   assert.doesNotMatch(source, /safeRouterBack\(router, '\/\(tabs\)\/settings'\)/);
 });
+
+test('economic calendar sidebar destination uses hamburger menu access', () => {
+  const source = readSource('src/features/settings/EconomicCalendarScreen/EconomicCalendarScreen.tsx');
+
+  assert.match(source, /import \{ SidebarDrawer \} from '..\/..\/..\/ui\/components\/SidebarDrawer'/);
+  assert.match(source, /import \{ openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual \} from '..\/..\/..\/ui\/components\/sidebarDrawerController'/);
+  assert.match(source, /const hideActionSheet = useUIState\(\(state\) => state\.hideActionSheet\)/);
+  assert.match(source, /const handleOpenMenu = useCallback/);
+  assert.match(source, /openSidebarDrawerImmediately\(\);\s*scheduleAfterSidebarOpenVisual\(hideActionSheet\);/);
+  assert.match(source, /onPress=\{handleOpenMenu\}[\s\S]*activateOnTouchStart[\s\S]*latencyLabel="economicCalendar\.menu"/);
+  assert.match(source, /<Ionicons name="menu" size=\{28\}/);
+  assert.match(source, /<SidebarDrawer \/>/);
+  assert.doesNotMatch(source, /safeRouterBack\(router, '\/\(tabs\)\/settings'\)/);
+  assert.doesNotMatch(source, /name="arrow-back"/);
+});
+
 test('settings detail back buttons pop instantly instead of re-mounting the tab navigator', () => {
   const directBackFiles = [
     'src/features/settings/AccountsScreen.tsx',
     'src/features/settings/NewsScreen.tsx',
     'src/features/settings/MailboxScreen.tsx',
-    'src/features/settings/EconomicCalendarScreen/EconomicCalendarScreen.tsx',
     'src/features/settings/InterfaceScreen.tsx',
     'src/features/settings/TradersCommunityScreen.tsx',
   ];
@@ -292,6 +348,7 @@ test('sidebar keeps the main option routes warm and available', () => {
   const rootLayoutSource = readSource('app/_layout.tsx');
   const tabsLayoutSource = readSource('app/(tabs)/_layout.tsx');
   const deferredMountSource = readSource('src/ui/components/DeferredRouteMount.tsx');
+  const sidebarWarmupSource = readSource('src/utils/sidebarRouteModuleWarmup.ts');
   const deferredRouteFiles = [
     'app/settings/accounts.tsx',
     'app/settings/economic-calendar.tsx',
@@ -315,6 +372,7 @@ test('sidebar keeps the main option routes warm and available', () => {
   assert.match(source, /label: 'About'.*route: '\/settings\/about'/);
   assert.match(source, /getConfiguredSupportEmail/);
   assert.match(source, /buildHelpMailto/);
+  assert.match(source, /warmSidebarRouteModules/);
   assert.doesNotMatch(source, /\/settings\/support/);
   assert.doesNotMatch(source, /MQL5 Algo Trading|\/settings\/mql5-algo-trading|Traders Community|\/settings\/traders-community/);
   assert.match(source, /'\/settings\/accounts'/);
@@ -339,6 +397,20 @@ test('sidebar keeps the main option routes warm and available', () => {
   assert.match(deferredMountSource, /const routeModuleCache = new Map<string, CachedRouteModule>\(\)/);
   assert.match(deferredMountSource, /export function preloadDeferredRouteModule/);
   assert.match(deferredMountSource, /preloadDeferredRouteModule\(cacheKey, load\)/);
+  assert.match(sidebarWarmupSource, /const SIDEBAR_ROUTE_MODULE_WARMUP_INITIAL_DELAY_MS = 0/);
+  assert.match(sidebarWarmupSource, /const SIDEBAR_ROUTE_MODULE_WARMUP_BATCH_DELAY_MS = 16/);
+  assert.match(sidebarWarmupSource, /const SIDEBAR_ROUTE_MODULE_WARMUP_INITIAL_TIMEOUT_MS = 450/);
+  assert.match(sidebarWarmupSource, /const SIDEBAR_ROUTE_MODULE_WARMUP_BATCH_TIMEOUT_MS = 650/);
+  assert.match(sidebarWarmupSource, /key: 'trade\/index'/);
+  assert.match(sidebarWarmupSource, /key: 'settings\/index'/);
+  assert.match(sidebarWarmupSource, /key: 'settings\/economic-calendar'/);
+  assert.match(sidebarWarmupSource, /key: 'settings\/user-guide'/);
+  assert.match(sidebarWarmupSource, /key: 'settings\/help'/);
+  assert.match(sidebarWarmupSource, /key: 'settings\/about'/);
+  assert.match(sidebarWarmupSource, /key: JOURNAL_ROUTE_CACHE_KEY/);
+  assert.match(sidebarWarmupSource, /preloadDeferredRouteModule\(module\.key, module\.load\)/);
+  assert.match(sidebarWarmupSource, /delayMs: SIDEBAR_ROUTE_MODULE_WARMUP_INITIAL_DELAY_MS/);
+  assert.match(sidebarWarmupSource, /delayMs: SIDEBAR_ROUTE_MODULE_WARMUP_BATCH_DELAY_MS/);
   assert.match(deferredMountSource, /fallback = null/);
   assert.match(deferredMountSource, /if \(!RouteComponent\) \{\s*return <>\{fallback\}<\/>;\s*\}/);
   assert.doesNotMatch(deferredMountSource, /DeferredRoutePlaceholder|placeholderTitle|title\?: string/);

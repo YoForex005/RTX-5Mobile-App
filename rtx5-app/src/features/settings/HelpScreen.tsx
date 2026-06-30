@@ -74,7 +74,7 @@ export function HelpScreen() {
           accessibilityRole="button"
           accessibilityLabel="Back"
         >
-          <Ionicons name="arrow-back" size={28} color={backIconColor} />
+          <Ionicons name="arrow-back" size={24} color={backIconColor} />
         </FastPressable>
         <Text style={styles.headerTitle} numberOfLines={1}>Help</Text>
       </View>
@@ -89,7 +89,7 @@ export function HelpScreen() {
         <View style={styles.summaryPanel}>
           <View style={styles.summaryTopRow}>
             <View style={styles.summaryIcon}>
-              <Ionicons name="help-buoy-outline" size={22} color={accentColor} />
+              <Ionicons name="help-buoy-outline" size={20} color={accentColor} />
             </View>
             <View style={styles.summaryTitleWrap}>
               <Text style={styles.summaryLabel}>{HELP_HEADER.label}</Text>
@@ -98,7 +98,7 @@ export function HelpScreen() {
           </View>
           <Text style={styles.summaryBody}>{HELP_HEADER.body}</Text>
           <View style={styles.searchBox}>
-            <Ionicons name="search" size={18} color={accentColor} />
+            <Ionicons name="search" size={16} color={accentColor} />
             <TextInput
               value={faqQuery}
               onChangeText={handleChangeQuery}
@@ -118,7 +118,7 @@ export function HelpScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Clear FAQ search"
               >
-                <Ionicons name="close-circle" size={18} color={isDark ? '#94A3B8' : '#667085'} />
+                <Ionicons name="close-circle" size={16} color={isDark ? '#94A3B8' : '#667085'} />
               </FastPressable>
             ) : null}
           </View>

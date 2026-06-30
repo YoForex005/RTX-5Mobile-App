@@ -6,7 +6,12 @@ import { useTradingState } from '../../state/tradingState';
 import NetInfo from '@react-native-community/netinfo';
 import { liveCandleStream } from '../../domain/candles/stream/liveCandleStream';
 import { useUserPreferences } from '../../state/userPreferences';
-import { buildBrokerWsUrl, normalizeConfiguredWsUrl } from '../brokerRouting';
+import {
+  buildBrokerWsUrl,
+  getBrokerBackendDomainUnavailableMessage,
+  isBrokerServiceBaseUrl,
+  normalizeConfiguredWsUrl,
+} from '../brokerRouting';
 
 type SubscriptionMessage = {
   type: 'subscribe' | 'unsubscribe';
@@ -47,9 +52,13 @@ export class WebSocketService {
   }
 
   private resolveSocketUrl(): string {
+    const state = useUserPreferences.getState();
+    if (state.isLoggedIn && !isBrokerServiceBaseUrl(state.brokerServerUrl)) {
+      return '';
+    }
     return normalizeConfiguredWsUrl(
       process.env.EXPO_PUBLIC_WS_URL,
-      buildBrokerWsUrl(useUserPreferences.getState().brokerServerUrl, '/ws', 'wss://backend.orrnn.com/ws'),
+      buildBrokerWsUrl(state.brokerServerUrl, '/ws', 'wss://backend.orrnn.com/ws'),
     );
   }
 
@@ -63,6 +72,14 @@ export class WebSocketService {
 
     try {
       this.url = this.resolveSocketUrl();
+      if (!this.url) {
+        console.warn(
+          '[WebSocket]',
+          getBrokerBackendDomainUnavailableMessage(useUserPreferences.getState().brokerId),
+        );
+        this.attemptReconnect();
+        return;
+      }
       this.ws = new WebSocket(this.url);
 
       this.ws.onopen = () => {

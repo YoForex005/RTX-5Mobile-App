@@ -49,3 +49,39 @@ test('chart color resolver preserves explicit custom grid choices in dark theme'
 
   assert.equal(darkColors.grid, customGrid);
 });
+
+test('chart color resolver does not let persisted light canvas colors leak into dark theme', () => {
+  const darkColors = resolveChartColorsForTheme(
+    {
+      ...DEFAULT_CHART_COLORS,
+      background: '#FAFAFA',
+      foreground: '#111827',
+      grid: 'rgba(0,0,0,0.09)',
+      hollowBody: '#FFFFFF',
+    },
+    'custom',
+    true,
+  );
+
+  assert.equal(darkColors.background, '#080B11');
+  assert.equal(darkColors.foreground, DEFAULT_CHART_COLORS.foreground);
+  assert.equal(darkColors.grid, DEFAULT_CHART_COLORS.grid);
+  assert.equal(darkColors.hollowBody, '#080B11');
+});
+
+test('chart color resolver preserves explicit custom dark canvas colors in dark theme', () => {
+  const darkColors = resolveChartColorsForTheme(
+    {
+      ...DEFAULT_CHART_COLORS,
+      background: '#101827',
+      foreground: '#E5E7EB',
+      hollowBody: '#101827',
+    },
+    'custom',
+    true,
+  );
+
+  assert.equal(darkColors.background, '#101827');
+  assert.equal(darkColors.foreground, '#E5E7EB');
+  assert.equal(darkColors.hollowBody, '#101827');
+});

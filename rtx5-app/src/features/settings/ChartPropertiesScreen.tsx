@@ -16,7 +16,6 @@ import {
   CHART_COLOR_SCHEME_PRESETS,
   ChartColorScheme,
   ChartColorsConfig,
-  ChartDisplaySettings,
   resolveChartColorsForTheme,
   useUserPreferences,
 } from '../../state/userPreferences';
@@ -25,29 +24,9 @@ import { useTheme } from '../../ui/theme/useTheme';
 import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
 import { LiveChartPreview } from '../chart/preview';
 
-type SettingsTab = 'show' | 'colors';
-
 // Match Settings dark palette for the chart preferences shell and cards.
 const SETTINGS_DARK_BACKGROUND = '#000000';
 const SETTINGS_DARK_CARD_BACKGROUND = '#0d1628';
-
-const TABS: Array<{ key: SettingsTab; label: string }> = [
-  { key: 'show', label: 'Show' },
-  { key: 'colors', label: 'Colors' },
-];
-
-// Keep this mobile list focused on controls that visibly matter on a small chart.
-const SHOW_FIELDS: Array<{ key: keyof ChartDisplaySettings; label: string }> = [
-  { key: 'showTicker', label: 'Show ticker' },
-  { key: 'showOHLC', label: 'Show OHLC' },
-  { key: 'showQuickTradingButtons', label: 'Show quick trading buttons' },
-  { key: 'showBidPriceLine', label: 'Show bid price line' },
-  { key: 'showAskPriceLine', label: 'Show ask price line' },
-  { key: 'showLastPriceLine', label: 'Show last price line' },
-  { key: 'showGrid', label: 'Show grid' },
-  { key: 'showObjectDescriptions', label: 'Show object descriptions' },
-  { key: 'showTradeLevels', label: 'Show trade levels' },
-];
 
 type ColorGroup = {
   title: string;
@@ -127,13 +106,11 @@ export function ChartPropertiesScreen() {
   const chartColorScheme = useUserPreferences((s) => s.chartColorScheme);
   const setChartColorScheme = useUserPreferences((s) => s.setChartColorScheme);
   const setChartColor = useUserPreferences((s) => s.setChartColor);
-  const setChartDisplaySetting = useUserPreferences((s) => s.setChartDisplaySetting);
   const resolvedChartColors = useMemo(
     () => resolveChartColorsForTheme(chartColors, chartColorScheme, isDark),
     [chartColors, chartColorScheme, isDark],
   );
 
-  const [activeTab, setActiveTab] = useState<SettingsTab>('show');
   const [schemeModalOpen, setSchemeModalOpen] = useState(false);
   const [activeColorKey, setActiveColorKey] = useState<keyof ChartColorsConfig | null>(null);
   const [draftColor, setDraftColor] = useState('');
@@ -367,7 +344,7 @@ export function ChartPropertiesScreen() {
           <View style={styles.previewHeader}>
             <View>
               <Text style={styles.previewTitle}>Live chart preview</Text>
-              <Text style={styles.previewSub}>Tabbed chart properties with live color updates.</Text>
+              <Text style={styles.previewSub}>Chart colors with live updates.</Text>
             </View>
             <View style={styles.liveBadge}>
               <View style={styles.liveDot} />
@@ -428,35 +405,8 @@ export function ChartPropertiesScreen() {
           </View>
         </View>
 
-        <View style={styles.tabsRow}>
-          {TABS.map((tab) => (
-            <Pressable key={tab.key} style={styles.tabButton} onPress={() => setActiveTab(tab.key)}>
-              <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>{tab.label}</Text>
-              <View style={[styles.tabUnderline, activeTab === tab.key && styles.tabUnderlineActive]} />
-            </Pressable>
-          ))}
-        </View>
-
-
         <View style={styles.panel}>
-          {activeTab === 'show' && (
-            <View style={styles.panelBody}>
-              {SHOW_FIELDS.map((item, index) => (
-                <View key={item.key}>
-                  <Pressable style={styles.checkRow} onPress={() => setChartDisplaySetting(item.key, !chartDisplay[item.key])}>
-                    <View style={[styles.checkbox, chartDisplay[item.key] && styles.checkboxChecked]}>
-                      {chartDisplay[item.key] && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
-                    </View>
-                    <Text style={styles.checkLabel}>{item.label}</Text>
-                  </Pressable>
-                  {index < SHOW_FIELDS.length - 1 && <View style={styles.separator} />}
-                </View>
-              ))}
-            </View>
-          )}
-
-          {activeTab === 'colors' && (
-            <View style={styles.panelBody}>
+          <View style={styles.panelBody}>
               {/* ── Scheme presets — 2×2 visual grid ─────────────────────── */}
               <Text style={styles.colorGroupTitle}>SCHEME</Text>
               <View style={styles.schemeGrid}>
@@ -547,8 +497,7 @@ export function ChartPropertiesScreen() {
                   </View>
                 </View>
               ))}
-            </View>
-          )}
+          </View>
         </View>
       </ScrollView>
 
@@ -852,39 +801,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 12,
       fontWeight: '600',
     },
-    tabsRow: {
-      flexDirection: 'row',
-      borderRadius: 18,
-      backgroundColor: preferencesCardBackground,
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#DDE3EA',
-      paddingHorizontal: 8,
-      paddingTop: 6,
-      marginBottom: 12,
-    },
-    tabButton: {
-      flex: 1,
-      alignItems: 'center',
-      paddingVertical: 10,
-      gap: 8,
-    },
-    tabText: {
-      color: isDark ? '#64748B' : '#94A3B8',
-      fontSize: 13,
-      fontWeight: '700',
-    },
-    tabTextActive: {
-      color: isDark ? '#F8FAFC' : '#0F172A',
-    },
-    tabUnderline: {
-      width: '60%',
-      height: 3,
-      borderRadius: 999,
-      backgroundColor: 'transparent',
-    },
-    tabUnderlineActive: {
-      backgroundColor: T.trading.buy.primary,
-    },
     panel: {
       backgroundColor: preferencesCardBackground,
       borderRadius: 20,
@@ -922,70 +838,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       flexShrink: 1,
       minWidth: 0,
       textAlign: 'right',
-    },
-    checkRow: {
-      minHeight: 56,
-      paddingHorizontal: 16,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-    },
-    checkbox: {
-      width: 22,
-      height: 22,
-      borderRadius: 7,
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.14)' : '#CBD5E1',
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: 'transparent',
-    },
-    checkboxChecked: {
-      backgroundColor: T.trading.buy.primary,
-      borderColor: T.trading.buy.primary,
-    },
-    checkLabel: {
-      color: isDark ? '#F8FAFC' : '#0F172A',
-      fontSize: 15,
-      fontWeight: '600',
-      flex: 1,
-    },
-    colorRow: {
-      minHeight: 56,
-      paddingHorizontal: 16,
-      paddingVertical: 14,
-      alignItems: 'flex-start',
-      justifyContent: 'center',
-      gap: 12,
-    },
-    colorLabel: {
-      color: isDark ? '#F8FAFC' : '#0F172A',
-      fontSize: 15,
-      fontWeight: '600',
-      width: '100%',
-    },
-    colorValueRow: {
-      width: '100%',
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-      minWidth: 0,
-    },
-    colorValueText: {
-      color: isDark ? '#94A3B8' : '#64748B',
-      fontSize: 13,
-      fontWeight: '600',
-      flex: 1,
-      minWidth: 0,
-    },
-    colorChip: {
-      width: 24,
-      height: 24,
-      borderRadius: 8,
-      borderWidth: 1,
-      overflow: 'hidden',
-      alignItems: 'center',
-      justifyContent: 'center',
     },
     transparentSlash: {
       width: 28,

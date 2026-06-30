@@ -2,8 +2,10 @@ import { JOURNAL_ROUTE_CACHE_KEY, loadJournalScreenRoute } from '../features/set
 import { preloadDeferredRouteModule } from '../ui/components/DeferredRouteMount';
 import { scheduleIdleWork } from './startupScheduler';
 
-const SIDEBAR_ROUTE_MODULE_WARMUP_INITIAL_DELAY_MS = 2200;
-const SIDEBAR_ROUTE_MODULE_WARMUP_BATCH_DELAY_MS = 180;
+const SIDEBAR_ROUTE_MODULE_WARMUP_INITIAL_DELAY_MS = 0;
+const SIDEBAR_ROUTE_MODULE_WARMUP_BATCH_DELAY_MS = 16;
+const SIDEBAR_ROUTE_MODULE_WARMUP_INITIAL_TIMEOUT_MS = 450;
+const SIDEBAR_ROUTE_MODULE_WARMUP_BATCH_TIMEOUT_MS = 650;
 
 const SIDEBAR_ROUTE_MODULE_LOADERS = [
   { key: 'trade/index', load: () => import('../features/trade/TradeScreen').then((module) => module.TradeScreen) },
@@ -41,7 +43,7 @@ export function warmSidebarRouteModules() {
     if (cursor < SIDEBAR_ROUTE_MODULE_LOADERS.length) {
       const cancel = scheduleIdleWork(warmNextModule, {
         delayMs: SIDEBAR_ROUTE_MODULE_WARMUP_BATCH_DELAY_MS,
-        timeoutMs: 1200,
+        timeoutMs: SIDEBAR_ROUTE_MODULE_WARMUP_BATCH_TIMEOUT_MS,
       });
       cancelScheduledWork.push(cancel);
     }
@@ -49,7 +51,7 @@ export function warmSidebarRouteModules() {
 
   const cancelInitialWarmup = scheduleIdleWork(warmNextModule, {
     delayMs: SIDEBAR_ROUTE_MODULE_WARMUP_INITIAL_DELAY_MS,
-    timeoutMs: 1800,
+    timeoutMs: SIDEBAR_ROUTE_MODULE_WARMUP_INITIAL_TIMEOUT_MS,
   });
   cancelScheduledWork.push(cancelInitialWarmup);
 

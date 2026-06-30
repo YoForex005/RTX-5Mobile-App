@@ -16,7 +16,12 @@ import { useLiveAccountState } from '../../state/liveAccountState';
 import { usePositionsState } from '../../state/positionsState';
 import { resolveTradingLogin } from '../../state/tradingLogin';
 import { useUserPreferences } from '../../state/userPreferences';
-import { buildBrokerWsUrl, normalizeConfiguredWsUrl } from '../brokerRouting';
+import {
+  buildBrokerWsUrl,
+  getBrokerBackendDomainUnavailableMessage,
+  isBrokerServiceBaseUrl,
+  normalizeConfiguredWsUrl,
+} from '../brokerRouting';
 import {
   extractLiveAccountMetrics,
   resolveAccountWsSession,
@@ -24,11 +29,16 @@ import {
 } from './accountSocket.helpers';
 
 const DEFAULT_ACCOUNT_WS_URL = 'wss://backend.orrnn.com/ws/v2';
-const getAccountWsBaseUrl = () =>
-  normalizeConfiguredWsUrl(
+const getAccountWsBaseUrl = () => {
+  const state = useUserPreferences.getState();
+  if (state.isLoggedIn && !isBrokerServiceBaseUrl(state.brokerServerUrl)) {
+    return '';
+  }
+  return normalizeConfiguredWsUrl(
     process.env.EXPO_PUBLIC_ACCOUNT_WS_URL,
-    buildBrokerWsUrl(useUserPreferences.getState().brokerServerUrl, '/ws/v2', DEFAULT_ACCOUNT_WS_URL),
+    buildBrokerWsUrl(state.brokerServerUrl, '/ws/v2', DEFAULT_ACCOUNT_WS_URL),
   );
+};
 const DEBUG_ACCOUNT_WS =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_ACCOUNT_WS === 'true';
 
@@ -268,7 +278,16 @@ class AccountWebSocketService {
     }
 
     this.activeSession = session;
-    const wsUrl = `${getAccountWsBaseUrl()}?token=${encodeURIComponent(session.token)}`;
+    const wsBaseUrl = getAccountWsBaseUrl();
+    if (!wsBaseUrl) {
+      warnAccountWsDiagnostic(
+        '[Account WS]',
+        getBrokerBackendDomainUnavailableMessage(useUserPreferences.getState().brokerId),
+      );
+      this.scheduleRetry(5000);
+      return;
+    }
+    const wsUrl = `${wsBaseUrl}?token=${encodeURIComponent(session.token)}`;
 
     try {
       this.ws = new WebSocket(wsUrl);

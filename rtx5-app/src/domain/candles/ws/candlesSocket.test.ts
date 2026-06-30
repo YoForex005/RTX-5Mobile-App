@@ -9,6 +9,7 @@ import {
   resolveCandlesWsUrl,
   resolveCandleWsTimeframe,
 } from './candlesSocketProtocol';
+import { normalizeLiveCandle } from '../normalization/candleNormalizer';
 
 test('resolveCandlesWsUrl upgrades stale quote-feed candle config to channel websocket', () => {
   assert.equal(resolveCandlesWsUrl(undefined), 'wss://backend.orrnn.com/ws/v2');
@@ -167,4 +168,28 @@ test('getCandlePayloadItems unwraps v2 snapshot and update payloads', () => {
   assert.equal(getCandlePayloadItems(snapshot).length, 2);
   assert.deepEqual(getCandlePayloadItems(update), [update.data.candle]);
   assert.deepEqual(getCandlePayloadItems(directUpdate), [directUpdate.data]);
+});
+
+test('normalizeLiveCandle keeps candle bucket time separate from backend server_time', () => {
+  const candle = normalizeLiveCandle({
+    event: 'candle.replace_last',
+    channel: 'candles.XAUUSD.1m',
+    symbol: 'XAUUSD',
+    timeframe: '1m',
+    time: '2026-06-30T11:30:00.000Z',
+    server_time: '2026-06-30T11:30:12.500Z',
+    open: 4030.51,
+    high: 4031.16,
+    low: 4029.66,
+    close: 4031.11,
+    volume: 55,
+    closed: false,
+  });
+
+  assert.ok(candle);
+  assert.equal(candle.time, 1782819000);
+  assert.equal(candle.updateTime, 1782819012);
+  assert.equal(candle.symbol, 'XAUUSD');
+  assert.equal(candle.timeframe, 'M1');
+  assert.equal(candle.closed, false);
 });

@@ -4,11 +4,10 @@
  * This service subscribes to backend candle messages and forwards valid
  * payloads into the canonical `liveCandlesEngine` stream.
  *
- * Authentication: the current `/ws/v2` public candle channels can stream
- * anonymously, while logged-in sessions may still use the JWT for account or
- * broker-scoped routing. The token is resolved dynamically from
- * `useUserPreferences` at connect time and the socket reconnects when the
- * active token changes (login/logout/account switch).
+ * Authentication: the current `/ws/v2` public candle channels stream
+ * anonymously. Account and trade realtime sockets handle authenticated data
+ * separately; candle channels avoid attaching the user's API/feed token because
+ * tokenized `/ws/v2` handshakes can be rejected by public candle backends.
  */
 
 import { liveCandleStream as liveCandlesEngine } from '../../stream/liveCandleStream';
@@ -27,14 +26,18 @@ import { useUserPreferences } from '../../../../state/userPreferences';
 import { createSubscriptionKey, getStoredAccessToken } from './authToken';
 import type { ArrayListener, StreamListener, SubscriptionState, TickListener } from './types';
 
+const shouldAttachCandleWsToken = (): boolean => {
+  const value = process.env.EXPO_PUBLIC_CANDLES_WS_REQUIRES_TOKEN;
+  return typeof value === 'string' && /^(1|true|yes)$/i.test(value.trim());
+};
+
 export class CandlesWebSocketService {
   private static instance: CandlesWebSocketService;
 
   private ws: WebSocket | null = null;
   private url = this.resolveSocketUrl();
-  // Last token we used to open the current `ws`. When the stored token
-  // changes (login, logout, account switch), we tear the socket down and
-  // reconnect so the backend re-authenticates the candle channels.
+  // Last token appended to the current `ws` when tokenized candle channels are
+  // explicitly enabled. In the default public candle mode this stays null.
   private activeToken: string | null = null;
   private anonymousFallbackToken: string | null = null;
   private tokenWatcherUnsubscribe: (() => void) | null = null;
@@ -65,13 +68,13 @@ export class CandlesWebSocketService {
       if (hasConfiguredUrl) {
         return configuredUrl;
       }
+      return resolveCandlesWsUrl(undefined);
     }
-    return resolveCandlesWsUrl(undefined, state.brokerServerUrl, { requireBrokerUrl: state.isLoggedIn });
+    return resolveCandlesWsUrl(undefined, state.brokerServerUrl, { requireBrokerUrl: true });
   }
 
   /**
-   * Establishes the WebSocket connection using the currently stored JWT access token.
-   * Re-authenticates and resubscribes to all active channels automatically if the token changes.
+   * Establishes the WebSocket connection and resubscribes all active candle channels.
    */
   public connect(): void {
     if (this.subscriptions.size === 0) {
@@ -90,9 +93,8 @@ export class CandlesWebSocketService {
       return;
     }
 
-    // If the socket is already up but the token has rotated, tear it down so
-    // the new connection can use the fresh JWT for any account/broker-scoped
-    // routing while public candle channels continue to work anonymously.
+    // If the socket is already up but the connection identity has rotated, tear
+    // it down so the next connection uses the current broker URL/auth mode.
     if (
       (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) &&
       (this.activeToken !== token || this.url !== nextUrl)
@@ -481,6 +483,10 @@ export class CandlesWebSocketService {
   }
 
   private resolveConnectionToken(): string | null {
+    if (!shouldAttachCandleWsToken()) {
+      return null;
+    }
+
     const token = getStoredAccessToken();
     if (!token) {
       return null;
@@ -518,9 +524,9 @@ export class CandlesWebSocketService {
     } catch (_error) {}
   }
 
-  // Watch the user's stored access token. When it changes (login, logout, or
-  // account switch) and we have active candle subscriptions, reconnect with
-  // the new credentials so backend candle channels re-authenticate.
+  // Watch the user's stored access token and broker URL. Token changes only
+  // affect the socket when tokenized candle channels are explicitly enabled,
+  // but the same watcher also keeps broker-domain switches fresh.
   private startTokenWatcher(): void {
     if (this.tokenWatcherUnsubscribe) {
       return;

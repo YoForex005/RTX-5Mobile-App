@@ -220,12 +220,12 @@ const makeTimeframePickerStyles = ({
   },
   optionText: {
     color: isDark ? mutedColor : '#2F343D',
-    fontSize: 14,
+    fontSize: 13,
     lineHeight: 18,
     fontWeight: '500',
   },
   optionTextActive: {
     color: '#FFFFFF',
-    fontWeight: '700',
+    fontWeight: '500',
   },
 });

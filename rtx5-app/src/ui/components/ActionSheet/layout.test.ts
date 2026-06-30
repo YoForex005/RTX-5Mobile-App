@@ -298,3 +298,23 @@ test('backdrop ignores the opening tap that created the action sheet', () => {
   assert.match(source, /Date\.now\(\) - openedAtRef\.current < ACTION_SHEET_BACKDROP_OPEN_GUARD_MS/);
   assert.match(source, /onPress=\{handleBackdropPress\}/);
 });
+
+test('action sheet can center opt-in MT5 plain sheet titles', () => {
+  const source = readActionSheetSource();
+
+  assert.match(source, /titleAlign\?: 'left' \| 'center'/);
+  assert.match(source, /const activeTitleAlign = activeConfig\.titleAlign/);
+  assert.match(source, /const isTitleCentered = activeTitleAlign === 'center'/);
+  assert.match(source, /isTitleCentered && styles\.titleContainerCentered/);
+  assert.match(source, /isTitleCentered && styles\.titleTextCentered/);
+});
+
+test('muted action sheet rows look disabled while remaining tappable', () => {
+  const source = readActionSheetSource();
+
+  assert.match(source, /muted\?: boolean/);
+  assert.match(source, /const isVisuallyMuted = isActiveDisabled \|\| action\.muted === true/);
+  assert.match(source, /onPress=\{isActiveDisabled \? undefined : \(\) => handleActionRowPress\(action\.onPress\)\}/);
+  assert.match(source, /disabled=\{isActiveDisabled\}/);
+  assert.match(source, /isVisuallyMuted && \([\s\S]*styles\.actionTextDisabledMt5Plain : styles\.actionTextDisabled/);
+});

@@ -14,13 +14,25 @@ import {
   DEFAULT_API_BASE_URL,
   buildApiUrl,
   buildBrokerApiBaseUrl,
+  getBrokerBackendDomainUnavailableMessage,
+  isBrokerServiceBaseUrl,
 } from './brokerRouting';
 import { brokerApi, type BrokerApiRequestInit } from './brokerApi';
 
 // V2 API base URL - resolved from environment variable, falls back to direct IP.
 export const API_BASE_URL = DEFAULT_API_BASE_URL;
-export const getActiveApiBaseUrl = () =>
-  buildBrokerApiBaseUrl(useUserPreferences.getState().brokerServerUrl);
+export const getActiveApiBaseUrl = () => {
+  const state = useUserPreferences.getState();
+  const hasAuthenticatedSession = Boolean(
+    state.isLoggedIn ||
+      state.accountDetails?.credentials?.accessToken ||
+      state.accountDetails?.credentials?.refreshToken,
+  );
+  if (hasAuthenticatedSession && !isBrokerServiceBaseUrl(state.brokerServerUrl)) {
+    throw new Error(getBrokerBackendDomainUnavailableMessage(state.brokerId));
+  }
+  return buildBrokerApiBaseUrl(state.brokerServerUrl);
+};
 export const buildActiveApiUrl = (endpoint: string) =>
   buildApiUrl(endpoint, getActiveApiBaseUrl());
 

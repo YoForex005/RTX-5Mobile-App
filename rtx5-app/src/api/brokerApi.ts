@@ -16,8 +16,11 @@ import {
   buildApiUrl,
   buildBrokerApiBaseUrl,
   buildBrokerWsUrl,
+  getBrokerBackendDomainUnavailableMessage,
+  isBrokerServiceBaseUrl,
   normalizeBrokerServerUrl,
 } from './brokerRouting';
+import { extractFeedBrokerToken } from './feedAuth';
 
 const TOKEN_REFRESH_SKEW_MS = 60_000;
 const AUTH_REFRESH_TIMEOUT_MS = 2500;
@@ -26,6 +29,7 @@ const AUTH_REFRESH_FAILURE_WINDOW_MS = 30_000;
 const DEFAULT_BROKER_WS_URL = 'wss://backend.orrnn.com/ws/v2';
 const AUTH_SESSION_EXPIRED_MESSAGE = 'Refresh token invalid or expired.';
 const AUTH_SESSION_UNAVAILABLE_MESSAGE = 'No authenticated broker session available.';
+const BROKER_BACKEND_DOMAIN_UNAVAILABLE_CODE = 'BROKER_BACKEND_DOMAIN_UNAVAILABLE';
 
 export type BrokerApiRequestInit = RequestInit & {
   _retry?: boolean;
@@ -47,6 +51,7 @@ type NormalizedAuthResponse = {
   refreshToken: string;
   expiresAt: string;
   brokerId?: string;
+  feedToken?: string;
 };
 
 const isAuthFailureStatus = (status: number) =>
@@ -67,6 +72,16 @@ const createUnauthenticatedResponse = (message = AUTH_SESSION_UNAVAILABLE_MESSAG
     headers: { 'Content-Type': 'application/json' },
   });
 
+const createBrokerDomainUnavailableResponse = (message: string) =>
+  new Response(JSON.stringify({
+    code: BROKER_BACKEND_DOMAIN_UNAVAILABLE_CODE,
+    message,
+    error: message,
+  }), {
+    status: 400,
+    headers: { 'Content-Type': 'application/json' },
+  });
+
 const parseExpiresAtMs = (expiresAt: string | undefined | null): number => {
   if (!expiresAt) return 0;
   const numeric = Number(expiresAt);
@@ -83,6 +98,7 @@ const normalizeAuthResponse = (
 ): NormalizedAuthResponse => {
   const accessToken = String(payload.access_token ?? payload.token ?? '');
   const refreshToken = String(payload.refresh_token ?? payload.refreshToken ?? fallbackRefreshToken ?? '');
+  const feedToken = extractFeedBrokerToken(payload);
   const rawExpiresAt = payload.expires_at ?? payload.expiresAt;
 
   let expiresAt: string;
@@ -111,6 +127,7 @@ const normalizeAuthResponse = (
       : typeof payload.brokerId === 'string'
         ? payload.brokerId
         : undefined,
+    feedToken,
   };
 };
 
@@ -134,6 +151,17 @@ export class BrokerAPI {
     const headers = new Headers(options.headers ?? {});
     const session = await this.getSession();
     const shouldAuthenticate = !options.skipAuth;
+    const shouldRequireBrokerBackend = Boolean(
+      useUserPreferences.getState().isLoggedIn ||
+        session.accessToken ||
+        session.refreshToken,
+    );
+
+    if (shouldRequireBrokerBackend && !isBrokerServiceBaseUrl(session.serverUrl)) {
+      return createBrokerDomainUnavailableResponse(
+        getBrokerBackendDomainUnavailableMessage(session.brokerId),
+      );
+    }
 
     if (shouldAuthenticate && (!session.accessToken || this.sessionInvalidated)) {
       return createUnauthenticatedResponse();
@@ -240,6 +268,7 @@ export class BrokerAPI {
 
   async getWebSocketUrl(): Promise<string> {
     const session = await this.getSession();
+    this.assertBrokerServiceBaseUrl(session);
     const token = await this.getValidAccessTokenForSession(session, false);
     if (!token) {
       throw new Error(AUTH_SESSION_UNAVAILABLE_MESSAGE);
@@ -273,6 +302,7 @@ export class BrokerAPI {
     if (!session.refreshToken) {
       throw new Error('No refresh token available.');
     }
+    this.assertBrokerServiceBaseUrl(session);
 
     const apiBaseUrl = buildBrokerApiBaseUrl(session.serverUrl);
     const response = await timedFetch(`${apiBaseUrl}/auth/refresh`, {
@@ -332,6 +362,7 @@ export class BrokerAPI {
         accessToken: normalized.accessToken,
         refreshToken: normalized.refreshToken,
         expiresAt: normalized.expiresAt,
+        feedToken: normalized.feedToken,
       }),
     ]);
 
@@ -377,6 +408,12 @@ export class BrokerAPI {
       url += url.includes('?') ? `&_t=${Date.now()}` : `?_t=${Date.now()}`;
     }
     return url;
+  }
+
+  private assertBrokerServiceBaseUrl(session: BrokerSession): void {
+    if (!isBrokerServiceBaseUrl(session.serverUrl)) {
+      throw new Error(getBrokerBackendDomainUnavailableMessage(session.brokerId));
+    }
   }
 
   private async getSession(): Promise<BrokerSession> {

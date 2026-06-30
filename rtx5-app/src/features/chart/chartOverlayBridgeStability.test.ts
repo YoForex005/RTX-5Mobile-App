@@ -470,6 +470,18 @@ test('chart preferences exposes MT5 one-click panel bottom placement toggle', ()
   assert.match(chartSettingsScreenSource, /One Click panel at the bottom/);
   assert.match(chartSettingsScreenSource, /Show one click trading panel at the bottom of the chart/);
 });
+
+test('chart preferences left swipe returns to the chart screen without stealing vertical scroll', () => {
+  assert.match(chartSettingsScreenSource, /PanResponder\.create/);
+  assert.match(chartSettingsScreenSource, /CHART_SETTINGS_LEFT_SWIPE_NAVIGATE_DISTANCE/);
+  assert.match(
+    chartSettingsScreenSource,
+    /dx < 0[\s\S]*horizontalDistance >= CHART_SETTINGS_LEFT_SWIPE_CLAIM_DISTANCE[\s\S]*horizontalDistance > verticalDistance \* CHART_SETTINGS_HORIZONTAL_SWIPE_RATIO/,
+  );
+  assert.match(chartSettingsScreenSource, /safeRouterBack\(router, '\/\(tabs\)\/chart'\)/);
+  assert.match(chartSettingsScreenSource, /\{\.\.\.chartReturnSwipePanResponder\.panHandlers\}/);
+});
+
 test('overlay payload: duplicate position inputs produce unique line ids', () => {
   const payload = buildChartOverlayPayload({
     chartSymbol: 'EURUSD',

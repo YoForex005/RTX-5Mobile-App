@@ -8,6 +8,7 @@ const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 
 test('live data websocket URLs stay iOS-safe across quote candle account and price feeds', () => {
   const brokerRoutingSource = readSource('src/api/brokerRouting.ts');
   const quotesSocketSource = readSource('src/api/ws/quotesSocket/QuotesWebSocketService.ts');
+  const candlesSocketSource = readSource('src/domain/candles/ws/candlesSocket/CandlesWebSocketService.ts');
   const candlesProtocolSource = readSource('src/domain/candles/ws/candlesSocketProtocol.ts');
   const accountSocketSource = readSource('src/api/ws/accountSocket.ts');
   const legacyPriceSocketSource = readSource('src/api/ws/socket.ts');
@@ -22,9 +23,22 @@ test('live data websocket URLs stay iOS-safe across quote candle account and pri
 
   assert.match(quotesSocketSource, /normalizeConfiguredWsUrl\(process\.env\.EXPO_PUBLIC_QUOTES_WS_URL, ''\)/);
   assert.doesNotMatch(quotesSocketSource, /return process\.env\.EXPO_PUBLIC_QUOTES_WS_URL/);
+  assert.match(
+    quotesSocketSource,
+    /if \(!state\.isLoggedIn\) \{[\s\S]*return this\.resolveLoggedOutSocketUrl\(\);[\s\S]*\}/,
+  );
 
   assert.match(candlesProtocolSource, /normalizeConfiguredWsUrl\(configuredUrl, brokerUrl\)/);
   assert.doesNotMatch(candlesProtocolSource, /const url = \(configuredUrl \|\|/);
+  assert.match(
+    candlesSocketSource,
+    /if \(!state\.isLoggedIn\) \{[\s\S]*return resolveCandlesWsUrl\(undefined\);[\s\S]*\}[\s\S]*return resolveCandlesWsUrl\(undefined, state\.brokerServerUrl, \{ requireBrokerUrl: true \}\)/,
+  );
+  assert.match(candlesSocketSource, /EXPO_PUBLIC_CANDLES_WS_REQUIRES_TOKEN/);
+  assert.match(
+    candlesSocketSource,
+    /if \(!shouldAttachCandleWsToken\(\)\) \{[\s\S]*return null;[\s\S]*\}/,
+  );
 
   assert.match(accountSocketSource, /normalizeConfiguredWsUrl\([\s\S]*process\.env\.EXPO_PUBLIC_ACCOUNT_WS_URL/);
   assert.doesNotMatch(accountSocketSource, /process\.env\.EXPO_PUBLIC_ACCOUNT_WS_URL \|\|/);

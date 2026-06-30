@@ -1,8 +1,8 @@
 import { apiClient, API_BASE_URL } from './apiClient';
 import {
-  AUTH_PROXY_API_BASE_URL,
   buildBrokerApiBaseUrl,
-  normalizeBrokerProxyServerAddress,
+  getBrokerBackendDomainUnavailableMessage,
+  isBrokerServiceBaseUrl,
 } from './brokerRouting';
 import { timedFetch } from '../utils/apiLatency';
 
@@ -13,6 +13,24 @@ const isAbortError = (error: unknown) =>
     error.name === 'AbortError' ||
     error.message.toLowerCase().includes('aborted')
   );
+
+const extractBackendErrorMessage = (payload: any, fallback: string): string => {
+  const candidates = [
+    payload?.message,
+    payload?.detail,
+    payload?.error?.message,
+    payload?.error?.detail,
+    payload?.error,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return fallback;
+};
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // V2 Auth API — https://backend.orrnn.com/api/v2/auth
@@ -40,7 +58,6 @@ export interface LoginRequest {
 
 export type LoginRequestOptions = {
   serverUrl?: string;
-  proxyServer?: string;
 };
 
 /** POST /auth/register — request body */
@@ -116,13 +133,10 @@ export const loginAPI = async (
 
   let response: Response;
   try {
-    const proxyServer = normalizeBrokerProxyServerAddress(options.proxyServer);
-    const apiBaseUrl = proxyServer && !options.serverUrl
-      ? AUTH_PROXY_API_BASE_URL
-      : buildBrokerApiBaseUrl(options.serverUrl);
-    const requestBody: LoginRequest & { server?: string } = proxyServer
-      ? { ...credentials, server: proxyServer }
-      : credentials;
+    if (!isBrokerServiceBaseUrl(options.serverUrl)) {
+      throw new Error(getBrokerBackendDomainUnavailableMessage(credentials.broker_id));
+    }
+    const apiBaseUrl = buildBrokerApiBaseUrl(options.serverUrl);
 
     response = await timedFetch(`${apiBaseUrl}/auth/login`, {
       method: 'POST',
@@ -130,7 +144,7 @@ export const loginAPI = async (
         'Content-Type': 'application/json',
         accept: 'application/json',
       },
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify(credentials),
       signal: controller.signal,
     }, {
       label: 'auth.login',
@@ -149,7 +163,7 @@ export const loginAPI = async (
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
-    const error = new Error(errorBody.message || errorBody.error || 'Login failed') as Error & {
+    const error = new Error(extractBackendErrorMessage(errorBody, 'Login failed')) as Error & {
       statusCode?: number;
     };
     error.statusCode = response.status;
@@ -186,7 +200,7 @@ export const registerAPI = async (data: RegisterRequest): Promise<AuthResponse> 
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
-    throw new Error(errorBody.message || errorBody.error || 'Registration failed');
+    throw new Error(extractBackendErrorMessage(errorBody, 'Registration failed'));
   }
 
   return response.json();
@@ -210,7 +224,7 @@ export const changePasswordAPI = async (data: ChangePasswordRequest): Promise<{ 
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
-    throw new Error(errorBody.message || errorBody.error?.message || 'Password change failed');
+    throw new Error(extractBackendErrorMessage(errorBody, 'Password change failed'));
   }
 
   return response.json();

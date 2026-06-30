@@ -167,6 +167,8 @@ const GlobalActionSheetHost = memo(function GlobalActionSheetHost() {
     <ActionSheet
       visible={visible}
       title={activeConfig?.title}
+      titleAlign={activeConfig?.titleAlign}
+      compactText={activeConfig?.compactText}
       presentation={activeConfig?.presentation}
       showActionIcons={activeConfig?.showActionIcons}
       actions={activeConfig?.actions ?? []}

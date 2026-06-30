@@ -16,6 +16,8 @@ type ActionSheetAction = {
   subtitle?: string;
   /** If true, styles the current choice with the active brand color */
   selected?: boolean;
+  /** If true, renders text like a disabled row while keeping the action tappable */
+  muted?: boolean;
   /** If true, styles the button as a destructive/danger action */
   danger?: boolean;
   /** If true, the action appears greyed-out and is not interactive */
@@ -32,6 +34,10 @@ type ActionSheetAction = {
 export type ActionSheetConfig = {
   /** Optional title to display at the top of the sheet */
   title?: string;
+  /** Optional title alignment override for sheets that need centered headers */
+  titleAlign?: 'left' | 'center';
+  /** Use compact text sizing for dense picker rows */
+  compactText?: boolean;
   /** Optional visual treatment for feature-specific native parity sheets */
   presentation?: 'default' | 'mt5Plain' | 'mt5TimeframeGrid';
   /** Keep leading action icons visible even in plain presentations */

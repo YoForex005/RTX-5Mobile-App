@@ -8,7 +8,11 @@
 import { useUserPreferences } from '../state/userPreferences';
 import { timedFetch } from '../utils/apiLatency';
 import { apiClient } from './apiClient';
-import { buildBrokerHealthUrl } from './brokerRouting';
+import {
+  buildBrokerHealthUrl,
+  getBrokerBackendDomainUnavailableMessage,
+  isBrokerServiceBaseUrl,
+} from './brokerRouting';
 
 /** Response from GET /health */
 export interface HealthResponse {
@@ -23,8 +27,13 @@ export interface HealthResponse {
  * GET /health
  */
 export async function getHealth(): Promise<HealthResponse> {
-  const brokerServerUrl = useUserPreferences.getState().brokerServerUrl;
-  if (brokerServerUrl) {
+  const state = useUserPreferences.getState();
+  const brokerServerUrl = state.brokerServerUrl;
+  if (state.isLoggedIn && !isBrokerServiceBaseUrl(brokerServerUrl)) {
+    throw new Error(getBrokerBackendDomainUnavailableMessage(state.brokerId));
+  }
+
+  if (isBrokerServiceBaseUrl(brokerServerUrl)) {
     const response = await timedFetch(buildBrokerHealthUrl(brokerServerUrl), {
       headers: { accept: 'application/json' },
     }, {

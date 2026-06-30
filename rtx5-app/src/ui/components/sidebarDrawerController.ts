@@ -1,20 +1,21 @@
 type SidebarOpenHandler = () => void;
 
-let openSidebarHandler: SidebarOpenHandler | null = null;
-const SIDEBAR_OPEN_VISUAL_SYNC_DELAY_MS = 220;
+const sidebarOpenHandlers: SidebarOpenHandler[] = [];
+const SIDEBAR_OPEN_VISUAL_SYNC_DELAY_MS = 130;
 
 export function registerSidebarOpenHandler(handler: SidebarOpenHandler) {
-  openSidebarHandler = handler;
+  sidebarOpenHandlers.push(handler);
 
   return () => {
-    if (openSidebarHandler === handler) {
-      openSidebarHandler = null;
+    const index = sidebarOpenHandlers.lastIndexOf(handler);
+    if (index >= 0) {
+      sidebarOpenHandlers.splice(index, 1);
     }
   };
 }
 
 export function openSidebarDrawerImmediately() {
-  openSidebarHandler?.();
+  sidebarOpenHandlers[sidebarOpenHandlers.length - 1]?.();
 }
 
 export function scheduleAfterSidebarOpenVisual(action: () => void) {

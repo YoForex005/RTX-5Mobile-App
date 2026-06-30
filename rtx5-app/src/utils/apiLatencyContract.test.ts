@@ -71,7 +71,8 @@ test('trade and registration paths record backend response latency', () => {
   assert.match(publicDemoSource, /label: 'publicDemo\.groups'/);
   assert.match(publicDemoSource, /label: 'publicDemo\.createAccount'/);
   assert.match(mt5AccountSource, /label: 'mt5Account\.create'/);
-  assert.match(candlesSource, /label: 'candles\.publicHistory'/);
+  assert.match(candlesSource, /apiClient\(`\/candles\/\$\{requestedSymbol\}\?\$\{params\.toString\(\)\}`/);
+  assert.doesNotMatch(candlesSource, /label: 'candles\.publicHistory'/);
   assert.match(brokerSource, /const BROKER_SERVERS_TIMEOUT_MS = 3500/);
   assert.match(brokerSource, /const BROKER_HEALTH_TIMEOUT_MS = 3000/);
   assert.match(brokerSource, /const controller = new AbortController\(\)/);

@@ -727,6 +727,7 @@ export function AccountsScreen() {
           accessToken: result.accessToken,
           refreshToken: result.refreshToken,
           expiresAt: result.expiresAtIso,
+          feedToken: result.feedToken,
         }),
       ]).catch((err) => {
         console.warn('[Accounts] Failed to persist switched account session', err);
@@ -1650,8 +1651,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   },
   headerTitle: {
     color: T.text,
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 20,
+    fontWeight: '700',
     flex: 1,
     marginLeft: 8,
   },
@@ -1753,7 +1754,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   avatarText: {
     color: T.accent,
     fontSize: 17,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   avatarImage: {
     width: 46,
@@ -1765,14 +1766,13 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   },
   activeName: {
     color: T.text,
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '600',
     letterSpacing: 0,
   },
   activeCompany: {
     color: T.textMuted,
     fontSize: 12,
-    fontWeight: '500',
     marginTop: 2,
   },
   connectedBadge: {
@@ -1792,7 +1792,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   },
   connectedLabel: {
     color: '#10B981',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     letterSpacing: 0,
   },
@@ -1815,7 +1815,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   },
   demoBadgeActiveText: {
     color: '#10B981',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     letterSpacing: 0,
   },
@@ -1827,7 +1827,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   },
   liveBadgeText: {
     color: '#3B82F6',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     letterSpacing: 0,
   },
@@ -1906,7 +1906,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   detailChipText: {
     color: T.textMuted,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
   },
 
   activeDivider: {
@@ -2014,8 +2014,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   },
   secondaryAvatarText: {
     color: T.textMuted,
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '700',
   },
   secondaryAvatarImage: {
     width: 38,
@@ -2251,7 +2251,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   emptyOtherTitle: {
     color: T.text,
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '600',
     marginTop: 4,
   },
   emptyOtherText: {

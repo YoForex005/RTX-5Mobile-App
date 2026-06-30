@@ -5,11 +5,24 @@ import {
   createSanitizedCandle,
   extractCandlePrimitiveFields,
   getNestedRecord,
+  pickFirst,
   pickClosedFlag,
   pickNormalizedSymbol,
   pickNormalizedTimeframe,
 } from '../core/candleUtils';
+import { normalizeTimestampToSeconds } from '../core/timeframeUtils';
 import { isCandleInternallyCoherent } from '../series/priceCoherence';
+
+const CANDLE_BACKEND_UPDATE_TIME_KEYS = [
+  'server_time',
+  'serverTime',
+  'server_timestamp',
+  'serverTimestamp',
+  'updated_at',
+  'updatedAt',
+  'received_at',
+  'receivedAt',
+] as const;
 
 /**
  * Traverses common nested payload structures (e.g., { candle: { ... } } or { data: { ... } })
@@ -18,6 +31,9 @@ import { isCandleInternallyCoherent } from '../series/priceCoherence';
 const getNestedCandleRecord = (raw: unknown): Record<string, unknown> | null => {
   return getNestedRecord(raw, ['candle', 'bar', 'data']);
 };
+
+const pickBackendUpdateTime = (record: Record<string, unknown>): number | null =>
+  normalizeTimestampToSeconds(pickFirst(record, CANDLE_BACKEND_UPDATE_TIME_KEYS));
 
 /**
  * Core normalization logic. Extracts OHLCV values from an unknown JSON object,
@@ -75,10 +91,12 @@ export const normalizeLiveCandle = (raw: unknown): LiveCandle | null => {
 
   const normalizedSymbol = pickNormalizedSymbol(record);
   const normalizedTimeframe = pickNormalizedTimeframe(record);
+  const updateTime = pickBackendUpdateTime(record);
   return {
     ...candle,
     ...(normalizedSymbol ? { symbol: normalizedSymbol } : {}),
     ...(normalizedTimeframe ? { timeframe: normalizedTimeframe } : {}),
+    ...(updateTime !== null ? { updateTime } : {}),
   };
 };
 

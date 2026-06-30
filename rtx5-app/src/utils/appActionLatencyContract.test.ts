@@ -426,13 +426,20 @@ test('chart properties color picker keeps readouts live and commits chart colors
   assert.match(source, /active=\{previewActive\}/);
 });
 
-test('chart properties show tab omits retired mobile-only clutter options', () => {
-  const source = readSource('src/features/settings/ChartPropertiesScreen.tsx');
+test('chart properties show controls moved to the chart settings action sheet', () => {
+  const chartPropertiesSource = readSource('src/features/settings/ChartPropertiesScreen.tsx');
+  const chartSource = readSource('src/features/chart/ChartScreen.native.tsx');
   const typesSource = readSource('src/state/userPreferences/types.ts');
   const defaultsSource = readSource('src/state/userPreferences/chartColors.ts');
 
-  assert.match(source, /Keep this mobile list focused on controls that visibly matter on a small chart/);
-  assert.doesNotMatch(source, /showPeriodSeparators|Show period separators/);
+  assert.doesNotMatch(chartPropertiesSource, /const SHOW_FIELDS|setChartDisplaySetting|Show ticker|Show trade levels/);
+  assert.match(chartSource, /const CHART_SCALE_DISPLAY_ITEMS:[\s\S]*key: 'showTicker'[\s\S]*label: 'Show ticker'[\s\S]*key: 'showTradeLevels'[\s\S]*label: 'Show trade levels'/);
+  assert.match(chartSource, /title: t\('Chart settings'\)[\s\S]*titleAlign: 'center'/);
+  assert.match(chartSource, /label: t\(item\.label\)/);
+  assert.match(chartSource, /label: t\(item\.label\)[\s\S]*muted: enabled[\s\S]*onPress: \(\) => handleToggleChartDisplayAction\(item\.key\)/);
+  assert.doesNotMatch(chartSource, /label: t\([^)]*Disable/);
+  assert.doesNotMatch(chartSource, /subtitle: t\(.*(?:On|Off)/);
+  assert.doesNotMatch(chartPropertiesSource, /showPeriodSeparators|Show period separators/);
   assert.doesNotMatch(typesSource, /showPeriodSeparators/);
   assert.doesNotMatch(defaultsSource, /showPeriodSeparators/);
 });
@@ -486,7 +493,7 @@ test('chart properties dark chrome matches the Settings dark palette', () => {
     assert.match(stylesSource, new RegExp(`${styleName}: \\{[\\s\\S]{0,500}backgroundColor: preferencesBackground`));
   }
 
-  const cardStyles = ['previewCard', 'tabsRow', 'panel', 'colorGroupCard', 'modalCard', 'bottomSheet'];
+  const cardStyles = ['previewCard', 'panel', 'colorGroupCard', 'modalCard', 'bottomSheet'];
   for (const styleName of cardStyles) {
     assert.match(stylesSource, new RegExp(`${styleName}: \\{[\\s\\S]{0,700}backgroundColor: preferencesCardBackground`));
   }
@@ -666,7 +673,17 @@ test('trade ticket execution actions use the immediate fast press path', () => {
   assert.match(source, /latencyLabel="orderTicket\.sl\.decrement"/);
   assert.match(source, /latencyLabel="orderTicket\.tp\.increment"/);
   assert.match(source, /import \{ useDeferredRouteContentReady \} from '\.\.\/\.\.\/ui\/components\/DeferredRouteMount'/);
-  assert.match(source, /const heavyContentReady = useDeferredRouteContentReady\(0\)/);
+  assert.match(source, /const ORDER_TICKET_FULL_CONTENT_DELAY_MS = 48/);
+  assert.match(source, /const ORDER_TICKET_DATA_READY_DELAY_MS = 180/);
+  assert.match(source, /const ORDER_TICKET_HEAVY_CONTENT_DELAY_MS = 240/);
+  assert.match(source, /const routeDataReady = useDeferredRouteContentReady\(ORDER_TICKET_DATA_READY_DELAY_MS\)/);
+  assert.match(source, /const heavyContentReady = useDeferredRouteContentReady\(ORDER_TICKET_HEAVY_CONTENT_DELAY_MS\)/);
+  assert.match(source, /const routeQueriesActive = isScreenFocused && routeDataReady/);
+  assert.match(source, /useMarketSymbols\(routeQueriesActive \|\| symbolPickerOpen\)/);
+  assert.match(source, /useInstrumentMeta\(symbol, routeQueriesActive\)/);
+  assert.match(source, /useLiveTick\(symbol, undefined, routeQueriesActive\)/);
+  assert.match(source, /useAccountSummary\(loginStr, \{ enabled: routeQueriesActive \}\)/);
+  assert.match(source, /if \(!routeQueriesActive\) return null/);
   assert.match(source, /heavyContentReady \? \([\s\S]*<LiveOrderTickExecutionGraph/);
   assert.match(source, /styles\.executionGraphPlaceholder/);
   assert.doesNotMatch(source, /livePill|liveDot|liveLabel/);

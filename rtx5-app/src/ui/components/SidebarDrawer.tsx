@@ -23,6 +23,7 @@ import { resolveAppDisplayVersion } from '../../config/appDisplayVersion';
 import { getConfiguredSupportEmail } from '../../config/legalLinks';
 import { buildHelpMailto } from '../../features/settings/helpViewModel';
 import { registerSidebarOpenHandler } from './sidebarDrawerController';
+import { warmSidebarRouteModules } from '../../utils/sidebarRouteModuleWarmup';
 
 // ─── Menu Items ──────────────────────────────────────────────────────────────
 type MenuItem = {
@@ -33,13 +34,13 @@ type MenuItem = {
 };
 
 const MENU_ITEMS: MenuItem[] = [
-  { label: 'Trade', icon: 'flash-outline', route: '/trade' },
+  { label: 'Trade', icon: 'stats-chart', route: '/trade' },
   { label: 'Journal', icon: 'reader-outline', route: '/settings/journal' },
   { label: 'Settings', icon: 'settings-outline', route: '/settings' },
   { label: 'Economic Calendar', icon: 'calendar-outline', route: '/settings/economic-calendar' },
-  { label: 'User Guide', icon: 'help-circle-outline', route: '/settings/user-guide' },
-  { label: 'Support', icon: 'help-buoy-outline', action: 'support-email' },
-  { label: 'Help', icon: 'information-circle-outline', route: '/settings/help' },
+  { label: 'User Guide', icon: 'book-outline', route: '/settings/user-guide' },
+  { label: 'Support', icon: 'headset-outline', action: 'support-email' },
+  { label: 'Help', icon: 'chatbubble-ellipses-outline', route: '/settings/help' },
   { label: 'About', icon: 'information-circle-outline', route: '/settings/about' },
 ];
 
@@ -48,8 +49,8 @@ const MENU_ITEMS: MenuItem[] = [
 // DELETED Props so component handles its own state
 const DRAWER_WIDTH = 310;
 const DRAWER_CLOSED_TRANSLATE_X = -DRAWER_WIDTH - 2;
-const DRAWER_OPEN_ANIMATION_MS = 190;
-const DRAWER_CLOSE_ANIMATION_MS = 160;
+const DRAWER_OPEN_ANIMATION_MS = 110;
+const DRAWER_CLOSE_ANIMATION_MS = 90;
 const SIDEBAR_MENU_ITEM_HIT_SLOP = { top: 6, bottom: 6, left: 8, right: 8 } as const;
 const SIDEBAR_PROFILE_ACTION_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 4 } as const;
 const SIDEBAR_NAVIGATION_LOCK_MS = 50;
@@ -57,6 +58,14 @@ const SIDEBAR_PROFILE_DATA_DELAY_MS = 1200;
 const LOGGED_OUT_PREFETCH_ROUTES = ['/login'] as const;
 const SIDEBAR_STACK_ROUTES = new Set<string>(LOGGED_OUT_PREFETCH_ROUTES);
 const SIDEBAR_PUSH_ROUTE_PREFIXES = ['/settings/'] as const;
+const SIDEBAR_PRIMARY_TAB_ROUTES = new Set<string>([
+  '/quotes',
+  '/chart',
+  '/trade',
+  '/history',
+  '/settings',
+]);
+let lastSidebarDetailBasePath: string | null = null;
 
 type PrefetchRouter = {
   prefetch?: (href: string) => void;
@@ -65,6 +74,15 @@ type PrefetchRouter = {
 function scheduleNextFrame(action: () => void) {
   if (typeof globalThis.requestAnimationFrame === 'function') {
     globalThis.requestAnimationFrame(action);
+    return;
+  }
+  setTimeout(action, 0);
+}
+
+function scheduleAfterTapVisualFrame(action: () => void) {
+  const runAfterFrame = () => setTimeout(action, 0);
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(runAfterFrame);
     return;
   }
   setTimeout(action, 0);
@@ -113,6 +131,8 @@ export function SidebarDrawer() {
   const interactiveGenerationRef = useRef(0);
   const navigationLockedRef = useRef(false);
   const navigationUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => warmSidebarRouteModules(), []);
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -269,18 +289,43 @@ export function SidebarDrawer() {
   const snapClosedForNavigation = useCallback(() => {
     // Route taps should show the destination immediately. The drawer is below
     // pushed sidebar routes, so snap it closed before navigation instead of
-    // making the tap wait for the close animation.
+    // making the tap wait for the close animation. Keep the global sidebarOpen
+    // flag true until the navigation handoff has painted; flipping it here
+    // wakes paused screen work in the tap frame.
     animatedVisibleRef.current = false;
     isClosingRef.current = false;
     slideAnim.stopAnimation();
     overlayAnim.stopAnimation();
     slideAnim.setValue(DRAWER_CLOSED_TRANSLATE_X);
     overlayAnim.setValue(0);
-    hideInteractiveNow();
-    onClose();
-  }, [hideInteractiveNow, onClose, overlayAnim, slideAnim]);
+    interactiveGenerationRef.current += 1;
+  }, [overlayAnim, slideAnim]);
 
   const runSidebarNavigation = useCallback((route: string) => {
+    const currentPath = normalizeSidebarPath(pathname);
+
+    if (SIDEBAR_PRIMARY_TAB_ROUTES.has(route) && shouldPushSidebarRoute(currentPath)) {
+      const detailBasePath = lastSidebarDetailBasePath;
+      if (detailBasePath) {
+        lastSidebarDetailBasePath = null;
+        router.back();
+        if (detailBasePath !== route) {
+          scheduleAfterTapVisualFrame(() => router.navigate(route as any));
+        }
+        return;
+      }
+
+      useUIState.getState().setSidebarOpen(false);
+    }
+
+    if (SIDEBAR_PRIMARY_TAB_ROUTES.has(currentPath)) {
+      lastSidebarDetailBasePath = currentPath;
+    }
+
+    if (SIDEBAR_PRIMARY_TAB_ROUTES.has(route)) {
+      lastSidebarDetailBasePath = null;
+    }
+
     if (SIDEBAR_STACK_ROUTES.has(route) || shouldPushSidebarRoute(route)) {
       // Push detail routes over the (tabs) navigator so it, and the warm chart
       // WebView, stays mounted; BACK is then an instant pop, not a remount.
@@ -289,7 +334,7 @@ export function SidebarDrawer() {
     }
 
     router.navigate(route as any);
-  }, [router]);
+  }, [pathname, router]);
 
   const navigateSidebarRoute = useCallback((route: string) => {
     if (navigationLockedRef.current) {
@@ -310,12 +355,18 @@ export function SidebarDrawer() {
     }
 
     snapClosedForNavigation();
-    try {
-      runSidebarNavigation(route);
-    } finally {
-      unlockSidebarNavigation();
-    }
-  }, [handleClose, pathname, runSidebarNavigation, snapClosedForNavigation, unlockSidebarNavigation]);
+    scheduleAfterTapVisualFrame(() => {
+      try {
+        runSidebarNavigation(route);
+      } finally {
+        scheduleAfterTapVisualFrame(() => {
+          hideInteractiveNow();
+          onClose();
+          unlockSidebarNavigation();
+        });
+      }
+    });
+  }, [handleClose, hideInteractiveNow, onClose, pathname, runSidebarNavigation, snapClosedForNavigation, unlockSidebarNavigation]);
 
   const openSupportEmail = useCallback(async () => {
     const mailtoUrl = buildHelpMailto({
@@ -332,18 +383,32 @@ export function SidebarDrawer() {
     }
   }, [appName, appVersion, supportEmail]);
 
+  const openSupportEmailFromSidebar = useCallback(() => {
+    if (navigationLockedRef.current) {
+      return;
+    }
+
+    navigationLockedRef.current = true;
+    snapClosedForNavigation();
+    scheduleAfterTapVisualFrame(() => {
+      hideInteractiveNow();
+      onClose();
+      void openSupportEmail().finally(() => {
+        unlockSidebarNavigation();
+      });
+    });
+  }, [hideInteractiveNow, onClose, openSupportEmail, snapClosedForNavigation, unlockSidebarNavigation]);
+
   const handleMenuItemPress = useCallback((item: MenuItem) => {
     if (item.action === 'support-email') {
-      handleClose(() => {
-        void openSupportEmail();
-      });
+      openSupportEmailFromSidebar();
       return;
     }
 
     if (item.route) {
       navigateSidebarRoute(item.route);
     }
-  }, [handleClose, navigateSidebarRoute, openSupportEmail]);
+  }, [navigateSidebarRoute, openSupportEmailFromSidebar]);
 
   const ds = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
@@ -432,15 +497,6 @@ export function SidebarDrawer() {
                   </View>
                 </Pressable>
               )}
-              <Pressable
-                style={ds.closeBtn}
-                onPress={() => handleClose()}
-                activateOnTouchStart
-                latencyLabel="sidebar.closeButton"
-                unstable_pressDelay={0}
-              >
-                <Ionicons name="close" size={20} color={T.text} />
-              </Pressable>
             </View>
           </View>
 
@@ -648,17 +704,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 12,
       fontWeight: '700',
     },
-    closeBtn: {
-      width: 32,
-      height: 32,
-      borderRadius: 16,
-      backgroundColor: T.glass2,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 1,
-      borderColor: T.border,
-    },
-
     /* Theme */
     themeSection: {
       paddingHorizontal: 18,

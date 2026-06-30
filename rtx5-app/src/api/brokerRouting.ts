@@ -1,10 +1,13 @@
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 const FALLBACK_API_BASE_URL = 'https://backend.orrnn.com/api/v2';
 
+export const BROKER_BACKEND_DOMAIN_UNAVAILABLE_MESSAGE =
+  'Broker backend domain is missing or invalid for this broker. Please update the broker services domain in super admin and try again.';
+
 export const DEFAULT_API_BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL || FALLBACK_API_BASE_URL;
 
-export const AUTH_PROXY_API_BASE_URL = trimTrailingSlash(
+const SHARED_AUTH_PROXY_API_BASE_URL = trimTrailingSlash(
   process.env.EXPO_PUBLIC_AUTH_PROXY_API_BASE_URL || FALLBACK_API_BASE_URL,
 );
 
@@ -62,14 +65,6 @@ const isRawIpHost = (host: string): boolean => {
 const isDomainLikeHost = (host: string): boolean =>
   host === 'localhost' || host.includes('.');
 
-const getAuthorityHost = (authority: string): string => {
-  try {
-    return new URL(`https://${authority}`).hostname;
-  } catch {
-    return authority.split(':', 1)[0];
-  }
-};
-
 export function normalizeBrokerServerUrl(serverUrl?: string | null): string {
   const raw = String(serverUrl ?? '').trim();
   if (!raw) {
@@ -95,33 +90,33 @@ export function normalizeBrokerServerUrl(serverUrl?: string | null): string {
   }
 }
 
-export const AUTH_PROXY_SERVER_URL = normalizeBrokerServerUrl(AUTH_PROXY_API_BASE_URL);
+const getSharedBackendOrigins = (): string[] =>
+  [
+    DEFAULT_API_BASE_URL,
+    SHARED_AUTH_PROXY_API_BASE_URL,
+    PUBLIC_BROKER_DIRECTORY_BASE_URL,
+  ]
+    .map(normalizeBrokerServerUrl)
+    .filter((origin): origin is string => Boolean(origin));
 
-export function normalizeBrokerProxyServerAddress(server?: string | null): string {
-  const raw = String(server ?? '').trim();
-  if (!raw) {
-    return '';
-  }
+export function isSharedBackendOrigin(serverUrl?: string | null): boolean {
+  const normalizedServerUrl = normalizeBrokerServerUrl(serverUrl);
+  return Boolean(
+    normalizedServerUrl &&
+      getSharedBackendOrigins().includes(normalizedServerUrl),
+  );
+}
 
-  const stripped = stripBrokerServicePath(raw);
-  const candidate = hasUrlScheme(stripped) ? stripped : `https://${stripped}`;
+export function isBrokerServiceBaseUrl(serverUrl?: string | null): boolean {
+  const normalizedServerUrl = normalizeBrokerServerUrl(serverUrl);
+  return Boolean(normalizedServerUrl && !isSharedBackendOrigin(normalizedServerUrl));
+}
 
-  try {
-    // Validate with URL while preserving explicitly published default ports.
-    new URL(candidate);
-    const authority = stripped
-      .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')
-      .split(/[/?#]/, 1)[0]
-      .trim();
-
-    if (!authority || authority.includes('@')) {
-      return '';
-    }
-
-    return trimTrailingSlash(authority);
-  } catch {
-    return '';
-  }
+export function getBrokerBackendDomainUnavailableMessage(brokerId?: string | null): string {
+  const normalizedBrokerId = String(brokerId ?? '').trim();
+  return normalizedBrokerId
+    ? `Broker backend domain is missing or invalid for broker "${normalizedBrokerId}". Please update the broker services domain in super admin and try again.`
+    : BROKER_BACKEND_DOMAIN_UNAVAILABLE_MESSAGE;
 }
 
 export function resolveBrokerServiceBaseUrl(broker: BrokerServiceDiscovery): string {
@@ -146,7 +141,7 @@ export function resolveBrokerServiceBaseUrl(broker: BrokerServiceDiscovery): str
 
   for (const candidate of candidates) {
     const normalizedServerUrl = normalizeBrokerServerUrl(candidate);
-    if (normalizedServerUrl) {
+    if (normalizedServerUrl && !isSharedBackendOrigin(normalizedServerUrl)) {
       return normalizedServerUrl;
     }
   }
@@ -154,31 +149,8 @@ export function resolveBrokerServiceBaseUrl(broker: BrokerServiceDiscovery): str
   return '';
 }
 
-export function resolveBrokerProxyServerAddress(broker: BrokerServiceDiscovery): string {
-  const candidates = [
-    broker.server,
-    broker.server_url,
-    broker.market_api_url,
-    broker.domains?.server,
-    broker.server_domain,
-    broker.domains?.services,
-    broker.services_domain,
-    broker.domains?.domain_name,
-    broker.domain_name,
-    resolveBrokerServiceBaseUrl(broker),
-  ];
-  for (const candidate of candidates) {
-    const serverAddress = normalizeBrokerProxyServerAddress(candidate);
-    if (serverAddress && !isRawIpHost(getAuthorityHost(serverAddress))) {
-      return serverAddress;
-    }
-  }
-  return '';
-}
-
 export function shouldUseBrokerHostedQuoteFeed(serverUrl?: string | null): boolean {
-  const normalizedServerUrl = normalizeBrokerServerUrl(serverUrl);
-  return Boolean(normalizedServerUrl);
+  return isBrokerServiceBaseUrl(serverUrl);
 }
 
 export function buildBrokerApiBaseUrl(serverUrl?: string | null): string {
@@ -211,7 +183,7 @@ export function buildBrokerWsUrl(
   fallbackUrl: string,
 ): string {
   const normalizedServerUrl = normalizeBrokerServerUrl(serverUrl);
-  if (!normalizedServerUrl) {
+  if (!normalizedServerUrl || isSharedBackendOrigin(normalizedServerUrl)) {
     return fallbackUrl;
   }
 

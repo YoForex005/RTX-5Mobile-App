@@ -34,6 +34,7 @@ import { useUIState } from '../../state/uiState';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useSavedAccounts, setSavedAccountPassword } from '../../state/savedAccounts';
 import { loginAPI } from '../../api/auth';
+import { extractFeedBrokerToken } from '../../api/feedAuth';
 import { getBrokerConfig, type BrokerServer } from '../../api/broker';
 import { normalizeBrokerServerUrl, resolveBrokerServiceBaseUrl } from '../../api/brokerRouting';
 import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../../query/accounts';
@@ -412,6 +413,7 @@ export function BrokerDetailScreen() {
 
       const accessToken = response.access_token ?? response.token;
       const refreshToken = response.refresh_token ?? response.refreshToken ?? '';
+      const feedToken = extractFeedBrokerToken(response);
       const accountLogin =
         response.account_login ??
         response.accountLogin ??
@@ -486,6 +488,7 @@ export function BrokerDetailScreen() {
             accessToken,
             refreshToken,
             expiresAt: expiresAtIso,
+            feedToken,
           }),
         ]).catch(() => undefined);
 

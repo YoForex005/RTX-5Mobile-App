@@ -96,14 +96,30 @@ test('default candle history request fills the chart buffer so M1 includes previ
   assert.ok(DEFAULT_CANDLE_HISTORY_LIMIT * getTimeframeSeconds('M1') > 24 * 60 * 60);
 });
 
-test('candle history loader keeps a public no-login backend fallback', () => {
+test('candle history loader requires login and has no public fallback', () => {
   const source = readFileSync(resolve(process.cwd(), 'src/domain/candles/api/candles.ts'), 'utf8');
 
-  assert.match(source, /PUBLIC_API_V1_BASE_URL/);
-  assert.match(source, /const hasAuthToken = Boolean\(getStoredAccessToken\(\)\)/);
-  assert.match(source, /fetchPublicCandleHistory\(/);
-  assert.match(source, /\/candles\/\$\{encodeURIComponent\(requestedSymbol\)\}/);
-  assert.match(source, /\/candles\?\$\{queryParams\.toString\(\)\}/);
+  assert.match(source, /CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE/);
+  assert.match(source, /const hasAuthenticatedCandleSession = Boolean\(getStoredAccessToken\(\)\)/);
+  assert.match(source, /if \(!hasAuthenticatedCandleSession\) \{[\s\S]*throw new Error\(CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE\)/);
+  assert.match(source, /fetchAuthenticatedCandleHistory\(/);
+  assert.doesNotMatch(source, /PUBLIC_API_V1_BASE_URL/);
+  assert.doesNotMatch(source, /fetchPublicCandleHistory/);
+  assert.doesNotMatch(source, /candles\.publicHistory/);
+});
+
+test('chart candle surfaces show a login prompt instead of anonymous history', () => {
+  const hookSource = readFileSync(resolve(process.cwd(), 'src/domain/candles/hooks/useLiveCandles.ts'), 'utf8');
+  const nativeChartSource = readFileSync(resolve(process.cwd(), 'src/features/chart/ChartScreen.native.tsx'), 'utf8');
+  const webChartSource = readFileSync(resolve(process.cwd(), 'src/features/chart/ChartScreen.web.tsx'), 'utf8');
+
+  assert.match(hookSource, /const hasAuthenticatedCandleSession = useUserPreferences\(/);
+  assert.match(hookSource, /if \(!active \|\| !hasAuthenticatedCandleSession/);
+  assert.match(hookSource, /if \(!hasAuthenticatedCandleSession \|\| !normalizedSymbol \|\| !normalizedTimeframe\) \{[\s\S]*return emptyCandles/);
+  assert.match(nativeChartSource, /const chartDataActive = chartRuntimeActive && hasAuthenticatedChartSession/);
+  assert.match(nativeChartSource, /shouldShowChartLoginPrompt[\s\S]*CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE/);
+  assert.match(webChartSource, /const chartDataActive = isScreenFocused && hasAuthenticatedChartSession/);
+  assert.match(webChartSource, /shouldShowChartLoginPrompt[\s\S]*CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE/);
 });
 
 test('candle history abort handling is safe in React Native without DOMException globals', () => {
