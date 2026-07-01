@@ -16,6 +16,7 @@ import {
   normalizeTimeframeStrict,
   normalizeTimestampToSeconds,
 } from '../../core/timeframeUtils';
+import { logCandleSeriesDiagnosticsInDevelopment } from '../../core/candleValidator';
 import { sanitizeCandlesForChart } from '../../normalization/chartAdapter';
 import type { CandleStreamState, Timeframe } from '../../core/candleTypes';
 import { candleMemoryCache } from '../candleMemoryCache';
@@ -246,8 +247,8 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
    *   - Opens the current tick bucket when the candle backend is stale, while
    *     preserving any missing backend buckets as visible gaps.
    *   - Never modifies closed history (gated by `historyLastTime`).
-   *   - Backend `live_candle` snapshots fully overwrite the bucket's OHLC, so
-   *     backend remains authoritative on every snapshot.
+   *   - Backend `live_candle` snapshots can still overwrite a bucket, but
+   *     only when the server-candle source mode is explicitly enabled.
    *
    * Why this exists: most broker WS candle channels emit on bar-close (or on
    * a slow cadence), but real-time price movement within the active bar
@@ -362,6 +363,19 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       { closedHistoryLastTime: entry.historyLastTime, preserveProvenance: true },
     );
     const safeNextCandles = sanitizeCandlesForChart(nextCandles, { timeframe: entry.timeframe });
+    logCandleSeriesDiagnosticsInDevelopment(
+      'live_stream_commit',
+      safeNextCandles,
+      {
+        symbol: entry.symbol,
+        timeframe: entry.timeframe,
+        source: 'history_live_merge',
+        requestId: entry.requestId,
+        subscriptionId: entry.streamKey,
+        componentName: 'LiveCandleStreamManager',
+        timeframeMs: getTimeframeSeconds(entry.timeframe) * 1000,
+      },
+    );
     const nextParams = toCandleParams(safeNextCandles);
     entry.loading = entry.historyLoading || entry.historyPageLoading;
     entry.isLiveConnected = true;

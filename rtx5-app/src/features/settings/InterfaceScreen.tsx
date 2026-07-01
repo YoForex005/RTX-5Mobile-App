@@ -107,7 +107,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       justifyContent: 'space-between',
       paddingVertical: 14,
       paddingHorizontal: 16,
-      backgroundColor: isDark ? '#0E141F' : T.glass1,
+      backgroundColor: isDark ? T.glass2 : T.glass1,
       borderRadius: 12,
       marginVertical: 4,
       borderWidth: 1,

@@ -321,11 +321,11 @@ function makeStyles(bgColor: string, isDark: boolean, textColor: string) {
     modalCard: {
       width: '100%',
       maxWidth: 360,
-      backgroundColor: isDark ? '#0E141F' : '#FFFFFF',
+      backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
       borderRadius: 14,
       padding: 20,
       borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#EEF2F7',
+      borderColor: isDark ? 'rgba(255,255,255,0.10)' : '#EEF2F7',
     },
     modalTitle: {
       color: textColor,

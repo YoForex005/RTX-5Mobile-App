@@ -89,7 +89,7 @@ test('overlay bridge: overlay resync timer repairs missed injection', () => {
   const body = extractFunctionBody(source, 'startOverlayResync');
 
   assertSourceContains(body, /setInterval\(function\(\)/, 'WebView overlay resync must run on an interval');
-  assertSourceContains(body, /_positionLinesArr\.length !== _overlayPayload\.priceLines\.length/, 'resync must detect missing price lines');
+  assertSourceContains(body, /_positionLinesArr\.length !== countOverlayNativePriceLines\(_overlayPayload\.priceLines\)/, 'resync must detect missing native price lines');
   assertSourceContains(body, /applyOverlayPayload\(_overlayPayload\)/, 'resync must recreate missing overlays');
   assertSourceContains(source, /const resyncInterval = setInterval\(\(\) => \{[\s\S]*webViewRef\.current\.injectJavaScript\(js\)/, 'native overlay bridge must periodically re-push overlays');
 });
@@ -154,7 +154,7 @@ test('overlay bridge: chart movement keeps DOM overlay rebuilds off the hot path
   );
   assertSourceContains(
     touchBody,
-    /if \(point && \(activeHorizontalScrollGesture \|\| vertPanPending\)\) \{[\s\S]*scheduleGestureRightPriceScaleFallbackRefresh\(\)[\s\S]*return;[\s\S]*scheduleOverlayDomRefresh\(\);/,
+    /if \(point && \(activeHorizontalScrollGesture \|\| vertPanPending\)\) \{[\s\S]*deferHorizontalGestureDomWork\(\)[\s\S]*return;[\s\S]*scheduleOverlayDomRefresh\(\);/,
     'horizontal movement must defer the full DOM overlay rebuild until idle/release',
   );
   assertSourceContains(
@@ -291,8 +291,9 @@ test('overlay bridge: repeated overlay sync clears previous lines before recreat
   const clearBody = extractFunctionBody(source, 'clearOverlayPriceLines');
 
   assertSourceContains(body, /clearOverlayPriceLines\(\)/, 'overlay apply must clear previous lines first');
+  assertSourceContains(body, /shouldCreateOverlayNativePriceLine\(ln\)/, 'overlay apply must skip DOM-owned trade lines before native creation');
   assertSourceContains(body, /series\.createPriceLine/, 'overlay apply must recreate price lines from payload');
-  assertSourceContains(body, /lineVisible:\s*true/, 'overlay apply must explicitly keep recreated price lines visible');
+  assertSourceContains(body, /lineVisible: ln\.labelPlacement === 'line' \? false : true/, 'native overlay lines must keep the previous visibility contract');
   assertSourceContains(clearBody, /series\.removePriceLine\(_positionLinesArr\[i\]\)/, 'clear must remove every previous price-line ref');
   assertSourceContains(clearBody, /_overlayPriceLinesByDragKey = Object\.create\(null\)/, 'clear must reset drag-key lookup');
 });
@@ -303,6 +304,7 @@ test('overlay bridge: anchored trade labels stay below the chart header', () => 
   const anchoredLineBody = extractFunctionBody(source, 'renderAnchoredTradeLine');
   const anchoredLeftsBody = extractFunctionBody(source, 'resolveAnchoredOverlayLabelLefts');
   const applyOverlayBody = extractFunctionBody(source, 'applyOverlayPayload');
+  const shouldCreateNativeLineBody = extractFunctionBody(source, 'shouldCreateOverlayNativePriceLine');
 
   assertSourceContains(
     boundsBody,
@@ -361,8 +363,18 @@ test('overlay bridge: anchored trade labels stay below the chart header', () => 
   );
   assertSourceContains(
     applyOverlayBody,
-    /lineVisible: ln\.labelPlacement === 'line' \? false : true/,
-    'line-placement open trades must not also create a full-width canvas price line under the plain label',
+    /if \(!shouldCreateOverlayNativePriceLine\(ln\)\) continue;/,
+    'line-placement open trades must skip native price-line creation before the DOM overlay draws them',
+  );
+  assertSourceContains(
+    shouldCreateNativeLineBody,
+    /isTradeOverlayScaleLine\(line\)[\s\S]*return false;/,
+    'account trade, order, SL/TP, and chart-trade preview lines must stay out of native price-line autoscale',
+  );
+  assertSourceContains(
+    shouldCreateNativeLineBody,
+    /line\.labelPlacement === 'line'[\s\S]*typeof line\.dragKey === 'string' && line\.dragKey[\s\S]*return false;/,
+    'line-placement and draggable preview trades must not create hidden native price lines that can flatten candle autoscale',
   );
   assertSourceContains(
     refreshBody,
@@ -412,37 +424,54 @@ test('overlay bridge: right-axis trade price boxes keep close entries visible', 
   assert.doesNotMatch(refreshBody, /boxEl\.style\.right = '2px'/);
   assert.doesNotMatch(refreshBody, /levelScale \* 1e-4/);
 });
-test('overlay bridge: trade overlays participate in price-scale autoscale', () => {
+test('overlay bridge: trade overlays stay out of price-scale autoscale', () => {
   const autoscaleBody = extractFunctionBody(source, 'buildOverlayAwareAutoscaleInfo');
-  const expandTradeOverlayBody = extractFunctionBody(source, 'expandPriceRangeForTradeOverlays');
   const visibleRangeBody = extractFunctionBody(source, 'resolvePriceRangeFromVisibleData');
   const healthBody = extractFunctionBody(source, 'healCollapsedPriceScaleRange');
   const setOverlayBody = extractFunctionBody(source, 'setChartOverlays');
 
   assertSourceContains(
     autoscaleBody,
-    /expandPriceRangeForTradeOverlays\(baseRange\)[\s\S]*expandPriceRangeForMarketPriceBadges\(expandedRange\)/,
-    'series autoscale must include visible trade overlay prices before market badges are applied',
+    /resolveVisibleCandleDataPriceRange\(\)[\s\S]*isValidPriceRange\(visibleCandleRange\)[\s\S]*expandPriceRangeForMarketPriceBadges\(baseRange\)/,
+    'series autoscale must start from visible backend candles and only add market price badges',
+  );
+  assert.doesNotMatch(autoscaleBody, /expandPriceRangeForTradeOverlays/);
+  assertSourceContains(
+    source,
+    /var PRICE_SCALE_CANDLE_COMPRESSION_SPAN_MULTIPLE = 6/,
+    'candle compression health recovery needs a mobile-visible span threshold for XAUUSD-style scale stretching',
   );
   assertSourceContains(
-    expandTradeOverlayBody,
-    /overlayNearEdge[\s\S]*makeTradeOverlayPaddedPriceRange\(minPrice, maxPrice, overlayPrices\.length\)/,
-    'trade overlay autoscale must add extra edge padding when old or clustered entries sit near a chart edge',
+    source,
+    /\^\(open-\|order-entry-\|order-sl-\|order-tp-\|sl-\|tp-\|chart-trade-\)/,
+    'account trade overlays and draggable chart-trade preview lines must be recognized before native price-line creation',
   );
   assertSourceContains(
     visibleRangeBody,
-    /return expandPriceRangeForTradeOverlays\(expandedRange\)/,
-    'visible price range recovery must keep old open trade levels in range',
+    /expandPriceRangeForMarketPriceBadges\(robustRange\)/,
+    'visible price range recovery should keep market badges visible without adding trade overlays',
   );
+  assert.doesNotMatch(visibleRangeBody, /expandPriceRangeForTradeOverlays/);
+  assert.doesNotMatch(healthBody, /tradeOverlaysOutOfRange|rangeContainsTradeOverlays/);
   assertSourceContains(
     healthBody,
-    /var tradeOverlaysOutOfRange = !rangeContainsTradeOverlays\(currentRange\)[\s\S]*tradeOverlaysOutOfRange/,
-    'price-scale health recovery must treat missing trade overlays as an unhealthy range',
+    /var candleSpan = getPriceRangeSpan\(candleDataRange\)[\s\S]*scaleSpan > candleSpan \* PRICE_SCALE_CANDLE_COMPRESSION_SPAN_MULTIPLE[\s\S]*candleScaleTooWide/,
+    'price-scale health recovery must reset a wide axis when candle bodies are visibly compressed by far XAUUSD levels',
+  );
+  assertSourceContains(
+    source,
+    /function shouldResetManualVerticalPanForHealth\(reason\)[\s\S]*reason === 'overlay_update'[\s\S]*reason === 'overlay_resync'/,
+    'overlay health recovery must be allowed to clear stale locked ranges from far trade preview levels',
   );
   assertSourceContains(
     setOverlayBody,
-    /scheduleOverlayPriceScaleLock\(false\)[\s\S]*applyOverlayPayload\(_overlayPayload\)/,
-    'live overlay updates must recalculate the right price scale without resetting the user-owned vertical range',
+    /scheduleOverlayPriceScaleLock\(false\)[\s\S]*applyOverlayPayload\(_overlayPayload\)[\s\S]*schedulePriceScaleHealthCheck\('overlay_update', true, 3\)[\s\S]*scheduleOverlayVisibleCandleScaleRecovery\('overlay_update'\)/,
+    'live overlay updates must recalculate and heal the right price scale after applying overlays',
+  );
+  assertSourceContains(
+    source,
+    /function recoverOverlayVisibleCandleScale\(reason\)[\s\S]*resolveVisibleCandleDataPriceRange\(\)[\s\S]*expandPriceRangeForMarketPriceBadges\(candleRange\)[\s\S]*setRecoveredRightPriceRange\(visibleRange\)/,
+    'overlay scale recovery must derive the visible range from backend candles without including trade overlays',
   );
   assertSourceContains(
     source,

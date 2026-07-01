@@ -23,6 +23,7 @@ import { normalizeTimestampToMs } from '../core/timeframeUtils';
 import { hasLiveQuoteFeedData, useMarketData } from '../../../query/websocket';
 import { hydratePersistedCandleCache } from '../state/persistedCandleCache';
 import { useUserPreferences } from '../../../state/userPreferences';
+import { shouldUseServerCandleStream } from '../ws/liveCandlesEnginePolicy';
 
 // Cache the empty-snapshot reference for useSyncExternalStore. Returning a new
 // `[]` each call would trip React's "cache the snapshot" guard and infinite-loop.
@@ -96,6 +97,7 @@ const hasCommittedHistoryCandles = (candles: readonly CandleParams[]): boolean =
 export function useLiveCandles(symbol: string, timeframe: string, active = true) {
   const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
   const normalizedTimeframe = useMemo(() => normalizeTimeframeStrict(timeframe), [timeframe]);
+  const useServerCandleStream = shouldUseServerCandleStream();
   const hasAuthenticatedCandleSession = useUserPreferences((state) =>
     Boolean(state.isLoggedIn && state.accountDetails?.credentials?.accessToken),
   );
@@ -106,18 +108,23 @@ export function useLiveCandles(symbol: string, timeframe: string, active = true)
         return () => {};
       }
 
-      candlesWsService.subscribe(normalizedSymbol, normalizedTimeframe);
-      // Keep the quote socket on for this chart too. The quote tick processor
-      // feeds the forming candle, so this makes candles move as fast as bid/ask.
+      if (useServerCandleStream) {
+        candlesWsService.subscribe(normalizedSymbol, normalizedTimeframe);
+      }
+      // Keep the quote socket on for this chart. In the default mode, quote
+      // ticks are the only active-candle body source; server candles are opt-in
+      // only after runtime compatibility has been proven.
       const unsubscribeQuoteDemand = quotesWsService.subscribeToSymbol(symbol, () => {});
       const unsubscribeEngine = liveCandlesEngine.subscribe(normalizedSymbol, normalizedTimeframe, listener);
       return () => {
         unsubscribeQuoteDemand();
         unsubscribeEngine();
-        candlesWsService.unsubscribe(normalizedSymbol, normalizedTimeframe);
+        if (useServerCandleStream) {
+          candlesWsService.unsubscribe(normalizedSymbol, normalizedTimeframe);
+        }
       };
     },
-    [active, hasAuthenticatedCandleSession, normalizedSymbol, normalizedTimeframe, symbol],
+    [active, hasAuthenticatedCandleSession, normalizedSymbol, normalizedTimeframe, symbol, useServerCandleStream],
   );
 
   const getSnapshot = useCallback(() => {

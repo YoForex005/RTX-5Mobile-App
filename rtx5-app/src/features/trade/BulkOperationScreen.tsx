@@ -203,7 +203,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
-    backgroundColor: isDark ? '#0E141F' : T.glass2,
+    backgroundColor: isDark ? T.glass2 : T.glass2,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -230,7 +230,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
-    backgroundColor: isDark ? '#0E141F' : T.glass2,
+    backgroundColor: isDark ? T.glass2 : T.glass2,
     overflow: 'hidden',
   },
   previewRow: {

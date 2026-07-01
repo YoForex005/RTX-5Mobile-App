@@ -73,6 +73,39 @@ const resolveQuoteListenerKeys = (symbol: string): string[] => {
   return Array.from(new Set([rawKey, baseKey].filter(Boolean)));
 };
 
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+const extractSymbolList = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => String(entry ?? '').trim())
+      .filter(Boolean);
+  }
+
+  const symbol = String(value ?? '').trim();
+  return symbol ? [symbol] : [];
+};
+
+const extractSubscriptionAck = (
+  payload: unknown,
+): { type: 'subscribed' | 'unsubscribed'; symbols: string[] } | null => {
+  const record = asRecord(payload);
+  if (!record) {
+    return null;
+  }
+
+  const type = String(record.type ?? record.event ?? record.status ?? '').trim().toLowerCase();
+  if (type !== 'subscribed' && type !== 'unsubscribed') {
+    return null;
+  }
+
+  const symbols = extractSymbolList(record.symbols).concat(extractSymbolList(record.symbol));
+  return symbols.length > 0 ? { type, symbols } : null;
+};
+
 export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelineState {
   private static instance: QuotesWebSocketService;
   private ws: WebSocket | null = null;
@@ -87,6 +120,10 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   private pendingBrokerFeedBlockReason: BrokerFeedBlockReason = null;
 
   private activeSymbols: Set<string> = new Set();
+  private sentSymbols: Set<string> = new Set();
+  private pendingSubscribeSymbols: Set<string> = new Set();
+  private pendingUnsubscribeSymbols: Set<string> = new Set();
+  private confirmedSymbols: Set<string> = new Set();
   private stickySymbols: Set<string> = new Set();
   private symbolConsumerCounts: Map<string, number> = new Map();
   private storeConsumerCounts: Map<string, number> = new Map();
@@ -363,6 +400,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
 
   /** @internal Used by `processTick`. */
   public emitSymbolTick(symbol: string, tick: QuoteTickEvent): void {
+    this.markSymbolsConfirmed([symbol, tick.symbol, tick.rawSymbol ?? '']);
     const listenerKeys = new Set([
       ...resolveQuoteListenerKeys(symbol),
       ...resolveQuoteListenerKeys(tick.symbol),
@@ -475,6 +513,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
         this.reconnectAttempts = 0;
         this.lastMessageAt = Date.now();
         this.clearNetInfoListener();
+        this.resetTransportSubscriptionState();
 
         this.startHeartbeat();
         this.startWatchdog();
@@ -491,6 +530,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
           this.lastMessageAt = now;
           this.recordFeedGapIfNeeded(feedGapMs);
           const payload = JSON.parse(event.data as string);
+          this.handleSubscriptionAckPayload(payload);
           if (processIncomingPayload(this, payload) && this.pendingUpdates.size > 0) {
             scheduleFlush(this);
           }
@@ -546,6 +586,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     this.clearReconnectTimer();
     this.clearNetInfoListener();
     this.activeSymbols.clear();
+    this.resetTransportSubscriptionState();
     this.stickySymbols.clear();
     this.symbolConsumerCounts.clear();
     this.storeConsumerCounts.clear();
@@ -637,8 +678,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   }
 
   private sendSubscription(): void {
-    const syms = Array.from(this.activeSymbols);
-    if (syms.length > 0) this.send({ type: 'subscribe', symbols: syms });
+    this.sendSubscriptionDiff(new Set(this.activeSymbols));
   }
 
   private syncActiveSymbols(): void {
@@ -656,6 +696,9 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
 
     this.activeSymbols = nextActiveSymbols;
     if (this.activeSymbols.size === 0) {
+      if (this.isConnected && this.sentSymbols.size > 0) {
+        this.sendSubscriptionDiff(new Set());
+      }
       this.shouldReconnect = false;
       this.reconnectAttempts = 0;
       this.clearReconnectTimer();
@@ -676,6 +719,76 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
     }
+  }
+
+  private sendSubscriptionDiff(nextDesiredSymbols: Set<string>): void {
+    const subscribeSymbols = Array.from(nextDesiredSymbols).filter((symbol) => !this.sentSymbols.has(symbol));
+    const unsubscribeSymbols = Array.from(this.sentSymbols).filter((symbol) => !nextDesiredSymbols.has(symbol));
+
+    if (unsubscribeSymbols.length > 0) {
+      this.send({ type: 'unsubscribe', symbols: unsubscribeSymbols });
+      unsubscribeSymbols.forEach((symbol) => {
+        this.sentSymbols.delete(symbol);
+        this.confirmedSymbols.delete(symbol);
+        this.pendingSubscribeSymbols.delete(symbol);
+        this.pendingUnsubscribeSymbols.add(symbol);
+      });
+      this.logCandleFeed('unsubscribe_diff_sent', { symbols: unsubscribeSymbols }, 20);
+    }
+
+    if (subscribeSymbols.length > 0) {
+      this.send({ type: 'subscribe', symbols: subscribeSymbols });
+      subscribeSymbols.forEach((symbol) => {
+        this.sentSymbols.add(symbol);
+        this.pendingUnsubscribeSymbols.delete(symbol);
+        this.pendingSubscribeSymbols.add(symbol);
+      });
+      this.logCandleFeed('subscribe_diff_sent', { symbols: subscribeSymbols }, 20);
+    }
+  }
+
+  private handleSubscriptionAckPayload(payload: unknown): void {
+    if (Array.isArray(payload)) {
+      payload.forEach((item) => this.handleSubscriptionAckPayload(item));
+      return;
+    }
+
+    const ack = extractSubscriptionAck(payload);
+    if (!ack) {
+      return;
+    }
+
+    const symbols = expandQuoteTransportSymbols(ack.symbols);
+    symbols.forEach((symbol) => {
+      if (ack.type === 'subscribed') {
+        this.pendingSubscribeSymbols.delete(symbol);
+        this.pendingUnsubscribeSymbols.delete(symbol);
+        this.sentSymbols.add(symbol);
+        if (this.activeSymbols.has(symbol)) {
+          this.confirmedSymbols.add(symbol);
+        }
+        return;
+      }
+
+      this.pendingUnsubscribeSymbols.delete(symbol);
+      this.pendingSubscribeSymbols.delete(symbol);
+      this.confirmedSymbols.delete(symbol);
+      this.sentSymbols.delete(symbol);
+    });
+    this.logCandleFeed('subscription_ack', { type: ack.type, symbols }, 20);
+  }
+
+  private markSymbolsConfirmed(symbols: string[]): void {
+    const transportSymbols = expandQuoteTransportSymbols(symbols);
+    transportSymbols.forEach((symbol) => {
+      if (!this.activeSymbols.has(symbol)) {
+        return;
+      }
+      this.sentSymbols.add(symbol);
+      this.pendingSubscribeSymbols.delete(symbol);
+      this.pendingUnsubscribeSymbols.delete(symbol);
+      this.confirmedSymbols.add(symbol);
+    });
   }
 
   private attemptReconnect(): void {
@@ -800,6 +913,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     cancelFlush(this);
     this.isConnected = false;
     this.ws = null;
+    this.resetTransportSubscriptionState();
 
     if (currentSocket) {
       currentSocket.onopen = null;
@@ -819,6 +933,13 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       this.symbolConsumerCounts.clear();
       this.storeConsumerCounts.clear();
     }
+  }
+
+  private resetTransportSubscriptionState(): void {
+    this.sentSymbols.clear();
+    this.pendingSubscribeSymbols.clear();
+    this.pendingUnsubscribeSymbols.clear();
+    this.confirmedSymbols.clear();
   }
 
   /** @internal Used by the tick processor. */

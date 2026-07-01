@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  appendCandleWsToken,
+  appendCandleWsBrokerId,
   createCandleChannel,
   extractCandlePayloadContext,
   getCandlePayloadItems,
@@ -65,49 +65,24 @@ test('resolveCandlesWsUrl can require logged-in broker candle sockets without sh
   assert.equal(resolveCandlesWsUrl(undefined, '', { requireBrokerUrl: true }), '');
 });
 
-test('appendCandleWsToken keeps the URL anonymous when no token is available', () => {
+test('appendCandleWsBrokerId appends selected broker identity without touching token auth', () => {
   assert.equal(
-    appendCandleWsToken('wss://backend.orrnn.com/ws/v2', null),
-    'wss://backend.orrnn.com/ws/v2',
+    appendCandleWsBrokerId('wss://services.myprop.trade/ws/v2', 'myprop-trade'),
+    'wss://services.myprop.trade/ws/v2?broker_id=myprop-trade',
   );
   assert.equal(
-    appendCandleWsToken('wss://backend.orrnn.com/ws/v2?foo=1', null),
-    'wss://backend.orrnn.com/ws/v2?foo=1',
-  );
-});
-
-test('appendCandleWsToken appends JWT when URL has no existing query string', () => {
-  assert.equal(
-    appendCandleWsToken('wss://backend.orrnn.com/ws/v2', 'jwt.token.here'),
-    'wss://backend.orrnn.com/ws/v2?token=jwt.token.here',
+    appendCandleWsBrokerId('wss://services.myprop.trade/ws/v2?token=secret', 'myprop-trade'),
+    'wss://services.myprop.trade/ws/v2?token=secret&broker_id=myprop-trade',
   );
 });
 
-test('appendCandleWsToken url-encodes JWTs containing reserved characters', () => {
+test('appendCandleWsBrokerId replaces stale broker identity on reconnect', () => {
   assert.equal(
-    appendCandleWsToken('wss://backend.orrnn.com/ws/v2', 'a b/c+d=e&f'),
-    'wss://backend.orrnn.com/ws/v2?token=a%20b%2Fc%2Bd%3De%26f',
-  );
-});
-
-test('appendCandleWsToken merges JWT into an existing query string without colliding with other params', () => {
-  assert.equal(
-    appendCandleWsToken('wss://backend.orrnn.com/ws/v2?foo=1&bar=2', 'jwt'),
-    'wss://backend.orrnn.com/ws/v2?foo=1&bar=2&token=jwt',
-  );
-});
-
-test('appendCandleWsToken replaces a stale token instead of accumulating duplicates on reconnect', () => {
-  const stale = 'wss://backend.orrnn.com/ws/v2?token=old.jwt';
-  assert.equal(
-    appendCandleWsToken(stale, 'new.jwt'),
-    'wss://backend.orrnn.com/ws/v2?token=new.jwt',
-  );
-
-  const staleWithExtra = 'wss://backend.orrnn.com/ws/v2?token=old.jwt&foo=1';
-  assert.equal(
-    appendCandleWsToken(staleWithExtra, 'new.jwt'),
-    'wss://backend.orrnn.com/ws/v2?foo=1&token=new.jwt',
+    appendCandleWsBrokerId(
+      'wss://services.myprop.trade/ws/v2?broker_id=old&foo=1',
+      'myprop-trade',
+    ),
+    'wss://services.myprop.trade/ws/v2?foo=1&broker_id=myprop-trade',
   );
 });
 

@@ -91,6 +91,40 @@ const DEFAULT_CUSTOM_CANDLE_OPTIONS: RTX5CustomCandlestickSeriesOptions = {
 const SHOULD_LOG_CENTER_INVARIANTS =
   typeof __DEV__ !== 'undefined' ? __DEV__ : true;
 
+const DENSE_CANDLE_LINE_MAX_BAR_SPACING = 3.25;
+
+const shouldRenderDenseCandleAsLine = (
+  barSpacing: number,
+  bodyWidth: number,
+  pixelRatio: number,
+) => {
+  const oneCssPixel = Math.max(1, Math.floor(pixelRatio));
+  return barSpacing <= DENSE_CANDLE_LINE_MAX_BAR_SPACING || bodyWidth <= oneCssPixel * 2;
+};
+
+const fillDenseCandleLine = (
+  ctx: CanvasRenderingContext2D,
+  geometry: {
+    wickLeft: number;
+    wickWidth: number;
+    wickTop: number;
+    wickBottom: number;
+    bodyTop: number;
+    bodyBottom: number;
+  },
+  color: string,
+) => {
+  const top = Math.min(geometry.wickTop, geometry.bodyTop, geometry.bodyBottom);
+  const bottom = Math.max(geometry.wickBottom, geometry.bodyTop, geometry.bodyBottom);
+  ctx.fillStyle = color;
+  ctx.fillRect(
+    geometry.wickLeft,
+    top,
+    Math.max(1, geometry.wickWidth),
+    Math.max(1, bottom - top + 1),
+  );
+};
+
 /**
  * Draws an inner border within a bounding box. 
  * Prevents the border from spilling out into the anti-aliasing space,
@@ -211,6 +245,12 @@ class RTX5CustomCandlestickRenderer implements ICustomSeriesPaneRenderer {
         ) {
           // This should never fire once the renderer is wired correctly.
           console.error(formatCandleGeometryInvariantMessage(geometry, CANDLE_CENTER_EPSILON));
+        }
+
+        if (shouldRenderDenseCandleAsLine(bitmapBarSpacing, bodyWidth, horizontalPixelRatio)) {
+          fillDenseCandleLine(context, geometry, wickColor);
+          previousWickRight = geometry.wickRight;
+          continue;
         }
 
         if (this.options.wickVisible && geometry.wickWidth > 0) {

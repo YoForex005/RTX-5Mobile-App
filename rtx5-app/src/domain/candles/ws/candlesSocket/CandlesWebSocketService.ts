@@ -12,7 +12,7 @@
 
 import { liveCandleStream as liveCandlesEngine } from '../../stream/liveCandleStream';
 import {
-  appendCandleWsToken,
+  appendCandleWsBrokerId,
   createCandleChannel,
   extractCandlePayloadContext,
   getCandlePayloadItems,
@@ -23,23 +23,18 @@ import type { CandleStreamEvent } from '../../core/candles';
 import { normalizeSymbol, normalizeTimeframeStrict } from '../../core/candles';
 import type { Candle } from '../../../../state/tradingState';
 import { useUserPreferences } from '../../../../state/userPreferences';
-import { createSubscriptionKey, getStoredAccessToken } from './authToken';
+import { createSubscriptionKey } from './authToken';
 import type { ArrayListener, StreamListener, SubscriptionState, TickListener } from './types';
 
-const shouldAttachCandleWsToken = (): boolean => {
-  const value = process.env.EXPO_PUBLIC_CANDLES_WS_REQUIRES_TOKEN;
-  return typeof value === 'string' && /^(1|true|yes)$/i.test(value.trim());
-};
+const redactCandleSocketUrl = (url: string): string =>
+  url.replace(/([?&]token=)[^&]*/i, '$1***');
 
 export class CandlesWebSocketService {
   private static instance: CandlesWebSocketService;
 
   private ws: WebSocket | null = null;
   private url = this.resolveSocketUrl();
-  // Last token appended to the current `ws` when tokenized candle channels are
-  // explicitly enabled. In the default public candle mode this stays null.
-  private activeToken: string | null = null;
-  private anonymousFallbackToken: string | null = null;
+  private activeBrokerId = '';
   private tokenWatcherUnsubscribe: (() => void) | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
@@ -81,7 +76,7 @@ export class CandlesWebSocketService {
       return;
     }
 
-    const token = this.resolveConnectionToken();
+    const brokerId = this.resolveConnectionBrokerId();
     const nextUrl = this.resolveSocketUrl();
     if (!nextUrl) {
       if (this.url !== nextUrl) {
@@ -97,7 +92,7 @@ export class CandlesWebSocketService {
     // it down so the next connection uses the current broker URL/auth mode.
     if (
       (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) &&
-      (this.activeToken !== token || this.url !== nextUrl)
+      (this.activeBrokerId !== brokerId || this.url !== nextUrl)
     ) {
       this.url = nextUrl;
       this.tearDownSocketSafe();
@@ -123,15 +118,12 @@ export class CandlesWebSocketService {
     }
 
     try {
-      this.activeToken = token;
-      const wsUrl = appendCandleWsToken(this.url, token);
+      this.activeBrokerId = brokerId;
+      const wsUrl = appendCandleWsBrokerId(this.url, brokerId);
       this.ws = new WebSocket(wsUrl);
       this.ws.onopen = () => {
         this.isConnected = true;
         this.reconnectAttempts = 0;
-        if (token) {
-          this.anonymousFallbackToken = null;
-        }
         this.sendSubscriptions();
       };
       this.ws.onmessage = (event) => {
@@ -141,16 +133,25 @@ export class CandlesWebSocketService {
           console.warn('[Candles WS] Parse error', error);
         }
       };
-      this.ws.onclose = () => {
+      this.ws.onclose = (event) => {
         this.isConnected = false;
         this.ws = null;
+        if (!this.manualDisconnect && this.subscriptions.size > 0) {
+          console.warn('[Candles WS] closed', {
+            code: event?.code,
+            reason: event?.reason,
+            socketUrl: redactCandleSocketUrl(wsUrl),
+          });
+        }
         if (!this.manualDisconnect && this.subscriptions.size > 0) {
           this.scheduleReconnect();
         }
       };
       this.ws.onerror = () => {
-        console.warn('[Candles WS] connection error');
-        this.retryPublicChannelWithoutToken();
+        console.warn('[Candles WS] connection error', {
+          readyState: this.ws?.readyState,
+          socketUrl: redactCandleSocketUrl(wsUrl),
+        });
       };
     } catch (error) {
       console.warn('[Candles WS] connection failed', error);
@@ -175,8 +176,7 @@ export class CandlesWebSocketService {
     }
     this.subscriptions.clear();
     this.candleCache = [];
-    this.activeToken = null;
-    this.anonymousFallbackToken = null;
+    this.activeBrokerId = '';
 
     this.tearDownSocketSafe();
   }
@@ -482,29 +482,9 @@ export class CandlesWebSocketService {
     }
   }
 
-  private resolveConnectionToken(): string | null {
-    if (!shouldAttachCandleWsToken()) {
-      return null;
-    }
-
-    const token = getStoredAccessToken();
-    if (!token) {
-      return null;
-    }
-    return this.anonymousFallbackToken === token ? null : token;
-  }
-
-  private retryPublicChannelWithoutToken(): void {
-    if (!this.activeToken || this.anonymousFallbackToken === this.activeToken) {
-      return;
-    }
-
-    // Public candle channels can stream anonymously. If a persisted JWT is
-    // stale or rejected during the websocket handshake, keep chart candles live
-    // by retrying the same subscriptions without the token until auth rotates.
-    this.anonymousFallbackToken = this.activeToken;
-    this.tearDownSocketSafe();
-    this.scheduleReconnect();
+  private resolveConnectionBrokerId(): string {
+    const state = useUserPreferences.getState();
+    return state.isLoggedIn ? String(state.brokerId || '').trim() : '';
   }
 
   private teardownSocket(): void {
@@ -524,29 +504,25 @@ export class CandlesWebSocketService {
     } catch (_error) {}
   }
 
-  // Watch the user's stored access token and broker URL. Token changes only
-  // affect the socket when tokenized candle channels are explicitly enabled,
-  // but the same watcher also keeps broker-domain switches fresh.
+  // Watch broker identity and URL so account/broker switches resubscribe the
+  // public candle stream to the correct backend service.
   private startTokenWatcher(): void {
     if (this.tokenWatcherUnsubscribe) {
       return;
     }
     try {
       this.tokenWatcherUnsubscribe = useUserPreferences.subscribe((state, prevState) => {
-        const next = state.accountDetails?.credentials?.accessToken ?? null;
-        const prev = prevState.accountDetails?.credentials?.accessToken ?? null;
+        const nextBrokerId = state.brokerId;
+        const prevBrokerId = prevState.brokerId;
         const nextServerUrl = state.brokerServerUrl;
         const prevServerUrl = prevState.brokerServerUrl;
-        if (next === prev) {
-          if (nextServerUrl === prevServerUrl) {
-            return;
-          }
+        if (nextBrokerId === prevBrokerId && nextServerUrl === prevServerUrl) {
+          return;
         }
-        this.anonymousFallbackToken = null;
         if (this.subscriptions.size === 0) {
           return;
         }
-        // Tear down and reconnect under the new token. `connect()` will
+        // Tear down and reconnect under the new broker. `connect()` will
         // re-establish the socket, then `sendSubscriptions()` will re-subscribe
         // every active (symbol, timeframe) channel.
         this.tearDownSocketSafe();

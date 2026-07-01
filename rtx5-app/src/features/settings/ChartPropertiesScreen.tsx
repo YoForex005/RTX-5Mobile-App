@@ -26,7 +26,7 @@ import { LiveChartPreview } from '../chart/preview';
 
 // Match Settings dark palette for the chart preferences shell and cards.
 const SETTINGS_DARK_BACKGROUND = '#000000';
-const SETTINGS_DARK_CARD_BACKGROUND = '#0d1628';
+const SETTINGS_DARK_CARD_BACKGROUND = '#1C1C1E';
 
 type ColorGroup = {
   title: string;

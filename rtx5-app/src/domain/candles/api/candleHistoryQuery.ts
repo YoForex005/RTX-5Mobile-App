@@ -10,6 +10,8 @@ export type CandleHistoryRequestOptions = {
   to?: number;
 };
 
+export type CandleHistoryQueryStyle = 'timeframeLimit' | 'tfCount';
+
 /** The normalized shape extracted from various possible backend JSON responses. */
 export type ExtractedCandleHistoryPayload = {
   candles: unknown[];
@@ -102,16 +104,20 @@ export const buildCandleHistorySearchParams = (
   timeframe: string,
   count: number,
   options?: CandleHistoryRequestOptions,
+  style: CandleHistoryQueryStyle = 'timeframeLimit',
 ): URLSearchParams => {
   const params = new URLSearchParams();
   const requestTimeframe = timeframe.trim();
-  params.set(
-    'timeframe',
-    /^\d+(?:m|h|d|w)$/.test(requestTimeframe)
-      ? requestTimeframe
-      : requestTimeframe.toUpperCase(),
-  );
-  params.set('limit', String(count));
+  const normalizedRequestTimeframe = /^\d+(?:m|h|d|w)$/.test(requestTimeframe)
+    ? requestTimeframe
+    : requestTimeframe.toUpperCase();
+  if (style === 'tfCount') {
+    params.set('tf', normalizedRequestTimeframe);
+    params.set('count', String(count));
+  } else {
+    params.set('timeframe', normalizedRequestTimeframe);
+    params.set('limit', String(count));
+  }
 
   if (typeof options?.from === 'number' && Number.isFinite(options.from) && options.from > 0) {
     params.set('from', normalizeBoundedUnixSeconds(options.from));

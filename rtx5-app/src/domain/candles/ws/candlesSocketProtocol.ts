@@ -48,32 +48,20 @@ export const resolveCandlesWsUrl = (
   return url.replace(/\/ws\/feed(\?.*)?$/, '/ws/v2$1');
 };
 
-/**
- * Append (or replace) the `?token=` query parameter on a WS URL.
- *
- * The current backend accepts public candle channels anonymously, but logged-in
- * sessions may still need the active JWT for account-scoped routing. Pass the
- * user's stored access token in via `token` when available, or `null` to keep
- * the URL anonymous for guest mode.
- */
-export const appendCandleWsToken = (baseUrl: string, token: string | null): string => {
-  if (!token) {
+export const appendCandleWsBrokerId = (baseUrl: string, brokerId?: string | null): string => {
+  const normalizedBrokerId = String(brokerId ?? '').trim();
+  if (!baseUrl || !normalizedBrokerId) {
     return baseUrl;
   }
-  // Strip any existing token query so reconnects under a rotated token do not
-  // accumulate stale params. We do this by parsing the query string manually
-  // (no URL constructor dependency in RN/Hermes guarantees) and rebuilding it.
+
   const queryStart = baseUrl.indexOf('?');
-  if (queryStart === -1) {
-    return `${baseUrl}?token=${encodeURIComponent(token)}`;
-  }
-  const base = baseUrl.slice(0, queryStart);
-  const query = baseUrl.slice(queryStart + 1);
+  const base = queryStart === -1 ? baseUrl : baseUrl.slice(0, queryStart);
+  const query = queryStart === -1 ? '' : baseUrl.slice(queryStart + 1);
   const params = query
     .split('&')
     .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0 && !entry.toLowerCase().startsWith('token='));
-  params.push(`token=${encodeURIComponent(token)}`);
+    .filter((entry) => entry.length > 0 && !entry.toLowerCase().startsWith('broker_id='));
+  params.push(`broker_id=${encodeURIComponent(normalizedBrokerId)}`);
   return `${base}?${params.join('&')}`;
 };
 

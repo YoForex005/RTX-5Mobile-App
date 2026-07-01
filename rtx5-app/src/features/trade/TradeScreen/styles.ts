@@ -3,7 +3,7 @@ import { spacing } from '../../../ui/theme/index';
 import type { ThemeColors } from '../../../ui/theme/glass';
 
 const SETTINGS_DARK_BACKGROUND = '#000000';
-const SETTINGS_DARK_CARD_BACKGROUND = '#0d1628';
+const SETTINGS_DARK_CARD_BACKGROUND = '#1C1C1E';
 
 export function makeTradeScreenStyles(T: ThemeColors, isDark: boolean) {
   const screenBg = isDark ? SETTINGS_DARK_BACKGROUND : T.bg;
@@ -16,7 +16,7 @@ export function makeTradeScreenStyles(T: ThemeColors, isDark: boolean) {
     summaryBlock: {
       marginTop: spacing.md, marginHorizontal: spacing.md, borderRadius: 16,
       backgroundColor: cardBg, borderWidth: 1, borderColor: T.border,
-      shadowColor: isDark ? '#2563EB' : '#64748B',
+      shadowColor: isDark ? '#000000' : '#64748B',
       shadowOffset: { width: 0, height: isDark ? 4 : 8 },
       shadowOpacity: isDark ? 0.08 : 0.08,
       shadowRadius: isDark ? 16 : 24, elevation: 4, overflow: 'hidden',
@@ -113,7 +113,7 @@ export function makeTradeScreenStyles(T: ThemeColors, isDark: boolean) {
     oneClick: {
       marginTop: spacing.lg, marginHorizontal: spacing.md, paddingVertical: 12, paddingHorizontal: spacing.md,
       borderRadius: 16, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-      shadowColor: isDark ? '#2563EB' : '#64748B',
+      shadowColor: isDark ? '#000000' : '#64748B',
       shadowOffset: { width: 0, height: isDark ? 4 : 8 },
       shadowOpacity: isDark ? 0.08 : 0.08,
       shadowRadius: isDark ? 16 : 24, elevation: 4,

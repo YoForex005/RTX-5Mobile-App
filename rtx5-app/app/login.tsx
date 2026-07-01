@@ -369,6 +369,44 @@ export function AccountLoginScreen() {
   const selectedBrokerInitials = formatLoginBrokerInitials(
     selectedBrokerOption?.brokerName || brokerId || t('Broker'),
   );
+  const isBrokerDirectoryBusy = isBrokerServersLoading || isBrokerServersFetching;
+  const isBrokerDirectoryUnavailable = !isBrokerDirectoryBusy && brokerOptions.length === 0;
+
+  const resolveBrokerSelectionError = useCallback((candidateBrokerId: string, candidateServerUrl = '') => {
+    const candidateKey = normalizeBrokerKey(candidateBrokerId);
+    if (!candidateKey) {
+      return '';
+    }
+    const matchedBrokerOption = brokerOptions.find((option) => option.key === candidateKey);
+    if (matchedBrokerOption) {
+      if (!matchedBrokerOption.serverUrl) {
+        return getBrokerBackendDomainUnavailableMessage(candidateBrokerId);
+      }
+      return '';
+    }
+
+    if (isBrokerServiceBaseUrl(normalizeBrokerServerUrl(candidateServerUrl))) {
+      return '';
+    }
+
+    if (isBrokerDirectoryBusy) {
+      return t('Please wait while the broker list loads.');
+    }
+    if (isBrokerDirectoryUnavailable) {
+      return t('Broker list unavailable. Retry broker list and select your broker before login.');
+    }
+    return t('Please select your broker from the broker list before login.');
+  }, [
+    brokerOptions,
+    isBrokerDirectoryBusy,
+    isBrokerDirectoryUnavailable,
+    t,
+  ]);
+  const brokerSelectionError = resolveBrokerSelectionError(
+    (brokerIdValueRef.current ?? brokerId).trim(),
+    brokerServerUrlValueRef.current || selectedBrokerServerUrl,
+  );
+  const isLoginSubmitDisabled = isLoading || Boolean(brokerSelectionError);
 
   useEffect(() => {
     if (!selectedBrokerOption?.serverUrl) {
@@ -445,7 +483,7 @@ export function AccountLoginScreen() {
         label: isBusy ? 'Loading brokers...' : 'Retry broker list',
         subtitle: isBusy
           ? t('Please wait while the broker list loads.')
-          : t('You can still type the Broker ID manually.'),
+          : t('Broker list is unavailable. Retry before login.'),
         disabled: isBusy,
         onPress: () => {
           void refetchBrokerServers();
@@ -500,6 +538,17 @@ export function AccountLoginScreen() {
     if (!normalizedBrokerId) {
       setIsLoading(false);
       setModalState({ visible: true, type: 'error', title: t('Error'), message: t('Please enter your Broker ID') });
+      return;
+    }
+    const brokerSelectionMessage = resolveBrokerSelectionError(normalizedBrokerId, normalizedServerUrl);
+    if (brokerSelectionMessage) {
+      setIsLoading(false);
+      setModalState({
+        visible: true,
+        type: 'error',
+        title: t('Error'),
+        message: brokerSelectionMessage,
+      });
       return;
     }
     if (!normalizedServerUrl) {
@@ -696,9 +745,6 @@ export function AccountLoginScreen() {
       
     } catch (error: any) {
       setModalState({ visible: true, type: 'error', title: t('Login Failed'), message: error.message || t('Invalid credentials') });
-      setTimeout(() => {
-        setModalState(prev => ({ ...prev, visible: false }));
-      }, 2000);
     } finally {
       loginRequestInFlightRef.current = false;
       if (!didStartSuccessNavigation) {
@@ -847,13 +893,17 @@ export function AccountLoginScreen() {
                       autoCorrect={false}
                       disableFullscreenUI={true}
                     />
-                    {selectedBrokerOption ? (
+                    {brokerSelectionError ? (
+                      <Text style={[styles.brokerInlineHint, styles.brokerInlineHintError]} numberOfLines={2}>
+                        {brokerSelectionError}
+                      </Text>
+                    ) : selectedBrokerOption ? (
                       <Text style={styles.brokerInlineHint} numberOfLines={1}>
                         {formatSelectedBrokerHint(selectedBrokerOption)}
                       </Text>
                     ) : isBrokerServersError ? (
                       <Text style={[styles.brokerInlineHint, styles.brokerInlineHintError]} numberOfLines={2}>
-                        {t('Broker list unavailable. You can type the Broker ID manually.')}
+                        {t('Broker list unavailable. Retry broker list before login.')}
                       </Text>
                     ) : null}
                     {isBrokerHealthChecking ? (
@@ -967,17 +1017,17 @@ export function AccountLoginScreen() {
               <Pressable
                 style={({ pressed }) => [
                   styles.loginBtn,
-                  (pressed || isLoading) && styles.loginBtnPressed
+                  (pressed || isLoginSubmitDisabled) && styles.loginBtnPressed
                 ]}
                 onPress={handleLoginPress}
                 activateOnTouchStart
-                disabled={isLoading}
+                disabled={isLoginSubmitDisabled}
                 hitSlop={LOGIN_BUTTON_HIT_SLOP}
                 pressRetentionOffset={LOGIN_BUTTON_PRESS_RETENTION_OFFSET}
                 latencyLabel="login.submit"
                 unstable_pressDelay={0}
                 accessibilityRole="button"
-                accessibilityState={{ disabled: isLoading, busy: isLoading }}
+                accessibilityState={{ disabled: isLoginSubmitDisabled, busy: isLoading }}
                 testID="login-submit-button"
               >
                 {isLoading ? (

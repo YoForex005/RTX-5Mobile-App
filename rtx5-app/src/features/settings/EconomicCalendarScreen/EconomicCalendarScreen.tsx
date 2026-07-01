@@ -131,14 +131,14 @@ export function EconomicCalendarScreen() {
       return (
         <Pressable
           key={event.id}
-          style={[styles.eventCard, { padding: 12, backgroundColor: isDark ? '#151D2A' : '#F8FAFC', borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', marginBottom: 8 }]}
+          style={[styles.eventCard, { padding: 12, backgroundColor: isDark ? T.glass1 : '#F8FAFC', borderWidth: 1, borderColor: isDark ? T.border : 'rgba(0,0,0,0.05)', marginBottom: 8 }]}
           onPress={() => setExpandedEventId(null)}
         >
           <View style={{ flexDirection: 'column' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
               <View style={{ width: 80 }}>
-                <Text style={{ color: isDark ? '#F8FAFC' : '#0F172A', fontSize: 16, fontWeight: '700', fontVariant: ['tabular-nums'] }}>
-                  {event.time} <Text style={{ fontSize: 11, color: isDark ? '#64748B' : '#94A3B8', fontWeight: '500' }}>GMT</Text>
+                <Text style={{ color: isDark ? T.text : '#0F172A', fontSize: 16, fontWeight: '700', fontVariant: ['tabular-nums'] }}>
+                  {event.time} <Text style={{ fontSize: 11, color: isDark ? T.textMuted : '#94A3B8', fontWeight: '500' }}>GMT</Text>
                 </Text>
               </View>
               <View style={{ flex: 1, paddingHorizontal: 12, flexDirection: 'row' }}>
@@ -155,28 +155,28 @@ export function EconomicCalendarScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
               <View style={{ width: 80 }} />
               <View style={{ flex: 1, paddingHorizontal: 12 }}>
-                <Text style={{ fontSize: 16, color: isDark ? '#F8FAFC' : '#0F172A', fontWeight: 'bold' }}>{event.title}</Text>
+                <Text style={{ fontSize: 16, color: isDark ? T.text : '#0F172A', fontWeight: 'bold' }}>{event.title}</Text>
               </View>
             </View>
           </View>
 
-          <View style={{ flexDirection: 'row', backgroundColor: isDark ? '#0B0F17' : '#F1F5F9', borderRadius: 12, borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', marginTop: 8 }}>
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 6, borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}>
-              <Text style={{ color: hasActual ? config.color : (isDark ? '#475569' : '#94A3B8'), fontSize: 10, fontWeight: '600', letterSpacing: 0.8, marginBottom: 4 }}>ACTUAL</Text>
-              <Text style={{ fontSize: 22, fontWeight: '600', color: hasActual ? config.color : (isDark ? '#475569' : '#94A3B8'), fontVariant: ['tabular-nums'] }}>
+          <View style={{ flexDirection: 'row', backgroundColor: isDark ? T.glass2 : '#F1F5F9', borderRadius: 12, borderWidth: 1, borderColor: isDark ? T.border : 'rgba(0,0,0,0.05)', marginTop: 8 }}>
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 6, borderRightWidth: 1, borderRightColor: isDark ? T.borderSubtle : 'rgba(0,0,0,0.05)' }}>
+              <Text style={{ color: hasActual ? config.color : (isDark ? T.textDimmed : '#94A3B8'), fontSize: 10, fontWeight: '600', letterSpacing: 0.8, marginBottom: 4 }}>ACTUAL</Text>
+              <Text style={{ fontSize: 22, fontWeight: '600', color: hasActual ? config.color : (isDark ? T.textDimmed : '#94A3B8'), fontVariant: ['tabular-nums'] }}>
                 {hasActual ? event.actual : '—'}
               </Text>
             </View>
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 6, borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}>
-              <Text style={{ color: isDark ? '#64748B' : '#94A3B8', fontSize: 10, fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 }}>FORECAST</Text>
-              <Text style={{ color: isDark ? '#F8FAFC' : '#0F172A', fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{event.forecast || '—'}</Text>
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 6, borderRightWidth: 1, borderRightColor: isDark ? T.borderSubtle : 'rgba(0,0,0,0.05)' }}>
+              <Text style={{ color: isDark ? T.textMuted : '#94A3B8', fontSize: 10, fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 }}>FORECAST</Text>
+              <Text style={{ color: isDark ? T.text : '#0F172A', fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{event.forecast || '—'}</Text>
               {forecastDiff ? (
                 <Text style={{ color: forecastDiff.color, fontSize: 10, fontWeight: '600', marginTop: 4 }}>vs: {forecastDiff.text} {forecastDiff.symbol}</Text>
               ) : <View style={{ height: 16 }} />}
             </View>
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 6 }}>
-              <Text style={{ color: isDark ? '#64748B' : '#94A3B8', fontSize: 10, fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 }}>PREVIOUS</Text>
-              <Text style={{ color: isDark ? '#F8FAFC' : '#0F172A', fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{event.previous || '—'}</Text>
+              <Text style={{ color: isDark ? T.textMuted : '#94A3B8', fontSize: 10, fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 }}>PREVIOUS</Text>
+              <Text style={{ color: isDark ? T.text : '#0F172A', fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{event.previous || '—'}</Text>
               {previousDiff ? (
                 <Text style={{ color: previousDiff.color, fontSize: 10, fontWeight: '600', marginTop: 4 }}>vs: {previousDiff.text} {previousDiff.symbol}</Text>
               ) : <View style={{ height: 16 }} />}
@@ -185,8 +185,8 @@ export function EconomicCalendarScreen() {
 
           <View style={{ alignItems: 'flex-end', marginTop: 12 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Ionicons name="location-outline" size={14} color={isDark ? '#64748B' : '#94A3B8'} />
-              <Text style={{ color: isDark ? '#94A3B8' : '#475569', fontSize: 13, fontWeight: '600' }}>{event.country}</Text>
+              <Ionicons name="location-outline" size={14} color={isDark ? T.textMuted : '#94A3B8'} />
+              <Text style={{ color: isDark ? T.textSub : '#475569', fontSize: 13, fontWeight: '600' }}>{event.country}</Text>
             </View>
           </View>
         </Pressable>
@@ -242,7 +242,7 @@ export function EconomicCalendarScreen() {
                 </>
               ) : (
                 <>
-                  <Ionicons name="time-outline" size={14} color={isDark ? '#475569' : '#94A3B8'} />
+                  <Ionicons name="time-outline" size={14} color={isDark ? T.textDimmed : '#94A3B8'} />
                   <Text style={styles.previewLabel}>Pending</Text>
                 </>
               )}
@@ -251,7 +251,7 @@ export function EconomicCalendarScreen() {
         </View>
       </Pressable>
     );
-  }, [expandedEventId, styles, isDark]);
+  }, [expandedEventId, styles, isDark, T]);
 
   return (
     <Screen style={styles.screen}>
@@ -259,7 +259,7 @@ export function EconomicCalendarScreen() {
         paddingTop: insets.top,
         backgroundColor: T.bg,
         borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+        borderBottomColor: isDark ? T.borderSubtle : 'rgba(0,0,0,0.06)',
       }}>
         <View style={{ height: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 }}>
           <Pressable
@@ -285,14 +285,14 @@ export function EconomicCalendarScreen() {
           <View style={styles.heroContent}>
             <View style={styles.heroTitleRow}>
               <View style={styles.heroIconWrap}>
-                <Ionicons name="calendar-outline" size={30} color={isDark ? '#818CF8' : '#4F46E5'} />
+                <Ionicons name="calendar-outline" size={30} color={isDark ? T.accent : '#4F46E5'} />
               </View>
               <View style={{ flex: 1, marginLeft: 6 }}>
                 <Text style={styles.heroTitle}>Economic Calender</Text>
                 <Text style={styles.heroSub}>Market events calendar</Text>
               </View>
               <Pressable style={styles.filterBtn} onPress={() => setFilterModalOpen(true)}>
-                <Ionicons name="options-outline" size={16} color={isDark ? '#A5B4FC' : '#4F46E5'} />
+                <Ionicons name="options-outline" size={16} color={isDark ? T.accent : '#4F46E5'} />
               </Pressable>
             </View>
 
@@ -303,7 +303,7 @@ export function EconomicCalendarScreen() {
                   <Pressable key={tab} style={[styles.segmentBtn, isActive && styles.segmentBtnActive]} onPress={() => setActiveTab(tab)}>
                     {isActive && (
                       <LinearGradient
-                        colors={isDark ? ['#3B82F6', '#2563EB'] : ['#4F46E5', '#4338CA']}
+                        colors={isDark ? [T.accent, T.trading.buy.active] : ['#4F46E5', '#4338CA']}
                         start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                         style={[StyleSheet.absoluteFillObject, { borderRadius: 10 }]}
                       />
@@ -353,9 +353,9 @@ export function EconomicCalendarScreen() {
         {isLoading ? (
           <View style={{ alignItems: 'center', paddingVertical: 60 }}>
             <Animated.View style={{ alignItems: 'center', justifyContent: 'center' }}>
-              <PulseDot color={isDark ? '#60A5FA' : '#4F46E5'} size={12} />
+              <PulseDot color={isDark ? T.accent : '#4F46E5'} size={12} />
             </Animated.View>
-            <Text style={{ marginTop: 24, fontSize: 15, fontWeight: '700', color: isDark ? '#94A3B8' : '#64748B' }}>
+            <Text style={{ marginTop: 24, fontSize: 15, fontWeight: '700', color: isDark ? T.textSub : '#64748B' }}>
               Fetching live calendar data...
             </Text>
           </View>
@@ -366,14 +366,14 @@ export function EconomicCalendarScreen() {
             </View>
             <Text style={styles.emptyTitle}>Unable to load events</Text>
             <Text style={styles.emptySub}>Check your internet connection and try again</Text>
-            <Pressable style={[styles.emptyResetBtn, { backgroundColor: isDark ? 'rgba(59,130,246,0.2)' : 'rgba(79,70,229,0.1)' }]} onPress={loadData}>
+            <Pressable style={[styles.emptyResetBtn, { backgroundColor: isDark ? T.glass3 : 'rgba(79,70,229,0.1)' }]} onPress={loadData}>
               <Text style={styles.emptyResetText}>Retry</Text>
             </Pressable>
           </View>
         ) : sections.length === 0 ? (
           <View style={styles.emptyState}>
             <View style={styles.emptyIcon}>
-              <Ionicons name="search" size={32} color={isDark ? '#334155' : '#CBD5E1'} />
+              <Ionicons name="search" size={32} color={isDark ? T.textMuted : '#CBD5E1'} />
             </View>
             <Text style={styles.emptyTitle}>No events found</Text>
             <Text style={styles.emptySub}>Try adjusting your filters or date range</Text>
@@ -424,7 +424,7 @@ export function EconomicCalendarScreen() {
                   <Pressable key={impact} style={[styles.modalImpactBtn, isActive && { borderColor: config.color + '60', backgroundColor: config.color + '10' }]} onPress={() => toggleImpact(impact)}>
                     <View style={[styles.modalImpactIndicator, { opacity: isActive ? 1 : 0.6 }]}>
                       <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: isActive ? config.color + '30' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: isActive ? config.color : isDark ? '#334155' : '#CBD5E1' }} />
+                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: isActive ? config.color : isDark ? T.textMuted : '#CBD5E1' }} />
                       </View>
                     </View>
                     <Text style={[styles.modalImpactLabel, isActive && { color: config.color }]}>{config.label}</Text>
@@ -444,7 +444,7 @@ export function EconomicCalendarScreen() {
 
             <Pressable style={styles.modalDoneBtn} onPress={() => setFilterModalOpen(false)}>
               <LinearGradient
-                colors={isDark ? ['#3B82F6', '#2563EB'] : ['#4F46E5', '#4338CA']}
+                colors={isDark ? [T.accent, T.trading.buy.active] : ['#4F46E5', '#4338CA']}
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                 style={[StyleSheet.absoluteFillObject, { borderRadius: 14 }]}
               />

@@ -28,18 +28,26 @@ function hasExplicitHostArg(args) {
 
 let reverseSucceeded = false;
 
-if (state.tools.adb) {
+function ensureAdbReverse({ stdio = 'ignore' } = {}) {
+  if (!state.tools.adb) {
+    return false;
+  }
+
   const reverseResult = spawnSync(
     state.tools.adb,
     ['reverse', 'tcp:8081', 'tcp:8081'],
     {
       cwd: projectRoot,
       env,
-      stdio: 'inherit',
+      stdio,
     },
   );
 
-  reverseSucceeded = reverseResult.status === 0;
+  return reverseResult.status === 0;
+}
+
+if (state.tools.adb) {
+  reverseSucceeded = ensureAdbReverse({ stdio: 'inherit' });
 
   if (!reverseSucceeded) {
     console.warn('\n[android:usb] `adb reverse tcp:8081 tcp:8081` failed. Falling back to LAN host mode so asset/font requests do not target 127.0.0.1 on the device.');
@@ -66,7 +74,21 @@ const child = spawn(command, expoArgs, {
   stdio: 'inherit',
 });
 
+const reverseKeepAlive = reverseSucceeded
+  ? setInterval(() => {
+    if (ensureAdbReverse()) {
+      return;
+    }
+
+    console.warn('[android:usb] Waiting for ADB reverse tcp:8081 to be restored...');
+  }, 5000)
+  : null;
+
 child.on('exit', (code, signal) => {
+  if (reverseKeepAlive) {
+    clearInterval(reverseKeepAlive);
+  }
+
   if (signal) {
     process.kill(process.pid, signal);
     return;
@@ -76,6 +98,10 @@ child.on('exit', (code, signal) => {
 });
 
 child.on('error', (error) => {
+  if (reverseKeepAlive) {
+    clearInterval(reverseKeepAlive);
+  }
+
   console.error(`Failed to start Expo USB dev-client session: ${error.message}`);
   process.exit(1);
 });

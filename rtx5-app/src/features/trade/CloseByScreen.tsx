@@ -33,7 +33,7 @@ import {
 // Match the Settings screen's dark-theme palette (pure black canvas + deep
 // navy cards) instead of the default slate tokens.
 const SETTINGS_DARK_BACKGROUND = '#000000';
-const SETTINGS_DARK_CARD_BACKGROUND = '#0d1628';
+const SETTINGS_DARK_CARD_BACKGROUND = '#1C1C1E';
 
 export function CloseByScreen() {
   const { positionId } = useLocalSearchParams<{ positionId?: string }>();

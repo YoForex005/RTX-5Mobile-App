@@ -29,8 +29,8 @@ import {
   convertCandlesForChart,
   sanitizeCandlesForChart,
 } from '../../src/domain/candles/normalization/chartAdapter';
-import { normalizeHistoryCandle } from '../../src/domain/candles/normalization/candleNormalizer';
-import { validateCandle } from '../../src/domain/candles/core/candleValidator';
+import { normalizeHistoryCandle, normalizeLiveCandle } from '../../src/domain/candles/normalization/candleNormalizer';
+import { validateCandle, validateCandles } from '../../src/domain/candles/core/candleValidator';
 import { getBucketStart } from '../../src/domain/candles/core/timeframeUtils';
 import {
   assertNoDuplicateCandleTimes,
@@ -80,6 +80,36 @@ test('candle with low greater than close is rejected by validator', () => {
 
   const sanitized = sanitizeCandlesForChart([broken]);
   assert.deepEqual(sanitized, []);
+});
+
+test('backend normalizers reject impossible OHLC instead of repairing high and low', () => {
+  const badHistoryHigh = normalizeHistoryCandle({
+    time: t1000,
+    open: 100,
+    high: 99,
+    low: 98,
+    close: 100,
+  });
+  const badHistoryLow = normalizeHistoryCandle({
+    time: t1000,
+    open: 100,
+    high: 101,
+    low: 102,
+    close: 100,
+  });
+  const badLive = normalizeLiveCandle({
+    symbol: 'XAUUSD',
+    timeframe: 'M1',
+    time: t1000,
+    open: 2300,
+    high: 2299,
+    low: 2298,
+    close: 2300,
+  });
+
+  assert.equal(badHistoryHigh, null);
+  assert.equal(badHistoryLow, null);
+  assert.equal(badLive, null);
 });
 
 test('candle with NaN or Infinity OHLC field is rejected during normalization', () => {
@@ -236,6 +266,71 @@ test('short isolated outlier runs are trimmed without filling missing candles', 
   const sanitized = sanitizeCandlesForChart([before, outlierOne, outlierTwo, after], { timeframe: 'M1' });
 
   assert.deepEqual(sanitized, [before, after]);
+});
+
+test('series validator reports duplicate times, unsorted candles, invalid OHLC, invalid numbers, and gaps separately', () => {
+  const summary = validateCandles(
+    [
+      makeCandle(t1000, { close: 1.1 }),
+      makeCandle(t1002, { close: 1.2 }),
+      makeCandle(t1002, { close: 1.3 }),
+      makeCandle(t1001, { open: 100, high: 99, low: 90, close: 95 }),
+      {
+        time: t1001 + 30,
+        open: '100',
+        high: 101,
+        low: 99,
+        close: 100,
+        volume: 0,
+      } as unknown as ReturnType<typeof makeCandle>,
+    ],
+    60_000,
+    'EURUSD',
+    'M1',
+  );
+
+  assert.deepEqual(summary, {
+    total: 5,
+    invalidOhlc: 1,
+    duplicateTimes: 1,
+    unsorted: 1,
+    invalidNumbers: 1,
+    suspiciousGaps: 1,
+    firstTime: t1000,
+    lastTime: t1002,
+  });
+});
+
+test('series validator stays clean for a sorted deduped all-symbol candle series', () => {
+  const summary = validateCandles(
+    buildContiguousHistory(t1000, 4, 'M5', (index) => ({
+      open: 100 + index,
+      high: 101 + index,
+      low: 99 + index,
+      close: 100.5 + index,
+    })),
+    {
+      symbol: 'BTCUSD',
+      timeframe: 'M5',
+      source: 'history_live_merge',
+      requestId: 'test-request',
+      subscriptionId: 'BTCUSD:M5',
+      chartId: 'chart-test',
+      componentName: 'pipeline-hardening.test',
+      timeframeMs: 5 * 60 * 1000,
+    },
+  );
+
+  assert.deepEqual(summary, {
+    total: 4,
+    invalidOhlc: 0,
+    duplicateTimes: 0,
+    unsorted: 0,
+    invalidNumbers: 0,
+    suspiciousGaps: 0,
+    firstTime: t1000,
+    lastTime: t1000 + 15 * 60,
+  });
 });
 
 test('rapid timeframe sequence M1 -> M5 -> M15 produces deterministic buckets per timeframe', () => {

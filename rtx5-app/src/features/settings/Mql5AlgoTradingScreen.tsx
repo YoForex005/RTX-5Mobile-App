@@ -1638,7 +1638,7 @@ function getPnlColor(value: number | null | undefined, T: ThemeColors): string {
 }
 
 function getAlgoUiPalette(T: ThemeColors) {
-  const isDark = T.text === '#F8FAFC' || T.bgRoot === '#020617';
+  const isDark = T.bgRoot === '#000000';
 
   return isDark
     ? {

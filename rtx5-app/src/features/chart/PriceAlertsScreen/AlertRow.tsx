@@ -40,10 +40,10 @@ export function AlertRow({
         <View style={[
           styles.alertIcon,
           { backgroundColor: alert.triggered
-            ? (isDark ? 'rgba(100,116,139,0.15)' : '#F1F5F9')
+            ? (isDark ? T.glass1 : '#F1F5F9')
             : isAbove
-              ? 'rgba(34,197,94,0.12)'
-              : 'rgba(239,68,68,0.12)',
+              ? (isDark ? T.upGlow : 'rgba(34,197,94,0.12)')
+              : (isDark ? T.downGlow : 'rgba(239,68,68,0.12)'),
           },
         ]}>
           <Ionicons
@@ -75,7 +75,7 @@ export function AlertRow({
               {alert.message}
             </Text>
           )}
-          <Text style={[styles.alertTime, { color: isDark ? '#334155' : '#CBD5E1' }]}>
+          <Text style={[styles.alertTime, { color: isDark ? T.textDimmed : '#CBD5E1' }]}>
             {safeTime(alert.created_at)}
           </Text>
         </View>
@@ -87,7 +87,7 @@ export function AlertRow({
           disabled={isDeleting}
           style={[styles.deleteBtn, isDeleting && { opacity: 0.4 }]}
         >
-          <Ionicons name="trash-outline" size={18} color={isDark ? '#475569' : '#94A3B8'} />
+          <Ionicons name="trash-outline" size={18} color={isDark ? T.textMuted : '#94A3B8'} />
         </Pressable>
       </View>
       {!isLast && <View style={styles.separator} />}

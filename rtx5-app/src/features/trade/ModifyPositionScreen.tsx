@@ -42,7 +42,7 @@ import {
 } from '../../api/tradingErrors';
 
 const SETTINGS_DARK_BACKGROUND = '#000000';
-const SETTINGS_DARK_CARD_BACKGROUND = '#0d1628';
+const SETTINGS_DARK_CARD_BACKGROUND = '#1C1C1E';
 
 function formatModifyPrice(val: number, decimals: number) {
   const str = val.toFixed(decimals);

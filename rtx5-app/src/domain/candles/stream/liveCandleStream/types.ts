@@ -33,8 +33,8 @@ export type BufferedLiveEvent =
   // feed and mutates an already-open active bucket's close (and widens
   // high/low), or opens the current tick bucket when the candle backend is
   // stale. It never backfills missing buckets or touches closed history.
-  // Any subsequent backend live_candle snapshot fully overwrites the bucket's
-  // OHLC, so backend remains authoritative.
+  // Backend live_candle snapshots are applied only when the server-candle
+  // source mode is explicitly enabled after runtime compatibility proof.
   | { type: 'quote_tick_extension'; price: number; time: number; order: number };
 
 export type UnorderedLiveEvent =

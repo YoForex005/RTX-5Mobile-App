@@ -29,13 +29,14 @@ test('login submit uses the shared stable fast press path', () => {
   assert.match(source, /void handleLogin\(snapshot\)/);
   assert.match(source, /onPress=\{handleLoginPress\}[\s\S]*activateOnTouchStart/);
   assert.doesNotMatch(source, /onPressIn=\{handleLoginPress\}/);
-  assert.match(source, /disabled=\{isLoading\}/);
+  assert.match(source, /const isLoginSubmitDisabled = isLoading \|\| Boolean\(brokerSelectionError\)/);
+  assert.match(source, /disabled=\{isLoginSubmitDisabled\}/);
   assert.match(source, /hitSlop=\{LOGIN_BUTTON_HIT_SLOP\}/);
   assert.match(source, /pressRetentionOffset=\{LOGIN_BUTTON_PRESS_RETENTION_OFFSET\}/);
   assert.match(source, /latencyLabel="login\.submit"/);
   assert.match(source, /unstable_pressDelay=\{0\}/);
   assert.match(source, /accessibilityRole="button"/);
-  assert.match(source, /accessibilityState=\{\{ disabled: isLoading, busy: isLoading \}\}/);
+  assert.match(source, /accessibilityState=\{\{ disabled: isLoginSubmitDisabled, busy: isLoading \}\}/);
   assert.match(source, /testID="login-submit-button"/);
   assert.match(source, /minHeight: 56/);
   assert.doesNotMatch(source, /loginBtnPressed: \{[\s\S]*transform:/);
@@ -64,6 +65,12 @@ test('login broker id can be selected from the broker directory dropdown', () =>
   assert.match(source, /const selectedBrokerOption = useMemo\(\(\) => \{/);
   assert.match(source, /const brokerPickerActions = useMemo\(\(\) => \{/);
   assert.match(source, /const selectBrokerOption = useCallback\(\(option: LoginBrokerOption\) => \{/);
+  assert.match(source, /const resolveBrokerSelectionError = useCallback\(\(candidateBrokerId: string, candidateServerUrl = ''\) => \{/);
+  assert.match(source, /const matchedBrokerOption = brokerOptions\.find\(\(option\) => option\.key === candidateKey\)/);
+  assert.match(source, /isBrokerServiceBaseUrl\(normalizeBrokerServerUrl\(candidateServerUrl\)\)/);
+  assert.match(source, /Broker list unavailable\. Retry broker list and select your broker before login\./);
+  assert.match(source, /Please select your broker from the broker list before login\./);
+  assert.doesNotMatch(source, /You can still type the Broker ID manually\./);
   assert.match(source, /setBrokerConnection\(option\.brokerId, option\.serverUrl, option\.logoUrl\)/);
   assert.match(source, /persistSelectedBrokerSession\(\{/);
   assert.match(source, /onPress: \(\) => selectBrokerOption\(option\)/);
@@ -111,6 +118,8 @@ test('login validation snapshots the latest committed native field values', () =
   assert.match(source, /const normalizedServerUrl = snapshot\.serverUrl/);
   assert.doesNotMatch(source, /const proxyServer = snapshot\.proxyServer/);
   assert.match(source, /if \(!normalizedBrokerId\) \{\s*setIsLoading\(false\);/);
+  assert.match(source, /const brokerSelectionMessage = resolveBrokerSelectionError\(normalizedBrokerId, normalizedServerUrl\)/);
+  assert.match(source, /if \(brokerSelectionMessage\) \{\s*setIsLoading\(false\);/);
   assert.match(source, /if \(!normalizedServerUrl\) \{\s*setIsLoading\(false\);/);
   assert.match(source, /if \(!normalizedAccountId \|\| !currentPassword\) \{\s*setIsLoading\(false\);/);
   assert.match(source, /onChangeText=\{updateBrokerId\}/);
@@ -119,6 +128,13 @@ test('login validation snapshots the latest committed native field values', () =
   assert.match(source, /onEndEditing=\{updateAccountIdFromEndEditing\}/);
   assert.match(source, /onChangeText=\{updatePassword\}/);
   assert.match(source, /onEndEditing=\{updatePasswordFromEndEditing\}/);
+});
+
+test('login failure modal keeps the real backend error visible', () => {
+  const source = readSource('app/login.tsx');
+
+  assert.match(source, /setModalState\(\{ visible: true, type: 'error', title: t\('Login Failed'\), message: error\.message \|\| t\('Invalid credentials'\) \}\)/);
+  assert.doesNotMatch(source, /setTimeout\(\(\) => \{\s*setModalState\(prev => \(\{ \.\.\.prev, visible: false \}\)\);[\s\S]*\}, 2000\)/);
 });
 
 test('login submit has a synchronous duplicate request guard', () => {

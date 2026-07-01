@@ -34,7 +34,7 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       borderTopRightRadius: 16,
       borderTopWidth: 1,
       borderColor: T.border,
-      backgroundColor: isDark ? '#000000' : T.glass2,
+      backgroundColor: isDark ? T.bg : T.glass2,
       overflow: 'hidden',
     },
     sheetMt5Plain: {
@@ -42,7 +42,7 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       borderTopRightRadius: 0,
       borderTopWidth: 0,
       borderColor: 'transparent',
-      backgroundColor: isDark ? '#000000' : '#FFFFFF',
+      backgroundColor: isDark ? T.bg : '#FFFFFF',
     },
     handle: {
       alignSelf: 'center',
@@ -94,7 +94,7 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 16,
       lineHeight: 22,
       fontWeight: '400',
-      color: isDark ? '#D7DBE2' : '#7A7D86',
+      color: isDark ? T.textSub : '#7A7D86',
       textAlign: 'left',
     },
     titleSuffix: {
@@ -112,13 +112,13 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 16,
       lineHeight: 22,
       fontWeight: '400',
-      color: isDark ? '#D7DBE2' : '#7A7D86',
+      color: isDark ? T.textSub : '#7A7D86',
       textAlign: 'left',
     },
     searchContainer: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+      backgroundColor: isDark ? T.glass2 : 'rgba(0,0,0,0.03)',
       marginHorizontal: 16,
       marginBottom: 12,
       paddingHorizontal: 12,
@@ -188,7 +188,7 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: T.glass3,
     },
     actionPressedMt5Plain: {
-      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F2F4F7',
+      backgroundColor: isDark ? T.glass3 : '#F2F4F7',
     },
     actionText: {
       fontSize: 17,
@@ -236,7 +236,7 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       color: T.textMuted,
     },
     actionTextDisabledMt5Plain: {
-      color: isDark ? '#626B77' : '#CDD1D8',
+      color: isDark ? T.textMuted : '#CDD1D8',
     },
     timeframeGrid: {
       flexDirection: 'row',
@@ -253,31 +253,31 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 1,
-      borderColor: isDark ? '#252B36' : '#D7DBE2',
-      backgroundColor: isDark ? '#111722' : '#F7F8FA',
+      borderColor: isDark ? T.border : '#D7DBE2',
+      backgroundColor: isDark ? T.glass2 : '#F7F8FA',
     },
     timeframeGridActionPressed: {
-      backgroundColor: isDark ? '#1A2332' : '#E9EDF3',
+      backgroundColor: isDark ? T.glass1 : '#E9EDF3',
     },
     timeframeGridActionSelected: {
-      borderColor: '#2563EB',
-      backgroundColor: isDark ? 'rgba(37, 99, 235, 0.22)' : 'rgba(37, 99, 235, 0.12)',
+      borderColor: isDark ? T.accent : '#2563EB',
+      backgroundColor: isDark ? 'rgba(52, 125, 255, 0.22)' : 'rgba(37, 99, 235, 0.12)',
     },
     timeframeGridActionDisabled: {
       opacity: 0.45,
     },
     timeframeGridText: {
-      color: isDark ? '#EEF1F5' : '#4F535C',
+      color: isDark ? T.text : '#4F535C',
       fontSize: 13,
       lineHeight: 18,
       fontWeight: '500',
       textAlign: 'center',
     },
     timeframeGridTextSelected: {
-      color: '#2563EB',
+      color: isDark ? T.accent : '#2563EB',
     },
     timeframeGridTextDisabled: {
-      color: isDark ? '#626B77' : '#AEB4BF',
+      color: isDark ? T.textMuted : '#AEB4BF',
     },
   });
 }

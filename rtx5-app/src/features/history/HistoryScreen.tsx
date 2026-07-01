@@ -599,7 +599,7 @@ export function HistoryScreen() {
             onRefresh={onRefresh}
             tintColor={isDark ? '#D1D4DC' : '#131722'}
             colors={[isDark ? '#D1D4DC' : '#131722']}
-            progressBackgroundColor={isDark ? '#0E141F' : '#FFFFFF'}
+            progressBackgroundColor={isDark ? T.glass2 : '#FFFFFF'}
           />
         }
         ListHeaderComponent={(
@@ -722,7 +722,7 @@ function HistoryItemRow({ item, T, isDark, currency }: { item: HistoryRow; T: Th
     <View style={[
       rStyles.rowCard,
       {
-        backgroundColor: isDark ? '#0E141F' : cardBg,
+        backgroundColor: isDark ? T.glass2 : cardBg,
         borderColor: isDark ? T.border : T.borderSubtle,
       },
       !isDark && rStyles.cardShadowLight,
@@ -817,16 +817,14 @@ function ClosedPositionRow({ item, T, isDark, currency }: { item: HistoryRow; T:
   const openPrice = typeof item.openPrice === 'number' ? item.openPrice : NaN;
   const closePrice = typeof item.closePrice === 'number' ? item.closePrice : NaN;
   const profit = typeof item.profit === 'number' ? item.profit : 0;
-  const sideTint = isBuy ? T.trading.buy.primary : isSell ? T.trading.sell.primary : T.border;
-
   return (
     <View
       style={[
         cpStyles.row,
         {
-          backgroundColor: isDark ? '#0E141F' : T.glass2,
+          backgroundColor: isDark ? T.glass2 : T.glass2,
           borderColor: T.border,
-          borderLeftColor: sideTint,
+          borderLeftColor: T.border,
         },
         !isDark && cpStyles.shadowLight,
         isDark && cpStyles.shadowDark,
@@ -1016,7 +1014,7 @@ const rStyles = StyleSheet.create({
   },
   cardShadowLight: { shadowColor: '#0F172A', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.03, shadowRadius: 10, elevation: 1 },
   cardShadowDark: {
-    shadowColor: '#2563EB',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
     shadowRadius: 16,
@@ -1054,10 +1052,9 @@ const cpStyles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderRadius: 16,
     borderWidth: 1,
-    borderLeftWidth: 2,
   },
   shadowLight: { shadowColor: '#64748B', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 1 },
-  shadowDark: { shadowColor: '#2563EB', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 4 },
+  shadowDark: { shadowColor: '#000000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 4 },
   body: { width: '100%' },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   symbolLine: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
@@ -1094,8 +1091,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     accountSummaryHeading: { color: T.text, fontSize: 19, fontWeight: '600', letterSpacing: 0, marginTop: 4, marginHorizontal: spacing.md, marginBottom: 8 },
     summaryBlock: {
       marginTop: spacing.md, marginHorizontal: spacing.md, borderRadius: 16,
-      backgroundColor: isDark ? '#0E141F' : cardBg, borderWidth: 1, borderColor: isDark ? T.border : T.borderSubtle,
-      shadowColor: isDark ? '#2563EB' : '#0F172A',
+      backgroundColor: isDark ? T.glass2 : cardBg, borderWidth: 1, borderColor: isDark ? T.border : T.borderSubtle,
+      shadowColor: isDark ? '#000000' : '#0F172A',
       shadowOffset: { width: 0, height: isDark ? 4 : 8 },
       shadowOpacity: isDark ? 0.08 : 0.04,
       shadowRadius: isDark ? 16 : 24, elevation: 4,
@@ -1121,8 +1118,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     topBlock: {
       marginTop: spacing.lg, marginHorizontal: spacing.md, borderRadius: 16,
       borderWidth: 1, borderColor: isDark ? T.border : T.borderSubtle,
-      backgroundColor: isDark ? '#0E141F' : cardBg, padding: 6, paddingBottom: 8,
-      shadowColor: isDark ? '#2563EB' : '#0F172A',
+      backgroundColor: isDark ? T.glass2 : cardBg, padding: 6, paddingBottom: 8,
+      shadowColor: isDark ? '#000000' : '#0F172A',
       shadowOffset: { width: 0, height: isDark ? 4 : 8 },
       shadowOpacity: isDark ? 0.08 : 0.04,
       shadowRadius: isDark ? 16 : 24, elevation: 4,

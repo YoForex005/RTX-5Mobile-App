@@ -30,7 +30,13 @@ const readModuleSource = (relativePath: string): string => {
 const chartSource = readChartScreenSource();
 const streamSource = readModuleSource('src/domain/candles/stream/liveCandleStream');
 const socketSource = readModuleSource('src/domain/candles/ws/candlesSocket');
+const socketServiceSource = readFileSync(
+  join(process.cwd(), 'src/domain/candles/ws/candlesSocket/CandlesWebSocketService.ts'),
+  'utf8',
+);
 const apiSource = readModuleSource('src/domain/candles/api/candles');
+const customCandleRendererSource = readModuleSource('src/domain/candles/rendering/customCandlestickSeries');
+const customCandleWebViewRendererSource = readModuleSource('src/domain/candles/rendering/customCandlestickSeriesWebView');
 
 test('radial menu timeframe switch uses stable chart pipeline', () => {
   assertSourceContains(
@@ -121,65 +127,41 @@ test('logged-out user can render market chart when public data exists', () => {
   );
 });
 
-test('candle websocket appends stored JWT when available and reconnects on token changes', () => {
-  // Public /ws/v2 candle channels can stream anonymously, but logged-in
-  // sessions may still depend on the token for account or broker-scoped
-  // routing. The socket should attach the stored token when present and
-  // reconnect after login/logout/account switches.
-  assertSourceContains(
-    socketSource,
-    /const getStoredAccessToken = \(\): string \| null =>[\s\S]*useUserPreferences\.getState\(\)\.accountDetails\?\.credentials\?\.accessToken/,
-    'candle WS must read JWT from user preferences at connect time',
+test('candle websocket stays public and routes by selected broker identity', () => {
+  // Public /ws/v2 candle channels reject arbitrary account JWTs on current
+  // broker backends. Candle routing is broker-scoped through broker_id while
+  // account/trade sockets keep the authenticated realtime contract.
+  assert.doesNotMatch(
+    socketServiceSource,
+    /getStoredAccessToken/,
+    'candle WS must not attach account JWTs to public candle channels',
   );
   assertSourceContains(
-    socketSource,
+    socketServiceSource,
     // Path may be `./candlesSocketProtocol` or `../candlesSocketProtocol`,
     // depending on whether the service lives in a sibling file or folder.
-    /import \{[\s\S]*appendCandleWsToken[\s\S]*\} from '\.\.?\/candlesSocketProtocol'/,
-    'candle WS must use the shared appendCandleWsToken helper from the protocol module',
+    /import \{[\s\S]*appendCandleWsBrokerId[\s\S]*\} from '\.\.?\/candlesSocketProtocol'/,
+    'candle WS must use the shared broker-id URL helper from the protocol module',
   );
   assertSourceContains(
-    socketSource,
-    /const wsUrl = appendCandleWsToken\(this\.url, token\)[\s\S]*this\.ws = new WebSocket\(wsUrl\)/,
-    'candle WS connect path must build the URL with the active token',
+    socketServiceSource,
+    /const wsUrl = appendCandleWsBrokerId\(this\.url, brokerId\)[\s\S]*this\.ws = new WebSocket\(wsUrl\)/,
+    'candle WS connect path must build the URL with the selected broker id',
   );
   assertSourceContains(
-    socketSource,
-    /private startTokenWatcher\(\): void[\s\S]*useUserPreferences\.subscribe[\s\S]*if \(next === prev\)[\s\S]*if \(this\.subscriptions\.size === 0\)[\s\S]*this\.connect\(\)/,
-    'candle WS must reconnect when the stored token changes (login, logout, account switch)',
+    socketServiceSource,
+    /private startTokenWatcher\(\): void[\s\S]*useUserPreferences\.subscribe[\s\S]*nextBrokerId[\s\S]*nextServerUrl[\s\S]*this\.connect\(\)/,
+    'candle WS must reconnect when the selected broker id or broker URL changes',
   );
   assertSourceContains(
-    socketSource,
-    /this\.activeToken !== token[\s\S]*this\.tearDownSocketSafe\(\)/,
-    'candle WS must drop a stale-token connection before opening a new one',
+    socketServiceSource,
+    /this\.activeBrokerId !== brokerId[\s\S]*this\.tearDownSocketSafe\(\)/,
+    'candle WS must drop a stale-broker connection before opening a new one',
   );
-});
-
-test('candle websocket falls back to public channels when stored JWT handshake fails', () => {
-  assertSourceContains(
-    socketSource,
-    /private anonymousFallbackToken: string \| null = null/,
-    'candle WS must remember a rejected token so public channel fallback is stable',
-  );
-  assertSourceContains(
-    socketSource,
-    /private resolveConnectionToken\(\): string \| null \{[\s\S]*return this\.anonymousFallbackToken === token \? null : token/,
-    'candle WS must omit a token that already failed the public candle handshake',
-  );
-  assertSourceContains(
-    socketSource,
-    /this\.ws\.onerror = \(\) => \{[\s\S]*this\.retryPublicChannelWithoutToken\(\)/,
-    'candle WS errors must trigger an anonymous retry path',
-  );
-  assertSourceContains(
-    socketSource,
-    /private retryPublicChannelWithoutToken\(\): void \{[\s\S]*this\.anonymousFallbackToken = this\.activeToken[\s\S]*this\.tearDownSocketSafe\(\)[\s\S]*this\.scheduleReconnect\(\)/,
-    'candle WS must reconnect active subscriptions without a rejected token',
-  );
-  assertSourceContains(
-    socketSource,
-    /this\.anonymousFallbackToken = null[\s\S]*if \(this\.subscriptions\.size === 0\)/,
-    'token rotation must clear anonymous fallback so the new token can be tried',
+  assert.doesNotMatch(
+    socketServiceSource,
+    /anonymousFallbackToken|retryPublicChannelWithoutToken|appendCandleWsToken/,
+    'candle WS must not depend on token fallback logic for public candle channels',
   );
 });
 
@@ -249,8 +231,8 @@ test('previous candles stay in the WebView raw buffer during live update', () =>
 test('zoom/data-density path does not convert candlesticks into line data', () => {
   assertSourceContains(
     chartSource,
-    /series = chart\.addSeries\(LightweightCharts\.CandlestickSeries,[\s\S]*upColor: colors\.bodyUp[\s\S]*downColor: colors\.bodyDown/,
-    'candle chart modes must use candlestick series, not a line series',
+    /series = window\.addRTX5CustomCandlestickSeries\(chart,[\s\S]*bodyUpColor: colors\.bodyUp[\s\S]*bodyDownColor: colors\.bodyDown/,
+    'candle chart modes must use the RTX5 custom candlestick series, not a line series',
   );
   assertSourceContains(
     chartSource,
@@ -261,6 +243,29 @@ test('zoom/data-density path does not convert candlesticks into line data', () =
     chartSource,
     /const buildChartTickPayload = \([\s\S]*return \{[\s\S]*open: candle\.open[\s\S]*high: candle\.high[\s\S]*low: candle\.low[\s\S]*close: candle\.close/,
     'candlestick update payload must preserve full OHLC for wick rendering',
+  );
+});
+
+test('dense zoomed-out custom candles render as a continuous colored line', () => {
+  assertSourceContains(
+    customCandleRendererSource,
+    /const DENSE_CANDLE_LINE_MAX_BAR_SPACING = 3\.25/,
+    'custom candle renderer must define the dense spacing threshold',
+  );
+  assertSourceContains(
+    customCandleRendererSource,
+    /const fillDenseCandleLine = \([\s\S]*Math\.min\(geometry\.wickTop, geometry\.bodyTop, geometry\.bodyBottom\)[\s\S]*Math\.max\(geometry\.wickBottom, geometry\.bodyTop, geometry\.bodyBottom\)[\s\S]*ctx\.fillRect/,
+    'custom candle renderer must draw one continuous high-low rect at dense spacing',
+  );
+  assertSourceContains(
+    customCandleRendererSource,
+    /if \(shouldRenderDenseCandleAsLine\(bitmapBarSpacing, bodyWidth, horizontalPixelRatio\)\) \{[\s\S]*fillDenseCandleLine\(context, geometry, wickColor\)[\s\S]*continue/,
+    'custom candle renderer must bypass separate wick/body drawing in dense mode',
+  );
+  assertSourceContains(
+    customCandleWebViewRendererSource,
+    /function shouldRenderDenseCandleAsLine\(barSpacing, bodyWidth, pixelRatio\)[\s\S]*barSpacing <= DENSE_CANDLE_LINE_MAX_BAR_SPACING/,
+    'native WebView renderer string must keep the same dense-line rule',
   );
 });
 
@@ -292,14 +297,14 @@ test('chart adapter never sends malformed candlestick objects to setData', () =>
   );
 });
 
-test('quote feed synchronizes display candles before price-line bridge updates', () => {
-  assertSourceContains(
+test('quote feed updates price lines without creating display candles', () => {
+  assert.doesNotMatch(
     chartSource,
-    /resolveLivePriceCoherentCandles\(sanitizedBackendCandles, chartTimeframe,[\s\S]*price: liveChartPrice,[\s\S]*time: chartTradeTickTimestamp/,
-    'ChartScreen must fold the latest live quote into the display candle before bridge sync',
+    /resolveLivePriceCoherentCandles/,
+    'ChartScreen must not fold live quotes into display candles',
   );
 
-  const quoteBridgeStart = chartSource.indexOf('The display candle has already folded in the same live quote used here');
+  const quoteBridgeStart = chartSource.indexOf('Quote ticks move only market price lines.');
   assert.notEqual(quoteBridgeStart, -1, 'quote bridge contract comment must exist');
   const quoteBridge = chartSource.slice(quoteBridgeStart, chartSource.indexOf('// Watchdog', quoteBridgeStart));
 

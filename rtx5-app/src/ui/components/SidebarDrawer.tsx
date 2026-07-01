@@ -629,7 +629,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       zIndex: 1,
       elevation: 1,
       width: DRAWER_WIDTH,
-      backgroundColor: isDark ? '#0a0a0a' : T.glass1,
+      backgroundColor: isDark ? T.bg : T.glass1,
       borderRightWidth: 1,
       borderRightColor: T.border,
       paddingTop: 58,

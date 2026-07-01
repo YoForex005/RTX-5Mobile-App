@@ -31,6 +31,17 @@ test('resolveQuoteTickTimestamp keeps timestamp ahead of time for the canonical 
   );
 });
 
+test('resolveQuoteTickTimestamp prefers explicit millisecond feed fields', () => {
+  assert.equal(
+    resolveQuoteTickTimestamp({
+      timestamp: 1713705004,
+      timestampMs: 1713705004567,
+      timeMs: 1713705004000,
+    }),
+    1713705004567,
+  );
+});
+
 test('normalizeQuoteTickTimestampToMs converts feed seconds for UI freshness checks', () => {
   assert.equal(normalizeQuoteTickTimestampToMs(1777409940), 1777409940000);
 });

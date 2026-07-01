@@ -225,16 +225,16 @@ export default function TabsLayout() {
 
   const tabBarStyle = useMemo(
     () => ({
-      backgroundColor: isDark ? '#040609' : '#ffffff',
-      borderTopColor: isDark ? '#131722' : 'rgba(0,0,0,0.05)',
+      backgroundColor: isDark ? T.bg : '#ffffff',
+      borderTopColor: isDark ? T.borderSubtle : 'rgba(0,0,0,0.05)',
       borderTopWidth: 1,
       height: tabBarHeight,
       paddingTop: isLandscape ? 4 : 8,
       paddingBottom: Math.max(insets.bottom, isLandscape ? 4 : 8),
     }),
-    [insets.bottom, isDark, isLandscape, tabBarHeight],
+    [T.bg, T.borderSubtle, insets.bottom, isDark, isLandscape, tabBarHeight],
   );
-  const inactiveTabColor = isDark ? '#5A6B87' : T.textDimmed;
+  const inactiveTabColor = isDark ? T.textMuted : T.textDimmed;
   const bottomTabActiveColor = T.trading.buy.primary;
 
   const markTabNavigationStarted = useCallback((routeName: string) => {

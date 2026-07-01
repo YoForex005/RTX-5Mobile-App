@@ -38,7 +38,7 @@ export function OverlayActions({
       style={[
         styles.overlayMenu,
         overlayStyle,
-        { backgroundColor: isDark ? '#0E141F' : T.glass2, borderLeftColor: dividerColor, zIndex: 100 },
+        { backgroundColor: T.glass2, borderLeftColor: dividerColor, zIndex: 100 },
       ]}
     >
       <Pressable

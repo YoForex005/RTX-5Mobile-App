@@ -34,11 +34,11 @@ test('live data websocket URLs stay iOS-safe across quote candle account and pri
     candlesSocketSource,
     /if \(!state\.isLoggedIn\) \{[\s\S]*return resolveCandlesWsUrl\(undefined\);[\s\S]*\}[\s\S]*return resolveCandlesWsUrl\(undefined, state\.brokerServerUrl, \{ requireBrokerUrl: true \}\)/,
   );
-  assert.match(candlesSocketSource, /EXPO_PUBLIC_CANDLES_WS_REQUIRES_TOKEN/);
   assert.match(
     candlesSocketSource,
-    /if \(!shouldAttachCandleWsToken\(\)\) \{[\s\S]*return null;[\s\S]*\}/,
+    /appendCandleWsBrokerId\(this\.url, brokerId\)/,
   );
+  assert.doesNotMatch(candlesSocketSource, /getStoredAccessToken|appendCandleWsToken|EXPO_PUBLIC_CANDLES_WS_REQUIRES_TOKEN/);
 
   assert.match(accountSocketSource, /normalizeConfiguredWsUrl\([\s\S]*process\.env\.EXPO_PUBLIC_ACCOUNT_WS_URL/);
   assert.doesNotMatch(accountSocketSource, /process\.env\.EXPO_PUBLIC_ACCOUNT_WS_URL \|\|/);

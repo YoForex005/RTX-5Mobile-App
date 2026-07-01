@@ -35,6 +35,34 @@ const getNestedCandleRecord = (raw: unknown): Record<string, unknown> | null => 
 const pickBackendUpdateTime = (record: Record<string, unknown>): number | null =>
   normalizeTimestampToSeconds(pickFirst(record, CANDLE_BACKEND_UPDATE_TIME_KEYS));
 
+const hasOhlcRangeViolation = (fields: {
+  time: number | null;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number | null;
+}): boolean => {
+  const { time, open, high, low, close } = fields;
+  if (
+    time === null ||
+    open === null ||
+    high === null ||
+    low === null ||
+    close === null
+  ) {
+    return false;
+  }
+
+  return (
+    high < open ||
+    high < close ||
+    high < low ||
+    low > open ||
+    low > close ||
+    low > high
+  );
+};
+
 /**
  * Core normalization logic. Extracts OHLCV values from an unknown JSON object,
  * ensures strict numeric constraints, and sanitizes minor float math errors in geometry.
@@ -52,6 +80,16 @@ const normalizeBackendCandle = (raw: unknown, label: string): Candle | null => {
 
   const fields = extractCandlePrimitiveFields(record);
   const closed = pickClosedFlag(record);
+
+  if (hasOhlcRangeViolation(fields)) {
+    logInvalidCandleInDevelopment(`${label}:invalid_ohlc_range`, {
+      symbol: pickNormalizedSymbol(record),
+      timeframe: pickNormalizedTimeframe(record),
+      timestamp: fields.time,
+      raw,
+    });
+    return null;
+  }
 
   const candle = createSanitizedCandle(fields);
   if (!candle) {

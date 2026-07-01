@@ -1,20 +1,21 @@
 import { StyleSheet } from 'react-native';
+import type { ThemeColors } from '../../ui/theme/glass';
 
-export const makeHelpStyles = (isDark = false) => {
+export const makeHelpStyles = (T: ThemeColors, isDark = false) => {
   const palette = {
-    screen: isDark ? '#000000' : '#F6F7F9',
-    header: isDark ? '#000000' : '#F6F7F9',
-    surface: isDark ? '#0D1628' : '#FFFFFF',
-    surfaceRaised: isDark ? '#101B30' : '#F8FAFC',
-    input: isDark ? '#08111F' : '#FFFFFF',
-    chip: isDark ? '#08111F' : '#EEF2F6',
-    activeSoft: isDark ? 'rgba(96,165,250,0.14)' : '#EAF4FF',
-    border: isDark ? 'rgba(148,163,184,0.16)' : '#E1E7EF',
-    borderStrong: isDark ? 'rgba(96,165,250,0.34)' : '#AFC4DD',
-    text: isDark ? '#F8FAFC' : '#111827',
-    textSubtle: isDark ? '#CBD5E1' : '#475467',
-    textMuted: isDark ? '#94A3B8' : '#667085',
-    accent: isDark ? '#60A5FA' : '#0A6EEB',
+    screen: isDark ? T.bgRoot : '#F6F7F9',
+    header: isDark ? T.bgRoot : '#F6F7F9',
+    surface: isDark ? T.glass2 : '#FFFFFF',
+    surfaceRaised: isDark ? T.glass1 : '#F8FAFC',
+    input: isDark ? T.glass1 : '#FFFFFF',
+    chip: isDark ? T.glass2 : '#EEF2F6',
+    activeSoft: isDark ? T.glass3 : '#EAF4FF',
+    border: isDark ? T.border : '#E1E7EF',
+    borderStrong: isDark ? T.borderHi : '#AFC4DD',
+    text: isDark ? T.text : '#111827',
+    textSubtle: isDark ? T.textSub : '#475467',
+    textMuted: isDark ? T.textMuted : '#667085',
+    accent: isDark ? T.accent : '#0A6EEB',
     category: isDark ? '#FBBF24' : '#B45309',
     shadow: isDark ? '#000000' : '#101828',
   };
@@ -33,7 +34,7 @@ export const makeHelpStyles = (isDark = false) => {
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: palette.border,
     },
-    backButton: {
+    menuButton: {
       width: 36,
       height: 44,
       alignItems: 'flex-start',
@@ -176,7 +177,7 @@ export const makeHelpStyles = (isDark = false) => {
       borderRadius: 8,
       overflow: 'hidden',
       color: palette.textMuted,
-      backgroundColor: isDark ? 'rgba(148,163,184,0.12)' : '#FFFFFF',
+      backgroundColor: isDark ? palette.surfaceRaised : '#FFFFFF',
       textAlign: 'center',
       textAlignVertical: 'center',
       fontSize: 11,
@@ -186,7 +187,7 @@ export const makeHelpStyles = (isDark = false) => {
     },
     filterChipCountActive: {
       color: palette.accent,
-      backgroundColor: isDark ? 'rgba(96,165,250,0.18)' : '#FFFFFF',
+      backgroundColor: isDark ? palette.activeSoft : '#FFFFFF',
     },
     listHeader: {
       minHeight: 44,

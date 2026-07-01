@@ -125,10 +125,28 @@ test('accounts screen uses broker branding and opens long-press delete for other
   assert.doesNotMatch(source, /Only this device is changed/);
 });
 
+test('accounts screen backfill normalizes optional metadata before saved-account upsert', () => {
+  const source = readSource('src/features/settings/AccountsScreen.tsx');
+  const effectStart = source.indexOf('React.useEffect(() => {');
+  const effectEnd = source.indexOf('// ── Live WebSocket account metrics', effectStart);
+  assert.notEqual(effectStart, -1);
+  assert.notEqual(effectEnd, -1);
+  const effectBody = source.slice(effectStart, effectEnd);
+
+  assert.match(effectBody, /const nextServerUrl = brokerServerUrl \|\| existing\?\.serverUrl \|\| ''/);
+  assert.match(effectBody, /const nextLogoUrl = activeBrokerLogoUrl \|\| existing\?\.logoUrl \|\| ''/);
+  assert.match(effectBody, /\(existing\.serverUrl \?\? ''\) === nextServerUrl/);
+  assert.match(effectBody, /\(existing\.logoUrl \?\? ''\) === nextLogoUrl/);
+  assert.match(effectBody, /serverUrl: nextServerUrl \|\| undefined/);
+  assert.doesNotMatch(effectBody, /existing\.serverUrl === brokerServerUrl/);
+  assert.doesNotMatch(effectBody, /existing\.logoUrl === nextLogoUrl/);
+});
+
 test('auth login errors preserve HTTP status for account switch decisions', () => {
   const source = readSource('src/api/auth.ts');
 
-  assert.match(source, /const error = new Error\(errorBody\.message \|\| errorBody\.error \|\| 'Login failed'\) as Error & \{/);
+  assert.match(source, /const extractBackendErrorMessage = \(payload: any, fallback: string\): string => \{/);
+  assert.match(source, /const error = new Error\(extractBackendErrorMessage\(errorBody, 'Login failed'\)\) as Error & \{/);
   assert.match(source, /statusCode\?: number/);
   assert.match(source, /error\.statusCode = response\.status/);
   assert.match(source, /throw error/);

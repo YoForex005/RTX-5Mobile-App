@@ -6,8 +6,8 @@ export function makeSymbolDetailsStyles(T: ThemeColors, isDark: boolean) {
   // Dark theme matches the Settings screen palette: deep navy cards on the
   // pure-black canvas the screen container already paints (#000000). Cards and
   // nested insets share the one card tone, separated by their borders.
-  const cardBg = isDark ? '#0d1628' : T.glass2;
-  const nestedSurface = isDark ? '#0d1628' : T.glass1;
+  const cardBg = isDark ? '#1C1C1E' : T.glass2;
+  const nestedSurface = isDark ? '#1C1C1E' : T.glass1;
   const cardBorder = isDark ? 'rgba(148,163,184,0.18)' : T.border;
   const nestedBorder = isDark ? 'rgba(148,163,184,0.14)' : T.border;
   return {

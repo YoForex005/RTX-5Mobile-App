@@ -39,8 +39,9 @@ const readRepoSource = (relativePath: string): string => {
 
 test('canonical live stream exposes safe REST history prefetch for fast timeframe switches', () => {
   assert.match(source, /const DEFAULT_HISTORY_LIMIT = MAX_CANDLE_SERIES_LENGTH/);
+  assert.match(source, /const INITIAL_HISTORY_LIMIT = Math\.min\(600, MAX_CANDLE_SERIES_LENGTH\)/);
   assert.match(source, /public async prefetchHistory\(symbol: string, timeframe: string\): Promise<number>/);
-  assert.match(source, /getCandleHistory\(normalizedSymbol, normalizedTimeframe, DEFAULT_HISTORY_LIMIT\)/);
+  assert.match(source, /getCandleHistory\(normalizedSymbol, normalizedTimeframe, INITIAL_HISTORY_LIMIT\)/);
   assert.match(source, /candleMemoryCache\.set\(normalizedSymbol, normalizedTimeframe, candles\)/);
   assert.match(source, /syncMergedCandleCache\(normalizedSymbol, normalizedTimeframe, history\.closedCandles, \{ canonical: true \}\)/);
 });
@@ -110,10 +111,11 @@ test('live candle hook keeps quote socket demand active for fast forming candles
   const hookSource = readRepoSource('src/domain/candles/hooks/useLiveCandles.ts');
 
   assert.match(hookSource, /import \{ quotesWsService \} from '\.\.\/\.\.\/\.\.\/api\/ws\/quotesSocket'/);
-  assert.match(hookSource, /Keep the quote socket on for this chart too/);
-  assert.match(hookSource, /feeds the forming candle, so this makes candles move as fast as bid\/ask/);
+  assert.match(hookSource, /shouldUseServerCandleStream/);
+  assert.match(hookSource, /Keep the quote socket on for this chart/);
+  assert.match(hookSource, /quote[\s\S]*ticks are the only active-candle body source/);
   assert.match(hookSource, /const unsubscribeQuoteDemand = quotesWsService\.subscribeToSymbol\(symbol, \(\) => \{\}\)/);
-  assert.match(hookSource, /unsubscribeQuoteDemand\(\);[\s\S]*unsubscribeEngine\(\);[\s\S]*candlesWsService\.unsubscribe/);
+  assert.match(hookSource, /unsubscribeQuoteDemand\(\);[\s\S]*unsubscribeEngine\(\);[\s\S]*if \(useServerCandleStream\)/);
 });
 
 test('backend candle cache bootstrap does not reject valid intraday gaps', () => {

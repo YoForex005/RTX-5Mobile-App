@@ -21,6 +21,8 @@ export type QuoteTickEvent = {
   sequence?: string | number;
   tickId?: string;
   source?: string;
+  degraded?: boolean;
+  degradationReason?: 'missing_ask';
   feedTickAt?: number;
   receivedAt: number;
   timestamp: number;
@@ -46,6 +48,8 @@ export type NormalizedQuoteFeedUpdate = {
   sequence?: string | number;
   tickId?: string;
   source?: string;
+  degraded?: boolean;
+  degradationReason?: 'missing_ask';
   timestamp: number | null;
   timestampSource: 'feed' | 'received_at' | 'missing';
   rawKeys: string[];
@@ -157,6 +161,9 @@ const toFinitePrice = (value: unknown): number | null => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 };
 
+const hasProvidedValue = (value: unknown): boolean =>
+  value !== undefined && value !== null && (typeof value !== 'string' || value.trim().length > 0);
+
 const toFiniteOptionalNumber = (value: unknown): number | undefined => {
   const parsed = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
@@ -214,7 +221,9 @@ const resolveTimestamp = (
 ): { timestamp: number | null; timestampSource: NormalizedQuoteFeedUpdate['timestampSource'] } => {
   const fromFeed = resolveQuoteTickTimestamp({
     timestamp: pickFirstValue(records, ['timestamp', 'Timestamp', 'TIMESTAMP']),
+    timestampMs: pickFirstValue(records, ['timestamp_ms', 'timestampMs', 'TimestampMs', 'TIMESTAMP_MS']),
     time: pickFirstValue(records, ['time', 'Time', 'TIME', 'tick_time', 'tickTime', 'source_time', 'sourceTime']),
+    timeMs: pickFirstValue(records, ['time_ms', 'timeMs', 'tick_time_ms', 'tickTimeMs', 'source_time_ms', 'sourceTimeMs']),
     t: pickFirstValue(records, ['t', 'T', 'ts', 'TS']),
     lastTickAt: pickFirstValue(records, ['lastTickAt', 'last_tick_at', 'last_tick_time']),
     serverTime: pickFirstValue(records, [
@@ -228,6 +237,14 @@ const resolveTimestamp = (
       'updated_at',
       'receivedAt',
       'received_at',
+    ]),
+    serverTimeMs: pickFirstValue(records, [
+      'serverTimeMs',
+      'server_time_ms',
+      'serverTimestampMs',
+      'server_timestamp_ms',
+      'receivedAtMs',
+      'received_at_ms',
     ]),
   });
 
@@ -261,8 +278,10 @@ export const normalizeQuoteTickPayload = (
   }
 
   const bid = toFinitePrice(pickFirstValue(records, BID_KEYS));
-  const askCandidate = toFinitePrice(pickFirstValue(records, ASK_KEYS));
-  const ask = askCandidate ?? bid;
+  const rawAsk = pickFirstValue(records, ASK_KEYS);
+  const askWasFallback = !hasProvidedValue(rawAsk);
+  const askCandidate = toFinitePrice(rawAsk);
+  const ask = askWasFallback ? bid : askCandidate;
   if (bid === null || ask === null || ask < bid) {
     return { ok: false, reason: 'missing_bid_ask', rawKeys };
   }
@@ -306,6 +325,7 @@ export const normalizeQuoteTickPayload = (
       sequence,
       tickId,
       source,
+      ...(askWasFallback ? { degraded: true, degradationReason: 'missing_ask' as const } : {}),
       timestamp: resolvedTimestamp.timestamp,
       timestampSource: resolvedTimestamp.timestampSource,
       rawKeys,

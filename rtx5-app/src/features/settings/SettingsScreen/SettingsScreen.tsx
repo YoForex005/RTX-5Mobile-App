@@ -152,6 +152,22 @@ export function SettingsScreen() {
   const appBuildVersion = Application.nativeBuildVersion ?? Constants.nativeBuildVersion ?? '';
   const appVersion = resolveAppDisplayVersion(nativeAppVersion);
   const styles = useMemo(() => makeSettingsStyles(T, themeMode), [T, themeMode]);
+  const settingsAccent = themeMode === 'dark' ? '#347DFF' : '#1D4ED8';
+  const settingsAccentActive = themeMode === 'dark' ? '#347DFF' : '#3B82F6';
+  const settingsAccentBg = themeMode === 'dark' ? '#2C2C2E' : 'rgba(29, 78, 216, 0.1)';
+  const settingsSwitchTrack = themeMode === 'dark' ? 'rgba(52, 125, 255, 0.46)' : 'rgba(59, 130, 246, 0.5)';
+  const settingsSwitchOffTrack = themeMode === 'dark' ? '#2C2C2E' : T.borderMedium;
+  const settingsSwitchThumbInactive = themeMode === 'dark' ? '#FFFFFF' : '#f4f3f4';
+  const settingsDanger = themeMode === 'dark' ? '#FF5A5F' : '#EF4444';
+  const renderDarkCardHighlight = () => themeMode === 'dark' ? (
+    <LinearGradient
+      pointerEvents="none"
+      colors={['rgba(255,255,255,0.035)', 'rgba(255,255,255,0)']}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={StyleSheet.absoluteFillObject}
+    />
+  ) : null;
   const toggleThemeMode = useCallback(() => {
     setThemeMode(themeMode === 'light' ? 'dark' : 'light');
   }, [setThemeMode, themeMode]);
@@ -342,15 +358,12 @@ export function SettingsScreen() {
   }, [handleEmailSupport, openReadySettingsRoute, setSearchActive]);
 
   const searchBarStyle: any = themeMode === 'dark' ? {
-    backgroundColor: 'rgba(30, 41, 59, 0.55)',
-    borderTopColor: 'rgba(255, 255, 255, 0.12)',
-    borderLeftColor: 'rgba(255, 255, 255, 0.06)',
-    borderRightColor: 'rgba(0, 0, 0, 0.2)',
-    borderBottomColor: 'rgba(0, 0, 0, 0.4)',
+    backgroundColor: '#1C1C1E',
+    borderColor: 'rgba(255,255,255,0.12)',
     borderWidth: 1, borderRadius: 24,
-    shadowColor: '#000',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4, shadowRadius: 12, elevation: 8,
+    shadowOpacity: 0.24, shadowRadius: 12, elevation: 4,
   } : {
     backgroundColor: 'rgba(255, 255, 255, 0.8)',
     borderColor: 'rgba(0, 0, 0, 0.08)',
@@ -381,7 +394,7 @@ export function SettingsScreen() {
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 placeholder={t('Search settings')}
-                placeholderTextColor={themeMode === 'dark' ? 'rgba(255, 255, 255, 0.4)' : T.textMuted}
+                placeholderTextColor={themeMode === 'dark' ? 'rgba(235,235,245,0.46)' : T.textMuted}
                 style={[{ flex: 1, color: T.text, fontSize: 15, fontWeight: '500' }, { outlineStyle: 'none' } as any]}
                 autoCapitalize="none"
                 returnKeyType="search"
@@ -408,6 +421,7 @@ export function SettingsScreen() {
         {isSearching ? (
           <View style={{ paddingHorizontal: 16 }} pointerEvents="auto">
             <View style={[styles.groupCard, styles.cardShadow, { marginTop: 8, marginHorizontal: 0 }]}>
+              {renderDarkCardHighlight()}
               {searchResults.length > 0 ? searchResults.map((item, index) => {
                 const isThemeItem = item.title === 'Theme';
 
@@ -417,7 +431,7 @@ export function SettingsScreen() {
                     T={T}
                     styles={styles}
                     icon={item.icon as any}
-                    color="#1D4ED8"
+                    color={settingsAccent}
                     title={t(item.title)}
                     sub={item.sub ? t(item.sub) : item.sub}
                     rightElement={
@@ -426,10 +440,10 @@ export function SettingsScreen() {
                           <Switch
                             value={themeMode === 'light'}
                             onValueChange={(val) => setThemeMode(val ? 'light' : 'dark')}
-                            trackColor={{ false: T.borderMedium, true: 'rgba(59, 130, 246, 0.5)' }}
-                            thumbColor={themeMode === 'light' ? '#3b82f6' : '#f4f3f4'}
+                            trackColor={{ false: settingsSwitchOffTrack, true: settingsSwitchTrack }}
+                            thumbColor={themeMode === 'light' ? '#3b82f6' : settingsSwitchThumbInactive}
                             style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
-                            {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: themeMode === 'light' ? '#3b82f6' : '#f4f3f4' } as any)}
+                            {...({ activeThumbColor: settingsAccent, activeTrackColor: settingsSwitchTrack, thumbTintColor: themeMode === 'light' ? '#3b82f6' : settingsSwitchThumbInactive } as any)}
                           />
                         </View>
                       ) : undefined
@@ -465,7 +479,8 @@ export function SettingsScreen() {
                   </View>
 
                   <LinearGradient
-                    colors={themeMode === 'light' ? ['#4F46E5', '#3730A3'] : ['#0d1628', '#07101e']}
+                    pointerEvents="none"
+                    colors={themeMode === 'light' ? ['#4F46E5', '#3730A3'] : ['#1C1C1E', '#1C1C1E']}
                     start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
                     style={StyleSheet.absoluteFillObject}
                   />
@@ -482,21 +497,35 @@ export function SettingsScreen() {
                     </View>
                   </View>
 
-                  <Text style={[styles.accName, themeMode === 'light' && { color: '#FFFFFF' }]}>{displayAccountName}</Text>
-                  <Text style={[styles.accBalance, themeMode === 'light' && { color: '#FFFFFF' }]}>
+                  <Text
+                    style={[styles.accName, themeMode === 'light' && { color: '#FFFFFF' }]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.82}
+                  >
+                    {displayAccountName}
+                  </Text>
+                  <Text
+                    style={[styles.accBalance, themeMode === 'light' && { color: '#FFFFFF' }]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.78}
+                  >
                     {displayBalance} <Text style={[styles.accCurrency, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]}>{displayCurrency}</Text>
                   </Text>
 
                   <View style={styles.accDivider} />
 
                   <View style={styles.accDetailsWrap}>
-                    <Text style={styles.accCompany}>{displayBrokerName}</Text>
+                    <Text style={styles.accCompany} numberOfLines={1} ellipsizeMode="tail">
+                      {displayBrokerName}
+                    </Text>
                     <View style={styles.accServerRow}>
-                      <Text style={[styles.accServer, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]}>
+                      <Text style={[styles.accServer, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]} numberOfLines={1}>
                         #{accountDetails?.id || '---'}
                       </Text>
                       <View style={styles.accServerDot} />
-                      <Text style={[styles.accServer, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]}>
+                      <Text style={[styles.accServer, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]} numberOfLines={1}>
                         {accountDetails?.server || t('Server')}
                       </Text>
                     </View>
@@ -505,11 +534,15 @@ export function SettingsScreen() {
                   <View style={styles.chipRow}>
                     <View style={styles.chip}>
                       <Ionicons name="server-outline" size={12} color="#FFFFFF" />
-                      <Text style={[styles.chipText, { color: '#FFFFFF' }]}>Orrnn</Text>
+                      <Text style={[styles.chipText, { color: '#FFFFFF' }]} numberOfLines={1}>
+                        {accountDetails?.server || t('Server')}
+                      </Text>
                     </View>
                     <View style={styles.chip}>
                       <Ionicons name="shield-checkmark-outline" size={12} color="#FFFFFF" />
-                      <Text style={[styles.chipText, { color: '#FFFFFF' }]}>{t('Secure')}</Text>
+                      <Text style={[styles.chipText, { color: '#FFFFFF' }]} numberOfLines={1}>
+                        {t('Secure')}
+                      </Text>
                     </View>
                   </View>
                 </View>
@@ -523,9 +556,10 @@ export function SettingsScreen() {
             {isAccountConnected ? (
             <View style={styles.metricsRow}>
               <View style={styles.metricBlock}>
+                {renderDarkCardHighlight()}
                 <View style={styles.metricTopRow}>
                   <View style={styles.metricIconCircle}>
-                    <Ionicons name="list" size={18} color="#1D4ED8" />
+                    <Ionicons name="list" size={18} color={settingsAccent} />
                   </View>
                   <Text style={styles.metricLabel}>{t('Quotes')}</Text>
                 </View>
@@ -533,9 +567,10 @@ export function SettingsScreen() {
               </View>
 
               <View style={styles.metricBlock}>
+                {renderDarkCardHighlight()}
                 <View style={styles.metricTopRow}>
                   <View style={styles.metricIconCircle}>
-                    <Ionicons name="analytics" size={18} color="#1D4ED8" />
+                    <Ionicons name="analytics" size={18} color={settingsAccent} />
                   </View>
                   <Text style={styles.metricLabel}>{t('Drawings')}</Text>
                 </View>
@@ -543,21 +578,22 @@ export function SettingsScreen() {
               </View>
 
               <View style={styles.metricBlock}>
+                {renderDarkCardHighlight()}
                 <View style={styles.metricTopRow}>
                   <View style={[styles.metricIconCircle, oneClickAccepted && styles.metricIconCircleActive]}>
-                    <Ionicons name="flash" size={18} color={oneClickAccepted ? '#3B82F6' : '#1D4ED8'} />
+                    <Ionicons name="flash" size={18} color={oneClickAccepted ? settingsAccentActive : settingsAccent} />
                   </View>
                   <Text style={styles.metricLabel}>{t('One-Click')}</Text>
                 </View>
                 <View style={styles.toggleRow}>
-                  <Text style={[styles.toggleText, oneClickAccepted && { color: '#3B82F6' }]}>{oneClickAccepted ? t('On') : t('Off')}</Text>
+                  <Text style={[styles.toggleText, oneClickAccepted && { color: settingsAccentActive }]}>{oneClickAccepted ? t('On') : t('Off')}</Text>
                   <Switch
                     value={oneClickAccepted}
                     onValueChange={setOneClickAccepted}
-                    trackColor={{ false: '#1E293B', true: 'rgba(59, 130, 246, 0.5)' }}
-                    thumbColor={oneClickAccepted ? '#3b82f6' : '#f4f3f4'}
+                    trackColor={{ false: settingsSwitchOffTrack, true: settingsSwitchTrack }}
+                    thumbColor={oneClickAccepted ? settingsAccentActive : settingsSwitchThumbInactive}
                     style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
-                    {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: oneClickAccepted ? '#3b82f6' : '#f4f3f4' } as any)}
+                    {...({ activeThumbColor: settingsAccentActive, activeTrackColor: settingsSwitchTrack, thumbTintColor: oneClickAccepted ? settingsAccentActive : settingsSwitchThumbInactive } as any)}
                   />
                 </View>
               </View>
@@ -571,8 +607,9 @@ export function SettingsScreen() {
               unstable_pressDelay={0}
               latencyLabel="settings.register.open"
             >
-              <View style={[styles.iconBox, { backgroundColor: 'rgba(29, 78, 216, 0.1)' }]}>
-                <Ionicons name="person-outline" size={20} color="#1D4ED8" />
+              {renderDarkCardHighlight()}
+              <View style={[styles.iconBox, { backgroundColor: settingsAccentBg }]}>
+                <Ionicons name="person-outline" size={20} color={settingsAccent} />
               </View>
               <Text style={styles.rowTitleSingle}>{t('New Account')}</Text>
               <Ionicons name="chevron-forward" size={16} color={T.textMuted} />
@@ -580,16 +617,18 @@ export function SettingsScreen() {
 
             <Text style={styles.sectionTitle}>{t('MARKET UPDATES')}</Text>
             <View style={[styles.groupCard, styles.cardShadow]}>
-              <SettingRow T={T} styles={styles} icon="calendar-outline" color="#1D4ED8" title={t('Economic Calender')} sub="" onPress={() => openReadySettingsRoute('/settings/economic-calendar')} />
+              {renderDarkCardHighlight()}
+              <SettingRow T={T} styles={styles} icon="calendar-outline" color={settingsAccent} title={t('Economic Calender')} sub="" onPress={() => openReadySettingsRoute('/settings/economic-calendar')} />
             </View>
 
             <Text style={styles.sectionTitle}>{t('PREFERENCES & TOOLS')}</Text>
             <View style={[styles.groupCard, styles.cardShadow]}>
+              {renderDarkCardHighlight()}
               <SettingRow
                 T={T}
                 styles={styles}
                 icon="color-palette-outline"
-                color="#1D4ED8"
+                color={settingsAccent}
                 title={t('Theme')}
                 sub={themeMode === 'light' ? t('Light Mode') : t('Dark Mode')}
                 onPress={toggleThemeMode}
@@ -599,25 +638,26 @@ export function SettingsScreen() {
                     <Switch
                       value={themeMode === 'light'}
                       onValueChange={(val) => setThemeMode(val ? 'light' : 'dark')}
-                      trackColor={{ false: T.borderMedium, true: 'rgba(59, 130, 246, 0.5)' }}
-                      thumbColor={themeMode === 'light' ? '#3b82f6' : '#f4f3f4'}
+                      trackColor={{ false: settingsSwitchOffTrack, true: settingsSwitchTrack }}
+                      thumbColor={themeMode === 'light' ? '#3b82f6' : settingsSwitchThumbInactive}
                       style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
-                      {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: themeMode === 'light' ? '#3b82f6' : '#f4f3f4' } as any)}
+                      {...({ activeThumbColor: settingsAccent, activeTrackColor: settingsSwitchTrack, thumbTintColor: themeMode === 'light' ? '#3b82f6' : settingsSwitchThumbInactive } as any)}
                     />
                   </View>
                 }
               />
               <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles} icon="browsers-outline" color="#1D4ED8" title={t('Language Preference')} sub={currentLanguageNative} onPress={() => openReadySettingsRoute('/settings/interface')} />
+              <SettingRow T={T} styles={styles} icon="browsers-outline" color={settingsAccent} title={t('Language Preference')} sub={currentLanguageNative} onPress={() => openReadySettingsRoute('/settings/interface')} />
               <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles} icon="reader-outline" color="#1D4ED8" title={t('Journal')} sub="Activity log" onPress={() => openReadySettingsRoute('/settings/journal')} />
+              <SettingRow T={T} styles={styles} icon="reader-outline" color={settingsAccent} title={t('Journal')} sub="Activity log" onPress={() => openReadySettingsRoute('/settings/journal')} />
             </View>
 
             <Text style={styles.sectionTitle}>{t('SUPPORT & HELP')}</Text>
             <View style={[styles.groupCard, styles.cardShadow]}>
-              <SettingRow T={T} styles={styles} icon="help-buoy-outline" color="#1D4ED8" title={t('Support')} sub={supportEmail} onPress={handleEmailSupport} />
+              {renderDarkCardHighlight()}
+              <SettingRow T={T} styles={styles} icon="help-buoy-outline" color={settingsAccent} title={t('Support')} sub={supportEmail} onPress={handleEmailSupport} />
               <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles} icon="information-circle-outline" color="#1D4ED8" title={t('Help')} sub={t('FAQ')} onPress={() => openReadySettingsRoute('/settings/help')} />
+              <SettingRow T={T} styles={styles} icon="information-circle-outline" color={settingsAccent} title={t('Help')} sub={t('FAQ')} onPress={() => openReadySettingsRoute('/settings/help')} />
             </View>
 
             <View style={styles.logoutContainer}>
@@ -626,10 +666,11 @@ export function SettingsScreen() {
                 onPress={handleLogout}
                 latencyLabel="settings.logout.prompt"
               >
-                <View style={[styles.iconBox, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
-                  <Ionicons name="log-out-outline" size={20} color="#EF4444" />
+                {renderDarkCardHighlight()}
+                <View style={[styles.iconBox, { backgroundColor: themeMode === 'dark' ? '#2C2C2E' : 'rgba(239, 68, 68, 0.1)' }]}>
+                  <Ionicons name="log-out-outline" size={20} color={settingsDanger} />
                 </View>
-                <Text style={[styles.rowTitleSingle, { color: '#EF4444' }]}>{t('Logout')}</Text>
+                <Text style={[styles.rowTitleSingle, { color: settingsDanger }]}>{t('Logout')}</Text>
               </FastPressable>
             </View>
         </View>

@@ -38,7 +38,8 @@ test('webview bridge: ChartScreen initializes chart only after WebView READY ena
 
 test('webview bridge: candles arriving before READY are retained and sent after readiness', () => {
   assertSourceContains(source, /const sanitizedBackendCandles = useMemo\([\s\S]*sanitizeCandlesForChart\(candles, \{ timeframe: chartTimeframe \}\)/, 'native host must sanitize backend candles only when the backend stream changes');
-  assertSourceContains(source, /const sanitizedCandles = useMemo\([\s\S]*resolveLivePriceCoherentCandles\(sanitizedBackendCandles, chartTimeframe/, 'native host must merge live price after backend sanitization');
+  assertSourceContains(source, /const sanitizedCandles = useMemo\([\s\S]*return sanitizedBackendCandles;[\s\S]*\[\s*sanitizedBackendCandles\s*\]/, 'native host must render backend candle data without live-quote candle synthesis');
+  assert.doesNotMatch(source, /resolveLivePriceCoherentCandles/, 'native host must not build display candles from quote ticks');
   assertSourceContains(source, /const overlayCandles = sanitizedBackendCandles\.length > 0 \? sanitizedBackendCandles : sanitizedCandles/, 'overlay rebuilds must stay tied to backend candles when backend history exists');
   assertSourceContains(source, /buildChartOverlayPayload\(\{[\s\S]*candles: overlayCandles/, 'chart overlays must not rebuild from every live quote tick');
   assertSourceContains(source, /const candlesRef = useRef\(sanitizedCandles\)/, 'sanitized candles must be retained outside render timing');
@@ -146,16 +147,8 @@ test('webview bridge: native live candles use fresh quotes while precision stays
     /liveQuoteDigitsFromBackend: hasCoherentLiveChartQuote && chartLiveQuoteDigitsSource === 'backend'/,
     'incoherent quotes must not influence display precision',
   );
-  assertSourceContains(
-    source,
-    /const liveChartPrice = useMemo\(\(\) => \{[\s\S]*if \(!hasLiveChartQuote\) \{[\s\S]*return priceSource === 'ask'[\s\S]*\}, \[chartLiveQuote\?\.ask, chartLiveQuote\?\.bid, hasLiveChartQuote, priceSource\]\)/,
-    'native chart must pass fresh live quotes into candle merging like the web chart',
-  );
-  assertSourceContains(
-    source,
-    /resolveLivePriceCoherentCandles\(sanitizedBackendCandles, chartTimeframe, \{[\s\S]*price: liveChartPrice,[\s\S]*time: chartTradeTickTimestamp/,
-    'native candle display must extend the current candle from the live quote price',
-  );
+  assert.doesNotMatch(source, /const liveChartPrice = useMemo/, 'native chart must not compute a quote price for candle synthesis');
+  assert.doesNotMatch(source, /price: liveChartPrice/, 'native candle display must not receive quote prices');
   assertSourceContains(
     source,
     /liveBid: hasLiveChartQuote \? chartLiveQuote\?\.bid : undefined[\s\S]*liveAsk: hasLiveChartQuote \? chartLiveQuote\?\.ask : undefined/,
@@ -177,7 +170,7 @@ test('webview bridge: OHLC header follows the latest live candle', () => {
   assertSourceContains(
     source,
     /const chartMetaLiveLastCandle = sanitizedCandles\.length > 0 \? sanitizedCandles\[sanitizedCandles\.length - 1\] : null;[\s\S]*const chartMetaLastCandle = chartMetaLiveLastCandle;/,
-    'O/H/L/C header must read the latest quote-extended live candle, not a filtered chart-window candle',
+    'O/H/L/C header must read the latest backend live candle, not a filtered chart-window candle',
   );
   assertSourceContains(
     source,
@@ -638,7 +631,8 @@ test('webview bridge: setMarketPriceLines hides native market badges and paints 
   assertSourceContains(healPriceScaleBody, /marketPriceBadgesOutOfRange[\s\S]*rangeContainsMarketPriceBadges\(currentRange, candleDataRange\)[\s\S]*setRecoveredRightPriceRange\(dataRange\)/, 'price-scale healing must recover only for near bid/ask badges outside the visible axis range');
   assertSourceContains(refreshBody, /refreshMarketPriceScaleDom\(\)/, 'overlay refresh must render custom market price-scale DOM');
   assertSourceContains(chartWebViewHtmlSource, /function refreshMarketPriceScaleDom\(\)[\s\S]*renderMarketPriceScaleExtensions\(layer\)[\s\S]*renderMarketPriceScaleBadges\(layer\)/, 'overlay refresh must render MT5-style custom market price-scale badges after the line accents');
-  assertSourceContains(source, /The display candle has already folded in the same live quote used here,[\s\S]*so the candle close and market price lines move from one tick source/, 'native quote bridge must keep candle close and market price lines synchronized to one live quote source');
+  assertSourceContains(source, /Quote ticks move only market price lines\.[\s\S]*Candle bodies stay tied to[\s\S]*backend OHLC history\/live candle messages\./, 'native quote bridge must not mutate candle bodies from live quotes');
+  assertSourceContains(source, /const clearRenderedMarketPriceLines = useCallback[\s\S]*setMarketPriceLines\(null, null\)[\s\S]*if \(lastInitSigRef\.current !== currentSig\)[\s\S]*clearRenderedMarketPriceLines\(\)/, 'symbol/timeframe changes must clear stale bid ask lines before fresh quotes arrive');
 });
 
 test('webview bridge: native web and WebView creation reserve the right price scale', () => {

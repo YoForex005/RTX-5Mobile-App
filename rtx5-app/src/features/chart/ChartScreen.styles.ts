@@ -12,27 +12,27 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     const COMPACT_SYMBOL_DROPDOWN_LEFT_INSET = Math.max(0, APP_HEADER_MENU_VISUAL_LEFT - COMPACT_SYMBOL_DROPDOWN_LEFT_SHIFT);
     const SYMBOL_OVERLAY_ROW_GAP = 1;
 
-    // Match the chart dark palette that is committed on GitHub.
-    const APP_BG = isDark ? '#030508' : T.bg;
-    const CHART_CANVAS_BG = isDark ? '#080B11' : '#FFFFFF';
-    const BOTTOM_AREA_BG = isDark ? '#0A0C0F' : '#F8FAFC';
+    // Dark app chrome follows the global black screen / Quotes card palette.
+    const APP_BG = T.bg;
+    const CHART_CANVAS_BG = isDark ? T.bg : '#FFFFFF';
+    const BOTTOM_AREA_BG = isDark ? T.bg : '#F8FAFC';
     const BLUE = T.trading.buy.primary;
     const RED = T.trading.sell.primary;
     const TEXT_MUTED = T.textMuted;
     // The SL/TP order sheet has many nested controls; keeping its colors in
     // one local palette prevents dark theme switches from leaving light panels
     // behind in tabs, inputs, stop levels, and stepper dialogs.
-    const TRADE_SHEET_BG = isDark ? '#080B11' : '#FFFFFF';
-    const TRADE_SHEET_PANEL = isDark ? '#0E141F' : '#FFFFFF';
+    const TRADE_SHEET_BG = isDark ? T.bg : '#FFFFFF';
+    const TRADE_SHEET_PANEL = isDark ? T.glass2 : '#FFFFFF';
     const TRADE_SHEET_PANEL_SOFT = isDark ? 'rgba(255,255,255,0.045)' : '#F8FAFC';
     const TRADE_SHEET_PANEL_ACTIVE = isDark ? 'rgba(37,99,235,0.18)' : '#EEF4FF';
     const TRADE_SHEET_BLUE_SOFT = isDark ? 'rgba(37,99,235,0.18)' : '#E8F0FE';
     const TRADE_SHEET_BORDER = isDark ? 'rgba(148,163,184,0.22)' : '#E2E8F0';
     const TRADE_SHEET_BORDER_SOFT = isDark ? 'rgba(148,163,184,0.16)' : '#D7DEE7';
-    const TRADE_SHEET_TEXT = isDark ? '#F8FAFC' : '#0F172A';
-    const TRADE_SHEET_TEXT_SUB = isDark ? '#CBD5E1' : '#334155';
-    const TRADE_SHEET_TEXT_MUTED = isDark ? '#94A3B8' : '#64748B';
-    const TRADE_SHEET_TEXT_DIM = isDark ? '#64748B' : '#6B7280';
+    const TRADE_SHEET_TEXT = isDark ? T.text : '#0F172A';
+    const TRADE_SHEET_TEXT_SUB = isDark ? T.textSub : '#334155';
+    const TRADE_SHEET_TEXT_MUTED = isDark ? T.textMuted : '#64748B';
+    const TRADE_SHEET_TEXT_DIM = isDark ? T.textDimmed : '#6B7280';
 
     return StyleSheet.create({
     flex1: {
@@ -52,7 +52,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       width: '90%',
       borderRadius: 20,
       overflow: 'hidden',
-      backgroundColor: isDark ? '#0E141F' : T.glass2,
+      backgroundColor: T.glass2,
       borderWidth: 1,
       borderColor: T.border,
       shadowColor: isDark ? '#000' : '#64748B',
@@ -64,7 +64,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     screen: { backgroundColor: APP_BG, paddingHorizontal: 0 },
     headerWrapper: {
-      backgroundColor: isDark ? '#080B11' : T.glass2,
+      backgroundColor: isDark ? T.bg : T.glass2,
       zIndex: 10,
     },
     topBar: {
@@ -89,7 +89,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingTop: 0,
       paddingBottom: 7,
       minHeight: 58,
-      backgroundColor: isDark ? '#080B11' : T.glass2,
+      backgroundColor: isDark ? T.bg : T.glass2,
       borderBottomWidth: 0,
       borderBottomColor: 'transparent',
     },
@@ -441,7 +441,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingHorizontal: 4,
       paddingVertical: 3,
       marginTop: 8,
-      backgroundColor: isDark ? '#080B11' : '#F8FAFC',
+      backgroundColor: isDark ? T.bg : '#F8FAFC',
       borderBottomWidth: 0,
       borderBottomColor: 'transparent',
       borderTopWidth: 1,
@@ -598,7 +598,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       elevation: 24,
     },
     chartTradeSheetPending: {
-      backgroundColor: isDark ? '#080B11' : '#F5F6F8',
+      backgroundColor: isDark ? T.bg : '#F5F6F8',
       borderTopLeftRadius: 0,
       borderTopRightRadius: 0,
       borderTopWidth: 0,
@@ -639,11 +639,11 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingTop: 2,
     },
     chartTradeSheetDragRegionPending: {
-      backgroundColor: isDark ? '#080B11' : '#F5F6F8',
+      backgroundColor: isDark ? T.bg : '#F5F6F8',
     },
     chartTradeSheetDragSpacer: {
       height: 4,
-      backgroundColor: isDark ? '#080B11' : '#F5F6F8',
+      backgroundColor: isDark ? T.bg : '#F5F6F8',
     },
     chartTradeSheetContent: {
       flexGrow: 1,
@@ -1714,7 +1714,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
 
     /* â”€â”€ Bottom Area â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     bottomArea: {
-      backgroundColor: isDark ? '#080B11' : T.glass2,
+      backgroundColor: isDark ? T.bg : T.glass2,
       paddingHorizontal: 0,
       paddingTop: 0,
       paddingBottom: 0,
@@ -1789,7 +1789,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       // belongs inside the dock. This keeps the Sell/Lot/Buy row away from
       // the keyboard edge without adding a large keyboard-height jump.
       paddingBottom: 20,
-      backgroundColor: isDark ? '#080B11' : T.glass2,
+      backgroundColor: isDark ? T.bg : T.glass2,
       borderTopWidth: 1,
       borderTopColor: T.border,
       shadowColor: '#000',

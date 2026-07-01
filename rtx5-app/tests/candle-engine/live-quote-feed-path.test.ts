@@ -196,13 +196,18 @@ test('backend live data can materialize a keyed candle stream even when REST his
   ]);
 });
 
-test('useLiveCandles subscribes backend candle socket instead of quote-tick candle fallback', () => {
+test('useLiveCandles defaults to quote-driven candles and gates backend candle sockets', () => {
   const source = readModuleSource('src/domain/candles/hooks/useLiveCandles');
   const socketSource = readModuleSource('src/domain/candles/ws/candlesSocket');
   const protocolSource = readModuleSource('src/domain/candles/ws/candlesSocketProtocol');
 
+  assert.match(source, /import \{ shouldUseServerCandleStream \} from '\.\.\/ws\/liveCandlesEnginePolicy'/);
+  assert.match(source, /const useServerCandleStream = shouldUseServerCandleStream\(\)/);
+  assert.match(source, /if \(useServerCandleStream\) \{[\s\S]*candlesWsService\.subscribe\(normalizedSymbol, normalizedTimeframe\)/);
+  assert.match(source, /if \(useServerCandleStream\) \{[\s\S]*candlesWsService\.unsubscribe\(normalizedSymbol, normalizedTimeframe\)/);
   assert.match(source, /candlesWsService\.subscribe\(normalizedSymbol, normalizedTimeframe\)/);
   assert.match(source, /candlesWsService\.unsubscribe\(normalizedSymbol, normalizedTimeframe\)/);
+  assert.match(source, /quotesWsService\.subscribeToSymbol\(symbol, \(\) => \{\}\)/);
   assert.doesNotMatch(source, /quote_store_fallback_tick/);
   assert.doesNotMatch(source, /liveCandlesEngine\.ingestQuoteTick/);
   assert.doesNotMatch(source, /normalizeLiveTick/);
@@ -225,10 +230,12 @@ test('API prices websocket also forwards quote ticks into active candle stream',
   assert.match(socketSource, /liveCandleStream\.extendActiveCandlesFromQuoteTick\(data\.symbol,[\s\S]*price: bid,[\s\S]*time: tickTime/);
 });
 
-test('public quote websocket routes nested backend candle update payloads', () => {
+test('public quote websocket gates nested backend candle payloads until server mode is proven', () => {
   const quoteSocketSource = readModuleSource('src/api/ws/quotesSocket');
 
   assert.match(quoteSocketSource, /routeBackendCandleUpdates/);
+  assert.match(quoteSocketSource, /shouldRouteBackendCandlePayloads\(\)/);
+  assert.match(quoteSocketSource, /feed_candle_update_ignored_unverified/);
   assert.match(quoteSocketSource, /isExplicitCandlePayload\(payload\)/);
   assert.match(quoteSocketSource, /hasNestedCandleEnvelope\(record\)/);
   assert.match(quoteSocketSource, /getCandlePayloadItems\(payload\)/);

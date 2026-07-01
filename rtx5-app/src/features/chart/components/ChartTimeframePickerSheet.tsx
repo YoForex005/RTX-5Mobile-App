@@ -34,8 +34,8 @@ type ChartTimeframePickerOverlayProps = {
   onSelect: (timeframe: string) => void;
 };
 
-// Match the chart panel color committed on GitHub.
-const CHART_DARK_PANEL_BACKGROUND = '#0E141F';
+// Match the global dark card surface.
+const CHART_DARK_PANEL_BACKGROUND = '#1C1C1E';
 
 export const TIMEFRAME_PICKER_GROUPS: readonly TimeframePickerGroup[] = [
   {
@@ -173,13 +173,13 @@ const makeTimeframePickerStyles = ({
     paddingHorizontal: 20,
     paddingBottom: 20,
     borderWidth: 1,
-    borderColor: isDark ? 'rgba(59,130,246,0.25)' : 'rgba(15,23,42,0.08)',
+    borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(15,23,42,0.08)',
     backgroundColor: isDark ? CHART_DARK_PANEL_BACKGROUND : '#FFFFFF',
-    shadowColor: isDark ? accentColor : '#0F172A',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: isDark ? 0.14 : 0.18,
-    shadowRadius: 28,
-    elevation: 18,
+    shadowOpacity: isDark ? 0 : 0.18,
+    shadowRadius: isDark ? 0 : 28,
+    elevation: isDark ? 0 : 18,
   },
   group: {
     alignItems: 'center',
@@ -211,11 +211,11 @@ const makeTimeframePickerStyles = ({
     backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
   },
   optionPressed: {
-    borderColor: accentColor,
-    backgroundColor: isDark ? 'rgba(37,99,235,0.18)' : '#E8F1FF',
+    borderColor: isDark ? 'rgba(255,255,255,0.15)' : accentColor,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.10)' : '#E8F1FF',
   },
   optionActive: {
-    borderColor: accentColor,
+    borderColor: isDark ? 'transparent' : accentColor,
     backgroundColor: accentColor,
   },
   optionText: {

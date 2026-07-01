@@ -295,7 +295,7 @@ export function ChartAnalyticsScreen() {
                         left: `${positionPct}%`, 
                         backgroundColor: accentColor, 
                         shadowColor: accentColor, 
-                        borderColor: isDark ? '#0E141F' : '#FFFFFF' 
+                        borderColor: isDark ? T.glass2 : '#FFFFFF'
                       }
                     ]} />
                   </View>
@@ -507,12 +507,13 @@ export function ChartAnalyticsScreen() {
 }
 
 function makeStyles(T: ThemeColors, isDark: boolean) {
-  const cardBg = isDark ? '#0E141F' : T.glass2;
+  const cardBg = T.glass2;
+  const cardBorder = isDark ? T.border : T.borderSubtle;
 
   return StyleSheet.create({
     screen: {
       flex: 1,
-      backgroundColor: isDark ? '#06080D' : T.bg,
+      backgroundColor: T.bg,
     },
     scrollContent: {
       paddingTop: spacing.md,
@@ -521,8 +522,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingHorizontal: 16,
       paddingBottom: 12,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : T.border,
-      backgroundColor: isDark ? '#06080D' : T.bg,
+      borderBottomColor: isDark ? T.borderSubtle : T.border,
+      backgroundColor: T.bg,
     },
     headerRow: {
       flexDirection: 'row',
@@ -552,13 +553,13 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       padding: spacing.md,
       borderRadius: 16,
       borderWidth: 1,
-      borderColor: isDark ? T.border : T.borderSubtle,
+      borderColor: cardBorder,
       backgroundColor: cardBg,
-      shadowColor: isDark ? '#2563EB' : '#0F172A',
+      shadowColor: '#000000',
       shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: isDark ? 0.08 : 0.03,
-      shadowRadius: isDark ? 16 : 10,
-      elevation: 4,
+      shadowOpacity: isDark ? 0 : 0.03,
+      shadowRadius: isDark ? 0 : 10,
+      elevation: isDark ? 0 : 4,
     },
     cardHeaderRow: {
       flexDirection: 'row',

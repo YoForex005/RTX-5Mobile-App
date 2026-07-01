@@ -129,32 +129,29 @@ test('WebView incremental candle updates keep the raw visible series in sync', (
   );
 });
 
-test('native WebView uses the native candlestick renderer for candle modes', () => {
+test('native WebView uses the RTX5 custom candlestick renderer for candle modes', () => {
   assertSourceContains(
     source,
-    /Always use the native lightweight-charts CandlestickSeries/,
-    'native chart must document the native candlestick renderer contract',
+    /Use the RTX5 custom candle renderer on mobile/,
+    'native chart must document the custom candlestick renderer contract',
   );
   assertSourceContains(
     source,
-    /series = chart\.addSeries\(LightweightCharts\.CandlestickSeries,[\s\S]*upColor: colors\.bodyUp[\s\S]*downColor: colors\.bodyDown/,
-    'candlestick and hollow charts must use the native Lightweight Charts candlestick series',
+    /series = window\.addRTX5CustomCandlestickSeries\(chart,[\s\S]*bodyUpColor: colors\.bodyUp[\s\S]*bodyDownColor: colors\.bodyDown/,
+    'candlestick and hollow charts must use the RTX5 custom candlestick series',
   );
 });
 
-test('quote updates synchronize display candles before isolated price-line bridge updates', () => {
+test('quote updates move price lines without mutating candle OHLC', () => {
   assert.doesNotMatch(
     source,
     /liveQuoteCandleStateRef/,
     'native chart must not keep a separate quote-built candle projection',
   );
-  assertSourceContains(
-    source,
-    /resolveLivePriceCoherentCandles\(sanitizedBackendCandles, chartTimeframe,[\s\S]*price: liveChartPrice,[\s\S]*time: chartTradeTickTimestamp/,
-    'native chart must fold the live quote into sanitizedCandles before WebView candle sync',
-  );
+  assert.doesNotMatch(source, /resolveLivePriceCoherentCandles/, 'native chart must not fold live quotes into sanitizedCandles');
+  assert.doesNotMatch(source, /price: liveChartPrice/, 'native chart must not pass quote prices to candle synthesis');
 
-  const quoteBridgeStart = source.indexOf('The display candle has already folded in the same live quote used here');
+  const quoteBridgeStart = source.indexOf('Quote ticks move only market price lines.');
   assert.notEqual(quoteBridgeStart, -1, 'quote bridge contract comment was not found');
   const quoteBridgeEnd = source.indexOf('// Watchdog', quoteBridgeStart);
   assert.notEqual(quoteBridgeEnd, -1, 'quote bridge effect end was not found');

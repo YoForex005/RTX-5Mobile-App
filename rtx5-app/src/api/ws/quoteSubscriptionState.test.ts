@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import {
   applyQuoteSubscriptionDelta,
@@ -64,4 +66,19 @@ test('empty or zero-count symbols are ignored when building active quote subscri
   const active = buildActiveQuoteSymbols(['', 'BTCUSDm'], new Map([['EURUSD', 0], ['GBPUSD.c', 2]])).sort();
 
   assert.deepEqual(active, ['BTCUSDm', 'GBPUSD.c']);
+});
+
+test('quote websocket service sends subscription diffs and tracks acknowledgements', () => {
+  const source = readFileSync(resolve(process.cwd(), 'src/api/ws/quotesSocket/QuotesWebSocketService.ts'), 'utf8');
+
+  assert.match(source, /private sentSymbols: Set<string> = new Set\(\)/);
+  assert.match(source, /private pendingSubscribeSymbols: Set<string> = new Set\(\)/);
+  assert.match(source, /private pendingUnsubscribeSymbols: Set<string> = new Set\(\)/);
+  assert.match(source, /private confirmedSymbols: Set<string> = new Set\(\)/);
+  assert.match(source, /private sendSubscriptionDiff\(nextDesiredSymbols: Set<string>\): void/);
+  assert.match(source, /this\.send\(\{ type: 'unsubscribe', symbols: unsubscribeSymbols \}\)/);
+  assert.match(source, /this\.send\(\{ type: 'subscribe', symbols: subscribeSymbols \}\)/);
+  assert.match(source, /const ack = extractSubscriptionAck\(payload\)/);
+  assert.match(source, /this\.handleSubscriptionAckPayload\(payload\)/);
+  assert.match(source, /this\.markSymbolsConfirmed\(\[symbol, tick\.symbol, tick\.rawSymbol \?\? ''\]\)/);
 });

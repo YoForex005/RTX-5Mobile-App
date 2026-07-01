@@ -479,14 +479,14 @@ test('chart properties dark chrome matches the Settings dark palette', () => {
   const stylesSource = source.slice(stylesStart);
 
   assert.match(settingsStyles, /const SETTINGS_DARK_BACKGROUND = '#000000'/);
-  assert.match(settingsStyles, /const SETTINGS_DARK_CARD_BACKGROUND = '#0d1628'/);
+  assert.match(settingsStyles, /const SETTINGS_DARK_CARD_BACKGROUND = '#1C1C1E'/);
   assert.match(source, /Match Settings dark palette for the chart preferences shell and cards/);
   assert.match(source, /const SETTINGS_DARK_BACKGROUND = '#000000'/);
-  assert.match(source, /const SETTINGS_DARK_CARD_BACKGROUND = '#0d1628'/);
+  assert.match(source, /const SETTINGS_DARK_CARD_BACKGROUND = '#1C1C1E'/);
   assert.match(source, /const preferencesBackground = isDark \? SETTINGS_DARK_BACKGROUND : '#F4F5F7'/);
   assert.match(source, /const preferencesCardBackground = isDark \? SETTINGS_DARK_CARD_BACKGROUND : '#FFFFFF'/);
   assert.match(source, /const preferencesSoftCardBackground = isDark \? SETTINGS_DARK_CARD_BACKGROUND : '#F8FAFC'/);
-  assert.doesNotMatch(source, /isDark \? '#(?:000000|0d1628)'/);
+  assert.doesNotMatch(source, /isDark \? '#(?:000000|1C1C1E)'/);
 
   const backgroundStyles = ['screen', 'header'];
   for (const styleName of backgroundStyles) {
@@ -643,7 +643,7 @@ test('settings navigation surfaces keep scrollable rows release-confirmed', () =
   assert.match(registerSource, /if \(isScreenFocused\) \{[\s\S]*registerBackNavigationStartedRef\.current = false;[\s\S]*\}, \[isScreenFocused\]\);/);
   assert.match(registerSource, /const handleRegisterBack = React\.useCallback\(\(event: GestureResponderEvent\) => \{[\s\S]*event\.preventDefault\(\);[\s\S]*event\.stopPropagation\(\);[\s\S]*if \(registerBackNavigationStartedRef\.current\) \{[\s\S]*return;[\s\S]*\}[\s\S]*registerBackNavigationStartedRef\.current = true;[\s\S]*safeRouterBack\(router, REGISTER_BACK_FALLBACK_HREF\);[\s\S]*\}, \[\]\);/);
   assert.match(registerSource, /onPress=\{handleRegisterBack\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="register\.back"[\s\S]*unstable_pressDelay=\{0\}/);
-  assert.match(rootSource, /const brokerFlowBackground = isDark \? '#05070D' : '#F3F6FA'/);
+  assert.match(rootSource, /const brokerFlowBackground = isDark \? T\.bg : '#F3F6FA'/);
   assert.match(rootSource, /const brokerFlowScreenOptions = \{[\s\S]*headerShown: false,[\s\S]*animation: 'none',[\s\S]*freezeOnBlur: false,[\s\S]*contentStyle: \{ backgroundColor: brokerFlowBackground \},[\s\S]*\} as const;/);
   assert.match(rootSource, /const registerScreenOptions = \{[\s\S]*headerShown: false,[\s\S]*animation: 'none',[\s\S]*presentation: 'transparentModal',[\s\S]*freezeOnBlur: false,[\s\S]*contentStyle: \{ backgroundColor: 'transparent' \},[\s\S]*\} as const;/);
   assert.match(rootSource, /<Stack\.Screen name='register' options=\{registerScreenOptions\}/);
@@ -788,14 +788,16 @@ test('fast action surfaces keep light and dark theme styling wired', () => {
   const orderTicketSource = readSource('src/features/trade/OrderTicketScreen.tsx');
   const sidebarSource = readSource('src/ui/components/SidebarDrawer.tsx');
 
-  assert.match(tabsSource, /backgroundColor: isDark \? '#040609' : '#ffffff'/);
+  assert.match(tabsSource, /backgroundColor: isDark \? T\.bg : '#ffffff'/);
+  assert.match(tabsSource, /borderTopColor: isDark \? T\.borderSubtle : 'rgba\(0,0,0,0\.05\)'/);
+  assert.match(tabsSource, /const inactiveTabColor = isDark \? T\.textMuted : T\.textDimmed/);
   assert.match(tabsSource, /const themeMode = useThemeMode\(\)/);
   assert.doesNotMatch(tabsSource, /useDeferredThemeMode\(\)/);
   assert.match(actionSheetStyles, /makeActionSheetStyles\(T: ThemeColors, isDark: boolean\)/);
   assert.match(actionSheetStyles, /backgroundColor: isDark \? 'rgba\(0,0,0,0\.72\)' : 'rgba\(0,0,0,0\.3\)'/);
   assert.match(settingsStyles, /makeSettingsStyles = \(T: ThemeColors, themeMode: 'light' \| 'dark'\)/);
   assert.match(settingsStyles, /const SETTINGS_DARK_BACKGROUND = '#000000'/);
-  assert.match(settingsStyles, /const SETTINGS_DARK_CARD_BACKGROUND = '#0d1628'/);
+  assert.match(settingsStyles, /const SETTINGS_DARK_CARD_BACKGROUND = '#1C1C1E'/);
   assert.match(settingsStyles, /const resolveSettingsBackground = \(T: ThemeColors, themeMode: 'light' \| 'dark'\) =>\s*themeMode === 'dark' \? SETTINGS_DARK_BACKGROUND : T\.bg/);
   assert.match(settingsStyles, /const resolveSettingsCardBackground = \(T: ThemeColors, themeMode: 'light' \| 'dark'\) =>\s*themeMode === 'dark' \? SETTINGS_DARK_CARD_BACKGROUND : T\.glass2/);
   assert.match(settingsStyles, /const settingsBackground = resolveSettingsBackground\(T, themeMode\)/);

@@ -238,10 +238,10 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       marginHorizontal: 14,
       paddingVertical: 14,
       paddingHorizontal: 14,
-      backgroundColor: isDark ? '#0E141F' : '#FFFFFF',
+      backgroundColor: isDark ? T.glass2 : '#FFFFFF',
       borderRadius: 14,
       borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.06)' : '#EEF2F7',
+      borderColor: isDark ? T.border : '#EEF2F7',
     },
     cardPressed: {
       opacity: 0.85,
@@ -290,10 +290,10 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     /* Info card */
     infoCard: {
       marginHorizontal: 14,
-      backgroundColor: isDark ? '#0E141F' : '#FFFFFF',
+      backgroundColor: isDark ? T.glass2 : '#FFFFFF',
       borderRadius: 14,
       borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.06)' : '#EEF2F7',
+      borderColor: isDark ? T.border : '#EEF2F7',
       overflow: 'hidden',
     },
     infoRow: {

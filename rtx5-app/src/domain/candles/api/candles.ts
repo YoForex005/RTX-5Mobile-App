@@ -11,7 +11,7 @@ import {
   extractCandleHistoryPayload,
   getCandleHistoryRequestTimeframes,
 } from './candleHistoryQuery';
-import type { CandleHistoryRequestOptions } from './candleHistoryQuery';
+import type { CandleHistoryQueryStyle, CandleHistoryRequestOptions } from './candleHistoryQuery';
 import { Candle } from '../../../state/tradingState';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { DEFAULT_CANDLE_HISTORY_LIMIT, normalizeCandleSeries, normalizeSymbol, normalizeTimeframeStrict } from '../core/candles';
@@ -48,6 +48,17 @@ type CandleHistoryAttempt = {
   normalizedCandles: Candle[];
   resolvedPriceBasis: CandlePriceBasis;
 };
+
+type CandleHistoryRoute = {
+  pathPrefix: 'candles' | 'market-data/candles';
+  queryStyle: CandleHistoryQueryStyle;
+};
+
+const CANDLE_HISTORY_ROUTES: readonly CandleHistoryRoute[] = [
+  { pathPrefix: 'candles', queryStyle: 'timeframeLimit' },
+  { pathPrefix: 'candles', queryStyle: 'tfCount' },
+  { pathPrefix: 'market-data/candles', queryStyle: 'timeframeLimit' },
+];
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object';
@@ -124,9 +135,15 @@ const fetchAuthenticatedCandleHistory = async (
   count: number,
   requestOptions: CandleHistoryRequestOptions | undefined,
   currentPriceBasis: CandlePriceBasis,
+  route: CandleHistoryRoute,
 ): Promise<CandleHistoryAttempt> => {
-  const params = buildCandleHistorySearchParams(requestTimeframe, count, requestOptions);
-  const response = await apiClient(`/candles/${requestedSymbol}?${params.toString()}`, {
+  const params = buildCandleHistorySearchParams(
+    requestTimeframe,
+    count,
+    requestOptions,
+    route.queryStyle,
+  );
+  const response = await apiClient(`/${route.pathPrefix}/${requestedSymbol}?${params.toString()}`, {
     signal: requestOptions?.signal,
   });
 
@@ -137,6 +154,8 @@ const fetchAuthenticatedCandleHistory = async (
  * Fetches historical candlestick data for a given symbol and timeframe.
  *
  * GET /api/v2/candles/{symbol}?timeframe={timeframe}&limit={count}
+ * GET /api/v2/candles/{symbol}?tf={timeframe}&count={count}
+ * GET /api/v2/market-data/candles/{symbol}?timeframe={timeframe}&limit={count}
  *
  * @param symbol    - Trading pair (e.g. 'EURUSD', 'XAUUSD')
  * @param timeframe - Candle period (e.g. 'M1', 'M5', 'H1', 'D1')
@@ -183,24 +202,29 @@ export async function getCandleHistory(
     return attempt.normalizedCandles.length > 0;
   };
 
-  for (let index = 0; index < requestTimeframes.length; index += 1) {
+  let foundUsableAttempt = false;
+  for (let index = 0; index < requestTimeframes.length && !foundUsableAttempt; index += 1) {
     const requestTimeframe = requestTimeframes[index];
-    try {
-      const attempt = await fetchAuthenticatedCandleHistory(
-        requestedSymbol,
-        requestTimeframe,
-        count,
-        requestOptions,
-        resolvedPriceBasis,
-      );
-      if (acceptAttempt(attempt)) {
-        break;
+    for (const route of CANDLE_HISTORY_ROUTES) {
+      try {
+        const attempt = await fetchAuthenticatedCandleHistory(
+          requestedSymbol,
+          requestTimeframe,
+          count,
+          requestOptions,
+          resolvedPriceBasis,
+          route,
+        );
+        if (acceptAttempt(attempt)) {
+          foundUsableAttempt = true;
+          break;
+        }
+      } catch (error) {
+        if (isAbortError(error)) {
+          throw error;
+        }
+        lastHttpError = error instanceof Error ? error : new Error(String(error));
       }
-    } catch (error) {
-      if (isAbortError(error)) {
-        throw error;
-      }
-      lastHttpError = error instanceof Error ? error : new Error(String(error));
     }
   }
 

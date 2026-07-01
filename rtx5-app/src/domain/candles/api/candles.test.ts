@@ -76,6 +76,15 @@ test('buildCandleHistorySearchParams leaves explicit backend timeframe token cas
   assert.equal(params.get('timeframe'), '1m');
 });
 
+test('buildCandleHistorySearchParams supports backend tf/count query style', () => {
+  const params = buildCandleHistorySearchParams('m1', 500, undefined, 'tfCount');
+
+  assert.equal(params.get('tf'), 'M1');
+  assert.equal(params.get('count'), '500');
+  assert.equal(params.has('timeframe'), false);
+  assert.equal(params.has('limit'), false);
+});
+
 test('getCandleHistoryRequestTimeframes requests only the selected backend timeframe', () => {
   assert.deepEqual(CANDLE_HISTORY_TIMEFRAMES, ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN']);
   assert.deepEqual(getCandleHistoryRequestTimeframes('M1'), ['M1']);
@@ -103,6 +112,8 @@ test('candle history loader requires login and has no public fallback', () => {
   assert.match(source, /const hasAuthenticatedCandleSession = Boolean\(getStoredAccessToken\(\)\)/);
   assert.match(source, /if \(!hasAuthenticatedCandleSession\) \{[\s\S]*throw new Error\(CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE\)/);
   assert.match(source, /fetchAuthenticatedCandleHistory\(/);
+  assert.match(source, /pathPrefix: 'market-data\/candles'/);
+  assert.match(source, /queryStyle: 'tfCount'/);
   assert.doesNotMatch(source, /PUBLIC_API_V1_BASE_URL/);
   assert.doesNotMatch(source, /fetchPublicCandleHistory/);
   assert.doesNotMatch(source, /candles\.publicHistory/);

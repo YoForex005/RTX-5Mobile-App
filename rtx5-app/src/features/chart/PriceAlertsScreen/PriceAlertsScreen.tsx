@@ -96,6 +96,8 @@ export function PriceAlertsScreen() {
   );
 
   const screenBg = isDark ? T.bg : '#F1F5F9';
+  const placeholderColor = isDark ? T.textFaint : '#94A3B8';
+  const sectionIconColor = isDark ? T.textMuted : '#64748B';
 
   return (
     <View style={[styles.screen, { backgroundColor: screenBg }]}>
@@ -127,16 +129,16 @@ export function PriceAlertsScreen() {
             <RefreshControl
               refreshing={isRefetching}
               onRefresh={refetch}
-              tintColor={isDark ? '#D1D4DC' : '#131722'}
+              tintColor={isDark ? T.textSub : '#131722'}
               colors={[T.accent]}
-              progressBackgroundColor={isDark ? '#0E141F' : '#FFFFFF'}
+              progressBackgroundColor={isDark ? T.glass2 : '#FFFFFF'}
             />
           }
         >
 
           {/* ── Create Alert Form ── */}
           <View style={styles.sectionHeader}>
-            <Ionicons name="add-circle-outline" size={14} color={isDark ? '#94A3B8' : '#64748B'} />
+            <Ionicons name="add-circle-outline" size={14} color={sectionIconColor} />
             <Text style={styles.sectionTitle}>NEW ALERT</Text>
           </View>
           <View style={styles.card}>
@@ -148,7 +150,7 @@ export function PriceAlertsScreen() {
                 value={symbol}
                 onChangeText={(v) => setSymbol(v.toUpperCase())}
                 placeholder="e.g. EURUSD"
-                placeholderTextColor={isDark ? 'rgba(148,163,184,0.4)' : '#94A3B8'}
+                placeholderTextColor={placeholderColor}
                 autoCapitalize="characters"
                 returnKeyType="next"
               />
@@ -191,7 +193,7 @@ export function PriceAlertsScreen() {
                 value={price}
                 onChangeText={setPrice}
                 placeholder="0.00000"
-                placeholderTextColor={isDark ? 'rgba(148,163,184,0.4)' : '#94A3B8'}
+                placeholderTextColor={placeholderColor}
                 keyboardType="decimal-pad"
                 returnKeyType="next"
               />
@@ -206,7 +208,7 @@ export function PriceAlertsScreen() {
                 value={message}
                 onChangeText={setMessage}
                 placeholder="Optional notification note"
-                placeholderTextColor={isDark ? 'rgba(148,163,184,0.4)' : '#94A3B8'}
+                placeholderTextColor={placeholderColor}
                 returnKeyType="done"
               />
             </View>
@@ -234,7 +236,7 @@ export function PriceAlertsScreen() {
 
           {/* ── Active Alerts ── */}
           <View style={styles.sectionHeader}>
-            <Ionicons name="notifications-outline" size={14} color={isDark ? '#94A3B8' : '#64748B'} />
+            <Ionicons name="notifications-outline" size={14} color={sectionIconColor} />
             <Text style={styles.sectionTitle}>
               MY ALERTS{alerts.length > 0 ? ` (${alerts.length})` : ''}
             </Text>
@@ -244,9 +246,9 @@ export function PriceAlertsScreen() {
             <ActivityIndicator size="small" color={T.accent} style={{ marginTop: 24 }} />
           ) : sorted.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Ionicons name="notifications-off-outline" size={36} color={isDark ? '#334155' : '#CBD5E1'} />
+              <Ionicons name="notifications-off-outline" size={36} color={isDark ? T.textDimmed : '#CBD5E1'} />
               <Text style={[styles.emptyText, { color: T.textMuted }]}>No alerts set</Text>
-              <Text style={[styles.emptySubText, { color: isDark ? '#475569' : '#94A3B8' }]}>
+              <Text style={[styles.emptySubText, { color: isDark ? T.textMuted : '#94A3B8' }]}>
                 Create an alert above to get notified{'\n'}when a price level is reached
               </Text>
             </View>

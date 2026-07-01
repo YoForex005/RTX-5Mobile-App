@@ -167,7 +167,7 @@ function TradePositionRowComponent({
 
   const detailColor = T.textSub;
   const detailLabelColor = T.textMuted;
-  const dividerColor = isDark ? 'rgba(255,255,255,0.06)' : T.border;
+  const dividerColor = isDark ? T.borderSubtle : T.border;
   const tradingLogin = resolveTradingLoginString();
 
   const navigateWithSnapshot = (pathname: '/trade/close-position' | '/trade/close-by' | '/trade/modify-position') => {
@@ -194,13 +194,13 @@ function TradePositionRowComponent({
         style={[
           styles.row,
           {
-            backgroundColor: isDark ? '#0d1628' : T.glass2,
+            backgroundColor: T.glass2,
             borderColor: T.border,
-            borderLeftColor: isBuy ? T.trading.buy.primary : T.trading.sell.primary,
+            borderLeftColor: T.border,
           },
           !isDark && styles.shadowLight,
           isDark && styles.shadowDark,
-          selected && { backgroundColor: T.glass1, borderColor: T.trading.buy.primary },
+          selected && { backgroundColor: T.glass1, borderColor: T.border },
         ]}
       >
         <Text style={[styles.cornerId, { color: T.textMuted }]}>#{item.id}</Text>

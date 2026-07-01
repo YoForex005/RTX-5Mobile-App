@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { applyLiveCandleToCandleMap, applyQuoteTickExtensionToCandleMap } from './liveCandleAggregator.ts';
+import { applyLiveCandleToCandleMap } from './liveCandleAggregator.ts';
 import {
   buildFreshHistoryLiveCandleSeries,
   foldCoveredLiveExtremesIntoHistory,
@@ -190,15 +190,15 @@ test('closed history cutoff removes same-time live candles before visible merge'
   assert.equal(merged[1].high, 1.18);
 });
 
-test('fresh history/live merge can preserve quote-tail provenance for chart display filtering', () => {
+test('fresh history/live merge preserves backend live provenance for chart display filtering', () => {
   const liveMap = new Map<number, MutableCandle>();
   const history = [
     { time: 1_713_744_000, open: 100, high: 105, low: 95, close: 102, volume: 10 },
   ];
 
-  applyQuoteTickExtensionToCandleMap(
+  applyLiveCandleToCandleMap(
     liveMap,
-    { price: 777, time: 1_713_744_120 },
+    { time: 1_713_744_120, open: 777, high: 778, low: 776, close: 777.5, volume: 4, closed: false },
     'M1',
     { historyCutoffTime: 1_713_744_000 },
   );
@@ -206,7 +206,7 @@ test('fresh history/live merge can preserve quote-tail provenance for chart disp
   const live = materializeLiveCandleMap(liveMap, 1_713_744_000, { preserveProvenance: true });
   assert.equal((live[0] as MutableCandle | undefined)?.source, 'live_candle');
   assert.equal((live[0] as MutableCandle | undefined)?.closed, false);
-  assert.equal((live[0] as MutableCandle | undefined)?.lastQuoteTime, 1_713_744_120);
+  assert.equal((live[0] as MutableCandle | undefined)?.lastBackendUpdateTime, 1_713_744_120);
 
   const merged = buildFreshHistoryLiveCandleSeries(
     history,
@@ -220,5 +220,5 @@ test('fresh history/live merge can preserve quote-tail provenance for chart disp
   assert.equal(tail.time, 1_713_744_120);
   assert.equal(tail.source, 'live_candle');
   assert.equal(tail.closed, false);
-  assert.equal(tail.lastQuoteTime, 1_713_744_120);
+  assert.equal(tail.lastBackendUpdateTime, 1_713_744_120);
 });

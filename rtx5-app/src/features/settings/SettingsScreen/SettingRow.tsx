@@ -37,7 +37,7 @@ export function SettingRow({
       unstable_pressDelay={0}
       accessibilityRole={onPress ? 'button' : undefined}
     >
-      <View style={[styles.iconBox, { backgroundColor: `${color}1A` }]}>
+      <View style={[styles.iconBox, { backgroundColor: `${color}1A` }, styles.iconBoxTint]}>
         <Ionicons name={icon} size={20} color={color} />
       </View>
       <View style={styles.rowTextWrap}>

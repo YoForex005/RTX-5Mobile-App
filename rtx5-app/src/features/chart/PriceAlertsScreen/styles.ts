@@ -1,12 +1,17 @@
 import { StyleSheet } from 'react-native';
 import type { ThemeColors } from '../../../ui/theme/glass';
 
-export function makePriceAlertsStyles(_T: ThemeColors, isDark: boolean) {
-  const cardBg = isDark ? '#0B0F19' : '#FFFFFF';
-  const border = isDark ? 'rgba(255,255,255,0.06)' : '#E2E8F0';
+export function makePriceAlertsStyles(T: ThemeColors, isDark: boolean) {
+  const screenBg = isDark ? T.bg : '#F1F5F9';
+  const cardBg = isDark ? T.glass2 : '#FFFFFF';
+  const raisedBg = isDark ? T.glass1 : '#F8FAFC';
+  const border = isDark ? T.border : '#E2E8F0';
+  const divider = isDark ? T.borderSubtle : '#E2E8F0';
+  const sectionText = isDark ? T.textMuted : '#94A3B8';
+  const triggeredBadgeBg = isDark ? raisedBg : '#F1F5F9';
 
   return StyleSheet.create({
-    screen: { flex: 1 },
+    screen: { flex: 1, backgroundColor: screenBg },
     flex1: { flex: 1 },
     header: {
       flexDirection: 'row',
@@ -14,7 +19,8 @@ export function makePriceAlertsStyles(_T: ThemeColors, isDark: boolean) {
       height: 48,
       paddingHorizontal: 12,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: border,
+      borderBottomColor: divider,
+      backgroundColor: screenBg,
     },
     headerBtn: { width: 40, height: 48, alignItems: 'center', justifyContent: 'center' },
     headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', textAlign: 'center', letterSpacing: 0.2 },
@@ -33,7 +39,7 @@ export function makePriceAlertsStyles(_T: ThemeColors, isDark: boolean) {
       fontSize: 12,
       fontWeight: '700',
       letterSpacing: 0.8,
-      color: isDark ? '#475569' : '#94A3B8',
+      color: sectionText,
     },
 
     card: {
@@ -69,8 +75,8 @@ export function makePriceAlertsStyles(_T: ThemeColors, isDark: boolean) {
       paddingVertical: 6,
       borderRadius: 8,
       borderWidth: 1,
-      borderColor: border,
-      backgroundColor: 'transparent',
+      borderColor: divider,
+      backgroundColor: isDark ? raisedBg : 'transparent',
     },
     conditionPillText: { fontSize: 13, fontWeight: '700' },
 
@@ -92,7 +98,7 @@ export function makePriceAlertsStyles(_T: ThemeColors, isDark: boolean) {
     },
     createBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700', letterSpacing: 0.3 },
 
-    separator: { height: StyleSheet.hairlineWidth, backgroundColor: border, marginLeft: 16 },
+    separator: { height: StyleSheet.hairlineWidth, backgroundColor: divider, marginLeft: 16 },
 
     /* Alert list rows */
     alertRow: {
@@ -119,7 +125,7 @@ export function makePriceAlertsStyles(_T: ThemeColors, isDark: boolean) {
     deleteBtn: { padding: 6 },
 
     triggeredBadge: {
-      backgroundColor: isDark ? 'rgba(100,116,139,0.2)' : '#F1F5F9',
+      backgroundColor: triggeredBadgeBg,
       borderRadius: 4,
       paddingHorizontal: 6,
       paddingVertical: 2,
@@ -127,7 +133,7 @@ export function makePriceAlertsStyles(_T: ThemeColors, isDark: boolean) {
     triggeredBadgeText: {
       fontSize: 10,
       fontWeight: '600',
-      color: isDark ? '#475569' : '#94A3B8',
+      color: isDark ? T.textDimmed : '#94A3B8',
       textTransform: 'uppercase',
       letterSpacing: 0.5,
     },
@@ -138,6 +144,10 @@ export function makePriceAlertsStyles(_T: ThemeColors, isDark: boolean) {
       paddingVertical: 32,
       alignItems: 'center',
       gap: 8,
+      borderRadius: 14,
+      borderWidth: isDark ? 1 : 0,
+      borderColor: border,
+      backgroundColor: isDark ? cardBg : 'transparent',
     },
     emptyText: { fontSize: 16, fontWeight: '600', marginTop: 4 },
     emptySubText: { fontSize: 13, fontWeight: '500', textAlign: 'center', paddingHorizontal: 24 },

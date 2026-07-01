@@ -74,6 +74,25 @@ const QUOTE_SHEET_OPEN_FEED_PAUSE_MS = 15_000;
 const QUOTE_SHEET_OPTION_FEED_PAUSE_MS = 900;
 const QUOTE_SHEET_ROUTE_FEED_PAUSE_MS = 2_500;
 
+const QUOTES_DARK_BACKGROUND = '#000000';
+const QUOTES_DARK_SURFACE = '#1C1C1E';
+const QUOTES_DARK_SURFACE_RAISED = '#2C2C2E';
+const QUOTES_DARK_BORDER = 'rgba(255,255,255,0.10)';
+const QUOTES_DARK_BORDER_SUBTLE = 'rgba(255,255,255,0.08)';
+const QUOTES_DARK_PRIMARY_TEXT = '#FFFFFF';
+const QUOTES_DARK_MUTED_TEXT = 'rgba(235,235,245,0.62)';
+const QUOTES_DARK_SUBTLE_TEXT = 'rgba(235,235,245,0.54)';
+const QUOTES_DARK_ACCENT_SOFT = 'rgba(169,112,255,0.18)';
+const QUOTES_DARK_ACCENT_BORDER = 'rgba(169,112,255,0.36)';
+const QUOTES_DARK_CARD_HIGHLIGHT: [string, string] = [
+  'rgba(255,255,255,0.035)',
+  'rgba(255,255,255,0)',
+];
+const QUOTES_LIGHT_CARD_HIGHLIGHT: [string, string] = [
+  'rgba(255,255,255,0.04)',
+  'rgba(255,255,255,0)',
+];
+
 const pairLabel = (symbol: string) => fmt.symbol(symbol);
 
 const volumeLabel = (volume?: number) => {
@@ -110,9 +129,9 @@ type QuoteSheetOptionOptions = {
 };
 
 // full quotes screen background color + card background color
-// Dark theme matches the Settings screen palette: pure-black canvas + deep navy cards.
+// Dark theme mirrors the Settings screen palette, scoped to Quotes only.
 const QUOTES_THEME_ROTATION_DARK: QuotesRotationTheme[] = [
-  { fullscreenBackground: '#000000', cardBackground: '#0d1628' },
+  { fullscreenBackground: QUOTES_DARK_BACKGROUND, cardBackground: QUOTES_DARK_SURFACE },
 ];
 
 const QUOTES_THEME_ROTATION_LIGHT: QuotesRotationTheme[] = [
@@ -142,20 +161,20 @@ type QuotesPalette = {
 function getQuotesPalette(T: ThemeColors, isDark: boolean): QuotesPalette {
   if (isDark) {
     return {
-      shellBg: '#0d1628',
-      shellBorder: 'rgba(132, 162, 201, 0.18)',
-      shellHighlight: ['rgba(255,255,255,0.05)', 'rgba(255,255,255,0)'],
-      searchBg: '#0d1628',
-      searchBorder: 'rgba(132, 162, 201, 0.24)',
-      searchPlaceholder: 'rgba(208, 219, 232, 0.62)',
-      cardBorder: 'rgba(132, 162, 201, 0.16)',
-      metaBg: 'rgba(255,255,255,0.035)',
-      metaBorder: 'rgba(132, 162, 201, 0.12)',
-      secondaryText: 'rgba(208, 219, 232, 0.72)',
-      eyebrow: 'rgba(148, 175, 210, 0.74)',
-      emptyBg: 'rgba(8, 19, 33, 0.84)',
-      actionBg: 'rgba(255,255,255,0.04)',
-      actionBorder: 'rgba(132, 162, 201, 0.16)',
+      shellBg: QUOTES_DARK_SURFACE,
+      shellBorder: QUOTES_DARK_BORDER,
+      shellHighlight: QUOTES_DARK_CARD_HIGHLIGHT,
+      searchBg: QUOTES_DARK_SURFACE,
+      searchBorder: 'rgba(255,255,255,0.12)',
+      searchPlaceholder: 'rgba(235,235,245,0.46)',
+      cardBorder: QUOTES_DARK_BORDER,
+      metaBg: QUOTES_DARK_SURFACE_RAISED,
+      metaBorder: QUOTES_DARK_BORDER_SUBTLE,
+      secondaryText: QUOTES_DARK_MUTED_TEXT,
+      eyebrow: QUOTES_DARK_SUBTLE_TEXT,
+      emptyBg: QUOTES_DARK_SURFACE,
+      actionBg: QUOTES_DARK_SURFACE_RAISED,
+      actionBorder: QUOTES_DARK_BORDER,
     };
   }
 
@@ -293,7 +312,10 @@ const QuoteCard = React.memo(function QuoteCard({
   const noData = !hasDisplayableLiveQuotePrice(liveItem);
 
   if (!isSimpleMode && noData && (!liveItem || typeof liveItem.bid !== 'number' || typeof liveItem.ask !== 'number')) {
-    const cardBorder = isDark ? 'rgba(255, 255, 255, 0.08)' : T.border;
+    const cardBorder = isDark ? QUOTES_DARK_BORDER : T.border;
+    const cardHighlight = isDark ? QUOTES_DARK_CARD_HIGHLIGHT : QUOTES_LIGHT_CARD_HIGHLIGHT;
+    const primaryText = isDark ? QUOTES_DARK_PRIMARY_TEXT : T.text;
+    const mutedText = isDark ? QUOTES_DARK_MUTED_TEXT : T.textMuted;
 
     return (
       <Pressable
@@ -326,7 +348,7 @@ const QuoteCard = React.memo(function QuoteCard({
         />
         <LinearGradient
           pointerEvents="none"
-          colors={['rgba(255,255,255,0.04)', 'rgba(255,255,255,0)']}
+          colors={cardHighlight}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={[StyleSheet.absoluteFillObject, { borderRadius: 16 }]}
@@ -337,13 +359,13 @@ const QuoteCard = React.memo(function QuoteCard({
               width: 8,
               height: 8,
               borderRadius: 4,
-              backgroundColor: T.textMuted,
+              backgroundColor: mutedText,
               marginRight: 8,
               opacity: 0.5,
             }}
           />
           <Text
-            style={{ color: T.text, fontSize: 16, fontWeight: '600' }}
+            style={{ color: primaryText, fontSize: 16, fontWeight: '600' }}
             numberOfLines={1}
             adjustsFontSizeToFit
             minimumFontScale={0.82}
@@ -352,7 +374,7 @@ const QuoteCard = React.memo(function QuoteCard({
           </Text>
           <Text
             style={{
-              color: T.textMuted,
+              color: mutedText,
               fontSize: 13,
               marginLeft: 'auto',
               fontStyle: 'italic',
@@ -380,6 +402,11 @@ const QuoteCard = React.memo(function QuoteCard({
   const POSITIVE = T.trading.profit;
   const NEGATIVE = T.trading.loss;
   const color = isUp ? POSITIVE : NEGATIVE;
+  const cardBorder = isDark ? QUOTES_DARK_BORDER : T.border;
+  const cardHighlight = isDark ? QUOTES_DARK_CARD_HIGHLIGHT : QUOTES_LIGHT_CARD_HIGHLIGHT;
+  const primaryText = isDark ? QUOTES_DARK_PRIMARY_TEXT : T.text;
+  const mutedText = isDark ? QUOTES_DARK_MUTED_TEXT : T.textMuted;
+  const secondaryText = isDark ? QUOTES_DARK_SUBTLE_TEXT : T.textSub;
 
   const displaySymbol = pairLabel(item.symbol);
   const pct = `${isUp ? '+' : ''}${(item.changePct || 0).toFixed(2)}%`;
@@ -414,7 +441,7 @@ const QuoteCard = React.memo(function QuoteCard({
     : 'neutral';
 
   const bidColor = noData
-    ? T.textMuted
+    ? mutedText
     : bidDirection === 'up'
       ? POSITIVE
       : bidDirection === 'down'
@@ -422,7 +449,7 @@ const QuoteCard = React.memo(function QuoteCard({
         : color;
 
   const askColor = noData
-    ? T.textMuted
+    ? mutedText
     : askDirection === 'up'
       ? POSITIVE
       : askDirection === 'down'
@@ -434,8 +461,6 @@ const QuoteCard = React.memo(function QuoteCard({
 
   const bidCaret = bidDirection !== 'neutral' ? bidDirection : isUp ? 'up' : 'down';
   const askCaret = askDirection !== 'neutral' ? askDirection : isUp ? 'up' : 'down';
-
-  const cardBorder = isDark ? 'rgba(255, 255, 255, 0.08)' : T.border;
 
   return (
     <Pressable
@@ -465,7 +490,7 @@ const QuoteCard = React.memo(function QuoteCard({
 
       <LinearGradient
         pointerEvents="none"
-        colors={['rgba(255,255,255,0.04)', 'rgba(255,255,255,0)']}
+        colors={cardHighlight}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={[StyleSheet.absoluteFillObject, { borderRadius: 16 }]}
@@ -475,7 +500,7 @@ const QuoteCard = React.memo(function QuoteCard({
         <View style={sc.symbolCol}>
           <View style={[sc.cardRow1, isSimpleMode && sc.cardRowSimple]}>
             <Text
-              style={[sc.symbolText, { color: T.text }]}
+              style={[sc.symbolText, { color: primaryText }]}
               numberOfLines={1}
               adjustsFontSizeToFit
               minimumFontScale={0.82}
@@ -488,7 +513,7 @@ const QuoteCard = React.memo(function QuoteCard({
                 <Text
                   style={[
                     sc.changePillText,
-                    { color: noData ? T.textMuted : color },
+                    { color: noData ? mutedText : color },
                   ]}
                 >
                   {noData ? '--' : pct}
@@ -500,31 +525,31 @@ const QuoteCard = React.memo(function QuoteCard({
           {!isSimpleMode && (
             <View style={sc.cardRow2}>
               <Text
-                style={[sc.volText, { color: T.textSub, flexShrink: 1 }]}
+                style={[sc.volText, { color: secondaryText, flexShrink: 1 }]}
                 numberOfLines={1}
                 adjustsFontSizeToFit
               >
-                {t('Vol')}: <Text style={[sc.statValue, { color: T.text }]}>{volumeLabel(item.volume ?? item.cachedVolume)}</Text>
+                {t('Vol')}: <Text style={[sc.statValue, { color: primaryText }]}>{volumeLabel(item.volume ?? item.cachedVolume)}</Text>
               </Text>
 
               <Text
-                style={[sc.spreadText, { color: T.textSub, flexShrink: 1 }]}
+                style={[sc.spreadText, { color: secondaryText, flexShrink: 1 }]}
                 numberOfLines={1}
                 adjustsFontSizeToFit
               >
                 {t('Last')}:{' '}
-                <Text style={[sc.statValue, { color: T.text }]}>
+                <Text style={[sc.statValue, { color: primaryText }]}>
                   {lastPrice === undefined ? '--' : fmt.price(lastPrice, priceDigits)}
                 </Text>
               </Text>
 
               <Text
-                style={[sc.spreadText, { color: T.textSub, flexShrink: 1 }]}
+                style={[sc.spreadText, { color: secondaryText, flexShrink: 1 }]}
                 numberOfLines={1}
                 adjustsFontSizeToFit
               >
                 {t('Spread')}:{' '}
-                <Text style={[sc.statValue, { color: T.text }]}>
+                <Text style={[sc.statValue, { color: primaryText }]}>
                   {(item.spread || 0).toFixed(1)}
                 </Text>
               </Text>
@@ -535,7 +560,7 @@ const QuoteCard = React.memo(function QuoteCard({
         <View style={[sc.pricesRow, isSimpleMode && sc.pricesRowSimple]}>
           <View style={[sc.priceBlock, isSimpleMode && sc.priceBlockSimple]}>
             <View style={sc.labelWithTick}>
-              <Text style={[sc.priceLabel, { color: T.textMuted }]}>{t('BID')}</Text>
+              <Text style={[sc.priceLabel, { color: mutedText }]}>{t('BID')}</Text>
               {showBidCaret && (
                 <Ionicons
                   name={bidCaret === 'up' ? 'caret-up' : 'caret-down'}
@@ -554,7 +579,7 @@ const QuoteCard = React.memo(function QuoteCard({
               {noData ? '--' : fmt.price(item.bid, priceDigits)}
             </Text>
             {!isSimpleMode && !noData && item.low > 0 && (
-              <Text style={[sc.lowHighText, { color: T.textMuted }]}>
+              <Text style={[sc.lowHighText, { color: mutedText }]}>
                 L: {fmt.price(item.low, priceDigits)}
               </Text>
             )}
@@ -562,7 +587,7 @@ const QuoteCard = React.memo(function QuoteCard({
 
           <View style={[sc.priceBlock, isSimpleMode && sc.priceBlockSimple]}>
             <View style={sc.labelWithTick}>
-              <Text style={[sc.priceLabel, { color: T.textMuted }]}>{t('ASK')}</Text>
+              <Text style={[sc.priceLabel, { color: mutedText }]}>{t('ASK')}</Text>
               {showAskCaret && (
                 <Ionicons
                   name={askCaret === 'up' ? 'caret-up' : 'caret-down'}
@@ -581,7 +606,7 @@ const QuoteCard = React.memo(function QuoteCard({
               {noData ? '--' : fmt.price(item.ask, priceDigits)}
             </Text>
             {!isSimpleMode && !noData && item.high > 0 && (
-              <Text style={[sc.lowHighText, { color: T.textMuted }]}>
+              <Text style={[sc.lowHighText, { color: mutedText }]}>
                 H: {fmt.price(item.high, priceDigits)}
               </Text>
             )}
@@ -613,7 +638,10 @@ function EditQuoteRow({
   onMoveUp: () => void;
   onMoveDown: () => void;
 }) {
-  const cardBorder = isDark ? 'rgba(255, 255, 255, 0.08)' : T.border;
+  const cardBorder = isDark ? QUOTES_DARK_BORDER : T.border;
+  const cardHighlight = isDark ? QUOTES_DARK_CARD_HIGHLIGHT : QUOTES_LIGHT_CARD_HIGHLIGHT;
+  const primaryText = isDark ? QUOTES_DARK_PRIMARY_TEXT : T.text;
+  const mutedText = isDark ? QUOTES_DARK_MUTED_TEXT : T.textSub;
 
   return (
     <View
@@ -638,7 +666,7 @@ function EditQuoteRow({
       />
       <LinearGradient
         pointerEvents="none"
-        colors={['rgba(255,255,255,0.04)', 'rgba(255,255,255,0)']}
+        colors={cardHighlight}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={[StyleSheet.absoluteFillObject, { borderRadius: 16 }]}
@@ -648,7 +676,7 @@ function EditQuoteRow({
         <Pressable onPress={onRemove} style={{ padding: 4 }}>
           <Ionicons name="remove-circle" size={24} color={T.down} />
         </Pressable>
-        <Text style={[sc.symbolText, { color: T.text }]}>{fmt.symbol(symbol)}</Text>
+        <Text style={[sc.symbolText, { color: primaryText }]}>{fmt.symbol(symbol)}</Text>
       </View>
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
@@ -657,14 +685,14 @@ function EditQuoteRow({
           disabled={index === 0}
           style={{ opacity: index === 0 ? 0.3 : 1, padding: 4 }}
         >
-          <Ionicons name="chevron-up-circle-outline" size={30} color={T.textSub} />
+          <Ionicons name="chevron-up-circle-outline" size={30} color={mutedText} />
         </Pressable>
         <Pressable
           onPress={onMoveDown}
           disabled={index === total - 1}
           style={{ opacity: index === total - 1 ? 0.3 : 1, padding: 4 }}
         >
-          <Ionicons name="chevron-down-circle-outline" size={30} color={T.textSub} />
+          <Ionicons name="chevron-down-circle-outline" size={30} color={mutedText} />
         </Pressable>
       </View>
     </View>
@@ -801,7 +829,7 @@ function LegacyAddSymbolModal({
                 />
                 <LinearGradient
                   pointerEvents="none"
-                  colors={['rgba(255,255,255,0.04)', 'rgba(255,255,255,0)']}
+                  colors={isDark ? QUOTES_DARK_CARD_HIGHLIGHT : QUOTES_LIGHT_CARD_HIGHLIGHT}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                   style={StyleSheet.absoluteFillObject}
@@ -1156,19 +1184,19 @@ type AddSymbolPalette = {
 function getAddSymbolPalette(T: ThemeColors, isDark: boolean): AddSymbolPalette {
   if (isDark) {
     return {
-      // Dark theme matches the Settings screen palette: pure-black canvas + deep navy cards.
-      screenBg: '#000000',
-      headerBorder: 'rgba(148,163,184,0.14)',
-      searchBg: '#0d1628',
-      searchBorder: 'rgba(148,163,184,0.22)',
-      rowBg: '#0d1628',
-      rowBorder: 'rgba(148,163,184,0.16)',
-      rowPressed: 'rgba(255,255,255,0.045)',
-      iconBg: 'rgba(255,255,255,0.05)',
-      chipBg: 'rgba(37,99,235,0.14)',
-      chipBorder: 'rgba(96,165,250,0.30)',
-      mutedText: '#94A3B8',
-      actionBg: 'rgba(37,99,235,0.14)',
+      // Dark theme mirrors the Settings screen palette, scoped to Quotes only.
+      screenBg: QUOTES_DARK_BACKGROUND,
+      headerBorder: QUOTES_DARK_BORDER_SUBTLE,
+      searchBg: QUOTES_DARK_SURFACE,
+      searchBorder: 'rgba(255,255,255,0.12)',
+      rowBg: QUOTES_DARK_SURFACE,
+      rowBorder: QUOTES_DARK_BORDER,
+      rowPressed: QUOTES_DARK_SURFACE_RAISED,
+      iconBg: QUOTES_DARK_SURFACE_RAISED,
+      chipBg: 'rgba(169,112,255,0.16)',
+      chipBorder: QUOTES_DARK_ACCENT_BORDER,
+      mutedText: QUOTES_DARK_MUTED_TEXT,
+      actionBg: QUOTES_DARK_ACCENT_SOFT,
       actionAddedBg: 'rgba(16,185,129,0.14)',
     };
   }
@@ -2687,10 +2715,10 @@ const sc = StyleSheet.create({
   },
 
   cardShadowDark: {
-    shadowColor: '#2563EB',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.1,
-    shadowRadius: 18,
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
     elevation: 0,
   },
 

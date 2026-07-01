@@ -36,6 +36,7 @@ import { FastPressable } from '../../ui/components/FastPressable';
 import { Screen } from '../../ui/components/Screen';
 import { SidebarDrawer } from '../../ui/components/SidebarDrawer';
 import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../ui/components/sidebarDrawerController';
+import { GDark } from '../../ui/theme/glass';
 import {
   ABOUT_LINK_CHEVRON,
   ABOUT_STAR,
@@ -76,8 +77,8 @@ export function AboutScreen() {
   const styles = useMemo(() => makeAboutStyles(isDark), [isDark]);
   const insets = useSafeAreaInsets();
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
-  const menuIconColor = isDark ? '#F8FAFC' : '#050505';
-  const actionChevronColor = isDark ? '#64748B' : ABOUT_LINK_CHEVRON;
+  const menuIconColor = isDark ? GDark.text : '#050505';
+  const actionChevronColor = isDark ? GDark.textMuted : ABOUT_LINK_CHEVRON;
   const androidConfig = Constants.expoConfig?.android as ExpoAndroidConfig | undefined;
   const appName = Constants.expoConfig?.name ?? 'RTX5';
   const nativeAppVersion = Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? 'Local';
@@ -377,11 +378,11 @@ function ContactDeveloperScreen({
   onSend: () => void;
   styles: AboutStyles;
 }) {
-  const iconColor = isDark ? '#F8FAFC' : '#050505';
-  const supportIconColor = isDark ? '#94A3B8' : '#64748B';
-  const placeholderColor = isDark ? '#64748B' : '#9CA3AF';
-  const categoryChevronColor = isDark ? '#CBD5E1' : '#7B7B7B';
-  const categoryCheckColor = isDark ? '#60A5FA' : '#2563EB';
+  const iconColor = isDark ? GDark.text : '#050505';
+  const supportIconColor = isDark ? GDark.textMuted : '#64748B';
+  const placeholderColor = isDark ? GDark.textFaint : '#9CA3AF';
+  const categoryChevronColor = isDark ? GDark.textMuted : '#7B7B7B';
+  const categoryCheckColor = isDark ? GDark.accent : '#2563EB';
   const contactScrollRef = useRef<ScrollView>(null);
   const contactScrollViewportRef = useRef<View>(null);
   const detailsFieldRef = useRef<View>(null);

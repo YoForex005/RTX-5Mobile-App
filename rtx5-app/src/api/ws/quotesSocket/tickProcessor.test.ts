@@ -11,6 +11,8 @@ test('quote tick processor carries websocket envelope context into nested tick p
   assert.match(source, /const parseJsonStringPayload = \(value: unknown\): unknown =>/);
   assert.match(source, /const QUOTE_ENVELOPE_CONTEXT_KEYS = \[/);
   assert.match(source, /'channel'/);
+  assert.match(source, /'timestamp_ms'/);
+  assert.match(source, /'time_ms'/);
   assert.match(source, /'tick_time'/);
   assert.match(source, /'sequenceId'/);
   assert.match(source, /const mergeQuoteEnvelopeContext = \(/);

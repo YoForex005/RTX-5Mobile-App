@@ -11,7 +11,12 @@ import {
   mergeHistoryAndLiveMaps,
   sortAndDedupeCandles as canonicalSortAndDedupeCandles,
 } from '../series/candleSeriesMerger';
-import { validateCandle } from './candleValidator';
+import {
+  type CandleValidationContext,
+  logCandleSeriesDiagnosticsInDevelopment,
+  validateCandle,
+  validateCandles,
+} from './candleValidator';
 import {
   CANDLE_HISTORY_TIMEFRAMES,
   createCandleStreamKey,
@@ -32,6 +37,7 @@ import {
 import type { Candle } from './candleTypes';
 
 export type { Candle } from './candleTypes';
+export type { CandleValidationContext } from './candleValidator';
 export {
   CANDLE_HISTORY_TIMEFRAMES,
   createCandleStreamKey,
@@ -46,7 +52,9 @@ export {
   normalizeTimeframe,
   normalizeTimeframeStrict,
   normalizeTimestampToSeconds,
+  logCandleSeriesDiagnosticsInDevelopment,
   SUPPORTED_TIMEFRAMES,
+  validateCandles,
 };
 
 export const MAX_CANDLE_SERIES_LENGTH = 2_500;

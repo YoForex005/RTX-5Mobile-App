@@ -205,12 +205,22 @@ export const createSanitizedCandle = (
   if (time === null || open === null || high === null || low === null || close === null) {
     return null;
   }
+  if (
+    high < open ||
+    high < close ||
+    high < low ||
+    low > open ||
+    low > close ||
+    low > high
+  ) {
+    return null;
+  }
 
   const candle: Candle = {
     time,
     open,
-    high: Math.max(open, close, high),
-    low: Math.min(open, close, low),
+    high,
+    low,
     close,
     volume: fields.volume !== null && fields.volume !== undefined && Number.isFinite(fields.volume)
       ? fields.volume

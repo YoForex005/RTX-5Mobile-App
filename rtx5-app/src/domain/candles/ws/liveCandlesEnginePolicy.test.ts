@@ -2,15 +2,84 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  getActiveCandleSourceMode,
   resolveCurrentVisibleSeries,
   resolveVisibleSeriesMode,
   shouldAdoptCachedSeries,
   shouldKeepBootstrappingOnHistoryFailure,
   shouldRenderBootstrapPreview,
+  shouldRouteBackendCandlePayloads,
   shouldSyncVisibleSeriesCache,
+  shouldUseServerCandleStream,
 } from './liveCandlesEnginePolicy';
 
 const makeCandle = (time: number) => ({ time });
+
+const withEnv = (nextEnv: Record<string, string | undefined>, run: () => void): void => {
+  const previous = Object.fromEntries(
+    Object.keys(nextEnv).map((key) => [key, process.env[key]]),
+  ) as Record<string, string | undefined>;
+
+  Object.entries(nextEnv).forEach(([key, value]) => {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  });
+
+  try {
+    run();
+  } finally {
+    Object.entries(previous).forEach(([key, value]) => {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    });
+  }
+};
+
+test('active candle source defaults to quote-driven until server candles are proven', () => {
+  withEnv(
+    {
+      EXPO_PUBLIC_CANDLE_SOURCE_MODE: undefined,
+      EXPO_PUBLIC_ENABLE_SERVER_CANDLE_STREAMS: undefined,
+      EXPO_PUBLIC_SERVER_CANDLES_PROVEN_COMPATIBLE: undefined,
+    },
+    () => {
+      assert.equal(getActiveCandleSourceMode(), 'quote');
+      assert.equal(shouldUseServerCandleStream(), false);
+      assert.equal(shouldRouteBackendCandlePayloads(), false);
+    },
+  );
+});
+
+test('active candle source enables server mode only with explicit proven-compatible flags', () => {
+  withEnv(
+    {
+      EXPO_PUBLIC_CANDLE_SOURCE_MODE: 'server',
+      EXPO_PUBLIC_ENABLE_SERVER_CANDLE_STREAMS: undefined,
+      EXPO_PUBLIC_SERVER_CANDLES_PROVEN_COMPATIBLE: undefined,
+    },
+    () => {
+      assert.equal(getActiveCandleSourceMode(), 'quote');
+    },
+  );
+
+  withEnv(
+    {
+      EXPO_PUBLIC_CANDLE_SOURCE_MODE: 'server',
+      EXPO_PUBLIC_SERVER_CANDLES_PROVEN_COMPATIBLE: 'true',
+    },
+    () => {
+      assert.equal(getActiveCandleSourceMode(), 'server');
+      assert.equal(shouldUseServerCandleStream(), true);
+      assert.equal(shouldRouteBackendCandlePayloads(), true);
+    },
+  );
+});
 
 test('shouldRenderBootstrapPreview remains disabled for the production policy', () => {
   assert.equal(shouldRenderBootstrapPreview(0, 0), false);

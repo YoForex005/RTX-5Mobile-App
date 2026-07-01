@@ -46,52 +46,52 @@ export type CategoryTokens = {
 // ── Full GDark shape ──────────────────────────────────────────────────────────
 export const GDark = {
   // ── Backgrounds (flat + namespaced) ────────────────────────────────────────
-  bg: '#0F172A',                          // primary surface (slate-900)
-  bgRoot: '#020617',                      // root / screen base (slate-950)
-  bgSecondary: '#1E293B',                 // secondary panels (slate-800)
-  glass1: '#1E293B',                      // elevated items (buttons, inputs on cards)
-  glass2: '#334155',                      // cards, panels (slate-700)
-  glass3: 'rgba(255,255,255,0.07)',       // hover / selected
-  inputBg: 'rgba(255,255,255,0.05)',      // input fields
+  bg: '#000000',                          // screen background
+  bgRoot: '#000000',                      // root / screen base
+  bgSecondary: '#1C1C1E',                 // secondary panels
+  glass1: '#2C2C2E',                      // elevated items (buttons, icon boxes, inputs on cards)
+  glass2: '#1C1C1E',                      // cards, panels
+  glass3: 'rgba(255,255,255,0.08)',       // hover / selected
+  inputBg: '#1C1C1E',                     // input fields
 
   // ── Borders ────────────────────────────────────────────────────────────────
-  border: 'rgba(255,255,255,0.1)',        // default
-  borderSubtle: 'rgba(255,255,255,0.06)',
-  borderMedium: '#334155',                // slate-700
+  border: 'rgba(255,255,255,0.10)',       // default
+  borderSubtle: 'rgba(255,255,255,0.08)',
+  borderMedium: 'rgba(255,255,255,0.10)',
   borderHi: 'rgba(255,255,255,0.15)',     // strong / active
-  borderHover: '#475569',                 // slate-600
-  borderZinc: '#334155',
+  borderHover: 'rgba(255,255,255,0.12)',
+  borderZinc: 'rgba(255,255,255,0.10)',
 
   // ── Text ───────────────────────────────────────────────────────────────────
-  text: '#F8FAFC',          // primary (slate-50)
-  textSub: '#94A3B8',       // secondary (slate-400)
-  textMuted: '#64748B',     // muted (slate-500)
-  textDimmed: '#475569',    // dimmed (slate-600)
-  textFaint: '#334155',     // faint (slate-700)
-  textGhost: '#1E293B',     // ghost
-  textDark: '#0F172A',      // slate-900
+  text: '#FFFFFF',          // primary
+  textSub: 'rgba(235,235,245,0.62)',
+  textMuted: 'rgba(235,235,245,0.54)',
+  textDimmed: 'rgba(235,235,245,0.46)',
+  textFaint: 'rgba(235,235,245,0.32)',
+  textGhost: '#2C2C2E',
+  textDark: '#000000',
 
   // ── Up / Down (legacy alias → trading.bidUp/Down) ──────────────────────────
   up: '#10B981',            // Emerald 500
   upGlow: 'rgba(16,185,129,0.15)',
   down: '#EF4444',          // Red 500
   downGlow: 'rgba(239,68,68,0.15)',
-  flat: '#94A3B8',          // slate-400
+  flat: 'rgba(235,235,245,0.62)',
 
   // ── Accent ─────────────────────────────────────────────────────────────────
-  accent: '#3B82F6',        // Blue 500
-  accentGlow: 'rgba(59,130,246,0.2)',
-  dotGradient: 'linear-gradient(135deg, #94A3B8, #334155)',
+  accent: '#347DFF',
+  accentGlow: 'rgba(52,125,255,0.22)',
+  dotGradient: 'linear-gradient(135deg, rgba(235,235,245,0.62), #2C2C2E)',
 
   // ── Trading ────────────────────────────────────────────────────────────────
   trading: {
     buy: {
-      primary: '#2563EB',
-      hover: '#3B82F6',
-      active: '#1D4ED8',
-      dark: '#1E40AF',
-      gradient: 'linear-gradient(180deg, #3B82F6 0%, #2563EB 50%, #1D4ED8 100%)',
-      glow: '0 0 6px rgba(59,130,246,0.6)',
+      primary: '#347DFF',
+      hover: '#5B95FF',
+      active: '#2563EB',
+      dark: '#1D4ED8',
+      gradient: 'linear-gradient(180deg, #5B95FF 0%, #347DFF 50%, #2563EB 100%)',
+      glow: '0 0 6px rgba(52,125,255,0.6)',
     },
     sell: {
       primary: '#DC2626',
@@ -104,18 +104,18 @@ export const GDark = {
     loss: '#EF4444',
     bidUp: '#10B981',
     bidDown: '#EF4444',
-    priceDefault: '#F8FAFC',
+    priceDefault: '#FFFFFF',
   } as TradingTokens,
 
   // ── Chart ──────────────────────────────────────────────────────────────────
   chart: {
-    background: '#0F172A',
-    grid: 'rgba(255,255,255,0.06)',
+    background: '#000000',
+    grid: 'rgba(255,255,255,0.08)',
     bullCandle: '#10B981',
     bearCandle: '#EF4444',
     volumeUp: 'rgba(16,185,129,0.25)',
     volumeDown: 'rgba(239,68,68,0.25)',
-    crosshair: '#94A3B8',
+    crosshair: 'rgba(235,235,245,0.62)',
   } as ChartTokens,
 
   // ── Category colors ────────────────────────────────────────────────────────
@@ -130,8 +130,8 @@ export const GDark = {
   // ── Shadows ────────────────────────────────────────────────────────────────
   shadows: {
     dropdown: '0 8px 32px rgba(0,0,0,0.6)',
-    panel: '0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(59,130,246,0.08)',
-    selectedRow: 'inset 2px 0 0 rgba(248,250,252,0.5)',
+    panel: '0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(52,125,255,0.08)',
+    selectedRow: 'inset 2px 0 0 rgba(255,255,255,0.5)',
   },
 
   // ── Font sizes (numeric px values for React Native) ────────────────────────

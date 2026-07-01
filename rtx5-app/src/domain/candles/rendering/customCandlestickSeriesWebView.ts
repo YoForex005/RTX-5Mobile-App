@@ -225,6 +225,25 @@ export const RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS = String.raw`
     return coordinate == null ? null : coordinate * verticalPixelRatio;
   }
 
+  var DENSE_CANDLE_LINE_MAX_BAR_SPACING = 3.25;
+
+  function shouldRenderDenseCandleAsLine(barSpacing, bodyWidth, pixelRatio) {
+    var oneCssPixel = Math.max(1, Math.floor(pixelRatio));
+    return barSpacing <= DENSE_CANDLE_LINE_MAX_BAR_SPACING || bodyWidth <= oneCssPixel * 2;
+  }
+
+  function fillDenseCandleLine(ctx, geometry, color) {
+    var top = Math.min(geometry.wickTop, geometry.bodyTop, geometry.bodyBottom);
+    var bottom = Math.max(geometry.wickBottom, geometry.bodyTop, geometry.bodyBottom);
+    ctx.fillStyle = color;
+    ctx.fillRect(
+      geometry.wickLeft,
+      top,
+      Math.max(1, geometry.wickWidth),
+      Math.max(1, bottom - top + 1)
+    );
+  }
+
   function CustomCandlestickRenderer() {
     this._data = null;
     this._options = {
@@ -296,6 +315,12 @@ export const RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS = String.raw`
 
         if (window.__RTX5_CUSTOM_CANDLE_GEOMETRY_DEBUG && !hasCenteredWickInvariant(geometry, CANDLE_CENTER_EPSILON)) {
           console.error(formatInvariantMessage(geometry, CANDLE_CENTER_EPSILON));
+        }
+
+        if (shouldRenderDenseCandleAsLine(bitmapBarSpacing, bodyWidth, horizontalPixelRatio)) {
+          fillDenseCandleLine(context, geometry, wickColor);
+          previousWickRight = geometry.wickRight;
+          continue;
         }
 
         if (self._options.wickVisible && geometry.wickWidth > 0) {

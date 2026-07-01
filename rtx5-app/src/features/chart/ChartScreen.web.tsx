@@ -100,7 +100,6 @@ import {
   resolveChartSymbolFullName,
   resolveChartSymbolKey,
 } from './chartSymbolMetadata';
-import { resolveLivePriceCoherentCandles } from './chartDisplayCandles';
 import {
   CHART_DEFAULT_TIME_SCALE_BAR_SPACING,
   CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING,
@@ -636,47 +635,6 @@ export function ChartScreen() {
   const { data: chartInstrumentMeta } = useInstrumentMeta(chartSymbol, isScreenFocused);
   const chartLiveQuoteDigitsSource = (chartLiveQuote as { digitsSource?: string } | undefined)?.digitsSource;
   const hasLiveChartQuote = hasLiveQuoteFeedData(chartLiveQuote);
-  const liveChartPrice = useMemo(() => {
-    if (!hasLiveChartQuote) {
-      return null;
-    }
-
-    const bid =
-      typeof chartLiveQuote?.bid === 'number' && chartLiveQuote.bid > 0
-        ? chartLiveQuote.bid
-        : null;
-    const ask =
-      typeof chartLiveQuote?.ask === 'number' && chartLiveQuote.ask > 0
-        ? chartLiveQuote.ask
-        : null;
-
-    return priceSource === 'ask'
-      ? ask ?? bid
-      : bid ?? ask;
-  }, [chartLiveQuote?.ask, chartLiveQuote?.bid, hasLiveChartQuote, priceSource]);
-  const liveChartTimestamp = useMemo(() => {
-    const candidates = [
-      chartLiveQuote?.lastReceivedAt,
-      chartLiveQuote?.time,
-      chartLiveQuote?.timestamp,
-      chartLiveQuote?.t,
-      chartLiveQuote?.lastTickAt,
-    ];
-
-    for (const candidate of candidates) {
-      if (typeof candidate === 'number' && Number.isFinite(candidate) && candidate > 0) {
-        return candidate;
-      }
-    }
-
-    return null;
-  }, [
-    chartLiveQuote?.lastReceivedAt,
-    chartLiveQuote?.lastTickAt,
-    chartLiveQuote?.t,
-    chartLiveQuote?.time,
-    chartLiveQuote?.timestamp,
-  ]);
 
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const [tfOpen, setTfOpen] = useState(false);
@@ -769,16 +727,8 @@ export function ChartScreen() {
   const chartDataActive = isScreenFocused && hasAuthenticatedChartSession;
   const { candles } = useLiveCandles(chartSymbol, chartTimeframe, chartDataActive);
   const sanitizedCandles = useMemo(
-    () =>
-      resolveLivePriceCoherentCandles(
-        sanitizeCandlesForChart(candles, { timeframe: chartTimeframe }),
-        chartTimeframe,
-        {
-          price: liveChartPrice,
-          time: liveChartTimestamp,
-        },
-      ),
-    [candles, chartTimeframe, liveChartPrice, liveChartTimestamp],
+    () => sanitizeCandlesForChart(candles, { timeframe: chartTimeframe }),
+    [candles, chartTimeframe],
   );
   const latestChartPrecisionPrices = useMemo(() => {
     const latest = sanitizedCandles[sanitizedCandles.length - 1];

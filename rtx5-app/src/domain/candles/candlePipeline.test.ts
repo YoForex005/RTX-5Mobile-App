@@ -44,18 +44,18 @@ test('normalizes backend history aliases and rejects invalid OHLC', () => {
     volume: 7,
   });
 
-  // Backend geometry errors (high < open) are auto-corrected by sanitization.
-  // safeHigh = max(1.1, 1.11, 1.09) = 1.11, safeLow = min(1.1, 1.11, 1.08) = 1.08
-  const sanitized = normalizeHistoryCandle({
-    t: 1_713_744_000,
-    o: 1.1,
-    h: 1.09,
-    l: 1.08,
-    c: 1.11,
-  });
-  assert.ok(sanitized, 'sanitized geometry candle should not be null');
-  assert.equal(sanitized!.high, 1.11);
-  assert.equal(sanitized!.low, 1.08);
+  // Backend geometry errors (high < open/close) are rejected so the
+  // frontend never invents a repaired OHLC candle for the renderer.
+  assert.equal(
+    normalizeHistoryCandle({
+      t: 1_713_744_000,
+      o: 1.1,
+      h: 1.09,
+      l: 1.08,
+      c: 1.11,
+    }),
+    null,
+  );
 
   // A truly invalid candle (NaN field) is rejected.
   assert.equal(
@@ -88,20 +88,19 @@ test('normalizes backend live candle symbol and timeframe metadata', () => {
     },
   );
 
-  // Backend geometry errors (high < open) are sanitized, not rejected.
-  // safeHigh = max(1.2, 1.15, 1.1) = 1.2, safeLow = min(1.2, 1.15, 1) = 1
-  const sanitized = normalizeLiveCandle({
-    symbol: 'EURUSD',
-    timeframe: 'M1',
-    time: 1,
-    open: 1.2,
-    high: 1.1,
-    low: 1,
-    close: 1.15,
-  });
-  assert.ok(sanitized, 'sanitized geometry candle should not be null');
-  assert.equal(sanitized!.high, 1.2);
-  assert.equal(sanitized!.low, 1);
+  // Backend geometry errors (high < open) are rejected, not repaired.
+  assert.equal(
+    normalizeLiveCandle({
+      symbol: 'EURUSD',
+      timeframe: 'M1',
+      time: 1,
+      open: 1.2,
+      high: 1.1,
+      low: 1,
+      close: 1.15,
+    }),
+    null,
+  );
 
   // A truly invalid candle (missing OHLC field) is rejected.
   assert.equal(

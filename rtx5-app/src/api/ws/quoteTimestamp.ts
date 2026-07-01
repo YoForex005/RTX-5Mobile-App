@@ -24,14 +24,20 @@ const coerceQuoteTimestampCandidate = (value: unknown): number | null => {
 export const resolveQuoteTickTimestamp = (
   payload: {
     timestamp?: unknown;
+    timestampMs?: unknown;
     time?: unknown;
+    timeMs?: unknown;
     t?: unknown;
     lastTickAt?: unknown;
     serverTime?: unknown;
+    serverTimeMs?: unknown;
   },
   fallbackMs: number | null = null,
 ): number | null => {
   const candidates = [
+    payload.timestampMs,
+    payload.timeMs,
+    payload.serverTimeMs,
     payload.timestamp,
     payload.time,
     payload.t,

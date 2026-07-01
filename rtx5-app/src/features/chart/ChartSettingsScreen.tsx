@@ -560,10 +560,10 @@ function makeStyles(_T: ThemeColors, isDark: boolean) {
     },
     card: {
       marginHorizontal: 14,
-      backgroundColor: isDark ? '#0E141F' : '#FFFFFF',
+      backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
       borderRadius: 14,
       borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.06)' : '#EEF2F7',
+      borderColor: isDark ? 'rgba(255,255,255,0.10)' : '#EEF2F7',
       overflow: 'hidden',
       shadowColor: isDark ? '#000' : '#0F172A',
       shadowOffset: { width: 0, height: 2 },

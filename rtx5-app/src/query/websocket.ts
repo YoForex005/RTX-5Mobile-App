@@ -15,7 +15,6 @@ import { useTradingState } from '../state/tradingState';
 import { useUserPreferences } from '../state/userPreferences';
 import { quotes as mockQuotes, type QuoteItem } from '../dev/mock/tradingData';
 import { normalizeSymbol } from '../domain/symbols';
-import { liveCandleStream } from '../domain/candles/stream/liveCandleStream';
 import { hasQuotePriceChange } from '../utils/quotePriceChange';
 import { calculateQuoteSpreadPoints } from '../utils/quoteSpread';
 import { resolveBackendQuoteVolume } from '../utils/quoteVolume';
@@ -113,17 +112,6 @@ const publishQuoteTickToSharedStores = (tick: QuoteTickEvent): void => {
     ...(tick.tickSize !== undefined ? { tickSize: tick.tickSize } : {}),
   });
 
-  const price = Number.isFinite(tick.bid) && tick.bid > 0
-    ? tick.bid
-    : Number.isFinite(tick.ask) && tick.ask > 0
-      ? tick.ask
-      : null;
-  if (price !== null) {
-    liveCandleStream.extendActiveCandlesFromQuoteTick(tick.symbol, {
-      price,
-      time: tick.timestamp,
-    });
-  }
 };
 
 const fetchRestQuoteSnapshotForEntry = async (entry: RestQuoteFallbackEntry): Promise<void> => {

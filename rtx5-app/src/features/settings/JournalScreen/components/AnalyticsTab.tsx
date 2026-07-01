@@ -301,7 +301,7 @@ export function AnalyticsTab({ isDark, trades }: AnalyticsTabProps) {
 
 function makePalette(isDark: boolean) {
   return {
-    bg: isDark ? '#080B11' : '#F1F5F9',
+    bg: isDark ? '#000000' : '#F1F5F9',
     card: isDark ? '#0E1522' : '#FFFFFF',
     panel: isDark ? 'rgba(255,255,255,0.045)' : '#F8FAFC',
     border: isDark ? 'rgba(148,163,184,0.14)' : 'rgba(15,23,42,0.08)',

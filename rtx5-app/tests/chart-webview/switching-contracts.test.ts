@@ -78,20 +78,20 @@ test('symbol-specific drawings use a normalized drawing bucket', () => {
 });
 
 test('symbol change recalculates decimals and quote fallback from backend metadata without synthetic spreads', () => {
-  const displayDecimalsStart = source.indexOf('const displayDecimals = useMemo');
-  const displayDecimalsEnd = source.indexOf('const liveChartPrice', displayDecimalsStart);
+  const displayDecimalsStart = source.indexOf('const rawDisplayDecimals = useMemo');
+  const displayDecimalsEnd = source.indexOf('const sanitizedCandles', displayDecimalsStart);
   assert.notEqual(displayDecimalsStart, -1);
   assert.notEqual(displayDecimalsEnd, -1);
   const displayDecimalsSource = source.slice(displayDecimalsStart, displayDecimalsEnd);
 
   assertSourceContains(
     displayDecimalsSource,
-    /const displayDecimals = useMemo\([\s\S]*resolveChartDisplayDecimals\(\{[\s\S]*instrumentDigits: chartInstrumentMeta\?\.digits[\s\S]*instrumentPoint: chartInstrumentMeta\?\.point[\s\S]*instrumentTickSize: chartInstrumentMeta\?\.tickSize[\s\S]*liveQuoteDigits: chartLiveQuote\?\.digits[\s\S]*liveQuoteDigitsFromBackend: hasLiveChartQuote && chartLiveQuoteDigitsSource === 'backend'/,
+    /const rawDisplayDecimals = useMemo\([\s\S]*resolveChartDisplayDecimals\(\{[\s\S]*instrumentDigits: chartInstrumentMeta\?\.digits[\s\S]*instrumentPoint: chartInstrumentMeta\?\.point[\s\S]*instrumentTickSize: chartInstrumentMeta\?\.tickSize[\s\S]*liveQuoteDigits: chartLiveQuote\?\.digits[\s\S]*liveQuoteDigitsFromBackend: hasCoherentLiveChartQuote && chartLiveQuoteDigitsSource === 'backend'/,
     'display decimals must react to backend instrument precision metadata and trusted backend quote digits',
   );
   assertSourceOmits(
     displayDecimalsSource,
-    /const displayDecimals = useMemo\([\s\S]*baseSymbol\.includes\('BTC'\)/,
+    /const rawDisplayDecimals = useMemo\([\s\S]*baseSymbol\.includes\('BTC'\)/,
     'display decimals must not use frontend symbol-family precision guesses',
   );
   assertSourceContains(

@@ -540,7 +540,6 @@ export function BrokerDetailScreen() {
         title: t('Login Failed'),
         message: error?.message || t('Invalid credentials'),
       });
-      setTimeout(() => setModalState((p) => ({ ...p, visible: false })), 2200);
     } finally {
       requestInFlightRef.current = false;
       if (!didStartSuccessNavigation) {
@@ -922,11 +921,11 @@ const MT5_BLUE = '#0a84ff';
 const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
   // Pure white card surface in light mode; subtle elevated slate in dark mode.
   // Keeps the form area visually distinct from the device chrome on both themes.
-  const pageBg = isDark ? '#05070D' : '#F3F6FA';
-  const surface = isDark ? '#0E1420' : '#FFFFFF';
+  const pageBg = isDark ? T.bg : '#F3F6FA';
+  const surface = isDark ? T.glass2 : '#FFFFFF';
   const softSurface = isDark ? 'rgba(255,255,255,0.045)' : '#F8FAFC';
-  const dividerColor = isDark ? 'rgba(148,163,184,0.18)' : 'rgba(15,23,42,0.08)';
-  const cardBorder = isDark ? 'rgba(148,163,184,0.16)' : 'rgba(15,23,42,0.08)';
+  const dividerColor = isDark ? T.borderSubtle : 'rgba(15,23,42,0.08)';
+  const cardBorder = isDark ? T.border : 'rgba(15,23,42,0.08)';
   const cardShadowColor = isDark ? '#000000' : '#0F172A';
   return StyleSheet.create({
     page: { flex: 1, backgroundColor: pageBg },

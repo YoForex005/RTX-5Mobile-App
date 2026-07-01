@@ -167,16 +167,16 @@ test('chart type pickers stay compact and do not expose the retired OHLC bars ch
   assert.doesNotMatch(webActionsSource, /detent="adaptive"/);
 });
 
-test('native chart dark UI colors match the GitHub palette', () => {
+test('native chart dark UI colors match the global dark palette', () => {
   const chartStyles = readSource('src/features/chart/ChartScreen.styles.ts');
 
-  assert.match(chartStyles, /const APP_BG = isDark \? '#030508' : T\.bg/);
-  assert.match(chartStyles, /const CHART_CANVAS_BG = isDark \? '#080B11' : '#FFFFFF'/);
-  assert.match(chartStyles, /const BOTTOM_AREA_BG = isDark \? '#0A0C0F' : '#F8FAFC'/);
-  assert.match(chartStyles, /const TRADE_SHEET_BG = isDark \? '#080B11' : '#FFFFFF'/);
-  assert.match(chartStyles, /const TRADE_SHEET_PANEL = isDark \? '#0E141F' : '#FFFFFF'/);
-  assert.match(chartStyles, /backgroundColor: isDark \? '#0E141F' : T\.glass2/);
-  assert.match(chartStyles, /backgroundColor: isDark \? '#080B11' : T\.glass2/);
+  assert.match(chartStyles, /const APP_BG = T\.bg/);
+  assert.match(chartStyles, /const CHART_CANVAS_BG = isDark \? T\.bg : '#FFFFFF'/);
+  assert.match(chartStyles, /const BOTTOM_AREA_BG = isDark \? T\.bg : '#F8FAFC'/);
+  assert.match(chartStyles, /const TRADE_SHEET_BG = isDark \? T\.bg : '#FFFFFF'/);
+  assert.match(chartStyles, /const TRADE_SHEET_PANEL = isDark \? T\.glass2 : '#FFFFFF'/);
+  assert.match(chartStyles, /backgroundColor: T\.glass2/);
+  assert.match(chartStyles, /backgroundColor: isDark \? T\.bg : T\.glass2/);
   assert.doesNotMatch(chartStyles, /CHART_DARK_CHROME_BACKGROUND|CHART_DARK_CANVAS_BACKGROUND/);
   assert.doesNotMatch(chartStyles, /const SETTINGS_DARK_BACKGROUND|const SETTINGS_DARK_CARD_BACKGROUND/);
 });
@@ -219,8 +219,11 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(timeframePickerSource, /activateOnPressIn: true/);
   assert.match(timeframePickerSource, /StyleSheet\.absoluteFillObject/);
   assert.match(timeframePickerSource, /justifyContent: 'center'/);
-  assert.match(timeframePickerSource, /const CHART_DARK_PANEL_BACKGROUND = '#0E141F'/);
+  assert.match(timeframePickerSource, /const CHART_DARK_PANEL_BACKGROUND = '#1C1C1E'/);
   assert.match(timeframePickerSource, /backgroundColor: isDark \? CHART_DARK_PANEL_BACKGROUND : '#FFFFFF'/);
+  assert.match(timeframePickerSource, /borderColor: isDark \? 'rgba\(255,255,255,0\.10\)' : 'rgba\(15,23,42,0\.08\)'/);
+  assert.match(timeframePickerSource, /shadowColor: '#000000'/);
+  assert.doesNotMatch(timeframePickerSource, /rgba\(59,130,246,0\.25\)|shadowColor: isDark \? accentColor|rgba\(37,99,235,0\.18\)/);
   assert.doesNotMatch(timeframePickerSource, /Ionicons|iconName|icon:/);
   assert.doesNotMatch(timeframePickerSource, /<Modal|bottomDock/);
   assert.match(source, /import \{ ChartTimeframePickerOverlay \} from '\.\/components\/ChartTimeframePickerSheet'/);

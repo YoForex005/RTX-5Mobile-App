@@ -5,14 +5,16 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { Platform, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsDarkTheme } from '../../state/themeMode';
+import { useUIState } from '../../state/uiState';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { Screen } from '../../ui/components/Screen';
-import { safeRouterBack } from '../../utils/navigation';
+import { SidebarDrawer } from '../../ui/components/SidebarDrawer';
+import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../ui/components/sidebarDrawerController';
+import { useTheme } from '../../ui/theme/useTheme';
 import { makeHelpStyles, type HelpStyles } from './HelpScreen.styles';
 import {
   HELP_CATEGORY_FILTERS,
@@ -24,10 +26,11 @@ import {
 } from './helpViewModel';
 
 export function HelpScreen() {
-  const router = useRouter();
   const insets = useSafeAreaInsets();
   const isDark = useIsDarkTheme();
-  const styles = useMemo(() => makeHelpStyles(isDark), [isDark]);
+  const T = useTheme();
+  const hideActionSheet = useUIState((s) => s.hideActionSheet);
+  const styles = useMemo(() => makeHelpStyles(T, isDark), [T, isDark]);
   const [selectedCategory, setSelectedCategory] = useState<HelpFaqCategory>('All');
   const [faqQuery, setFaqQuery] = useState('');
   const [expandedFaqId, setExpandedFaqId] = useState<string>('connect-account');
@@ -37,12 +40,13 @@ export function HelpScreen() {
     [faqQuery, selectedCategory],
   );
   const normalizedQuery = faqQuery.trim();
-  const backIconColor = isDark ? '#F8FAFC' : '#050505';
-  const accentColor = isDark ? '#60A5FA' : '#0A6EEB';
+  const menuIconColor = isDark ? T.text : '#050505';
+  const accentColor = isDark ? T.accent : '#0A6EEB';
 
-  const handleBack = useCallback(() => {
-    safeRouterBack(router, '/(tabs)/settings');
-  }, [router]);
+  const handleOpenMenu = useCallback(() => {
+    openSidebarDrawerImmediately();
+    scheduleAfterSidebarOpenVisual(hideActionSheet);
+  }, [hideActionSheet]);
 
   const updateVisibleSelection = useCallback((category: HelpFaqCategory, query: string) => {
     setExpandedFaqId(selectHelpFaqItems({ category, query })[0]?.id ?? '');
@@ -67,14 +71,15 @@ export function HelpScreen() {
     <Screen noBottomInset style={styles.screen}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 14 }]}>
         <FastPressable
-          onPress={handleBack}
-          latencyLabel="help.back"
+          onPress={handleOpenMenu}
+          activateOnTouchStart
+          latencyLabel="help.menu"
           hitSlop={12}
-          style={styles.backButton}
+          style={styles.menuButton}
           accessibilityRole="button"
-          accessibilityLabel="Back"
+          accessibilityLabel="Open menu"
         >
-          <Ionicons name="arrow-back" size={24} color={backIconColor} />
+          <Ionicons name="menu" size={32} color={menuIconColor} />
         </FastPressable>
         <Text style={styles.headerTitle} numberOfLines={1}>Help</Text>
       </View>
@@ -103,7 +108,7 @@ export function HelpScreen() {
               value={faqQuery}
               onChangeText={handleChangeQuery}
               placeholder="Search FAQ"
-              placeholderTextColor={isDark ? 'rgba(203,213,225,0.54)' : '#98A2B3'}
+              placeholderTextColor={isDark ? T.textMuted : '#98A2B3'}
               style={styles.searchInput}
               autoCapitalize="none"
               autoCorrect={false}
@@ -118,7 +123,7 @@ export function HelpScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Clear FAQ search"
               >
-                <Ionicons name="close-circle" size={16} color={isDark ? '#94A3B8' : '#667085'} />
+                <Ionicons name="close-circle" size={16} color={isDark ? T.textMuted : '#667085'} />
               </FastPressable>
             ) : null}
           </View>
@@ -190,6 +195,7 @@ export function HelpScreen() {
         </View>
       </ScrollView>
 
+      <SidebarDrawer />
     </Screen>
   );
 }

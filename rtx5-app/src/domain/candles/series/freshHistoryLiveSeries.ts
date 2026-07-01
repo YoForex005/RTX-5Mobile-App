@@ -119,8 +119,8 @@ export const materializeLiveCandleMap = (
 /**
  * Live→history finalization stability.
  *
- * A forming candle is built from observed bid ticks, so it shows real wicks while
- * live. When the backend's closed-history cutoff advances past that bucket, the
+ * A forming candle is built from backend live OHLC snapshots, so it shows broker
+ * wicks while live. When the backend's closed-history cutoff advances past that bucket, the
  * live candle is pruned and the bucket is owned by the authoritative REST/WS
  * history candle. If that history candle's range is NARROWER than what was shown
  * live (e.g. while the `/ws/v2` finalized-candle channel is degraded), the candle
@@ -132,7 +132,7 @@ export const materializeLiveCandleMap = (
  *   - widen-only: high = max, low = min (never narrows authoritative data);
  *   - open/close are left untouched (the broker's values stay authoritative);
  *   - the live extreme is only folded when it is price-coherent with the history
- *     candle, so a single spurious tick spike cannot inject a giant fake wick;
+ *     candle, so a single incoherent live snapshot cannot inject a giant fake wick;
  *   - same price basis (both bid), so no basis-mixing.
  * When the backend is healthy its candle already covers the live range, so
  * max/min is a no-op — there is no regression.
@@ -167,7 +167,7 @@ export const foldCoveredLiveExtremesIntoHistory = (
     }
     const target = (result ?? historyCandles)[index];
     // Fold each extreme independently and only when it is price-coherent with the
-    // authoritative candle, so a single spurious tick spike on one side cannot
+    // authoritative candle, so a single incoherent live snapshot on one side cannot
     // inject a giant fake wick — yet a genuine extreme on the other side is kept.
     const mergedHigh = isPriceCoherentWithCandle(target, live.high)
       ? Math.max(target.high, live.high)

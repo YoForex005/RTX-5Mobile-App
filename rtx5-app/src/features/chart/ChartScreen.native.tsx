@@ -89,7 +89,6 @@ import {
 } from '../../domain/candles/core/timeframeUtils';
 import { buildChartOverlayPayload, CHART_LINE_STYLE, type ChartOverlayPriceLine } from './chartOverlays';
 import { resolveChartDisplayDecimals } from './chartPricePrecision';
-import { resolveLivePriceCoherentCandles } from './chartDisplayCandles';
 import { isPriceCoherentWithCandle } from '../../domain/candles/series/priceCoherence';
 import {
   getChartDrawingBucketKey,
@@ -267,7 +266,7 @@ const buildChartTickPayload = (
 // of `sanitizedCandles` doesn't churn referential identity each render.
 const EMPTY_DISPLAY_CANDLES = Object.freeze(
   [],
-) as unknown as ReturnType<typeof resolveLivePriceCoherentCandles>;
+) as unknown as ReturnType<typeof sanitizeCandlesForChart>;
 
 const getChartSnapshotSignature = (snapshot: ReturnType<typeof buildChartSeriesSnapshot>): string =>
   [
@@ -434,7 +433,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     chartSymbol,
     chartTimeframe,
     chartVisualType,
-    priceSource,
     chartColors,
     chartColorScheme,
     chartDisplay,
@@ -467,7 +465,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       chartSymbol: state.chartSymbol,
       chartTimeframe: state.chartTimeframe,
       chartVisualType: state.chartVisualType,
-      priceSource: state.priceSource,
       chartColors: state.chartColors,
       chartColorScheme: state.chartColorScheme,
       chartDisplay: state.chartDisplay,
@@ -1472,35 +1469,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     };
   }
   const displayDecimals = displayDecimalsLatchRef.current.value;
-  const liveChartPrice = useMemo(() => {
-    if (!hasLiveChartQuote) {
-      return null;
-    }
-
-    const bid =
-      typeof chartLiveQuote?.bid === 'number' && chartLiveQuote.bid > 0
-        ? chartLiveQuote.bid
-        : null;
-    const ask =
-      typeof chartLiveQuote?.ask === 'number' && chartLiveQuote.ask > 0
-        ? chartLiveQuote.ask
-        : null;
-
-    return priceSource === 'ask'
-      ? ask ?? bid
-      : bid ?? ask;
-  }, [chartLiveQuote?.ask, chartLiveQuote?.bid, hasLiveChartQuote, priceSource]);
   const sanitizedCandles = useMemo(
     () => {
       if (sanitizedBackendCandles.length === 0) {
         return EMPTY_DISPLAY_CANDLES;
       }
-      return resolveLivePriceCoherentCandles(sanitizedBackendCandles, chartTimeframe, {
-        price: liveChartPrice,
-        time: chartTradeTickTimestamp,
-      });
+      return sanitizedBackendCandles;
     },
-    [sanitizedBackendCandles, chartTimeframe, chartTradeTickTimestamp, liveChartPrice],
+    [sanitizedBackendCandles],
   );
   const latestChartClose = useMemo(
     () => sanitizedCandles[sanitizedCandles.length - 1]?.close ?? 0,
@@ -4090,6 +4066,24 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     pendingMarketPriceLinesRef.current = null;
   }, []);
 
+  const clearRenderedMarketPriceLines = useCallback(() => {
+    clearPendingMarketPriceLineSync();
+    lastInjectedLiveQuoteSignatureRef.current = '';
+    pendingMarketPriceLinesRef.current = null;
+    try {
+      webViewRef.current?.injectJavaScript(`
+        try {
+          if (typeof setMarketPriceLines === 'function') {
+            setMarketPriceLines(null, null);
+          }
+        } catch (_) {}
+        true;
+      `);
+    } catch (_e) {
+      /* WebView may have been disposed */
+    }
+  }, [clearPendingMarketPriceLineSync]);
+
   const flushPendingMarketPriceLines = useCallback(() => {
     marketPriceLineFlushFrameRef.current = null;
     if (marketPriceLineFlushTimerRef.current) {
@@ -4279,11 +4273,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       pendingInitSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
       renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
       lastInjectedLiveQuoteSignatureRef.current = '';
-      clearPendingMarketPriceLineSync();
+      clearRenderedMarketPriceLines();
       setChartCanvasReady(false);
       setChartPlotArea(null);
     }
-  }, [clearPendingMarketPriceLineSync, currentSig]);
+  }, [clearRenderedMarketPriceLines, currentSig]);
 
   // Core init function — safe to call repeatedly.
   // The WebView's initChart tears down any existing chart and rebuilds.
@@ -4441,8 +4435,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       return;
     }
 
-    // The display candle has already folded in the same live quote used here,
-    // so the candle close and market price lines move from one tick source.
+    // Quote ticks move only market price lines. Candle bodies stay tied to
+    // backend OHLC history/live candle messages.
     // The scheduled bridge flush calls setMarketPriceLines( after coalescing.
     pendingMarketPriceLinesRef.current = {
       bid: visibleBid,
@@ -6324,8 +6318,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
               }}
               maxDate={new Date().toISOString().split('T')[0]}
               theme={{
-                backgroundColor: isDark ? '#0E141F' : T.glass2,
-                calendarBackground: isDark ? '#0E141F' : T.glass2,
+                backgroundColor: isDark ? T.glass2 : T.glass2,
+                calendarBackground: isDark ? T.glass2 : T.glass2,
                 textSectionTitleColor: T.textSub,
                 selectedDayBackgroundColor: BLUE,
                 selectedDayTextColor: '#ffffff',

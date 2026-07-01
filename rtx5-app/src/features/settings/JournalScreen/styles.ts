@@ -15,7 +15,7 @@ export function makeJournalStyles(T: ThemeColors) {
   const sell = T.trading.loss;
   const note = T.accent;
   const neutral = T.flat;
-  const isDark = T.bgRoot === '#020617';
+  const isDark = T.bgRoot === '#000000';
   const subtleFill = isDark ? 'rgba(148, 163, 184, 0.08)' : T.glass1;
 
   return StyleSheet.create({

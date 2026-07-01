@@ -488,14 +488,15 @@ export function AccountsScreen() {
     const snapshot = buildSavedAccountSnapshot(activeAccount);
     const nextName = activeAccount.name || `Account ${activeLoginStr}`;
     const nextServer = brokerConfig?.server_name || activeBrokerId;
+    const nextServerUrl = brokerServerUrl || existing?.serverUrl || '';
     const nextLogoUrl = activeBrokerLogoUrl || existing?.logoUrl || '';
     const nextType = getTradingAccountType(activeAccount.group);
     if (
       existing
       && existing.name === nextName
       && existing.server === nextServer
-      && existing.serverUrl === brokerServerUrl
-      && existing.logoUrl === nextLogoUrl
+      && (existing.serverUrl ?? '') === nextServerUrl
+      && (existing.logoUrl ?? '') === nextLogoUrl
       && existing.accountType === nextType
       && areSavedAccountSnapshotsEqual(existing.snapshot, snapshot)
     ) {
@@ -506,7 +507,7 @@ export function AccountsScreen() {
       name: nextName,
       brokerId: activeBrokerId,
       server: nextServer,
-      serverUrl: brokerServerUrl,
+      serverUrl: nextServerUrl || undefined,
       logoUrl: nextLogoUrl,
       accountType: nextType,
       lastUsedAt: existing?.lastUsedAt ?? Date.now(),
@@ -1008,7 +1009,7 @@ export function AccountsScreen() {
                   <Ionicons
                     name={tradeNotificationsEnabled ? 'notifications' : 'notifications-outline'}
                     size={16}
-                    color={tradeNotificationsEnabled ? '#2563EB' : T.textMuted}
+                    color={tradeNotificationsEnabled ? T.accent : T.textMuted}
                   />
                 </Pressable>
               </View>
@@ -1399,7 +1400,13 @@ function BrokerLogoAvatar({
   );
 }
 
-const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSheet.create({
+const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
+  const cardBg = isDark ? T.glass2 : '#FFFFFF';
+  const raisedBg = isDark ? T.glass1 : 'rgba(0,0,0,0.03)';
+  const cardBorder = isDark ? T.border : 'rgba(0,0,0,0.06)';
+  const divider = isDark ? T.borderSubtle : 'rgba(0,0,0,0.05)';
+
+  return StyleSheet.create({
   page: {
     flex: 1,
     backgroundColor: T.bgRoot,
@@ -1462,10 +1469,10 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   deleteModal: {
     width: '88%',
     maxWidth: 360,
-    backgroundColor: isDark ? '#111827' : '#FFFFFF',
+    backgroundColor: cardBg,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(15,23,42,0.08)',
+    borderColor: isDark ? cardBorder : 'rgba(15,23,42,0.08)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 14 },
     shadowOpacity: 0.2,
@@ -1518,7 +1525,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     borderRadius: 17,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9',
+    backgroundColor: isDark ? raisedBg : '#F1F5F9',
     marginLeft: 10,
   },
   deleteMessage: {
@@ -1530,11 +1537,11 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   deleteAccountCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: isDark ? 'rgba(255,255,255,0.045)' : '#F8FAFC',
+    backgroundColor: isDark ? raisedBg : '#F8FAFC',
     borderRadius: 14,
     padding: 10,
     borderWidth: 1,
-    borderColor: isDark ? 'rgba(148,163,184,0.18)' : 'rgba(15,23,42,0.08)',
+    borderColor: isDark ? cardBorder : 'rgba(15,23,42,0.08)',
     marginBottom: 10,
   },
   deleteAccountAvatar: {
@@ -1543,7 +1550,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#FFFFFF',
+    backgroundColor: isDark ? cardBg : '#FFFFFF',
     overflow: 'hidden',
     marginRight: 12,
   },
@@ -1576,8 +1583,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   },
   deleteBtnSecondary: {
     borderWidth: 1,
-    borderColor: isDark ? 'rgba(148,163,184,0.28)' : 'rgba(15,23,42,0.16)',
-    backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#FFFFFF',
+    borderColor: isDark ? cardBorder : 'rgba(15,23,42,0.16)',
+    backgroundColor: isDark ? raisedBg : '#FFFFFF',
   },
   deleteBtnSecondaryText: {
     color: T.text,
@@ -1595,7 +1602,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   tradeNotifModal: {
     width: '85%',
     maxWidth: 360,
-    backgroundColor: isDark ? '#1B2230' : '#FFFFFF',
+    backgroundColor: cardBg,
     borderRadius: 16,
     paddingTop: 22,
     paddingHorizontal: 22,
@@ -1633,7 +1640,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     borderRadius: 8,
   },
   tradeNotifTextBtnLabel: {
-    color: '#2563EB',
+    color: T.accent,
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -1676,23 +1683,23 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   activeCard: {
     marginTop: 8,
     marginBottom: 4,
-    backgroundColor: isDark ? '#0E1420' : '#FFFFFF',
+    backgroundColor: cardBg,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: isDark ? 'rgba(59,130,246,0.12)' : 'rgba(0,0,0,0.06)',
+    borderColor: cardBorder,
     padding: 10,
-    shadowColor: isDark ? '#3B82F6' : '#000',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: isDark ? 0.06 : 0.04,
+    shadowOpacity: isDark ? 0 : 0.04,
     shadowRadius: 20,
-    elevation: 4,
+    elevation: isDark ? 0 : 4,
     overflow: 'hidden',
   },
   ribbonRightContest: {
     position: 'absolute',
     top: -3,
     right: -55,
-    backgroundColor: '#3B82F6',
+    backgroundColor: T.accent,
     width: 140,
     height: 38,
     justifyContent: 'center',
@@ -1745,7 +1752,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     width: 46,
     height: 46,
     borderRadius: 14,
-    backgroundColor: isDark ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.1)',
+    backgroundColor: isDark ? raisedBg : T.accentGlow,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -1820,13 +1827,13 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     letterSpacing: 0,
   },
   liveBadge: {
-    backgroundColor: 'rgba(59,130,246,0.1)',
+    backgroundColor: T.accentGlow,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
   },
   liveBadgeText: {
-    color: '#3B82F6',
+    color: T.accent,
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: 0,
@@ -1867,7 +1874,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   },
   metricItem: {
     width: '47%' as any,
-    backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+    backgroundColor: isDark ? raisedBg : 'rgba(0,0,0,0.02)',
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 8,
@@ -1897,7 +1904,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   detailChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+    backgroundColor: isDark ? raisedBg : 'rgba(0,0,0,0.03)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 10,
@@ -1911,7 +1918,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
 
   activeDivider: {
     height: 1,
-    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+    backgroundColor: divider,
     marginBottom: 12,
   },
 
@@ -1939,7 +1946,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   statusSep: {
     width: 1,
     height: 10,
-    backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
+    backgroundColor: isDark ? divider : 'rgba(0,0,0,0.08)',
     marginHorizontal: 4,
   },
   activeActions: {
@@ -1950,7 +1957,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+    backgroundColor: isDark ? raisedBg : 'rgba(0,0,0,0.03)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1974,7 +1981,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     color: T.textDimmed,
     fontSize: 12,
     fontWeight: '600',
-    backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+    backgroundColor: isDark ? raisedBg : 'rgba(0,0,0,0.05)',
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 8,
@@ -1983,18 +1990,18 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
 
   // ── Secondary cards ──
   secondaryCard: {
-    backgroundColor: isDark ? '#0E1420' : '#FFFFFF',
+    backgroundColor: cardBg,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: isDark ? 'rgba(59,130,246,0.12)' : 'rgba(0,0,0,0.06)',
+    borderColor: cardBorder,
     padding: 10,
     overflow: 'hidden',
     marginBottom: 10,
-    shadowColor: isDark ? '#3B82F6' : '#000',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: isDark ? 0.06 : 0.04,
+    shadowOpacity: isDark ? 0 : 0.04,
     shadowRadius: 20,
-    elevation: 4,
+    elevation: isDark ? 0 : 4,
   },
   secondaryLeft: {
     flexDirection: 'row',
@@ -2006,7 +2013,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     width: 38,
     height: 38,
     borderRadius: 12,
-    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+    backgroundColor: isDark ? raisedBg : 'rgba(0,0,0,0.04)',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -2054,19 +2061,19 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     letterSpacing: 0,
   },
   tagContest: {
-    backgroundColor: 'rgba(59,130,246,0.1)',
+    backgroundColor: T.accentGlow,
     paddingHorizontal: 6,
     paddingVertical: 1,
     borderRadius: 6,
   },
   tagContestText: {
-    color: '#3B82F6',
+    color: T.accent,
     fontSize: 10,
     fontWeight: '600',
     letterSpacing: 0,
   },
   tagReadonly: {
-    backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+    backgroundColor: isDark ? raisedBg : 'rgba(0,0,0,0.05)',
     paddingHorizontal: 6,
     paddingVertical: 1,
     borderRadius: 6,
@@ -2105,7 +2112,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     marginTop: 1,
   },
   secondaryCardExpanded: {
-    borderColor: isDark ? 'rgba(59,130,246,0.22)' : 'rgba(59,130,246,0.18)',
+    borderColor: isDark ? T.borderHi : T.accentGlow,
   },
   secondaryTopRow: {
     flexDirection: 'row',
@@ -2117,7 +2124,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   },
   expandedDivider: {
     height: 1,
-    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+    backgroundColor: isDark ? divider : 'rgba(0,0,0,0.04)',
     marginVertical: 6,
   },
   expandedGrid: {
@@ -2128,7 +2135,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   },
   expandedItem: {
     width: '47%' as any,
-    backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+    backgroundColor: isDark ? raisedBg : 'rgba(0,0,0,0.02)',
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -2155,7 +2162,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     position: 'absolute',
     top: 0,
     right: 0,
-    backgroundColor: '#3B82F6',
+    backgroundColor: T.accent,
     paddingVertical: 4,
     paddingHorizontal: 10,
     borderBottomLeftRadius: 10,
@@ -2242,9 +2249,9 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     marginTop: 4,
     padding: 16,
     borderRadius: 16,
-    backgroundColor: isDark ? '#0C1018' : T.glass2,
+    backgroundColor: cardBg,
     borderWidth: 1,
-    borderColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+    borderColor: isDark ? cardBorder : 'rgba(0,0,0,0.04)',
     alignItems: 'center',
     gap: 8,
   },
@@ -2289,4 +2296,5 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     justifyContent: 'flex-end',
     alignItems: 'center',
   },
-});
+  });
+};

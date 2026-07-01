@@ -691,10 +691,10 @@ export default function RegisterScreen() {
     Keyboard.dismiss();
     setGroupPickerOpen(true);
   }, [demoGroupOptions.length]);
-  const fieldIconColor = isDark ? '#A7B4CC' : T.textMuted;
-  const fieldAccentColor = isDark ? '#22A8FF' : T.trading.buy.primary;
-  const heroBackIconColor = isDark ? '#DCEBFF' : T.text;
-  const noticeIconColor = isDark ? '#38BDF8' : T.trading.buy.primary;
+  const fieldIconColor = isDark ? T.textSub : T.textMuted;
+  const fieldAccentColor = isDark ? T.accent : T.trading.buy.primary;
+  const heroBackIconColor = T.text;
+  const noticeIconColor = isDark ? T.accent : T.trading.buy.primary;
   const autofillBackgroundColor = isDark ? T.bg : REGISTER_QUOTES_LIGHT_BACKGROUND;
 
   if (!contentReady) {
@@ -1227,18 +1227,21 @@ export default function RegisterScreen() {
 
 // Dynamic theme + register layout.
 function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
-  const pageBg = isDark ? '#020B18' : REGISTER_QUOTES_LIGHT_BACKGROUND;
-  const surface = isDark ? 'rgba(7,23,44,0.74)' : '#FFFFFF';
-  const border = isDark ? 'rgba(128,166,211,0.34)' : '#DFE7F1';
-  const borderStrong = isDark ? 'rgba(34,168,255,0.56)' : '#D8E2EF';
-  const primaryBlue = T.trading.buy.primary;
+  const pageBg = isDark ? T.bg : REGISTER_QUOTES_LIGHT_BACKGROUND;
+  const surface = isDark ? T.glass2 : '#FFFFFF';
+  const raisedSurface = isDark ? T.glass1 : 'rgba(15,23,42,0.04)';
+  const selectedSurface = isDark ? T.glass3 : 'rgba(37,99,235,0.06)';
+  const divider = isDark ? T.borderSubtle : 'rgba(15,23,42,0.07)';
+  const border = isDark ? T.border : '#DFE7F1';
+  const borderStrong = isDark ? T.borderMedium : '#D8E2EF';
+  const primaryBlue = isDark ? T.accent : T.trading.buy.primary;
   const heroTitleColor = isDark ? '#FFFFFF' : T.text;
-  const secondaryText = isDark ? '#B8C4D8' : T.textSub;
-  const fieldText = isDark ? '#F8FBFF' : T.text;
-  const mutedText = isDark ? '#9AA8BE' : T.textMuted;
-  const statusBg = isDark ? 'rgba(9,31,58,0.78)' : '#FFFFFF';
-  const statusBorder = isDark ? 'rgba(34,168,255,0.36)' : '#D8E2EF';
-  const actionTintBg = isDark ? 'rgba(10,132,255,0.14)' : 'rgba(37,99,235,0.08)';
+  const secondaryText = T.textSub;
+  const fieldText = T.text;
+  const mutedText = T.textMuted;
+  const statusBg = isDark ? surface : '#FFFFFF';
+  const statusBorder = isDark ? border : '#D8E2EF';
+  const actionTintBg = isDark ? raisedSurface : 'rgba(37,99,235,0.08)';
 
   return StyleSheet.create({
     bg: {
@@ -1379,8 +1382,8 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       paddingVertical: 12,
       borderRadius: 16,
       borderWidth: 1,
-      borderColor: isDark ? 'rgba(59,130,246,0.28)' : 'rgba(59,130,246,0.18)',
-      backgroundColor: isDark ? 'rgba(59,130,246,0.10)' : 'rgba(59,130,246,0.06)',
+      borderColor: isDark ? border : 'rgba(59,130,246,0.18)',
+      backgroundColor: isDark ? surface : 'rgba(59,130,246,0.06)',
     },
     inlineStatusError: {
       borderColor: isDark ? 'rgba(239,68,68,0.32)' : 'rgba(239,68,68,0.22)',
@@ -1392,7 +1395,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       borderRadius: 10,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.7)',
+      backgroundColor: isDark ? raisedSurface : 'rgba(255,255,255,0.7)',
     },
     inlineStatusBody: {
       flex: 1,
@@ -1433,8 +1436,8 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       paddingVertical: 24,
       borderRadius: 16,
       borderWidth: 1,
-      borderColor: isDark ? T.border : T.borderMedium,
-      backgroundColor: T.glass1,
+      borderColor: isDark ? border : T.borderMedium,
+      backgroundColor: isDark ? surface : T.glass1,
     },
     statusGateIcon: {
       width: 56,
@@ -1443,7 +1446,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       alignItems: 'center',
       justifyContent: 'center',
       marginBottom: 14,
-      backgroundColor: T.glass2,
+      backgroundColor: isDark ? raisedSurface : T.glass2,
     },
     statusGateTitle: {
       color: T.text,
@@ -1488,7 +1491,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       borderColor: borderStrong,
       backgroundColor: surface,
       overflow: 'hidden',
-      shadowColor: '#0F172A',
+      shadowColor: '#000000',
       shadowOpacity: isDark ? 0 : 0.06,
       shadowRadius: 16,
       shadowOffset: { width: 0, height: 8 },
@@ -1507,7 +1510,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       borderRadius: 12,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: isDark ? 'rgba(59,130,246,0.14)' : 'rgba(37,99,235,0.10)',
+      backgroundColor: isDark ? raisedSurface : 'rgba(37,99,235,0.10)',
     },
     groupHeaderCopy: {
       flex: 1,
@@ -1536,11 +1539,11 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       color: T.text,
       fontSize: 12,
       fontWeight: '600',
-      backgroundColor: isDark ? 'rgba(148,163,184,0.12)' : 'rgba(148,163,184,0.14)',
+      backgroundColor: isDark ? raisedSurface : 'rgba(148,163,184,0.14)',
     },
     groupOptions: {
       borderTopWidth: 1,
-      borderTopColor: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(15,23,42,0.08)',
+      borderTopColor: isDark ? divider : 'rgba(15,23,42,0.08)',
     },
     groupLoadingOption: {
       minHeight: 64,
@@ -1565,14 +1568,14 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       paddingHorizontal: 14,
     },
     groupOptionSelected: {
-      backgroundColor: isDark ? 'rgba(59,130,246,0.10)' : 'rgba(37,99,235,0.06)',
+      backgroundColor: selectedSurface,
     },
     groupRadio: {
       width: 22,
       height: 22,
       borderRadius: 11,
       borderWidth: 2,
-      borderColor: isDark ? 'rgba(148,163,184,0.42)' : 'rgba(100,116,139,0.38)',
+      borderColor: isDark ? T.borderHi : 'rgba(100,116,139,0.38)',
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -1606,7 +1609,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       paddingHorizontal: 8,
       paddingVertical: 4,
       borderRadius: 10,
-      backgroundColor: isDark ? 'rgba(59,130,246,0.22)' : 'rgba(37,99,235,0.12)',
+      backgroundColor: isDark ? raisedSurface : 'rgba(37,99,235,0.12)',
     },
     groupSelectedPillText: {
       color: T.accent,
@@ -1620,7 +1623,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       right: 0,
       bottom: 0,
       height: 1,
-      backgroundColor: isDark ? 'rgba(148,163,184,0.13)' : 'rgba(15,23,42,0.07)',
+      backgroundColor: isDark ? divider : 'rgba(15,23,42,0.07)',
     },
 
     formSectionTitle: {
@@ -1640,7 +1643,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       backgroundColor: surface,
       overflow: 'hidden',
       marginBottom: 4,
-      shadowColor: '#0F172A',
+      shadowColor: '#000000',
       shadowOpacity: isDark ? 0 : 0.04,
       shadowRadius: 12,
       shadowOffset: { width: 0, height: 6 },
@@ -1691,7 +1694,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       gap: 3,
       paddingHorizontal: 5,
       borderRadius: 7,
-      backgroundColor: isDark ? 'rgba(148,163,184,0.08)' : 'rgba(15,23,42,0.04)',
+      backgroundColor: raisedSurface,
     },
     phoneCodeText: {
       color: fieldText,
@@ -1756,7 +1759,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       flex: 1,
       height: 4,
       borderRadius: 2,
-      backgroundColor: 'rgba(100,116,139,0.42)',
+      backgroundColor: isDark ? divider : 'rgba(100,116,139,0.42)',
     },
     passwordStrengthText: {
       color: mutedText,

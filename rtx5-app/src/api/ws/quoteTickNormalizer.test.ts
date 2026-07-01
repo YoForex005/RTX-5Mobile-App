@@ -85,6 +85,8 @@ test('normalizeQuoteTickPayload accepts channel-scoped quote tick events without
   assert.equal(result.update.rawSymbol, 'EURUSD');
   assert.equal(result.update.bid, 1.07123);
   assert.equal(result.update.ask, 1.07123);
+  assert.equal(result.update.degraded, true);
+  assert.equal(result.update.degradationReason, 'missing_ask');
   assert.equal(result.update.timestamp, 1782381600000);
   assert.equal(result.update.sequence, '991881');
   assert.equal(result.update.tickId, 'tick-991881');
@@ -107,6 +109,29 @@ test('normalizeQuoteTickPayload accepts nested price envelopes with channel symb
   assert.equal(result.update.bid, 2331.1);
   assert.equal(result.update.ask, 2331.4);
   assert.equal(result.update.timestamp, 1782381600050);
+});
+
+test('normalizeQuoteTickPayload accepts explicit millisecond timestamp fields', () => {
+  const result = normalizeQuoteTickPayload({
+    type: 'ticks',
+    data: {
+      symbol: 'EURUSD',
+      bid: 1.07123,
+      ask: 1.07135,
+      time: 1780000000,
+      timestamp_ms: 1780000000123,
+      source_seq: '100',
+      tick_id: 'example',
+    },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.update.symbol, 'EURUSD');
+  assert.equal(result.update.timestamp, 1780000000123);
+  assert.equal(result.update.sequence, '100');
+  assert.equal(result.update.tickId, 'example');
 });
 
 test('normalizeQuoteTickPayload can update bid ask UI store while flagging missing candle timestamp', () => {
@@ -245,5 +270,20 @@ test('normalizeQuoteTickPayload rejects non-finite bid ask before it reaches can
     ok: false,
     reason: 'missing_bid_ask',
     rawKeys: ['symbol', 'bidPrice', 'askPrice', 'serverTime'],
+  });
+});
+
+test('normalizeQuoteTickPayload rejects invalid ask when ask is present', () => {
+  const result = normalizeQuoteTickPayload({
+    symbol: 'EURUSD',
+    bid: 1.07123,
+    ask: 0,
+    time: 1780000000,
+  });
+
+  assert.deepEqual(result, {
+    ok: false,
+    reason: 'missing_bid_ask',
+    rawKeys: ['symbol', 'bid', 'ask', 'time'],
   });
 });

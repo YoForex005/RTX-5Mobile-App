@@ -12,6 +12,7 @@ import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
+import type { ThemeColors } from '../../ui/theme/glass';
 import { useTheme } from '../../ui/theme/useTheme';
 import { safeRouterBack } from '../../utils/navigation';
 
@@ -29,7 +30,7 @@ export function ChartOpenOrderModeScreen() {
     setOpenOrderMode(mode);
   };
 
-  const screenBg = isDark ? T.bg : '#F1F5F9';
+  const screenBg = isDark ? T.bgRoot : '#F1F5F9';
 
   return (
     <View style={[styles.screen, { backgroundColor: screenBg }]}>
@@ -54,7 +55,7 @@ export function ChartOpenOrderModeScreen() {
           <Pressable style={styles.row} onPress={() => handleSelect('Regular')}>
             <Text style={styles.rowLabel}>Regular</Text>
             {openOrderMode === 'Regular' && (
-              <Ionicons name="checkmark" size={24} color={T.trading.buy.primary} />
+              <Ionicons name="checkmark" size={24} color={T.accent} />
             )}
           </Pressable>
           <View style={styles.separator} />
@@ -62,7 +63,7 @@ export function ChartOpenOrderModeScreen() {
           <Pressable style={styles.row} onPress={() => handleSelect('Risk calculator')}>
             <Text style={styles.rowLabel}>Risk calculator</Text>
             {openOrderMode === 'Risk calculator' && (
-              <Ionicons name="checkmark" size={24} color={T.trading.buy.primary} />
+              <Ionicons name="checkmark" size={24} color={T.accent} />
             )}
           </Pressable>
           <View style={styles.separator} />
@@ -70,7 +71,7 @@ export function ChartOpenOrderModeScreen() {
           <Pressable style={styles.row} onPress={() => handleSelect('One-click')}>
             <Text style={styles.rowLabel}>One-click</Text>
             {openOrderMode === 'One-click' && (
-              <Ionicons name="checkmark" size={24} color={T.trading.buy.primary} />
+              <Ionicons name="checkmark" size={24} color={T.accent} />
             )}
           </Pressable>
         </View>
@@ -79,7 +80,11 @@ export function ChartOpenOrderModeScreen() {
   );
 }
 
-function makeStyles(T: any, isDark: boolean) {
+function makeStyles(T: ThemeColors, isDark: boolean) {
+  const cardBg = isDark ? T.glass2 : '#FFFFFF';
+  const cardBorder = isDark ? T.border : '#E2E8F0';
+  const divider = isDark ? T.borderSubtle : '#E2E8F0';
+
   return StyleSheet.create({
     screen: {
       flex: 1,
@@ -90,7 +95,7 @@ function makeStyles(T: any, isDark: boolean) {
       height: 48,
       paddingHorizontal: 12,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#E2E8F0',
+      borderBottomColor: divider,
     },
     headerBtn: { width: 40, height: 48, alignItems: 'center', justifyContent: 'center' },
     headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', textAlign: 'center', letterSpacing: 0.2 },
@@ -102,12 +107,12 @@ function makeStyles(T: any, isDark: boolean) {
       paddingTop: 16,
     },
     card: {
-      backgroundColor: isDark ? '#0B0F19' : '#FFFFFF',
+      backgroundColor: cardBg,
       borderRadius: 12,
       marginHorizontal: 16,
       overflow: 'hidden',
       borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.06)' : '#E2E8F0',
+      borderColor: cardBorder,
     },
     row: {
       flexDirection: 'row',
@@ -124,7 +129,7 @@ function makeStyles(T: any, isDark: boolean) {
     },
     separator: {
       height: 1,
-      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#E2E8F0',
+      backgroundColor: divider,
       marginLeft: 16,
     },
   });

@@ -517,7 +517,7 @@ export function HistoryNetProfitLossScreen() {
           </LinearGradient>
         </View>
 
-        <View style={[styles.card, { backgroundColor: isDark ? '#0E141F' : T.glass2, borderColor: T.border }]}>
+        <View style={[styles.card, { backgroundColor: isDark ? T.glass2 : T.glass2, borderColor: T.border }]}>
           <Text style={[styles.sectionTitle, { color: T.text }]}>{t('Top Movers')}</Text>
           {topWinner ? (
             <View style={[styles.leaderRow, topLoser ? styles.leaderRowDivider : null, { borderBottomColor: T.borderSubtle }]}>
@@ -558,7 +558,7 @@ export function HistoryNetProfitLossScreen() {
           ) : null}
         </View>
 
-        <View style={[styles.card, { backgroundColor: isDark ? '#0E141F' : T.glass2, borderColor: T.border }]}>
+        <View style={[styles.card, { backgroundColor: isDark ? T.glass2 : T.glass2, borderColor: T.border }]}>
           <Text style={[styles.sectionTitle, { color: T.text }]}>{t('History Snapshot')}</Text>
           <SnapshotRow label={t('Balance')} value={fmt.decimal(balance)} styles={styles} T={T} />
           <SnapshotRow label={t('Estimated Deposit')} value={fmt.decimal(deposit)} border styles={styles} T={T} />
@@ -575,7 +575,7 @@ export function HistoryNetProfitLossScreen() {
           <StatCard label={t('Sell Trades')} value={String(sellCount)} hint={`${breakevenCount} ${t('break-even')}`} color={T.text} styles={styles} T={T} />
         </View>
 
-        <View style={[styles.card, { backgroundColor: isDark ? '#0E141F' : T.glass2, borderColor: T.border }]}>
+        <View style={[styles.card, { backgroundColor: isDark ? T.glass2 : T.glass2, borderColor: T.border }]}>
           <Text style={[styles.sectionTitle, { color: T.text }]}>{t('Contribution')}</Text>
           <SnapshotRow label={t('Net Closed P/L')} value={fmt.pnl(netProfit)} color={netProfit >= 0 ? T.up : T.down} styles={styles} T={T} />
           <SnapshotRow label={t('Gross Winners')} value={fmt.pnl(grossProfit)} border color={grossProfit >= 0 ? T.up : T.down} styles={styles} T={T} />
@@ -583,7 +583,7 @@ export function HistoryNetProfitLossScreen() {
           <SnapshotRow label={t('Closed History P/L')} value={fmt.pnl(totalClosedPnl)} border color={totalClosedPnl >= 0 ? T.up : T.down} styles={styles} T={T} />
         </View>
 
-        <View style={[styles.card, { backgroundColor: isDark ? '#0E141F' : T.glass2, borderColor: T.border }]}>
+        <View style={[styles.card, { backgroundColor: isDark ? T.glass2 : T.glass2, borderColor: T.border }]}>
           <View style={styles.sectionHeaderRow}>
             <Text style={[styles.sectionCount, { color: T.textMuted }]}>
               {closedTradePnlRows.length} {t('trades')}

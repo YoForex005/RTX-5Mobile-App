@@ -919,7 +919,7 @@ export function ActionSheet({
         style={{
           width: '100%',
           height: bottomSpacerHeight,
-          backgroundColor: isDark ? '#000000' : T.glass2,
+          backgroundColor: isDark ? T.bg : T.glass2,
         }}
       />
     </Animated.View>

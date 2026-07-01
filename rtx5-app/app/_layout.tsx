@@ -83,7 +83,7 @@ function InnerLayout() {
   const sidebarHeaderScreenOptions = {
     animation: 'none',
   } as const;
-  const brokerFlowBackground = isDark ? '#05070D' : '#F3F6FA';
+  const brokerFlowBackground = isDark ? T.bg : '#F3F6FA';
   const brokerFlowScreenOptions = {
     headerShown: false,
     animation: 'none',

@@ -4,8 +4,8 @@
  *
  * `processIncomingPayload` does the upstream-shape demux (array vs object vs
  * nested `data`); `processTick` does the heavy work: normalize the wire-shape
- * tick, fan it out to listeners and the candle stream, and stage the merged
- * record into `pendingUpdates` for the next flush. Both depend on a small
+ * tick, fan it out to quote listeners and the candle stream, and stage the
+ * merged record into `pendingUpdates` for the next flush. Both depend on a small
  * `TickProcessorBridge` interface so they can be unit-tested without the full
  * service.
  */
@@ -15,6 +15,7 @@ import {
   getCandlePayloadItems,
   hasBackendCandleShape,
 } from '../../../domain/candles/ws/candlesSocketProtocol';
+import { shouldRouteBackendCandlePayloads } from '../../../domain/candles/ws/liveCandlesEnginePolicy';
 import { normalizeQuoteTickPayload } from '../quoteTickNormalizer';
 import { normalizeQuoteTickTimestampToMs } from '../quoteTimestamp';
 import type { QuoteTickEvent } from '../quoteTickNormalizer';
@@ -132,12 +133,20 @@ const QUOTE_ENVELOPE_CONTEXT_KEYS = [
   'event',
   'type',
   'time',
+  'time_ms',
+  'timeMs',
   'timestamp',
+  'timestamp_ms',
+  'timestampMs',
   't',
   'server_time',
+  'server_time_ms',
   'serverTime',
+  'serverTimeMs',
   'tick_time',
+  'tick_time_ms',
   'tickTime',
+  'tickTimeMs',
   'sequence',
   'seq',
   'source_seq',
@@ -179,6 +188,13 @@ const routeBackendCandleUpdates = (bridge: TickProcessorBridge, payload: unknown
     return routedAny;
   }
   if (!isExplicitCandlePayload(payload)) {
+    return false;
+  }
+
+  if (!shouldRouteBackendCandlePayloads()) {
+    bridge.logCandleFeed('feed_candle_update_ignored_unverified', {
+      reason: 'server_candle_source_disabled',
+    }, 20);
     return false;
   }
 
@@ -255,6 +271,10 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
     ...(normalizedUpdate.sequence === undefined ? {} : { sequence: normalizedUpdate.sequence }),
     ...(normalizedUpdate.tickId === undefined ? {} : { tickId: normalizedUpdate.tickId }),
     ...(normalizedUpdate.source === undefined ? {} : { source: normalizedUpdate.source }),
+    ...(normalizedUpdate.degraded === undefined ? {} : { degraded: normalizedUpdate.degraded }),
+    ...(normalizedUpdate.degradationReason === undefined
+      ? {}
+      : { degradationReason: normalizedUpdate.degradationReason }),
     feedTickAt: normalizedTimestampMs ?? undefined,
     lastReceivedAt: receivedAt,
     ...(normalizedTimestamp === null
@@ -286,6 +306,8 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
     sequence: normalizedUpdate.sequence,
     tickId: normalizedUpdate.tickId,
     source: normalizedUpdate.source,
+    degraded: normalizedUpdate.degraded,
+    degradationReason: normalizedUpdate.degradationReason,
     feedTickAt: normalizedTimestampMs ?? undefined,
     receivedAt,
     timestamp: liveListenerTimestamp,
@@ -295,12 +317,9 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
   // Quotes screen relies on for live bid/ask updates — it doesn't need to
   // wait for the rAF/setTimeout-driven Zustand flush.
   bridge.emitSymbolTick(normalizedUpdate.rawSymbol || normalizedUpdate.symbol, tickEvent);
-  // Extend the chart's active candle so its close (and wick high/low) keep
-  // ticking in real time between authoritative snapshots. The candle stream
-  // may also open the current quote bucket when the candle backend is late,
-  // while preserving backend OHLC as authoritative when snapshots arrive.
-  // We pick `bid` as the price source (matches the configured candle price
-  // basis); falling back to `ask` if `bid` is somehow missing.
+  // Extend the chart's active candle from the quote feed. This is the default
+  // visible candle-body source for webterminal parity; backend candle snapshots
+  // are gated above until their runtime contract is proven compatible.
   const tickPriceForCandle = Number.isFinite(normalizedUpdate.bid)
     ? normalizedUpdate.bid
     : Number.isFinite(normalizedUpdate.ask)
@@ -326,6 +345,8 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
     feedTickAt: normalizedTimestampMs,
     receivedAt,
     rawKeys: normalizedUpdate.rawKeys,
+    degraded: normalizedUpdate.degraded,
+    degradationReason: normalizedUpdate.degradationReason,
   }, 8);
 
   if (!bridge.shouldStageQuoteUpdate()) {

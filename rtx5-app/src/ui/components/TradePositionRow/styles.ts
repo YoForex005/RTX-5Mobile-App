@@ -10,7 +10,6 @@ export const tradePositionRowStyles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderRadius: 16,
     borderWidth: 1,
-    borderLeftWidth: 2,
   },
   rowPressed: {
     opacity: 0.85,
@@ -24,7 +23,7 @@ export const tradePositionRowStyles = StyleSheet.create({
     elevation: 1,
   },
   shadowDark: {
-    shadowColor: '#2563EB',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
     shadowRadius: 16,

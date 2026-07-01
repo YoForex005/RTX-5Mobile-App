@@ -4,9 +4,9 @@ import type { ThemeColors } from '../../../ui/theme/glass';
 
 export function makeHistoryFilterStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
-    page: { flex: 1, backgroundColor: isDark ? '#06080D' : T.bg },
+    page: { flex: 1, backgroundColor: isDark ? T.bg : T.bg },
     header: {
-      backgroundColor: isDark ? '#06080D' : T.bg,
+      backgroundColor: isDark ? T.bg : T.bg,
       paddingBottom: 10,
       paddingHorizontal: spacing.lg,
       borderBottomWidth: StyleSheet.hairlineWidth,
@@ -18,24 +18,24 @@ export function makeHistoryFilterStyles(T: ThemeColors, isDark: boolean) {
     scrollContent: { paddingBottom: spacing.xl },
     symbolRow: {
       margin: spacing.md,
-      backgroundColor: isDark ? '#0E141F' : T.glass1,
+      backgroundColor: isDark ? T.glass2 : T.glass1,
       borderRadius: 12, padding: spacing.md,
       flexDirection: 'row', justifyContent: 'space-between',
       borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.06)' : T.border,
+      borderColor: isDark ? T.border : T.border,
     },
     label: { color: T.textSub, fontSize: 16 },
     value: { color: T.textMuted, fontSize: 16 },
     card: {
       marginHorizontal: spacing.md,
-      backgroundColor: isDark ? '#0E141F' : T.glass1,
+      backgroundColor: isDark ? T.glass2 : T.glass1,
       borderRadius: 14, overflow: 'hidden',
       borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderMedium,
+      borderColor: isDark ? T.border : T.borderMedium,
     },
     option: {
       paddingHorizontal: spacing.md, paddingVertical: 11,
-      borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : T.borderMedium,
+      borderBottomColor: isDark ? T.borderSubtle : T.borderMedium,
       borderBottomWidth: StyleSheet.hairlineWidth,
       flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     },
@@ -43,10 +43,10 @@ export function makeHistoryFilterStyles(T: ThemeColors, isDark: boolean) {
     check: { color: T.accent, fontSize: 20 },
     reportBtn: {
       margin: spacing.md, marginTop: spacing.sm,
-      backgroundColor: isDark ? '#0E141F' : T.glass1,
+      backgroundColor: isDark ? T.glass2 : T.glass1,
       borderRadius: 12, padding: spacing.md,
       borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.06)' : T.border,
+      borderColor: isDark ? T.border : T.border,
     },
     reportTitle: { color: T.text, fontSize: 18 },
     reportSub: { color: T.textMuted, marginTop: 4 },
@@ -54,9 +54,9 @@ export function makeHistoryFilterStyles(T: ThemeColors, isDark: boolean) {
     /* ── Calendar ── */
     calendarCard: {
       marginHorizontal: spacing.md, marginTop: spacing.md,
-      backgroundColor: isDark ? '#0E141F' : T.glass1,
+      backgroundColor: isDark ? T.glass2 : T.glass1,
       borderRadius: 16, borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.06)' : T.border,
+      borderColor: isDark ? T.border : T.border,
       padding: spacing.md,
       shadowColor: isDark ? '#000000' : '#64748B',
       shadowOffset: { width: 0, height: isDark ? 4 : 8 },

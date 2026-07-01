@@ -99,14 +99,14 @@ test('bottom tab navigation fast path preserves light and dark tab bar themes', 
   assert.match(source, /const isDark = themeMode === 'dark'/);
   assert.match(source, /const T = themeMode === 'light' \? GLight : GDark/);
   assert.doesNotMatch(source, /useDeferredThemeMode\(\)/);
-  assert.match(source, /backgroundColor: isDark \? '#040609' : '#ffffff'/);
-  assert.match(source, /borderTopColor: isDark \? '#131722' : 'rgba\(0,0,0,0\.05\)'/);
-  assert.match(source, /const inactiveTabColor = isDark \? '#5A6B87' : T\.textDimmed/);
+  assert.match(source, /backgroundColor: isDark \? T\.bg : '#ffffff'/);
+  assert.match(source, /borderTopColor: isDark \? T\.borderSubtle : 'rgba\(0,0,0,0\.05\)'/);
+  assert.match(source, /const inactiveTabColor = isDark \? T\.textMuted : T\.textDimmed/);
   assert.match(source, /const bottomTabActiveColor = T\.trading\.buy\.primary/);
   assert.match(source, /tabBarActiveTintColor: bottomTabActiveColor/);
   assert.match(source, /tabBarInactiveTintColor: inactiveTabColor/);
   assert.match(source, /style=\{\[styles\.tabLabel, isLandscape && styles\.tabLabelLandscape, \{ color \}\]\}/);
-  assert.match(source, /\[insets\.bottom, isDark, isLandscape, tabBarHeight\]/);
+  assert.match(source, /\[T\.bg, T\.borderSubtle, insets\.bottom, isDark, isLandscape, tabBarHeight\]/);
 });
 
 test('bottom tab bar compacts in landscape to preserve phone content height', () => {
