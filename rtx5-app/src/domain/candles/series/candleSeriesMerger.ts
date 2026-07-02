@@ -4,7 +4,7 @@ import {
   areCandleValuesEqual as areCandleValuesEqualBase,
   cloneCandle as cloneCandleBase,
 } from '../core/candleUtils';
-import { areCandlePricesCoherent, isCandleInternallyCoherent } from './priceCoherence';
+import { areCandlePricesCoherent } from './priceCoherence';
 
 export const cloneCandle = cloneCandleBase;
 
@@ -72,7 +72,7 @@ export const mergeCandleIntoMap = (
     lastUpdateTime?: number;
   } = {},
 ): MutableCandle | null => {
-  if (!validateCandle(candle) || !isCandleInternallyCoherent(candle)) {
+  if (!validateCandle(candle)) {
     return null;
   }
 
@@ -92,7 +92,7 @@ export const mergeCandleIntoMap = (
   next.lastBackendUpdateTime = existing?.lastBackendUpdateTime;
   next.lastQuoteTime = existing?.lastQuoteTime;
 
-  if (!validateCandle(next) || !isCandleInternallyCoherent(next)) {
+  if (!validateCandle(next)) {
     return null;
   }
 
@@ -104,7 +104,7 @@ export const sortAndDedupeCandles = <TCandle extends Candle>(candles: readonly T
   const byTime = new Map<number, TCandle>();
 
   for (const candle of candles) {
-    if (!validateCandle(candle) || !isCandleInternallyCoherent(candle)) {
+    if (!validateCandle(candle)) {
       continue;
     }
     const existing = byTime.get(candle.time);
@@ -173,7 +173,7 @@ export const materializeCandleMap = (
   options: MaterializeCandleMapOptions = {},
 ): Candle[] => {
   const candles = Array.from(candleMap.values())
-    .filter((candle) => validateCandle(candle) && isCandleInternallyCoherent(candle))
+    .filter(validateCandle)
     .map((candle) => materializeMapCandle(candle, options))
     .sort((left, right) => left.time - right.time);
 

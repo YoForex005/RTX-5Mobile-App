@@ -93,10 +93,18 @@ c:\Users\ADMIN\RTX-5Mobile-App\
     │   ├── quotes/                                # Modal navigation branches invoked from the Quotes Tab
     │   │   └── details.tsx                        # Full-screen endpoint parsing trading sessions and spread metadata
     │   ├── settings/                              # Modal navigation branches invoked from the Settings Tab
-    │   │   ├── accounts.tsx                       # Navigational endpoint displaying active sessions and login switching
-    │   │   ├── brokers.tsx                        # Navigational endpoint rendering an available broker directory search
-    │   │   ├── mailbox.tsx                        # Navigational endpoint displaying system and margin call alerts
-    │   │   └── news.tsx                           # Navigational endpoint aggregating global macroeconomic news feeds
+    │   │   ├── accounts.tsx                       # Active Settings route managing connected/saved trading accounts
+    │   │   ├── broker-detail.tsx                  # Active Settings route showing selected broker/server details
+    │   │   ├── brokers.tsx                        # Active Settings route rendering the broker directory search
+    │   │   ├── economic-calendar.tsx              # Active Settings route showing the current app-side economic calendar surface
+    │   │   ├── help.tsx                           # Active Settings/sidebar route showing the FAQ help surface
+    │   │   ├── interface.tsx                      # Active Settings route for theme/language/interface preferences
+    │   │   ├── journal.tsx                        # Active Settings/sidebar route showing the trade journal surface
+    │   │   ├── user-guide.tsx                     # Active Sidebar/About route showing the in-app user guide
+    │   │   ├── legal.tsx                          # Active About route showing Terms or Privacy Policy content
+    │   │   ├── about.tsx                          # Active Sidebar route showing app version, legal, rating, and contact actions
+    │   │   ├── contact-developer.tsx              # Active About action route opening the support/contact request form
+    │   │   └── account-deletion.tsx               # Active About action route opening the account deletion request form
     │   └── trade/                                 # Modal navigation branches invoked from the Trade Tab
     │       ├── bulk.tsx                           # Overlay initiating mass-closure of running asset positions
     │       ├── close-by.tsx                       # Overlay utilized for hedged position merging logic
@@ -177,13 +185,19 @@ c:\Users\ADMIN\RTX-5Mobile-App\
         │   │   └── SymbolDetailsScreen.tsx        # Generates an exhaustive list of properties (Lot steps, spread models, leverage)
         │   │
         │   ├── settings/                          # [Domain: Configuration]
-        │   │   ├── AccountsScreen.tsx             # Validates status checks between API bindings mapping to user credentials
-        │   │   ├── BrokersScreen.tsx              # Connects the UI to fetched server directories indexing compatible institutions
-        │   │   ├── ChangePasswordSheet.tsx        # Passes localized security inputs into the upstream master password mutation handler
-        │   │   ├── MailboxScreen.tsx              # Subscribes to backend alert broadcasts rendering margin calls graphically
-        │   │   ├── NewsScreen.tsx                 # Reads generic macro-agencies transforming timestamps to locale-readings
-        │   │   ├── QRCodeSheet.tsx                # Converts session tokens into local Scannable bitmaps enabling quick handoffs
-        │   │   └── SettingsScreen.tsx             # The absolute root node housing basic interface modifications (Theme, language)
+        │   │   ├── AccountsScreen.tsx             # Connected/saved account manager, account switching, broker logo lookup, and session reconnect UI
+        │   │   ├── AboutScreen.tsx                # App version, rating, user guide, privacy, account deletion, and contact developer surfaces
+        │   │   ├── BrokerDetailScreen.tsx         # Selected broker details, server/domain data, and demo/real account entry actions
+        │   │   ├── BrokersScreen/                 # Broker directory search/list implementation and broker row components
+        │   │   ├── ChangePasswordSheet.tsx        # Account password-change sheet used from the active account management surface
+        │   │   ├── ChartPropertiesScreen.tsx      # Local chart colors/properties editor reused by chart/settings routes
+        │   │   ├── EconomicCalendarScreen/        # Current economic calendar UI using app-side calendar data and filters
+        │   │   ├── HelpScreen.tsx                 # FAQ help screen exposed from Settings and the sidebar
+        │   │   ├── InterfaceScreen.tsx            # Theme, language, and interface preference screen
+        │   │   ├── JournalScreen/                 # Trade journal UI built from positions, deals, history, and local journal state
+        │   │   ├── LegalDocumentScreen.tsx        # In-app Terms and Privacy Policy document viewer
+        │   │   ├── SettingsScreen/                # Main Settings hub with account card, Economic Calendar, Theme, Language, Journal, Support, Help, Logout
+        │   │   └── UserGuideScreen.tsx            # In-app RTX5 user guide exposed from the sidebar and About screen
         │   │
         │   └── trade/                             # [Domain: Modifiers]
         │       ├── BulkOperationScreen.tsx        # Submits an array of active ticket IDs commanding absolute immediate position closure
@@ -239,4 +253,3 @@ c:\Users\ADMIN\RTX-5Mobile-App\
         │
         └── utils/                                 # Application-Agnostic Helpers
             └── format.ts                          # Provides deterministic floating-point precision wrappers converting deep decimals cleanly
-

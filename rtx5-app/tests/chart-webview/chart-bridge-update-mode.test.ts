@@ -151,8 +151,13 @@ test('WebView prefetches older history before the hard left edge', () => {
   );
   assertSourceContains(
     source,
-    /shouldPaginateForVisibleLogicalRange\(range\)[\s\S]*now - lastPaginateTime > HISTORY_PAGINATION_DEBOUNCE_MS[\s\S]*ON_PAGINATE_HISTORY/,
+    /function requestHistoryPaginationForVisibleRange\(range\)[\s\S]*shouldPaginateForVisibleLogicalRange\(range\)[\s\S]*Date\.now\(\)[\s\S]*lastHistoryPaginationPostAt <= HISTORY_PAGINATION_DEBOUNCE_MS[\s\S]*ON_PAGINATE_HISTORY/,
     'visible-range subscription must request pagination through the debounced early-prefetch helper',
+  );
+  assertSourceContains(
+    source,
+    /subscribeVisibleLogicalRangeChange\(function\(range\)[\s\S]*requestHistoryPaginationForVisibleRange\(range\)/,
+    'visible-range subscription must route left-edge history pagination through the shared helper',
   );
 });
 
@@ -204,7 +209,7 @@ test('quote updates move price lines without mutating candle OHLC', () => {
 test('horizontal zoom and pan keeps price autoscale attached to visible bars', () => {
   assertSourceContains(
     source,
-    /subscribeVisibleLogicalRangeChange\(function\(range\) \{[\s\S]*scheduleMovingVerticalGridUpdate\(\)[\s\S]*scheduleActiveScrollPriceScaleRecovery\('visible_range_active'\)[\s\S]*scheduleVisibleRangeIdleWork\(\)/,
+    /subscribeVisibleLogicalRangeChange\(function\(range\) \{[\s\S]*scheduleMovingVerticalGridUpdate\(isActiveHorizontalGesture\)[\s\S]*scheduleActiveScrollPriceScaleRecovery\('visible_range_active'\)[\s\S]*scheduleVisibleRangeIdleWork\(\)/,
     'visible logical range changes must run a throttled active-scroll price-scale recovery before deferred overlay maintenance',
   );
   assertSourceContains(
@@ -229,7 +234,7 @@ test('horizontal zoom and pan keeps price autoscale attached to visible bars', (
   );
   assertSourceContains(
     source,
-    /dx > VERT_PAN_THRESHOLD && dx > dy \* 1\.2[\s\S]*enableRightPriceAutoScale\(\)[\s\S]*markHorizontalScrollGestureActive\(\)[\s\S]*scheduleActiveScrollPriceScaleRecovery\('horizontal_pan_active'\)/,
+    /dx > VERT_PAN_THRESHOLD && dx > dy \* 1\.2[\s\S]*ensureRightPriceAutoScaleForHorizontalPan\(\)[\s\S]*markHorizontalScrollGestureActive\(\)[\s\S]*scheduleActiveScrollPriceScaleRecovery\('horizontal_pan_active'\)/,
     'active-scroll recovery must be armed only after the gesture is classified as horizontal pan',
   );
   assertSourceContains(
@@ -309,8 +314,13 @@ test('horizontal zoom and pan keeps price autoscale attached to visible bars', (
   );
   assertSourceContains(
     source,
-    /function sanitizeSeriesData\(data\)[\s\S]*var sorted = Object\.keys\(byTime\)[\s\S]*sort\(function\(left, right\) \{ return left\.time - right\.time; \}\)[\s\S]*return filterRawSeriesDataByPriceContinuity\(sorted\)/,
-    'WebView setData sanitization must drop contiguous split-regime candle fragments before they can flatten historical scroll frames',
+    /function sanitizeSeriesData\(data\)[\s\S]*return Object\.keys\(byTime\)[\s\S]*\.map\(function\(key\) \{ return byTime\[key\]; \}\)[\s\S]*\.sort\(function\(left, right\) \{ return left\.time - right\.time; \}\)/,
+    'WebView setData sanitization must preserve sorted valid gateway candles after normalization and dedupe',
+  );
+  assert.doesNotMatch(
+    source,
+    /filterRawSeriesDataByPriceContinuity/,
+    'WebView setData sanitization must not prune valid gateway OHLC candles with large but valid wicks',
   );
   assertSourceContains(
     source,
@@ -319,7 +329,7 @@ test('horizontal zoom and pan keeps price autoscale attached to visible bars', (
   );
   assertSourceContains(
     source,
-    /var rawRange = resolvePriceRangeFromBars\(visibleBars\)[\s\S]*var robustRange = resolveRobustVisiblePriceRange\(visibleBars, rawRange\)[\s\S]*includeMarketPriceBadges === false/,
+    /function resolveVisibleCandleDataPriceRange\(\)[\s\S]*var rawRange = resolvePriceRangeFromBars\(visibleBars\)[\s\S]*return resolveRobustVisiblePriceRange\(visibleBars, rawRange\)[\s\S]*function resolvePriceRangeFromVisibleData\(includeMarketPriceBadges\)[\s\S]*var robustRange = resolveVisibleCandleDataPriceRange\(\)[\s\S]*includeMarketPriceBadges === false/,
     'visible price-range recovery must use the robust viewport range and allow horizontal pan to ignore far live price badges',
   );
   assertSourceContains(
@@ -377,7 +387,7 @@ test('vertical candle drag can own the price range without autoscale fighting it
   );
   assertSourceContains(
     source,
-    /var VERT_PAN_PRICE_DELTA_MULTIPLIER = 0\.35[\s\S]*var applyVerticalPanAt = function\(clientY\)[\s\S]*priceDelta = deltaPixels \* vertPanState\.pricePerPixel \* VERT_PAN_PRICE_DELTA_MULTIPLIER/,
+    /var VERT_PAN_PRICE_DELTA_MULTIPLIER = 1[\s\S]*var applyVerticalPanAt = function\(clientY\)[\s\S]*priceDelta = deltaPixels \* vertPanState\.pricePerPixel \* VERT_PAN_PRICE_DELTA_MULTIPLIER/,
     'body vertical pan must use the MT5-like sensitivity multiplier instead of full-range jumps',
   );
   assertSourceContains(
@@ -420,7 +430,7 @@ test('vertical candle drag can own the price range without autoscale fighting it
   );
   assertSourceContains(
     source,
-    /var onPointerUp = function\(event\)[\s\S]*releasePointer\(event\);\s*rightPriceScaleGestureActive = false;[\s\S]*if \(vertPanState\) \{[\s\S]*endVerticalPan\(\)[\s\S]*return;[\s\S]*finishHorizontalScrollGesture\(\);/,
+    /var onPointerUp = function\(event\)[\s\S]*releasePointer\(event\);[\s\S]*finishRightPriceScaleGesture\(\)[\s\S]*if \(vertPanState\) \{[\s\S]*endVerticalPan\(\)[\s\S]*return;[\s\S]*finishHorizontalScrollGesture\(\);/,
     'vertical pan release must finish before horizontal-scroll idle recovery is allowed to run',
   );
   assertSourceContains(
@@ -443,8 +453,13 @@ test('right price scale drag is routed separately from body vertical pan', () =>
   );
   assertSourceContains(
     source,
-    /if \(rightPriceScaleGestureActive\) \{[\s\S]*manualPriceScaleRangeActive = true[\s\S]*scheduleGestureRightPriceScaleFallbackRefresh\(\)[\s\S]*scheduleOverlayDomRefresh\(\)[\s\S]*return;/,
-    'right-axis drag must refresh custom right-scale and trade overlays during movement',
+    /if \(rightPriceScaleGestureActive\) \{[\s\S]*manualPriceScaleRangeActive = true[\s\S]*deferVerticalGestureDomWork\(\)[\s\S]*return;/,
+    'right-axis drag must defer custom right-scale and trade overlay refresh work during movement',
+  );
+  assertSourceContains(
+    source,
+    /var settleVerticalPriceGestureDomWork = function\(\)[\s\S]*scheduleGestureRightPriceScaleFallbackRefresh\(\)[\s\S]*scheduleOverlayDomRefresh\(\)[\s\S]*postChartGeometry\(\)/,
+    'right-axis drag release must refresh custom right-scale and trade overlays after deferred movement',
   );
 });
 

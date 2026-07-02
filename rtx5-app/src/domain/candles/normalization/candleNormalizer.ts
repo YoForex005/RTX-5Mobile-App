@@ -11,7 +11,6 @@ import {
   pickNormalizedTimeframe,
 } from '../core/candleUtils';
 import { normalizeTimestampToSeconds } from '../core/timeframeUtils';
-import { isCandleInternallyCoherent } from '../series/priceCoherence';
 
 const CANDLE_BACKEND_UPDATE_TIME_KEYS = [
   'server_time',
@@ -101,11 +100,6 @@ const normalizeBackendCandle = (raw: unknown, label: string): Candle | null => {
     logInvalidCandleInDevelopment(`${label}:invalid_ohlc`, raw);
     return null;
   }
-  if (!isCandleInternallyCoherent(candle)) {
-    logInvalidCandleInDevelopment(`${label}:incoherent_ohlc`, raw);
-    return null;
-  }
-
   return closed === null ? candle : ({ ...candle, closed } as Candle);
 };
 

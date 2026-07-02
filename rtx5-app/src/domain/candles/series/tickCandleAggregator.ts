@@ -4,8 +4,8 @@ import {
   areCandleValuesEqual,
   CANDLE_SYMBOL_KEYS,
   CANDLE_TIMEFRAME_KEYS,
-  CANDLE_TIME_KEYS,
   CANDLE_VOLUME_KEYS,
+  TICK_TIME_KEYS,
   getNestedRecord,
   pickFirst,
   toFiniteNumber,
@@ -159,7 +159,7 @@ export const normalizeLiveTick = (
   }
 
   // Step 2: Extract mandatory time and price
-  const time = normalizeTimestampToSeconds(pickFirst(record, CANDLE_TIME_KEYS));
+  const time = normalizeTimestampToSeconds(pickFirst(record, TICK_TIME_KEYS));
   const price = pickPrice(record);
   if (time === null || price === null) {
     return null;

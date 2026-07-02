@@ -34,8 +34,7 @@ type ChartTimeframePickerOverlayProps = {
   onSelect: (timeframe: string) => void;
 };
 
-// Match the global dark card surface.
-const CHART_DARK_PANEL_BACKGROUND = '#1C1C1E';
+const CHART_DARK_PANEL_BACKGROUND = '#000000';
 
 export const TIMEFRAME_PICKER_GROUPS: readonly TimeframePickerGroup[] = [
   {

@@ -72,12 +72,12 @@ test('does not permanently blank chart after rapid switching', () => {
 test('empty history and empty live data surfaces a no-market-data state', () => {
   assertSourceContains(
     chartSource,
-    /const isLoading = \(!chartCanvasReady \|\| !candlesAvailable\) && loadingDelayPassed && !loadingFallback/,
-    'native chart must keep loading visible when the WebView initializes before candles arrive',
+    /const hasChartDataError = Boolean\(chartDataError && !candlesAvailable\)[\s\S]*const isLoading =[\s\S]*!hasChartDataError[\s\S]*\(!chartCanvasReady \|\| !candlesAvailable \|\| chartDataLoading\)[\s\S]*!loadingFallback/,
+    'native chart must keep loading visible before candles arrive while allowing real history errors through',
   );
   assertSourceContains(
     chartSource,
-    /const isNoMarketData = sanitizedCandles\.length === 0 && !isLoading && loadingFallback/,
+    /const isNoMarketData = sanitizedCandles\.length === 0 && !isLoading && !isError && loadingFallback/,
     'native chart must stop showing only a blank shell after history/live both remain empty',
   );
   assertSourceContains(
@@ -118,18 +118,19 @@ test('ignores stale timeframe response', () => {
   );
 });
 
-test('logged-out user can render market chart when public data exists', () => {
-  assertSourceContains(apiSource, /const hasAuthToken = Boolean\(getStoredAccessToken\(\)\)/, 'API must detect auth without requiring it');
+test('candle gateway history can run without a frontend login gate', () => {
+  assertSourceContains(apiSource, /const hasStoredAccessToken = Boolean\(getStoredAccessToken\(\)\)/, 'API must detect auth without requiring it');
   assertSourceContains(
     apiSource,
-    /if \(hasAuthToken\) \{[\s\S]*fetchAuthenticatedCandleHistory[\s\S]*\}[\s\S]*try \{[\s\S]*fetchPublicCandleHistory/,
-    'public candle history must still be attempted when auth is absent or authenticated history fails',
+    /skipAuth: !hasStoredAccessToken/,
+    'gateway history can be attempted without a frontend login gate',
   );
   assertSourceContains(
     apiSource,
-    /PUBLIC_API_V1_BASE_URL[\s\S]*\/candles\/\$\{encodeURIComponent\(requestedSymbol\)\}/,
-    'logged-out fallback must use public market candle endpoints',
+    /const pathSymbol = encodeURIComponent\(requestedSymbol\)[\s\S]*\/\$\{route\.pathPrefix\}\/\$\{pathSymbol\}/,
+    'candle gateway routes must include an encoded symbol path segment',
   );
+  assert.doesNotMatch(apiSource, /PUBLIC_API_V1_BASE_URL|fetchPublicCandleHistory|HISTORY_API_KEY|\/history\/candles/);
 });
 
 test('candle websocket stays public and routes by selected broker identity', () => {
@@ -275,25 +276,33 @@ test('dense zoomed-out custom candles render as a continuous colored line', () =
 });
 
 test('chart adapter never sends malformed candlestick objects to setData', () => {
+  const sanitizerBody = extractFunctionBody(chartSource, 'sanitizeSeriesData');
+  const normalizerBody = extractFunctionBody(chartSource, 'normalizeRawSeriesDatum');
+
   assertSourceContains(
-    chartSource,
-    /function sanitizeSeriesData\(data\)[\s\S]*var normalized = normalizeRawSeriesDatum\(data\[i\]\)[\s\S]*byTime\[key\] = mergeRawSeriesDatum\(byTime\[key\], normalized\)/,
+    sanitizerBody,
+    /var normalized = normalizeRawSeriesDatum\(data\[i\]\)[\s\S]*byTime\[key\] = mergeRawSeriesDatum\(byTime\[key\], normalized\)/,
     'WebView must sanitize, sort, and merge duplicate candle data before setData',
   );
   assertSourceContains(
-    chartSource,
-    /function normalizeRawSeriesDatum\(item\)[\s\S]*isFiniteNumber\(item\.open\)[\s\S]*isFiniteNumber\(item\.high\)[\s\S]*isFiniteNumber\(item\.low\)[\s\S]*isFiniteNumber\(item\.close\)/,
+    normalizerBody,
+    /isFiniteNumber\(open\)[\s\S]*isFiniteNumber\(rawHigh\)[\s\S]*isFiniteNumber\(rawLow\)[\s\S]*isFiniteNumber\(close\)/,
     'WebView must reject incomplete candle objects before chart update',
   );
   assertSourceContains(
-    chartSource,
-    /function normalizeRawSeriesDatum\(item\)[\s\S]*isRawSeriesDatumInternallyCoherent\(normalized\) \? normalized : null/,
-    'WebView must reject one OHLC candle that mixes incompatible price regimes',
+    normalizerBody,
+    /rawHigh < open[\s\S]*rawHigh < close[\s\S]*rawHigh < rawLow[\s\S]*rawLow > open[\s\S]*rawLow > close[\s\S]*rawLow > rawHigh/,
+    'WebView must reject impossible OHLC ranges before chart update',
   );
-  assertSourceContains(
-    chartSource,
-    /function filterRawSeriesDataByPriceContinuity\(data\)[\s\S]*var filtered = \[data\[0\]\][\s\S]*areRawSeriesDataRegimesCoherent\(previous, candidateAnchor\)[\s\S]*return filtered/,
-    'WebView must remove only anchored short outlier runs instead of dropping the valid history side of a split',
+  assert.doesNotMatch(
+    normalizerBody,
+    /isRawSeriesDatumInternallyCoherent/,
+    'WebView must not drop a finite backend OHLC candle because its wick is large',
+  );
+  assert.doesNotMatch(
+    sanitizerBody,
+    /filterRawSeriesDataByPriceContinuity/,
+    'WebView must not drop valid backend candles using a price-continuity heuristic',
   );
   assert.doesNotMatch(
     chartSource,

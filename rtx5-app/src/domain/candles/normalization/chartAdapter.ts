@@ -1,7 +1,6 @@
 import type { Candle } from '../core/candleTypes';
 import { validateCandle } from '../core/candleValidator';
 import { sortAndDedupeCandles } from '../series/candleSeriesMerger';
-import { filterIsolatedPriceOutliers, isCandleInternallyCoherent } from '../series/priceCoherence';
 
 export type ChartCandle = {
   time: number;
@@ -19,16 +18,8 @@ export type ChartLinePoint = {
 
 export const sanitizeCandlesForChart = (
   candles: readonly Candle[],
-  options: { timeframe?: string } = {},
-): Candle[] => {
-  const structurallySafe = sortAndDedupeCandles(candles).filter(
-    (candle) => validateCandle(candle) && isCandleInternallyCoherent(candle),
-  );
-
-  return options.timeframe
-    ? filterIsolatedPriceOutliers(structurallySafe, { timeframe: options.timeframe })
-    : structurallySafe;
-};
+  _options: { timeframe?: string } = {},
+): Candle[] => sortAndDedupeCandles(candles).filter(validateCandle);
 
 export const convertCandlesForChart = (candles: readonly Candle[]): ChartCandle[] =>
   sanitizeCandlesForChart(candles).map((candle) => ({

@@ -124,8 +124,8 @@ test('candle with NaN or Infinity OHLC field is rejected during normalization', 
   assert.equal(missingTime, null);
 });
 
-test('history candle with mixed price regimes is rejected before chart render', () => {
-  const corruptedBtc = normalizeHistoryCandle({
+test('history candle with a valid large wick is preserved for backend-visible diagnostics', () => {
+  const largeWickBtc = normalizeHistoryCandle({
     time: t1000,
     open: 49_131.11,
     high: 81_238.7,
@@ -134,7 +134,15 @@ test('history candle with mixed price regimes is rejected before chart render', 
     volume: 1,
   });
 
-  assert.equal(corruptedBtc, null);
+  assert.deepEqual(largeWickBtc, {
+    time: t1000,
+    open: 49_131.11,
+    high: 81_238.7,
+    low: 48_984.54,
+    close: 49_325.24,
+    volume: 1,
+  });
+  assert.ok(largeWickBtc);
 
   const good = makeCandle(t1001, {
     open: 81_237.42,
@@ -154,7 +162,7 @@ test('history candle with mixed price regimes is rejected before chart render', 
     good,
   ]);
 
-  assert.deepEqual(sanitized, [good]);
+  assert.deepEqual(sanitized, [largeWickBtc, good]);
 });
 
 test('same timestamp candles from different price regimes do not merge into a synthetic wick', () => {
@@ -212,7 +220,7 @@ test('chart sanitizer keeps all structurally valid history candles across price-
   assert.deepEqual(sanitized, [...staleHistory, currentBackend]);
 });
 
-test('isolated structurally valid outlier candle is trimmed between coherent neighbors', () => {
+test('isolated structurally valid outlier candle is preserved between coherent neighbors', () => {
   const before = makeCandle(t1000, {
     open: 80_300,
     high: 80_350,
@@ -234,10 +242,10 @@ test('isolated structurally valid outlier candle is trimmed between coherent nei
 
   const sanitized = sanitizeCandlesForChart([before, outlier, after], { timeframe: 'M1' });
 
-  assert.deepEqual(sanitized, [before, after]);
+  assert.deepEqual(sanitized, [before, outlier, after]);
 });
 
-test('short isolated outlier runs are trimmed without filling missing candles', () => {
+test('short isolated outlier runs are preserved without filling missing candles', () => {
   const before = makeCandle(t1000, {
     open: 80_300,
     high: 80_350,
@@ -265,7 +273,7 @@ test('short isolated outlier runs are trimmed without filling missing candles', 
 
   const sanitized = sanitizeCandlesForChart([before, outlierOne, outlierTwo, after], { timeframe: 'M1' });
 
-  assert.deepEqual(sanitized, [before, after]);
+  assert.deepEqual(sanitized, [before, outlierOne, outlierTwo, after]);
 });
 
 test('series validator reports duplicate times, unsorted candles, invalid OHLC, invalid numbers, and gaps separately', () => {

@@ -141,7 +141,8 @@ const fetchAuthenticatedCandleHistory = async (
     requestOptions,
     route.queryStyle,
   );
-  const response = await apiClient(`/${route.pathPrefix}/${requestedSymbol}?${params.toString()}`, {
+  const pathSymbol = encodeURIComponent(requestedSymbol);
+  const response = await apiClient(`/${route.pathPrefix}/${pathSymbol}?${params.toString()}`, {
     signal: requestOptions?.signal,
     skipAuth: !hasStoredAccessToken,
   });

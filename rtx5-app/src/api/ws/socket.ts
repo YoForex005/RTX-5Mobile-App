@@ -208,6 +208,7 @@ export class WebSocketService {
           liveCandleStream.extendActiveCandlesFromQuoteTick(data.symbol, {
             price: bid,
             time: tickTime,
+            volume: 1,
           });
         }
       }

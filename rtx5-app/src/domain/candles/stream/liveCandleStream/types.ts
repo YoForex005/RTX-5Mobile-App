@@ -32,14 +32,16 @@ export type BufferedLiveEvent =
   // Quote-tick extension. Carries a single price + timestamp from the quote
   // feed and mutates an already-open active bucket's close (and widens
   // high/low), or opens the current tick bucket when the candle backend is
-  // stale. It never backfills missing buckets or touches closed history.
+  // stale. The volume field is a per-tick contribution so sub-frame bursts
+  // still preserve tick count before the next chart paint. It never backfills
+  // missing buckets or touches closed history.
   // Backend live_candle snapshots are applied only when the server-candle
   // source mode is explicitly enabled after runtime compatibility proof.
-  | { type: 'quote_tick_extension'; price: number; time: number; order: number };
+  | { type: 'quote_tick_extension'; price: number; time: number; volume?: number; order: number };
 
 export type UnorderedLiveEvent =
   | { type: 'live_candle'; candle: LiveCandle }
-  | { type: 'quote_tick_extension'; price: number; time: number };
+  | { type: 'quote_tick_extension'; price: number; time: number; volume?: number };
 
 /**
  * The core state container for a single managed candle stream (e.g. "EURUSD:M1").

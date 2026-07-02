@@ -11,13 +11,20 @@ export type ObjectRecord = Record<string, unknown>;
 
 export const CANDLE_TIME_KEYS = [
   'time',
-  'timestamp',
-  'ts',
   't',
   'date',
   'datetime',
-  'serverTime',
-  'server_time',
+] as const;
+
+export const TICK_TIME_KEYS = [
+  'time',
+  'timestamp',
+  'timestamp_ms',
+  'timestampMs',
+  'time_ms',
+  'timeMs',
+  'ts',
+  't',
 ] as const;
 
 export const CANDLE_OPEN_KEYS = ['open', 'Open', 'OPEN', 'o', 'O'] as const;

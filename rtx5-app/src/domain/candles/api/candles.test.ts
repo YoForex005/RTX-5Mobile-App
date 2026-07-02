@@ -60,8 +60,8 @@ test('extractCandleHistoryPayload accepts nested data wrappers used by some gate
 
 test('buildCandleHistorySearchParams anchors history requests with Unix-second bounds', () => {
   const params = buildCandleHistorySearchParams('m1', 500, {
-    from: 1775738200.9,
-    to: 1775738800.4,
+    from: 1775738200900,
+    to: 1775738800400,
   });
 
   assert.equal(params.get('timeframe'), 'M1');
@@ -70,10 +70,12 @@ test('buildCandleHistorySearchParams anchors history requests with Unix-second b
   assert.equal(params.get('to'), '1775738800');
 });
 
-test('buildCandleHistorySearchParams leaves explicit backend timeframe token casing intact', () => {
+test('buildCandleHistorySearchParams maps chart timeframe aliases to REST labels', () => {
   const params = buildCandleHistorySearchParams('1m', 500);
+  const monthlyParams = buildCandleHistorySearchParams('MN1', 500);
 
-  assert.equal(params.get('timeframe'), '1m');
+  assert.equal(params.get('timeframe'), 'M1');
+  assert.equal(monthlyParams.get('timeframe'), 'MN');
 });
 
 test('buildCandleHistorySearchParams supports backend tf/count query style', () => {
@@ -105,7 +107,7 @@ test('default candle history request fills the chart buffer so M1 includes previ
   assert.ok(DEFAULT_CANDLE_HISTORY_LIMIT * getTimeframeSeconds('M1') > 24 * 60 * 60);
 });
 
-test('candle history loader can try public history without a frontend login gate', () => {
+test('candle history loader requests gateway history without a frontend login gate', () => {
   const source = readFileSync(resolve(process.cwd(), 'src/domain/candles/api/candles.ts'), 'utf8');
 
   assert.match(source, /const hasStoredAccessToken = Boolean\(getStoredAccessToken\(\)\)/);
@@ -113,6 +115,7 @@ test('candle history loader can try public history without a frontend login gate
   assert.match(source, /fetchAuthenticatedCandleHistory\(/);
   assert.match(source, /pathPrefix: 'market-data\/candles'/);
   assert.match(source, /queryStyle: 'tfCount'/);
+  assert.match(source, /const pathSymbol = encodeURIComponent\(requestedSymbol\)/);
   assert.doesNotMatch(source, /CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE/);
   assert.doesNotMatch(source, /throw new Error\([^)]*login/i);
   assert.doesNotMatch(source, /PUBLIC_API_V1_BASE_URL/);

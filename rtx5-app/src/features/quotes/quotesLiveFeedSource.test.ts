@@ -195,8 +195,8 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(quotesScreenSource, /const QUOTE_ROW_SIMPLE_HEIGHT = 64/);
   assert.match(quotesScreenSource, /const getQuoteItemLayout = useCallback/);
   assert.match(quotesScreenSource, /getItemLayout=\{getQuoteItemLayout\}/);
-  assert.match(quotesScreenSource, /const rawLastPrice = item\.close \?\? item\.last/);
-  assert.match(quotesScreenSource, /\{t\('Last'\)\}:/);
+  assert.doesNotMatch(quotesScreenSource, /const rawLastPrice = item\.close \?\? item\.last/);
+  assert.doesNotMatch(quotesScreenSource, /\{t\('Last'\)\}:/);
   assert.match(quotesScreenSource, /const quoteStickyFeedActive = quoteCatalogActive/);
   assert.match(quotesScreenSource, /useFeedStatusActiveSymbols\(quoteCatalogActive\)/);
   assert.match(quotesScreenSource, /const feedAwareSymbols = useMemo/);

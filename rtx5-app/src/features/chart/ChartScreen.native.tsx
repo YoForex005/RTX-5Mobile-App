@@ -1367,7 +1367,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     requestChartViewportRecovery,
   ]);
   const chartDataActive = chartRuntimeActive;
-  const { candles, paginate } = useLiveCandles(chartSymbol, chartTimeframe, chartDataActive);
+  const {
+    candles,
+    paginate,
+    loading: chartDataLoading,
+    error: chartDataError,
+  } = useLiveCandles(chartSymbol, chartTimeframe, chartDataActive);
   const sanitizedBackendCandles = useMemo(
     () => (
       candles.length > 0
@@ -3973,16 +3978,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
     return () => subscription.remove();
   }, [isScreenFocused, refreshShowOnChartSources, requestChartViewportRecovery]);
-  const shouldShowImmediateHistoryLoading = !candlesAvailable;
+  const hasChartDataError = Boolean(chartDataError && !candlesAvailable);
+  const shouldShowImmediateHistoryLoading = !candlesAvailable && !hasChartDataError;
   const isLoading =
-    (!chartCanvasReady || !candlesAvailable) &&
+    !hasChartDataError &&
+    (!chartCanvasReady || !candlesAvailable || chartDataLoading) &&
     (shouldShowImmediateHistoryLoading || loadingDelayPassed) &&
     !loadingFallback;
   // After the first confirmed WebView paint, keep tab returns visually stable.
   // Recovery can still run underneath, but the startup loader stays one-time.
   const shouldShowChartLoadingOverlay = !hasPaintedChartOnce && (!chartSurfaceReady || isLoading);
-  const isError = false;
-  const isNoMarketData = sanitizedCandles.length === 0 && !isLoading && loadingFallback;
+  const isError = hasChartDataError;
+  const isNoMarketData = sanitizedCandles.length === 0 && !isLoading && !isError && loadingFallback;
 
   useEffect(() => {
     if (!webViewReady || !chartCanvasReady) return;
@@ -5238,7 +5245,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                   <View pointerEvents="none" style={styles.chartOverlay}>
                     <Ionicons name="cloud-offline-outline" size={36} color={TEXT_MUTED} />
                     <Text style={styles.overlayText}>{t('Unable to load chart')}</Text>
-                    <Text style={styles.overlaySubText}>{t('Waiting for market data connection...')}</Text>
+                    <Text style={styles.overlaySubText}>{chartDataError ?? t('Waiting for market data connection...')}</Text>
                   </View>
                 )}
 

@@ -27,8 +27,31 @@ import { shouldUseServerCandleStream } from '../ws/liveCandlesEnginePolicy';
 // Cache the empty-snapshot reference for useSyncExternalStore. Returning a new
 // `[]` each call would trip React's "cache the snapshot" guard and infinite-loop.
 const emptyCandles = EMPTY_CANDLES as CandleParams[];
-const getEmptySnapshot = () => emptyCandles;
+const EMPTY_STREAM_SNAPSHOT_KEY = 'empty';
+const getEmptyStreamSnapshotKey = () => EMPTY_STREAM_SNAPSHOT_KEY;
 const LIVE_TICK_STALE_MS = 45_000;
+
+const getCandleStreamSnapshotKey = (symbol: string, timeframe: string): string => {
+  const state = liveCandlesEngine.getState(symbol, timeframe);
+  if (!state) {
+    return EMPTY_STREAM_SNAPSHOT_KEY;
+  }
+
+  const last = state.candles[state.candles.length - 1];
+  return [
+    state.requestId,
+    state.loading ? 1 : 0,
+    state.error ?? '',
+    state.isLiveConnected ? 1 : 0,
+    state.lastUpdateTime ?? 0,
+    state.candles.length,
+    last?.time ?? '',
+    last?.open ?? '',
+    last?.high ?? '',
+    last?.low ?? '',
+    last?.close ?? '',
+  ].join('|');
+};
 
 const getQuotePrice = (quote: Record<string, any> | undefined): number | null => {
   if (quote && typeof quote.bid === 'number' && Number.isFinite(quote.bid)) {
@@ -125,13 +148,29 @@ export function useLiveCandles(symbol: string, timeframe: string, active = true)
 
   const getSnapshot = useCallback(() => {
     if (!normalizedSymbol || !normalizedTimeframe) {
+      return EMPTY_STREAM_SNAPSHOT_KEY;
+    }
+
+    return getCandleStreamSnapshotKey(normalizedSymbol, normalizedTimeframe);
+  }, [normalizedSymbol, normalizedTimeframe]);
+
+  const streamSnapshotKey = useSyncExternalStore(subscribe, getSnapshot, getEmptyStreamSnapshotKey);
+
+  const engineCandles = useMemo(() => {
+    if (!normalizedSymbol || !normalizedTimeframe) {
       return emptyCandles;
     }
 
     return liveCandlesEngine.getCandles(normalizedSymbol, normalizedTimeframe);
-  }, [normalizedSymbol, normalizedTimeframe]);
+  }, [normalizedSymbol, normalizedTimeframe, streamSnapshotKey]);
 
-  const engineCandles = useSyncExternalStore(subscribe, getSnapshot, getEmptySnapshot);
+  const streamState = useMemo(() => {
+    if (!normalizedSymbol || !normalizedTimeframe) {
+      return null;
+    }
+
+    return liveCandlesEngine.getState(normalizedSymbol, normalizedTimeframe);
+  }, [normalizedSymbol, normalizedTimeframe, streamSnapshotKey]);
 
   // Eagerly prefetch history on symbol/timeframe change so the engine
   // starts fetching before the full subscribe lifecycle completes.
@@ -183,7 +222,14 @@ export function useLiveCandles(symbol: string, timeframe: string, active = true)
     liveCandlesEngine.paginateHistory(normalizedSymbol, normalizedTimeframe);
   }, [normalizedSymbol, normalizedTimeframe]);
 
-  return { candles, hasHistoryCandles, refresh, paginate };
+  return {
+    candles,
+    hasHistoryCandles,
+    loading: streamState?.loading ?? false,
+    error: streamState?.error ?? null,
+    refresh,
+    paginate,
+  };
 }
 
 /**

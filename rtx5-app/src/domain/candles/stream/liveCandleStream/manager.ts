@@ -175,14 +175,15 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     if (!(pageToTime > 1)) {
       return;
     }
+    const requestToTime = Math.max(1, pageToTime - 1);
     const timeframeSeconds = getTimeframeSeconds(entry.timeframe);
     const lookbackSeconds =
       PAGINATED_HISTORY_LIMIT * timeframeSeconds * getHistoryPageLookbackMultiplier(entry.timeframe);
     const fromTime = Math.max(1, pageToTime - lookbackSeconds);
-    if (fromTime >= pageToTime) {
+    if (fromTime >= requestToTime) {
       return;
     }
-    runLoadHistory(this, entry, PAGINATED_HISTORY_LIMIT, { to: pageToTime, from: fromTime });
+    runLoadHistory(this, entry, PAGINATED_HISTORY_LIMIT, { to: requestToTime, from: fromTime });
   }
 
   /** Proactively fetches and caches REST history in the background before a user explicitly opens the chart. */
@@ -275,7 +276,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
    */
   public extendActiveCandlesFromQuoteTick(
     symbol: string,
-    options: { price: number; time: unknown },
+    options: { price: number; time: unknown; volume?: number },
   ): void {
     const normalizedSymbol = normalizeSymbol(symbol);
     if (!normalizedSymbol) {
@@ -299,6 +300,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
           type: 'quote_tick_extension',
           price: options.price,
           time: timeSeconds,
+          volume: options.volume,
         }),
       );
     }
@@ -613,12 +615,12 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
 
   private applyQuoteTickExtension(
     entry: StreamEntry,
-    event: { price: number; time: number },
+    event: { price: number; time: number; volume?: number },
   ): boolean {
     const restTail = entry.historyCandles[entry.historyCandles.length - 1] ?? null;
     const result = applyQuoteTickExtensionToCandleMap(
       entry.liveCandleMap,
-      { price: event.price, time: event.time },
+      { price: event.price, time: event.time, volume: event.volume },
       entry.timeframe,
       {
         historyCutoffTime: entry.historyLastTime,

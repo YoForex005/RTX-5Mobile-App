@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { applyLiveCandleToCandleMap } from './liveCandleAggregator';
+import {
+  applyLiveCandleToCandleMap,
+  applyQuoteTickExtensionToCandleMap,
+} from './liveCandleAggregator';
 import type { LiveCandle, MutableCandle } from '../core/candleTypes';
 
 const TIMEFRAME = 'M1';
@@ -178,4 +181,79 @@ test('backend server_time prevents delayed forming snapshots from overwriting ne
   assert.equal(delayed.candle?.close, 1.0818);
   assert.equal(delayed.candle?.high, 1.0820);
   assert.equal(candleMap.get(BUCKET)?.lastBackendUpdateTime, BUCKET + 20);
+});
+
+test('quote tick burst preserves every OHLC and volume contribution before render flush', () => {
+  const candleMap = buildEmptyMap();
+  const ticks = [
+    { price: 1.0800, time: BUCKET + 1 },
+    { price: 1.0818, time: BUCKET + 2 },
+    { price: 1.0794, time: BUCKET + 3 },
+    { price: 1.0811, time: BUCKET + 4 },
+    { price: 1.0807, time: BUCKET + 5 },
+  ];
+
+  for (const tick of ticks) {
+    const result = applyQuoteTickExtensionToCandleMap(
+      candleMap,
+      { ...tick, volume: 1 },
+      TIMEFRAME,
+      { historyCutoffTime: BUCKET - 60 },
+    );
+    assert.equal(result.ignored, false);
+  }
+
+  assert.deepEqual(candleMap.get(BUCKET) && {
+    time: candleMap.get(BUCKET)?.time,
+    open: candleMap.get(BUCKET)?.open,
+    high: candleMap.get(BUCKET)?.high,
+    low: candleMap.get(BUCKET)?.low,
+    close: candleMap.get(BUCKET)?.close,
+    volume: candleMap.get(BUCKET)?.volume,
+  }, {
+    time: BUCKET,
+    open: 1.0800,
+    high: 1.0818,
+    low: 1.0794,
+    close: 1.0807,
+    volume: 5,
+  });
+});
+
+test('stale non-closing server candle cannot overwrite fresher quote-driven active candle', () => {
+  const candleMap = buildEmptyMap();
+  applyQuoteTickExtensionToCandleMap(
+    candleMap,
+    { price: 1.0818, time: BUCKET + 20, volume: 1 },
+    TIMEFRAME,
+    { historyCutoffTime: BUCKET - 60 },
+  );
+
+  const delayed = applyLiveCandleToCandleMap(
+    candleMap,
+    {
+      time: BUCKET,
+      updateTime: BUCKET + 10,
+      open: 1.0800,
+      high: 1.0805,
+      low: 1.0798,
+      close: 1.0801,
+      volume: 10,
+      closed: false,
+    },
+    TIMEFRAME,
+    { historyCutoffTime: BUCKET - 60 },
+  );
+
+  assert.equal(delayed.ignored, true);
+  assert.equal(delayed.changed, false);
+  assert.equal(delayed.reason, 'stale_server_candle_after_quote');
+  assert.deepEqual(delayed.candle, {
+    time: BUCKET,
+    open: 1.0818,
+    high: 1.0818,
+    low: 1.0818,
+    close: 1.0818,
+    volume: 1,
+  });
 });

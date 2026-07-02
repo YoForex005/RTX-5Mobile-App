@@ -18,8 +18,8 @@ test('resolveCandlesWsUrl upgrades stale quote-feed candle config to channel web
     'wss://backend.orrnn.com/ws/v2',
   );
   assert.equal(
-    resolveCandlesWsUrl('wss://backend.orrnn.com/ws/feed?token=abc'),
-    'wss://backend.orrnn.com/ws/v2?token=abc',
+    resolveCandlesWsUrl('wss://backend.orrnn.com/ws/feed?token=***'),
+    'wss://backend.orrnn.com/ws/v2?token=***',
   );
 });
 
@@ -29,8 +29,8 @@ test('resolveCandlesWsUrl keeps configured websocket overrides safe for iOS', ()
     'wss://testbrokerbackend.orrnn.com/ws/v2',
   );
   assert.equal(
-    resolveCandlesWsUrl('http://testbrokerbackend.orrnn.com/ws/v2?token=abc'),
-    'wss://testbrokerbackend.orrnn.com/ws/v2?token=abc',
+    resolveCandlesWsUrl('http://testbrokerbackend.orrnn.com/ws/v2?token=***'),
+    'wss://testbrokerbackend.orrnn.com/ws/v2?token=***',
   );
   assert.equal(
     resolveCandlesWsUrl('ws://69.197.178.27:8090/ws/v2'),
@@ -71,8 +71,8 @@ test('appendCandleWsBrokerId appends selected broker identity without touching t
     'wss://services.myprop.trade/ws/v2?broker_id=myprop-trade',
   );
   assert.equal(
-    appendCandleWsBrokerId('wss://services.myprop.trade/ws/v2?token=secret', 'myprop-trade'),
-    'wss://services.myprop.trade/ws/v2?token=secret&broker_id=myprop-trade',
+    appendCandleWsBrokerId('wss://services.myprop.trade/ws/v2?token=***', 'myprop-trade'),
+    'wss://services.myprop.trade/ws/v2?token=***&broker_id=myprop-trade',
   );
 });
 

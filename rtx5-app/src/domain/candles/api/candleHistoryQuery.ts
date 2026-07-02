@@ -1,12 +1,15 @@
-import { normalizeCandleHistoryTimeframeStrict } from '../core/candles';
+import {
+  normalizeCandleHistoryTimeframeStrict,
+  normalizeTimestampToSeconds,
+} from '../core/candles';
 import { asRecord } from '../core/candleUtils';
 
 /** Options for paginating historical candle requests. */
 export type CandleHistoryRequestOptions = {
   signal?: AbortSignal;
-  /** Unix timestamp in SECONDS. Fetch candles that occurred after this time. */
+  /** Unix timestamp in seconds. JavaScript milliseconds are accepted and normalized at the service boundary. */
   from?: number;
-  /** Unix timestamp in SECONDS. Fetch candles that occurred before this time. */
+  /** Unix timestamp in seconds. JavaScript milliseconds are accepted and normalized at the service boundary. */
   to?: number;
 };
 
@@ -88,8 +91,10 @@ export const extractCandleHistoryPayload = (payload: unknown): ExtractedCandleHi
   };
 };
 
-const normalizeBoundedUnixSeconds = (value: number): string =>
-  String(Math.max(1, Math.floor(value)));
+const normalizeBoundedUnixSeconds = (value: number): string | null => {
+  const normalized = normalizeTimestampToSeconds(value);
+  return normalized === null ? null : String(Math.max(1, normalized));
+};
 
 /**
  * Builds the URL query parameters for fetching historical candles.
@@ -108,9 +113,8 @@ export const buildCandleHistorySearchParams = (
 ): URLSearchParams => {
   const params = new URLSearchParams();
   const requestTimeframe = timeframe.trim();
-  const normalizedRequestTimeframe = /^\d+(?:m|h|d|w)$/.test(requestTimeframe)
-    ? requestTimeframe
-    : requestTimeframe.toUpperCase();
+  const normalizedRequestTimeframe =
+    normalizeCandleHistoryTimeframeStrict(requestTimeframe) ?? requestTimeframe.toUpperCase();
   if (style === 'tfCount') {
     params.set('tf', normalizedRequestTimeframe);
     params.set('count', String(count));
@@ -120,11 +124,17 @@ export const buildCandleHistorySearchParams = (
   }
 
   if (typeof options?.from === 'number' && Number.isFinite(options.from) && options.from > 0) {
-    params.set('from', normalizeBoundedUnixSeconds(options.from));
+    const normalizedFrom = normalizeBoundedUnixSeconds(options.from);
+    if (normalizedFrom !== null) {
+      params.set('from', normalizedFrom);
+    }
   }
 
   if (typeof options?.to === 'number' && Number.isFinite(options.to) && options.to > 0) {
-    params.set('to', normalizeBoundedUnixSeconds(options.to));
+    const normalizedTo = normalizeBoundedUnixSeconds(options.to);
+    if (normalizedTo !== null) {
+      params.set('to', normalizedTo);
+    }
   }
 
   return params;

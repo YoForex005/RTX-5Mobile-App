@@ -60,7 +60,9 @@ test('canonical live stream keeps pagination windows bounded to the selected tim
   assert.match(source, /getHistoryPageLookbackMultiplier = \(timeframe: Timeframe\): number =>/);
   assert.match(source, /lookbackSeconds =[\s\S]*PAGINATED_HISTORY_LIMIT \* timeframeSeconds \* getHistoryPageLookbackMultiplier\(entry\.timeframe\)/);
   assert.match(source, /pageToTime - lookbackSeconds/);
-  assert.match(source, /runLoadHistory\(this, entry, PAGINATED_HISTORY_LIMIT, \{ to: pageToTime, from: fromTime \}\)/);
+  assert.match(source, /const requestToTime = Math\.max\(1, pageToTime - 1\)/);
+  assert.match(source, /fromTime >= requestToTime/);
+  assert.match(source, /runLoadHistory\(this, entry, PAGINATED_HISTORY_LIMIT, \{ to: requestToTime, from: fromTime \}\)/);
   assert.match(source, /renderHistoryLimit: number/);
   assert.match(source, /historyPaginationCursorTime: number \| null/);
   assert.match(source, /historyPageLoading: boolean/);

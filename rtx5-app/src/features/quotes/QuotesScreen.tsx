@@ -414,15 +414,6 @@ const QuoteCard = React.memo(function QuoteCard({
     typeof item.digits === 'number' && Number.isFinite(item.digits)
       ? item.digits
       : 2;
-  const rawLastPrice = item.close ?? item.last;
-  const parsedLastPrice = typeof rawLastPrice === 'number'
-    ? rawLastPrice
-    : typeof rawLastPrice === 'string'
-      ? Number(rawLastPrice)
-      : NaN;
-  const lastPrice = Number.isFinite(parsedLastPrice) && parsedLastPrice > 0
-    ? parsedLastPrice
-    : undefined;
 
   const bidDirection = item.prevBid
     ? item.bid > item.prevBid
@@ -530,17 +521,6 @@ const QuoteCard = React.memo(function QuoteCard({
                 adjustsFontSizeToFit
               >
                 {t('Vol')}: <Text style={[sc.statValue, { color: primaryText }]}>{volumeLabel(item.volume ?? item.cachedVolume)}</Text>
-              </Text>
-
-              <Text
-                style={[sc.spreadText, { color: secondaryText, flexShrink: 1 }]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-              >
-                {t('Last')}:{' '}
-                <Text style={[sc.statValue, { color: primaryText }]}>
-                  {lastPrice === undefined ? '--' : fmt.price(lastPrice, priceDigits)}
-                </Text>
               </Text>
 
               <Text

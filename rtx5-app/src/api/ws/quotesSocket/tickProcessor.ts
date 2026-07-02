@@ -330,6 +330,7 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
       liveCandleStream.extendActiveCandlesFromQuoteTick(normalizedUpdate.symbol, {
         price: tickPriceForCandle,
         time: liveListenerTimestamp,
+        volume: 1,
       });
     } catch (_error) {
       // Defensive: under hot-module-reload the singleton may pre-date this

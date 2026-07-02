@@ -186,6 +186,7 @@ export const runLoadHistory = (
         .sort((left, right) => getEventTime(left) - getEventTime(right) || left.order - right.order);
       manager.applyLiveEvents(live, replayEvents);
       manager.commit(live);
+      manager.notify(live);
       logDebug('history_failure', {
         symbol,
         timeframe,

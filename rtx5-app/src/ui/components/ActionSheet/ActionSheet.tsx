@@ -781,6 +781,7 @@ export function ActionSheet({
         style={[
           styles.sheet,
           isMt5StylePresentation && styles.sheetMt5Plain,
+          isTimeframeGridPresentation && styles.sheetTimeframeGrid,
           sheetHeightStyle,
           !shouldLockSheetHeight && sheetMinHeight ? { minHeight: sheetMinHeight } : null,
         ]}

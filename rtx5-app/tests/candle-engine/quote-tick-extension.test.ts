@@ -12,8 +12,8 @@
  *   - Opens the current tick bucket when the quote feed is ahead of the
  *     candle socket, without fabricating any missing backend buckets.
  *   - Never modifies closed history (gated by `historyCutoffTime`).
- *   - Subsequent backend `applyLiveCandleToCandleMap` calls own the latest
- *     close and OHLC geometry, correcting quote-expanded temporary wicks.
+ *   - Fresh backend `applyLiveCandleToCandleMap` calls can own the latest
+ *     close and OHLC geometry when their update time is newer than quote ticks.
  */
 
 import assert from 'node:assert/strict';
@@ -133,7 +133,7 @@ test('quote tick opens the next contiguous live bucket from the previous real cl
     high: 1.115,
     low: 1.105,
     close: 1.115,
-    volume: 0,
+    volume: 1,
   });
 });
 
@@ -149,10 +149,16 @@ test('backend live candle snapshot overwrites quote-observed wick extremes', () 
   applyQuoteTickExtensionToCandleMap(map, { price: 1.110, time: t1001 + 5 }, 'M1');
   applyQuoteTickExtensionToCandleMap(map, { price: 1.112, time: t1001 + 10 }, 'M1');
 
-  // Backend then sends an authoritative close with narrower OHLC.
+  // Backend then sends an authoritative close with fresher update time.
   applyLiveCandleToCandleMap(
     map,
-    makeBackendLiveCandle(t1001, { open: 1.105, high: 1.108, low: 1.103, close: 1.107 }),
+    makeBackendLiveCandle(t1001, {
+      open: 1.105,
+      high: 1.108,
+      low: 1.103,
+      close: 1.107,
+      updateTime: t1001 + 15,
+    }),
     'M1',
   );
 
@@ -193,7 +199,7 @@ test('quote tick falls back to tick-open candle when same-bucket REST geometry i
       high: 81_224.54,
       low: 81_224.54,
       close: 81_224.54,
-      volume: 0,
+      volume: 1,
     },
   ]);
 });
@@ -281,7 +287,7 @@ test('quote tick with invalid timestamp is dropped without mutating the map', ()
   assert.equal(active.close, 1.106);
 });
 
-test('repeated identical quote ticks do not flip changed=true', () => {
+test('repeated identical quote ticks keep OHLC stable while preserving tick-volume contributions', () => {
   const map = createCandleMap();
   applyLiveCandleToCandleMap(
     map,
@@ -290,24 +296,32 @@ test('repeated identical quote ticks do not flip changed=true', () => {
   );
 
   // First tick at 1.106 — same close as backend, same high/low. Map already
-  // contains the bucket so the helper reports changed=false.
+  // contains the bucket, but tick volume still changes.
   const first = applyQuoteTickExtensionToCandleMap(
     map,
     { price: 1.106, time: t1001 + 5 },
     'M1',
   );
   assert.equal(first.ignored, false);
-  assert.equal(first.changed, false);
+  assert.equal(first.changed, true);
 
-  // Subsequent identical ticks also report changed=false.
+  // Subsequent identical ticks keep OHLC stable while adding tick volume.
   for (let i = 0; i < 5; i += 1) {
     const result = applyQuoteTickExtensionToCandleMap(
       map,
       { price: 1.106, time: t1001 + 6 + i },
       'M1',
     );
-    assert.equal(result.changed, false);
+    assert.equal(result.changed, true);
   }
+
+  const active = materializeCandleMap(map).find((candle) => candle.time === t1001);
+  assert.ok(active);
+  assert.equal(active.open, 1.105);
+  assert.equal(active.high, 1.106);
+  assert.equal(active.low, 1.104);
+  assert.equal(active.close, 1.106);
+  assert.equal(active.volume, 16);
 });
 
 test('delayed quote tick cannot rewind close or create a false wick', () => {
@@ -402,7 +416,7 @@ test('quote tick reaching the next live-tail bucket keeps visible candles genera
     high: 1.11,
     low: 1.106,
     close: 1.11,
-    volume: 0,
+    volume: 1,
   });
 });
 
@@ -426,7 +440,7 @@ test('quote tick far ahead opens only the current bucket and preserves backend g
     high: 1.11,
     low: 1.11,
     close: 1.11,
-    volume: 0,
+    volume: 1,
   });
 });
 
@@ -446,7 +460,7 @@ test('quote tick across multiple subsequent backend snapshots keeps latest backe
   // Backend snapshot 2: updates close and corrects quote-observed wicks.
   applyLiveCandleToCandleMap(
     map,
-    makeBackendLiveCandle(t1001, { open: 1.0, high: 1.05, low: 0.95, close: 1.02 }),
+    makeBackendLiveCandle(t1001, { open: 1.0, high: 1.05, low: 0.95, close: 1.02, updateTime: t1001 + 12 }),
     'M1',
   );
 
@@ -467,7 +481,7 @@ test('quote tick across multiple subsequent backend snapshots keeps latest backe
   // Backend snapshot 3: close and geometry move again from backend authority.
   applyLiveCandleToCandleMap(
     map,
-    makeBackendLiveCandle(t1001, { open: 1.0, high: 1.08, low: 0.98, close: 1.04 }),
+    makeBackendLiveCandle(t1001, { open: 1.0, high: 1.08, low: 0.98, close: 1.04, updateTime: t1001 + 20 }),
     'M1',
   );
   candles = materializeCandleMap(map);

@@ -1083,6 +1083,8 @@ const mpS = StyleSheet.create({
 
 function makeStyles(T: ThemeColors, isDark: boolean) {
   const cardBg = T.glass2;
+
+  const accountSummaryCardBg = isDark ? '#1C1C1E' : cardBg; // Matches the Settings dark account card tone.
   return StyleSheet.create({
     list: { flex: 1 },
     listContent: { paddingBottom: 32 },
@@ -1091,7 +1093,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     accountSummaryHeading: { color: T.text, fontSize: 19, fontWeight: '600', letterSpacing: 0, marginTop: 4, marginHorizontal: spacing.md, marginBottom: 8 },
     summaryBlock: {
       marginTop: spacing.md, marginHorizontal: spacing.md, borderRadius: 16,
-      backgroundColor: isDark ? T.glass2 : cardBg, borderWidth: 1, borderColor: isDark ? T.border : T.borderSubtle,
+      backgroundColor: accountSummaryCardBg, borderWidth: 1, borderColor: isDark ? T.border : T.borderSubtle,
       shadowColor: isDark ? '#000000' : '#0F172A',
       shadowOffset: { width: 0, height: isDark ? 4 : 8 },
       shadowOpacity: isDark ? 0.08 : 0.04,

@@ -24,3 +24,12 @@ test('quote tick processor carries websocket envelope context into nested tick p
   assert.match(source, /const parsedPayload = parseJsonStringPayload\(payload\)/);
   assert.match(source, /for \(const candidate of getQuoteCandidateItems\(parsedPayload\)\)/);
 });
+
+test('quote tick processor sends every tick as an active candle contribution', () => {
+  const source = readSource('src/api/ws/quotesSocket/tickProcessor.ts');
+
+  assert.match(
+    source,
+    /extendActiveCandlesFromQuoteTick\(normalizedUpdate\.symbol,[\s\S]*price: tickPriceForCandle,[\s\S]*time: liveListenerTimestamp,[\s\S]*volume: 1/,
+  );
+});

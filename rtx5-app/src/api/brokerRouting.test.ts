@@ -110,8 +110,8 @@ test('normalizeConfiguredWsUrl keeps configured websocket overrides safe for iOS
     'wss://testbrokerbackend.orrnn.com/ws/feed',
   );
   assert.equal(
-    normalizeConfiguredWsUrl('http://testbrokerbackend.orrnn.com/ws/v2?token=abc', 'wss://fallback/ws/v2'),
-    'wss://testbrokerbackend.orrnn.com/ws/v2?token=abc',
+    normalizeConfiguredWsUrl('http://testbrokerbackend.orrnn.com/ws/v2?token=***', 'wss://fallback/ws/v2'),
+    'wss://testbrokerbackend.orrnn.com/ws/v2?token=***',
   );
   assert.equal(
     normalizeConfiguredWsUrl('ws://69.197.178.27:8090/ws/feed', 'wss://fallback/ws/feed'),

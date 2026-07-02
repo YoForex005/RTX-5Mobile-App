@@ -724,7 +724,11 @@ export function ChartScreen() {
   const [activeDateRange, setActiveDateRange] = useState<ChartTimeRange>('auto');
   const [customDateValue, setCustomDateValue] = useState<Date | null>(null);
   const chartDataActive = isScreenFocused;
-  const { candles } = useLiveCandles(chartSymbol, chartTimeframe, chartDataActive);
+  const {
+    candles,
+    loading: chartDataLoading,
+    error: chartDataError,
+  } = useLiveCandles(chartSymbol, chartTimeframe, chartDataActive);
   const sanitizedCandles = useMemo(
     () => sanitizeCandlesForChart(candles, { timeframe: chartTimeframe }),
     [candles, chartTimeframe],
@@ -891,8 +895,8 @@ export function ChartScreen() {
     }
   }, [candlesAvailable, forceHideLoading]);
 
-  const isLoading = sanitizedCandles.length === 0 && !forceHideLoading;
-  const isError = false;
+  const isError = Boolean(chartDataError && !candlesAvailable);
+  const isLoading = sanitizedCandles.length === 0 && !isError && (chartDataLoading || !forceHideLoading);
   const isNoMarketData = sanitizedCandles.length === 0 && !isLoading && !isError;
 
   // Initialize Lightweight Chart
@@ -1616,7 +1620,7 @@ export function ChartScreen() {
                 <View style={styles.chartOverlay}>
                   <Ionicons name="cloud-offline-outline" size={36} color={TEXT_MUTED} />
                   <Text style={styles.overlayText}>Unable to load chart</Text>
-                  <Text style={styles.overlaySubText}>Waiting for market data connection...</Text>
+                  <Text style={styles.overlaySubText}>{chartDataError ?? 'Waiting for market data connection...'}</Text>
                 </View>
               )}
 

@@ -10,7 +10,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -251,6 +251,55 @@ export function BrokerDetailScreen() {
   }>({ visible: false, type: 'success', title: '', message: '' });
   const [forgotPasswordVisible, setForgotPasswordVisible] = useState(false);
   const requestInFlightRef = useRef(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const passwordInputRef = useRef<TextInput>(null);
+  const loginPanelYRef = useRef(0);
+  const focusScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loginInputFocusedRef = useRef(false);
+
+  const scrollLoginPanelAboveKeyboard = useCallback((delayMs = Platform.OS === 'ios' ? 260 : 220) => {
+    if (focusScrollTimerRef.current) {
+      clearTimeout(focusScrollTimerRef.current);
+    }
+
+    focusScrollTimerRef.current = setTimeout(() => {
+      scrollRef.current?.scrollTo({
+        y: Math.max(loginPanelYRef.current - 12, 0),
+        animated: true,
+      });
+    }, delayMs);
+  }, []);
+
+  const handleLoginInputFocus = useCallback(() => {
+    loginInputFocusedRef.current = true;
+    scrollLoginPanelAboveKeyboard();
+  }, [scrollLoginPanelAboveKeyboard]);
+
+  const handleLoginInputBlur = useCallback(() => {
+    loginInputFocusedRef.current = false;
+  }, []);
+
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        if (loginInputFocusedRef.current) {
+          scrollLoginPanelAboveKeyboard(Platform.OS === 'ios' ? 120 : 40);
+        }
+      },
+    );
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      loginInputFocusedRef.current = false;
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+      if (focusScrollTimerRef.current) {
+        clearTimeout(focusScrollTimerRef.current);
+      }
+    };
+  }, [scrollLoginPanelAboveKeyboard]);
 
   useEffect(() => {
     setSelectedServer((current) => {
@@ -573,10 +622,14 @@ export function BrokerDetailScreen() {
 
         <KeyboardAvoidingView
           style={styles.container}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={0}
         >
           <ScrollView
+            ref={scrollRef}
+            automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
             canCancelContentTouches={Platform.OS === 'ios'}
+            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
             keyboardShouldPersistTaps="always"
             contentContainerStyle={styles.scrollContent}
           >
@@ -682,7 +735,12 @@ export function BrokerDetailScreen() {
               </Pressable>
             </View>
 
-            <View style={styles.loginPanel}>
+            <View
+              style={styles.loginPanel}
+              onLayout={(event) => {
+                loginPanelYRef.current = event.nativeEvent.layout.y;
+              }}
+            >
               <View style={styles.panelHeader}>
                 <View style={styles.panelTitleTopRow}>
                   <View style={styles.panelTitleRow}>
@@ -710,8 +768,12 @@ export function BrokerDetailScreen() {
                       style={styles.input}
                       value={loginValue}
                       onChangeText={setLoginValue}
+                      onFocus={handleLoginInputFocus}
+                      onBlur={handleLoginInputBlur}
+                      onSubmitEditing={() => passwordInputRef.current?.focus()}
                       autoCapitalize="none"
                       keyboardType="numeric"
+                      returnKeyType="next"
                       selectionColor={T.accent}
                       cursorColor={T.accent}
                       underlineColorAndroid="transparent"
@@ -726,10 +788,15 @@ export function BrokerDetailScreen() {
                   <View style={styles.inputShell}>
                     <Ionicons name="lock-closed-outline" size={19} color={T.textMuted} />
                     <TextInput
+                      ref={passwordInputRef}
                       style={styles.input}
                       value={passwordValue}
                       onChangeText={setPasswordValue}
+                      onFocus={handleLoginInputFocus}
+                      onBlur={handleLoginInputBlur}
+                      onSubmitEditing={submitLogin}
                       autoCapitalize="none"
+                      returnKeyType="done"
                       secureTextEntry={!showPassword}
                       selectionColor={T.accent}
                       cursorColor={T.accent}

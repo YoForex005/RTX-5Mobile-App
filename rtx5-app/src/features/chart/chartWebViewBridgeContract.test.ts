@@ -80,14 +80,34 @@ test('webview bridge: symbol switches do not paint cached candles before fresh h
   );
   assertSourceContains(
     source,
-    /const chartDataActive = chartRuntimeActive[\s\S]*const \{ candles, paginate \} = useLiveCandles\(chartSymbol, chartTimeframe, chartDataActive\)[\s\S]*candles\.length > 0[\s\S]*sanitizeCandlesForChart\(candles, \{ timeframe: chartTimeframe \}\)[\s\S]*EMPTY_DISPLAY_CANDLES/,
+    /const chartDataActive = chartRuntimeActive[\s\S]*const \{[\s\S]*candles,[\s\S]*paginate,[\s\S]*loading: chartDataLoading,[\s\S]*error: chartDataError,[\s\S]*\} = useLiveCandles\(chartSymbol, chartTimeframe, chartDataActive\)[\s\S]*candles\.length > 0[\s\S]*sanitizeCandlesForChart\(candles, \{ timeframe: chartTimeframe \}\)[\s\S]*EMPTY_DISPLAY_CANDLES/,
     'native chart may paint live candle ticks before slow REST history finishes',
+  );
+  assertSourceContains(
+    liveCandlesHookSource,
+    /getCandleStreamSnapshotKey[\s\S]*state\.error[\s\S]*return \{[\s\S]*loading: streamState\?\.loading[\s\S]*error: streamState\?\.error/,
+    'useLiveCandles must expose loading and REST failure status along with the candle series',
+  );
+  assertSourceContains(
+    liveCandleHistoryFetchingSource,
+    /live\.error = error instanceof Error \? error\.message : String\(error\)[\s\S]*manager\.commit\(live\)[\s\S]*manager\.notify\(live\)/,
+    'history failures must notify subscribers even when the candle series stays empty',
+  );
+  assertSourceContains(
+    source,
+    /const hasChartDataError = Boolean\(chartDataError && !candlesAvailable\)[\s\S]*const isError = hasChartDataError/,
+    'native chart must show actual candle REST failures instead of hard-coding no error state',
   );
   assert.doesNotMatch(source, /shouldShowChartLoginPrompt|CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE/);
   assertSourceContains(
     chartWebSource,
-    /const chartDataActive = isScreenFocused[\s\S]*const \{ candles \} = useLiveCandles\(chartSymbol, chartTimeframe, chartDataActive\)/,
+    /const chartDataActive = isScreenFocused[\s\S]*const \{[\s\S]*candles,[\s\S]*loading: chartDataLoading,[\s\S]*error: chartDataError,[\s\S]*\} = useLiveCandles\(chartSymbol, chartTimeframe, chartDataActive\)/,
     'web chart must also load chart data without a frontend login gate',
+  );
+  assertSourceContains(
+    chartWebSource,
+    /const isError = Boolean\(chartDataError && !candlesAvailable\)/,
+    'web chart must surface actual candle REST failures',
   );
   assert.doesNotMatch(chartWebSource, /shouldShowChartLoginPrompt|CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE/);
 });

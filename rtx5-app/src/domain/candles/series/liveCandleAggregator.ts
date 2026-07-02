@@ -168,6 +168,20 @@ export const applyLiveCandleToCandleMap = (
   }
 
   const lastBackendUpdateTime = getLastBackendUpdateTime(existing);
+  const lastQuoteUpdateTime = finiteOrNull(existing?.lastQuoteTime);
+  if (
+    existing?.source === 'live_candle' &&
+    lastQuoteUpdateTime !== null &&
+    eventTime < lastQuoteUpdateTime &&
+    !isClosingSnapshot
+  ) {
+    return {
+      candle: toPublicCandle(existing),
+      changed: false,
+      ignored: true,
+      reason: 'stale_server_candle_after_quote',
+    };
+  }
   const outOfOrderSameBucket =
     existing?.source === 'live_candle' &&
     lastBackendUpdateTime !== null &&
@@ -229,7 +243,7 @@ export const applyLiveCandleToCandleMap = (
 
 export const applyQuoteTickExtensionToCandleMap = (
   candleMap: Map<number, MutableCandle>,
-  tick: { price: number; time: unknown },
+  tick: { price: number; time: unknown; volume?: number | null },
   timeframe: string,
   options: ApplyQuoteTickExtensionOptions = {},
 ): ApplyQuoteTickExtensionResult => {
@@ -305,11 +319,16 @@ export const applyQuoteTickExtensionToCandleMap = (
     }
   }
 
+  const volumeContribution =
+    typeof tick.volume === 'number' && Number.isFinite(tick.volume) && tick.volume > 0
+      ? tick.volume
+      : 1;
   const next: MutableCandle = {
     ...existing,
     high: Math.max(existing.high, tick.price),
     low: Math.min(existing.low, tick.price),
     close: tick.price,
+    volume: (existing.volume ?? 0) + volumeContribution,
     source: 'live_candle',
     closed: false,
     firstUpdateTime:
@@ -330,7 +349,8 @@ export const applyQuoteTickExtensionToCandleMap = (
     changed: !hadExistingBucket ||
       next.high !== existing.high ||
       next.low !== existing.low ||
-      next.close !== existing.close,
+      next.close !== existing.close ||
+      next.volume !== existing.volume,
     ignored: false,
   };
 };

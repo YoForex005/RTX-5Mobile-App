@@ -1,6 +1,8 @@
 import { StyleSheet } from 'react-native';
 import type { ThemeColors } from '../../theme/useTheme';
 
+const TIMEFRAME_ACTION_SHEET_DARK_BACKGROUND = '#000000';
+
 export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     overlay: {
@@ -43,6 +45,9 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       borderTopWidth: 0,
       borderColor: 'transparent',
       backgroundColor: isDark ? T.bg : '#FFFFFF',
+    },
+    sheetTimeframeGrid: {
+      backgroundColor: isDark ? TIMEFRAME_ACTION_SHEET_DARK_BACKGROUND : '#FFFFFF',
     },
     handle: {
       alignSelf: 'center',

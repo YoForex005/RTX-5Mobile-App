@@ -357,6 +357,7 @@ export function SidebarDrawer() {
     snapClosedForNavigation();
     scheduleAfterTapVisualFrame(() => {
       try {
+        onClose();
         runSidebarNavigation(route);
       } finally {
         scheduleAfterTapVisualFrame(() => {

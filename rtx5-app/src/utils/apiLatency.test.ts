@@ -20,7 +20,7 @@ function mockFetch(t: { after: (fn: () => void) => void }, implementation: typeo
 
 test('sanitizeApiLatencyEndpoint strips host and redacts sensitive query values', () => {
   assert.equal(
-    sanitizeApiLatencyEndpoint('https://backend.orrnn.com/api/v2/auth/login?token=secret&symbol=BTCUSD'),
+    sanitizeApiLatencyEndpoint('https://backend.orrnn.com/api/v2/auth/login?token=%5Bredacted-fixture%5D&symbol=BTCUSD'),
     '/api/v2/auth/login?token=%5Bredacted%5D&symbol=BTCUSD',
   );
   assert.equal(

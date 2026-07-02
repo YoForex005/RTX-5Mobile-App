@@ -100,7 +100,7 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
   const supportStart = source.indexOf('const openSupportEmail = useCallback', navigateStart);
   assert.notEqual(supportStart, -1);
   const navigateSource = source.slice(navigateStart, supportStart);
-  assert.match(navigateSource, /snapClosedForNavigation\(\);[\s\S]*scheduleAfterTapVisualFrame\(\(\) => \{[\s\S]*runSidebarNavigation\(route\);[\s\S]*scheduleAfterTapVisualFrame\(\(\) => \{[\s\S]*hideInteractiveNow\(\);[\s\S]*onClose\(\);[\s\S]*unlockSidebarNavigation\(\);/);
+  assert.match(navigateSource, /snapClosedForNavigation\(\);[\s\S]*scheduleAfterTapVisualFrame\(\(\) => \{[\s\S]*onClose\(\);[\s\S]*runSidebarNavigation\(route\);[\s\S]*scheduleAfterTapVisualFrame\(\(\) => \{[\s\S]*hideInteractiveNow\(\);[\s\S]*onClose\(\);[\s\S]*unlockSidebarNavigation\(\);/);
   assert.match(source, /import \{ registerSidebarOpenHandler \} from '\.\/sidebarDrawerController'/);
   assert.match(source, /useEffect\(\(\) => registerSidebarOpenHandler\(\(\) => \{[\s\S]*startOpenAnimation\(\);[\s\S]*showInteractiveAfterVisualFrame\(\);/);
   assert.match(source, /useUIState\.subscribe\(\(state, previousState\) => \{/);
@@ -151,7 +151,7 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
   assert.match(source, /navigationLockedRef\.current = true/);
   assert.doesNotMatch(source, /clearSidebarPrefetchTimer/);
   assert.match(source, /const snapClosedForNavigation = useCallback/);
-  assert.match(source, /snapClosedForNavigation\(\);[\s\S]*scheduleAfterTapVisualFrame\(\(\) => \{[\s\S]*runSidebarNavigation\(route\);[\s\S]*unlockSidebarNavigation\(\);/);
+  assert.match(source, /snapClosedForNavigation\(\);[\s\S]*scheduleAfterTapVisualFrame\(\(\) => \{[\s\S]*onClose\(\);[\s\S]*runSidebarNavigation\(route\);[\s\S]*unlockSidebarNavigation\(\);/);
   assert.match(source, /const openSupportEmailFromSidebar = useCallback/);
   assert.match(source, /snapClosedForNavigation\(\);[\s\S]*void openSupportEmail\(\)\.finally\(\(\) => \{[\s\S]*unlockSidebarNavigation\(\);/);
   assert.doesNotMatch(source, /if \(item\.action === 'support-email'\) \{[\s\S]*handleClose\(\(\) => \{[\s\S]*void openSupportEmail\(\)/);
@@ -200,8 +200,9 @@ test('trade sidebar route defers position refresh until after route paint', () =
   assert.match(source, /refreshVisibleTradeLedger\(\);[\s\S]*setInterval\(refreshVisibleTradeLedger, TRADE_SCREEN_REFRESH_INTERVAL_MS\)/);
   assert.match(source, /clearInterval\(refreshIntervalId\)/);
   assert.match(source, /const positionRowsActive = tradeLiveActive/);
-  assert.match(source, /quotesWsService\.setSubscriptions\(liveQuoteSymbols\)/);
-  assert.match(source, /quotesWsService\.setSubscriptions\(\[\]\)/);
+  assert.match(source, /<TradeSummaryHeader[\s\S]*active=\{tradeLiveActive\}/);
+  assert.match(source, /const rowActive = positionRowsActive && \([\s\S]*viewablePositionIds\.has\(String\(item\.id\)\)/);
+  assert.match(source, /<TradePositionRow[\s\S]*active=\{rowActive\}/);
   assert.doesNotMatch(source, /if \(isScreenFocused && resolvedLogin\) \{\s*fetchPositions\(\);/);
 });
 

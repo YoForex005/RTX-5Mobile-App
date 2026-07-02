@@ -109,6 +109,34 @@ test('normalizes backend live candle symbol and timeframe metadata', () => {
   );
 });
 
+test('does not use backend update timestamps as candle bucket time', () => {
+  assert.equal(
+    normalizeLiveCandle({
+      symbol: 'EURUSD',
+      timeframe: 'M1',
+      server_time: 1_713_744_012,
+      serverTime: 1_713_744_013,
+      open: 1.234,
+      high: 1.235,
+      low: 1.233,
+      close: 1.2345,
+      volume: 5,
+    }),
+    null,
+  );
+  assert.equal(
+    normalizeHistoryCandle({
+      timestamp: 1_713_744_000,
+      open: 1.234,
+      high: 1.235,
+      low: 1.233,
+      close: 1.2345,
+      volume: 5,
+    }),
+    null,
+  );
+});
+
 test('preserves backend closed flags through REST history normalization', () => {
   const normalized = normalizeCandleSeries(
     [
