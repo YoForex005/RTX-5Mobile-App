@@ -63,7 +63,6 @@ import { fmt } from '../../utils/format';
 import { useTheme } from '../../ui/theme/useTheme';
 import { resolveBottomTabBarHeight } from '../../ui/layout/bottomTabBar';
 import { useLiveCandles } from '../../domain/candles/hooks/useLiveCandles';
-import { CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE } from '../../domain/candles/api/candles';
 import { liveCandlesEngine } from '../../api/ws/liveCandlesEngine';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { useOrdersByLoginQuery } from '../../query/orders';
@@ -154,7 +153,7 @@ import { LiveQuotePairHeader } from "./components/ChartLiveHeaders";
 import { ChartStepperModal, ChartFooterLotPicker, ChartTradeVolumeSlider } from "./components/ChartTradeControls";
 import { resolveChartTradeButtonQuote } from "./components/ChartTradeButtonsFeature/quoteFallback";
 import { TvLayers } from "./components/ChartToolbarIcons";
-import { ChartTapMenuViewport, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_GRID_LINE_STYLE, CHART_MARKET_PRICE_LINE_SYNC_INTERVAL_MS, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent } from "./ChartScreen.constants";
+import { ChartTapMenuViewport, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_GRID_LINE_STYLE, CHART_MARKET_PRICE_LINE_SYNC_INTERVAL_MS, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_SYMBOL_PICKER_PREFETCH_DELAY_MS, CHART_SYMBOL_PICKER_PREFETCH_LIMIT, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent } from "./ChartScreen.constants";
 import {
   DEFAULT_CHART_SYMBOLS,
   SYMBOL_FLAGS,
@@ -498,9 +497,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const TEXT_MUTED = T.textMuted;
   const positions = usePositionsState((s) => s.positions);
   const preferencesHydrated = useUserPreferences((s) => s.hasHydrated);
-  const hasAuthenticatedChartSession = useUserPreferences((state) =>
-    Boolean(state.isLoggedIn && state.accountDetails?.credentials?.accessToken),
-  );
   const chartShowOnChart = useUserPreferences((s) => s.chartShowOnChart);
   const setChartShowOnChartItem = useUserPreferences((s) => s.setChartShowOnChartItem);
   const isVerticalScrollingLocked = chartVerticalScrollingLocked;
@@ -1370,7 +1366,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     cancelChartViewportRecovery,
     requestChartViewportRecovery,
   ]);
-  const chartDataActive = chartRuntimeActive && hasAuthenticatedChartSession;
+  const chartDataActive = chartRuntimeActive;
   const { candles, paginate } = useLiveCandles(chartSymbol, chartTimeframe, chartDataActive);
   const sanitizedBackendCandles = useMemo(
     () => (
@@ -3272,16 +3268,42 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   }, [resetChartActionSheetContext]);
 
   const prefetchChartTimeframeHistory = useCallback((nextSymbol: string, nextTimeframe: string) => {
-    if (!hasAuthenticatedChartSession) {
-      return Promise.resolve(0);
+    return liveCandlesEngine.prefetchHistory(nextSymbol, nextTimeframe);
+  }, []);
+  const prefetchSymbolPickerHistory = useCallback(() => {
+    const currentSymbolKey = chartSymbol.trim().toUpperCase();
+    const targets = availableSymbols
+      .filter((symbol) => symbol.trim().toUpperCase() !== currentSymbolKey)
+      .slice(0, CHART_SYMBOL_PICKER_PREFETCH_LIMIT);
+    if (targets.length === 0 || !chartTimeframe) {
+      return;
     }
 
-    return liveCandlesEngine.prefetchHistory(nextSymbol, nextTimeframe);
-  }, [hasAuthenticatedChartSession]);
+    scheduleIdleWork(() => {
+      targets.forEach((targetSymbol) => {
+        void prefetchChartTimeframeHistory(targetSymbol, chartTimeframe).catch((error) => {
+          if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
+            console.warn('[CHART-BRIDGE] symbol_picker_history_prefetch_failed', {
+              symbol: targetSymbol,
+              timeframe: chartTimeframe,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
+        });
+      });
+    }, {
+      delayMs: CHART_SYMBOL_PICKER_PREFETCH_DELAY_MS,
+      timeoutMs: 1500,
+    });
+  }, [availableSymbols, chartSymbol, chartTimeframe, prefetchChartTimeframeHistory]);
+  const refreshSelectedChartHistory = useCallback((nextSymbol: string, nextTimeframe: string) => {
+    void liveCandlesEngine.prefetchHistory(nextSymbol, nextTimeframe);
+    liveCandlesEngine.refreshHistoryForContext(nextSymbol, nextTimeframe);
+  }, []);
   const startupChartPrefetchKeyRef = useRef('');
 
   useEffect(() => {
-    if (!hasAuthenticatedChartSession || !chartSymbol || !chartTimeframe) {
+    if (!chartSymbol || !chartTimeframe) {
       return undefined;
     }
 
@@ -3308,16 +3330,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       delayMs: CHART_STARTUP_HISTORY_PREWARM_DELAY_MS,
       timeoutMs: 1500,
     });
-  }, [chartSymbol, chartTimeframe, hasAuthenticatedChartSession, prefetchChartTimeframeHistory]);
+  }, [chartSymbol, chartTimeframe, prefetchChartTimeframeHistory]);
 
   const warmChartContextAndCommit = useCallback(
     (nextSymbol: string, nextTimeframe: string) => {
-      // Commit the new context and let the candle engine drive the single
-      // authoritative history fetch. ensureEntry() fetches as soon as
-      // useLiveCandles re-subscribes for the new (symbol, timeframe), so a
-      // separate prefetch here would only fire a duplicate /candles request
-      // (its result is discarded by loadHistory's requestId guard) and add load
-      // to the already-slow broker endpoint.
+      // Refresh an existing target stream before committing the UI context.
+      // Brand-new streams are still loaded by useLiveCandles.subscribe(), which
+      // avoids duplicate /candles requests during symbol/timeframe switches.
+      refreshSelectedChartHistory(nextSymbol, nextTimeframe);
       if (nextSymbol !== chartSymbol) {
         setChartSymbol(nextSymbol);
         void prefetchInstrument(nextSymbol);
@@ -3326,7 +3346,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         setChartTimeframe(nextTimeframe);
       }
     },
-    [chartSymbol, chartTimeframe, setChartSymbol, setChartTimeframe],
+    [chartSymbol, chartTimeframe, refreshSelectedChartHistory, setChartSymbol, setChartTimeframe],
   );
 
   const handleTimeframeSelect = useCallback((nextTimeframe: string) => {
@@ -3385,8 +3405,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         actions: symbolPickerActions,
       });
       scheduleChartActionSheetContextReset();
+      prefetchSymbolPickerHistory();
     });
-  }, [scheduleChartActionSheetContextReset, showChartActionSheet, t, symbolPickerActions]);
+  }, [prefetchSymbolPickerHistory, scheduleChartActionSheetContextReset, showChartActionSheet, t, symbolPickerActions]);
 
   const handleOpenTimeframePicker = useCallback(() => {
     runImmediateAction('chart.timeframePicker.open', () => {
@@ -3953,9 +3974,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     return () => subscription.remove();
   }, [isScreenFocused, refreshShowOnChartSources, requestChartViewportRecovery]);
   const shouldShowImmediateHistoryLoading = !candlesAvailable;
-  const shouldShowChartLoginPrompt = !hasAuthenticatedChartSession;
   const isLoading =
-    !shouldShowChartLoginPrompt &&
     (!chartCanvasReady || !candlesAvailable) &&
     (shouldShowImmediateHistoryLoading || loadingDelayPassed) &&
     !loadingFallback;
@@ -3963,7 +3982,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   // Recovery can still run underneath, but the startup loader stays one-time.
   const shouldShowChartLoadingOverlay = !hasPaintedChartOnce && (!chartSurfaceReady || isLoading);
   const isError = false;
-  const isNoMarketData = sanitizedCandles.length === 0 && !shouldShowChartLoginPrompt && !isLoading && loadingFallback;
+  const isNoMarketData = sanitizedCandles.length === 0 && !isLoading && loadingFallback;
 
   useEffect(() => {
     if (!webViewReady || !chartCanvasReady) return;
@@ -3981,6 +4000,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   useEffect(() => {
     if (!hasCandles || !webViewReady || !chartCanvasReady) {
+      return;
+    }
+    if (activeDateRange === 'auto') {
       return;
     }
     applyNativeTimeRange(activeDateRange, customDateValue);
@@ -4039,6 +4061,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const lastInitDispatchRef = useRef({ signature: '', configSig: '', at: 0 });
   const pendingInitSnapshotRef = useRef(EMPTY_CHART_SERIES_SNAPSHOT);
   const renderedSeriesSnapshotRef = useRef(EMPTY_CHART_SERIES_SNAPSHOT);
+  const renderedDataContextSigRef = useRef('');
   const lastInjectedLiveQuoteSignatureRef = useRef('');
   const pendingMarketPriceLinesRef = useRef<{
     bid: number | null;
@@ -4164,6 +4187,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     lastInitDispatchRef.current = { signature: '', configSig: '', at: 0 };
     pendingInitSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
     renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
+    renderedDataContextSigRef.current = '';
     lastInjectedLiveQuoteSignatureRef.current = '';
     clearPendingMarketPriceLineSync();
     if (chartViewportTouchFailsafeTimerRef.current) {
@@ -4237,13 +4261,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     return result;
   }, [chartType]);
 
-  // Track current config signature. When it changes, mark chart as
-  // not-initialized so the watchdog knows to retry for the new config.
+  // Track the chart shell signature. Symbol/timeframe switches are data
+  // context changes and repaint through updateChartData; only visual shell
+  // changes rebuild the WebView chart.
   const currentSig = useMemo(
     () =>
-      `${chartSymbol}-${normalizeTimeframe(chartTimeframe)}-${chartType}-${showChartVolumePane ? 'vol' : 'novol'
-      }-p${displayDecimals}-${chartDisplay.showGrid ? 'grid' : 'nogrid'}-${chartGridColor}-${chartAxisBorderColor}-${chartColorsSignature}`,
-    [chartSymbol, chartTimeframe, chartType, chartColorsSignature, showChartVolumePane, displayDecimals, chartDisplay.showGrid, chartGridColor, chartAxisBorderColor],
+      `${chartType}-${showChartVolumePane ? 'vol' : 'novol'
+      }-${chartDisplay.showGrid ? 'grid' : 'nogrid'}-${chartGridColor}-${chartAxisBorderColor}-${chartColorsSignature}`,
+    [chartType, chartColorsSignature, showChartVolumePane, chartDisplay.showGrid, chartGridColor, chartAxisBorderColor],
+  );
+  const chartDataContextSig = useMemo(
+    () => `${chartSymbol}-${normalizeTimeframe(chartTimeframe)}`,
+    [chartSymbol, chartTimeframe],
   );
   useEffect(() => {
     const lastCandle = sanitizedCandles[sanitizedCandles.length - 1];
@@ -4252,7 +4281,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       return;
     }
 
-    const signature = `${currentSig}:${sanitizedCandles.length}:${lastCandle.time}:${lastCandle.open}:${lastCandle.high}:${lastCandle.low}:${lastCandle.close}`;
+    const signature = `${chartDataContextSig}:${currentSig}:${sanitizedCandles.length}:${lastCandle.time}:${lastCandle.open}:${lastCandle.high}:${lastCandle.low}:${lastCandle.close}`;
     if (chartCandleFrontendPaintRef.current?.signature === signature) {
       return;
     }
@@ -4262,7 +4291,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       length: sanitizedCandles.length,
       signature,
     };
-  }, [currentSig, sanitizedCandles]);
+  }, [chartDataContextSig, currentSig, sanitizedCandles]);
 
   useEffect(() => {
     // Config changed — previous CHART_READY is stale.
@@ -4272,12 +4301,20 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       lastInitDispatchRef.current = { signature: '', configSig: '', at: 0 };
       pendingInitSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
       renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
+      renderedDataContextSigRef.current = '';
       lastInjectedLiveQuoteSignatureRef.current = '';
       clearRenderedMarketPriceLines();
       setChartCanvasReady(false);
       setChartPlotArea(null);
     }
   }, [clearRenderedMarketPriceLines, currentSig]);
+
+  useEffect(() => {
+    renderedDataContextSigRef.current = '';
+    lastInjectedDrawingSyncRef.current = { signature: '', epoch: -1 };
+    lastWebViewDrawingSignatureRef.current = '';
+    clearRenderedMarketPriceLines();
+  }, [chartDataContextSig, clearRenderedMarketPriceLines]);
 
   // Core init function — safe to call repeatedly.
   // The WebView's initChart tears down any existing chart and rebuilds.
@@ -4322,6 +4359,23 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     sendInit();
   }, [sanitizedCandles, sendInit]);
 
+  useEffect(() => {
+    if (!webViewRef.current || !chartInitializedRef.current || !chartCanvasReady) {
+      return;
+    }
+
+    try {
+      webViewRef.current.injectJavaScript(`
+        if (typeof setDisplayDecimals === 'function') {
+          setDisplayDecimals(${displayDecimals});
+        }
+        true;
+      `);
+    } catch (_e) {
+      /* WebView may have been disposed */
+    }
+  }, [chartCanvasReady, chartReadyEpoch, displayDecimals]);
+
   // Effect 2 — keep the WebView aligned with the canonical candle stream.
 
   useEffect(() => {
@@ -4330,18 +4384,33 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     }
 
     const renderableCandles = sanitizedCandles;
+    const contextChanged = renderedDataContextSigRef.current !== chartDataContextSig;
     if (renderableCandles.length === 0) {
+      if (contextChanged) {
+        try {
+          webViewRef.current.injectJavaScript(`
+            updateChartData([]);
+            true;
+          `);
+          renderedDataContextSigRef.current = chartDataContextSig;
+        } catch (_e) {
+          /* WebView may have been disposed */
+        }
+      }
       renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
       return;
     }
 
     const nextSnapshot = buildChartSeriesSnapshot(renderableCandles);
-    const updateMode = getChartSeriesUpdateMode(renderedSeriesSnapshotRef.current, nextSnapshot);
+    const updateMode = contextChanged
+      ? 'full_reload'
+      : getChartSeriesUpdateMode(renderedSeriesSnapshotRef.current, nextSnapshot);
 
     if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
       console.log('[CHART-BRIDGE] candle_sync_mode', {
         symbol: chartSymbol,
         timeframe: chartTimeframe,
+        contextChanged,
         updateMode,
         count: renderableCandles.length,
       });
@@ -4365,7 +4434,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
             });
           }
           webViewRef.current.injectJavaScript(`
-            updateChartData(${JSON.stringify(mapped)});
+            updateChartData(${JSON.stringify(mapped)}, { resetVisibleRange: ${contextChanged} });
             true;
           `);
           didInject = true;
@@ -4391,12 +4460,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
     if (didInject) {
       renderedSeriesSnapshotRef.current = nextSnapshot;
+      renderedDataContextSigRef.current = chartDataContextSig;
       // Physical cold-start checks showed the WebView can be READY while REST
       // candle history is still loading.  Treat first paint as the first real
       // candle batch, not the empty chart shell.
       setHasPaintedChartOnce(true);
     }
-  }, [sanitizedCandles, chartCanvasReady, chartReadyEpoch, chartType, buildMappedData, chartSymbol, chartTimeframe]);
+  }, [sanitizedCandles, chartCanvasReady, chartReadyEpoch, chartType, buildMappedData, chartDataContextSig, chartSymbol, chartTimeframe]);
 
   useEffect(() => {
     if (!webViewRef.current || !webViewReady) {
@@ -5161,13 +5231,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                   <View pointerEvents="none" style={styles.chartOverlay}>
                     <ActivityIndicator size="large" color={BLUE} />
                     <Text style={styles.overlayText}>{t('Loading chart data...')}</Text>
-                  </View>
-                )}
-
-                {shouldShowChartLoginPrompt && (
-                  <View pointerEvents="none" style={styles.chartOverlay}>
-                    <Ionicons name="lock-closed-outline" size={36} color={TEXT_MUTED} />
-                    <Text style={styles.overlayText}>{t(CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE)}</Text>
                   </View>
                 )}
 

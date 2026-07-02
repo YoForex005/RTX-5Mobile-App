@@ -56,16 +56,26 @@ test('older history correction forces updateChartData full reload', () => {
   assert.equal(getChartSeriesUpdateMode(current, next), 'full_reload');
 });
 
-test('symbol timeframe chart type and theme changes invalidate init signature', () => {
+test('symbol timeframe switches repaint data while visual shell changes reinit', () => {
   assertSourceContains(
     source,
-    /const currentSig = useMemo\([\s\S]*chartSymbol[\s\S]*normalizeTimeframe\(chartTimeframe\)[\s\S]*chartType[\s\S]*chartColorsSignature/,
-    'init signature must include symbol, normalized timeframe, chart type, and colors',
+    /const currentSig = useMemo\([\s\S]*chartType[\s\S]*chartColorsSignature/,
+    'init signature must keep visual shell settings',
+  );
+  assertSourceContains(
+    source,
+    /const chartDataContextSig = useMemo\([\s\S]*chartSymbol[\s\S]*normalizeTimeframe\(chartTimeframe\)/,
+    'symbol and timeframe must be tracked as a data context',
   );
   assertSourceContains(
     source,
     /if \(lastInitSigRef\.current !== currentSig\)[\s\S]*chartInitializedRef\.current = false/,
-    'signature changes must mark the WebView chart as not initialized',
+    'visual shell signature changes must mark the WebView chart as not initialized',
+  );
+  assertSourceContains(
+    source,
+    /const contextChanged = renderedDataContextSigRef\.current !== chartDataContextSig[\s\S]*const updateMode = contextChanged[\s\S]*\? 'full_reload'/,
+    'symbol/timeframe changes must repaint with updateChartData instead of reinitializing the WebView',
   );
 });
 
@@ -83,13 +93,42 @@ test('ChartScreen routes full reload and incremental update to the correct bridg
   );
 });
 
+test('display precision updates on the existing WebView chart surface', () => {
+  const setDisplayDecimalsBody = extractFunctionBody(source, 'setDisplayDecimals');
+
+  assertSourceContains(
+    setDisplayDecimalsBody,
+    /lastRequestedDisplayDecimals = decimals[\s\S]*lastDisplayDecimals = decimals[\s\S]*makePriceFormat\(decimals\)/,
+    'display precision updates must reuse the WebView price format helper',
+  );
+  assertSourceContains(
+    setDisplayDecimalsBody,
+    /series\.applyOptions\(\{ priceFormat: priceFormat \}\)/,
+    'main series precision must update without recreating the chart',
+  );
+  assertSourceContains(
+    source,
+    /window\.setDisplayDecimals = setDisplayDecimals/,
+    'setDisplayDecimals must be exposed on the WebView bridge',
+  );
+});
+
 test('WebView full data reload restores overlays and market price lines after setData', () => {
   const body = extractFunctionBody(source, 'updateChartData');
 
+  assertSourceContains(source, /function updateChartData\(data, options\)/, 'full reloads must accept bridge options for stable context switches');
   assertSourceContains(body, /sanitizeSeriesData\(data\)/, 'full reload must sanitize and dedupe candle data before setData');
+  assertSourceContains(body, /var updateOptions = options && typeof options === 'object' \? options : \{\}/, 'bridge options must be normalized before reload work');
+  assertSourceContains(body, /var resetVisibleRange = updateOptions\.resetVisibleRange === true/, 'context switches must be able to request a fresh first viewport');
   assertSourceContains(body, /series\.setData\(mapped\)/, 'updateChartData must call setData');
   assertSourceContains(body, /previousRawSeriesData = lastRawSeriesData[\s\S]*getVisibleLogicalRangeSnapshot\(\)/, 'full reload must capture the current viewport before replacing data');
   assertSourceContains(body, /restorePrependedHistoryViewport\([\s\S]*previousRawSeriesData[\s\S]*lastRawSeriesData[\s\S]*previousVisibleLogicalRange[\s\S]*\)/, 'older-history prepends must restore the prior visible viewport after setData');
+  assertSourceContains(body, /resetVisibleRange \|\| shouldResetViewportForSeriesReplacement\(previousRawSeriesData, lastRawSeriesData\)/, 'symbol/timeframe replacement reloads must force a fresh viewport even when timestamps match');
+  assertSourceContains(source, /function resetVisiblePriceScaleForStableReplacement\(reason\)[\s\S]*clearFreshSeriesVerticalCenterState\(\)[\s\S]*enableRightPriceAutoScale\(\)/, 'stable replacement reset must avoid delayed fresh-series recenter work');
+  assertSourceContains(body, /if \(restoredStableReplacementViewport\) \{[\s\S]*resetVisiblePriceScaleForStableReplacement\(priceScaleReason\)[\s\S]*\} else \{[\s\S]*resetVisiblePriceScaleForFreshSeries\(priceScaleReason\)/, 'stable replacement reloads must use the stable reset while first loads keep the fresh reset');
+  assertSourceContains(body, /if \(restoredStableReplacementViewport\) \{[\s\S]*healCollapsedPriceScaleRange\(priceScaleReason, true\)/, 'stable replacement reloads must heal price scale synchronously before the next paint');
+  assertSourceContains(body, /if \(!restoredStableReplacementViewport\) \{[\s\S]*schedulePriceScaleHealthCheck\(/, 'stable replacement reloads must skip delayed price-scale health passes after the synchronous heal');
+  assertSourceContains(body, /!restoredStableReplacementViewport[\s\S]*applyRecentViewport\(mapped\.length\)/, 'recent viewport spacing must be recalculated for fresh context replacements');
   assertSourceContains(body, /previousRawSeriesData\.length === 0[\s\S]*applyRecentViewport\(mapped\.length\)/, 'first data load after an empty chart shell must show only the recent viewport');
   assertSourceContains(body, /_positionLinesArr = \[\]/, 'stale overlay refs must be cleared');
   assertSourceContains(body, /applyOverlayPayload\(_overlayPayload\)/, 'overlays must be reapplied after setData');

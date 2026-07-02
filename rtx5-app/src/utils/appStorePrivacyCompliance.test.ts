@@ -44,6 +44,8 @@ test('protected-resource declarations stay minimized for App Review', () => {
 test('about exposes privacy policy and account deletion from the app', () => {
   const aboutViewModelSource = readSource('src/features/settings/aboutViewModel.ts');
   const aboutScreenSource = readSource('src/features/settings/AboutScreen.tsx');
+  const accountDeletionRouteSource = readSource('app/settings/account-deletion.tsx');
+  const layoutSource = readSource('app/_layout.tsx');
 
   assert.match(aboutViewModelSource, /id: 'privacy-policy'/);
   assert.match(aboutViewModelSource, /id: 'account-deletion'/);
@@ -51,7 +53,10 @@ test('about exposes privacy policy and account deletion from the app', () => {
   assert.match(aboutScreenSource, /handleOpenPrivacyPolicy\(\)/);
   assert.match(aboutScreenSource, /pathname: '\/settings\/legal'/);
   assert.match(aboutScreenSource, /case 'account-deletion':/);
-  assert.match(aboutScreenSource, /handleOpenAccountDeletionRequest\(\)/);
+  assert.match(aboutScreenSource, /router\.push\('\/settings\/account-deletion'\)/);
+  assert.match(accountDeletionRouteSource, /<DeveloperContactRequestScreen mode="account-deletion" \/>/);
+  assert.match(layoutSource, /<Stack\.Screen name='settings\/account-deletion'/);
+  assert.match(aboutScreenSource, /buildAccountDeletionRequestMessage\(\{/);
 });
 
 test('legal URL resolver rejects missing and relative policy URLs before opening externally', () => {

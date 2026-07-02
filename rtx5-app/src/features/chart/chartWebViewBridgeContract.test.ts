@@ -53,6 +53,16 @@ test('webview bridge: symbol switches do not paint cached candles before fresh h
     /historyCandles:\s*\[\][\s\S]*candles:\s*EMPTY_CANDLES as CandleParams\[\][\s\S]*runLoadHistory\(this, entry, INITIAL_HISTORY_LIMIT\)/,
     'new candle streams must expose an empty UI series until the authoritative REST history load commits',
   );
+  assertSourceContains(
+    liveCandleStreamManagerSource,
+    /entry\.listeners\.add\(listener\)[\s\S]*entry\.consumers \+= 1[\s\S]*this\.reloadEmptyIdleHistory\(entry\)/,
+    're-subscribing to an existing empty symbol/timeframe stream must restart history loading',
+  );
+  assertSourceContains(
+    liveCandleStreamManagerSource,
+    /public refreshHistoryForContext\(symbol: string, timeframe: string\): void[\s\S]*this\.isHistoryRequestActive\(entry\)[\s\S]*this\.loadFreshHistory\(entry\)/,
+    'chart switches must be able to refresh an existing target stream without creating duplicate first-load requests',
+  );
   assert.doesNotMatch(
     liveCandlesHookSource,
     /engineCandles\.length\s*>\s*0\s*\?\s*engineCandles\s*:\s*safeCachedCandles/,
@@ -65,24 +75,21 @@ test('webview bridge: symbol switches do not paint cached candles before fresh h
   );
   assertSourceContains(
     liveCandlesHookSource,
-    /const hasAuthenticatedCandleSession = useUserPreferences\([\s\S]*state\.isLoggedIn && state\.accountDetails\?\.credentials\?\.accessToken[\s\S]*if \(!active \|\| !hasAuthenticatedCandleSession/,
-    'useLiveCandles must not subscribe, prefetch, or expose cached candle data without an authenticated session',
+    /if \(!active \|\| !normalizedSymbol \|\| !normalizedTimeframe\)[\s\S]*liveCandlesEngine\.prefetchHistory\(normalizedSymbol, normalizedTimeframe\)/,
+    'useLiveCandles must allow chart data loading without a frontend login gate',
   );
   assertSourceContains(
     source,
-    /const chartDataActive = chartRuntimeActive && hasAuthenticatedChartSession[\s\S]*const \{ candles, paginate \} = useLiveCandles\(chartSymbol, chartTimeframe, chartDataActive\)[\s\S]*candles\.length > 0[\s\S]*sanitizeCandlesForChart\(candles, \{ timeframe: chartTimeframe \}\)[\s\S]*EMPTY_DISPLAY_CANDLES/,
-    'native chart may paint authenticated live candle ticks before slow REST history finishes',
+    /const chartDataActive = chartRuntimeActive[\s\S]*const \{ candles, paginate \} = useLiveCandles\(chartSymbol, chartTimeframe, chartDataActive\)[\s\S]*candles\.length > 0[\s\S]*sanitizeCandlesForChart\(candles, \{ timeframe: chartTimeframe \}\)[\s\S]*EMPTY_DISPLAY_CANDLES/,
+    'native chart may paint live candle ticks before slow REST history finishes',
   );
-  assertSourceContains(
-    source,
-    /shouldShowChartLoginPrompt[\s\S]*CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE/,
-    'native chart must show the login/create-demo prompt instead of anonymous candle history',
-  );
+  assert.doesNotMatch(source, /shouldShowChartLoginPrompt|CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE/);
   assertSourceContains(
     chartWebSource,
-    /const chartDataActive = isScreenFocused && hasAuthenticatedChartSession[\s\S]*const \{ candles \} = useLiveCandles\(chartSymbol, chartTimeframe, chartDataActive\)[\s\S]*CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE/,
-    'web chart must show the same login/create-demo prompt and avoid anonymous candle history',
+    /const chartDataActive = isScreenFocused[\s\S]*const \{ candles \} = useLiveCandles\(chartSymbol, chartTimeframe, chartDataActive\)/,
+    'web chart must also load chart data without a frontend login gate',
   );
+  assert.doesNotMatch(chartWebSource, /shouldShowChartLoginPrompt|CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE/);
 });
 
 test('live candle stream: startup prefetch seeds first chart render before REST refresh', () => {
@@ -243,7 +250,7 @@ test('webview bridge: updateChartData full reload reapplies overlays and market 
   assertSourceContains(body, /setMarketPriceLines\(lastBidPrice, lastAskPrice\)/, 'full reload must restore market lines after setData');
 });
 
-test('webview bridge: updateChartData recenters when a full reload replaces the visible series', () => {
+test('webview bridge: updateChartData resets symbol switches while fresh loads use the recent viewport', () => {
   const body = extractFunctionBody(chartWebViewHtmlSource, 'updateChartData');
   const doInitBody = extractFunctionBody(chartWebViewHtmlSource, '_doInitChart');
 
@@ -277,9 +284,15 @@ test('webview bridge: updateChartData recenters when a full reload replaces the 
     /applyRecentViewport\(currentSeriesLength\)[\s\S]*scheduleOverlayPriceScaleLock\(true\)[\s\S]*scheduleFreshSeriesVerticalCenter\('init_data', true\)/,
     'initial chart data must center vertically after the recent horizontal viewport is applied',
   );
-  assertSourceContains(body, /var didReplaceVisibleSeries =[\s\S]*shouldResetViewportForSeriesReplacement\(previousRawSeriesData, lastRawSeriesData\)/, 'full reload must detect visible series replacement');
-  assertSourceContains(body, /previousRawSeriesData\.length === 0 \|\| didReplaceVisibleSeries[\s\S]*resetVisiblePriceScaleForFreshSeries\(priceScaleReason\)/, 'replacement reloads must force the right price scale back to the new data range');
-  assertSourceContains(body, /previousRawSeriesData\.length === 0 \|\| didReplaceVisibleSeries[\s\S]*applyRecentViewport\(mapped\.length\)[\s\S]*scheduleFreshSeriesVerticalCenter\(priceScaleReason, true\)/, 'replacement reloads must move the viewport to the latest data and center the first visible price range');
+  assertSourceContains(body, /var didReplaceVisibleSeries =[\s\S]*resetVisibleRange \|\| shouldResetViewportForSeriesReplacement\(previousRawSeriesData, lastRawSeriesData\)/, 'full reload must force visible series replacement for new chart contexts');
+  assertSourceContains(chartWebViewHtmlSource, /function updateChartData\(data, options\)/, 'full reload must accept bridge options for stable symbol/timeframe switches');
+  assertSourceContains(body, /var resetVisibleRange = updateOptions\.resetVisibleRange === true/, 'context switches must be able to request a fresh first viewport');
+  assertSourceContains(chartWebViewHtmlSource, /function resetVisiblePriceScaleForStableReplacement\(reason\)[\s\S]*clearFreshSeriesVerticalCenterState\(\)[\s\S]*enableRightPriceAutoScale\(\)/, 'stable replacement reset must avoid delayed fresh-series recenter work');
+  assertSourceContains(body, /if \(restoredStableReplacementViewport\) \{[\s\S]*resetVisiblePriceScaleForStableReplacement\(priceScaleReason\)[\s\S]*\} else \{[\s\S]*resetVisiblePriceScaleForFreshSeries\(priceScaleReason\)/, 'stable replacement reloads must force the right price scale back without scheduling a delayed fresh reset');
+  assertSourceContains(body, /preserveVisibleLogicalSpan[\s\S]*didReplaceVisibleSeries[\s\S]*followLiveRightEdge\(previousVisibleLogicalRange, mapped\.length\)/, 'stable replacement reloads can still keep the same visible logical span when explicitly requested');
+  assertSourceContains(body, /if \(restoredStableReplacementViewport\) \{[\s\S]*healCollapsedPriceScaleRange\(priceScaleReason, true\)/, 'stable replacement reloads must run price-scale recovery before the next paint');
+  assertSourceContains(body, /if \(!restoredStableReplacementViewport\) \{[\s\S]*schedulePriceScaleHealthCheck\(/, 'stable replacement reloads must skip delayed price-scale health passes after the synchronous heal');
+  assertSourceContains(body, /!restoredStableReplacementViewport[\s\S]*applyRecentViewport\(mapped\.length\)[\s\S]*scheduleFreshSeriesVerticalCenter\(priceScaleReason, true\)/, 'first loads and non-stable replacements must still move to the recent viewport and center the first visible price range');
   assertSourceContains(body, /didReplaceVisibleSeries \? 'update_data_replace_series' : 'update_data'/, 'replacement reloads must use a distinct price-scale recovery reason');
   assertSourceContains(body, /didPrependHistory \|\| didReplaceVisibleSeries \? 5 : 1/, 'replacement reloads must retry price-scale recovery like history prepends');
 });
@@ -632,7 +645,7 @@ test('webview bridge: setMarketPriceLines hides native market badges and paints 
   assertSourceContains(refreshBody, /refreshMarketPriceScaleDom\(\)/, 'overlay refresh must render custom market price-scale DOM');
   assertSourceContains(chartWebViewHtmlSource, /function refreshMarketPriceScaleDom\(\)[\s\S]*renderMarketPriceScaleExtensions\(layer\)[\s\S]*renderMarketPriceScaleBadges\(layer\)/, 'overlay refresh must render MT5-style custom market price-scale badges after the line accents');
   assertSourceContains(source, /Quote ticks move only market price lines\.[\s\S]*Candle bodies stay tied to[\s\S]*backend OHLC history\/live candle messages\./, 'native quote bridge must not mutate candle bodies from live quotes');
-  assertSourceContains(source, /const clearRenderedMarketPriceLines = useCallback[\s\S]*setMarketPriceLines\(null, null\)[\s\S]*if \(lastInitSigRef\.current !== currentSig\)[\s\S]*clearRenderedMarketPriceLines\(\)/, 'symbol/timeframe changes must clear stale bid ask lines before fresh quotes arrive');
+  assertSourceContains(source, /const clearRenderedMarketPriceLines = useCallback[\s\S]*setMarketPriceLines\(null, null\)[\s\S]*renderedDataContextSigRef\.current = '';[\s\S]*clearRenderedMarketPriceLines\(\)/, 'symbol/timeframe changes must clear stale bid ask lines before fresh quotes arrive');
 });
 
 test('webview bridge: native web and WebView creation reserve the right price scale', () => {
@@ -959,7 +972,7 @@ test('webview bridge: custom right price-scale labels are backend-data-driven an
   assertSourceContains(
     doInitBody,
     /clearRightPriceScaleFallbackLayer\(\)[\s\S]*lastChartTextColor = resolveChartTextColor\(safeOpts\)/,
-    'symbol/timeframe re-init must clear stale fallback DOM and refresh label theme colors',
+    'visual shell re-init must clear stale fallback DOM and refresh label theme colors',
   );
   assert.doesNotMatch(
     renderBody,

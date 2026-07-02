@@ -310,6 +310,18 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   );
   assert.match(
     source,
+    /const prefetchSymbolPickerHistory = useCallback\([\s\S]*slice\(0, CHART_SYMBOL_PICKER_PREFETCH_LIMIT\)[\s\S]*prefetchChartTimeframeHistory\(targetSymbol, chartTimeframe\)/,
+  );
+  assert.match(
+    source,
+    /showChartActionSheet\(\{[\s\S]*title: t\('Select Symbol'\)[\s\S]*actions: symbolPickerActions[\s\S]*\}\);[\s\S]*scheduleChartActionSheetContextReset\(\);[\s\S]*prefetchSymbolPickerHistory\(\);/,
+  );
+  assert.match(
+    source,
+    /const refreshSelectedChartHistory = useCallback\([\s\S]*liveCandlesEngine\.prefetchHistory\(nextSymbol, nextTimeframe\)[\s\S]*liveCandlesEngine\.refreshHistoryForContext\(nextSymbol, nextTimeframe\)/,
+  );
+  assert.match(
+    source,
     /const warmChartContextAndCommit = useCallback\([\s\S]*setChartSymbol\(nextSymbol\)[\s\S]*prefetchInstrument\(nextSymbol\)[\s\S]*setChartTimeframe\(nextTimeframe\)/,
   );
   assert.match(

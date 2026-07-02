@@ -22,7 +22,6 @@ import {
 import { normalizeTimestampToMs } from '../core/timeframeUtils';
 import { hasLiveQuoteFeedData, useMarketData } from '../../../query/websocket';
 import { hydratePersistedCandleCache } from '../state/persistedCandleCache';
-import { useUserPreferences } from '../../../state/userPreferences';
 import { shouldUseServerCandleStream } from '../ws/liveCandlesEnginePolicy';
 
 // Cache the empty-snapshot reference for useSyncExternalStore. Returning a new
@@ -98,13 +97,10 @@ export function useLiveCandles(symbol: string, timeframe: string, active = true)
   const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
   const normalizedTimeframe = useMemo(() => normalizeTimeframeStrict(timeframe), [timeframe]);
   const useServerCandleStream = shouldUseServerCandleStream();
-  const hasAuthenticatedCandleSession = useUserPreferences((state) =>
-    Boolean(state.isLoggedIn && state.accountDetails?.credentials?.accessToken),
-  );
 
   const subscribe = useCallback(
     (listener: () => void) => {
-      if (!active || !hasAuthenticatedCandleSession || !normalizedSymbol || !normalizedTimeframe) {
+      if (!active || !normalizedSymbol || !normalizedTimeframe) {
         return () => {};
       }
 
@@ -124,31 +120,31 @@ export function useLiveCandles(symbol: string, timeframe: string, active = true)
         }
       };
     },
-    [active, hasAuthenticatedCandleSession, normalizedSymbol, normalizedTimeframe, symbol, useServerCandleStream],
+    [active, normalizedSymbol, normalizedTimeframe, symbol, useServerCandleStream],
   );
 
   const getSnapshot = useCallback(() => {
-    if (!hasAuthenticatedCandleSession || !normalizedSymbol || !normalizedTimeframe) {
+    if (!normalizedSymbol || !normalizedTimeframe) {
       return emptyCandles;
     }
 
     return liveCandlesEngine.getCandles(normalizedSymbol, normalizedTimeframe);
-  }, [hasAuthenticatedCandleSession, normalizedSymbol, normalizedTimeframe]);
+  }, [normalizedSymbol, normalizedTimeframe]);
 
   const engineCandles = useSyncExternalStore(subscribe, getSnapshot, getEmptySnapshot);
 
   // Eagerly prefetch history on symbol/timeframe change so the engine
   // starts fetching before the full subscribe lifecycle completes.
   useEffect(() => {
-    if (!active || !hasAuthenticatedCandleSession || !normalizedSymbol || !normalizedTimeframe) {
+    if (!active || !normalizedSymbol || !normalizedTimeframe) {
       return;
     }
 
     void liveCandlesEngine.prefetchHistory(normalizedSymbol, normalizedTimeframe);
-  }, [active, hasAuthenticatedCandleSession, normalizedSymbol, normalizedTimeframe]);
+  }, [active, normalizedSymbol, normalizedTimeframe]);
 
   useEffect(() => {
-    if (!active || !hasAuthenticatedCandleSession || !normalizedSymbol || !normalizedTimeframe) {
+    if (!active || !normalizedSymbol || !normalizedTimeframe) {
       return;
     }
 
@@ -166,26 +162,26 @@ export function useLiveCandles(symbol: string, timeframe: string, active = true)
     return () => {
       cancelled = true;
     };
-  }, [active, hasAuthenticatedCandleSession, normalizedSymbol, normalizedTimeframe]);
+  }, [active, normalizedSymbol, normalizedTimeframe]);
 
   const candles = useMemo(() => engineCandles, [engineCandles]);
   const hasHistoryCandles = useMemo(() => hasCommittedHistoryCandles(engineCandles), [engineCandles]);
 
   const refresh = useCallback(() => {
-    if (!hasAuthenticatedCandleSession || !normalizedSymbol || !normalizedTimeframe) {
+    if (!normalizedSymbol || !normalizedTimeframe) {
       return;
     }
 
     liveCandlesEngine.refresh(normalizedSymbol, normalizedTimeframe);
-  }, [hasAuthenticatedCandleSession, normalizedSymbol, normalizedTimeframe]);
+  }, [normalizedSymbol, normalizedTimeframe]);
 
   const paginate = useCallback(() => {
-    if (!hasAuthenticatedCandleSession || !normalizedSymbol || !normalizedTimeframe) {
+    if (!normalizedSymbol || !normalizedTimeframe) {
       return;
     }
 
     liveCandlesEngine.paginateHistory(normalizedSymbol, normalizedTimeframe);
-  }, [hasAuthenticatedCandleSession, normalizedSymbol, normalizedTimeframe]);
+  }, [normalizedSymbol, normalizedTimeframe]);
 
   return { candles, hasHistoryCandles, refresh, paginate };
 }

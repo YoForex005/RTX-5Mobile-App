@@ -169,6 +169,8 @@ function InnerLayout() {
           <Stack.Screen name='settings/user-guide' options={sidebarDetailScreenOptions} />
           <Stack.Screen name='settings/help' options={sidebarDetailScreenOptions} />
           <Stack.Screen name='settings/legal' options={sidebarDetailScreenOptions} />
+          <Stack.Screen name='settings/account-deletion' options={sidebarDetailScreenOptions} />
+          <Stack.Screen name='settings/contact-developer' options={sidebarDetailScreenOptions} />
           <Stack.Screen name='settings/about' options={sidebarDetailScreenOptions} />
         </Stack>
         </ThemeProvider>

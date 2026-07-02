@@ -74,7 +74,8 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.match(publicDemoSource, /refetchInterval: enabled \? 30 \* 1000 : false/);
 
   assert.match(liveCandlesSource, /export function useLiveCandles\(symbol: string, timeframe: string, active = true\)/);
-  assert.match(liveCandlesSource, /if \(!active \|\| !hasAuthenticatedCandleSession \|\| !normalizedSymbol \|\| !normalizedTimeframe\)/);
+  assert.match(liveCandlesSource, /if \(!active \|\| !normalizedSymbol \|\| !normalizedTimeframe\)/);
+  assert.doesNotMatch(liveCandlesSource, /hasAuthenticatedCandleSession/);
   assert.match(liveCandlesSource, /export function useLiveTick\(symbol: string, _timeframe\?: string, active = true\)/);
   assert.match(liveCandlesSource, /useMarketData\(symbol \? \[symbol\] : \[\], active\)/);
   assert.doesNotMatch(rootLayoutSource, /prefetchChartCandles/);

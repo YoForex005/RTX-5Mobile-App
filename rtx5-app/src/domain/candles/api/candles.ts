@@ -35,9 +35,6 @@ export interface CandleHistoryResponse {
 }
 export type { CandleHistoryRequestOptions } from './candleHistoryQuery';
 
-export const CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE =
-  'Please login or create a demo account to see chart data.';
-
 /** 
  * Represents a single attempt to fetch and parse historical candle data.
  * Used internally to aggregate results from authenticated history requests.
@@ -137,6 +134,7 @@ const fetchAuthenticatedCandleHistory = async (
   currentPriceBasis: CandlePriceBasis,
   route: CandleHistoryRoute,
 ): Promise<CandleHistoryAttempt> => {
+  const hasStoredAccessToken = Boolean(getStoredAccessToken());
   const params = buildCandleHistorySearchParams(
     requestTimeframe,
     count,
@@ -145,6 +143,7 @@ const fetchAuthenticatedCandleHistory = async (
   );
   const response = await apiClient(`/${route.pathPrefix}/${requestedSymbol}?${params.toString()}`, {
     signal: requestOptions?.signal,
+    skipAuth: !hasStoredAccessToken,
   });
 
   return readCandleHistoryResponse(response, requestTimeframe, count, currentPriceBasis);
@@ -175,10 +174,6 @@ export async function getCandleHistory(
   const requestOptions = isAbortSignalLike(options)
     ? { signal: options }
     : options;
-  const hasAuthenticatedCandleSession = Boolean(getStoredAccessToken());
-  if (!hasAuthenticatedCandleSession) {
-    throw new Error(CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE);
-  }
 
   const requestTimeframes = getCandleHistoryRequestTimeframes(requestedTimeframe);
 

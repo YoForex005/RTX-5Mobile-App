@@ -74,8 +74,8 @@ export type StreamEntry = {
   historyPaginationCursorTime: number | null;
   /**
    * Number of candles the UI stream is allowed to materialize.
-   * Starts at the normal recent window and grows only when left-scroll
-   * pagination proves the user needs older history.
+   * Starts from the first-paint viewport window and grows only when
+   * left-scroll pagination proves the user needs older history.
    */
   renderHistoryLimit: number;
   /** The finalized, merged, and sorted array of candles exposed to the UI. */
@@ -121,15 +121,14 @@ export type HistorySeedSnapshot = {
 /** Default max number of candles to keep in memory per stream to prevent leaks. */
 export const DEFAULT_HISTORY_LIMIT = MAX_CANDLE_SERIES_LENGTH;
 /**
- * First-paint history window. The initial REST fetch on a fresh chart open /
- * symbol / timeframe switch pulls only this many recent bars instead of the
- * full DEFAULT_HISTORY_LIMIT. The slow broker `/candles` endpoint scales with
- * limit (≈4s for 2500 vs ≈2.7s for 500), and a smaller payload also cuts the
- * on-switch JS render cost, so the chosen symbol paints noticeably sooner.
- * Older bars are lazy-loaded on left-scroll via PAGINATED_HISTORY_LIMIT, and
- * the retained/rendered caps below are unchanged.
+ * First-paint history window. The initial REST fetch pulls only enough recent
+ * bars to fill the visible mobile viewport plus a small live-edge buffer
+ * instead of the full DEFAULT_HISTORY_LIMIT. Older bars are lazy-loaded on
+ * left-scroll via PAGINATED_HISTORY_LIMIT, and the retained/rendered caps below
+ * are unchanged so deep history still works after the user scrolls for it.
  */
-export const INITIAL_HISTORY_LIMIT = Math.min(600, MAX_CANDLE_SERIES_LENGTH);
+export const INITIAL_VIEWPORT_HISTORY_LIMIT = 120;
+export const INITIAL_HISTORY_LIMIT = Math.min(INITIAL_VIEWPORT_HISTORY_LIMIT, MAX_CANDLE_SERIES_LENGTH);
 /** Smaller left-scroll page size so older history can be prepended without a heavy full-window fetch. */
 export const PAGINATED_HISTORY_LIMIT = Math.min(500, MAX_CANDLE_SERIES_LENGTH);
 /** Hard cap for lazily rendered history; high enough for deep M1 scroll, bounded for mobile WebView cost. */

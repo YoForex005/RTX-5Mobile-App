@@ -37,6 +37,7 @@ import { Screen } from '../../ui/components/Screen';
 import { SidebarDrawer } from '../../ui/components/SidebarDrawer';
 import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../ui/components/sidebarDrawerController';
 import { GDark } from '../../ui/theme/glass';
+import { safeRouterBack } from '../../utils/navigation';
 import {
   ABOUT_LINK_CHEVRON,
   ABOUT_STAR,
@@ -71,6 +72,8 @@ type ContactDetailsLayout = {
   height: number;
 };
 
+type DeveloperContactMode = 'contact-developer' | 'account-deletion';
+
 export function AboutScreen() {
   const router = useRouter();
   const isDark = useIsDarkTheme();
@@ -84,21 +87,11 @@ export function AboutScreen() {
   const nativeAppVersion = Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? 'Local';
   const appBuildVersion = Application.nativeBuildVersion ?? Constants.nativeBuildVersion ?? '';
   const appVersion = resolveAppDisplayVersion(nativeAppVersion);
-  const accountDetails = useUserPreferences((s) => s.accountDetails);
   const androidPackageName = androidConfig?.package ?? ABOUT_EXTERNAL_LINKS.androidPackageName;
   const buildLabel = resolveAboutBuildLabel({
     appVersion,
     appBuildVersion,
   });
-  const platformLabel = formatAboutPlatform(Platform.OS);
-  const [contactOpen, setContactOpen] = useState(false);
-  const [categorySheetOpen, setCategorySheetOpen] = useState(false);
-  const [selectedContactCategory, setSelectedContactCategory] = useState<AboutContactCategory | null>(null);
-  const [contactName, setContactName] = useState('');
-  const [contactEmail, setContactEmail] = useState('');
-  const [contactTitle, setContactTitle] = useState('');
-  const [contactMessage, setContactMessage] = useState('');
-  const [contactConsent, setContactConsent] = useState(false);
 
   const handleOpenMenu = useCallback(() => {
     openSidebarDrawerImmediately();
@@ -141,16 +134,6 @@ export function AboutScreen() {
     router.push({ pathname: '/settings/legal', params: { document: 'privacy' } });
   };
 
-  const handleOpenAccountDeletionRequest = () => {
-    setSelectedContactCategory(getAboutContactCategory('account-deletion'));
-    setContactTitle('Account deletion request');
-    setContactMessage(buildAccountDeletionRequestMessage({
-      accountId: accountDetails?.id,
-      server: accountDetails?.server,
-    }));
-    setContactOpen(true);
-  };
-
   const handleAboutAction = (action: AboutAction) => {
     switch (action.id) {
       case 'rate-experience':
@@ -163,75 +146,13 @@ export function AboutScreen() {
         handleOpenPrivacyPolicy();
         return;
       case 'account-deletion':
-        handleOpenAccountDeletionRequest();
+        router.push('/settings/account-deletion');
         return;
       case 'contact-developer':
-        setContactOpen(true);
+        router.push('/settings/contact-developer');
         return;
     }
   };
-
-  const handleSendDeveloperMessage = () => {
-    if (!isValidDeveloperContactEmail(contactEmail)) {
-      Alert.alert('Contact Developer', 'Please enter a valid email address before sending.');
-      return;
-    }
-
-    const mailtoUrl = buildDeveloperMailto({
-      appName,
-      appVersion,
-      appBuildVersion,
-      platform: platformLabel,
-      category: selectedContactCategory,
-      requesterName: contactName,
-      requesterEmail: contactEmail,
-      title: contactTitle,
-      message: contactMessage,
-      developerEmail: getConfiguredDeveloperEmail(),
-    });
-
-    void openExternalUrl(mailtoUrl, 'Contact Developer');
-  };
-
-  if (contactOpen) {
-    return (
-      <ContactDeveloperScreen
-        appName={appName}
-        appVersion={appVersion}
-        appBuildVersion={appBuildVersion}
-        name={contactName}
-        email={contactEmail}
-        title={contactTitle}
-        message={contactMessage}
-        consentAccepted={contactConsent}
-        selectedCategory={selectedContactCategory}
-        categorySheetOpen={categorySheetOpen}
-        insetsTop={insets.top}
-        insetsBottom={insets.bottom}
-        isDark={isDark}
-        onChangeName={setContactName}
-        onChangeEmail={setContactEmail}
-        onChangeTitle={setContactTitle}
-        onChangeMessage={setContactMessage}
-        onToggleConsent={() => setContactConsent((value) => !value)}
-        onOpenCategorySheet={() => setCategorySheetOpen(true)}
-        onCloseCategorySheet={() => setCategorySheetOpen(false)}
-        onSelectCategory={(category) => {
-          setSelectedContactCategory(category);
-          setCategorySheetOpen(false);
-        }}
-        onOpenPrivacyPolicy={() => {
-          handleOpenPrivacyPolicy();
-        }}
-        onClose={() => {
-          setCategorySheetOpen(false);
-          setContactOpen(false);
-        }}
-        onSend={handleSendDeveloperMessage}
-        styles={styles}
-      />
-    );
-  }
 
   return (
     <Screen noBottomInset style={styles.screen}>
@@ -272,6 +193,151 @@ export function AboutScreen() {
 
       <SidebarDrawer />
     </Screen>
+  );
+}
+
+export function DeveloperContactRequestScreen({ mode }: { mode: DeveloperContactMode }) {
+  const router = useRouter();
+  const isDark = useIsDarkTheme();
+  const styles = useMemo(() => makeAboutStyles(isDark), [isDark]);
+  const insets = useSafeAreaInsets();
+  const appName = Constants.expoConfig?.name ?? 'RTX5';
+  const nativeAppVersion = Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? 'Local';
+  const appBuildVersion = Application.nativeBuildVersion ?? Constants.nativeBuildVersion ?? '';
+  const appVersion = resolveAppDisplayVersion(nativeAppVersion);
+  const platformLabel = formatAboutPlatform(Platform.OS);
+  const accountDetails = useUserPreferences((s) => s.accountDetails);
+  const isAccountDeletion = mode === 'account-deletion';
+  const [categorySheetOpen, setCategorySheetOpen] = useState(false);
+  const [selectedContactCategory, setSelectedContactCategory] = useState<AboutContactCategory | null>(() =>
+    isAccountDeletion ? getAboutContactCategory('account-deletion') : null,
+  );
+  const [contactName, setContactName] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactTitle, setContactTitle] = useState(() => (isAccountDeletion ? 'Account deletion request' : ''));
+  const buildDeletionMessage = useCallback(
+    () =>
+      buildAccountDeletionRequestMessage({
+        accountId: accountDetails?.id,
+        server: accountDetails?.server,
+      }),
+    [accountDetails?.id, accountDetails?.server],
+  );
+  const [contactMessage, setContactMessage] = useState(() => (isAccountDeletion ? buildDeletionMessage() : ''));
+  const [contactConsent, setContactConsent] = useState(false);
+  const accountDeletionSeedRef = useRef(isAccountDeletion ? contactMessage : '');
+
+  useEffect(() => {
+    if (!isAccountDeletion) {
+      return;
+    }
+
+    const nextMessage = buildDeletionMessage();
+    const previousSeed = accountDeletionSeedRef.current;
+
+    setSelectedContactCategory(getAboutContactCategory('account-deletion'));
+    setContactTitle((current) => (current.trim().length > 0 ? current : 'Account deletion request'));
+    setContactMessage((current) => {
+      if (current.trim().length === 0 || current === previousSeed) {
+        accountDeletionSeedRef.current = nextMessage;
+        return nextMessage;
+      }
+
+      accountDeletionSeedRef.current = nextMessage;
+      return current;
+    });
+  }, [buildDeletionMessage, isAccountDeletion]);
+
+  const openExternalUrl = async (url: string, failureTitle: string) => {
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert(failureTitle, 'No installed app can open this link on the current device.');
+    }
+  };
+
+  const handleOpenPrivacyPolicy = () => {
+    const privacyPolicyUrl = resolveLegalUrl(undefined, getConfiguredPrivacyPolicyUrl());
+    if (privacyPolicyUrl) {
+      void openExternalUrl(privacyPolicyUrl, 'Open Privacy Policy');
+      return;
+    }
+
+    router.push({ pathname: '/settings/legal', params: { document: 'privacy' } });
+  };
+
+  const handleSendDeveloperMessage = () => {
+    if (!isValidDeveloperContactEmail(contactEmail)) {
+      Alert.alert('Contact Developer', 'Please enter a valid email address before sending.');
+      return;
+    }
+
+    const mailtoUrl = buildDeveloperMailto({
+      appName,
+      appVersion,
+      appBuildVersion,
+      platform: platformLabel,
+      category: selectedContactCategory,
+      requesterName: contactName,
+      requesterEmail: contactEmail,
+      title: contactTitle,
+      message: contactMessage,
+      developerEmail: getConfiguredDeveloperEmail(),
+    });
+
+    void openExternalUrl(mailtoUrl, isAccountDeletion ? 'Request Account Deletion' : 'Contact Developer');
+  };
+
+  return (
+    <ContactDeveloperScreen
+      appName={appName}
+      appVersion={appVersion}
+      appBuildVersion={appBuildVersion}
+      screenTitle={isAccountDeletion ? 'Request Account Deletion' : 'Contact Developer'}
+      heroTitle={isAccountDeletion ? `${appName} account deletion` : `${appName} support`}
+      heroText={
+        isAccountDeletion
+          ? 'Send a dedicated request to delete your app account and related personal data.'
+          : 'Send a structured request to the developer team. Include the area, title, and details so the issue can be reviewed clearly.'
+      }
+      detailsPlaceholder={
+        isAccountDeletion
+          ? 'Add any extra account deletion details here'
+          : 'Describe your problem in detail here'
+      }
+      categoryLocked={isAccountDeletion}
+      name={contactName}
+      email={contactEmail}
+      title={contactTitle}
+      message={contactMessage}
+      consentAccepted={contactConsent}
+      selectedCategory={selectedContactCategory}
+      categorySheetOpen={categorySheetOpen}
+      insetsTop={insets.top}
+      insetsBottom={insets.bottom}
+      isDark={isDark}
+      onChangeName={setContactName}
+      onChangeEmail={setContactEmail}
+      onChangeTitle={setContactTitle}
+      onChangeMessage={setContactMessage}
+      onToggleConsent={() => setContactConsent((value) => !value)}
+      onOpenCategorySheet={() => setCategorySheetOpen(true)}
+      onCloseCategorySheet={() => setCategorySheetOpen(false)}
+      onSelectCategory={(category) => {
+        setSelectedContactCategory(category);
+        setCategorySheetOpen(false);
+      }}
+      onOpenPrivacyPolicy={handleOpenPrivacyPolicy}
+      onClose={() => {
+        setCategorySheetOpen(false);
+        safeRouterBack(router, '/settings/about');
+      }}
+      onSend={handleSendDeveloperMessage}
+      sendAccessibilityLabel={
+        isAccountDeletion ? 'Send account deletion request' : 'Send developer support request'
+      }
+      styles={styles}
+    />
   );
 }
 
@@ -329,6 +395,11 @@ function ContactDeveloperScreen({
   appName,
   appVersion,
   appBuildVersion,
+  screenTitle,
+  heroTitle,
+  heroText,
+  detailsPlaceholder,
+  categoryLocked = false,
   name,
   email,
   title,
@@ -350,11 +421,17 @@ function ContactDeveloperScreen({
   onOpenPrivacyPolicy,
   onClose,
   onSend,
+  sendAccessibilityLabel,
   styles,
 }: {
   appName: string;
   appVersion: string;
   appBuildVersion: string | null;
+  screenTitle?: string;
+  heroTitle?: string;
+  heroText?: string;
+  detailsPlaceholder?: string;
+  categoryLocked?: boolean;
   name: string;
   email: string;
   title: string;
@@ -376,6 +453,7 @@ function ContactDeveloperScreen({
   onOpenPrivacyPolicy: () => void;
   onClose: () => void;
   onSend: () => void;
+  sendAccessibilityLabel?: string;
   styles: AboutStyles;
 }) {
   const iconColor = isDark ? GDark.text : '#050505';
@@ -406,6 +484,13 @@ function ContactDeveloperScreen({
     title.trim().length > 0 &&
     message.trim().length > 0 &&
     consentAccepted;
+  const resolvedScreenTitle = screenTitle ?? 'Contact Developer';
+  const resolvedHeroTitle = heroTitle ?? `${appName} support`;
+  const resolvedHeroText =
+    heroText ??
+    'Send a structured request to the developer team. Include the area, title, and details so the issue can be reviewed clearly.';
+  const resolvedDetailsPlaceholder = detailsPlaceholder ?? 'Describe your problem in detail here';
+  const resolvedSendAccessibilityLabel = sendAccessibilityLabel ?? 'Send developer support request';
 
   const scrollDetailsFromLayout = useCallback((animated = true) => {
     const layout = detailsLayoutRef.current;
@@ -520,7 +605,7 @@ function ContactDeveloperScreen({
         >
           <Ionicons name="arrow-back" size={30} color={iconColor} />
         </FastPressable>
-        <Text style={styles.contactPageTitle} numberOfLines={1}>Contact Developer</Text>
+        <Text style={styles.contactPageTitle} numberOfLines={1}>{resolvedScreenTitle}</Text>
       </View>
 
       <KeyboardAvoidingView
@@ -547,9 +632,9 @@ function ContactDeveloperScreen({
             <View style={styles.contactHeroCard}>
               <AppLogo style={styles.contactHeroLogo} />
               <View style={styles.contactHeroCopy}>
-                <Text style={styles.contactHeroTitle} numberOfLines={1}>{appName} support</Text>
+                <Text style={styles.contactHeroTitle} numberOfLines={1}>{resolvedHeroTitle}</Text>
                 <Text style={styles.contactHeroText}>
-                  Send a structured request to the developer team. Include the area, title, and details so the issue can be reviewed clearly.
+                  {resolvedHeroText}
                 </Text>
                 <Text style={styles.contactHeroMeta} numberOfLines={1}>
                   App version {appVersion}
@@ -584,12 +669,17 @@ function ContactDeveloperScreen({
             <View style={styles.formField}>
               <Text style={styles.formFieldLabel}>Category</Text>
               <FastPressable
-                onPress={onOpenCategorySheet}
+                onPress={categoryLocked ? undefined : onOpenCategorySheet}
                 activateOnPressIn
+                disabled={categoryLocked}
                 latencyLabel="about.contact.category.open"
-                style={({ pressed }) => [styles.categorySelectCard, pressed && styles.contactLinePressed]}
+                style={({ pressed }) => [
+                  styles.categorySelectCard,
+                  pressed && !categoryLocked && styles.contactLinePressed,
+                ]}
                 accessibilityRole="button"
                 accessibilityLabel="Select category"
+                accessibilityState={{ disabled: categoryLocked }}
               >
                 <View style={styles.categorySelectCopy}>
                   <Text style={styles.categorySelectValue} numberOfLines={1}>
@@ -599,9 +689,13 @@ function ContactDeveloperScreen({
                     {selectedCategory?.subtitle ?? 'Choose the closest request type'}
                   </Text>
                 </View>
-                <Ionicons name="chevron-down" size={27} color={categoryChevronColor} />
+                <Ionicons
+                  name={categoryLocked ? 'lock-closed-outline' : 'chevron-down'}
+                  size={categoryLocked ? 22 : 27}
+                  color={categoryChevronColor}
+                />
               </FastPressable>
-              {categorySheetOpen ? (
+              {categorySheetOpen && !categoryLocked ? (
                 <ContactCategoryDropdown
                   selectedCategory={selectedCategory}
                   onSelect={onSelectCategory}
@@ -629,7 +723,7 @@ function ContactDeveloperScreen({
               <TextInput
                 value={message}
                 onChangeText={onChangeMessage}
-                placeholder="Describe your problem in detail here"
+                placeholder={resolvedDetailsPlaceholder}
                 placeholderTextColor={placeholderColor}
                 style={styles.problemInput}
                 multiline
@@ -682,7 +776,7 @@ function ContactDeveloperScreen({
             latencyLabel="about.contact.send"
             style={[styles.contactSendButton, canSend && styles.contactSendButtonEnabled]}
             accessibilityRole="button"
-            accessibilityLabel="Send developer support request"
+            accessibilityLabel={resolvedSendAccessibilityLabel}
             accessibilityState={{ disabled: !canSend }}
           >
             <Text style={[styles.contactSendText, canSend && styles.contactSendTextEnabled]}>SEND</Text>

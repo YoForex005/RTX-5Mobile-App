@@ -109,9 +109,21 @@ test('about account deletion request is available as an in-app contact category'
   assert.equal(category.label, 'Account Deletion');
 
   const screenSource = readSource('src/features/settings/AboutScreen.tsx');
+  const accountDeletionRouteSource = readSource('app/settings/account-deletion.tsx');
+  const contactDeveloperRouteSource = readSource('app/settings/contact-developer.tsx');
+  const layoutSource = readSource('app/_layout.tsx');
+
   assert.match(screenSource, /case 'account-deletion':/);
-  assert.match(screenSource, /setContactTitle\('Account deletion request'\)/);
+  assert.match(screenSource, /router\.push\('\/settings\/account-deletion'\)/);
+  assert.match(screenSource, /case 'contact-developer':/);
+  assert.match(screenSource, /router\.push\('\/settings\/contact-developer'\)/);
+  assert.match(accountDeletionRouteSource, /<DeveloperContactRequestScreen mode="account-deletion" \/>/);
+  assert.match(contactDeveloperRouteSource, /<DeveloperContactRequestScreen mode="contact-developer" \/>/);
+  assert.match(layoutSource, /<Stack\.Screen name='settings\/account-deletion'/);
+  assert.match(layoutSource, /<Stack\.Screen name='settings\/contact-developer'/);
+  assert.match(screenSource, /setContactTitle\(\(current\) => \(current\.trim\(\)\.length > 0 \? current : 'Account deletion request'\)\)/);
   assert.match(screenSource, /buildAccountDeletionRequestMessage\(\{/);
+  assert.match(screenSource, /categoryLocked=\{isAccountDeletion\}/);
   assert.match(screenSource, /getConfiguredPrivacyPolicyUrl\(\)/);
 });
 

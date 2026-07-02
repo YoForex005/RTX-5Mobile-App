@@ -19,7 +19,6 @@ import {
 import { candleMemoryCache } from '../candleMemoryCache';
 import { getEventTime, getHistorySeedSnapshot, logDebug } from './helpers';
 import {
-  DEFAULT_HISTORY_LIMIT,
   INITIAL_HISTORY_LIMIT,
   MAX_RENDERED_HISTORY_CANDLES,
   MAX_RETAINED_HISTORY_CANDLES,
@@ -86,7 +85,7 @@ export const runLoadHistory = (
   if (isPaginationRequest) {
     entry.historyPageLoading = true;
   } else {
-    entry.renderHistoryLimit = DEFAULT_HISTORY_LIMIT;
+    entry.renderHistoryLimit = INITIAL_HISTORY_LIMIT;
     entry.historyPaginationCursorTime = null;
     entry.historyLoading = true;
     entry.historyPageLoading = false;
@@ -122,7 +121,7 @@ export const runLoadHistory = (
           live.historyPaginationCursorTime = null;
           live.renderHistoryLimit = Math.min(
             MAX_RENDERED_HISTORY_CANDLES,
-            Math.max(DEFAULT_HISTORY_LIMIT, live.renderHistoryLimit + newOlderHistoryCount),
+            Math.max(INITIAL_HISTORY_LIMIT, live.renderHistoryLimit + newOlderHistoryCount),
           );
         } else if (typeof options?.from === 'number' && Number.isFinite(options.from)) {
           live.historyPaginationCursorTime = Math.max(1, Math.floor(options.from));

@@ -19,6 +19,7 @@ import { ActivityIndicator, Alert, LayoutChangeEvent, ScrollView, StyleSheet, Te
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../ui/components/ActionSheet';
 import { runCriticalTradeAction, runImmediateAction } from '../../utils/actionLatency';
+import { scheduleIdleWork } from '../../utils/startupScheduler';
 import {
   TvCrosshair, TvTrendLine, TvFib, TvText, TvMeasure, TvZoom, TvPencil, TvLock, TvHide, TvTrash, TvLayers,
   TvCandles, TvGrid4, TvUndo, TvRedo, TvSaveSquare, TvPrediction, TvStayInDrawingMode, TvRadialObjects
@@ -34,7 +35,6 @@ import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useLiveCandles, useLiveTick } from '../../domain/candles/hooks/useLiveCandles';
-import { CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE } from '../../domain/candles/api/candles';
 import { liveCandleStream as liveCandlesEngine } from '../../domain/candles/stream/liveCandleStream';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { useOrdersByLoginQuery, usePlaceOrderMutation } from '../../query/orders';
@@ -101,6 +101,8 @@ import {
   resolveChartSymbolKey,
 } from './chartSymbolMetadata';
 import {
+  CHART_SYMBOL_PICKER_PREFETCH_DELAY_MS,
+  CHART_SYMBOL_PICKER_PREFETCH_LIMIT,
   CHART_DEFAULT_TIME_SCALE_BAR_SPACING,
   CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING,
   CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH,
@@ -620,9 +622,6 @@ export function ChartScreen() {
     })),
   );
   const preferencesHydrated = useUserPreferences((s) => s.hasHydrated);
-  const hasAuthenticatedChartSession = useUserPreferences((state) =>
-    Boolean(state.isLoggedIn && state.accountDetails?.credentials?.accessToken),
-  );
   const chartShowOnChart = useUserPreferences((s) => s.chartShowOnChart);
   const resolvedChartColors = useMemo(
     () => resolveChartColorsForTheme(chartColors, chartColorScheme, isDark),
@@ -724,7 +723,7 @@ export function ChartScreen() {
 
   const [activeDateRange, setActiveDateRange] = useState<ChartTimeRange>('auto');
   const [customDateValue, setCustomDateValue] = useState<Date | null>(null);
-  const chartDataActive = isScreenFocused && hasAuthenticatedChartSession;
+  const chartDataActive = isScreenFocused;
   const { candles } = useLiveCandles(chartSymbol, chartTimeframe, chartDataActive);
   const sanitizedCandles = useMemo(
     () => sanitizeCandlesForChart(candles, { timeframe: chartTimeframe }),
@@ -892,10 +891,9 @@ export function ChartScreen() {
     }
   }, [candlesAvailable, forceHideLoading]);
 
-  const shouldShowChartLoginPrompt = !hasAuthenticatedChartSession;
-  const isLoading = sanitizedCandles.length === 0 && !shouldShowChartLoginPrompt && !forceHideLoading;
+  const isLoading = sanitizedCandles.length === 0 && !forceHideLoading;
   const isError = false;
-  const isNoMarketData = sanitizedCandles.length === 0 && !shouldShowChartLoginPrompt && !isLoading && !isError;
+  const isNoMarketData = sanitizedCandles.length === 0 && !isLoading && !isError;
 
   // Initialize Lightweight Chart
   useEffect(() => {
@@ -1137,27 +1135,45 @@ export function ChartScreen() {
     applyWebTimeRange('custom', selectedDate);
   };
 
-  const prefetchChartContext = useCallback((targetSymbol: string, targetTimeframe: string) => {
-    if (!hasAuthenticatedChartSession) {
+  const prefetchChartTimeframeHistory = useCallback((targetSymbol: string, targetTimeframe: string) => {
+    return liveCandlesEngine.prefetchHistory(targetSymbol, targetTimeframe);
+  }, []);
+  const prefetchSymbolPickerHistory = useCallback(() => {
+    const currentSymbolKey = chartSymbol.trim().toUpperCase();
+    const targets = availableSymbols
+      .filter((symbol) => symbol.trim().toUpperCase() !== currentSymbolKey)
+      .slice(0, CHART_SYMBOL_PICKER_PREFETCH_LIMIT);
+    if (targets.length === 0 || !chartTimeframe) {
       return;
     }
 
+    scheduleIdleWork(() => {
+      targets.forEach((targetSymbol) => {
+        void prefetchChartTimeframeHistory(targetSymbol, chartTimeframe).catch((error) => {
+          if (typeof __DEV__ !== 'undefined' && __DEV__) {
+            console.warn('[CHART] Web symbol picker history prefetch failed', {
+              symbol: targetSymbol,
+              timeframe: chartTimeframe,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
+        });
+      });
+    }, {
+      delayMs: CHART_SYMBOL_PICKER_PREFETCH_DELAY_MS,
+      timeoutMs: 1500,
+    });
+  }, [availableSymbols, chartSymbol, chartTimeframe, prefetchChartTimeframeHistory]);
+  const refreshSelectedChartHistory = useCallback((targetSymbol: string, targetTimeframe: string) => {
     const normalizedSymbol = normalizeSymbol(targetSymbol);
     const normalizedTimeframe = normalizeTimeframeStrict(targetTimeframe);
     if (!normalizedSymbol || !normalizedTimeframe) {
       return;
     }
 
-    void liveCandlesEngine.prefetchHistory(normalizedSymbol, normalizedTimeframe).catch((error) => {
-      if (typeof __DEV__ !== 'undefined' && __DEV__) {
-        console.warn('[CHART] Web target candle prefetch failed', {
-          symbol: normalizedSymbol,
-          timeframe: normalizedTimeframe,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
-    });
-  }, [hasAuthenticatedChartSession]);
+    void liveCandlesEngine.prefetchHistory(normalizedSymbol, normalizedTimeframe);
+    liveCandlesEngine.refreshHistoryForContext(normalizedSymbol, normalizedTimeframe);
+  }, []);
 
   const handleOpenSymbolPicker = useCallback(() => {
     runImmediateAction('chart.web.symbolPicker.open', () => {
@@ -1166,15 +1182,16 @@ export function ChartScreen() {
       setShowMoreMenu(false);
       setShowTemplatesMenu(false);
       setSymbolPickerOpen(true);
+      prefetchSymbolPickerHistory();
     });
-  }, []);
+  }, [prefetchSymbolPickerHistory]);
 
   const handleTimeframeSelect = useCallback((nextTimeframe: string) => {
     setActiveDateRange('auto');
     setCustomDateValue(null);
-    prefetchChartContext(chartSymbol, nextTimeframe);
+    refreshSelectedChartHistory(chartSymbol, nextTimeframe);
     setChartTimeframe(nextTimeframe);
-  }, [chartSymbol, prefetchChartContext, setChartTimeframe]);
+  }, [chartSymbol, refreshSelectedChartHistory, setChartTimeframe]);
 
   const handleSymbolSelect = useCallback((nextSymbol: string) => {
     if (nextSymbol === chartSymbol) {
@@ -1183,9 +1200,9 @@ export function ChartScreen() {
 
     setActiveDateRange('auto');
     setCustomDateValue(null);
-    prefetchChartContext(nextSymbol, chartTimeframe);
+    refreshSelectedChartHistory(nextSymbol, chartTimeframe);
     setChartSymbol(nextSymbol);
-  }, [chartSymbol, chartTimeframe, prefetchChartContext, setChartSymbol]);
+  }, [chartSymbol, chartTimeframe, refreshSelectedChartHistory, setChartSymbol]);
 
   useEffect(() => {
     if (!hasCandles) return;
@@ -1583,13 +1600,6 @@ export function ChartScreen() {
                       </View>
                     ))}
                   </View>
-                </View>
-              )}
-
-              {shouldShowChartLoginPrompt && (
-                <View style={styles.chartOverlay}>
-                  <Ionicons name="lock-closed-outline" size={36} color={TEXT_MUTED} />
-                  <Text style={styles.overlayText}>{CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE}</Text>
                 </View>
               )}
 

@@ -8,7 +8,6 @@ import {
   materializeLiveCandleMap,
 } from '../../series/freshHistoryLiveSeries';
 import { hydratePersistedCandleCache } from '../../state/persistedCandleCache';
-import { MAX_CANDLE_SERIES_LENGTH } from '../../core/candles';
 import {
   createCandleStreamKey,
   getTimeframeSeconds,
@@ -24,7 +23,6 @@ import {
   EMPTY_CANDLES,
   FLUSH_INTERVAL_MS,
   MAX_BUFFERED_LIVE_EVENTS,
-  DEFAULT_HISTORY_LIMIT,
   INITIAL_HISTORY_LIMIT,
   MAX_RENDERED_HISTORY_CANDLES,
   PAGINATED_HISTORY_LIMIT,
@@ -93,6 +91,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     const entry = this.ensureEntry(normalizedSymbol, normalizedTimeframe);
     entry.listeners.add(listener);
     entry.consumers += 1;
+    this.reloadEmptyIdleHistory(entry);
 
     if (entry.candles.length > 0 || entry.error) {
       listener();
@@ -133,9 +132,27 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       return;
     }
 
-    entry.renderHistoryLimit = DEFAULT_HISTORY_LIMIT;
-    entry.historyPaginationCursorTime = null;
-    runLoadHistory(this, entry, INITIAL_HISTORY_LIMIT);
+    this.loadFreshHistory(entry);
+  }
+
+  /**
+   * Requests a fresh REST baseline for an already-known chart context.
+   * If the target stream does not exist yet, the next `subscribe()` call owns
+   * the first load so symbol/timeframe switches never issue duplicate requests.
+   */
+  public refreshHistoryForContext(symbol: string, timeframe: string): void {
+    const normalizedSymbol = normalizeSymbol(symbol);
+    const normalizedTimeframe = normalizeTimeframeStrict(timeframe);
+    if (!normalizedSymbol || !normalizedTimeframe) {
+      return;
+    }
+
+    const entry = this.entries.get(this.getKey(normalizedSymbol, normalizedTimeframe));
+    if (!entry || this.isHistoryRequestActive(entry)) {
+      return;
+    }
+
+    this.loadFreshHistory(entry);
   }
 
   /**
@@ -149,7 +166,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     }
     const activeRenderLimit = Math.min(
       MAX_RENDERED_HISTORY_CANDLES,
-      Math.max(DEFAULT_HISTORY_LIMIT, entry.renderHistoryLimit || DEFAULT_HISTORY_LIMIT),
+      Math.max(INITIAL_HISTORY_LIMIT, entry.renderHistoryLimit || INITIAL_HISTORY_LIMIT),
     );
     if (activeRenderLimit >= MAX_RENDERED_HISTORY_CANDLES && entry.candles.length >= MAX_RENDERED_HISTORY_CANDLES) {
       return;
@@ -183,14 +200,14 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       return;
     }
 
-    const safeCandles = sanitizeCandlesForChart(candles, { timeframe: entry.timeframe }).slice(-MAX_CANDLE_SERIES_LENGTH);
+    const safeCandles = sanitizeCandlesForChart(candles, { timeframe: entry.timeframe }).slice(-INITIAL_HISTORY_LIMIT);
     if (safeCandles.length === 0 || isSameSeries(entry.candles, safeCandles)) {
       return;
     }
 
     entry.historyCandles = safeCandles;
     entry.liveCandleMap = new Map();
-    entry.renderHistoryLimit = DEFAULT_HISTORY_LIMIT;
+    entry.renderHistoryLimit = INITIAL_HISTORY_LIMIT;
     entry.historyPaginationCursorTime = null;
 
     const { closedHistory } = splitRestHistoryCandles(
@@ -353,7 +370,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     // looked while forming (no reload/flicker, no live→history shape change).
     const renderHistoryLimit = Math.min(
       MAX_RENDERED_HISTORY_CANDLES,
-      Math.max(DEFAULT_HISTORY_LIMIT, entry.renderHistoryLimit || DEFAULT_HISTORY_LIMIT),
+      Math.max(INITIAL_HISTORY_LIMIT, entry.renderHistoryLimit || INITIAL_HISTORY_LIMIT),
     );
     const nextCandles = buildFreshHistoryLiveCandleSeries(
       entry.historyCandles,
@@ -411,7 +428,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       historyLastTime: null,
       lastLiveEdgeGapRefreshBoundary: null,
       historyPaginationCursorTime: null,
-      renderHistoryLimit: DEFAULT_HISTORY_LIMIT,
+      renderHistoryLimit: INITIAL_HISTORY_LIMIT,
       candles: EMPTY_CANDLES as CandleParams[],
       listeners: new Set(),
       consumers: 0,
@@ -449,8 +466,53 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       });
     }
 
-    runLoadHistory(this, entry, INITIAL_HISTORY_LIMIT);
+    this.loadFreshHistory(entry);
     return entry;
+  }
+
+  private isHistoryRequestActive(entry: StreamEntry): boolean {
+    return (
+      entry.historyLoading ||
+      entry.historyPageLoading ||
+      Boolean(entry.abortController) ||
+      this.historyPrefetches.has(entry.key)
+    );
+  }
+
+  private loadFreshHistory(entry: StreamEntry): void {
+    entry.renderHistoryLimit = INITIAL_HISTORY_LIMIT;
+    entry.historyPaginationCursorTime = null;
+
+    const pendingPrefetch = this.historyPrefetches.get(entry.key);
+    if (pendingPrefetch) {
+      entry.loading = true;
+      this.notify(entry);
+      void pendingPrefetch.then(() => {
+        const live = this.entries.get(entry.key);
+        if (
+          !live ||
+          live.historyCandles.length > 0 ||
+          live.historyLoading ||
+          live.historyPageLoading ||
+          live.abortController
+        ) {
+          return;
+        }
+
+        runLoadHistory(this, live, INITIAL_HISTORY_LIMIT);
+      });
+      return;
+    }
+
+    runLoadHistory(this, entry, INITIAL_HISTORY_LIMIT);
+  }
+
+  private reloadEmptyIdleHistory(entry: StreamEntry): void {
+    if (entry.historyCandles.length > 0 || this.isHistoryRequestActive(entry)) {
+      return;
+    }
+
+    this.loadFreshHistory(entry);
   }
 
   private unsubscribeListener(key: string, listener: StreamListener): void {

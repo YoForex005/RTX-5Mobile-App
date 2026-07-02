@@ -39,9 +39,18 @@ const readRepoSource = (relativePath: string): string => {
 
 test('canonical live stream exposes safe REST history prefetch for fast timeframe switches', () => {
   assert.match(source, /const DEFAULT_HISTORY_LIMIT = MAX_CANDLE_SERIES_LENGTH/);
-  assert.match(source, /const INITIAL_HISTORY_LIMIT = Math\.min\(600, MAX_CANDLE_SERIES_LENGTH\)/);
+  assert.match(source, /const INITIAL_VIEWPORT_HISTORY_LIMIT = 120/);
+  assert.match(source, /const INITIAL_HISTORY_LIMIT = Math\.min\(INITIAL_VIEWPORT_HISTORY_LIMIT, MAX_CANDLE_SERIES_LENGTH\)/);
   assert.match(source, /public async prefetchHistory\(symbol: string, timeframe: string\): Promise<number>/);
   assert.match(source, /getCandleHistory\(normalizedSymbol, normalizedTimeframe, INITIAL_HISTORY_LIMIT\)/);
+  assert.match(source, /slice\(-INITIAL_HISTORY_LIMIT\)/);
+  assert.match(source, /renderHistoryLimit: INITIAL_HISTORY_LIMIT/);
+  assert.match(source, /entry\.renderHistoryLimit = INITIAL_HISTORY_LIMIT/);
+  assert.match(source, /Math\.max\(INITIAL_HISTORY_LIMIT, entry\.renderHistoryLimit \|\| INITIAL_HISTORY_LIMIT\)/);
+  assert.match(source, /this\.historyPrefetches\.has\(entry\.key\)/);
+  assert.match(source, /const pendingPrefetch = this\.historyPrefetches\.get\(entry\.key\)/);
+  assert.match(source, /void pendingPrefetch\.then\(\(\) => \{/);
+  assert.match(source, /live\.historyCandles\.length > 0[\s\S]*runLoadHistory\(this, live, INITIAL_HISTORY_LIMIT\)/);
   assert.match(source, /candleMemoryCache\.set\(normalizedSymbol, normalizedTimeframe, candles\)/);
   assert.match(source, /syncMergedCandleCache\(normalizedSymbol, normalizedTimeframe, history\.closedCandles, \{ canonical: true \}\)/);
 });
@@ -59,6 +68,7 @@ test('canonical live stream keeps pagination windows bounded to the selected tim
   assert.match(source, /entry\.loading = entry\.historyLoading \|\| entry\.historyPageLoading/);
   assert.match(source, /MAX_RENDERED_HISTORY_CANDLES/);
   assert.match(source, /live\.renderHistoryLimit = Math\.min\(/);
+  assert.match(source, /Math\.max\(INITIAL_HISTORY_LIMIT, live\.renderHistoryLimit \+ newOlderHistoryCount\)/);
   assert.match(source, /live\.historyPaginationCursorTime = Math\.max\(1, Math\.floor\(options\.from\)\)/);
   assert.doesNotMatch(source, /DEFAULT_HISTORY_LIMIT \* 86400/);
 });

@@ -54,8 +54,13 @@ test('radial menu timeframe switch uses stable chart pipeline', () => {
 test('does not permanently blank chart after rapid switching', () => {
   assertSourceContains(
     chartSource,
-    /if \(lastInitSigRef\.current !== currentSig\) \{[\s\S]*chartInitializedRef\.current = false[\s\S]*renderedSeriesSnapshotRef\.current = EMPTY_CHART_SERIES_SNAPSHOT[\s\S]*setChartCanvasReady\(false\)[\s\S]*setChartPlotArea\(null\)/,
-    'symbol/timeframe signature changes must invalidate stale canvas readiness',
+    /const chartDataContextSig = useMemo\([\s\S]*chartSymbol[\s\S]*normalizeTimeframe\(chartTimeframe\)/,
+    'symbol/timeframe switches must be tracked separately from WebView shell init',
+  );
+  assertSourceContains(
+    chartSource,
+    /const contextChanged = renderedDataContextSigRef\.current !== chartDataContextSig[\s\S]*\? 'full_reload'[\s\S]*: getChartSeriesUpdateMode/,
+    'rapid symbol/timeframe switches must repaint data without waiting for CHART_READY reinit',
   );
   assertSourceContains(
     chartSource,

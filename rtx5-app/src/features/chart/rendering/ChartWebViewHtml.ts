@@ -3488,6 +3488,13 @@ export const CH_HTML = `
         schedulePriceScaleHealthCheck(reason || 'fresh_series', true, 5);
       }
 
+      function resetVisiblePriceScaleForStableReplacement(reason) {
+        void reason;
+        clearFreshSeriesVerticalCenterState();
+        clearManualPriceScaleState();
+        enableRightPriceAutoScale();
+      }
+
       function isVerticalChartMovementBlocked() {
         return verticalScrollingLocked || chartAutoScaleEnabled;
       }
@@ -5289,6 +5296,29 @@ export const CH_HTML = `
         };
       }
 
+      function setDisplayDecimals(displayDecimals) {
+        try {
+          var decimals =
+            typeof displayDecimals === 'number' && isFinite(displayDecimals) && displayDecimals >= 0
+              ? Math.max(0, Math.min(10, Math.round(displayDecimals)))
+              : lastDisplayDecimals;
+          lastRequestedDisplayDecimals = decimals;
+          lastDisplayDecimals = decimals;
+          var priceFormat = makePriceFormat(decimals);
+          if (series && typeof series.applyOptions === 'function') {
+            try { series.applyOptions({ priceFormat: priceFormat }); } catch (_seriesFormatErr) {}
+          }
+          if (moveBarsSeries && typeof moveBarsSeries.applyOptions === 'function') {
+            try { moveBarsSeries.applyOptions({ priceFormat: priceFormat }); } catch (_moveFormatErr) {}
+          }
+          ensureMoveBarsSeries(decimals);
+          refreshMarketPriceScaleDom();
+          refreshOverlayDomLabelsWhenIdle(_overlayPayload);
+        } catch (e) {
+          postError('setDisplayDecimals', e);
+        }
+      }
+
       function resolveTickDateValue(value) {
         if (typeof value === 'string') {
           var trimmed = value.trim();
@@ -6488,12 +6518,15 @@ export const CH_HTML = `
         };
       }
 
-      function updateChartData(data) {
+      function updateChartData(data, options) {
         try {
           if (!series) {
             postError('updateChartData', new Error('series not initialized'));
             return;
           }
+          var updateOptions = options && typeof options === 'object' ? options : {};
+          var preserveVisibleLogicalSpan = updateOptions.preserveVisibleLogicalSpan === true;
+          var resetVisibleRange = updateOptions.resetVisibleRange === true;
           if (tickFlushHandle) {
             try { cancelAnimationFrame(tickFlushHandle); } catch (_) {}
             tickFlushHandle = 0;
@@ -6528,31 +6561,50 @@ export const CH_HTML = `
             lastRawSeriesData[0].time < previousRawSeriesData[0].time;
           var didReplaceVisibleSeries =
             !didPrependHistory &&
-            shouldResetViewportForSeriesReplacement(previousRawSeriesData, lastRawSeriesData);
+            (resetVisibleRange || shouldResetViewportForSeriesReplacement(previousRawSeriesData, lastRawSeriesData));
           var priceScaleReason = didPrependHistory
             ? 'update_data_prepend_history'
             : (didReplaceVisibleSeries ? 'update_data_replace_series' : 'update_data');
-          if (previousRawSeriesData.length === 0 || didReplaceVisibleSeries) {
-            resetVisiblePriceScaleForFreshSeries(priceScaleReason);
-          }
           var restoredPrependedViewport = restorePrependedHistoryViewport(
             previousRawSeriesData,
             lastRawSeriesData,
             previousVisibleLogicalRange
           );
+          var restoredStableReplacementViewport = false;
           if (
             !restoredPrependedViewport &&
+            preserveVisibleLogicalSpan &&
+            didReplaceVisibleSeries &&
+            mapped.length > 0
+          ) {
+            restoredStableReplacementViewport = followLiveRightEdge(previousVisibleLogicalRange, mapped.length);
+          }
+          if (previousRawSeriesData.length === 0 || didReplaceVisibleSeries) {
+            if (restoredStableReplacementViewport) {
+              resetVisiblePriceScaleForStableReplacement(priceScaleReason);
+            } else {
+              resetVisiblePriceScaleForFreshSeries(priceScaleReason);
+            }
+          }
+          if (restoredStableReplacementViewport) {
+            healCollapsedPriceScaleRange(priceScaleReason, true);
+          }
+          if (
+            !restoredPrependedViewport &&
+            !restoredStableReplacementViewport &&
             mapped.length > 0 &&
             (previousRawSeriesData.length === 0 || didReplaceVisibleSeries)
           ) {
             applyRecentViewport(mapped.length);
             scheduleFreshSeriesVerticalCenter(priceScaleReason, true);
           }
-          schedulePriceScaleHealthCheck(
-            priceScaleReason,
-            didPrependHistory || didReplaceVisibleSeries,
-            didPrependHistory || didReplaceVisibleSeries ? 5 : 1
-          );
+          if (!restoredStableReplacementViewport) {
+            schedulePriceScaleHealthCheck(
+              priceScaleReason,
+              didPrependHistory || didReplaceVisibleSeries,
+              didPrependHistory || didReplaceVisibleSeries ? 5 : 1
+            );
+          }
           scheduleRightPriceScaleLayoutRecovery(
             priceScaleReason,
             didPrependHistory || didReplaceVisibleSeries ? RIGHT_PRICE_SCALE_LAYOUT_RECOVERY_MAX_ATTEMPTS : 3
@@ -8128,6 +8180,7 @@ export const CH_HTML = `
       window.initChart = initChart;
       window.updateChartData = updateChartData;
       window.updateTick = updateTick;
+      window.setDisplayDecimals = setDisplayDecimals;
       window.setPeriodSeparators = setPeriodSeparators;
       window.setBidPriceLine = setBidPriceLine;
       window.setAskPriceLine = setAskPriceLine;
