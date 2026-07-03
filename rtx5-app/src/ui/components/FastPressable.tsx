@@ -9,6 +9,11 @@ import {
   FAST_PRESS_GUARD_RESET_MS,
   scheduleActionLatencyCheck,
 } from '../../utils/actionLatency';
+import {
+  recordAppActionJournalEvent,
+  type TerminalJournalLevel,
+  type TerminalJournalSource,
+} from '../../state/terminalJournalState';
 
 type FastPressCallback = (event: any) => void;
 type FastPressableProps = Omit<
@@ -30,6 +35,9 @@ type FastPressableProps = Omit<
   onTouchStart?: null | FastPressCallback;
   latencyLabel?: string;
   latencyBudgetMs?: number;
+  journalActionLabel?: string;
+  journalActionSource?: TerminalJournalSource;
+  journalActionLevel?: TerminalJournalLevel;
   /**
    * When true, fires the `onPress` action at the earliest possible moment
    * (onPressIn) rather than waiting for the full press-release cycle.
@@ -93,6 +101,9 @@ export const FastPressable = memo(function FastPressable({
   unstable_pressDelay,
   latencyLabel = 'fastPress',
   latencyBudgetMs,
+  journalActionLabel,
+  journalActionSource = 'Actions',
+  journalActionLevel = 'info',
   activateOnPressIn = false,
   activateOnTouchStart = false,
   ...props
@@ -120,6 +131,9 @@ export const FastPressable = memo(function FastPressable({
   const activateOnTouchStartRef = React.useRef(activateOnTouchStart);
   const latencyLabelRef = React.useRef(latencyLabel);
   const latencyBudgetMsRef = React.useRef(latencyBudgetMs);
+  const journalActionLabelRef = React.useRef(journalActionLabel);
+  const journalActionSourceRef = React.useRef(journalActionSource);
+  const journalActionLevelRef = React.useRef(journalActionLevel);
 
   onPressRef.current = onPress;
   onPressInRef.current = onPressIn;
@@ -131,6 +145,9 @@ export const FastPressable = memo(function FastPressable({
   activateOnTouchStartRef.current = activateOnTouchStart;
   latencyLabelRef.current = latencyLabel;
   latencyBudgetMsRef.current = latencyBudgetMs;
+  journalActionLabelRef.current = journalActionLabel;
+  journalActionSourceRef.current = journalActionSource;
+  journalActionLevelRef.current = journalActionLevel;
 
   const clearPressGuardTimer = useCallback(() => {
     if (resetTimerRef.current) {
@@ -146,6 +163,14 @@ export const FastPressable = memo(function FastPressable({
     const startedAtMs = getInteractionNow();
     const latencyLabel = latencyLabelRef.current;
     const latencyBudgetMs = latencyBudgetMsRef.current;
+    const journalActionLabel = journalActionLabelRef.current;
+    if (journalActionLabel) {
+      recordAppActionJournalEvent({
+        message: journalActionLabel,
+        source: journalActionSourceRef.current,
+        level: journalActionLevelRef.current,
+      });
+    }
     action(normalizePressEvent(event));
     scheduleActionLatencyCheck(latencyLabel, startedAtMs, latencyBudgetMs);
   }, []);

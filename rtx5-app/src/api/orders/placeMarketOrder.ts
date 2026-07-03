@@ -10,6 +10,11 @@
 import { apiClient, decodeBrokerIdFromToken } from '../apiClient';
 import { assertTradeSide } from '../../domain/tradeSide';
 import { createTradingApiError } from '../tradingErrors';
+import {
+  recordMarketOrderJournalFailure,
+  recordMarketOrderJournalRequest,
+  recordMarketOrderJournalSuccess,
+} from '../../state/terminalJournalState';
 import { useUserPreferences } from '../../state/userPreferences';
 import { getApiLatencyNow, recordApiLatency } from '../../utils/apiLatency';
 import { resolveBrokerSymbol, resolveBrokerSymbolFromCache } from './symbolResolver';
@@ -94,6 +99,15 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
     priceSource: requestedSide === 'buy' ? 'ask' : 'bid',
     rawPayload: orderBody,
   });
+  const journalPayload = {
+    account_login: loginInt,
+    symbol: callerSymbol,
+    side: requestedSide,
+    volume: restWithoutBroker.volume,
+    price_sl: restWithoutBroker.price_sl,
+    price_tp: restWithoutBroker.price_tp,
+  };
+  recordMarketOrderJournalRequest(journalPayload);
 
   type Attempt = {
     symbol: string;
@@ -157,6 +171,7 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
         durationMs: getApiLatencyNow() - startedAtMs,
         error,
       });
+      recordMarketOrderJournalFailure(journalPayload, error);
       throw error;
     }
   };
@@ -250,7 +265,9 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
     if (status === 429 && lastBad?.response) {
       headers['retry-after'] = lastBad.response.headers.get('retry-after') || '';
     }
-    throw createTradingApiError(lastBad?.graceful ? 400 : status, body, headers);
+    const error = createTradingApiError(lastBad?.graceful ? 400 : status, body, headers);
+    recordMarketOrderJournalFailure(journalPayload, error);
+    throw error;
   }
 
   acceptedOrderSymbolCache.set(brokerCacheKey, accepted.symbol);
@@ -284,5 +301,9 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
     });
   }
 
+  recordMarketOrderJournalSuccess(
+    { ...journalPayload, symbol: accepted.symbol || callerSymbol },
+    finalData,
+  );
   return finalData;
 };

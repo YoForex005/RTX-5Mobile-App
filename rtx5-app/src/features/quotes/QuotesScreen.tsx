@@ -1156,8 +1156,10 @@ type AddSymbolPalette = {
   iconBg: string;
   chipBg: string;
   chipBorder: string;
+  chipText: string;
   mutedText: string;
   actionBg: string;
+  actionText: string;
   actionAddedBg: string;
 };
 
@@ -1173,10 +1175,12 @@ function getAddSymbolPalette(T: ThemeColors, isDark: boolean): AddSymbolPalette 
       rowBorder: QUOTES_DARK_BORDER,
       rowPressed: QUOTES_DARK_SURFACE_RAISED,
       iconBg: QUOTES_DARK_SURFACE_RAISED,
-      chipBg: 'rgba(169,112,255,0.16)',
-      chipBorder: QUOTES_DARK_ACCENT_BORDER,
+      chipBg: 'rgba(30,41,59,0.86)',
+      chipBorder: 'rgba(148,163,184,0.24)',
+      chipText: '#8AB4F8',
       mutedText: QUOTES_DARK_MUTED_TEXT,
-      actionBg: QUOTES_DARK_ACCENT_SOFT,
+      actionBg: 'rgba(30,41,59,0.86)',
+      actionText: '#8AB4F8',
       actionAddedBg: 'rgba(16,185,129,0.14)',
     };
   }
@@ -1190,10 +1194,12 @@ function getAddSymbolPalette(T: ThemeColors, isDark: boolean): AddSymbolPalette 
     rowBorder: '#E3E8F0',
     rowPressed: '#F1F5F9',
     iconBg: '#F3F6FB',
-    chipBg: '#EEF4FF',
-    chipBorder: '#C7D8FA',
+    chipBg: '#EAF1FB',
+    chipBorder: '#C8D6E8',
+    chipText: '#1D4ED8',
     mutedText: T.textMuted,
-    actionBg: '#EEF4FF',
+    actionBg: '#EAF1FB',
+    actionText: '#1D4ED8',
     actionAddedBg: '#EAF8F1',
   };
 }
@@ -1385,7 +1391,7 @@ function AddSymbolModal({
             { backgroundColor: addPalette.chipBg, borderColor: addPalette.chipBorder },
           ]}
         >
-          <Text style={[addSymbolStyles.headerCountText, { color: T.accent }]}>
+          <Text style={[addSymbolStyles.headerCountText, { color: addPalette.chipText }]}>
             {activeScopeAdded}/{currentScopeSymbols.length}
           </Text>
         </View>
@@ -1468,7 +1474,7 @@ function AddSymbolModal({
               <Text
                 style={[
                   addSymbolStyles.breadcrumbText,
-                  { color: item === folder ? T.accent : addPalette.mutedText },
+                  { color: item === folder ? addPalette.chipText : addPalette.mutedText },
                 ]}
               >
                 {t(ADD_SYMBOL_FOLDER_LABELS[item])}
@@ -1529,7 +1535,7 @@ function AddSymbolModal({
                       { backgroundColor: addPalette.chipBg, borderColor: addPalette.chipBorder },
                     ]}
                   >
-                    <Text style={[addSymbolStyles.folderCount, { color: T.accent }]}>
+                    <Text style={[addSymbolStyles.folderCount, { color: addPalette.chipText }]}>
                       {added}/{item.symbols.length}
                     </Text>
                   </View>
@@ -1586,13 +1592,16 @@ function AddSymbolModal({
               <View
                 style={[
                   addSymbolStyles.symbolActionButton,
-                  { backgroundColor: alreadyAdded ? addPalette.actionAddedBg : addPalette.actionBg },
+                  {
+                    backgroundColor: alreadyAdded ? addPalette.actionAddedBg : addPalette.actionBg,
+                    borderColor: alreadyAdded ? T.trading.profit : addPalette.chipBorder,
+                  },
                 ]}
               >
                 <Ionicons
                   name={alreadyAdded ? 'checkmark' : 'add'}
                   size={20}
-                  color={alreadyAdded ? T.trading.profit : T.accent}
+                  color={alreadyAdded ? T.trading.profit : addPalette.actionText}
                 />
               </View>
             </Pressable>
@@ -2550,6 +2559,7 @@ const addSymbolStyles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },

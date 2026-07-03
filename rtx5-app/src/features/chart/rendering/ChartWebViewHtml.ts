@@ -5526,13 +5526,54 @@ export const CH_HTML = `
       // can re-run chart creation if the container had zero dimensions
       // on the first attempt (common on Android light theme first load).
       var _pendingInit = null;
+      var lastHostViewportSize = { width: 0, height: 0 };
+
+      function normalizePositiveViewportSize(width, height) {
+        var w = Math.round(Number(width));
+        var h = Math.round(Number(height));
+        return {
+          width: isFinite(w) && w > 0 ? w : 0,
+          height: isFinite(h) && h > 0 ? h : 0,
+        };
+      }
+
+      function rememberHostViewportSize(width, height) {
+        var size = normalizePositiveViewportSize(width, height);
+        if (size.width > 0 && size.height > 0) {
+          lastHostViewportSize = size;
+        }
+        return size;
+      }
+
+      function resolveChartViewportSize(preferredWidth, preferredHeight) {
+        var chartElement = document.getElementById('chart');
+        var preferred = normalizePositiveViewportSize(preferredWidth, preferredHeight);
+        var elementWidth = chartElement && chartElement.clientWidth ? chartElement.clientWidth : 0;
+        var elementHeight = chartElement && chartElement.clientHeight ? chartElement.clientHeight : 0;
+        var windowWidth = typeof window.innerWidth === 'number' && isFinite(window.innerWidth) ? window.innerWidth : 0;
+        var windowHeight = typeof window.innerHeight === 'number' && isFinite(window.innerHeight) ? window.innerHeight : 0;
+        var hostWidth = lastHostViewportSize.width || 0;
+        var hostHeight = lastHostViewportSize.height || 0;
+        var resolvedWidth = preferred.width || elementWidth || windowWidth || hostWidth || 0;
+        var resolvedHeight = preferred.height || elementHeight || windowHeight || hostHeight || 0;
+
+        if (hostWidth > 0 && (resolvedWidth <= 0 || resolvedWidth < hostWidth * 0.92)) {
+          resolvedWidth = hostWidth;
+        }
+        if (hostHeight > 0 && (resolvedHeight <= 0 || resolvedHeight < hostHeight * 0.92)) {
+          resolvedHeight = hostHeight;
+        }
+
+        return normalizePositiveViewportSize(resolvedWidth, resolvedHeight);
+      }
 
       function _doInitChart(opts, chartType, data, displayDecimals, showLowerPane, initSignature, configSig) {
         var resolvedInitSignature = typeof initSignature === 'string' ? initSignature : '';
         var resolvedConfigSig = typeof configSig === 'string' ? configSig : '';
         var el = document.getElementById('chart');
-        var w = el.clientWidth;
-        var h = el.clientHeight;
+        var viewportSize = resolveChartViewportSize();
+        var w = viewportSize.width;
+        var h = viewportSize.height;
 
         // If the container has zero dimensions, the browser hasn't laid out
         // the WebView yet. Defer to the next animation frame — the
@@ -5889,9 +5930,11 @@ export const CH_HTML = `
 
       function resizeChartViewport(width, height) {
         try {
-          var w = Math.round(Number(width));
-          var h = Math.round(Number(height));
-          if (!isFinite(w) || !isFinite(h) || w <= 0 || h <= 0) return;
+          var hostSize = rememberHostViewportSize(width, height);
+          var viewportSize = resolveChartViewportSize(hostSize.width, hostSize.height);
+          var w = viewportSize.width;
+          var h = viewportSize.height;
+          if (w <= 0 || h <= 0) return;
 
           var chartElement = document.getElementById('chart');
           if (chartElement) {
@@ -5940,15 +5983,10 @@ export const CH_HTML = `
           chartElement.style.width = '100%';
           chartElement.style.height = '100%';
 
-          var w = Math.round(Number(width));
-          var h = Math.round(Number(height));
-
-          if (!isFinite(w) || w <= 0) {
-            w = chartElement.clientWidth;
-          }
-          if (!isFinite(h) || h <= 0) {
-            h = chartElement.clientHeight;
-          }
+          var hostSize = rememberHostViewportSize(width, height);
+          var viewportSize = resolveChartViewportSize(hostSize.width, hostSize.height);
+          var w = viewportSize.width;
+          var h = viewportSize.height;
           if (w <= 0 || h <= 0) return;
 
           if (_pendingInit) {
@@ -6034,8 +6072,9 @@ export const CH_HTML = `
         var _resizeObserver = new ResizeObserver(function(entries) {
           var entry = entries[0];
           if (!entry) return;
-          var w = entry.contentRect.width;
-          var h = entry.contentRect.height;
+          var viewportSize = resolveChartViewportSize(entry.contentRect.width, entry.contentRect.height);
+          var w = viewportSize.width;
+          var h = viewportSize.height;
           if (w > 0 && h > 0) {
             if (_pendingInit) {
               // Container just got real dimensions — run the deferred init.

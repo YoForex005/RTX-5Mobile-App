@@ -52,6 +52,7 @@ import {
   persistAuthSessionTokens,
   persistSelectedBrokerSession,
 } from '../src/state/brokerSessionStorage';
+import { recordAccountJournalEvent } from '../src/state/terminalJournalState';
 
 type RegisterFieldKey =
   | 'firstName'
@@ -200,8 +201,6 @@ export default function RegisterScreen() {
     : isDemoGroupUnavailable
       ? isDemoGroupsFetching
       : false;
-  const canSubmitDemoAccount =
-    isDemoServiceReady && !!selectedDemoGroup?.name && !isPreparingDemoAccount;
   const registerButtonLabel = t('Register a demo account');
 
   const [firstName, setFirstName] = useState('');
@@ -245,6 +244,11 @@ export default function RegisterScreen() {
     getConfiguredTermsUrl(),
     'https://rtx5.orrnn.com/terms-conditions',
   );
+  const demoStatusUnavailableMessage =
+    demoStatusError?.message || t('Demo account service is temporarily unavailable.');
+  const demoGroupsUnavailableMessage =
+    demoGroupsError?.message || t('No demo group is available for account creation.');
+  const isRegisterButtonDisabled = isLoading || !termsAccepted;
 
   React.useEffect(() => () => {
     if (fieldFocusTimerRef.current) {
@@ -309,6 +313,7 @@ export default function RegisterScreen() {
 
   const handleRegister = async () => {
     if (isPreparingDemoAccount) {
+      recordAccountJournalEvent('demo account registration blocked: setup still loading', { level: 'error' });
       Alert.alert(
         t('Demo account unavailable'),
         t('Demo account details are still loading. Please try again in a moment.'),
@@ -317,17 +322,19 @@ export default function RegisterScreen() {
     }
 
     if (!isDemoServiceReady) {
+      recordAccountJournalEvent(`demo account registration blocked: ${demoStatusUnavailableMessage}`, { level: 'error' });
       Alert.alert(
         t('Demo account unavailable'),
-        t('Demo account service is not available. Please try again shortly.'),
+        demoStatusUnavailableMessage,
       );
       return;
     }
 
     if (!selectedDemoGroup?.name) {
+      recordAccountJournalEvent(`demo account registration blocked: ${demoGroupsUnavailableMessage}`, { level: 'error' });
       Alert.alert(
         t('Demo account unavailable'),
-        t('No Orrnn demo group is available for account creation.'),
+        demoGroupsUnavailableMessage,
       );
       return;
     }
@@ -347,31 +354,37 @@ export default function RegisterScreen() {
     const effectiveLeverage = selectedLeverageValue ?? getDefaultDemoLeverage(selectedDemoGroup.leverage);
 
     if (!trimmedFirstName || !trimmedEmail || !password || !investorPassword || !trimmedCountry) {
+      recordAccountJournalEvent('demo account registration blocked: required fields missing', { level: 'error' });
       Alert.alert(t('Error'), t('Please fill in all required fields'));
       return;
     }
 
     if (!isValidEmail(trimmedEmail)) {
+      recordAccountJournalEvent('demo account registration blocked: invalid email format', { level: 'error' });
       Alert.alert(t('Error'), t('Please enter a valid email address (e.g. you@example.com)'));
       return;
     }
 
     if (trimmedPhone && !isValidPhoneNumber(submissionPhone ?? trimmedPhone)) {
+      recordAccountJournalEvent('demo account registration blocked: invalid phone number', { level: 'error' });
       Alert.alert(t('Error'), t('Please enter a valid phone number (digits only, 7-15 digits)'));
       return;
     }
 
     if (!termsAccepted) {
+      recordAccountJournalEvent('demo account registration blocked: terms not accepted', { level: 'error' });
       Alert.alert(t('Error'), t('Please accept the terms and conditions'));
       return;
     }
 
     if (!Number.isFinite(parsedInitialBalance) || parsedInitialBalance <= 0) {
+      recordAccountJournalEvent('demo account registration blocked: invalid initial balance', { level: 'error' });
       Alert.alert(t('Error'), t('Please enter a valid initial balance'));
       return;
     }
 
     setIsLoading(true);
+    recordAccountJournalEvent('demo account registration requested');
     try {
       let brokerConfig: any = null;
       try {
@@ -475,6 +488,10 @@ export default function RegisterScreen() {
           isDemoAccount: true,
         },
       );
+      recordAccountJournalEvent(`demo account created and signed in on ${canonicalBrokerId}`, {
+        level: 'success',
+        accountLogin: sessionLogin,
+      });
       void Promise.all([
         persistSelectedBrokerSession({
           brokerId: canonicalBrokerId,
@@ -517,6 +534,9 @@ export default function RegisterScreen() {
 
       safeRouterBack(router, '/');
     } catch (error: any) {
+      recordAccountJournalEvent(`demo account registration failed: ${error?.message || t('Unable to register account.')}`, {
+        level: 'error',
+      });
       Alert.alert(t('Registration Failed'), error.message || t('Unable to register account.'));
     } finally {
       setIsLoading(false);
@@ -776,8 +796,8 @@ export default function RegisterScreen() {
                   />
                   <Text style={styles.statusNoticeText} numberOfLines={2}>
                     {isDemoServiceUnavailable
-                      ? (demoStatusError?.message || t('Demo account service is temporarily unavailable.'))
-                      : (demoGroupsError?.message || t('No demo group is available for account creation.'))}
+                      ? demoStatusUnavailableMessage
+                      : demoGroupsUnavailableMessage}
                   </Text>
                   <Pressable
                     style={styles.statusRetryBtn}
@@ -1136,11 +1156,13 @@ export default function RegisterScreen() {
               <Pressable
                 style={({ pressed }) => [
                   styles.registerBtn,
-                  (!canSubmitDemoAccount || isLoading || !termsAccepted) && styles.registerBtnDisabled,
-                  (pressed && canSubmitDemoAccount) && styles.registerBtnPressed
+                  isRegisterButtonDisabled && styles.registerBtnDisabled,
+                  (pressed && !isRegisterButtonDisabled) && styles.registerBtnPressed
                 ]}
                 onPress={handleRegister}
-                disabled={isLoading || !canSubmitDemoAccount || !termsAccepted}
+                disabled={isRegisterButtonDisabled}
+                journalActionLabel="pressed Register demo account button"
+                journalActionSource="Actions"
               >
                 <LinearGradient
                   colors={['#1597FF', '#006DFF']}

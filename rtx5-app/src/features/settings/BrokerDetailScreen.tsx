@@ -51,6 +51,7 @@ import {
   persistAuthSessionTokens,
   persistSelectedBrokerSession,
 } from '../../state/brokerSessionStorage';
+import { recordAccountJournalEvent } from '../../state/terminalJournalState';
 import { runImmediateAction } from '../../utils/actionLatency';
 import { formatServerFromName } from './BrokersScreen/brokerData';
 
@@ -431,6 +432,10 @@ export function BrokerDetailScreen() {
       return;
     }
     if (!effectiveServerUrl) {
+      recordAccountJournalEvent('broker detail login blocked: broker server missing', {
+        level: 'error',
+        accountLogin: trimmedLogin,
+      });
       setModalState({
         visible: true,
         type: 'error',
@@ -440,6 +445,10 @@ export function BrokerDetailScreen() {
       return;
     }
     if (!trimmedLogin || !trimmedPassword) {
+      recordAccountJournalEvent('broker detail login blocked: login id or password missing', {
+        level: 'error',
+        accountLogin: trimmedLogin,
+      });
       setModalState({
         visible: true,
         type: 'error',
@@ -451,6 +460,9 @@ export function BrokerDetailScreen() {
 
     requestInFlightRef.current = true;
     setIsLoading(true);
+    recordAccountJournalEvent(`broker detail login requested for broker ${effectiveBrokerId}`, {
+      accountLogin: trimmedLogin,
+    });
     let didStartSuccessNavigation = false;
     try {
       console.log('--- LOGIN API URL ---', effectiveServerUrl);
@@ -524,6 +536,10 @@ export function BrokerDetailScreen() {
           isDemoAccount: accountType === 'demo',
         },
       );
+      recordAccountJournalEvent(`broker detail login succeeded on ${canonicalBrokerId}`, {
+        level: 'success',
+        accountLogin: savedLogin,
+      });
       router.replace('/(tabs)/quotes');
       didStartSuccessNavigation = true;
       scheduleBrokerDetailPostLoginWork(() => {
@@ -583,6 +599,10 @@ export function BrokerDetailScreen() {
       });
     } catch (error: any) {
       console.error('--- LOGIN ERROR ---', error);
+      recordAccountJournalEvent(`broker detail login failed: ${error?.message || t('Invalid credentials')}`, {
+        level: 'error',
+        accountLogin: trimmedLogin,
+      });
       setModalState({
         visible: true,
         type: 'error',
@@ -889,6 +909,8 @@ export function BrokerDetailScreen() {
                 disabled={isLoading}
                 activateOnPressIn
                 latencyLabel="brokerDetail.login.submit"
+                journalActionLabel="pressed broker detail Login button"
+                journalActionSource="Actions"
                 unstable_pressDelay={0}
               >
                 {isLoading ? (

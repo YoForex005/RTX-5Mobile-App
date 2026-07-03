@@ -28,6 +28,32 @@ test('native viewport layout schedules resize and frame sync', () => {
   );
 });
 
+test('route entry retries kept-alive chart viewport recovery during cold start', () => {
+  assertSourceContains(
+    source,
+    /const scheduleChartViewportColdStartRecovery = useCallback\(\(\) => \{[\s\S]*requestChartViewportRecovery\(6\)[\s\S]*\[180, 650, 1400, 2600\]\.map\(\(delayMs\) =>[\s\S]*setTimeout\(\(\) => \{[\s\S]*requestChartViewportRecovery\(delayMs >= 1400 \? 4 : 5\)[\s\S]*recoveryTimers\.forEach\(\(timer\) => clearTimeout\(timer\)\)/,
+    'cold route entry must retry viewport recovery across the slow first WebView boot window',
+  );
+  assertSourceContains(
+    source,
+    /useEffect\(\(\) => \{[\s\S]*!isScreenFocused \|\| !chartRuntimeActive \|\| !chartSurfaceReady[\s\S]*chartTapMenuBounds\.width <= 0 \|\| chartTapMenuBounds\.height <= 0[\s\S]*const cancelColdStartRecovery = scheduleChartViewportColdStartRecovery\(\)[\s\S]*cancelColdStartRecovery\(\)[\s\S]*cancelChartViewportRecovery\(\)[\s\S]*\}, \[[\s\S]*chartRuntimeActive[\s\S]*chartSurfaceReady[\s\S]*chartTapMenuBounds\.height[\s\S]*chartTapMenuBounds\.width[\s\S]*cancelChartViewportRecovery[\s\S]*isScreenFocused[\s\S]*scheduleChartViewportColdStartRecovery[\s\S]*\]\);/,
+    'focused chart route must schedule cold-start recovery and clean it up on route changes',
+  );
+});
+
+test('WebView ready events recover cold-start viewport size after the bridge exists', () => {
+  assertSourceContains(
+    source,
+    /msg\.type === 'READY'[\s\S]*setWebViewReady\(true\);[\s\S]*if \(isScreenFocused\) \{[\s\S]*requestChartViewportRecovery\(2\);[\s\S]*\}[\s\S]*msg\.type === 'CHART_READY'/,
+    'WebView READY must retry viewport recovery after the resize bridge has loaded',
+  );
+  assertSourceContains(
+    source,
+    /msg\.type === 'CHART_READY'[\s\S]*setChartReadyEpoch\(\(c\) => c \+ 1\);[\s\S]*requestChartViewportRecovery\(4\);/,
+    'CHART_READY must recover the viewport after the chart surface is created',
+  );
+});
+
 test('fullscreen enter and exit cancel stale resize frames and use the fast press path', () => {
   assertSourceContains(
     source,
@@ -85,9 +111,25 @@ test('WebView resizeChartViewport replays pending init and reports geometry', ()
   const body = extractFunctionBody(source, 'resizeChartViewport');
 
   assertSourceContains(body, /if \(_pendingInit\)[\s\S]*_doInitChart\(/, 'resize must replay pending init');
+  assertSourceContains(body, /rememberHostViewportSize\(width, height\)[\s\S]*resolveChartViewportSize\(hostSize\.width, hostSize\.height\)/, 'resize must use native host viewport size as the authority');
   assertSourceContains(body, /chart\.resize\(w, h\)/, 'resize must resize active chart');
   assertSourceContains(body, /refreshOverlayDomLabels\(_overlayPayload\)/, 'resize must refresh overlay labels');
   assertSourceContains(body, /postChartGeometry\(\)/, 'resize must post updated chart geometry');
+});
+
+test('WebView chart creation resists cold-start internal shrink measurements', () => {
+  const rememberBody = extractFunctionBody(source, 'rememberHostViewportSize');
+  const resolveBody = extractFunctionBody(source, 'resolveChartViewportSize');
+  const initBody = extractFunctionBody(source, '_doInitChart');
+  const recoverBody = extractFunctionBody(source, 'recoverChartSurface');
+
+  assertSourceContains(source, /var lastHostViewportSize = \{ width: 0, height: 0 \}/, 'WebView must remember the latest native viewport');
+  assertSourceContains(rememberBody, /lastHostViewportSize = size/, 'native viewport measurements must replace stale remembered size');
+  assertSourceContains(resolveBody, /hostWidth > 0 && \(resolvedWidth <= 0 \|\| resolvedWidth < hostWidth \* 0\.92\)[\s\S]*resolvedWidth = hostWidth/, 'cold WebView width must not override a larger native host width');
+  assertSourceContains(resolveBody, /hostHeight > 0 && \(resolvedHeight <= 0 \|\| resolvedHeight < hostHeight \* 0\.92\)[\s\S]*resolvedHeight = hostHeight/, 'cold WebView height must not override a larger native host height');
+  assertSourceContains(initBody, /var viewportSize = resolveChartViewportSize\(\)[\s\S]*safeOpts\.width = w[\s\S]*safeOpts\.height = h/, 'initial chart creation must use the stable viewport resolver');
+  assertSourceContains(recoverBody, /rememberHostViewportSize\(width, height\)[\s\S]*resolveChartViewportSize\(hostSize\.width, hostSize\.height\)[\s\S]*chart\.resize\(w, h\)/, 'surface recovery must use the same stable viewport resolver');
+  assertSourceContains(source, /new ResizeObserver\(function\(entries\) \{[\s\S]*resolveChartViewportSize\(entry\.contentRect\.width, entry\.contentRect\.height\)[\s\S]*chart\.resize\(w, h\)/, 'ResizeObserver must not reapply stale shrunken WebView dimensions');
 });
 
 test('recoverChartSurface restores data, overlays, market price lines, direction lines, and geometry', () => {

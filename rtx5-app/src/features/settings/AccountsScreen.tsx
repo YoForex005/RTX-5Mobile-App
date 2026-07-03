@@ -29,6 +29,7 @@ import {
   type SavedAccountSnapshot,
   type SavedAccountType,
 } from '../../state/savedAccounts';
+import { recordAccountJournalEvent } from '../../state/terminalJournalState';
 import {
   buildTradeNotificationKey,
   useTradeNotifications,
@@ -654,8 +655,15 @@ export function AccountsScreen() {
   const handleConnectSavedAccount = async (row: OtherAccountRow) => {
     if (connectingKey) return;
     setConnectingKey(row.key);
+    recordAccountJournalEvent(`account switch requested for broker ${row.brokerId}`, {
+      accountLogin: row.login,
+    });
     try {
       if (!row.hasSavedCredentials) {
+        recordAccountJournalEvent('account switch blocked: password not saved', {
+          level: 'error',
+          accountLogin: row.login,
+        });
         Alert.alert(
           t('Password not saved'),
           t('Sign in to this account once so it can be reconnected with one tap next time.'),
@@ -670,6 +678,10 @@ export function AccountsScreen() {
         // stale flag so the directory matches reality and prompt re-login.
         removeSavedAccount(row.login, row.brokerId);
         removeSavedAccountPassword(row.brokerId, row.login).catch(() => undefined);
+        recordAccountJournalEvent('account switch failed: saved password missing', {
+          level: 'error',
+          accountLogin: row.login,
+        });
         Alert.alert(
           t('Password not saved'),
           t('Sign in to this account once so it can be reconnected with one tap next time.'),
@@ -738,16 +750,28 @@ export function AccountsScreen() {
       });
 
       setSuccessMessage(t('Account switched successfully'));
+      recordAccountJournalEvent(`account switched successfully on ${result.brokerId}`, {
+        level: 'success',
+        accountLogin: result.accountLogin,
+      });
     } catch (error: any) {
       if (isMissingSavedAccountSwitchError(error)) {
         removeSavedAccount(row.login, row.brokerId);
         removeSavedAccountPassword(row.brokerId, row.login).catch(() => undefined);
+        recordAccountJournalEvent('account switch failed: account does not exist', {
+          level: 'error',
+          accountLogin: row.login,
+        });
         Alert.alert(
           t('Account does not exist'),
           t(ACCOUNT_SWITCH_ACCOUNT_MISSING_MESSAGE),
         );
         return;
       }
+      recordAccountJournalEvent(`account switch failed: ${error?.message || t('Unable to switch account.')}`, {
+        level: 'error',
+        accountLogin: row.login,
+      });
       Alert.alert(t('Switch failed'), error?.message || t('Unable to switch account.'));
     } finally {
       setConnectingKey(null);
@@ -803,6 +827,10 @@ export function AccountsScreen() {
     usePositionsState.getState().clearPositions();
     removeAccountScopedQueries(queryClient);
     userLogout();
+    recordAccountJournalEvent('current account deleted and local session logged out', {
+      level: 'success',
+      accountLogin: displayLogin,
+    });
     clearAuthSessionTokens().catch(() => undefined);
     // Delete must NOT redirect to /login (that's the logout flow). Go back
     // to the settings tab so the user sees the app in a logged-out state

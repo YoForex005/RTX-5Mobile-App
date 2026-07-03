@@ -1310,6 +1310,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
     chartViewportRecoveryFrameRef.current = requestAnimationFrame(runRecoveryPass);
   }, [cancelChartViewportRecovery, recoverChartViewportSurface, scheduleChartViewportResize, syncChartViewportFrame]);
+  const scheduleChartViewportColdStartRecovery = useCallback(() => {
+    requestChartViewportRecovery(6);
+    const recoveryTimers = [180, 650, 1400, 2600].map((delayMs) =>
+      setTimeout(() => {
+        requestChartViewportRecovery(delayMs >= 1400 ? 4 : 5);
+      }, delayMs),
+    );
+
+    return () => {
+      recoveryTimers.forEach((timer) => clearTimeout(timer));
+    };
+  }, [requestChartViewportRecovery]);
   useEffect(() => () => {
     cancelChartViewportRecovery();
     if (chartViewportResizeFrameRef.current !== null) {
@@ -1365,6 +1377,31 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     chartTapMenuBounds.width,
     cancelChartViewportRecovery,
     requestChartViewportRecovery,
+  ]);
+  useEffect(() => {
+    if (!isScreenFocused || !chartRuntimeActive || !chartSurfaceReady) {
+      return;
+    }
+    if (chartTapMenuBounds.width <= 0 || chartTapMenuBounds.height <= 0) {
+      return;
+    }
+
+    // The chart WebView is kept alive and can be prewarmed while hidden.
+    // Re-entering the route must immediately replace any stale hidden-layout
+    // canvas size before the user sees the chart compressed.
+    const cancelColdStartRecovery = scheduleChartViewportColdStartRecovery();
+    return () => {
+      cancelColdStartRecovery();
+      cancelChartViewportRecovery();
+    };
+  }, [
+    chartRuntimeActive,
+    chartSurfaceReady,
+    chartTapMenuBounds.height,
+    chartTapMenuBounds.width,
+    cancelChartViewportRecovery,
+    isScreenFocused,
+    scheduleChartViewportColdStartRecovery,
   ]);
   const chartDataActive = chartRuntimeActive;
   const {
@@ -5299,6 +5336,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                           hasAcceptedNonEmptyWebViewDrawingsRef.current = drawingRecordsRef.current.length > 0;
                           setTextLevelEditRequest(null);
                           setWebViewReady(true);
+                          if (isScreenFocused) {
+                            requestChartViewportRecovery(2);
+                          }
                         } else if (msg.type === 'CHART_READY') {
                           const readyInitSignature = typeof msg.initSignature === 'string' ? msg.initSignature : '';
                           const readyConfigSig = typeof msg.configSig === 'string' ? msg.configSig : '';
@@ -5383,6 +5423,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                           // after every (re-)initialization, even when the
                           // payload itself hasn't changed.
                           setChartReadyEpoch((c) => c + 1);
+                          requestChartViewportRecovery(4);
                           // Immediately push the latest overlay so lines appear
                           // without waiting for the next React effect cycle.
                           try {

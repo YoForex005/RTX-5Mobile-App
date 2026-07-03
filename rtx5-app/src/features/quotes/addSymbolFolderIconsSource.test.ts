@@ -24,3 +24,21 @@ test('add symbol category rows use professional monochrome market logos', () => 
   assert.doesNotMatch(source, /folderLogoHighlight/);
   assert.doesNotMatch(source, /code: 'BTC'/);
 });
+
+test('add symbol navigation and count chips use restrained badge colors', () => {
+  const source = readSource('src/features/quotes/QuotesScreen.tsx');
+
+  assert.match(source, /chipBg: 'rgba\(30,41,59,0\.86\)'/);
+  assert.match(source, /chipBorder: 'rgba\(148,163,184,0\.24\)'/);
+  assert.match(source, /chipText: '#8AB4F8'/);
+  assert.match(source, /actionBg: 'rgba\(30,41,59,0\.86\)'/);
+  assert.match(source, /actionText: '#8AB4F8'/);
+  assert.match(source, /headerCountText, \{ color: addPalette\.chipText \}/);
+  assert.match(source, /breadcrumbText,[\s\S]*item === folder \? addPalette\.chipText : addPalette\.mutedText/);
+  assert.match(source, /folderCount, \{ color: addPalette\.chipText \}/);
+  assert.match(source, /color=\{alreadyAdded \? T\.trading\.profit : addPalette\.actionText\}/);
+  assert.match(source, /borderColor: alreadyAdded \? T\.trading\.profit : addPalette\.chipBorder/);
+  assert.doesNotMatch(source, /chipBg: 'rgba\(169,112,255,0\.16\)'/);
+  assert.doesNotMatch(source, /chipBorder: QUOTES_DARK_ACCENT_BORDER/);
+  assert.doesNotMatch(source, /actionBg: QUOTES_DARK_ACCENT_SOFT/);
+});

@@ -355,18 +355,15 @@ export function SidebarDrawer() {
     }
 
     snapClosedForNavigation();
-    scheduleAfterTapVisualFrame(() => {
-      try {
+    try {
+      runSidebarNavigation(route);
+    } finally {
+      scheduleAfterTapVisualFrame(() => {
+        hideInteractiveNow();
         onClose();
-        runSidebarNavigation(route);
-      } finally {
-        scheduleAfterTapVisualFrame(() => {
-          hideInteractiveNow();
-          onClose();
-          unlockSidebarNavigation();
-        });
-      }
-    });
+        unlockSidebarNavigation();
+      });
+    }
   }, [handleClose, hideInteractiveNow, onClose, pathname, runSidebarNavigation, snapClosedForNavigation, unlockSidebarNavigation]);
 
   const openSupportEmail = useCallback(async () => {
@@ -391,12 +388,10 @@ export function SidebarDrawer() {
 
     navigationLockedRef.current = true;
     snapClosedForNavigation();
-    scheduleAfterTapVisualFrame(() => {
-      hideInteractiveNow();
-      onClose();
-      void openSupportEmail().finally(() => {
-        unlockSidebarNavigation();
-      });
+    hideInteractiveNow();
+    onClose();
+    void openSupportEmail().finally(() => {
+      unlockSidebarNavigation();
     });
   }, [hideInteractiveNow, onClose, openSupportEmail, snapClosedForNavigation, unlockSidebarNavigation]);
 

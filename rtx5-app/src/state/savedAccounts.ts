@@ -17,6 +17,7 @@ import {
   removeSecureItemAsync,
   setSecureItemAsync,
 } from '../utils/secureStorage';
+import { recordAccountJournalEvent } from './terminalJournalState';
 
 export type SavedAccountType = 'demo' | 'real' | 'contest';
 
@@ -130,10 +131,13 @@ const normalizeSavedAccountsPersistedState = (state: unknown): Pick<SavedAccount
 
 export const useSavedAccounts = create<SavedAccountsState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       accounts: [],
       hasHydrated: false,
-      upsertAccount: (account) =>
+      upsertAccount: (account) => {
+        const existingBeforeUpdate = get().accounts.find(
+          (a) => a.login === account.login && a.brokerId === account.brokerId,
+        );
         set((state) => {
           const existing = state.accounts.find(
             (a) => a.login === account.login && a.brokerId === account.brokerId,
@@ -150,22 +154,59 @@ export const useSavedAccounts = create<SavedAccountsState>()(
             hasCredentials: account.hasCredentials || !!existing?.hasCredentials,
           };
           return { accounts: [merged, ...others] };
-        }),
-      removeAccount: (login, brokerId) =>
+        });
+        recordAccountJournalEvent(
+          existingBeforeUpdate
+            ? `saved account updated for broker ${account.brokerId}`
+            : `saved account added for broker ${account.brokerId}`,
+          {
+            level: existingBeforeUpdate ? 'info' : 'success',
+            accountLogin: account.login,
+          },
+        );
+      },
+      removeAccount: (login, brokerId) => {
+        const existed = get().accounts.some(
+          (a) => a.login === login && a.brokerId === brokerId,
+        );
         set((state) => ({
           accounts: state.accounts.filter(
             (a) => !(a.login === login && a.brokerId === brokerId),
           ),
-        })),
-      touchLastUsed: (login, brokerId) =>
+        }));
+        if (existed) {
+          recordAccountJournalEvent(`saved account removed for broker ${brokerId}`, {
+            level: 'success',
+            accountLogin: login,
+          });
+        }
+      },
+      touchLastUsed: (login, brokerId) => {
+        const existed = get().accounts.some(
+          (a) => a.login === login && a.brokerId === brokerId,
+        );
         set((state) => ({
           accounts: state.accounts.map((a) =>
             a.login === login && a.brokerId === brokerId
               ? { ...a, lastUsedAt: Date.now() }
               : a,
           ),
-        })),
-      clearAll: () => set({ accounts: [] }),
+        }));
+        if (existed) {
+          recordAccountJournalEvent(`saved account selected for broker ${brokerId}`, {
+            accountLogin: login,
+          });
+        }
+      },
+      clearAll: () => {
+        const count = get().accounts.length;
+        set({ accounts: [] });
+        if (count > 0) {
+          recordAccountJournalEvent(`cleared ${count} saved account${count === 1 ? '' : 's'}`, {
+            level: 'success',
+          });
+        }
+      },
     }),
     {
       name: STORAGE_KEY,

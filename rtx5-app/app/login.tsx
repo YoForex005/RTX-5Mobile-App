@@ -37,6 +37,7 @@ import {
   persistSelectedBrokerSession,
 } from '../src/state/brokerSessionStorage';
 import { bootstrapApp } from '../src/services/bootstrapApp';
+import { recordAccountJournalEvent } from '../src/state/terminalJournalState';
 
 const LOGIN_SCREEN_COPY = {
   headerTitle: 'Login Account',
@@ -537,12 +538,17 @@ export function AccountLoginScreen() {
 
     if (!normalizedBrokerId) {
       setIsLoading(false);
+      recordAccountJournalEvent('login blocked: broker id missing', { level: 'error' });
       setModalState({ visible: true, type: 'error', title: t('Error'), message: t('Please enter your Broker ID') });
       return;
     }
     const brokerSelectionMessage = resolveBrokerSelectionError(normalizedBrokerId, normalizedServerUrl);
     if (brokerSelectionMessage) {
       setIsLoading(false);
+      recordAccountJournalEvent(`login blocked: ${brokerSelectionMessage}`, {
+        level: 'error',
+        accountLogin: normalizedAccountId,
+      });
       setModalState({
         visible: true,
         type: 'error',
@@ -553,6 +559,10 @@ export function AccountLoginScreen() {
     }
     if (!normalizedServerUrl) {
       setIsLoading(false);
+      recordAccountJournalEvent('login blocked: broker login server unavailable', {
+        level: 'error',
+        accountLogin: normalizedAccountId,
+      });
       setModalState({
         visible: true,
         type: 'error',
@@ -563,12 +573,19 @@ export function AccountLoginScreen() {
     }
     if (!normalizedAccountId || !currentPassword) {
       setIsLoading(false);
+      recordAccountJournalEvent('login blocked: login id or password missing', {
+        level: 'error',
+        accountLogin: normalizedAccountId,
+      });
       setModalState({ visible: true, type: 'error', title: t('Error'), message: t('Please enter both Login ID and Password') });
       return;
     }
 
     loginRequestInFlightRef.current = true;
     setIsLoading(true);
+    recordAccountJournalEvent(`login requested for broker ${normalizedBrokerId}`, {
+      accountLogin: normalizedAccountId,
+    });
     let didStartSuccessNavigation = false;
     try {
       const response: any = await loginAPI({
@@ -657,6 +674,10 @@ export function AccountLoginScreen() {
           isDemoAccount: accountType === 'demo',
         },
       );
+      recordAccountJournalEvent(`login succeeded on ${canonicalBrokerId}`, {
+        level: 'success',
+        accountLogin: savedLogin,
+      });
 
       router.replace('/(tabs)/quotes');
       didStartSuccessNavigation = true;
@@ -744,6 +765,10 @@ export function AccountLoginScreen() {
       });
       
     } catch (error: any) {
+      recordAccountJournalEvent(`login failed: ${error?.message || t('Invalid credentials')}`, {
+        level: 'error',
+        accountLogin: normalizedAccountId,
+      });
       setModalState({ visible: true, type: 'error', title: t('Login Failed'), message: error.message || t('Invalid credentials') });
     } finally {
       loginRequestInFlightRef.current = false;
@@ -1025,6 +1050,8 @@ export function AccountLoginScreen() {
                 hitSlop={LOGIN_BUTTON_HIT_SLOP}
                 pressRetentionOffset={LOGIN_BUTTON_PRESS_RETENTION_OFFSET}
                 latencyLabel="login.submit"
+                journalActionLabel="pressed Login button"
+                journalActionSource="Actions"
                 unstable_pressDelay={0}
                 accessibilityRole="button"
                 accessibilityState={{ disabled: isLoginSubmitDisabled, busy: isLoading }}
@@ -1048,6 +1075,8 @@ export function AccountLoginScreen() {
                   hitSlop={LOGIN_BUTTON_HIT_SLOP}
                   pressRetentionOffset={LOGIN_BUTTON_PRESS_RETENTION_OFFSET}
                   latencyLabel="login.register.open"
+                  journalActionLabel="opened account registration"
+                  journalActionSource="Actions"
                   unstable_pressDelay={0}
                   accessibilityRole="button"
                   accessibilityLabel={t('Register account')}

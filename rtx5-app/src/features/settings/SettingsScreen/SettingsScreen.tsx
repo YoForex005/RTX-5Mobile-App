@@ -28,6 +28,7 @@ import { Screen } from '../../../ui/components/Screen';
 import { AppHeader } from '../../../ui/components/AppHeader';
 import { FastPressable } from '../../../ui/components/FastPressable';
 import { useUserPreferences } from '../../../state/userPreferences';
+import { recordAccountJournalEvent } from '../../../state/terminalJournalState';
 import { useThemeMode } from '../../../state/themeMode';
 import { clearAuthSessionTokens } from '../../../state/brokerSessionStorage';
 import { useUIState } from '../../../state/uiState';
@@ -181,6 +182,7 @@ export function SettingsScreen() {
   const routeUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleLogout = () => {
+    const accountLoginForJournal = accountDetails?.id;
     Alert.alert(
       t('Logout'),
       t('Are you sure you want to logout? You will need to sign in again.'),
@@ -194,6 +196,10 @@ export function SettingsScreen() {
             candlesWsService.disconnect();
             useLiveAccountState.getState().resetMetrics();
             logout();
+            recordAccountJournalEvent('logged out from current account', {
+              level: 'success',
+              accountLogin: accountLoginForJournal,
+            });
             void clearAuthSessionTokens();
             router.replace('/login');
           },

@@ -24,7 +24,11 @@ test('demo registration requires explicit legal acceptance and opens legal docum
   assert.match(source, /onPress=\{handleOpenPrivacyPolicy\}/);
   assert.doesNotMatch(source, /document: 'terms'/);
   assert.doesNotMatch(source, /document: 'privacy'/);
-  assert.match(source, /disabled=\{isLoading \|\| !canSubmitDemoAccount \|\| !termsAccepted\}/);
+  assert.match(source, /const demoStatusUnavailableMessage =[\s\S]*demoStatusError\?\.message/);
+  assert.match(source, /const demoGroupsUnavailableMessage =[\s\S]*demoGroupsError\?\.message/);
+  assert.match(source, /const isRegisterButtonDisabled = isLoading \|\| !termsAccepted/);
+  assert.match(source, /disabled=\{isRegisterButtonDisabled\}/);
+  assert.doesNotMatch(source, /disabled=\{isLoading \|\| !canSubmitDemoAccount \|\| !termsAccepted\}/);
 });
 
 test('protected-resource declarations stay minimized for App Review', () => {

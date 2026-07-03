@@ -16,6 +16,14 @@
  */
 import { apiClient } from '../apiClient';
 import { createTradingApiError } from '../tradingErrors';
+import {
+  recordClosePositionJournalFailure,
+  recordClosePositionJournalRequest,
+  recordClosePositionJournalSuccess,
+  recordModifyPositionJournalFailure,
+  recordModifyPositionJournalRequest,
+  recordModifyPositionJournalSuccess,
+} from '../../state/terminalJournalState';
 import { rawPositionsFetch } from './payloadHelpers';
 import { getPositionHistory } from './closedHistory';
 import type {
@@ -140,19 +148,35 @@ export const positionsApi = {
     const body = closePayload && Object.keys(closePayload).length > 0
       ? JSON.stringify(closePayload)
       : undefined;
-    const response = await apiClient(`/positions/${ticketId}/close`, {
-      method: 'POST',
-      body,
-    });
+    recordClosePositionJournalRequest(ticketId, closePayload
+      ? { ticketBy: closePayload.ticket_by, volume: closePayload.volume }
+      : undefined);
+    let failureRecorded = false;
+    try {
+      const response = await apiClient(`/positions/${ticketId}/close`, {
+        method: 'POST',
+        body,
+      });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      const headers: Record<string, string> = {};
-      if (response.status === 429) headers['retry-after'] = response.headers.get('retry-after') || '';
-      throw createTradingApiError(response.status, errorData, headers);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const headers: Record<string, string> = {};
+        if (response.status === 429) headers['retry-after'] = response.headers.get('retry-after') || '';
+        const error = createTradingApiError(response.status, errorData, headers);
+        failureRecorded = true;
+        recordClosePositionJournalFailure(ticketId, error);
+        throw error;
+      }
+
+      const data = await response.json().catch(() => ({} as ClosePositionResponse));
+      recordClosePositionJournalSuccess(ticketId, data);
+      return data;
+    } catch (error) {
+      if (!failureRecorded) {
+        recordClosePositionJournalFailure(ticketId, error);
+      }
+      throw error;
     }
-
-    return response.json().catch(() => ({} as ClosePositionResponse));
   },
 
   /**
@@ -170,18 +194,32 @@ export const positionsApi = {
     ticketId: string | number,
     payload: ModifyPositionPayload,
   ): Promise<Position> => {
-    const response = await apiClient(`/positions/${ticketId}/modify`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+    recordModifyPositionJournalRequest(ticketId, payload);
+    let failureRecorded = false;
+    try {
+      const response = await apiClient(`/positions/${ticketId}/modify`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      const headers: Record<string, string> = {};
-      if (response.status === 429) headers['retry-after'] = response.headers.get('retry-after') || '';
-      throw createTradingApiError(response.status, errorData, headers);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const headers: Record<string, string> = {};
+        if (response.status === 429) headers['retry-after'] = response.headers.get('retry-after') || '';
+        const error = createTradingApiError(response.status, errorData, headers);
+        failureRecorded = true;
+        recordModifyPositionJournalFailure(ticketId, payload, error);
+        throw error;
+      }
+
+      const data = await response.json();
+      recordModifyPositionJournalSuccess(ticketId, payload, data);
+      return data;
+    } catch (error) {
+      if (!failureRecorded) {
+        recordModifyPositionJournalFailure(ticketId, payload, error);
+      }
+      throw error;
     }
-
-    return response.json();
   },
 };
