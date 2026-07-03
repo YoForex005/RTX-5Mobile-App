@@ -73,7 +73,7 @@ export function Card({
       style={[
         s.card,
         {
-          backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
+          backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF',
           borderColor: isDark ? 'rgba(255,255,255,0.10)' : '#EEF2F7',
         },
         style,

@@ -6,7 +6,7 @@ export const SETTINGS_WARNING = '#F59E0B';
 
 export const getHeaderGradient = (isDark: boolean): readonly [string, string, string] =>
   (isDark
-    ? ['#162033', '#111827', '#0B1220']
+    ? ['#1E1E1E', '#1E1E1E', '#1E1E1E']
     : ['#FFFFFF', '#F8FAFC', '#EEF2F7']) as readonly [string, string, string];
 
 export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
@@ -279,7 +279,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
     marginTop: spacing.sm,
     padding: spacing.md,
     borderRadius: radius.lg,
-    backgroundColor: isDark ? '#0F172A' : '#FFFFFF',
+    backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF',
     borderWidth: 1,
     borderColor: T.border,
     shadowColor: '#000',

@@ -418,7 +418,7 @@ export function HistoryNetProfitLossScreen() {
   );
   const deposit = balance - totalClosedPnl;
   const historyRangeLabel = t(historyRange);
-  const screenBg = isDark ? '#06080D' : T.bg;
+  const screenBg = isDark ? '#121212' : T.bg;
 
   return (
     <View style={[styles.root, { backgroundColor: screenBg }]}>

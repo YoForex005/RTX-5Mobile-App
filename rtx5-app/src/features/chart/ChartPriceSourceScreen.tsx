@@ -93,7 +93,7 @@ function makeStyles(T: any, isDark: boolean) {
       paddingTop: 16,
     },
     card: {
-      backgroundColor: isDark ? '#0B0F19' : '#FFFFFF',
+      backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF',
       borderRadius: 12,
       marginHorizontal: 16,
       overflow: 'hidden',

@@ -1,7 +1,7 @@
 import { StyleSheet } from 'react-native';
 import type { ThemeColors } from '../../theme/useTheme';
 
-const TIMEFRAME_ACTION_SHEET_DARK_BACKGROUND = '#000000';
+const TIMEFRAME_ACTION_SHEET_DARK_BACKGROUND = '#1E1E1E';
 
 export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
@@ -36,7 +36,7 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       borderTopRightRadius: 16,
       borderTopWidth: 1,
       borderColor: T.border,
-      backgroundColor: isDark ? T.bg : T.glass2,
+      backgroundColor: T.glass2,
       overflow: 'hidden',
     },
     sheetMt5Plain: {
@@ -44,7 +44,7 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       borderTopRightRadius: 0,
       borderTopWidth: 0,
       borderColor: 'transparent',
-      backgroundColor: isDark ? T.bg : '#FFFFFF',
+      backgroundColor: isDark ? T.glass2 : '#FFFFFF',
     },
     sheetTimeframeGrid: {
       backgroundColor: isDark ? TIMEFRAME_ACTION_SHEET_DARK_BACKGROUND : '#FFFFFF',

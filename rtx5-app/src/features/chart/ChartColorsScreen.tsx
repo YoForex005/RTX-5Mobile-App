@@ -126,7 +126,7 @@ export function ChartColorsScreen() {
         onRequestClose={() => setActiveKey(null)}
       >
         <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }} onPress={() => setActiveKey(null)}>
-          <Pressable style={{ backgroundColor: isDark ? '#1E293B' : '#FFFFFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 48 }} onPress={(e) => e.stopPropagation()}>
+          <Pressable style={{ backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 48 }} onPress={(e) => e.stopPropagation()}>
             <Text style={{ fontSize: 16, fontWeight: '600', color: isDark ? '#FFFFFF' : '#000000', marginBottom: 16, textAlign: 'center' }}>Select Color</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center' }}>
               {PRESET_COLORS.map(c => (

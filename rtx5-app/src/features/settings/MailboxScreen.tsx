@@ -1830,11 +1830,11 @@ function getAnnouncementGradient(priority: MessagePriority, isDark: boolean): re
 }
 
 function getSupportCardGradient(isDark: boolean): readonly [string, string] {
-  return isDark ? ['#121A2B', '#162033'] : ['#FFFFFF', '#F3F7FF'];
+  return isDark ? ['#1E1E1E', '#1E1E1E'] : ['#FFFFFF', '#F3F7FF'];
 }
 
 function getScreenGradient(isDark: boolean): readonly [string, string, string] {
-  return isDark ? ['#070B12', '#0B1020', '#070B12'] : ['#F5F8FC', '#F5F8FC', '#EEF4FF'];
+  return isDark ? ['#121212', '#121212', '#121212'] : ['#F5F8FC', '#F5F8FC', '#EEF4FF'];
 }
 
 function formatShortTime(value: string): string {

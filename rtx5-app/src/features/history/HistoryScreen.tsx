@@ -497,7 +497,7 @@ export function HistoryScreen() {
   }, [historySummaryDetailsVisible, setHistorySummaryDetailsVisible]);
 
   return (
-    <Screen noBottomInset style={isDark ? { backgroundColor: '#06080D' } : undefined}>
+    <Screen noBottomInset style={isDark ? { backgroundColor: '#121212' } : undefined}>
       <AppHeader title={t('History')} noBorder />
       {/* ── Account Summary (fixed) ── */}
       <Text style={styles.accountSummaryHeading}>{t('Account Summary')}</Text>
@@ -1084,7 +1084,7 @@ const mpS = StyleSheet.create({
 function makeStyles(T: ThemeColors, isDark: boolean) {
   const cardBg = T.glass2;
 
-  const accountSummaryCardBg = isDark ? '#1C1C1E' : cardBg; // Matches the Settings dark account card tone.
+  const accountSummaryCardBg = isDark ? '#1E1E1E' : cardBg; // Matches the app dark card tone.
   return StyleSheet.create({
     list: { flex: 1 },
     listContent: { paddingBottom: 32 },

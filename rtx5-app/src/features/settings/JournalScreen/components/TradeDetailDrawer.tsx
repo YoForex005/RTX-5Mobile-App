@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { TradeJournalEntry } from '../types';
 
 export function TradeDetailDrawer({ trade, onClose, isDark }: { trade: TradeJournalEntry, onClose: () => void, isDark: boolean }) {
-  const cardBg = isDark ? '#111827' : '#FFFFFF';
+  const cardBg = isDark ? '#1E1E1E' : '#FFFFFF';
   const borderColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
   const textColor = isDark ? '#F8FAFC' : '#0F172A';
   const subText = isDark ? '#64748B' : '#94A3B8';
@@ -19,7 +19,7 @@ export function TradeDetailDrawer({ trade, onClose, isDark }: { trade: TradeJour
 
   return (
     <View style={styles.overlay}>
-      <View style={[styles.drawer, { backgroundColor: isDark ? '#0F1724' : '#F8FAFC' }]}>
+      <View style={[styles.drawer, { backgroundColor: isDark ? '#121212' : '#F8FAFC' }]}>
         <View style={styles.header}>
           <Text style={[styles.title, { color: textColor }]}>Trade Details</Text>
           <Pressable onPress={onClose} style={styles.closeBtn}>

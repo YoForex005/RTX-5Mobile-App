@@ -4,8 +4,8 @@ import type { ThemeColors } from '../../ui/theme/glass';
 export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
   const palette = isDark
     ? {
-        background: '#07111F',
-        card: '#111827',
+        background: '#121212',
+        card: '#1E1E1E',
         text: '#F8FAFC',
         secondary: '#94A3B8',
         muted: '#64748B',
@@ -14,9 +14,9 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
         success: '#22C55E',
         warning: '#FBBF24',
         danger: '#F87171',
-        soft: '#182235',
-        recessed: '#0C1626',
-        overlay: 'rgba(7,17,31,0.76)',
+        soft: '#1E1E1E',
+        recessed: '#1E1E1E',
+        overlay: 'rgba(18,18,18,0.76)',
       }
     : {
         background: '#F5F8FC',
@@ -56,7 +56,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     fixedHeader: {
       paddingHorizontal: 16,
       paddingBottom: 12,
-      backgroundColor: isDark ? 'rgba(7,17,31,0.96)' : 'rgba(245,248,252,0.96)',
+      backgroundColor: isDark ? 'rgba(18,18,18,0.96)' : 'rgba(245,248,252,0.96)',
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: palette.border,
       zIndex: 2,
@@ -178,7 +178,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       borderRadius: 19,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: isDark ? '#162033' : '#EAF6FD',
+      backgroundColor: isDark ? '#1E1E1E' : '#EAF6FD',
       borderWidth: 1,
       borderColor: isDark ? 'rgba(56,189,248,0.26)' : 'rgba(14,165,233,0.28)',
     },
@@ -586,7 +586,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       borderRadius: 12,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: isDark ? '#182235' : '#F1F5F9',
+      backgroundColor: isDark ? '#1E1E1E' : '#F1F5F9',
     },
     providerAvatarText: {
       color: palette.secondary,
@@ -1304,7 +1304,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       paddingBottom: 18,
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
-      backgroundColor: isDark ? '#0B1220' : '#FFFFFF',
+      backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF',
       borderTopWidth: 1,
       borderLeftWidth: 1,
       borderRightWidth: 1,

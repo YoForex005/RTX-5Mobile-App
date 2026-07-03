@@ -7,7 +7,7 @@ const COMMUNITY_GOLD = '#F5B642';
 export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: isDark ? '#020713' : '#F7FAFF',
+    backgroundColor: isDark ? '#121212' : '#F7FAFF',
   },
   background: {
     ...StyleSheet.absoluteFillObject,
@@ -74,7 +74,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
     borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: isDark ? '#1E293B' : '#E2E8F0',
+    backgroundColor: isDark ? '#1E1E1E' : '#E2E8F0',
     borderWidth: 1,
     borderColor: isDark ? 'rgba(245,182,66,0.45)' : 'rgba(67,56,202,0.18)',
   },

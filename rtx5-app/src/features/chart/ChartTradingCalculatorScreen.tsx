@@ -265,14 +265,14 @@ export function ChartTradingCalculatorScreen() {
 function makeStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     screen: {
-      backgroundColor: isDark ? '#06080D' : '#F4F5F7',
+      backgroundColor: isDark ? '#121212' : '#F4F5F7',
     },
     header: {
       paddingHorizontal: 16,
       paddingBottom: 12,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB',
-      backgroundColor: isDark ? '#06080D' : '#F4F5F7',
+      backgroundColor: isDark ? '#121212' : '#F4F5F7',
     },
     headerRow: {
       flexDirection: 'row',
@@ -303,7 +303,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     segmentContainer: {
       flexDirection: 'row',
-      backgroundColor: isDark ? '#0B0F19' : '#FFFFFF',
+      backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF',
       borderRadius: 8,
       padding: 2,
       borderWidth: 1,
@@ -317,7 +317,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 6,
     },
     segmentBtnActive: {
-      backgroundColor: isDark ? '#1E293B' : '#F1F5F9', // subtle background for active
+      backgroundColor: isDark ? '#1E1E1E' : '#F1F5F9', // subtle background for active
     },
     segmentText: {
       fontSize: 15,
@@ -354,7 +354,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#E2E8F0',
       borderRadius: 8,
-      backgroundColor: isDark ? '#0B0F19' : '#FFFFFF',
+      backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF',
       overflow: 'hidden',
     },
     stepperBtn: {
@@ -376,7 +376,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#E2E8F0',
       borderRadius: 8,
-      backgroundColor: isDark ? '#0B0F19' : '#FFFFFF',
+      backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF',
       paddingVertical: 14,
       paddingHorizontal: 16,
     },
@@ -385,7 +385,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       color: T.text,
     },
     summaryTable: {
-      backgroundColor: isDark ? '#0f172a' : '#F8FAFC',
+      backgroundColor: isDark ? '#1E1E1E' : '#F8FAFC',
       borderRadius: 12,
       padding: 16,
       marginBottom: 24,
@@ -412,7 +412,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     footerWarning: {
       flexDirection: 'row',
-      backgroundColor: isDark ? '#0f172a' : '#F1F5F9',
+      backgroundColor: isDark ? '#1E1E1E' : '#F1F5F9',
       padding: 16,
       borderRadius: 12,
       alignItems: 'flex-start',

@@ -214,7 +214,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     segmentContainer: {
       flexDirection: 'row',
-      backgroundColor: isDark ? '#000000' : '#FFFFFF',
+      backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF',
       borderRadius: 8,
       padding: 2,
       borderWidth: 1,

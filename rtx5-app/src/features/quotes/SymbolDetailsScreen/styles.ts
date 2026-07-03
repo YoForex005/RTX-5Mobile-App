@@ -3,17 +3,15 @@ import { spacing } from '../../../ui/theme/index';
 import type { ThemeColors } from '../../../ui/theme/glass';
 
 export function makeSymbolDetailsStyles(T: ThemeColors, isDark: boolean) {
-  // Dark theme matches the Settings screen palette: deep navy cards on the
-  // pure-black canvas the screen container already paints (#000000). Cards and
-  // nested insets share the one card tone, separated by their borders.
-  const cardBg = isDark ? '#1C1C1E' : T.glass2;
-  const nestedSurface = isDark ? '#1C1C1E' : T.glass1;
+  // Dark theme matches the app palette: #121212 canvas + #1E1E1E cards.
+  const cardBg = isDark ? '#1E1E1E' : T.glass2;
+  const nestedSurface = isDark ? '#1E1E1E' : T.glass1;
   const cardBorder = isDark ? 'rgba(148,163,184,0.18)' : T.border;
   const nestedBorder = isDark ? 'rgba(148,163,184,0.14)' : T.border;
   return {
     fl: StyleSheet.create({
       wrap: { flexDirection: 'row', alignItems: 'center', marginRight: 14 },
-      ring: { width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: isDark ? 'rgba(59,130,246,0.2)' : T.border, overflow: 'hidden', backgroundColor: isDark ? '#141a2e' : T.glass2, shadowColor: isDark ? '#000' : '#475569', shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 12, elevation: 0 },
+      ring: { width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: isDark ? 'rgba(59,130,246,0.2)' : T.border, overflow: 'hidden', backgroundColor: isDark ? '#1E1E1E' : T.glass2, shadowColor: isDark ? '#000' : '#475569', shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 12, elevation: 0 },
       overlap: { marginLeft: -12 },
       img: { width: 40, height: 40, borderRadius: 20 },
       iconWrap: { width: 44, height: 44, borderRadius: 14, backgroundColor: isDark ? 'rgba(59,130,246,0.08)' : T.glass1, borderWidth: 1, borderColor: isDark ? 'rgba(59,130,246,0.15)' : 'rgba(0,0,0,0.04)', alignItems: 'center', justifyContent: 'center', marginRight: 14 },

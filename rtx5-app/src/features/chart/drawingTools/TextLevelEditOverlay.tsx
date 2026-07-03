@@ -4,12 +4,12 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 
 export type TextLevelEditRequest = {
   recordId: string;
@@ -61,7 +61,7 @@ export function TextLevelEditOverlay({
   const visible = request !== null;
   const colors = {
     backdrop: isDark ? 'rgba(2, 6, 23, 0.52)' : 'rgba(15, 23, 42, 0.22)',
-    card: isDark ? '#0F172A' : '#FFFFFF',
+    card: isDark ? '#1E1E1E' : '#FFFFFF',
     text: isDark ? '#F8FAFC' : '#111827',
     muted: isDark ? '#94A3B8' : '#64748B',
     border: isDark ? '#263244' : '#E5E7EB',
@@ -106,7 +106,7 @@ export function TextLevelEditOverlay({
               {
                 borderColor: accentColor,
                 color: colors.text,
-                backgroundColor: isDark ? '#111827' : '#F8FAFC',
+                backgroundColor: isDark ? '#1E1E1E' : '#F8FAFC',
               },
             ]}
             value={draft}

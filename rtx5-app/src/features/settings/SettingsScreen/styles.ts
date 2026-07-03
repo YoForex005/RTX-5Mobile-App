@@ -1,9 +1,9 @@
 import { StyleSheet } from 'react-native';
 import type { ThemeColors } from '../../../ui/theme/glass';
 
-const SETTINGS_DARK_BACKGROUND = '#000000';
-const SETTINGS_DARK_CARD_BACKGROUND = '#1C1C1E';
-const SETTINGS_DARK_ICON_BOX_BACKGROUND = '#2C2C2E';
+const SETTINGS_DARK_BACKGROUND = '#121212';
+const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E';
+const SETTINGS_DARK_ICON_BOX_BACKGROUND = '#1E1E1E';
 const SETTINGS_DARK_BORDER = 'rgba(255,255,255,0.10)';
 const SETTINGS_DARK_DIVIDER = 'rgba(255,255,255,0.08)';
 const SETTINGS_DARK_PRIMARY_TEXT = '#FFFFFF';

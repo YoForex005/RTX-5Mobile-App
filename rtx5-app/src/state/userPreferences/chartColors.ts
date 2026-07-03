@@ -12,12 +12,12 @@ export const CHART_COLOR_SCHEME_PRESETS: Record<Exclude<ChartColorScheme, 'custo
   green_on_black: {
     label: 'Green on Black',
     colors: {
-      background: '#0E0E12',
+      background: '#121212',
       foreground: '#FFFFFF',
       grid: 'rgba(255,255,255,0.18)',
       candlesUptrend: '#10B981',
       candlesDowntrend: '#EF4444',
-      hollowBody: '#0E0E12',
+      hollowBody: '#121212',
       barsUptrend: '#10B981',
       barsDowntrend: '#EF4444',
       lineBody: '#10B981',
@@ -40,12 +40,12 @@ export const CHART_COLOR_SCHEME_PRESETS: Record<Exclude<ChartColorScheme, 'custo
   yellow_on_black: {
     label: 'Yellow on Black',
     colors: {
-      background: '#0E0E12',
+      background: '#121212',
       foreground: '#FFFFFF',
       grid: 'rgba(255,255,255,0.18)',
       candlesUptrend: '#FACC15',
       candlesDowntrend: '#F59E0B',
-      hollowBody: '#0E0E12',
+      hollowBody: '#121212',
       barsUptrend: '#FACC15',
       barsDowntrend: '#F59E0B',
       lineBody: '#FACC15',
@@ -54,14 +54,14 @@ export const CHART_COLOR_SCHEME_PRESETS: Record<Exclude<ChartColorScheme, 'custo
 };
 
 export const DEFAULT_CHART_COLORS: ChartColorsConfig = {
-  background: '#080B11',
+  background: '#121212',
   foreground: '#94A3B8',
   // Keep app-managed dark grid values visible in the chart while
   // preserving explicit user-selected grid colors.
   grid: 'rgba(255,255,255,0.26)',
   candlesUptrend: '#2962FF',
   candlesDowntrend: '#EF5350',
-  hollowBody: '#1E293B',
+  hollowBody: '#121212',
   barsUptrend: '#2962FF',
   barsDowntrend: '#EF5350',
   lineBody: '#2962FF',
@@ -150,15 +150,16 @@ const LIGHT_THEME_CHART_FALLBACKS: StructuralChartColors = {
 };
 
 const DARK_THEME_CHART_FALLBACKS: StructuralChartColors = {
-  background: '#080B11',
+  background: '#121212',
   foreground: DEFAULT_CHART_COLORS.foreground,
   grid: DEFAULT_CHART_COLORS.grid,
-  hollowBody: '#080B11',
+  hollowBody: '#121212',
 };
 
 const BUILTIN_STRUCTURAL_VALUES: Record<keyof StructuralChartColors, Set<string>> = {
   background: createStructuralColorSet([
     '#000000', // legacy default — ensures persisted values get migrated
+    '#080B11', // previous dark chart default
     '#0E141F', // previous card default
     DEFAULT_CHART_COLORS.background,
     CHART_COLOR_SCHEME_PRESETS.green_on_black.colors.background,
@@ -184,6 +185,8 @@ const BUILTIN_STRUCTURAL_VALUES: Record<keyof StructuralChartColors, Set<string>
     CHART_COLOR_SCHEME_PRESETS.yellow_on_black.colors.grid,
   ]),
   hollowBody: createStructuralColorSet([
+    '#080B11', // previous dark chart default
+    '#1E293B', // previous hollow body default
     DEFAULT_CHART_COLORS.hollowBody,
     CHART_COLOR_SCHEME_PRESETS.green_on_black.colors.hollowBody,
     CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.hollowBody,

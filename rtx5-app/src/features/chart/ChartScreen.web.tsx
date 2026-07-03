@@ -1832,9 +1832,9 @@ export function ChartScreen() {
 }
 
 function makeStyles(T: ThemeColors, isDark: boolean) {
-  const APP_BG = isDark ? '#0E1014' : T.bg;
-  const CHART_CANVAS_BG = isDark ? '#000000' : '#FFFFFF';
-  const BOTTOM_AREA_BG = isDark ? '#0A0C0F' : '#F8FAFC';
+  const APP_BG = isDark ? '#121212' : T.bg;
+  const CHART_CANVAS_BG = isDark ? '#121212' : '#FFFFFF';
+  const BOTTOM_AREA_BG = isDark ? '#121212' : '#F8FAFC';
   const BLUE = T.trading.buy.primary;
   const RED = T.trading.sell.primary;
   const TEXT_MUTED = T.textMuted;
@@ -1844,7 +1844,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
 
     /* â”€â”€ Header Wrapper (2-row) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     headerWrapper: {
-      backgroundColor: isDark ? '#000000' : '#FFFFFF',
+      backgroundColor: isDark ? '#121212' : '#FFFFFF',
       borderBottomWidth: 1,
       borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#E5E7EB',
       zIndex: 10,
@@ -2032,7 +2032,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       maxWidth: 50,
       flexShrink: 0,
       flexGrow: 0,
-      backgroundColor: isDark ? '#000000' : '#F8FAFC',
+      backgroundColor: isDark ? '#121212' : '#F8FAFC',
       borderRightWidth: 1,
       borderRightColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
     },
@@ -2054,7 +2054,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       width: 44,
       height: 44,
       borderRadius: 22,
-      backgroundColor: isDark ? '#1E293B' : '#FFFFFF',
+      backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF',
       alignItems: 'center',
       justifyContent: 'center',
       shadowColor: '#000',
@@ -2094,7 +2094,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       paddingHorizontal: 10,
       height: 32,
-      backgroundColor: isDark ? '#000000' : '#F8FAFC',
+      backgroundColor: isDark ? '#121212' : '#F8FAFC',
       borderBottomWidth: 1,
       borderBottomColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
       zIndex: 10,
@@ -2225,7 +2225,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 12,
     },
     bottomArea: {
-      backgroundColor: isDark ? '#000000' : '#FFFFFF',
+      backgroundColor: isDark ? '#121212' : '#FFFFFF',
       paddingHorizontal: 14,
       paddingTop: 12,
       paddingBottom: 10,
@@ -2393,7 +2393,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       width: 14,
       height: 14,
       borderRadius: 7,
-      backgroundColor: isDark ? '#2A2E39' : '#E0E3EB',
+      backgroundColor: isDark ? '#1E1E1E' : '#E0E3EB',
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -2413,7 +2413,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     tvLegendDropdownBtn: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: isDark ? '#1E222D' : '#FFFFFF',
+      backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF',
       borderWidth: 1,
       borderColor: isDark ? '#2A2E39' : '#E2E8F0',
       borderRadius: 4,
@@ -2432,7 +2432,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       justifyContent: 'space-between',
       paddingHorizontal: 12,
       paddingVertical: 4,
-      backgroundColor: isDark ? '#000000' : '#F8FAFC',
+      backgroundColor: isDark ? '#121212' : '#F8FAFC',
       borderTopWidth: 1,
       borderTopColor: isDark ? '#2A2E39' : '#E5E7EB',
     },
@@ -2446,7 +2446,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 4,
     },
     tvRangePillActive: {
-      backgroundColor: isDark ? '#1E293B' : '#E2E8F0',
+      backgroundColor: isDark ? '#1E1E1E' : '#E2E8F0',
     },
     tvRangeText: {
       color: isDark ? '#758696' : '#787B86',

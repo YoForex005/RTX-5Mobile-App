@@ -13,7 +13,7 @@ export function JournalTabs({ activeTab, setActiveTab, isDark }: JournalTabsProp
   const tabs = ['Journal', 'Analytics', 'Review'] as const;
 
   return (
-    <View style={[styles.container, { backgroundColor: isDark ? '#0F1724' : '#E2E8F0' }]}>
+    <View style={[styles.container, { backgroundColor: isDark ? '#1E1E1E' : '#E2E8F0' }]}>
       {tabs.map((tab) => {
         const isActive = activeTab === tab;
         return (

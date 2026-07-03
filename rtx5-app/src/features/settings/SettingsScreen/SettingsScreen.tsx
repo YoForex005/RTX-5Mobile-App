@@ -154,9 +154,9 @@ export function SettingsScreen() {
   const styles = useMemo(() => makeSettingsStyles(T, themeMode), [T, themeMode]);
   const settingsAccent = themeMode === 'dark' ? '#347DFF' : '#1D4ED8';
   const settingsAccentActive = themeMode === 'dark' ? '#347DFF' : '#3B82F6';
-  const settingsAccentBg = themeMode === 'dark' ? '#2C2C2E' : 'rgba(29, 78, 216, 0.1)';
+  const settingsAccentBg = themeMode === 'dark' ? '#1E1E1E' : 'rgba(29, 78, 216, 0.1)';
   const settingsSwitchTrack = themeMode === 'dark' ? 'rgba(52, 125, 255, 0.46)' : 'rgba(59, 130, 246, 0.5)';
-  const settingsSwitchOffTrack = themeMode === 'dark' ? '#2C2C2E' : T.borderMedium;
+  const settingsSwitchOffTrack = themeMode === 'dark' ? '#1E1E1E' : T.borderMedium;
   const settingsSwitchThumbInactive = themeMode === 'dark' ? '#FFFFFF' : '#f4f3f4';
   const settingsDanger = themeMode === 'dark' ? '#FF5A5F' : '#EF4444';
   const renderDarkCardHighlight = () => themeMode === 'dark' ? (
@@ -358,7 +358,7 @@ export function SettingsScreen() {
   }, [handleEmailSupport, openReadySettingsRoute, setSearchActive]);
 
   const searchBarStyle: any = themeMode === 'dark' ? {
-    backgroundColor: '#1C1C1E',
+    backgroundColor: '#1E1E1E',
     borderColor: 'rgba(255,255,255,0.12)',
     borderWidth: 1, borderRadius: 24,
     shadowColor: '#000000',
@@ -480,7 +480,7 @@ export function SettingsScreen() {
 
                   <LinearGradient
                     pointerEvents="none"
-                    colors={themeMode === 'light' ? ['#4F46E5', '#3730A3'] : ['#1C1C1E', '#1C1C1E']}
+                    colors={themeMode === 'light' ? ['#4F46E5', '#3730A3'] : ['#1E1E1E', '#1E1E1E']}
                     start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
                     style={StyleSheet.absoluteFillObject}
                   />
@@ -667,7 +667,7 @@ export function SettingsScreen() {
                 latencyLabel="settings.logout.prompt"
               >
                 {renderDarkCardHighlight()}
-                <View style={[styles.iconBox, { backgroundColor: themeMode === 'dark' ? '#2C2C2E' : 'rgba(239, 68, 68, 0.1)' }]}>
+                <View style={[styles.iconBox, { backgroundColor: themeMode === 'dark' ? '#1E1E1E' : 'rgba(239, 68, 68, 0.1)' }]}>
                   <Ionicons name="log-out-outline" size={20} color={settingsDanger} />
                 </View>
                 <Text style={[styles.rowTitleSingle, { color: settingsDanger }]}>{t('Logout')}</Text>

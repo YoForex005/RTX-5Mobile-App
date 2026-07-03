@@ -130,8 +130,8 @@ function LegalHero({
 
 const makeStyles = (isDark: boolean) => {
   const palette = {
-    bg: isDark ? '#050607' : '#F6F8FB',
-    surface: isDark ? '#0B0F14' : '#FFFFFF',
+    bg: isDark ? '#121212' : '#F6F8FB',
+    surface: isDark ? '#1E1E1E' : '#FFFFFF',
     text: isDark ? '#F8FAFC' : '#101828',
     muted: isDark ? '#94A3B8' : '#667085',
     soft: isDark ? '#CBD5E1' : '#344054',

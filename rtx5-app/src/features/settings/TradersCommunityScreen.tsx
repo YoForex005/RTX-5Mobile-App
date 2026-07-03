@@ -755,19 +755,19 @@ function getPollIcon(tone: PollTone): keyof typeof Ionicons.glyphMap {
 
 function getScreenGradient(isDark: boolean): readonly [string, string, string] {
   return isDark
-    ? ['#020713', '#061426', '#020617']
+    ? ['#121212', '#121212', '#121212']
     : ['#F7FAFF', '#EEF5FF', '#EAF0F8'];
 }
 
 function getCardGradient(isDark: boolean): readonly [string, string, string] {
   return isDark
-    ? ['rgba(15,23,42,0.94)', 'rgba(8,17,33,0.94)', 'rgba(2,6,23,0.96)']
+    ? ['#1E1E1E', '#1E1E1E', '#1E1E1E']
     : ['#FFFFFF', '#F8FAFC', '#EEF4FF'];
 }
 
 function getPanelGradient(isDark: boolean): readonly [string, string, string] {
   return isDark
-    ? ['rgba(15,28,50,0.94)', 'rgba(9,18,34,0.94)', 'rgba(3,9,20,0.96)']
+    ? ['#1E1E1E', '#1E1E1E', '#1E1E1E']
     : ['#FFFFFF', '#F9FBFF', '#F1F5F9'];
 }
 

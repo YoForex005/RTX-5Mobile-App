@@ -478,11 +478,11 @@ test('chart properties dark chrome matches the Settings dark palette', () => {
   assert.notEqual(stylesStart, -1);
   const stylesSource = source.slice(stylesStart);
 
-  assert.match(settingsStyles, /const SETTINGS_DARK_BACKGROUND = '#000000'/);
-  assert.match(settingsStyles, /const SETTINGS_DARK_CARD_BACKGROUND = '#1C1C1E'/);
-  assert.match(source, /Match Settings dark palette for the chart preferences shell and cards/);
-  assert.match(source, /const SETTINGS_DARK_BACKGROUND = '#000000'/);
-  assert.match(source, /const SETTINGS_DARK_CARD_BACKGROUND = '#1C1C1E'/);
+  assert.match(settingsStyles, /const SETTINGS_DARK_BACKGROUND = '#121212'/);
+  assert.match(settingsStyles, /const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E'/);
+  assert.match(source, /Match the app dark palette for the chart preferences shell and cards/);
+  assert.match(source, /const SETTINGS_DARK_BACKGROUND = '#121212'/);
+  assert.match(source, /const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E'/);
   assert.match(source, /const preferencesBackground = isDark \? SETTINGS_DARK_BACKGROUND : '#F4F5F7'/);
   assert.match(source, /const preferencesCardBackground = isDark \? SETTINGS_DARK_CARD_BACKGROUND : '#FFFFFF'/);
   assert.match(source, /const preferencesSoftCardBackground = isDark \? SETTINGS_DARK_CARD_BACKGROUND : '#F8FAFC'/);
@@ -796,8 +796,8 @@ test('fast action surfaces keep light and dark theme styling wired', () => {
   assert.match(actionSheetStyles, /makeActionSheetStyles\(T: ThemeColors, isDark: boolean\)/);
   assert.match(actionSheetStyles, /backgroundColor: isDark \? 'rgba\(0,0,0,0\.72\)' : 'rgba\(0,0,0,0\.3\)'/);
   assert.match(settingsStyles, /makeSettingsStyles = \(T: ThemeColors, themeMode: 'light' \| 'dark'\)/);
-  assert.match(settingsStyles, /const SETTINGS_DARK_BACKGROUND = '#000000'/);
-  assert.match(settingsStyles, /const SETTINGS_DARK_CARD_BACKGROUND = '#1C1C1E'/);
+  assert.match(settingsStyles, /const SETTINGS_DARK_BACKGROUND = '#121212'/);
+  assert.match(settingsStyles, /const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E'/);
   assert.match(settingsStyles, /const resolveSettingsBackground = \(T: ThemeColors, themeMode: 'light' \| 'dark'\) =>\s*themeMode === 'dark' \? SETTINGS_DARK_BACKGROUND : T\.bg/);
   assert.match(settingsStyles, /const resolveSettingsCardBackground = \(T: ThemeColors, themeMode: 'light' \| 'dark'\) =>\s*themeMode === 'dark' \? SETTINGS_DARK_CARD_BACKGROUND : T\.glass2/);
   assert.match(settingsStyles, /const settingsBackground = resolveSettingsBackground\(T, themeMode\)/);

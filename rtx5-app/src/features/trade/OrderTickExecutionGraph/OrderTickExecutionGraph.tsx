@@ -41,7 +41,7 @@ export const OrderTickExecutionGraph = React.memo(function OrderTickExecutionGra
   // Keep the embedded execution graph visually attached to the parent order
   // sheet. Without these theme-aware drawing colors, dark mode still showed a
   // light graph card at the bottom of the SL/TP flow.
-  const surfaceColor = backgroundColor ?? (isDark ? '#000000' : '#FFFFFF');
+  const surfaceColor = backgroundColor ?? (isDark ? '#1E1E1E' : '#FFFFFF');
   const gridColor = isDark ? 'rgba(148,163,184,0.2)' : '#D3D8E0';
   const labelColor = isDark ? '#94A3B8' : '#7B8794';
 

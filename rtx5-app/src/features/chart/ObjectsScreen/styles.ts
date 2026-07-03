@@ -2,8 +2,8 @@ import { StyleSheet } from 'react-native';
 import type { ThemeColors } from '../../../ui/theme/glass';
 
 export function makeObjectsScreenStyles(_T: ThemeColors, isDark: boolean) {
-  const screenBg = isDark ? '#06080D' : '#F3F4F6';
-  const surface = isDark ? '#0E1522' : '#FFFFFF';
+  const screenBg = isDark ? '#121212' : '#F3F4F6';
+  const surface = isDark ? '#1E1E1E' : '#FFFFFF';
   const border = isDark ? 'rgba(148,163,184,0.18)' : 'rgba(15,23,42,0.08)';
   const primaryText = isDark ? '#F8FAFC' : '#0F172A';
   const secondaryText = isDark ? '#94A3B8' : '#64748B';

@@ -41,7 +41,7 @@ export function IndicatorLevelScreen() {
 
   const [edit, setEdit] = useState<{ field: 'value' | 'description'; value: string } | null>(null);
 
-  const bgColor = isDark ? '#06080D' : '#F4F5F7';
+  const bgColor = isDark ? '#121212' : '#F4F5F7';
   const styles = useMemo(() => makeStyles(bgColor, isDark, T.text), [bgColor, isDark, T.text]);
 
   if (!level || !levelId) {
@@ -321,7 +321,7 @@ function makeStyles(bgColor: string, isDark: boolean, textColor: string) {
     modalCard: {
       width: '100%',
       maxWidth: 360,
-      backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
+      backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF',
       borderRadius: 14,
       padding: 20,
       borderWidth: 1,

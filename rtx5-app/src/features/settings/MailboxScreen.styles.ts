@@ -9,17 +9,17 @@ const DANGER = '#EF4444';
 
 export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
   const C = {
-    screen: isDark ? '#070B12' : '#F5F8FC',
+    screen: isDark ? '#121212' : '#F5F8FC',
     text: isDark ? '#F8FAFC' : '#111827',
     textSub: isDark ? '#AAB4C3' : '#667085',
     textMuted: isDark ? '#7F8CA3' : '#8A94A6',
-    panel: isDark ? '#111827' : '#FFFFFF',
-    panelStrong: isDark ? '#121A2B' : '#FFFFFF',
-    panelSoft: isDark ? '#162033' : '#F8FAFC',
+    panel: isDark ? '#1E1E1E' : '#FFFFFF',
+    panelStrong: isDark ? '#1E1E1E' : '#FFFFFF',
+    panelSoft: isDark ? '#1E1E1E' : '#F8FAFC',
     border: isDark ? '#243047' : '#E5EAF2',
     borderStrong: isDark ? 'rgba(47,155,255,0.34)' : 'rgba(47,155,255,0.28)',
-    iconBg: isDark ? '#121A2B' : '#FFFFFF',
-    sheetBg: isDark ? '#0F172A' : '#FFFFFF',
+    iconBg: isDark ? '#1E1E1E' : '#FFFFFF',
+    sheetBg: isDark ? '#1E1E1E' : '#FFFFFF',
     overlay: isDark ? 'rgba(2,6,23,0.72)' : 'rgba(15,23,42,0.42)',
     buttonText: '#FFFFFF',
     success: T.up,
@@ -44,7 +44,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
     fixedHeader: {
       paddingHorizontal: 18,
       paddingBottom: 10,
-      backgroundColor: isDark ? 'rgba(7,11,18,0.98)' : 'rgba(245,248,252,0.98)',
+      backgroundColor: isDark ? 'rgba(18,18,18,0.98)' : 'rgba(245,248,252,0.98)',
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: C.border,
       zIndex: 2,
@@ -312,7 +312,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       elevation: 1,
     },
     messageCardUnread: {
-      backgroundColor: isDark ? '#132238' : '#F8FBFF',
+      backgroundColor: isDark ? '#1E1E1E' : '#F8FBFF',
       borderColor: C.borderStrong,
     },
     messageCardCritical: {

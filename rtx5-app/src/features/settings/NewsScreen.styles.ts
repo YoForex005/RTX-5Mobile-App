@@ -2,9 +2,9 @@ import { StyleSheet } from 'react-native';
 import type { ThemeColors } from '../../ui/theme/glass';
 import { radius, spacing } from '../../ui/theme/index';
 
-const NEWS_BG = '#020713';
-const NEWS_PANEL = 'rgba(15,28,50,0.94)';
-const NEWS_PANEL_DEEP = 'rgba(3,9,20,0.96)';
+const NEWS_BG = '#121212';
+const NEWS_PANEL = '#1E1E1E';
+const NEWS_PANEL_DEEP = '#1E1E1E';
 const NEWS_TEXT = '#F8FAFC';
 const NEWS_SUB = '#B7C3D4';
 const NEWS_MUTED = '#738197';
@@ -13,9 +13,9 @@ const NEWS_CYAN = '#38BDF8';
 const NEWS_GOLD = '#F5B642';
 
 export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
-  const NEWS_BG = isDark ? '#020713' : '#F3F6FB';
-  const NEWS_PANEL = isDark ? 'rgba(15,28,50,0.94)' : '#FFFFFF';
-  const NEWS_PANEL_DEEP = isDark ? 'rgba(3,9,20,0.96)' : 'rgba(255,255,255,0.96)';
+  const NEWS_BG = isDark ? '#121212' : '#F3F6FB';
+  const NEWS_PANEL = isDark ? '#1E1E1E' : '#FFFFFF';
+  const NEWS_PANEL_DEEP = isDark ? '#1E1E1E' : 'rgba(255,255,255,0.96)';
   const NEWS_TEXT = isDark ? '#F8FAFC' : '#0F172A';
   const NEWS_SUB = isDark ? '#B7C3D4' : '#475569';
   const NEWS_MUTED = isDark ? '#738197' : '#64748B';
@@ -148,7 +148,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
     borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: isDark ? '#1E293B' : '#EAF1FA',
+    backgroundColor: isDark ? '#1E1E1E' : '#EAF1FA',
     borderWidth: 1,
     borderColor: 'rgba(56,189,248,0.28)',
   },
@@ -654,7 +654,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
     paddingTop: 10,
     paddingBottom: 18,
     borderRadius: 24,
-    backgroundColor: isDark ? '#0B1220' : '#FFFFFF',
+    backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF',
     borderWidth: 1,
     borderColor: isDark ? 'rgba(148,163,184,0.2)' : 'rgba(15,23,42,0.1)',
     shadowColor: '#000000',
@@ -895,7 +895,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
     paddingTop: 10,
     paddingBottom: 18,
     borderRadius: 24,
-    backgroundColor: isDark ? '#0B1220' : '#FFFFFF',
+    backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF',
     borderWidth: 1,
     borderColor: isDark ? 'rgba(148,163,184,0.2)' : 'rgba(15,23,42,0.1)',
     shadowColor: '#000000',
@@ -1239,7 +1239,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
     borderTopRightRadius: 28,
     borderBottomLeftRadius: 0,
     borderBottomRightRadius: 0,
-    backgroundColor: isDark ? '#0B1220' : '#FFFFFF',
+    backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF',
     borderWidth: 1,
     borderColor: isDark ? 'rgba(148,163,184,0.2)' : 'rgba(15,23,42,0.1)',
     shadowColor: '#000000',
@@ -1686,12 +1686,12 @@ export function getNewsThemeColors(isDark: boolean) {
     gold: NEWS_GOLD,
     panel: isDark ? NEWS_PANEL : '#FFFFFF',
     panelDeep: isDark ? NEWS_PANEL_DEEP : 'rgba(255,255,255,0.96)',
-    refreshBg: isDark ? '#071426' : '#FFFFFF',
+    refreshBg: isDark ? '#1E1E1E' : '#FFFFFF',
     headerGradient: isDark
       ? ['rgba(15,23,42,0.78)', 'rgba(8,18,34,0.68)', 'rgba(2,7,19,0.82)'] as const
       : ['rgba(255,255,255,0.86)', 'rgba(241,247,255,0.74)', 'rgba(248,251,255,0.82)'] as const,
     screenGradient: isDark
-      ? ['#020713', '#071426', '#050816'] as const
+      ? ['#121212', '#121212', '#121212'] as const
       : ['#FAFCFF', '#EEF6FF', '#F4F7FB'] as const,
     panelGradient: isDark
       ? ['rgba(15,28,50,0.78)', 'rgba(8,17,33,0.72)', 'rgba(3,9,20,0.78)'] as const

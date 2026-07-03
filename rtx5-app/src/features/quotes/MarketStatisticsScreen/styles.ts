@@ -2,13 +2,12 @@ import { StyleSheet } from 'react-native';
 import type { ThemeColors } from '../../../ui/theme/glass';
 
 export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
-  // Dark theme matches the Settings screen palette (pure black canvas + deep
-  // navy cards).
-  const pageBg = isDark ? '#000000' : '#F4F7FB';
-  const panelBg = isDark ? '#1C1C1E' : '#FFFFFF';
+  // Dark theme matches the app palette: #121212 canvas + #1E1E1E cards.
+  const pageBg = isDark ? '#121212' : '#F4F7FB';
+  const panelBg = isDark ? '#1E1E1E' : '#FFFFFF';
   const borderColor = isDark ? 'rgba(255,255,255,0.10)' : 'rgba(15,23,42,0.08)';
   const subtleBorder = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)';
-  const mutedPanel = isDark ? '#2C2C2E' : '#F8FAFC';
+  const mutedPanel = isDark ? '#1E1E1E' : '#F8FAFC';
   const shadowColor = isDark ? '#000000' : '#334155';
 
   return StyleSheet.create({
@@ -122,7 +121,7 @@ export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 6,
-      backgroundColor: isDark ? '#2C2C2E' : '#FFFFFF',
+      backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF',
     },
     marketDot: {
       width: 6,

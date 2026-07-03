@@ -35,14 +35,15 @@ import { findPositionById } from './tradeFlow';
 import { runImmediateAction } from '../../utils/actionLatency';
 import { fmt } from '../../utils/format';
 import { safeRouterBack } from '../../utils/navigation';
+import { resolveModifyPositionMarkerYPositions } from './modifyPositionChartLayout';
 import {
   classifyTradingError,
   createFrontendTradingError,
   formatTradingErrorFeedback,
 } from '../../api/tradingErrors';
 
-const SETTINGS_DARK_BACKGROUND = '#000000';
-const SETTINGS_DARK_CARD_BACKGROUND = '#1C1C1E';
+const SETTINGS_DARK_BACKGROUND = '#121212';
+const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E';
 
 function formatModifyPrice(val: number, decimals: number) {
   const str = val.toFixed(decimals);
@@ -442,8 +443,14 @@ export function ModifyPositionScreen() {
         <View style={{ height: insets.top, backgroundColor: screenBg }} />
         <View style={[styles.header, { paddingTop: 6 }]}>
           <View style={styles.headerTopRow}>
-            <Pressable onPress={handleBack} hitSlop={20} style={styles.backBtn}>
-              <Ionicons name="chevron-back" size={26} color={T.text} />
+            <Pressable
+              onPress={handleBack}
+              hitSlop={20}
+              style={styles.backBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+            >
+              <Ionicons name="arrow-back" size={24} color={T.text} />
             </Pressable>
             <View style={styles.headerTitleWrap} pointerEvents="none">
               <Text style={styles.headerActionLabel} numberOfLines={1} adjustsFontSizeToFit>
@@ -482,11 +489,11 @@ export function ModifyPositionScreen() {
   });
 
   // Stretch bounds gently so active stop constraints visibly sit on the chart
-  if (stopLoss) {
+  if (stopLoss !== null && Number.isFinite(stopLoss)) {
     minPrice = Math.min(minPrice, stopLoss);
     maxPrice = Math.max(maxPrice, stopLoss);
   }
-  if (takeProfit) {
+  if (takeProfit !== null && Number.isFinite(takeProfit)) {
     minPrice = Math.min(minPrice, takeProfit);
     maxPrice = Math.max(maxPrice, takeProfit);
   }
@@ -520,6 +527,21 @@ export function ModifyPositionScreen() {
     askPath += ` L ${w - 60} ${yPos(ASK)}`;
   }
 
+  const markerYPositions = resolveModifyPositionMarkerYPositions(
+    [
+      { key: 'ask', value: ASK, y: yPos(ASK) },
+      { key: 'bid', value: BID, y: yPos(BID) },
+      ...(symbolsMatch && stopLoss !== null ? [{ key: 'sl' as const, value: stopLoss, y: yPos(stopLoss) }] : []),
+      ...(symbolsMatch && takeProfit !== null ? [{ key: 'tp' as const, value: takeProfit, y: yPos(takeProfit) }] : []),
+    ],
+    {
+      chartHeight: h,
+      sameValueEpsilon: Math.max(point / 2, Number.EPSILON),
+    },
+  );
+
+  const lineY = (key: 'ask' | 'bid' | 'sl' | 'tp', fallbackValue: number) => markerYPositions[key] ?? yPos(fallbackValue);
+
   return (
     <View style={styles.screen}>
       <View style={{ height: insets.top, backgroundColor: screenBg }} />
@@ -531,8 +553,10 @@ export function ModifyPositionScreen() {
             onPress={handleBack}
             hitSlop={20}
             style={styles.backBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
           >
-            <Ionicons name="chevron-back" size={26} color={T.text} />
+            <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
 
           <View style={styles.headerTitleWrap} pointerEvents="none">
@@ -778,10 +802,10 @@ export function ModifyPositionScreen() {
 
               {/* Stop Loss & Take Profit Visual Overlays — only meaningful on
                   the position's own price scale */}
-              {symbolsMatch && stopLoss ? (
+              {symbolsMatch && stopLoss !== null ? (
                 <G>
-                  <Line x1="0" y1={yPos(stopLoss)} x2={w} y2={yPos(stopLoss)} stroke={SL_COLOR} strokeDasharray="6 6" strokeWidth="1" />
-                  <G x={w - 60} y={yPos(stopLoss) - 10}>
+                  <Line x1="0" y1={lineY('sl', stopLoss)} x2={w} y2={lineY('sl', stopLoss)} stroke={SL_COLOR} strokeDasharray="6 6" strokeWidth="1" />
+                  <G x={w - 60} y={lineY('sl', stopLoss) - 10}>
                     <Rect width={60} height={20} fill={SL_COLOR} />
                     <SvgText x={30} y={14} fill="#FFF" fontSize="10" fontWeight="bold" textAnchor="middle">
                       SL
@@ -790,10 +814,10 @@ export function ModifyPositionScreen() {
                 </G>
               ) : null}
 
-              {symbolsMatch && takeProfit ? (
+              {symbolsMatch && takeProfit !== null ? (
                 <G>
-                  <Line x1="0" y1={yPos(takeProfit)} x2={w} y2={yPos(takeProfit)} stroke={TP_COLOR} strokeDasharray="6 6" strokeWidth="1" />
-                  <G x={w - 60} y={yPos(takeProfit) - 10}>
+                  <Line x1="0" y1={lineY('tp', takeProfit)} x2={w} y2={lineY('tp', takeProfit)} stroke={TP_COLOR} strokeDasharray="6 6" strokeWidth="1" />
+                  <G x={w - 60} y={lineY('tp', takeProfit) - 10}>
                     <Rect width={60} height={20} fill={TP_COLOR} />
                     <SvgText x={30} y={14} fill="#FFF" fontSize="10" fontWeight="bold" textAnchor="middle">
                       TP
@@ -803,18 +827,18 @@ export function ModifyPositionScreen() {
               ) : null}
 
               {/* Active Live Price Lines */}
-              <Line x1="0" y1={yPos(ASK)} x2={w - 60} y2={yPos(ASK)} stroke={T.trading.sell.primary} strokeWidth="1" />
-              <Line x1="0" y1={yPos(BID)} x2={w - 60} y2={yPos(BID)} stroke={T.trading.buy.primary} strokeWidth="1" />
+              <Line x1="0" y1={lineY('ask', ASK)} x2={w - 60} y2={lineY('ask', ASK)} stroke={T.trading.sell.primary} strokeWidth="1" />
+              <Line x1="0" y1={lineY('bid', BID)} x2={w - 60} y2={lineY('bid', BID)} stroke={T.trading.buy.primary} strokeWidth="1" />
 
               {/* Price Tags on Right Axis */}
-              <G x={w - 60} y={yPos(ASK) - 10}>
+              <G x={w - 60} y={lineY('ask', ASK) - 10}>
                 <Rect width={60} height={20} fill={T.trading.sell.primary} />
                 <SvgText x={30} y={14} fill="#FFF" fontSize="11" fontWeight="bold" textAnchor="middle">
                   {ASK.toFixed(decimals)}
                 </SvgText>
               </G>
 
-              <G x={w - 60} y={yPos(BID) - 10}>
+              <G x={w - 60} y={lineY('bid', BID) - 10}>
                 <Rect width={60} height={20} fill={T.trading.buy.primary} />
                 <SvgText x={30} y={14} fill="#FFF" fontSize="11" fontWeight="bold" textAnchor="middle">
                   {BID.toFixed(decimals)}

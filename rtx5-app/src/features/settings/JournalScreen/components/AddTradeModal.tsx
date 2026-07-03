@@ -10,7 +10,7 @@ type AddTradeModalProps = {
 };
 
 export function AddTradeModal({ onClose, isDark, actionColor }: AddTradeModalProps) {
-  const cardBg = isDark ? '#111827' : '#FFFFFF';
+  const cardBg = isDark ? '#1E1E1E' : '#FFFFFF';
   const borderColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
   const textColor = isDark ? '#F8FAFC' : '#0F172A';
   const subText = isDark ? '#64748B' : '#94A3B8';
@@ -20,7 +20,7 @@ export function AddTradeModal({ onClose, isDark, actionColor }: AddTradeModalPro
 
   return (
     <View style={styles.overlay}>
-      <View style={[styles.drawer, { backgroundColor: isDark ? '#0F1724' : '#F8FAFC' }]}>
+      <View style={[styles.drawer, { backgroundColor: isDark ? '#121212' : '#F8FAFC' }]}>
         <View style={styles.header}>
           <Text style={[styles.title, { color: textColor }]}>Log New Trade</Text>
           <Pressable onPress={onClose} style={styles.closeBtn}>
@@ -94,7 +94,7 @@ export function AddTradeModal({ onClose, isDark, actionColor }: AddTradeModalPro
               </View>
 
               <View style={styles.row}>
-                <Pressable style={[styles.saveBtn, { backgroundColor: isDark ? '#334155' : '#E2E8F0', flex: 1, marginRight: 8 }]} onPress={() => setStep(1)}>
+                <Pressable style={[styles.saveBtn, { backgroundColor: isDark ? '#1E1E1E' : '#E2E8F0', flex: 1, marginRight: 8 }]} onPress={() => setStep(1)}>
                   <Text style={[styles.saveBtnText, { color: textColor }]}>Back</Text>
                 </Pressable>
                 <Pressable style={[styles.saveBtn, { backgroundColor: actionColor, flex: 2, marginLeft: 8 }]} onPress={onClose}>

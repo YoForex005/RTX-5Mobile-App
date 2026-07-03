@@ -67,7 +67,7 @@ export function ToggleRow({
       <Switch
         value={value}
         onValueChange={onValueChange}
-        trackColor={{ false: isDark ? '#1E293B' : '#CBD5E1', true: '#3B82F6' }}
+        trackColor={{ false: isDark ? '#1E1E1E' : '#CBD5E1', true: '#3B82F6' }}
         thumbColor="#FFFFFF"
       />
     </View>

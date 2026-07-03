@@ -201,7 +201,7 @@ export function ChangePasswordSheet({ loginId, type, onClose, onSuccess }: Props
 
 const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   container: {
-    backgroundColor: isDark ? '#111827' : '#FFFFFF',
+    backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: spacing.md,

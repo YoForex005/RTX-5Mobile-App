@@ -40,7 +40,7 @@ export function OneClickTermsScreen() {
         <Switch
           value={oneClickAccepted}
           onValueChange={setOneClickAccepted}
-          trackColor={{ false: '#1E293B', true: 'rgba(59, 130, 246, 0.5)' }}
+          trackColor={{ false: '#1E1E1E', true: 'rgba(59, 130, 246, 0.5)' }}
           thumbColor={oneClickAccepted ? '#3b82f6' : '#f4f3f4'}
           {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: oneClickAccepted ? '#3b82f6' : '#f4f3f4' } as any)}
         />

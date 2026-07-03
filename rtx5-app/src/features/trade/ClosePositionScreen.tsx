@@ -32,10 +32,9 @@ import {
   formatTradingErrorFeedback,
 } from '../../api/tradingErrors';
 
-// Match the Settings screen's dark-theme palette (pure black canvas + deep
-// navy cards) instead of the default slate tokens.
-const SETTINGS_DARK_BACKGROUND = '#000000';
-const SETTINGS_DARK_CARD_BACKGROUND = '#1C1C1E';
+// Match the app dark-theme palette: #121212 canvas + #1E1E1E cards.
+const SETTINGS_DARK_BACKGROUND = '#121212';
+const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E';
 
 function isValidCloseTicket(value: unknown): value is string | number {
   return typeof value === 'number'

@@ -503,7 +503,7 @@ function NavRow({
 function makeStyles(_T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     screen: {
-      backgroundColor: isDark ? '#06080D' : '#F4F5F7',
+      backgroundColor: isDark ? '#121212' : '#F4F5F7',
     },
     swipeHost: {
       flex: 1,
@@ -519,7 +519,7 @@ function makeStyles(_T: ThemeColors, isDark: boolean) {
       paddingBottom: 12,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB',
-      backgroundColor: isDark ? '#06080D' : '#F4F5F7',
+      backgroundColor: isDark ? '#121212' : '#F4F5F7',
     },
     headerRow: {
       flexDirection: 'row',
@@ -560,7 +560,7 @@ function makeStyles(_T: ThemeColors, isDark: boolean) {
     },
     card: {
       marginHorizontal: 14,
-      backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
+      backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF',
       borderRadius: 14,
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.10)' : '#EEF2F7',

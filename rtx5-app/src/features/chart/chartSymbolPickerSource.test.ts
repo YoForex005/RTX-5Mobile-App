@@ -219,7 +219,7 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(timeframePickerSource, /activateOnPressIn: true/);
   assert.match(timeframePickerSource, /StyleSheet\.absoluteFillObject/);
   assert.match(timeframePickerSource, /justifyContent: 'center'/);
-  assert.match(timeframePickerSource, /const CHART_DARK_PANEL_BACKGROUND = '#000000'/);
+  assert.match(timeframePickerSource, /const CHART_DARK_PANEL_BACKGROUND = '#1E1E1E'/);
   assert.match(timeframePickerSource, /backgroundColor: isDark \? CHART_DARK_PANEL_BACKGROUND : '#FFFFFF'/);
   assert.match(timeframePickerSource, /borderColor: isDark \? 'rgba\(255,255,255,0\.10\)' : 'rgba\(15,23,42,0\.08\)'/);
   assert.match(timeframePickerSource, /shadowColor: '#000000'/);

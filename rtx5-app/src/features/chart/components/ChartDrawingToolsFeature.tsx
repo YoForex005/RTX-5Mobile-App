@@ -141,7 +141,7 @@ const darkStyles = StyleSheet.create({
     borderLeftColor: 'rgba(255,255,255,0.08)',
   },
   leftToolbar: {
-    backgroundColor: '#080B11',
+    backgroundColor: '#1E1E1E',
     borderRightColor: 'rgba(255,255,255,0.05)',
   },
   leftToolbarOverlay: {

@@ -64,7 +64,7 @@ export function TradingSignalDetailsModal({ visible, onClose, symbol }: Props) {
         </View>
 
         {/* Mock Chart Image */}
-        <View style={[styles.chartContainer, { justifyContent: 'center', alignItems: 'center', backgroundColor: isDark ? '#1E293B' : '#F1F5F9' }]}>
+        <View style={[styles.chartContainer, { justifyContent: 'center', alignItems: 'center', backgroundColor: isDark ? '#1E1E1E' : '#F1F5F9' }]}>
           <Text style={{ color: T.textMuted, fontSize: 14 }}>[Chart Image Placeholder]</Text>
         </View>
 
@@ -172,7 +172,7 @@ function makeStyles(T: any, isDark: boolean) {
       justifyContent: 'flex-end',
     },
     modalContainer: {
-      backgroundColor: isDark ? '#0F172A' : '#FFFFFF',
+      backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF',
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
       height: '90%',
@@ -214,7 +214,7 @@ function makeStyles(T: any, isDark: boolean) {
       width: 40,
       height: 40,
       borderRadius: 20,
-      backgroundColor: isDark ? '#1E293B' : '#F1F5F9',
+      backgroundColor: isDark ? '#1E1E1E' : '#F1F5F9',
       justifyContent: 'center',
       alignItems: 'center',
     },

@@ -577,7 +577,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       elevation: isDark ? 2 : 1,
     },
     brokerRowPressed: {
-      backgroundColor: isDark ? '#121B2A' : '#F8FAFC',
+      backgroundColor: isDark ? '#1E1E1E' : '#F8FAFC',
     },
     rowDivider: {
       height: 1,

@@ -46,13 +46,13 @@ export type CategoryTokens = {
 // ── Full GDark shape ──────────────────────────────────────────────────────────
 export const GDark = {
   // ── Backgrounds (flat + namespaced) ────────────────────────────────────────
-  bg: '#000000',                          // screen background
-  bgRoot: '#000000',                      // root / screen base
-  bgSecondary: '#1C1C1E',                 // secondary panels
-  glass1: '#2C2C2E',                      // elevated items (buttons, icon boxes, inputs on cards)
-  glass2: '#1C1C1E',                      // cards, panels
+  bg: '#121212',                          // screen background
+  bgRoot: '#121212',                      // root / screen base
+  bgSecondary: '#1E1E1E',                 // secondary panels
+  glass1: '#1E1E1E',                      // elevated items (buttons, icon boxes, inputs on cards)
+  glass2: '#1E1E1E',                      // cards, panels
   glass3: 'rgba(255,255,255,0.08)',       // hover / selected
-  inputBg: '#1C1C1E',                     // input fields
+  inputBg: '#1E1E1E',                     // input fields
 
   // ── Borders ────────────────────────────────────────────────────────────────
   border: 'rgba(255,255,255,0.10)',       // default
@@ -68,7 +68,7 @@ export const GDark = {
   textMuted: 'rgba(235,235,245,0.54)',
   textDimmed: 'rgba(235,235,245,0.46)',
   textFaint: 'rgba(235,235,245,0.32)',
-  textGhost: '#2C2C2E',
+  textGhost: '#1E1E1E',
   textDark: '#000000',
 
   // ── Up / Down (legacy alias → trading.bidUp/Down) ──────────────────────────
@@ -81,7 +81,7 @@ export const GDark = {
   // ── Accent ─────────────────────────────────────────────────────────────────
   accent: '#347DFF',
   accentGlow: 'rgba(52,125,255,0.22)',
-  dotGradient: 'linear-gradient(135deg, rgba(235,235,245,0.62), #2C2C2E)',
+  dotGradient: 'linear-gradient(135deg, rgba(235,235,245,0.62), #1E1E1E)',
 
   // ── Trading ────────────────────────────────────────────────────────────────
   trading: {
@@ -109,7 +109,7 @@ export const GDark = {
 
   // ── Chart ──────────────────────────────────────────────────────────────────
   chart: {
-    background: '#000000',
+    background: '#121212',
     grid: 'rgba(255,255,255,0.08)',
     bullCandle: '#10B981',
     bearCandle: '#EF4444',

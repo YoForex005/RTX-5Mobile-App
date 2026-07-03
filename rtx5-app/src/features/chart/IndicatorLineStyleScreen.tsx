@@ -38,7 +38,7 @@ export function IndicatorLineStyleScreen() {
   );
   const updateLine = useIndicatorEditState((s) => s.updateLine);
 
-  const bgColor = isDark ? '#06080D' : '#F4F5F7';
+  const bgColor = isDark ? '#121212' : '#F4F5F7';
   const styles = useMemo(() => makeStyles(bgColor, isDark, T.text), [bgColor, isDark, T.text]);
 
   if (!line || !lineKey) {

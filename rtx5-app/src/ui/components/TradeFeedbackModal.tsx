@@ -89,7 +89,7 @@ export const TradeFeedbackModal = React.memo(({
     ? (isBuy ? BUY_GRADIENT_HEX : isSell ? SELL_GRADIENT_HEX : SUCCESS_GRADIENT_HEX)
     : ERR_GRADIENT_HEX;
 
-  const cardBg = isDark ? '#14161D' : '#FFFFFF';
+  const cardBg = isDark ? '#1E1E1E' : '#FFFFFF';
   const subtleBorder = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)';
   const textPrimary = isDark ? '#F8FAFC' : '#0F172A';
   const textMuted = isDark ? '#94A3B8' : '#64748B';

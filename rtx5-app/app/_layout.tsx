@@ -421,12 +421,12 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#070a12',
+    backgroundColor: '#121212',
   },
   deviceShell: {
     borderRadius: 44,
     padding: 10,
-    backgroundColor: '#0d111a',
+    backgroundColor: '#1E1E1E',
     borderWidth: 1,
     borderColor: '#1e2433',
     ...Platform.select({
@@ -446,7 +446,7 @@ const styles = StyleSheet.create({
     height: IPHONE_14_PRO_MAX.height,
     borderRadius: 34,
     overflow: 'hidden',
-    backgroundColor: '#000000',
+    backgroundColor: '#121212',
     borderWidth: 1,
     borderColor: '#242b3a',
   },
@@ -454,7 +454,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2d2c31',
+    backgroundColor: '#121212',
   },
   startupLogo: {
     width: 160,

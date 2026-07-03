@@ -184,14 +184,14 @@ export function ChartSpecificationScreen() {
 function makeStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     screen: {
-      backgroundColor: isDark ? '#06080D' : '#F4F5F7',
+      backgroundColor: isDark ? '#121212' : '#F4F5F7',
     },
     header: {
       paddingHorizontal: 16,
       paddingBottom: 12,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB',
-      backgroundColor: isDark ? '#06080D' : '#F4F5F7',
+      backgroundColor: isDark ? '#121212' : '#F4F5F7',
     },
     headerRow: {
       flexDirection: 'row',

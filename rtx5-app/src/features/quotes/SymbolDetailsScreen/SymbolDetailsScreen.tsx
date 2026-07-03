@@ -46,7 +46,7 @@ function SymbolDetailsInteractiveContent() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const s = useMemo(() => makeSymbolDetailsStyles(T, isDark), [T, isDark]);
-  const screenBg = isDark ? '#000000' : T.bg;
+  const screenBg = isDark ? '#121212' : T.bg;
 
   const { data: remoteMeta } = useInstrumentMeta(symbol, isScreenFocused);
 

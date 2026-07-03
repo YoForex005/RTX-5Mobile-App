@@ -39,7 +39,7 @@ export function BulkOperationScreen() {
   // Live exposure stats
   const activeExposures: any[] = [];
   const totalNetExposure = 0;
-  const screenBg = isDark ? '#06080D' : T.bg;
+  const screenBg = isDark ? '#121212' : T.bg;
 
   return (
     <View style={[styles.root, { backgroundColor: screenBg }]}>

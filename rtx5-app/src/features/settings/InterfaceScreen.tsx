@@ -27,7 +27,7 @@ export function InterfaceScreen() {
   const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
 
   return (
-    <Screen style={isDark ? { backgroundColor: '#06080D' } : undefined}>
+    <Screen style={isDark ? { backgroundColor: '#121212' } : undefined}>
       <View style={styles.header}>
         <Pressable
           onPress={() => safeRouterBack(router, '/(tabs)/settings')}
@@ -80,7 +80,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       paddingHorizontal: 16,
       paddingTop: safeTop + 8,
       paddingBottom: 12,
-      backgroundColor: isDark ? '#06080D' : T.bg,
+      backgroundColor: isDark ? '#121212' : T.bg,
     },
     backBtn: {
       width: 40,

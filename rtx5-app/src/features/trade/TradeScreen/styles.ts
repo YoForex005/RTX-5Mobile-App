@@ -2,8 +2,8 @@ import { StyleSheet } from 'react-native';
 import { spacing } from '../../../ui/theme/index';
 import type { ThemeColors } from '../../../ui/theme/glass';
 
-const SETTINGS_DARK_BACKGROUND = '#000000';
-const SETTINGS_DARK_CARD_BACKGROUND = '#1C1C1E';
+const SETTINGS_DARK_BACKGROUND = '#121212';
+const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E';
 
 export function makeTradeScreenStyles(T: ThemeColors, isDark: boolean) {
   const screenBg = isDark ? SETTINGS_DARK_BACKGROUND : T.bg;

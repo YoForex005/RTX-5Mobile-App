@@ -63,10 +63,10 @@ test('chart color resolver does not let persisted light canvas colors leak into 
     true,
   );
 
-  assert.equal(darkColors.background, '#080B11');
+  assert.equal(darkColors.background, '#121212');
   assert.equal(darkColors.foreground, DEFAULT_CHART_COLORS.foreground);
   assert.equal(darkColors.grid, DEFAULT_CHART_COLORS.grid);
-  assert.equal(darkColors.hollowBody, '#080B11');
+  assert.equal(darkColors.hollowBody, '#121212');
 });
 
 test('chart color resolver preserves explicit custom dark canvas colors in dark theme', () => {

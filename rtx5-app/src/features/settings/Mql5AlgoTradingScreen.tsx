@@ -1638,7 +1638,7 @@ function getPnlColor(value: number | null | undefined, T: ThemeColors): string {
 }
 
 function getAlgoUiPalette(T: ThemeColors) {
-  const isDark = T.bgRoot === '#000000';
+  const isDark = T.bgRoot === '#121212';
 
   return isDark
     ? {
@@ -1723,14 +1723,14 @@ function withAlpha(color: string, alpha: number): string {
 
 function getAlgoScreenGradient(isDark: boolean): readonly [string, string, string] {
   return isDark
-    ? ['#07111F', '#07111F', '#07111F']
+    ? ['#121212', '#121212', '#121212']
     : ['#F5F8FC', '#F5F8FC', '#F5F8FC'];
 }
 
 function getAccountCardGradient(accountConnected: boolean, isDark: boolean): readonly [string, string] {
   if (accountConnected) {
-    return isDark ? ['#111827', '#111827'] : ['#FFFFFF', '#FFFFFF'];
+    return isDark ? ['#1E1E1E', '#1E1E1E'] : ['#FFFFFF', '#FFFFFF'];
   }
 
-  return isDark ? ['#111827', '#111827'] : ['#FFFFFF', '#FFFFFF'];
+  return isDark ? ['#1E1E1E', '#1E1E1E'] : ['#FFFFFF', '#FFFFFF'];
 }

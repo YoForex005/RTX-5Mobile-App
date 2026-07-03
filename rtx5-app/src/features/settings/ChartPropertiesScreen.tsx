@@ -24,9 +24,9 @@ import { useTheme } from '../../ui/theme/useTheme';
 import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
 import { LiveChartPreview } from '../chart/preview';
 
-// Match Settings dark palette for the chart preferences shell and cards.
-const SETTINGS_DARK_BACKGROUND = '#000000';
-const SETTINGS_DARK_CARD_BACKGROUND = '#1C1C1E';
+// Match the app dark palette for the chart preferences shell and cards.
+const SETTINGS_DARK_BACKGROUND = '#121212';
+const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E';
 
 type ColorGroup = {
   title: string;
