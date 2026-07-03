@@ -916,10 +916,7 @@ export function BrokerDetailScreen() {
                 {isLoading ? (
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
-                  <>
-                    <Text style={styles.loginBtnText}>{t('Login')}</Text>
-                    <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
-                  </>
+                  <Text style={styles.loginBtnText}>{t('Login')}</Text>
                 )}
               </Pressable>
             </View>

@@ -101,7 +101,7 @@ export const CH_HTML = `
       //     • host may still call updateTick(candle) for narrow live patches,
       //         but the chart no longer depends on a second websocket delta
       //         bridge to stay in sync
-      //     • host calls setBidPriceLine(price) for the live BID line
+      //     • host calls setLivePriceLine(price) for the single live Bid line
       //
       //   Native candlesticks use the RTX5 custom series so wick/body
       //   geometry stays centered and stable on mobile WebView pixel grids.
@@ -124,8 +124,7 @@ export const CH_HTML = `
       var askPriceLine = null;
       var marketPriceLineRefs = [];
       var marketPriceLinesVisible = false;
-      var marketBidColor = '#2962FF';
-      var marketAskColor = '#F23645';
+      var marketLiveColor = '#2962FF';
       // Dedicated horizontal line at the live close. We own this instance
       // so we can retint it blue (up candle) / red (down candle) and shift
       // its price on every tick WITHOUT calling applyOptions on the main
@@ -150,6 +149,7 @@ export const CH_HTML = `
       var lastInitSignature = '';
       var lastInitConfigSig = '';
       var lastRequestedDisplayDecimals = 2;
+      var lastLivePrice = null;
       var lastBidPrice = null;
       var lastAskPrice = null;
       // Price-movement histogram shown below the candles. Bar height equals
@@ -2665,11 +2665,8 @@ export const CH_HTML = `
 
       function getMarketPriceBadgeValues() {
         var prices = [];
-        if (typeof lastBidPrice === 'number' && isFinite(lastBidPrice) && lastBidPrice > 0) {
-          prices.push(lastBidPrice);
-        }
-        if (typeof lastAskPrice === 'number' && isFinite(lastAskPrice) && lastAskPrice > 0) {
-          prices.push(lastAskPrice);
+        if (typeof lastLivePrice === 'number' && isFinite(lastLivePrice) && lastLivePrice > 0) {
+          prices.push(lastLivePrice);
         }
         return prices;
       }
@@ -5872,7 +5869,7 @@ export const CH_HTML = `
         } catch (_chartTapErr) {}
 
         applyOverlayPayload(_overlayPayload);
-        setMarketPriceLines(lastBidPrice, lastAskPrice);
+        setLivePriceLine(lastLivePrice);
         schedulePeriodSeparatorsUpdate();
         postChartGeometry();
         postChartReadyWhenPriceScaleHealthy('init_ready', 0, readyGeneration, readyInitSignature, readyConfigSig);
@@ -6051,7 +6048,7 @@ export const CH_HTML = `
           _positionLinesArr = [];
           _overlayMarkers = null;
           applyOverlayPayload(_overlayPayload);
-          setMarketPriceLines(lastBidPrice, lastAskPrice);
+          setLivePriceLine(lastLivePrice);
           ensureDirectionPriceLine();
           refreshDirectionPriceLine();
           ensureMoveDirectionPriceLine();
@@ -6541,7 +6538,7 @@ export const CH_HTML = `
           if (_overlayPayload) {
             applyOverlayPayload(_overlayPayload);
           }
-          setMarketPriceLines(lastBidPrice, lastAskPrice);
+          setLivePriceLine(lastLivePrice);
           schedulePeriodSeparatorsUpdate();
 
           if (mapped.length > 0) {
@@ -6866,24 +6863,28 @@ export const CH_HTML = `
         return Number(price.toFixed(safeDecimals));
       }
 
-      function setBidPriceLine(price, shouldScheduleRefresh) {
+      function setLivePriceLine(price, shouldScheduleRefresh) {
         try {
           var normalizedPrice = normalizeMarketPriceLinePrice(price);
-          if (shouldScheduleRefresh !== false) {
-            lastBidPrice = normalizedPrice;
-            marketPriceLinesVisible =
-              lastBidPrice !== null ||
-              (typeof lastAskPrice === 'number' && isFinite(lastAskPrice) && lastAskPrice > 0);
-          }
+          var liveColor = pickLivePriceColor();
+          marketLiveColor = liveColor;
+          lastLivePrice = normalizedPrice;
+          lastBidPrice = normalizedPrice;
+          lastAskPrice = null;
+          marketPriceLinesVisible = lastLivePrice !== null;
           if (!series) return;
           if (normalizedPrice === null) {
             bidPriceLine = removeMarketPriceLine(bidPriceLine);
+            askPriceLine = removeMarketPriceLine(askPriceLine);
+            ensureMarketPriceBadgesVisible();
             if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
             return;
           }
+          askPriceLine = removeMarketPriceLine(askPriceLine);
           if (bidPriceLine) {
             try {
-              bidPriceLine.applyOptions(makeMarketPriceLineOptions(normalizedPrice, marketBidColor));
+              bidPriceLine.applyOptions(makeMarketPriceLineOptions(normalizedPrice, liveColor));
+              ensureMarketPriceBadgesVisible();
               if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
               return;
             } catch (_e) {
@@ -6891,83 +6892,59 @@ export const CH_HTML = `
             }
           }
           bidPriceLine = removeMarketPriceLine(bidPriceLine);
-          bidPriceLine = createMarketPriceLine(normalizedPrice, marketBidColor);
+          bidPriceLine = createMarketPriceLine(normalizedPrice, liveColor);
+          ensureMarketPriceBadgesVisible();
           if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
         } catch (e) {
-          postError('setBidPriceLine', e);
+          postError('setLivePriceLine', e);
         }
       }
 
+      function setBidPriceLine(price, shouldScheduleRefresh) {
+        setLivePriceLine(price, shouldScheduleRefresh);
+      }
+
       function setAskPriceLine(price, shouldScheduleRefresh) {
-        try {
-          var normalizedPrice = normalizeMarketPriceLinePrice(price);
-          if (shouldScheduleRefresh !== false) {
-            lastAskPrice = normalizedPrice;
-            marketPriceLinesVisible =
-              (typeof lastBidPrice === 'number' && isFinite(lastBidPrice) && lastBidPrice > 0) ||
-              lastAskPrice !== null;
-          }
-          if (!series) return;
-          if (normalizedPrice === null) {
-            askPriceLine = removeMarketPriceLine(askPriceLine);
-            if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
-            return;
-          }
-          if (askPriceLine) {
-            try {
-              askPriceLine.applyOptions(makeMarketPriceLineOptions(normalizedPrice, marketAskColor));
-              if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
-              return;
-            } catch (_e) {
-              askPriceLine = removeMarketPriceLine(askPriceLine);
-            }
-          }
+        lastAskPrice = null;
+        if (series) {
           askPriceLine = removeMarketPriceLine(askPriceLine);
-          askPriceLine = createMarketPriceLine(normalizedPrice, marketAskColor);
-          if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
-        } catch (e) {
-          postError('setAskPriceLine', e);
+        }
+        if (shouldScheduleRefresh !== false) {
+          ensureMarketPriceBadgesVisible();
+          scheduleOverlayDomRefresh();
         }
       }
 
       function setMarketPriceLines(bid, ask) {
-        var normalizedBid = normalizeMarketPriceLinePrice(bid);
-        var normalizedAsk = normalizeMarketPriceLinePrice(ask);
-        var hasBid = normalizedBid !== null;
-        var hasAsk = normalizedAsk !== null;
-        lastBidPrice = normalizedBid;
-        lastAskPrice = normalizedAsk;
-        marketPriceLinesVisible = hasBid || hasAsk;
-        if (marketPriceLinesVisible && directionPriceLine && series) {
-          try { series.removePriceLine(directionPriceLine); } catch (_e) {}
-          directionPriceLine = null;
-        }
-        clearMarketPriceLineRefs();
-        if (hasBid) {
-          setBidPriceLine(normalizedBid, false);
-        } else {
+        setLivePriceLine(bid);
+      }
+
+      function clearMarketPriceLines() {
+        lastLivePrice = null;
+        lastBidPrice = null;
+        lastAskPrice = null;
+        marketPriceLinesVisible = false;
+        if (series) {
           bidPriceLine = removeMarketPriceLine(bidPriceLine);
-        }
-        if (hasAsk) {
-          setAskPriceLine(normalizedAsk, false);
-        } else {
           askPriceLine = removeMarketPriceLine(askPriceLine);
         }
         ensureMarketPriceBadgesVisible();
         scheduleOverlayDomRefresh();
       }
 
-      // Re-tint the custom BID price line in place when the active candle
-      // flips direction mid-bucket (blue when bullish, red when bearish).
+      // Re-tint the live price line in place when the active candle flips
+      // direction mid-bucket. Uses the current bull/bear candle colors.
       // We intentionally don't touch the candle series' or move-bars' own
       // options — applyOptions on the main series can cause a full redraw
       // of the data, which was blanking history on some rebuilds.
       function refreshBidPriceLineColor() {
         if (!bidPriceLine) return;
+        var liveColor = pickLivePriceColor();
+        marketLiveColor = liveColor;
         try {
           bidPriceLine.applyOptions({
-            color: marketBidColor,
-            axisLabelColor: marketBidColor,
+            color: liveColor,
+            axisLabelColor: liveColor,
             axisLabelVisible: false,
           });
         } catch (_e) {}
@@ -7480,8 +7457,7 @@ export const CH_HTML = `
 
       function renderMarketPriceScaleExtensions(layer) {
         clearMarketPriceScaleExtensions(layer);
-        renderMarketPriceScaleExtension(layer, lastBidPrice, marketBidColor);
-        renderMarketPriceScaleExtension(layer, lastAskPrice, marketAskColor);
+        renderMarketPriceScaleExtension(layer, lastLivePrice, marketLiveColor);
       }
 
       function clearMarketPriceScaleBadges(layer) {
@@ -7589,8 +7565,7 @@ export const CH_HTML = `
           return;
         }
         var badges = [
-          collectMarketPriceScaleBadge(layer, axisMetrics, lastBidPrice, marketBidColor, 'bid'),
-          collectMarketPriceScaleBadge(layer, axisMetrics, lastAskPrice, marketAskColor, 'ask'),
+          collectMarketPriceScaleBadge(layer, axisMetrics, lastLivePrice, marketLiveColor, 'live'),
         ].filter(Boolean);
         if (badges.length === 0) {
           return;
@@ -8102,6 +8077,7 @@ export const CH_HTML = `
       window.updateTick = updateTick;
       window.setDisplayDecimals = setDisplayDecimals;
       window.setPeriodSeparators = setPeriodSeparators;
+      window.setLivePriceLine = setLivePriceLine;
       window.setBidPriceLine = setBidPriceLine;
       window.setAskPriceLine = setAskPriceLine;
       window.setMarketPriceLines = setMarketPriceLines;

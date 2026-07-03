@@ -48,7 +48,10 @@ export type ChartDisplaySettings = {
   showTicker: boolean;
   showOHLC: boolean;
   showQuickTradingButtons: boolean;
+  showLivePriceLine: boolean;
+  /** @deprecated Legacy persisted key migrated to showLivePriceLine. */
   showBidPriceLine: boolean;
+  /** @deprecated Legacy persisted key migrated to showLivePriceLine. */
   showAskPriceLine: boolean;
   showLastPriceLine: boolean;
   showGrid: boolean;

@@ -224,8 +224,7 @@ const CHART_SCALE_DISPLAY_ITEMS: Array<{
   { key: 'showTicker', label: 'Show ticker', icon: 'pricetag-outline' },
   { key: 'showOHLC', label: 'Show OHLC', icon: 'stats-chart-outline' },
   { key: 'showQuickTradingButtons', label: 'Show quick trading buttons', icon: 'flash-outline' },
-  { key: 'showBidPriceLine', label: 'Show bid price line', icon: 'trending-down-outline' },
-  { key: 'showAskPriceLine', label: 'Show ask price line', icon: 'trending-up-outline' },
+  { key: 'showLivePriceLine', label: 'Show live price line', icon: 'pulse-outline' },
   { key: 'showLastPriceLine', label: 'Show last price line', icon: 'ellipse-outline' },
   { key: 'showGrid', label: 'Show grid', icon: 'grid-outline' },
   { key: 'periodSeparators', label: 'Period separators', icon: 'reorder-three-outline' },
@@ -1530,6 +1529,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       }),
     [chartLiveQuote?.ask, chartLiveQuote?.bid, hasLiveChartQuote, latestChartClose],
   );
+  const chartLivePriceLine = useMemo(() => {
+    return hasLiveChartQuote &&
+      typeof chartLiveQuote?.bid === 'number' &&
+      Number.isFinite(chartLiveQuote.bid) &&
+      chartLiveQuote.bid > 0
+      ? chartLiveQuote.bid
+      : null;
+  }, [chartLiveQuote?.bid, hasLiveChartQuote]);
   // Trade P/L labels should follow the fresh quote feed even when candle
   // history is still catching up. Display precision stays guarded by
   // hasCoherentLiveChartQuote above so bad quote metadata cannot churn chart
@@ -4108,8 +4115,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const renderedDataContextSigRef = useRef('');
   const lastInjectedLiveQuoteSignatureRef = useRef('');
   const pendingMarketPriceLinesRef = useRef<{
-    bid: number | null;
-    ask: number | null;
+    price: number | null;
     signature: string;
   } | null>(null);
   const marketPriceLineFlushFrameRef = useRef<number | null>(null);
@@ -4140,8 +4146,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     try {
       webViewRef.current?.injectJavaScript(`
         try {
-          if (typeof setMarketPriceLines === 'function') {
-            setMarketPriceLines(null, null);
+          if (typeof setLivePriceLine === 'function') {
+            setLivePriceLine(null);
           }
         } catch (_) {}
         true;
@@ -4170,21 +4176,20 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       return;
     }
 
-    // Quote updates are limited to bid/ask guide lines here; candle OHLC is
+    // Quote updates are limited to the live Bid guide line here; candle OHLC is
     // synchronized through the canonical candle stream.
     try {
       if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
-        console.log('[CHART-BRIDGE] inject_setMarketPriceLines', {
+        console.log('[CHART-BRIDGE] inject_setLivePriceLine', {
           symbol: chartSymbol,
           timeframe: chartTimeframe,
-          bid: pending.bid,
-          ask: pending.ask,
+          livePrice: pending.price,
         });
       }
       webViewRef.current.injectJavaScript(`
         try {
-          if (typeof setMarketPriceLines === 'function') {
-            setMarketPriceLines(${pending.bid ?? 'null'}, ${pending.ask ?? 'null'});
+          if (typeof setLivePriceLine === 'function') {
+            setLivePriceLine(${pending.price ?? 'null'});
           }
         } catch (_) {}
         true;
@@ -4532,15 +4537,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       return;
     }
 
-    const hasBid = Number.isFinite(chartBid) && chartBid > 0;
-    const hasAsk = Number.isFinite(chartAsk) && chartAsk > 0;
-    const visibleBid = chartDisplay.showBidPriceLine && hasBid ? chartBid : null;
-    const visibleAsk = chartDisplay.showAskPriceLine && hasAsk ? chartAsk : null;
-
-    const nextSignature = [
-      visibleBid !== null ? visibleBid.toFixed(displayDecimals) : chartDisplay.showBidPriceLine ? 'na' : 'off',
-      visibleAsk !== null ? visibleAsk.toFixed(displayDecimals) : chartDisplay.showAskPriceLine ? 'na' : 'off',
-    ].join('|');
+    const visibleLivePrice = chartDisplay.showLivePriceLine && chartLivePriceLine !== null ? chartLivePriceLine : null;
+    const nextSignature =
+      visibleLivePrice !== null ? visibleLivePrice.toFixed(displayDecimals) : chartDisplay.showLivePriceLine ? 'na' : 'off';
 
     if (
       lastInjectedLiveQuoteSignatureRef.current === nextSignature ||
@@ -4549,21 +4548,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       return;
     }
 
-    // Quote ticks move only market price lines. Candle bodies stay tied to
+    // Quote ticks move only the live price line. Candle bodies stay tied to
     // backend OHLC history/live candle messages.
-    // The scheduled bridge flush calls setMarketPriceLines( after coalescing.
+    // The scheduled bridge flush calls setLivePriceLine after coalescing.
     pendingMarketPriceLinesRef.current = {
-      bid: visibleBid,
-      ask: visibleAsk,
+      price: visibleLivePrice,
       signature: nextSignature,
     };
     requestMarketPriceLineFlush();
   }, [
-    chartAsk,
-    chartBid,
     chartCanvasReady,
-    chartDisplay.showAskPriceLine,
-    chartDisplay.showBidPriceLine,
+    chartDisplay.showLivePriceLine,
+    chartLivePriceLine,
     chartReadyEpoch,
     chartSymbol,
     chartTimeframe,
@@ -5428,21 +5424,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                           // without waiting for the next React effect cycle.
                           try {
                             const latestOverlay = overlayPayloadRef.current ?? { priceLines: [], markers: [] };
-                            const hasBid = Number.isFinite(chartBid) && chartBid > 0;
-                            const hasAsk = Number.isFinite(chartAsk) && chartAsk > 0;
-                            const visibleBid = chartDisplay.showBidPriceLine && hasBid ? chartBid : null;
-                            const visibleAsk = chartDisplay.showAskPriceLine && hasAsk ? chartAsk : null;
-                            const nextMarketLineSignature = [
-                              visibleBid !== null ? visibleBid.toFixed(displayDecimals) : chartDisplay.showBidPriceLine ? 'na' : 'off',
-                              visibleAsk !== null ? visibleAsk.toFixed(displayDecimals) : chartDisplay.showAskPriceLine ? 'na' : 'off',
-                            ].join('|');
+                            const visibleLivePrice = chartDisplay.showLivePriceLine && chartLivePriceLine !== null ? chartLivePriceLine : null;
+                            const nextMarketLineSignature =
+                              visibleLivePrice !== null ? visibleLivePrice.toFixed(displayDecimals) : chartDisplay.showLivePriceLine ? 'na' : 'off';
                             if (webViewRef.current) {
                               webViewRef.current.injectJavaScript(`
                             if (typeof setChartOverlays === 'function') {
                               setChartOverlays(${JSON.stringify(latestOverlay)});
                             }
-                            if (typeof setMarketPriceLines === 'function') {
-                              setMarketPriceLines(${visibleBid ?? 'null'}, ${visibleAsk ?? 'null'});
+                            if (typeof setLivePriceLine === 'function') {
+                              setLivePriceLine(${visibleLivePrice ?? 'null'});
                             }
                             true;
                           `);

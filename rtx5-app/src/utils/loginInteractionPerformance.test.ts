@@ -276,6 +276,18 @@ test('broker detail login does not wait on health probes or secure storage befor
   assert.match(source, /router\.replace\('\/\(tabs\)\/quotes'\);\s*didStartSuccessNavigation = true;\s*scheduleBrokerDetailPostLoginWork\(\(\) => \{/);
 });
 
+test('broker detail login button shows text without a trailing arrow icon', () => {
+  const source = readSource('src/features/settings/BrokerDetailScreen.tsx');
+  const loginButtonStart = source.indexOf('latencyLabel="brokerDetail.login.submit"');
+  const loginButtonEnd = source.indexOf('</Pressable>', loginButtonStart);
+  assert.notEqual(loginButtonStart, -1);
+  assert.notEqual(loginButtonEnd, -1);
+
+  const loginButtonSource = source.slice(loginButtonStart, loginButtonEnd);
+  assert.match(loginButtonSource, /<Text style=\{styles\.loginBtnText\}>\{t\('Login'\)\}<\/Text>/);
+  assert.doesNotMatch(loginButtonSource, /arrow-forward|chevron-forward|<Ionicons/);
+});
+
 test('login auth request has a bounded frontend timeout', () => {
   const source = readSource('src/api/auth.ts');
 

@@ -111,7 +111,7 @@ function OrderTicketInitialShell() {
   const SELL_C = T.trading.sell.primary;
   const BUY_C = T.trading.buy.primary;
   const SELL_BG = isDark ? 'rgba(255,59,48,0.08)' : 'rgba(220,38,38,0.06)';
-  const BUY_BG = isDark ? 'rgba(52,199,89,0.08)' : 'rgba(5,150,105,0.06)';
+  const BUY_BG = isDark ? 'rgba(52,125,255,0.14)' : 'rgba(37,99,235,0.08)';
 
   return (
     <View style={[styles.root, { paddingBottom: insets.bottom }]}>
@@ -257,7 +257,7 @@ function OrderTicketInteractiveContent() {
   const SELL_C = T.trading.sell.primary;
   const SELL_BG = isDark ? 'rgba(255,59,48,0.08)' : 'rgba(220,38,38,0.06)';
   const BUY_C = T.trading.buy.primary;
-  const BUY_BG = isDark ? 'rgba(52,199,89,0.08)' : 'rgba(5,150,105,0.06)';
+  const BUY_BG = isDark ? 'rgba(52,125,255,0.14)' : 'rgba(37,99,235,0.08)';
 
   // The order type decides whether this ticket submits immediately or prepares
   // a pending order with an editable trigger price.

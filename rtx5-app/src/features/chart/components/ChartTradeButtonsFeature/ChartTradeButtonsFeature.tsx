@@ -11,9 +11,7 @@ import {
   resolveFooterLotChevronState,
 } from '../../chartTradeInteractionUtils';
 import {
-  resolveChartTradeButtonPriceColor,
   resolveChartTradeButtonQuote,
-  type ChartTradeButtonPriceColorResult,
 } from './quoteFallback';
 import { baseStyles, darkStyles, lightStyles, textBaseStyles } from './styles';
 import { useTradeHandler, type TradeFeedback } from './useTradeHandler';
@@ -173,40 +171,8 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   const themeStyles = isDark ? darkStyles : lightStyles;
   const sellAction = getChartTradeAction('sell');
   const buyAction = getChartTradeAction('buy');
-  const bidPriceVisualRef = React.useRef<Pick<ChartTradeButtonPriceColorResult, 'direction' | 'lastPrice'>>({
-    direction: null,
-    lastPrice: null,
-  });
-  const askPriceVisualRef = React.useRef<Pick<ChartTradeButtonPriceColorResult, 'direction' | 'lastPrice'>>({
-    direction: null,
-    lastPrice: null,
-  });
-  const sellTileVisual = resolveChartTradeButtonPriceColor({
-    currentPrice: latestBid,
-    previousPrice: bidPriceVisualRef.current.lastPrice,
-    previousDirection: bidPriceVisualRef.current.direction,
-    upColor: buyColor,
-    downColor: sellColor,
-    fallbackColor: sellColor,
-  });
-  const buyTileVisual = resolveChartTradeButtonPriceColor({
-    currentPrice: latestAsk,
-    previousPrice: askPriceVisualRef.current.lastPrice,
-    previousDirection: askPriceVisualRef.current.direction,
-    upColor: buyColor,
-    downColor: sellColor,
-    fallbackColor: buyColor,
-  });
-  bidPriceVisualRef.current = {
-    direction: sellTileVisual.direction,
-    lastPrice: sellTileVisual.lastPrice,
-  };
-  askPriceVisualRef.current = {
-    direction: buyTileVisual.direction,
-    lastPrice: buyTileVisual.lastPrice,
-  };
-  const sellTileColor = sellTileVisual.color;
-  const buyTileColor = buyTileVisual.color;
+  const sellTileColor = sellColor;
+  const buyTileColor = buyColor;
   const lotDisplayValue = (
     <Text style={[textBaseStyles.actionLotValue, baseStyles.actionLotDisplayGhost, themeStyles.actionLotValue, lotInvalid && { color: INVALID_LOT_COLOR }]} numberOfLines={1}>
       {lotDisplayText}

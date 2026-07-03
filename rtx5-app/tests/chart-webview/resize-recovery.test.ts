@@ -85,7 +85,7 @@ test('chart viewport keeps scale controls in the radial menu, not price-scale do
   );
   assertSourceContains(
     source,
-    /const chartScaleActions = useMemo\([\s\S]*label: t\('Scroll to last bar'\)[\s\S]*label: t\('Reset vertical scale'\)[\s\S]*label: t\(isChartAutoScaleEnabled \? 'Free chart movement' : 'Auto-scale'\)[\s\S]*label: t\(isVerticalScrollingLocked \? 'Unlock vertical scrolling' : 'Lock vertical scrolling'\)/,
+    /const chartScaleActions = useMemo\([\s\S]*label: t\('Scroll to last bar'\)[\s\S]*label: t\('Reset vertical scale'\)[\s\S]*label: t\('Auto-scale'\)[\s\S]*label: t\('Vertical movement'\)/,
     'chart scale dropdown must contain the four scale commands',
   );
   assert.doesNotMatch(radialMenuSource, /const scaleActionItems/);
@@ -137,7 +137,7 @@ test('recoverChartSurface restores data, overlays, market price lines, direction
 
   assertSourceContains(body, /series\.setData\(mapped\)/, 'recovery must restore chart data');
   assertSourceContains(body, /applyOverlayPayload\(_overlayPayload\)/, 'recovery must restore overlays');
-  assertSourceContains(body, /setMarketPriceLines\(lastBidPrice, lastAskPrice\)/, 'recovery must restore bid/ask lines');
+  assertSourceContains(body, /setLivePriceLine\(lastLivePrice\)/, 'recovery must restore the live price line');
   assertSourceContains(body, /refreshDirectionPriceLine\(\)/, 'recovery must restore direction price line');
   assertSourceContains(body, /postChartGeometry\(\)/, 'recovery must report geometry');
 });

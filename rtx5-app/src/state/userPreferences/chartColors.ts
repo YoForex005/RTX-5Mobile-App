@@ -53,18 +53,10 @@ export const CHART_COLOR_SCHEME_PRESETS: Record<Exclude<ChartColorScheme, 'custo
   },
 };
 
+export const DEFAULT_CHART_COLOR_SCHEME: Exclude<ChartColorScheme, 'custom'> = 'green_on_black';
+
 export const DEFAULT_CHART_COLORS: ChartColorsConfig = {
-  background: '#121212',
-  foreground: '#94A3B8',
-  // Keep app-managed dark grid values visible in the chart while
-  // preserving explicit user-selected grid colors.
-  grid: 'rgba(255,255,255,0.26)',
-  candlesUptrend: '#2962FF',
-  candlesDowntrend: '#EF5350',
-  hollowBody: '#121212',
-  barsUptrend: '#2962FF',
-  barsDowntrend: '#EF5350',
-  lineBody: '#2962FF',
+  ...CHART_COLOR_SCHEME_PRESETS[DEFAULT_CHART_COLOR_SCHEME].colors,
   tradeOpen: '#2962FF',
   tradeTpSl: '#089981',
   tradeStopOut: '#DC2626',
@@ -97,51 +89,6 @@ const isNearBlackChartColor = (color: string): boolean => {
   return Number(red) <= 16 && Number(green) <= 16 && Number(blue) <= 16;
 };
 
-const parseChartColorChannels = (color: string): { red: number; green: number; blue: number; alpha: number } | null => {
-  const normalized = normalizeStructuralChartColor(color);
-  if (normalized === 'white') {
-    return { red: 255, green: 255, blue: 255, alpha: 1 };
-  }
-
-  const hexMatch = normalized.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
-  if (hexMatch) {
-    const hex = hexMatch[1].length === 3
-      ? hexMatch[1].split('').map((part) => `${part}${part}`).join('')
-      : hexMatch[1];
-    return {
-      red: parseInt(hex.slice(0, 2), 16),
-      green: parseInt(hex.slice(2, 4), 16),
-      blue: parseInt(hex.slice(4, 6), 16),
-      alpha: 1,
-    };
-  }
-
-  const rgbMatch = normalized.match(/^rgba?\((\d+),(\d+),(\d+)(?:,([0-9.]+))?\)$/);
-  if (rgbMatch) {
-    return {
-      red: Number(rgbMatch[1]),
-      green: Number(rgbMatch[2]),
-      blue: Number(rgbMatch[3]),
-      alpha: rgbMatch[4] === undefined ? 1 : Number(rgbMatch[4]),
-    };
-  }
-
-  return null;
-};
-
-const isLightChartColor = (color: string): boolean => {
-  const channels = parseChartColorChannels(color);
-  if (!channels || channels.alpha <= 0) {
-    return false;
-  }
-
-  const luminance =
-    0.2126 * channels.red +
-    0.7152 * channels.green +
-    0.0722 * channels.blue;
-  return luminance >= 210;
-};
-
 const LIGHT_THEME_CHART_FALLBACKS: StructuralChartColors = {
   background: CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.background,
   foreground: CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.foreground,
@@ -150,10 +97,10 @@ const LIGHT_THEME_CHART_FALLBACKS: StructuralChartColors = {
 };
 
 const DARK_THEME_CHART_FALLBACKS: StructuralChartColors = {
-  background: '#121212',
+  background: CHART_COLOR_SCHEME_PRESETS.green_on_black.colors.background,
   foreground: DEFAULT_CHART_COLORS.foreground,
   grid: DEFAULT_CHART_COLORS.grid,
-  hollowBody: '#121212',
+  hollowBody: CHART_COLOR_SCHEME_PRESETS.green_on_black.colors.hollowBody,
 };
 
 const BUILTIN_STRUCTURAL_VALUES: Record<keyof StructuralChartColors, Set<string>> = {
@@ -205,18 +152,26 @@ export function resolveChartColorsForTheme(
   };
 
   const resolvedColors = { ...mergedColors };
-  const themeStructuralColors = isDark ? DARK_THEME_CHART_FALLBACKS : LIGHT_THEME_CHART_FALLBACKS;
-  const forceThemeStructure = Boolean(chartColorScheme && chartColorScheme !== 'custom');
-  const darkThemeHasLightCanvas = isDark && isLightChartColor(mergedColors.background);
+  const presetStructuralColors = chartColorScheme && chartColorScheme !== 'custom'
+    ? {
+        background: CHART_COLOR_SCHEME_PRESETS[chartColorScheme].colors.background,
+        foreground: CHART_COLOR_SCHEME_PRESETS[chartColorScheme].colors.foreground,
+        grid: CHART_COLOR_SCHEME_PRESETS[chartColorScheme].colors.grid,
+        hollowBody: CHART_COLOR_SCHEME_PRESETS[chartColorScheme].colors.hollowBody,
+      }
+    : null;
+  const schemeStructuralColors = presetStructuralColors
+    ? (isDark ? presetStructuralColors : LIGHT_THEME_CHART_FALLBACKS)
+    : null;
+  const themeStructuralColors = schemeStructuralColors ?? (isDark ? DARK_THEME_CHART_FALLBACKS : LIGHT_THEME_CHART_FALLBACKS);
+  const forceThemeStructure = schemeStructuralColors !== null;
 
   (Object.keys(themeStructuralColors) as Array<keyof StructuralChartColors>).forEach((key) => {
     const normalizedValue = normalizeStructuralChartColor(mergedColors[key]);
     const isInvisibleDarkGrid = key === 'grid' && isDark && isNearBlackChartColor(mergedColors[key]);
     if (
       forceThemeStructure ||
-      darkThemeHasLightCanvas ||
-      isInvisibleDarkGrid ||
-      BUILTIN_STRUCTURAL_VALUES[key].has(normalizedValue)
+      (!chartColorScheme && (isInvisibleDarkGrid || BUILTIN_STRUCTURAL_VALUES[key].has(normalizedValue)))
     ) {
       resolvedColors[key] = themeStructuralColors[key];
     }
@@ -229,12 +184,15 @@ export const DEFAULT_CHART_DISPLAY_SETTINGS: ChartDisplaySettings = {
   showTicker: true,
   showOHLC: false,
   showQuickTradingButtons: true,
+  // Single visible guide line: live Bid only. Ask stays internal for trading.
+  showLivePriceLine: true,
+  // Legacy keys kept for persisted preference migration only.
   showBidPriceLine: true,
   showAskPriceLine: false,
   // true = show the colored axis label (box) for the last-close price on the
   // right price scale. This is standard in all professional trading apps
   // (MT5, TradingView, Dhan). Note: this no longer controls priceLineVisible
-  // on the series — the BID price line is the only horizontal line on the
+  // on the series - the live price line is the only horizontal line on the
   // chart canvas.
   showLastPriceLine: true,
   showGrid: true,

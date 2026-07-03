@@ -14,7 +14,7 @@ test('ChartScreen logs the canonical useLiveCandles to WebView candle bridge pat
   assertSourceContains(source, /\[CHART-BRIDGE\] candle_sync_mode/, 'ChartScreen must log update mode decisions');
   assertSourceContains(source, /\[CHART-BRIDGE\] inject_updateChartData/, 'ChartScreen must log full candle reload injections');
   assertSourceContains(source, /\[CHART-BRIDGE\] inject_updateTick/, 'ChartScreen must log incremental candle injections');
-  assertSourceContains(source, /\[CHART-BRIDGE\] inject_setMarketPriceLines/, 'ChartScreen must log bid ask line injections separately');
+  assertSourceContains(source, /\[CHART-BRIDGE\] inject_setLivePriceLine/, 'ChartScreen must log live price line injections separately');
 });
 
 test('WebView candle bridge logs updateChartData updateTick and rejected stale ticks', () => {

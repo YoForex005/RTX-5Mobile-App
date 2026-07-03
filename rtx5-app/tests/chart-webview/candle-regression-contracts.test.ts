@@ -318,11 +318,11 @@ test('quote feed updates price lines without creating display candles', () => {
     'ChartScreen must not fold live quotes into display candles',
   );
 
-  const quoteBridgeStart = chartSource.indexOf('Quote ticks move only market price lines.');
+  const quoteBridgeStart = chartSource.indexOf('Quote ticks move only the live price line.');
   assert.notEqual(quoteBridgeStart, -1, 'quote bridge contract comment must exist');
   const quoteBridge = chartSource.slice(quoteBridgeStart, chartSource.indexOf('// Watchdog', quoteBridgeStart));
 
-  assertSourceContains(quoteBridge, /setMarketPriceLines\(/, 'quote bridge must move price lines');
+  assertSourceContains(quoteBridge, /pendingMarketPriceLinesRef\.current = \{[\s\S]*price: visibleLivePrice[\s\S]*requestMarketPriceLineFlush\(\)/, 'quote bridge must schedule the live price line move');
   assert.doesNotMatch(quoteBridge, /updateTick\(/, 'quote bridge must leave candle bridge updates in the candle sync effect');
   assert.doesNotMatch(quoteBridge, /buildChartTickPayload/, 'quote bridge must not create a second candle payload path');
 });

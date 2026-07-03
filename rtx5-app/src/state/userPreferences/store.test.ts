@@ -8,7 +8,7 @@ const source = () => readFileSync(resolve(process.cwd(), 'src/state/userPreferen
 test('persisted user preferences are normalized before second-launch hydration reaches UI', () => {
   const storeSource = source();
 
-  assert.match(storeSource, /const PREFERENCES_STORAGE_VERSION = 19/);
+  assert.match(storeSource, /const PREFERENCES_STORAGE_VERSION = 20/);
   assert.match(storeSource, /const CHART_DRAWING_RECORDS_STORAGE_KEY = 'rtx5-chart-drawing-records-v1'/);
   assert.match(storeSource, /normalizePersistedUserPreferencesState/);
   assert.match(storeSource, /quoteSymbols: asStringArray\(state\.quoteSymbols\)/);
@@ -18,6 +18,16 @@ test('persisted user preferences are normalized before second-launch hydration r
   assert.match(storeSource, /chartVisualType: normalizeChartVisualType\(state\.chartVisualType\)/);
   assert.match(storeSource, /chartVerticalScrollingLocked: asBoolean\(state\.chartVerticalScrollingLocked, false\)/);
   assert.match(storeSource, /chartAutoScaleEnabled: asBoolean\(state\.chartAutoScaleEnabled, false\)/);
+  assert.match(storeSource, /hasPersistedLivePriceLine = typeof record\.showLivePriceLine === 'boolean'/);
+  assert.match(storeSource, /!hasPersistedLivePriceLine && typeof record\.showBidPriceLine === 'boolean'[\s\S]*next\.showLivePriceLine = record\.showBidPriceLine/);
+  assert.match(storeSource, /next\.showAskPriceLine = false/);
+  assert.match(storeSource, /DEFAULT_CHART_COLOR_SCHEME/);
+  assert.match(storeSource, /LEGACY_BLUE_DEFAULT_CHART_COLORS/);
+  assert.match(storeSource, /isLegacyBlueDefaultChartColors\(state\.chartColors\)/);
+  assert.match(storeSource, /chartColorScheme: nextChartColorScheme/);
+  assert.match(storeSource, /chartColors: nextChartColors/);
+  assert.match(storeSource, /chartColorScheme: DEFAULT_CHART_COLOR_SCHEME/);
+  assert.match(storeSource, /chartColors: buildChartColorsForScheme\(DEFAULT_CHART_COLOR_SCHEME\)/);
   assert.match(storeSource, /setChartVisualType: \(chartType\) => set\(\{ chartVisualType: normalizeChartVisualType\(chartType\) \}\)/);
   assert.doesNotMatch(storeSource, /const isChartVisualType/);
   assert.match(storeSource, /persistChartDrawingRecordsBySymbol\(nextRecordsBySymbol\)/);

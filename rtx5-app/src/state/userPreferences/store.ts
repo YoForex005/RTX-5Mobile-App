@@ -24,6 +24,7 @@ import { DEFAULT_TRADE_VOLUME, normalizeTradeVolume } from '../../utils/tradeVol
 import { normalizeLanguageCode } from '../../i18n/translations';
 import {
   CHART_COLOR_SCHEME_PRESETS,
+  DEFAULT_CHART_COLOR_SCHEME,
   DEFAULT_CHART_COLORS,
   DEFAULT_CHART_DISPLAY_SETTINGS,
 } from './chartColors';
@@ -95,8 +96,33 @@ type PersistedUserPreferencesState = Omit<
 const pendingPreferenceWrites = new Map<string, StorageValue<PersistedUserPreferencesState>>();
 let pendingThemeModeCommit: ThemeMode | null = null;
 let themeModeCommitScheduled = false;
-const PREFERENCES_STORAGE_VERSION = 19;
+const PREFERENCES_STORAGE_VERSION = 20;
 const CHART_DRAWING_RECORDS_STORAGE_KEY = 'rtx5-chart-drawing-records-v1';
+const LEGACY_BLUE_DEFAULT_CHART_COLORS: ChartColorsConfig = {
+  background: '#121212',
+  foreground: '#94A3B8',
+  grid: 'rgba(255,255,255,0.26)',
+  candlesUptrend: '#2962FF',
+  candlesDowntrend: '#EF5350',
+  hollowBody: '#121212',
+  barsUptrend: '#2962FF',
+  barsDowntrend: '#EF5350',
+  lineBody: '#2962FF',
+  tradeOpen: '#2962FF',
+  tradeTpSl: '#089981',
+  tradeStopOut: '#DC2626',
+};
+const LEGACY_BLUE_DEFAULT_REQUIRED_COLOR_KEYS: Array<keyof ChartColorsConfig> = [
+  'background',
+  'foreground',
+  'grid',
+  'candlesUptrend',
+  'candlesDowntrend',
+  'hollowBody',
+  'barsUptrend',
+  'barsDowntrend',
+  'lineBody',
+];
 
 const asRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -112,6 +138,9 @@ const asBoolean = (value: unknown, fallback = false): boolean =>
 
 const asFiniteNumber = (value: unknown, fallback: number | null): number | null =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+const normalizeChartColorForComparison = (value: unknown): string =>
+  typeof value === 'string' ? value.trim().toLowerCase().replace(/\s+/g, '') : '';
 
 const asStringArray = (value: unknown): string[] =>
   Array.isArray(value)
@@ -149,12 +178,30 @@ const normalizeChartColors = (value: unknown): ChartColorsConfig => {
   return next;
 };
 
+const isLegacyBlueDefaultChartColors = (value: unknown): boolean => {
+  const record = asRecord(value);
+  return LEGACY_BLUE_DEFAULT_REQUIRED_COLOR_KEYS.every((key) =>
+    normalizeChartColorForComparison(record[key]) === normalizeChartColorForComparison(LEGACY_BLUE_DEFAULT_CHART_COLORS[key]),
+  );
+};
+
+const buildChartColorsForScheme = (scheme: Exclude<UserPreferencesState['chartColorScheme'], 'custom'>): ChartColorsConfig => ({
+  ...DEFAULT_CHART_COLORS,
+  ...CHART_COLOR_SCHEME_PRESETS[scheme].colors,
+});
+
 const normalizeChartDisplay = (value: unknown): ChartDisplaySettings => {
   const record = asRecord(value);
   const next: ChartDisplaySettings = { ...DEFAULT_CHART_DISPLAY_SETTINGS };
+  const hasPersistedLivePriceLine = typeof record.showLivePriceLine === 'boolean';
   (Object.keys(next) as Array<keyof ChartDisplaySettings>).forEach((key) => {
     next[key] = asBoolean(record[key], next[key]);
   });
+  if (!hasPersistedLivePriceLine && typeof record.showBidPriceLine === 'boolean') {
+    next.showLivePriceLine = record.showBidPriceLine;
+  }
+  next.showBidPriceLine = next.showLivePriceLine;
+  next.showAskPriceLine = false;
   return next;
 };
 
@@ -251,6 +298,19 @@ export function normalizePersistedUserPreferencesState(
     state.historyToMs == null
       ? 'All time'
       : asString(state.historyRange, 'All time');
+  const hasPersistedChartColors = Object.keys(asRecord(state.chartColors)).length > 0;
+  const persistedChartColorScheme = isChartColorScheme(state.chartColorScheme)
+    ? state.chartColorScheme
+    : undefined;
+  const shouldUseDefaultChartColorScheme =
+    (!persistedChartColorScheme && (!hasPersistedChartColors || isLegacyBlueDefaultChartColors(state.chartColors))) ||
+    (persistedChartColorScheme === 'custom' && isLegacyBlueDefaultChartColors(state.chartColors));
+  const nextChartColorScheme = shouldUseDefaultChartColorScheme
+    ? DEFAULT_CHART_COLOR_SCHEME
+    : persistedChartColorScheme ?? 'custom';
+  const nextChartColors = nextChartColorScheme === 'custom'
+    ? normalizeChartColors(state.chartColors)
+    : buildChartColorsForScheme(nextChartColorScheme);
 
   return {
     themeMode: isThemeMode(state.themeMode) ? state.themeMode : 'dark',
@@ -294,8 +354,8 @@ export function normalizePersistedUserPreferencesState(
     brokerServerUrl: asString(state.brokerServerUrl),
     brokerLogoUrl: asString(state.brokerLogoUrl),
     accountDetails,
-    chartColorScheme: isChartColorScheme(state.chartColorScheme) ? state.chartColorScheme : 'custom',
-    chartColors: normalizeChartColors(state.chartColors),
+    chartColorScheme: nextChartColorScheme,
+    chartColors: nextChartColors,
     chartDisplay: normalizeChartDisplay(state.chartDisplay),
     language: normalizeLanguageCode(state.language),
   };
@@ -433,8 +493,8 @@ export const useUserPreferences = create<UserPreferencesState>()(
       brokerServerUrl: '',
       brokerLogoUrl: '',
       accountDetails: null,
-      chartColorScheme: 'custom',
-      chartColors: DEFAULT_CHART_COLORS,
+      chartColorScheme: DEFAULT_CHART_COLOR_SCHEME,
+      chartColors: buildChartColorsForScheme(DEFAULT_CHART_COLOR_SCHEME),
       chartDisplay: DEFAULT_CHART_DISPLAY_SETTINGS,
       language: 'en' as LanguageCode,
       setLanguage: (lang) => set({ language: normalizeLanguageCode(lang) }),
@@ -640,7 +700,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
 
           return {
             chartColorScheme: scheme,
-            chartColors: { ...CHART_COLOR_SCHEME_PRESETS[scheme].colors },
+            chartColors: buildChartColorsForScheme(scheme),
           };
         }),
       setChartColor: (key, color) =>

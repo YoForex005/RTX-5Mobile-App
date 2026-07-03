@@ -94,6 +94,20 @@ test('chart footer lot editor has an iOS Apply accessory and stable focus retry'
   assert.match(chartScreenSource, /const maxAttempts = 8/);
 });
 
+test('chart quick trade buttons use blue for buy and red for sell', () => {
+  const tradeButtonsSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/ChartTradeButtonsFeature.tsx');
+  const chartScreenSource = readSource('src/features/chart/ChartScreen.native.tsx');
+
+  assert.match(chartScreenSource, /const BLUE = T\.trading\.buy\.primary/);
+  assert.match(chartScreenSource, /buyColor=\{BLUE\}/);
+  assert.match(chartScreenSource, /sellColor=\{T\.trading\.sell\.primary\}/);
+  assert.match(tradeButtonsSource, /const sellTileColor = sellColor/);
+  assert.match(tradeButtonsSource, /const buyTileColor = buyColor/);
+  assert.doesNotMatch(tradeButtonsSource, /resolveChartTradeButtonPriceColor|PriceColorResult|bidPriceVisualRef|askPriceVisualRef/);
+  assert.match(tradeButtonsSource, /baseStyles\.chartTradeMarketActionButton,\s*\{ backgroundColor: sellColor \}/);
+  assert.match(tradeButtonsSource, /baseStyles\.chartTradeMarketActionButton,\s*\{ backgroundColor: buyColor \}/);
+});
+
 test('chart footer floating lot dock does not add an extra iOS keyboard gap', () => {
   const chartTradeFeatureSource = readSource('src/features/chart/components/ChartTradeFeature.tsx');
 

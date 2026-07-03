@@ -36,20 +36,22 @@ test('overlay price lines do not paint filled right-axis price labels', () => {
 
 test('market price lines do not render native right-axis price badges', () => {
   const optionsBody = extractFunctionBody(source, 'makeMarketPriceLineOptions');
-  const setBidBody = extractFunctionBody(source, 'setBidPriceLine');
+  const setLiveBody = extractFunctionBody(source, 'setLivePriceLine');
   const setAskBody = extractFunctionBody(source, 'setAskPriceLine');
   const refreshBody = extractFunctionBody(source, 'refreshOverlayDomLabels');
+  const refreshLiveBody = extractFunctionBody(source, 'refreshBidPriceLineColor');
 
-  assertSourceContains(optionsBody, /axisLabelVisible: false/, 'bid/ask price lines must hide native right-axis price badges');
-  assertSourceContains(setBidBody, /makeMarketPriceLineOptions\(normalizedPrice, marketBidColor\)/, 'bid price line updates must keep the clean axis option after precision snapping');
-  assertSourceContains(setAskBody, /makeMarketPriceLineOptions\(normalizedPrice, marketAskColor\)/, 'ask price line updates must keep the clean axis option after precision snapping');
-  assert.doesNotMatch(refreshBody, /renderMarketPriceBadges\(layer\)/, 'DOM refresh must not render filled bid/ask price badges');
+  assertSourceContains(optionsBody, /axisLabelVisible: false/, 'live price line must hide native right-axis price badges');
+  assertSourceContains(setLiveBody, /var liveColor = pickLivePriceColor\(\)[\s\S]*makeMarketPriceLineOptions\(normalizedPrice, liveColor\)/, 'live price line updates must keep the clean axis option with the active candle color after precision snapping');
+  assertSourceContains(refreshLiveBody, /var liveColor = pickLivePriceColor\(\)[\s\S]*marketLiveColor = liveColor[\s\S]*color: liveColor[\s\S]*axisLabelColor: liveColor/, 'live price line repaint must follow bull and bear candle colors');
+  assert.doesNotMatch(setAskBody, /makeMarketPriceLineOptions|createMarketPriceLine/, 'legacy Ask helper must not render a separate Ask line');
+  assert.doesNotMatch(refreshBody, /renderMarketPriceBadges\(layer\)/, 'DOM refresh must not render filled native market price badges');
 });
 
 test('market price lines extend over the right price scale without filled badges', () => {
   const extensionBody = extractFunctionBody(source, 'renderMarketPriceScaleExtension');
   const extensionsBody = extractFunctionBody(source, 'renderMarketPriceScaleExtensions');
-  const refreshBody = extractFunctionBody(source, 'refreshOverlayDomLabels');
+  const refreshMarketBody = extractFunctionBody(source, 'refreshMarketPriceScaleDom');
 
   assertSourceContains(
     extensionBody,
@@ -59,20 +61,20 @@ test('market price lines extend over the right price scale without filled badges
   assertSourceContains(
     extensionBody,
     /extension\.style\.width = Math\.min\(axisWidth, Math\.max\(0, chartWidth - axisLeft\)\) \+ 'px'/,
-    'bid/ask extension must cover only the right price-scale width',
+    'live price extension must cover only the right price-scale width',
   );
   assertSourceContains(
     extensionBody,
     /extension\.style\.height = MARKET_PRICE_SCALE_EXTENSION_HEIGHT \+ 'px'/,
-    'bid/ask extension must be a thin line, not a filled price badge',
+    'live price extension must be a thin line, not a filled price badge',
   );
   assertSourceContains(
     extensionsBody,
-    /renderMarketPriceScaleExtension\(layer, lastBidPrice, marketBidColor\)[\s\S]*renderMarketPriceScaleExtension\(layer, lastAskPrice, marketAskColor\)/,
-    'both bid and ask lines must be extended over the right price scale',
+    /renderMarketPriceScaleExtension\(layer, lastLivePrice, marketLiveColor\)/,
+    'the live price line must be extended over the right price scale',
   );
   assertSourceContains(
-    refreshBody,
+    refreshMarketBody,
     /renderMarketPriceScaleExtensions\(layer\)/,
     'DOM refresh must redraw the right price-scale extensions with current market prices',
   );
@@ -108,16 +110,16 @@ test('overlay injection before series exists self-heals through init, native res
   );
   assertSourceContains(
     extractFunctionBody(source, 'startOverlayResync'),
-    /_positionLinesArr\.length !== _overlayPayload\.priceLines\.length[\s\S]*applyOverlayPayload\(_overlayPayload\)/,
+    /_positionLinesArr\.length !== countOverlayNativePriceLines\(_overlayPayload\.priceLines\)[\s\S]*applyOverlayPayload\(_overlayPayload\)/,
     'WebView side must recreate missing overlay lines',
   );
 });
 
-test('CHART_READY immediately pushes latest overlays and market price lines', () => {
+test('CHART_READY immediately pushes latest overlays and the live price line', () => {
   assertSourceContains(
     source,
-    /msg\.type === 'CHART_READY'[\s\S]*const latestOverlay = overlayPayloadRef\.current[\s\S]*setChartOverlays\(\$\{JSON\.stringify\(latestOverlay\)\}\)[\s\S]*setMarketPriceLines/,
-    'CHART_READY must immediately restore overlays and bid/ask lines',
+    /msg\.type === 'CHART_READY'[\s\S]*const latestOverlay = overlayPayloadRef\.current[\s\S]*setChartOverlays\(\$\{JSON\.stringify\(latestOverlay\)\}\)[\s\S]*setLivePriceLine/,
+    'CHART_READY must immediately restore overlays and the live price line',
   );
 });
 

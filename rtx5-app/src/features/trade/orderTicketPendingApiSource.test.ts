@@ -62,3 +62,26 @@ test('order ticket graph uses the screen background instead of a white card', ()
   assert.match(graphWrapStyle, /backgroundColor:\s*BG/);
   assert.doesNotMatch(graphWrapStyle, /#FFFFFF/);
 });
+
+test('order ticket buy and sell buttons use blue and red trading colors', () => {
+  const source = readOrderTicketSource();
+  const actionsStart = source.indexOf('const tradeButtonActions: readonly OrderTicketTradeAction[] = [');
+  const actionsEnd = source.indexOf('const sellTradeAction = tradeButtonActions[0];', actionsStart);
+  const stylesStart = source.indexOf('execSell: {');
+  const stylesEnd = source.indexOf('executionGraphWrap:', stylesStart);
+  assert.notEqual(actionsStart, -1, 'trade action config must exist');
+  assert.notEqual(actionsEnd, -1, 'trade action config boundary must exist');
+  assert.notEqual(stylesStart, -1, 'execution button styles must exist');
+  assert.notEqual(stylesEnd, -1, 'execution button style boundary must exist');
+
+  const actionConfig = source.slice(actionsStart, actionsEnd);
+  const execStyles = source.slice(stylesStart, stylesEnd);
+  assert.match(source, /const SELL_C = T\.trading\.sell\.primary/);
+  assert.match(source, /const BUY_C = T\.trading\.buy\.primary/);
+  assert.match(source, /const BUY_BG = isDark \? 'rgba\(52,125,255,0\.14\)' : 'rgba\(37,99,235,0\.08\)'/);
+  assert.doesNotMatch(source, /const BUY_BG = isDark \? 'rgba\(52,199,89|const BUY_BG = isDark \? 'rgba\(5,150,105/);
+  assert.match(actionConfig, /displayLabel:\s*'SELL'[\s\S]*color:\s*SELL_C[\s\S]*backgroundColor:\s*SELL_BG/);
+  assert.match(actionConfig, /displayLabel:\s*'BUY'[\s\S]*color:\s*BUY_C[\s\S]*backgroundColor:\s*BUY_BG/);
+  assert.match(execStyles, /execSell:\s*\{\s*backgroundColor:\s*SELL_C,\s*shadowColor:\s*SELL_C\s*\}/);
+  assert.match(execStyles, /execBuy:\s*\{\s*backgroundColor:\s*BUY_C,\s*shadowColor:\s*BUY_C\s*\}/);
+});

@@ -132,7 +132,7 @@ test('WebView full data reload restores overlays and market price lines after se
   assertSourceContains(body, /previousRawSeriesData\.length === 0[\s\S]*applyRecentViewport\(mapped\.length\)/, 'first data load after an empty chart shell must show only the recent viewport');
   assertSourceContains(body, /_positionLinesArr = \[\]/, 'stale overlay refs must be cleared');
   assertSourceContains(body, /applyOverlayPayload\(_overlayPayload\)/, 'overlays must be reapplied after setData');
-  assertSourceContains(body, /setMarketPriceLines\(lastBidPrice, lastAskPrice\)/, 'market lines must be restored after setData');
+  assertSourceContains(body, /setLivePriceLine\(lastLivePrice\)/, 'live price line must be restored after setData');
 });
 
 test('WebView preserves scroll position when older history is prepended', () => {
@@ -195,13 +195,13 @@ test('quote updates move price lines without mutating candle OHLC', () => {
   assert.doesNotMatch(source, /resolveLivePriceCoherentCandles/, 'native chart must not fold live quotes into sanitizedCandles');
   assert.doesNotMatch(source, /price: liveChartPrice/, 'native chart must not pass quote prices to candle synthesis');
 
-  const quoteBridgeStart = source.indexOf('Quote ticks move only market price lines.');
+  const quoteBridgeStart = source.indexOf('Quote ticks move only the live price line.');
   assert.notEqual(quoteBridgeStart, -1, 'quote bridge contract comment was not found');
   const quoteBridgeEnd = source.indexOf('// Watchdog', quoteBridgeStart);
   assert.notEqual(quoteBridgeEnd, -1, 'quote bridge effect end was not found');
   const quoteBridge = source.slice(quoteBridgeStart, quoteBridgeEnd);
 
-  assertSourceContains(quoteBridge, /setMarketPriceLines\(/, 'quote bridge must still move market price lines');
+  assertSourceContains(quoteBridge, /pendingMarketPriceLinesRef\.current = \{[\s\S]*price: visibleLivePrice[\s\S]*requestMarketPriceLineFlush\(\)/, 'quote bridge must still schedule the live price line move');
   assert.doesNotMatch(quoteBridge, /updateTick\(/, 'quote bridge must leave candle OHLC updates in the candle sync effect');
   assert.doesNotMatch(quoteBridge, /buildChartTickPayload/, 'quote bridge must not create a second candle payload path');
 });

@@ -713,6 +713,7 @@ export default function RegisterScreen() {
   }, [demoGroupOptions.length]);
   const fieldIconColor = isDark ? T.textSub : T.textMuted;
   const fieldAccentColor = isDark ? T.accent : T.trading.buy.primary;
+  const fieldPlaceholderColor = T.textMuted;
   const heroBackIconColor = T.text;
   const noticeIconColor = isDark ? T.accent : T.trading.buy.primary;
   const autofillBackgroundColor = isDark ? T.bg : REGISTER_QUOTES_LIGHT_BACKGROUND;
@@ -826,6 +827,8 @@ export default function RegisterScreen() {
                   <TextInput
                     style={[styles.input, { outlineStyle: 'none', outlineWidth: 0 }] as any}
                     value={firstName}
+                    placeholder={t('Enter first name')}
+                    placeholderTextColor={fieldPlaceholderColor}
                     onChangeText={setFirstName}
                     onFocus={() => handleFieldFocus('firstName')}
                     autoCapitalize="words"
@@ -851,6 +854,8 @@ export default function RegisterScreen() {
                   <TextInput
                     style={[styles.input, { outlineStyle: 'none', outlineWidth: 0 }] as any}
                     value={lastName}
+                    placeholder={t('Enter last name')}
+                    placeholderTextColor={fieldPlaceholderColor}
                     onChangeText={setLastName}
                     onFocus={() => handleFieldFocus('lastName')}
                     autoCapitalize="words"
@@ -874,6 +879,8 @@ export default function RegisterScreen() {
                   <TextInput
                     style={[styles.input, { outlineStyle: 'none', outlineWidth: 0 }] as any}
                     value={email}
+                    placeholder={t('Enter email address')}
+                    placeholderTextColor={fieldPlaceholderColor}
                     onChangeText={setEmail}
                     onFocus={() => handleFieldFocus('email')}
                     autoCapitalize="none"
