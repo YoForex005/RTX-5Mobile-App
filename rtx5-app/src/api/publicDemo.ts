@@ -7,6 +7,8 @@ import {
 const DEFAULT_API_BASE_URL = 'https://backend.orrnn.com/api/v2';
 const DEFAULT_PUBLIC_DEMO_API_BASE_URL = 'https://backend.orrnn.com/api/v1';
 const CONFIGURED_API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL;
+const DEMO_SETUP_TEMPORARILY_UNAVAILABLE_MESSAGE =
+  'Demo account service is temporarily unavailable. Please try again in a moment.';
 
 function configuredPositiveNumber(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
@@ -49,6 +51,14 @@ export class OrrnnDemoApiError extends Error {
   }
 }
 
+function getDemoSetupUnavailableMessage(statusCode: number): string {
+  if (statusCode >= 500 || statusCode === 0) {
+    return DEMO_SETUP_TEMPORARILY_UNAVAILABLE_MESSAGE;
+  }
+
+  return 'Demo account setup is temporarily unavailable. Please try again.';
+}
+
 export function isOrrnnDemoHealthy(status: OrrnnDemoStatusResponse | null | undefined): boolean {
   return (
     status?.service === 'orrnn-demo' &&
@@ -82,23 +92,9 @@ export async function getOrrnnDemoStatus(): Promise<OrrnnDemoStatusResponse> {
   }
 
   if (!response.ok) {
-    let serverMessage = '';
-
-    try {
-      const errorData = await response.json();
-      serverMessage = errorData.detail || errorData.message || errorData.error || '';
-    } catch (_error) {
-      // Use the status-specific fallback below when the response body is not JSON.
-    }
-
-    const fallbackMessage =
-      response.status === 503
-        ? 'Demo account service is unavailable.'
-        : `Demo status check failed: HTTP ${response.status}`;
-
     throw new OrrnnDemoApiError(
       response.status,
-      serverMessage ? `${fallbackMessage} ${serverMessage}` : fallbackMessage,
+      getDemoSetupUnavailableMessage(response.status),
     );
   }
 
@@ -224,23 +220,9 @@ export async function getOrrnnDemoGroups(): Promise<OrrnnDemoGroupsResponse> {
   }
 
   if (!response.ok) {
-    let serverMessage = '';
-
-    try {
-      const errorData = await response.json();
-      serverMessage = errorData.detail || errorData.message || errorData.error || '';
-    } catch (_error) {
-      // Use the status-specific fallback below when the response body is not JSON.
-    }
-
-    const fallbackMessage =
-      response.status === 503
-        ? 'Demo account service is unavailable.'
-        : `Demo groups fetch failed: HTTP ${response.status}`;
-
     throw new OrrnnDemoApiError(
       response.status,
-      serverMessage ? `${fallbackMessage} ${serverMessage}` : fallbackMessage,
+      getDemoSetupUnavailableMessage(response.status),
     );
   }
 

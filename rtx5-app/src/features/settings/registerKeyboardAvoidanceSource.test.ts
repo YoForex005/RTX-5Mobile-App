@@ -79,7 +79,7 @@ test('register demo form uses broker dropdown, read-only currency, and searchabl
   const source = readSource('app/register.tsx');
 
   assert.match(source, /import \{ BROKER_CONFIG_KEY, useBrokerServers \} from '\.\.\/src\/query\/broker'/);
-  assert.match(source, /useBrokerServers\(isScreenFocused\)/);
+  assert.match(source, /useBrokerServers\(registerDataActive\)/);
   assert.match(source, /const DEMO_LEVERAGE_MIN = 100/);
   assert.match(source, /const DEMO_LEVERAGE_MAX = 20000/);
   assert.match(source, /const DEMO_LEVERAGE_OPTIONS: readonly DemoLeverageOption\[\] = Array\.from/);

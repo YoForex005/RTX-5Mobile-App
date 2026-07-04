@@ -177,6 +177,32 @@ test('public demo status and groups use the dedicated public demo API base URL',
   ]);
 });
 
+test('public demo setup failures use user-safe temporary unavailable copy', async (t) => {
+  const temporaryUnavailableCopy =
+    'Demo account service is temporarily unavailable. Please try again in a moment.';
+  let requestCount = 0;
+
+  mockFetch(t, (async () => {
+    requestCount += 1;
+    return new Response('The origin web server returned an invalid response.', {
+      status: 502,
+      headers: { 'Content-Type': 'text/plain' },
+    });
+  }) as typeof fetch);
+
+  const assertFriendlyGatewayError = (error: unknown) => {
+    assert.ok(error instanceof OrrnnDemoApiError);
+    assert.equal(error.statusCode, 502);
+    assert.equal(error.message, temporaryUnavailableCopy);
+    assert.doesNotMatch(error.message, /HTTP 502|origin web server/i);
+    return true;
+  };
+
+  await assert.rejects(() => getOrrnnDemoStatus(), assertFriendlyGatewayError);
+  await assert.rejects(() => getOrrnnDemoGroups(), assertFriendlyGatewayError);
+  assert.equal(requestCount, 2);
+});
+
 test('createOrrnnDemoAccount omits blank optional strings from compact body', async (t) => {
   let capturedBody: Record<string, unknown> = {};
 

@@ -68,8 +68,9 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.match(marketStatusSource, /const isEnabled = enabled && isLoggedIn && !!symbol/);
   assert.match(marketStatusSource, /refetchInterval: isEnabled \? 30_000 : false/);
   assert.match(registerSource, /const isScreenFocused = useIsFocused\(\)/);
-  assert.match(registerSource, /useOrrnnDemoStatus\(isScreenFocused\)/);
-  assert.match(registerSource, /useOrrnnDemoGroups\(isScreenFocused && isDemoServiceReady\)/);
+  assert.match(registerSource, /const registerDataActive = useDeferredActiveFlag\(\s*isScreenFocused && firstPaintReady,\s*REGISTER_ROUTE_DATA_DELAY_MS,\s*\)/);
+  assert.match(registerSource, /useOrrnnDemoStatus\(registerDataActive\)/);
+  assert.match(registerSource, /useOrrnnDemoGroups\(registerDataActive && isDemoServiceReady\)/);
   assert.match(publicDemoSource, /export function useOrrnnDemoStatus\(enabled = true\)/);
   assert.match(publicDemoSource, /refetchInterval: enabled \? 30 \* 1000 : false/);
 

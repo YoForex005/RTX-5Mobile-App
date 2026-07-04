@@ -93,9 +93,8 @@ function InnerLayout() {
   const registerScreenOptions = {
     headerShown: false,
     animation: 'none',
-    presentation: 'transparentModal',
     freezeOnBlur: false,
-    contentStyle: { backgroundColor: 'transparent' },
+    contentStyle: { backgroundColor: brokerFlowBackground },
   } as const;
 
   return (
@@ -139,6 +138,7 @@ function InnerLayout() {
           <Stack.Screen name='trade/modify-position' options={{ headerShown: false, animation: 'none' }} />
           <Stack.Screen name='trade/bulk' options={{ headerShown: false }} />
           <Stack.Screen name='login' options={{ title: t('Login'), headerLeft: () => null }} />
+          <Stack.Screen name='register-entry' options={registerScreenOptions} />
           <Stack.Screen name='register' options={registerScreenOptions} />
           <Stack.Screen name='chart/objects' options={chartPageScreenOptions} />
           <Stack.Screen name='chart/settings' options={chartPageScreenOptions} />

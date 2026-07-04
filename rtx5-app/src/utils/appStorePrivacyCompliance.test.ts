@@ -10,9 +10,10 @@ test('demo registration requires explicit legal acceptance and opens legal docum
 
   assert.match(source, /const \[termsAccepted, setTermsAccepted\] = useState\(false\)/);
   assert.doesNotMatch(source, /const \[termsAccepted, setTermsAccepted\] = useState\(true\)/);
-  assert.match(source, /useOrrnnDemoStatus\(isScreenFocused\)/);
-  assert.match(source, /useOrrnnDemoGroups\(isScreenFocused && isDemoServiceReady\)/);
-  assert.match(source, /useBrokerServers\(isScreenFocused\)/);
+  assert.match(source, /const registerDataActive = useDeferredActiveFlag\(\s*isScreenFocused && firstPaintReady,\s*REGISTER_ROUTE_DATA_DELAY_MS,\s*\)/);
+  assert.match(source, /useOrrnnDemoStatus\(registerDataActive\)/);
+  assert.match(source, /useOrrnnDemoGroups\(registerDataActive && isDemoServiceReady\)/);
+  assert.match(source, /useBrokerServers\(registerDataActive\)/);
   assert.match(source, /if \(!termsAccepted\)/);
   assert.match(source, /getConfiguredTermsUrl\(\)/);
   assert.match(source, /'https:\/\/rtx5\.orrnn\.com\/terms-conditions'/);

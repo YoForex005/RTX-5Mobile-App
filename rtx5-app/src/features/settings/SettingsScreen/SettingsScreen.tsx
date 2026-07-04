@@ -48,12 +48,16 @@ import { hasAuthenticatedAccountSession } from '../accountConnectionStatus';
 import { SettingRow } from './SettingRow';
 import { makeSettingsStyles } from './styles';
 import { useDeferredActiveFlag } from '../../../hooks/useDeferredActiveFlag';
+import { preloadRegisterScreen } from '../registerScreenPreload';
 
 const SETTINGS_ROUTE_LOCK_MS = 250;
-const SETTINGS_ROUTE_PREFETCH_DELAY_MS = 80;
+const SETTINGS_ROUTE_PREFETCH_DELAY_MS = 16;
+const SETTINGS_REGISTER_SCREEN_PRELOAD_DELAY_MS = 120;
 const SETTINGS_SCREEN_DATA_DELAY_MS = 8000;
+const SETTINGS_REGISTER_ROUTE_LATENCY_BUDGET_MS = 350;
 const SETTINGS_READY_ROUTE_PATHS = [
   '/settings/accounts',
+  '/register-entry',
   '/register',
   '/settings/economic-calendar',
   '/settings/interface',
@@ -269,6 +273,44 @@ export function SettingsScreen() {
     };
   }, [isScreenFocused, sidebarOpen]);
 
+  useEffect(() => {
+    if (!isScreenFocused || sidebarOpen) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+    let frameId: number | null = null;
+
+    const warmRegisterScreen = () => {
+      timerId = setTimeout(() => {
+        timerId = null;
+        if (!cancelled) {
+          void preloadRegisterScreen().catch(() => undefined);
+        }
+      }, SETTINGS_REGISTER_SCREEN_PRELOAD_DELAY_MS);
+    };
+
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      frameId = globalThis.requestAnimationFrame(() => {
+        frameId = null;
+        warmRegisterScreen();
+      });
+    } else {
+      timerId = setTimeout(warmRegisterScreen, 16);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timerId) {
+        clearTimeout(timerId);
+      }
+      if (frameId !== null) {
+        globalThis.cancelAnimationFrame?.(frameId);
+      }
+    };
+  }, [isScreenFocused, sidebarOpen]);
+
   const unlockSettingsRoute = useCallback(() => {
     if (routeUnlockTimerRef.current) {
       clearTimeout(routeUnlockTimerRef.current);
@@ -323,7 +365,7 @@ export function SettingsScreen() {
 
   const SEARCHABLE_ITEMS = useMemo<SearchableSettingsItem[]>(() => [
     { title: 'Accounts', sub: 'Manage trading accounts', icon: 'server-outline', routePath: '/settings/accounts' },
-    { title: 'New Account', sub: '', icon: 'person-outline', routePath: '/register' },
+    { title: 'New Account', sub: '', icon: 'person-outline', routePath: '/register-entry' },
     { title: 'Economic Calender', sub: '', icon: 'calendar-outline', routePath: '/settings/economic-calendar' },
     { title: 'Theme', sub: themeMode === 'light' ? 'Light Mode' : 'Dark Mode', icon: 'color-palette-outline' },
     { title: 'Language Preference', sub: currentLanguageNative, icon: 'browsers-outline', routePath: '/settings/interface' },
@@ -609,9 +651,11 @@ export function SettingsScreen() {
             <Text style={styles.sectionTitle}>{t('TRADING & ACCOUNT')}</Text>
             <FastPressable
               style={[styles.singleRowCard, styles.cardShadow]}
-              onPress={() => openReadySettingsRoute('/register')}
+              onPress={() => openReadySettingsRoute('/register-entry')}
+              activateOnPressIn
               unstable_pressDelay={0}
               latencyLabel="settings.register.open"
+              latencyBudgetMs={SETTINGS_REGISTER_ROUTE_LATENCY_BUDGET_MS}
             >
               {renderDarkCardHighlight()}
               <View style={[styles.iconBox, { backgroundColor: settingsAccentBg }]}>
@@ -681,7 +725,6 @@ export function SettingsScreen() {
             </View>
         </View>
       </ScrollView>
-
     </Screen>
   );
 }

@@ -27,7 +27,7 @@ import { loginAPI } from '../src/api/auth';
 import { extractFeedBrokerToken } from '../src/api/feedAuth';
 import { getBrokerConfig, type BrokerServer } from '../src/api/broker';
 import { useTheme, type ThemeColors } from '../src/ui/theme/useTheme';
-import { useDeferredRouteContentReady } from '../src/ui/components/DeferredRouteMount';
+import { useDeferredActiveFlag } from '../src/hooks/useDeferredActiveFlag';
 import { useQueryClient } from '@tanstack/react-query';
 import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../src/query/accounts';
 import { BROKER_CONFIG_KEY, useBrokerServers } from '../src/query/broker';
@@ -45,6 +45,7 @@ import {
   useOrrnnDemoGroups,
   useOrrnnDemoStatus,
 } from '../src/query/publicDemo';
+import { notifyRegisterScreenReady } from '../src/features/settings/registerHandoffState';
 import { safeRouterBack } from '../src/utils/navigation';
 import { isValidEmail, isValidPhoneNumber } from '../src/utils/contactValidation';
 import { ActionSheet } from '../src/ui/components/ActionSheet';
@@ -70,6 +71,13 @@ const REGISTER_FIELD_FOCUS_DELAY_MS = Platform.OS === 'android' ? 260 : 80;
 const REGISTER_KEYBOARD_BOTTOM_PADDING = Platform.OS === 'android' ? 220 : 120;
 const REGISTER_QUOTES_LIGHT_BACKGROUND = '#F2F4F8';
 const REGISTER_BACK_FALLBACK_HREF = '/settings/brokers';
+const REGISTER_INITIAL_PICKER_PRESS_GUARD_MS = 900;
+const REGISTER_ROUTE_DATA_DELAY_MS = 900;
+const getRegisterInteractionNow = () => (
+  typeof globalThis.performance?.now === 'function'
+    ? globalThis.performance.now()
+    : Date.now()
+);
 const DEMO_COUNTRY_OPTIONS = [
   { label: 'United States', code: 'US', dialCode: '+1' },
   { label: 'India', code: 'IN', dialCode: '+91' },
@@ -111,6 +119,13 @@ type DemoLeverageOption = {
   value: number;
   label: `1:${number}`;
 };
+
+type RegisterPickerHostKey =
+  | 'country'
+  | 'phoneCountry'
+  | 'leverage'
+  | 'originBroker'
+  | 'group';
 
 type RegisterBrokerOption = {
   key: string;
@@ -161,27 +176,54 @@ export default function RegisterScreen() {
   const queryClient = useQueryClient();
   const { t } = useTranslation();
   const isScreenFocused = useIsFocused();
+  const [firstPaintReady, setFirstPaintReady] = useState(false);
+  React.useEffect(() => {
+    let cancelled = false;
+    let frameId: number | null = null;
+    const markReady = () => {
+      if (!cancelled) {
+        setFirstPaintReady(true);
+      }
+    };
+
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      frameId = globalThis.requestAnimationFrame(markReady);
+    } else {
+      const timerId = setTimeout(markReady, 16);
+      return () => {
+        cancelled = true;
+        clearTimeout(timerId);
+      };
+    }
+
+    return () => {
+      cancelled = true;
+      if (frameId !== null) {
+        globalThis.cancelAnimationFrame?.(frameId);
+      }
+    };
+  }, []);
+  const registerDataActive = useDeferredActiveFlag(
+    isScreenFocused && firstPaintReady,
+    REGISTER_ROUTE_DATA_DELAY_MS,
+  );
   const {
     data: demoStatus,
     isLoading: isDemoStatusLoading,
-    isFetching: isDemoStatusFetching,
     error: demoStatusError,
-    refetch: refetchDemoStatus,
-  } = useOrrnnDemoStatus(isScreenFocused);
+  } = useOrrnnDemoStatus(registerDataActive);
   const isDemoServiceReady = isOrrnnDemoHealthy(demoStatus);
   const {
     data: demoGroups,
     isLoading: isDemoGroupsLoading,
-    isFetching: isDemoGroupsFetching,
     error: demoGroupsError,
-    refetch: refetchDemoGroups,
-  } = useOrrnnDemoGroups(isScreenFocused && isDemoServiceReady);
+  } = useOrrnnDemoGroups(registerDataActive && isDemoServiceReady);
   const {
     data: brokerServers = [],
     isLoading: isBrokerServersLoading,
     isFetching: isBrokerServersFetching,
     refetch: refetchBrokerServers,
-  } = useBrokerServers(isScreenFocused);
+  } = useBrokerServers(registerDataActive);
   const createDemoAccount = useCreateOrrnnDemoAccount();
   const [selectedGroupName, setSelectedGroupName] = useState('');
   const demoGroupOptions = demoGroups?.groups ?? [];
@@ -191,16 +233,8 @@ export default function RegisterScreen() {
   // Cold-start network checks should never hide the form. They only control
   // whether the final submit is enabled once the live demo contract is ready.
   const isPreparingDemoAccount =
+    !registerDataActive ||
     isDemoStatusLoading || (isDemoServiceReady && isDemoGroupsLoading);
-  const isDemoServiceUnavailable = !isDemoStatusLoading && !isDemoServiceReady;
-  const isDemoGroupUnavailable =
-    isDemoServiceReady && !isDemoGroupsLoading && !selectedDemoGroup?.name;
-  const isDemoSetupUnavailable = isDemoServiceUnavailable || isDemoGroupUnavailable;
-  const isRetryingDemoSetup = isDemoServiceUnavailable
-    ? isDemoStatusFetching
-    : isDemoGroupUnavailable
-      ? isDemoGroupsFetching
-      : false;
   const registerButtonLabel = t('Register a demo account');
 
   const [firstName, setFirstName] = useState('');
@@ -219,6 +253,13 @@ export default function RegisterScreen() {
   const [initialBalance, setInitialBalance] = useState(String(ORRNN_DEMO_INITIAL_BALANCE));
   const [originBroker, setOriginBroker] = useState(ORRNN_DEMO_ORIGIN_BROKER ?? '');
   const [originBrokerPickerOpen, setOriginBrokerPickerOpen] = useState(false);
+  const [mountedPickerHosts, setMountedPickerHosts] = useState<Record<RegisterPickerHostKey, boolean>>({
+    country: false,
+    phoneCountry: false,
+    leverage: false,
+    originBroker: false,
+    group: false,
+  });
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showInvestorPassword, setShowInvestorPassword] = useState(false);
@@ -227,15 +268,27 @@ export default function RegisterScreen() {
   const fieldYPositionsRef = React.useRef<Partial<Record<RegisterFieldKey, number>>>({});
   const fieldFocusTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const registerBackNavigationStartedRef = React.useRef(false);
+  const registerReadyNotifiedRef = React.useRef(false);
+  const registerPickerPressBlockedUntilRef = React.useRef(
+    getRegisterInteractionNow() + REGISTER_INITIAL_PICKER_PRESS_GUARD_MS,
+  );
+  const registerPickerFocusSeenRef = React.useRef(false);
+  if (registerPickerFocusSeenRef.current !== isScreenFocused) {
+    registerPickerFocusSeenRef.current = isScreenFocused;
+    if (isScreenFocused) {
+      registerPickerPressBlockedUntilRef.current =
+        getRegisterInteractionNow() + REGISTER_INITIAL_PICKER_PRESS_GUARD_MS;
+    }
+  }
+  const isRegisterInitialPickerPressBlocked = React.useCallback(() => (
+    getRegisterInteractionNow() < registerPickerPressBlockedUntilRef.current
+  ), []);
 
   const themeMode = useThemeMode();
   const T = useTheme();
   const isDark = themeMode === 'dark';
   const insets = useSafeAreaInsets();
   const styles = React.useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
-  // Defer the heavy form mount by ~2 frames so opening "New Account" shows the
-  // modal backdrop instantly instead of freezing while the whole form mounts.
-  const contentReady = useDeferredRouteContentReady(0);
   const privacyPolicyUrl = resolveLegalUrl(
     getConfiguredPrivacyPolicyUrl(),
     'https://rtx5.orrnn.com/privacy-policy',
@@ -261,6 +314,26 @@ export default function RegisterScreen() {
       registerBackNavigationStartedRef.current = false;
     }
   }, [isScreenFocused]);
+
+  const handleRegisterRootLayout = React.useCallback(() => {
+    if (registerReadyNotifiedRef.current) {
+      return;
+    }
+
+    registerReadyNotifiedRef.current = true;
+    const notifyAfterPaint = () => {
+      notifyRegisterScreenReady();
+    };
+
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      globalThis.requestAnimationFrame(() => {
+        globalThis.requestAnimationFrame(notifyAfterPaint);
+      });
+      return;
+    }
+
+    setTimeout(notifyAfterPaint, 32);
+  }, []);
 
   const handleRegisterBack = React.useCallback((event: GestureResponderEvent) => {
     event.preventDefault();
@@ -610,46 +683,69 @@ export default function RegisterScreen() {
   }, [originBroker, originBrokerOptions]);
   const originBrokerDisplayValue =
     selectedOriginBrokerOption?.brokerName || originBroker || t('Select broker');
+  const mountPickerHost = React.useCallback((key: RegisterPickerHostKey) => {
+    setMountedPickerHosts((current) => (
+      current[key] ? current : { ...current, [key]: true }
+    ));
+  }, []);
+  const countryPickerMounted = mountedPickerHosts.country || countryPickerOpen;
   const countryPickerActions = React.useMemo(
-    () => DEMO_COUNTRY_OPTIONS.map((option) => ({
+    () => countryPickerMounted ? DEMO_COUNTRY_OPTIONS.map((option) => ({
       label: t(option.label),
       subtitle: `${option.code} ${option.dialCode}`,
       onPress: () => {
         setCountry(option.label);
         setPhoneCountryCode(option.code);
       },
-    })),
-    [t],
+    })) : [],
+    [countryPickerMounted, t],
   );
+  const phoneCountryPickerMounted = mountedPickerHosts.phoneCountry || phoneCountryPickerOpen;
   const phoneCountryPickerActions = React.useMemo(
-    () => DEMO_COUNTRY_OPTIONS.map((option) => ({
+    () => phoneCountryPickerMounted ? DEMO_COUNTRY_OPTIONS.map((option) => ({
       label: `${option.dialCode} ${t(option.label)}`,
       subtitle: option.code,
       onPress: () => setPhoneCountryCode(option.code),
-    })),
-    [t],
+    })) : [],
+    [phoneCountryPickerMounted, t],
   );
   const handleOpenCountryPicker = React.useCallback(() => {
+    if (isRegisterInitialPickerPressBlocked()) {
+      return;
+    }
+
     Keyboard.dismiss();
     handleFieldFocus('country');
+    mountPickerHost('country');
     setCountryPickerOpen(true);
-  }, [handleFieldFocus]);
+  }, [handleFieldFocus, isRegisterInitialPickerPressBlocked, mountPickerHost]);
   const handleOpenPhoneCountryPicker = React.useCallback(() => {
+    if (isRegisterInitialPickerPressBlocked()) {
+      return;
+    }
+
     Keyboard.dismiss();
     handleFieldFocus('phone');
+    mountPickerHost('phoneCountry');
     setPhoneCountryPickerOpen(true);
-  }, [handleFieldFocus]);
+  }, [handleFieldFocus, isRegisterInitialPickerPressBlocked, mountPickerHost]);
+  const leveragePickerMounted = mountedPickerHosts.leverage || leveragePickerOpen;
   const leveragePickerActions = React.useMemo(
-    () => DEMO_LEVERAGE_OPTIONS.map((option) => ({
+    () => leveragePickerMounted ? DEMO_LEVERAGE_OPTIONS.map((option) => ({
       label: option.label,
       subtitle: option.value === selectedDemoGroup?.leverage ? t('Group default') : undefined,
       onPress: () => setSelectedLeverageValue(option.value),
-    })),
-    [selectedDemoGroup?.leverage, t],
+    })) : [],
+    [leveragePickerMounted, selectedDemoGroup?.leverage, t],
   );
+  const originBrokerPickerMounted = mountedPickerHosts.originBroker || originBrokerPickerOpen;
   const originBrokerPickerActions = React.useMemo(() => {
+    if (!originBrokerPickerMounted) {
+      return [];
+    }
+
     if (originBrokerOptions.length === 0) {
-      const isBusy = isBrokerServersLoading || isBrokerServersFetching;
+      const isBusy = !registerDataActive || isBrokerServersLoading || isBrokerServersFetching;
       return [{
         label: isBusy ? t('Loading brokers...') : t('Retry broker list'),
         subtitle: isBusy
@@ -671,27 +767,40 @@ export default function RegisterScreen() {
     isBrokerServersFetching,
     isBrokerServersLoading,
     originBrokerOptions,
+    originBrokerPickerMounted,
+    registerDataActive,
     refetchBrokerServers,
     t,
   ]);
+  const groupPickerMounted = mountedPickerHosts.group || groupPickerOpen;
   const groupPickerActions = React.useMemo(
-    () => demoGroupOptions.map((group) => ({
+    () => groupPickerMounted ? demoGroupOptions.map((group) => ({
       label: group.name,
       subtitle: `${group.currency} / 1:${group.leverage}`,
       onPress: () => {
         setSelectedGroupName(group.name);
         setSelectedLeverageValue(getDefaultDemoLeverage(group.leverage));
       },
-    })),
-    [demoGroupOptions],
+    })) : [],
+    [demoGroupOptions, groupPickerMounted],
   );
   const handleOpenLeveragePicker = React.useCallback(() => {
+    if (isRegisterInitialPickerPressBlocked()) {
+      return;
+    }
+
     Keyboard.dismiss();
+    mountPickerHost('leverage');
     setLeveragePickerOpen(true);
-  }, []);
+  }, [isRegisterInitialPickerPressBlocked, mountPickerHost]);
   const handleOpenOriginBrokerPicker = React.useCallback(() => {
+    if (isRegisterInitialPickerPressBlocked()) {
+      return;
+    }
+
     Keyboard.dismiss();
     handleFieldFocus('originBroker');
+    mountPickerHost('originBroker');
     if (originBrokerOptions.length === 0 && !isBrokerServersLoading && !isBrokerServersFetching) {
       void refetchBrokerServers();
     }
@@ -700,34 +809,29 @@ export default function RegisterScreen() {
     handleFieldFocus,
     isBrokerServersFetching,
     isBrokerServersLoading,
+    isRegisterInitialPickerPressBlocked,
+    mountPickerHost,
     originBrokerOptions.length,
     refetchBrokerServers,
   ]);
   const handleOpenGroupPicker = React.useCallback(() => {
+    if (isRegisterInitialPickerPressBlocked()) {
+      return;
+    }
+
     if (demoGroupOptions.length === 0) {
       return;
     }
 
     Keyboard.dismiss();
+    mountPickerHost('group');
     setGroupPickerOpen(true);
-  }, [demoGroupOptions.length]);
+  }, [demoGroupOptions.length, isRegisterInitialPickerPressBlocked, mountPickerHost]);
   const fieldIconColor = isDark ? T.textSub : T.textMuted;
   const fieldAccentColor = isDark ? T.accent : T.trading.buy.primary;
   const fieldPlaceholderColor = T.textMuted;
   const heroBackIconColor = T.text;
-  const noticeIconColor = isDark ? T.accent : T.trading.buy.primary;
   const autofillBackgroundColor = isDark ? T.bg : REGISTER_QUOTES_LIGHT_BACKGROUND;
-
-  if (!contentReady) {
-    // Backdrop-only first paint: the modal appears immediately; the form below
-    // mounts on the next frames without blocking the open.
-    return (
-      <>
-        <Stack.Screen options={{ headerShown: false }} />
-        <View style={styles.bg} />
-      </>
-    );
-  }
 
   return (
     <>
@@ -745,7 +849,7 @@ export default function RegisterScreen() {
           }
         `}</style>
       )}
-      <View style={styles.bg}>
+      <View style={styles.bg} onLayout={handleRegisterRootLayout}>
         {/* ── Header ── */}
         <KeyboardAvoidingView
           style={styles.container}
@@ -787,38 +891,6 @@ export default function RegisterScreen() {
                   </View>
                 </View>
               </View>
-
-              {isDemoSetupUnavailable && (
-                <View style={styles.statusNotice}>
-                  <Ionicons
-                    name={isDemoServiceUnavailable ? 'cloud-offline-outline' : 'list-outline'}
-                    size={18}
-                    color={noticeIconColor}
-                  />
-                  <Text style={styles.statusNoticeText} numberOfLines={2}>
-                    {isDemoServiceUnavailable
-                      ? demoStatusUnavailableMessage
-                      : demoGroupsUnavailableMessage}
-                  </Text>
-                  <Pressable
-                    style={styles.statusRetryBtn}
-                    onPress={() => {
-                      if (isDemoServiceUnavailable) {
-                        refetchDemoStatus();
-                      } else {
-                        refetchDemoGroups();
-                      }
-                    }}
-                    disabled={isRetryingDemoSetup}
-                  >
-                    {isRetryingDemoSetup ? (
-                      <ActivityIndicator size="small" color="#ffffff" />
-                    ) : (
-                      <Text style={styles.statusRetryText}>{t('Retry')}</Text>
-                    )}
-                  </Pressable>
-                </View>
-              )}
 
               <View style={styles.inputRow} onLayout={handleFieldLayout('firstName')}>
                 <Text style={styles.inputLabel}>{t('First name')}</Text>
@@ -1189,66 +1261,76 @@ export default function RegisterScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
 
-        <ActionSheet
-          visible={countryPickerOpen}
-          title={t('Country')}
-          actions={countryPickerActions}
-          onClose={() => setCountryPickerOpen(false)}
-          searchable
-          searchPlaceholder={t('Search countries...')}
-          detent="large"
-          instantOpen
-          runActionAfterClose={false}
-          androidKeyboardAvoidance="resize"
-        />
-        <ActionSheet
-          visible={phoneCountryPickerOpen}
-          title={t('Phone country code')}
-          actions={phoneCountryPickerActions}
-          onClose={() => setPhoneCountryPickerOpen(false)}
-          searchable
-          searchPlaceholder={t('Search country codes...')}
-          detent="large"
-          instantOpen
-          runActionAfterClose={false}
-          androidKeyboardAvoidance="resize"
-        />
-        <ActionSheet
-          visible={leveragePickerOpen}
-          title={t('Leverage')}
-          actions={leveragePickerActions}
-          onClose={() => setLeveragePickerOpen(false)}
-          searchable
-          searchPlaceholder={t('Search leverage...')}
-          detent="large"
-          instantOpen
-          runActionAfterClose={false}
-          androidKeyboardAvoidance="resize"
-        />
-        <ActionSheet
-          visible={originBrokerPickerOpen}
-          title={t('Origin broker')}
-          actions={originBrokerPickerActions}
-          onClose={() => setOriginBrokerPickerOpen(false)}
-          searchable={originBrokerOptions.length > 0}
-          searchPlaceholder={t('Search brokers...')}
-          detent="large"
-          instantOpen
-          runActionAfterClose={false}
-          androidKeyboardAvoidance="resize"
-        />
-        <ActionSheet
-          visible={groupPickerOpen}
-          title={t('Group')}
-          actions={groupPickerActions}
-          onClose={() => setGroupPickerOpen(false)}
-          searchable
-          searchPlaceholder={t('Search groups...')}
-          detent="large"
-          instantOpen
-          runActionAfterClose={false}
-          androidKeyboardAvoidance="resize"
-        />
+        {countryPickerMounted ? (
+          <ActionSheet
+            visible={countryPickerOpen}
+            title={t('Country')}
+            actions={countryPickerActions}
+            onClose={() => setCountryPickerOpen(false)}
+            searchable
+            searchPlaceholder={t('Search countries...')}
+            detent="large"
+            instantOpen
+            runActionAfterClose={false}
+            androidKeyboardAvoidance="resize"
+          />
+        ) : null}
+        {phoneCountryPickerMounted ? (
+          <ActionSheet
+            visible={phoneCountryPickerOpen}
+            title={t('Phone country code')}
+            actions={phoneCountryPickerActions}
+            onClose={() => setPhoneCountryPickerOpen(false)}
+            searchable
+            searchPlaceholder={t('Search country codes...')}
+            detent="large"
+            instantOpen
+            runActionAfterClose={false}
+            androidKeyboardAvoidance="resize"
+          />
+        ) : null}
+        {leveragePickerMounted ? (
+          <ActionSheet
+            visible={leveragePickerOpen}
+            title={t('Leverage')}
+            actions={leveragePickerActions}
+            onClose={() => setLeveragePickerOpen(false)}
+            searchable
+            searchPlaceholder={t('Search leverage...')}
+            detent="large"
+            instantOpen
+            runActionAfterClose={false}
+            androidKeyboardAvoidance="resize"
+          />
+        ) : null}
+        {originBrokerPickerMounted ? (
+          <ActionSheet
+            visible={originBrokerPickerOpen}
+            title={t('Origin broker')}
+            actions={originBrokerPickerActions}
+            onClose={() => setOriginBrokerPickerOpen(false)}
+            searchable={originBrokerOptions.length > 0}
+            searchPlaceholder={t('Search brokers...')}
+            detent="large"
+            instantOpen
+            runActionAfterClose={false}
+            androidKeyboardAvoidance="resize"
+          />
+        ) : null}
+        {groupPickerMounted ? (
+          <ActionSheet
+            visible={groupPickerOpen}
+            title={t('Group')}
+            actions={groupPickerActions}
+            onClose={() => setGroupPickerOpen(false)}
+            searchable
+            searchPlaceholder={t('Search groups...')}
+            detent="large"
+            instantOpen
+            runActionAfterClose={false}
+            androidKeyboardAvoidance="resize"
+          />
+        ) : null}
       </View>
     </>
   );
@@ -1268,8 +1350,6 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
   const secondaryText = T.textSub;
   const fieldText = T.text;
   const mutedText = T.textMuted;
-  const statusBg = isDark ? surface : '#FFFFFF';
-  const statusBorder = isDark ? border : '#D8E2EF';
   const actionTintBg = isDark ? raisedSurface : 'rgba(37,99,235,0.08)';
 
   return StyleSheet.create({
@@ -1368,39 +1448,6 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       marginTop: 5,
       marginLeft: 0,
       marginBottom: 0,
-    },
-    statusNotice: {
-      minHeight: 48,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      marginBottom: 12,
-      borderRadius: 8,
-      borderWidth: 1,
-      borderColor: statusBorder,
-      backgroundColor: statusBg,
-    },
-    statusNoticeText: {
-      flex: 1,
-      color: secondaryText,
-      fontSize: 12,
-      lineHeight: 16,
-      fontWeight: '500',
-    },
-    statusRetryBtn: {
-      minWidth: 56,
-      height: 30,
-      borderRadius: 7,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: primaryBlue,
-    },
-    statusRetryText: {
-      color: '#FFFFFF',
-      fontSize: 12,
-      fontWeight: '600',
     },
     inlineStatus: {
       flexDirection: 'row',
