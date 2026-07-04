@@ -80,6 +80,15 @@ const ORDER_TICKET_TRADE_CONFIRMATION_MAX_ITEMS = 3;
 const ORDER_TICKET_FULL_CONTENT_DELAY_MS = 48;
 const ORDER_TICKET_DATA_READY_DELAY_MS = 180;
 const ORDER_TICKET_HEAVY_CONTENT_DELAY_MS = 240;
+const ORDER_TICKET_FALLBACK_LEVERAGE = 100;
+
+const isOrderTicketLeverageValue = (value: number | null | undefined): value is number => (
+  typeof value === 'number' &&
+  Number.isFinite(value) &&
+  value > 0
+);
+
+const formatOrderTicketLeverage = (value: number) => `1:${value}` as const;
 
 type OrderTicketTradeConfirmation = {
   id: string;
@@ -422,15 +431,18 @@ function OrderTicketInteractiveContent() {
   // keyed by account login (see useResolvedTradingLogin docs).
   const loginNum = useResolvedTradingLogin();
   const { data: accountSummary } = useAccountSummary(loginStr, { enabled: routeQueriesActive });
-  const leverage = accountSummary?.leverage || 100;
+  const backendLeverage = isOrderTicketLeverageValue(accountSummary?.leverage)
+    ? accountSummary.leverage
+    : null;
+  const leverage = backendLeverage ?? ORDER_TICKET_FALLBACK_LEVERAGE;
+  const leverageDisplay = backendLeverage !== null
+    ? formatOrderTicketLeverage(backendLeverage)
+    : '--';
   const currency = accountSummary?.currency || 'USD';
 
-  // Local margin estimate — used ONLY as a fallback while the authoritative
-  // server figure loads or if it fails. This naive formula uses a hardcoded
-  // contract size and the account's nominal leverage, which does NOT match the
-  // broker's symbol-specific margin mode for crypto/CFD instruments (e.g.
-  // BTCUSD margins at a fixed crypto rate, not 1:nominal-leverage). It must
-  // never be the value shown when the server can answer.
+  // Local margin estimate is used only as a fallback while the authoritative
+  // server figure loads or if it fails. The displayed leverage itself comes
+  // from the account summary returned by the backend.
   let contractSize = 100000;
   if (symbol.includes('XAU') || symbol.includes('XAG')) contractSize = 100;
   else if (symbol.includes('BTC') || symbol.includes('ETH')) contractSize = 1;
@@ -458,7 +470,7 @@ function OrderTicketInteractiveContent() {
       ? serverMargin.required_margin
       : null;
   // Prefer the server figure; fall back to the local estimate only until it
-  // arrives. This is what previously made BTCUSD look "cheap" then lock more.
+  // arrives. This keeps the account leverage path tied to the backend.
   const resolvedMargin = serverRequiredMargin ?? estimatedMargin;
 
   const marginDisplay = currency === 'USD'
@@ -1018,7 +1030,10 @@ function OrderTicketInteractiveContent() {
     }
   };
 
-  const spread = Math.round((ASK - BID) / 0.01);
+  const rawSpreadPoints = pricePointSize > 0 && Number.isFinite(ASK) && Number.isFinite(BID)
+    ? Math.round((ASK - BID) / pricePointSize)
+    : 0;
+  const spread = Math.max(0, rawSpreadPoints);
 
   return (
     <View style={[styles.root, { paddingBottom: insets.bottom }]}>
@@ -1243,7 +1258,7 @@ function OrderTicketInteractiveContent() {
         <View style={styles.hairline} />
         <InfoRow label={t('Margin')} value={marginDisplay} styles={styles} />
         <View style={styles.hairline} />
-        <InfoRow label={t('Acc. Leverage')} value={`1:${leverage}`} styles={styles} />
+        <InfoRow label={t('Acc. Leverage')} value={leverageDisplay} styles={styles} />
         <View style={styles.hairline} />
 
         {/* Execution buttons: market orders submit immediately; pending orders show trigger controls first. */}

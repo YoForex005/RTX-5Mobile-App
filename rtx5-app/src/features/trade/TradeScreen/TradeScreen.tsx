@@ -25,6 +25,7 @@ import { useIsDarkTheme } from '../../../state/themeMode';
 import { usePositionsState } from '../../../state/positionsState';
 import { useTradingState } from '../../../state/tradingState';
 import { useResolvedTradingLogin } from '../../../state/tradingLogin';
+import { useAccountSummary } from '../../../query/account';
 import { isRenderablePositionSymbol } from '../../../state/positionsMapper';
 import { dedupePositionsById } from '../../../state/positionsState.helpers';
 import { useTheme } from '../../../ui/theme/useTheme';
@@ -90,6 +91,7 @@ export function TradeScreen() {
   // Use the reactive login hook here. If the Trade tab is already mounted while
   // login state hydrates, this rerenders immediately and starts cache/fetch work.
   const resolvedLogin = useResolvedTradingLogin();
+  const accountLoginString = resolvedLogin !== undefined ? String(resolvedLogin) : undefined;
 
   const fetchPositions = useCallback(async () => {
     if (!resolvedLogin) {
@@ -163,6 +165,14 @@ export function TradeScreen() {
     };
   }, [tradeFetchActive, resolvedLogin, fetchPositions]);
   const positionRowsActive = tradeLiveActive;
+  const { data: accountSummary } = useAccountSummary(accountLoginString, {
+    enabled: tradeFetchActive && !!accountLoginString,
+  });
+  const accountLeverage = typeof accountSummary?.leverage === 'number' &&
+    Number.isFinite(accountSummary.leverage) &&
+    accountSummary.leverage > 0
+    ? accountSummary.leverage
+    : null;
 
   const pnlCurrency = useTradingState((state: any) => state.account?.currency || 'USD');
   const renderablePositions = useMemo(
@@ -177,8 +187,8 @@ export function TradeScreen() {
     [positionRowsActive, viewablePositionIds],
   );
   const flatListExtraData = useMemo(
-    () => ({ rowActivationKey }),
-    [rowActivationKey],
+    () => ({ accountLeverage, rowActivationKey }),
+    [accountLeverage, rowActivationKey],
   );
 
   const handleViewablePositionRowsChanged = useRef(({ viewableItems }: { viewableItems: Array<{ item?: PositionItem | null }> }) => {
@@ -296,9 +306,10 @@ export function TradeScreen() {
         onBulkPress={showBulkSheet}
         pnlCurrency={pnlCurrency}
         active={rowActive}
+        accountLeverage={accountLeverage}
       />
     );
-  }, [pnlCurrency, positionRowsActive, showBulkSheet, showPositionSheet, viewablePositionIds]);
+  }, [accountLeverage, pnlCurrency, positionRowsActive, showBulkSheet, showPositionSheet, viewablePositionIds]);
 
   return (
     <Screen noBottomInset style={s.screen}>

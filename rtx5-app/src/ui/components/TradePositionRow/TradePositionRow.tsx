@@ -19,6 +19,7 @@ import { fmt } from '../../../utils/format';
 import { formatBrokerTime } from '../../../utils/brokerTime';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useLiveSymbolQuote } from '../../../query/websocket';
+import { useInstrumentMeta } from '../../../query/instruments';
 import { resolveTradingLoginString } from '../../../state/tradingLogin';
 import { usePositionsState } from '../../../state/positionsState';
 import { prefetchOrderTicketData } from '../../../utils/navigationPrefetch';
@@ -53,6 +54,36 @@ function formatLiveRowPnl(value: number): string {
   return `${safeValue >= 0 ? '+' : ''}${safeValue.toFixed(resolveLivePnlDecimals(safeValue))}`;
 }
 
+function resolveFiniteTradeDetailNumber(...values: Array<number | null | undefined>): number | undefined {
+  return values.find((value): value is number => (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value > 0
+  ));
+}
+
+function formatTradeDetailNumber(value: number | null | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '--';
+  }
+
+  if (Number.isInteger(value)) {
+    return String(value);
+  }
+
+  const abs = Math.abs(value);
+  const decimals = abs > 0 && abs < 1
+    ? Math.min(10, Math.max(2, Math.ceil(-Math.log10(abs)) + 2))
+    : 4;
+
+  return value.toFixed(decimals).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+function formatTradeLeverage(value: number | null | undefined): string {
+  const leverage = resolveFiniteTradeDetailNumber(value);
+  return leverage !== undefined ? `1:${formatTradeDetailNumber(leverage)}` : '--';
+}
+
 const TRADE_ROW_ACTIONS_WIDTH = 270;
 const TRADE_ROW_SWIPE_ACTIVE_OFFSET_X: [number, number] = Platform.OS === 'ios' ? [-10, 10] : [-18, 18];
 const TRADE_ROW_SWIPE_FAIL_OFFSET_Y: [number, number] = Platform.OS === 'ios' ? [-28, 28] : [-10, 10];
@@ -66,6 +97,7 @@ function TradePositionRowComponent({
   pnlCurrency = 'USD',
   selected = false,
   active = true,
+  accountLeverage = null,
 }: {
   item: PositionItem;
   onPress: (item: PositionItem) => void;
@@ -74,6 +106,7 @@ function TradePositionRowComponent({
   pnlCurrency?: string;
   selected?: boolean;
   active?: boolean;
+  accountLeverage?: number | null;
 }) {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
@@ -153,8 +186,12 @@ function TradePositionRowComponent({
 
   // Visible trade rows commit directly on every symbol tick for MT5-like cadence.
   const liveQuote = useLiveSymbolQuote(item.symbol, active, 0);
+  const { data: instrumentMeta } = useInstrumentMeta(item.symbol, active);
 
   const livePrice = resolveLivePositionPrice(item, liveQuote);
+  const pointValue = resolveFiniteTradeDetailNumber(instrumentMeta?.point, liveQuote?.point);
+  const pointText = formatTradeDetailNumber(pointValue);
+  const leverageText = formatTradeLeverage(accountLeverage);
 
   const isJpy = item.symbol.includes('JPY');
   const decimals = isJpy ? 3 : 5; // Standard FX: 5 decimals, JPY pairs: 3 decimals
@@ -303,8 +340,18 @@ function TradePositionRowComponent({
                   #{item.id}
                 </Text>
               </View>
-              <View style={styles.detailCell} />
-              <View style={styles.detailCell} />
+              <View style={styles.detailCell}>
+                <Text style={[styles.detailLabel, { color: detailLabelColor }]}>Point</Text>
+                <Text style={[styles.detailValue, { color: detailColor }]}>
+                  {pointText}
+                </Text>
+              </View>
+              <View style={styles.detailCell}>
+                <Text style={[styles.detailLabel, { color: detailLabelColor }]}>Leverage</Text>
+                <Text style={[styles.detailValue, { color: detailColor }]}>
+                  {leverageText}
+                </Text>
+              </View>
             </View>
           </View>
         )}
@@ -338,6 +385,7 @@ export const TradePositionRow = memo(TradePositionRowComponent, (prev, next) => 
   prev.pnlCurrency === next.pnlCurrency &&
   prev.selected === next.selected &&
   prev.active === next.active &&
+  prev.accountLeverage === next.accountLeverage &&
   prev.onPress === next.onPress &&
   prev.onLongPress === next.onLongPress &&
   prev.onBulkPress === next.onBulkPress

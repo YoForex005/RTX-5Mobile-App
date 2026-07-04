@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getPeriodSeparators, type PeriodSeparatorCandle } from './periodSeparators';
+import { getMarketCloseSeparator, getPeriodSeparators, type PeriodSeparatorCandle } from './periodSeparators';
 
 const utcSeconds = (
   year: number,
@@ -128,4 +128,30 @@ test('does not mutate candle data', () => {
   getPeriodSeparators(candles, 'M5');
 
   assert.equal(JSON.stringify(candles), before);
+});
+
+test('creates a market close separator on the last candle at or before session close', () => {
+  const candles = [
+    candle(utcSeconds(2026, 6, 4, 7, 3)),
+    candle(utcSeconds(2026, 6, 4, 7, 4)),
+    candle(utcSeconds(2026, 6, 4, 7, 5)),
+  ];
+
+  assert.deepEqual(
+    getMarketCloseSeparator(candles, 'M1', utcSeconds(2026, 6, 4, 7, 5) + 30),
+    {
+      time: utcSeconds(2026, 6, 4, 7, 5),
+      index: 2,
+      type: 'market_close',
+    },
+  );
+});
+
+test('does not create a market close separator before the visible candle range', () => {
+  const candles = [
+    candle(utcSeconds(2026, 6, 4, 7, 3)),
+    candle(utcSeconds(2026, 6, 4, 7, 4)),
+  ];
+
+  assert.equal(getMarketCloseSeparator(candles, 'M1', utcSeconds(2026, 6, 4, 7, 2)), null);
 });

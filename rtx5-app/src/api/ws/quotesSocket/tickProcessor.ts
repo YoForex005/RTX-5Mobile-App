@@ -16,6 +16,7 @@ import {
   hasBackendCandleShape,
 } from '../../../domain/candles/ws/candlesSocketProtocol';
 import { shouldRouteBackendCandlePayloads } from '../../../domain/candles/ws/liveCandlesEnginePolicy';
+import { isCryptoSymbol } from '../../../domain/symbols';
 import { normalizeQuoteTickPayload } from '../quoteTickNormalizer';
 import { normalizeQuoteTickTimestampToMs } from '../quoteTimestamp';
 import type { QuoteTickEvent } from '../quoteTickNormalizer';
@@ -242,9 +243,16 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
   const normalizedTimestamp = normalizedUpdate.timestamp;
   const normalizedTimestampMs = normalizeQuoteTickTimestampToMs(normalizedTimestamp);
   const liveListenerTimestamp = normalizedTimestamp ?? receivedAt;
+  const allowReceivedAtCandleExtension =
+    normalizedUpdate.timestampSource === 'received_at' && isCryptoSymbol(normalizedUpdate.symbol);
+  const candleExtensionTimestamp =
+    normalizedUpdate.timestampSource === 'feed' || allowReceivedAtCandleExtension
+      ? normalizedTimestamp
+      : null;
   if (normalizedUpdate.timestampSource === 'received_at') {
     bridge.logCandleFeed('tick_timestamp_fallback_received_at', {
       symbol: normalizedUpdate.symbol,
+      allowedForCandle: allowReceivedAtCandleExtension,
       timestamp: normalizedTimestamp,
       rawKeys: normalizedUpdate.rawKeys,
     }, 20);
@@ -325,18 +333,25 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
     : Number.isFinite(normalizedUpdate.ask)
       ? normalizedUpdate.ask
       : null;
-  if (tickPriceForCandle !== null) {
+  if (tickPriceForCandle !== null && candleExtensionTimestamp !== null) {
     try {
       liveCandleStream.extendActiveCandlesFromQuoteTick(normalizedUpdate.symbol, {
         price: tickPriceForCandle,
-        time: liveListenerTimestamp,
-        volume: 1,
+        time: candleExtensionTimestamp,
+        volume: normalizedUpdate.volume,
       });
     } catch (_error) {
       // Defensive: under hot-module-reload the singleton may pre-date this
       // method on its prototype. Skip silently — the chart still receives
       // backend candle snapshots via the dedicated candle WS.
     }
+  } else if (tickPriceForCandle !== null) {
+    bridge.logCandleFeed('tick_candle_extension_skipped_missing_feed_time', {
+      symbol: normalizedUpdate.symbol,
+      timestampSource: normalizedUpdate.timestampSource,
+      cryptoSymbol: isCryptoSymbol(normalizedUpdate.symbol),
+      rawKeys: normalizedUpdate.rawKeys,
+    }, 20);
   }
   bridge.logCandleFeed('tick_emitted_to_quote_listeners', {
     symbol: normalizedUpdate.symbol,

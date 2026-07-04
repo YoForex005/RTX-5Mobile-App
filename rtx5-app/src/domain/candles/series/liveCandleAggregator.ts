@@ -53,6 +53,11 @@ const getLatestKnownBucket = (...times: Array<number | null>): number | null =>
 const finiteOrNull = (value: number | undefined): number | null =>
   typeof value === 'number' && Number.isFinite(value) ? value : null;
 
+const arePricesEffectivelyEqual = (left: number, right: number): boolean => {
+  const tolerance = Math.max(Math.abs(left), Math.abs(right), 1) * 1e-12;
+  return Math.abs(left - right) <= tolerance;
+};
+
 const getLastBackendUpdateTime = (candle: MutableCandle | undefined): number | null => {
   if (!candle) {
     return null;
@@ -271,6 +276,8 @@ export const applyQuoteTickExtensionToCandleMap = (
   if (existing?.closed === true) {
     return { candle: toPublicCandle(existing), changed: false, ignored: true, reason: 'closed_live_candle' };
   }
+  const hasPositiveTickVolume =
+    typeof tick.volume === 'number' && Number.isFinite(tick.volume) && tick.volume > 0;
   const lastRealtimeUpdateTime = getLastRealtimeUpdateTime(existing);
   if (
     existing?.source === 'live_candle' &&
@@ -285,6 +292,27 @@ export const applyQuoteTickExtensionToCandleMap = (
     const restTailBucket = restTail ? (getBucketStart(restTail.time, timeframe) ?? restTail.time) : null;
     const liveTailTime = getMapTailTime(candleMap);
     const latestKnownBucket = getLatestKnownBucket(restTailBucket, liveTailTime);
+    const latestKnownCandle =
+      liveTailTime !== null && liveTailTime === latestKnownBucket
+        ? candleMap.get(liveTailTime)
+        : restTailBucket !== null && restTailBucket === latestKnownBucket
+          ? restTail
+          : null;
+
+    if (
+      latestKnownBucket !== null &&
+      bucketStart > latestKnownBucket &&
+      latestKnownCandle &&
+      !hasPositiveTickVolume &&
+      arePricesEffectivelyEqual(latestKnownCandle.close, tick.price)
+    ) {
+      return {
+        candle: toPublicCandle(latestKnownCandle),
+        changed: false,
+        ignored: true,
+        reason: 'unchanged_no_volume_tick_after_tail',
+      };
+    }
 
     if (restTail && restTailBucket === bucketStart) {
       if (!isPriceCoherentWithCandle(restTail, tick.price)) {
@@ -319,10 +347,7 @@ export const applyQuoteTickExtensionToCandleMap = (
     }
   }
 
-  const volumeContribution =
-    typeof tick.volume === 'number' && Number.isFinite(tick.volume) && tick.volume > 0
-      ? tick.volume
-      : 1;
+  const volumeContribution = hasPositiveTickVolume ? tick.volume as number : 1;
   const next: MutableCandle = {
     ...existing,
     high: Math.max(existing.high, tick.price),

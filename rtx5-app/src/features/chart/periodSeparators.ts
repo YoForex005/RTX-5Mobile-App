@@ -1,10 +1,12 @@
 import {
   getExpectedNextCandleTime,
+  getBucketStart,
   getTimeframeSeconds,
+  normalizeTimestampToSeconds,
   normalizeTimeframe,
 } from '../../domain/candles/core/timeframeUtils';
 
-export type PeriodSeparatorType = 'day' | 'week' | 'month' | 'gap' | 'year';
+export type PeriodSeparatorType = 'day' | 'week' | 'month' | 'gap' | 'year' | 'market_close';
 
 export type PeriodSeparatorCandle = {
   time: number;
@@ -151,4 +153,44 @@ export const getPeriodSeparators = (
   }
 
   return separators;
+};
+
+export const getMarketCloseSeparator = (
+  candles: readonly PeriodSeparatorCandle[],
+  timeframe: string,
+  sessionClose: unknown,
+): PeriodSeparator | null => {
+  if (candles.length === 0) {
+    return null;
+  }
+
+  const closeTime = normalizeTimestampToSeconds(sessionClose);
+  if (closeTime === null) {
+    return null;
+  }
+
+  const closeBucket = getBucketStart(closeTime, timeframe) ?? closeTime;
+  let boundaryIndex = -1;
+
+  for (let index = 0; index < candles.length; index += 1) {
+    const candleTime = candles[index]?.time;
+    if (!isFinitePositiveTime(candleTime)) {
+      continue;
+    }
+    if (candleTime <= closeBucket) {
+      boundaryIndex = index;
+      continue;
+    }
+    break;
+  }
+
+  if (boundaryIndex < 0) {
+    return null;
+  }
+
+  return {
+    time: candles[boundaryIndex].time,
+    index: boundaryIndex,
+    type: 'market_close',
+  };
 };

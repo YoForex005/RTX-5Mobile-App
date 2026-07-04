@@ -14,6 +14,45 @@ const LEGACY_SUFFIX_BASES = new Set([
   'MBTUSD',
 ]);
 
+const CRYPTO_BASE_ASSETS = new Set([
+  'AAVE',
+  'ADA',
+  'ALGO',
+  'APT',
+  'ARB',
+  'ATOM',
+  'AVAX',
+  'BCH',
+  'BNB',
+  'BTC',
+  'DOGE',
+  'DOT',
+  'ETH',
+  'FIL',
+  'GRT',
+  'ICP',
+  'IMX',
+  'INJ',
+  'LDO',
+  'LINK',
+  'LTC',
+  'MATIC',
+  'MKR',
+  'NEAR',
+  'OP',
+  'RNDR',
+  'RUNE',
+  'SNX',
+  'SOL',
+  'STX',
+  'TAO',
+  'UNI',
+  'XLM',
+  'XRP',
+]);
+
+const CRYPTO_QUOTE_ASSETS = ['USDT', 'USDC', 'USD', 'EUR', 'BTC', 'ETH'] as const;
+
 const KNOWN_BASE_SYMBOLS = new Set([
   'US30', 'SPX500', 'NAS100', 'GER40', 'UK100', 'FRA40', 'JP225',
   'USOIL', 'UKOIL', 'NGAS',
@@ -44,6 +83,25 @@ export const normalizeSymbol = (symbol: string): string => {
   }
   NORMALIZE_SYMBOL_CACHE.set(symbol, result);
   return result;
+};
+
+export const isCryptoSymbol = (symbol: string): boolean => {
+  const normalized = normalizeSymbol(symbol);
+  if (!normalized) {
+    return false;
+  }
+
+  for (const quote of CRYPTO_QUOTE_ASSETS) {
+    if (!normalized.endsWith(quote) || normalized.length <= quote.length) {
+      continue;
+    }
+    const base = normalized.slice(0, -quote.length);
+    if (CRYPTO_BASE_ASSETS.has(base)) {
+      return true;
+    }
+  }
+
+  return false;
 };
 
 const computeNormalizedSymbol = (symbol: string): string => {

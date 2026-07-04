@@ -78,6 +78,7 @@ import { useAlertsQuery } from '../../query/alerts';
 import { useMarketSymbols } from '../../query/market';
 import { useAccountSummary } from '../../query/account';
 import { useInstrumentMeta } from '../../query/instruments';
+import { useMarketStatus } from '../../query/marketStatus';
 import { WebView } from 'react-native-webview';
 import { hasLiveQuoteFeedData, useLiveSymbolQuote } from '../../query/websocket';
 import { normalizeTimeframe } from '../../domain/candles/core/candles';
@@ -100,7 +101,7 @@ import {
   getChartSeriesUpdateMode,
   resolveLatestCandleGap,
 } from './liveChartSync';
-import { getPeriodSeparators } from './periodSeparators';
+import { getMarketCloseSeparator, getPeriodSeparators } from './periodSeparators';
 import { useShallow } from 'zustand/shallow';
 import { recordUiFeedGap } from '../../dev/uiInteractionDiagnostics';
 import { runImmediateAction } from '../../utils/actionLatency';
@@ -529,6 +530,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     [apiSymbols, chartSymbol],
   );
   const { data: chartInstrumentMeta } = useInstrumentMeta(chartSymbol, chartRuntimeActive);
+  const { data: chartMarketStatus } = useMarketStatus(chartSymbol, chartRuntimeActive);
   const tradeVolumeBounds = useMemo(
     () => ({
       minVolume: chartInstrumentMeta?.minVolume,
@@ -569,6 +571,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   // Safely strip MT4/MT5 suffixes like 'm', '.c', '_std' to resolve flags properly
   const baseSymbol = useMemo(() => resolveChartSymbolKey(chartSymbol), [chartSymbol]);
+  const isCryptoChartSymbol = useMemo(
+    () => resolveChartSymbolCategory(chartSymbol) === 'CRYPTO',
+    [chartSymbol],
+  );
   const chartLiveQuote = useLiveSymbolQuote(chartSymbol, chartRuntimeActive, CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS);
   const chartLiveQuoteTickFields = chartLiveQuote as ChartLiveQuoteTickFields | undefined;
   const chartLiveQuoteDigitsSource = (chartLiveQuote as { digitsSource?: string } | undefined)?.digitsSource;
@@ -1412,10 +1418,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const sanitizedBackendCandles = useMemo(
     () => (
       candles.length > 0
-        ? sanitizeCandlesForChart(candles, { timeframe: chartTimeframe })
+        ? sanitizeCandlesForChart(candles, {
+          timeframe: chartTimeframe,
+          pruneSyntheticFlatLiveTail: chartMarketStatus?.status === 'closed' && !isCryptoChartSymbol,
+        })
         : EMPTY_DISPLAY_CANDLES
     ),
-    [candles, chartTimeframe],
+    [candles, chartMarketStatus?.status, chartTimeframe, isCryptoChartSymbol],
   );
   const chartDrawingRecords = useMemo(
     () =>
@@ -3801,19 +3810,47 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     });
   }, [chartMoreActions, scheduleChartActionSheetContextReset, showChartActionSheet]);
 
+  const marketCloseSeparatorPayload = useMemo(() => {
+    if (chartMarketStatus?.status !== 'closed' || isCryptoChartSymbol) {
+      return [];
+    }
+
+    const separator = getMarketCloseSeparator(
+      sanitizedCandles,
+      chartTimeframe,
+      chartMarketStatus.session_close,
+    );
+    return separator ? [separator] : [];
+  }, [chartMarketStatus?.session_close, chartMarketStatus?.status, chartTimeframe, isCryptoChartSymbol, sanitizedCandles]);
+
   const periodSeparatorOptions = useMemo(() => ({
-    enabled: chartDisplay.periodSeparators,
+    enabled: chartDisplay.periodSeparators || marketCloseSeparatorPayload.length > 0,
     color: isDark ? 'rgba(148, 163, 184, 0.42)' : 'rgba(100, 116, 139, 0.45)',
     width: 1,
     dashPattern: '1 5',
-  }), [chartDisplay.periodSeparators, isDark]);
+  }), [chartDisplay.periodSeparators, isDark, marketCloseSeparatorPayload.length]);
 
   const periodSeparatorPayload = useMemo(
-    () =>
-      getPeriodSeparators(sanitizedCandles, chartTimeframe, {
+    () => {
+      const baseSeparators = getPeriodSeparators(sanitizedCandles, chartTimeframe, {
         periodSeparators: chartDisplay.periodSeparators,
-      }),
-    [chartDisplay.periodSeparators, chartTimeframe, sanitizedCandles],
+      });
+      if (marketCloseSeparatorPayload.length === 0) {
+        return baseSeparators;
+      }
+
+      const seen = new Set(baseSeparators.map((separator) => `${separator.time}:${separator.type}`));
+      const merged = [...baseSeparators];
+      for (const separator of marketCloseSeparatorPayload) {
+        const key = `${separator.time}:${separator.type}`;
+        if (!seen.has(key)) {
+          merged.push(separator);
+          seen.add(key);
+        }
+      }
+      return merged.sort((left, right) => left.index - right.index || left.time - right.time);
+    },
+    [chartDisplay.periodSeparators, chartTimeframe, marketCloseSeparatorPayload, sanitizedCandles],
   );
 
   const periodSeparatorPayloadSignature = useMemo(

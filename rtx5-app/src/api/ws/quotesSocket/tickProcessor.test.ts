@@ -25,11 +25,23 @@ test('quote tick processor carries websocket envelope context into nested tick p
   assert.match(source, /for \(const candidate of getQuoteCandidateItems\(parsedPayload\)\)/);
 });
 
-test('quote tick processor sends every tick as an active candle contribution', () => {
+test('quote tick processor extends candles from feed timestamps or crypto received-time ticks', () => {
   const source = readSource('src/api/ws/quotesSocket/tickProcessor.ts');
 
   assert.match(
     source,
-    /extendActiveCandlesFromQuoteTick\(normalizedUpdate\.symbol,[\s\S]*price: tickPriceForCandle,[\s\S]*time: liveListenerTimestamp,[\s\S]*volume: 1/,
+    /const allowReceivedAtCandleExtension =[\s\S]*normalizedUpdate\.timestampSource === 'received_at' && isCryptoSymbol\(normalizedUpdate\.symbol\)/,
   );
+  assert.match(
+    source,
+    /normalizedUpdate\.timestampSource === 'feed' \|\| allowReceivedAtCandleExtension[\s\S]*\? normalizedTimestamp[\s\S]*: null/,
+  );
+  assert.match(source, /if \(tickPriceForCandle !== null && candleExtensionTimestamp !== null\)/);
+  assert.match(
+    source,
+    /extendActiveCandlesFromQuoteTick\(normalizedUpdate\.symbol,[\s\S]*price: tickPriceForCandle,[\s\S]*time: candleExtensionTimestamp,[\s\S]*volume: normalizedUpdate\.volume/,
+  );
+  assert.match(source, /tick_candle_extension_skipped_missing_feed_time/);
+  assert.match(source, /cryptoSymbol: isCryptoSymbol\(normalizedUpdate\.symbol\)/);
+  assert.doesNotMatch(source, /time: liveListenerTimestamp,[\s\S]*volume: 1/);
 });

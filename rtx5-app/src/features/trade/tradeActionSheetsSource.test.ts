@@ -73,3 +73,28 @@ test('trade rows and summary use direct live websocket quote listeners', () => {
   assert.match(summaryHeaderSource, /positions\.map\(\(position\) => position\.symbol\)/);
   assert.doesNotMatch(summaryHeaderSource, /liveQuotes: Record<string, Partial<QuoteItem> \| undefined>/);
 });
+
+test('trade expanded position row shows backend point and backend account leverage', () => {
+  const tradeScreenSource = readSource('src/features/trade/TradeScreen/TradeScreen.tsx');
+  const rowSource = readSource('src/ui/components/TradePositionRow/TradePositionRow.tsx');
+  const expandedStart = rowSource.indexOf('{expanded && (');
+  const expandedEnd = rowSource.indexOf('{/* Render overlay', expandedStart);
+  assert.notEqual(expandedStart, -1, 'expanded details section must exist');
+  assert.notEqual(expandedEnd, -1, 'expanded details section boundary must exist');
+
+  const expandedSource = rowSource.slice(expandedStart, expandedEnd);
+  assert.match(tradeScreenSource, /import \{ useAccountSummary \} from '..\/..\/..\/query\/account'/);
+  assert.match(tradeScreenSource, /const accountLoginString = resolvedLogin !== undefined \? String\(resolvedLogin\) : undefined/);
+  assert.match(tradeScreenSource, /useAccountSummary\(accountLoginString, \{[\s\S]*enabled: tradeFetchActive && !!accountLoginString/);
+  assert.match(tradeScreenSource, /const accountLeverage = typeof accountSummary\?\.leverage === 'number'[\s\S]*\? accountSummary\.leverage[\s\S]*: null/);
+  assert.match(tradeScreenSource, /accountLeverage=\{accountLeverage\}/);
+  assert.match(tradeScreenSource, /const flatListExtraData = useMemo\([\s\S]*accountLeverage[\s\S]*rowActivationKey/);
+  assert.match(rowSource, /import \{ useInstrumentMeta \} from '..\/..\/..\/query\/instruments'/);
+  assert.match(rowSource, /accountLeverage\?: number \| null/);
+  assert.match(rowSource, /const \{ data: instrumentMeta \} = useInstrumentMeta\(item\.symbol, active\)/);
+  assert.match(rowSource, /const pointValue = resolveFiniteTradeDetailNumber\(instrumentMeta\?\.point, liveQuote\?\.point\)/);
+  assert.match(rowSource, /const leverageText = formatTradeLeverage\(accountLeverage\)/);
+  assert.match(expandedSource, />Point<\/Text>[\s\S]*\{pointText\}/);
+  assert.match(expandedSource, />Leverage<\/Text>[\s\S]*\{leverageText\}/);
+  assert.doesNotMatch(expandedSource, /onPress=\{|ActionSheet|Select/);
+});

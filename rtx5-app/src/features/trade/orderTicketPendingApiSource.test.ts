@@ -9,7 +9,7 @@ const readOrderTicketSource = () =>
 test('order ticket pending submit uses the pending-order API contract', () => {
   const source = readOrderTicketSource();
   const pendingStart = source.indexOf('const handlePlacePendingOrder = async () =>');
-  const pendingEnd = source.indexOf('const spread = Math.round', pendingStart);
+  const pendingEnd = source.indexOf('const rawSpreadPoints =', pendingStart);
   assert.notEqual(pendingStart, -1, 'pending submit handler must exist');
   assert.notEqual(pendingEnd, -1, 'pending submit handler boundary must exist');
 
@@ -33,6 +33,33 @@ test('order ticket symbol picker updates the same screen instead of routing', ()
   assert.match(pickerHandler, /setSymbol\(normalizedNextSymbol\)/);
   assert.doesNotMatch(pickerHandler, /router\.(?:push|replace)/);
   assert.match(source, /lastConfiguredPendingOrderTypeRef\.current = null/);
+});
+
+test('order ticket account leverage is read-only from backend account summary', () => {
+  const source = readOrderTicketSource();
+  const leverageSectionStart = source.indexOf('const backendLeverage =');
+  const leverageSectionEnd = source.indexOf('const currency =', leverageSectionStart);
+  assert.notEqual(leverageSectionStart, -1, 'backend leverage resolver must exist');
+  assert.notEqual(leverageSectionEnd, -1, 'backend leverage resolver boundary must exist');
+
+  const leverageSection = source.slice(leverageSectionStart, leverageSectionEnd);
+  assert.match(leverageSection, /const backendLeverage = isOrderTicketLeverageValue\(accountSummary\?\.leverage\)[\s\S]*\? accountSummary\.leverage[\s\S]*: null/);
+  assert.match(leverageSection, /const leverage = backendLeverage \?\? ORDER_TICKET_FALLBACK_LEVERAGE/);
+  assert.match(leverageSection, /const leverageDisplay = backendLeverage !== null[\s\S]*\? formatOrderTicketLeverage\(backendLeverage\)[\s\S]*: '--'/);
+  assert.match(source, /<InfoRow label=\{t\('Acc\. Leverage'\)\} value=\{leverageDisplay\} styles=\{styles\} \/>/);
+  assert.match(source, /const resolvedMargin = serverRequiredMargin \?\? estimatedMargin/);
+  assert.doesNotMatch(source, /ORDER_TICKET_LEVERAGE_OPTIONS|OrderTicketLeverageOption/);
+  assert.doesNotMatch(source, /leveragePickerOpen|selectedLeverageValue|hasManualLeverage/);
+  assert.doesNotMatch(source, /InfoSelectRow|handleOpenLeveragePicker|orderTicket\.leverage\.open/);
+  assert.doesNotMatch(source, /visible=\{leveragePickerOpen\}|Search leverage/);
+});
+
+test('order ticket spread uses the symbol point size', () => {
+  const source = readOrderTicketSource();
+
+  assert.match(source, /const rawSpreadPoints = pricePointSize > 0 && Number\.isFinite\(ASK\) && Number\.isFinite\(BID\)[\s\S]*Math\.round\(\(ASK - BID\) \/ pricePointSize\)/);
+  assert.match(source, /const spread = Math\.max\(0, rawSpreadPoints\)/);
+  assert.doesNotMatch(source, /Math\.round\(\(ASK - BID\) \/ 0\.01\)/);
 });
 
 test('order ticket seeds SL and TP from chart route params', () => {

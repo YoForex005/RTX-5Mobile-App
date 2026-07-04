@@ -13,8 +13,9 @@ import { useUserPreferences } from '../../../state/userPreferences';
 import { useTheme } from '../../../ui/theme/useTheme';
 import { usePlaceOrderMutation } from '../../../query/orders';
 import { useInstrumentMeta } from '../../../query/instruments';
+import { useAccountSummary } from '../../../query/account';
 import { useLatestDailyCandle } from '../../../domain/candles/query/candles';
-import { resolveTradingLogin, resolveTradingLoginString } from '../../../state/tradingLogin';
+import { resolveTradingLogin, resolveTradingLoginString, useResolvedTradingLogin } from '../../../state/tradingLogin';
 import { fmt } from '../../../utils/format';
 import { calculateMarketSentiment } from '../../../domain/marketSentiment';
 import { normalizeSymbol } from '../../../domain/symbols';
@@ -25,6 +26,31 @@ import { prefetchOrderTicketData } from '../../../utils/navigationPrefetch';
 import { dCol, getMeta, normalizeTradingSessions, sgn } from './instrumentMeta';
 import { MetricPill, MomentumBar, RangeBar, Row, Section } from './SubComponents';
 import { makeSymbolDetailsStyles } from './styles';
+
+const formatDetailNumber = (value: number | null | undefined) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '--';
+  }
+
+  if (Number.isInteger(value)) {
+    return String(value);
+  }
+
+  const abs = Math.abs(value);
+  const decimals = abs > 0 && abs < 1
+    ? Math.min(10, Math.max(2, Math.ceil(-Math.log10(abs)) + 2))
+    : 4;
+
+  return value.toFixed(decimals).replace(/0+$/, '').replace(/\.$/, '');
+};
+
+const resolveDetailNumber = (...values: Array<number | null | undefined>) =>
+  values.find((value): value is number => typeof value === 'number' && Number.isFinite(value));
+
+const formatSwapValue = (value: number | null | undefined) => {
+  const formatted = formatDetailNumber(value);
+  return formatted === '--' ? formatted : `${formatted} pts`;
+};
 
 export function SymbolDetailsScreen() {
   return <SymbolDetailsInteractiveContent />;
@@ -39,6 +65,8 @@ function SymbolDetailsInteractiveContent() {
   const [activeSide, setActiveSide] = useState<'buy' | 'sell' | null>(null);
   const [alertOn, setAlertOn] = useState(false);
   const isScreenFocused = useIsFocused();
+  const resolvedLogin = useResolvedTradingLogin();
+  const accountLoginString = resolvedLogin !== undefined ? String(resolvedLogin) : undefined;
 
   const liveQuotes = useMarketData([symbol], isScreenFocused);
 
@@ -49,6 +77,9 @@ function SymbolDetailsInteractiveContent() {
   const screenBg = isDark ? '#121212' : T.bg;
 
   const { data: remoteMeta } = useInstrumentMeta(symbol, isScreenFocused);
+  const { data: accountSummary } = useAccountSummary(accountLoginString, {
+    enabled: isScreenFocused && !!accountLoginString,
+  });
 
   const q = useMemo<QuoteItem>(() => {
     const live = liveQuotes[symbol] as Partial<QuoteItem> | undefined;
@@ -59,14 +90,15 @@ function SymbolDetailsInteractiveContent() {
       base.minVolume = remoteMeta.minVolume ?? base.minVolume;
       base.maxVolume = remoteMeta.maxVolume ?? base.maxVolume;
       base.stepVolume = remoteMeta.stepVolume ?? base.stepVolume;
+      base.point = remoteMeta.point ?? base.point;
       base.tickSize = remoteMeta.tickSize ?? base.tickSize;
       base.marginInitial = remoteMeta.marginInitial ?? base.marginInitial;
       base.marginMaintenance = remoteMeta.marginMaintenance ?? base.marginMaintenance;
-      base.swapLong = remoteMeta.swapLong ?? base.swapLong;
-      base.swapShort = remoteMeta.swapShort ?? base.swapShort;
       base.baseCurrency = remoteMeta.baseCurrency ?? base.baseCurrency;
       base.profitCurrency = remoteMeta.profitCurrency ?? base.profitCurrency;
     }
+    base.swapLong = resolveDetailNumber(remoteMeta?.swapLong, base.swapLong, mock.swapLong) ?? base.swapLong;
+    base.swapShort = resolveDetailNumber(remoteMeta?.swapShort, base.swapShort, mock.swapShort) ?? base.swapShort;
     return base;
   }, [liveQuotes, symbol, remoteMeta]);
 
@@ -120,6 +152,15 @@ function SymbolDetailsInteractiveContent() {
   const rPct = dynLow > 0 && dynLow !== Infinity ? (rng / dynLow) * 100 : 0;
   const rangePositionPct = marketSentiment.rangePositionPct;
   const pip = 1 / Math.pow(10, d);
+  const point = remoteMeta?.point ?? q.point ?? q.tickSize ?? pip;
+  const resolvedLeverage = accountSummary?.leverage && accountSummary.leverage > 0
+    ? accountSummary.leverage
+    : undefined;
+  const leverageText = resolvedLeverage && resolvedLeverage > 0
+    ? `1:${formatDetailNumber(resolvedLeverage)}`
+    : '--';
+  const swapLong = resolveDetailNumber(remoteMeta?.swapLong, q.swapLong);
+  const swapShort = resolveDetailNumber(remoteMeta?.swapShort, q.swapShort);
   const spp = ((q.spread || 0) * (pip || 1)).toFixed(1);
   const ctk = q.tickValue ?? (10 / mid);
 
@@ -373,6 +414,7 @@ function SymbolDetailsInteractiveContent() {
           <Row label="Min Volume" value={String(q.minVolume ?? '0.01') + ' lot'} />
           <Row label="Max Volume" value={String(q.maxVolume ?? '500') + ' lots'} />
           <Row label="Lot Step" value={String(q.stepVolume ?? '0.01')} />
+          <Row label="Point" value={formatDetailNumber(point)} />
           <Row label="Tick Size" value={String(q.tickSize ?? pip)} />
           <Row label="Tick Value" value={'$' + (ctk || 0).toFixed(2)} last />
         </Section>
@@ -384,8 +426,9 @@ function SymbolDetailsInteractiveContent() {
           <Row label="Stops Level" value={meta.stopsLevel} />
           <Row label="Margin Initial" value={(q.marginInitial ?? 0).toFixed(2) + '%'} />
           <Row label="Margin Maintenance" value={(q.marginMaintenance ?? 0).toFixed(2) + '%'} />
-          <Row label="Swap Long" value={(q.swapLong ?? 0).toFixed(2) + ' pts'} accent={(q.swapLong ?? 0) < 0 ? T.down : T.up} />
-          <Row label="Swap Short" value={(q.swapShort ?? 0).toFixed(2) + ' pts'} accent={(q.swapShort ?? 0) > 0 ? T.up : T.down} last />
+          <Row label="Leverage" value={leverageText} />
+          <Row label="Swap Long" value={formatSwapValue(swapLong)} accent={swapLong !== undefined ? (swapLong < 0 ? T.down : T.up) : undefined} />
+          <Row label="Swap Short" value={formatSwapValue(swapShort)} accent={swapShort !== undefined ? (swapShort > 0 ? T.up : T.down) : undefined} last />
         </Section>
 
         <Section title="Instrument Profile" icon="briefcase-outline">

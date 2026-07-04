@@ -31,6 +31,7 @@ test('chart symbol metadata resolves header categories', () => {
   assert.equal(resolveChartSymbolCategory('GBPUSD.c'), 'FOREX');
   assert.equal(resolveChartSymbolCategory('XAUUSDm'), 'METAL');
   assert.equal(resolveChartSymbolCategory('BTCUSDpro'), 'CRYPTO');
+  assert.equal(resolveChartSymbolCategory('SOLUSDpro'), 'CRYPTO');
   assert.equal(resolveChartSymbolCategory('ABCDEF'), null);
 });
 

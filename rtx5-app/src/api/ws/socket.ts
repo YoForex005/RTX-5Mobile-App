@@ -5,6 +5,7 @@
 import { useTradingState } from '../../state/tradingState';
 import NetInfo from '@react-native-community/netinfo';
 import { liveCandleStream } from '../../domain/candles/stream/liveCandleStream';
+import { isCryptoSymbol } from '../../domain/symbols';
 import { useUserPreferences } from '../../state/userPreferences';
 import {
   buildBrokerWsUrl,
@@ -198,18 +199,28 @@ export class WebSocketService {
         const bid = typeof data?.bid === 'number' ? data.bid : Number(data?.bid);
         const ask = typeof data?.ask === 'number' ? data.ask : Number(data?.ask);
         if (data?.symbol && Number.isFinite(bid) && Number.isFinite(ask) && bid > 0 && ask > 0) {
-          const tickTime = data.lastTickAt ?? data.timestamp ?? data.time ?? data.t ?? Date.now();
+          const feedTickTime = data.lastTickAt ?? data.timestamp ?? data.time ?? data.t;
+          const tickTime = feedTickTime ?? Date.now();
+          const candleTickTime =
+            feedTickTime !== undefined && feedTickTime !== null
+              ? feedTickTime
+              : isCryptoSymbol(data.symbol)
+                ? tickTime
+                : null;
           store.setQuote(data.symbol, {
             bid,
             ask,
             lastTickAt: tickTime,
             lastReceivedAt: Date.now(),
           });
-          liveCandleStream.extendActiveCandlesFromQuoteTick(data.symbol, {
-            price: bid,
-            time: tickTime,
-            volume: 1,
-          });
+          if (candleTickTime !== null) {
+            const volume = typeof data?.volume === 'number' ? data.volume : Number(data?.volume);
+            liveCandleStream.extendActiveCandlesFromQuoteTick(data.symbol, {
+              price: bid,
+              time: candleTickTime,
+              volume: Number.isFinite(volume) && volume > 0 ? volume : undefined,
+            });
+          }
         }
       }
       

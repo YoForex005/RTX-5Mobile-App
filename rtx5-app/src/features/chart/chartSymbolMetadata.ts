@@ -1,3 +1,5 @@
+import { isCryptoSymbol } from '../../domain/symbols';
+
 const normalizeChartSymbolKey = (symbol: string): string => {
   const compact = symbol.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
   const withoutNamedSuffix = compact.replace(/(?:MICRO|PRO|RAW|STD|STP|CENT|ECN)$/i, '');
@@ -78,6 +80,10 @@ export const resolveChartSymbolCategory = (symbol: string): string | null => {
   const key = normalizeChartSymbolKey(symbol);
   if (!key) {
     return null;
+  }
+
+  if (isCryptoSymbol(key)) {
+    return 'CRYPTO';
   }
 
   const knownCategory = SYMBOL_CATEGORY[key];

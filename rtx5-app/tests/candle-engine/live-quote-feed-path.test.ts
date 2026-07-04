@@ -226,8 +226,10 @@ test('API prices websocket also forwards quote ticks into active candle stream',
 
   assert.match(socketSource, /import \{ liveCandleStream \} from '..\/..\/domain\/candles\/stream\/liveCandleStream'/);
   assert.match(socketSource, /channel === 'prices' \|\| channel\.startsWith\('quotes\.'\)/);
+  assert.match(socketSource, /const feedTickTime = data\.lastTickAt \?\? data\.timestamp \?\? data\.time \?\? data\.t/);
+  assert.match(socketSource, /const candleTickTime =[\s\S]*isCryptoSymbol\(data\.symbol\)[\s\S]*\? tickTime[\s\S]*: null/);
   assert.match(socketSource, /store\.setQuote\(data\.symbol,[\s\S]*lastTickAt: tickTime/);
-  assert.match(socketSource, /liveCandleStream\.extendActiveCandlesFromQuoteTick\(data\.symbol,[\s\S]*price: bid,[\s\S]*time: tickTime/);
+  assert.match(socketSource, /if \(candleTickTime !== null\) \{[\s\S]*liveCandleStream\.extendActiveCandlesFromQuoteTick\(data\.symbol,[\s\S]*price: bid,[\s\S]*time: candleTickTime/);
 });
 
 test('public quote websocket gates nested backend candle payloads until server mode is proven', () => {

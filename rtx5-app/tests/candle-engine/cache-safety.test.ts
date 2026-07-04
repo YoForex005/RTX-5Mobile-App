@@ -10,6 +10,7 @@ import {
 import { splitRestHistoryCandles } from '../../src/domain/candles/core/candleProvenance';
 import { mergeHistoryIntoCandleCache, syncMergedCandleCache } from '../../src/domain/candles/state/candleCache';
 import { CandleMemoryCache } from '../../src/domain/candles/stream/candleMemoryCache';
+import { sanitizeCandlesForChart } from '../../src/domain/candles/normalization/chartAdapter';
 import { useTradingState } from '../../src/state/tradingState';
 import {
   buildContiguousHistory,
@@ -62,6 +63,103 @@ test('backend M1 cache with market-close gaps can seed the chart', () => {
   assert.equal(isTrustworthyCandleBootstrapSeed(backendCache, 'M1'), true);
   assert.equal(syncMergedCandleCache('EURUSD', 'M1', backendCache, { canonical: true }), true);
   assert.deepEqual(useTradingState.getState().candles['EURUSD.M1'], backendCache);
+});
+
+test('chart normalization can remove synthetic flat live candle tails after market close', () => {
+  const realHistory = [
+    makeTrustedHistoryCandle(secondsUtc(2024, 3, 22, 12, 0, 0), { close: 1.1 }),
+    makeTrustedHistoryCandle(secondsUtc(2024, 3, 22, 12, 1, 0), { close: 1.2 }),
+  ];
+  const liveMove = {
+    ...makeBackendLiveCandle(secondsUtc(2024, 3, 22, 12, 2, 0), { close: 1.25, volume: 4 }),
+    source: 'live_candle' as const,
+    closed: false,
+  };
+  const flatHeartbeatTail = [
+    {
+      time: secondsUtc(2024, 3, 22, 12, 3, 0),
+      open: 1.25,
+      high: 1.25,
+      low: 1.25,
+      close: 1.25,
+      volume: 1,
+      source: 'live_candle' as const,
+      closed: false,
+    },
+    {
+      time: secondsUtc(2024, 3, 22, 12, 4, 0),
+      open: 1.25,
+      high: 1.25,
+      low: 1.25,
+      close: 1.25,
+      volume: 1,
+      source: 'live_candle' as const,
+      closed: false,
+    },
+  ];
+
+  const normalized = sanitizeCandlesForChart([...realHistory, liveMove, ...flatHeartbeatTail], {
+    timeframe: 'M1',
+    pruneSyntheticFlatLiveTail: true,
+  });
+
+  assert.deepEqual(normalized.map((candle) => candle.time), [
+    secondsUtc(2024, 3, 22, 12, 0, 0),
+    secondsUtc(2024, 3, 22, 12, 1, 0),
+    secondsUtc(2024, 3, 22, 12, 2, 0),
+  ]);
+});
+
+test('chart normalization keeps synthetic-looking flat live tails while market is open', () => {
+  const realHistory = [
+    makeTrustedHistoryCandle(secondsUtc(2024, 3, 22, 12, 0, 0), { close: 1.1 }),
+    makeTrustedHistoryCandle(secondsUtc(2024, 3, 22, 12, 1, 0), { close: 1.2 }),
+  ];
+  const flatLiveTail = {
+    time: secondsUtc(2024, 3, 22, 12, 2, 0),
+    open: 1.2,
+    high: 1.2,
+    low: 1.2,
+    close: 1.2,
+    volume: 1,
+    source: 'live_candle' as const,
+    closed: false,
+  };
+
+  const normalized = sanitizeCandlesForChart([...realHistory, flatLiveTail], { timeframe: 'M1' });
+
+  assert.deepEqual(normalized.map((candle) => candle.time), [
+    secondsUtc(2024, 3, 22, 12, 0, 0),
+    secondsUtc(2024, 3, 22, 12, 1, 0),
+    secondsUtc(2024, 3, 22, 12, 2, 0),
+  ]);
+});
+
+test('chart normalization keeps real flat backend candles and positive-volume flat live candles', () => {
+  const realFlatHistory = makeTrustedHistoryCandle(secondsUtc(2024, 3, 22, 12, 0, 0), {
+    open: 1.2,
+    high: 1.2,
+    low: 1.2,
+    close: 1.2,
+    volume: 15,
+  });
+  const realFlatLive = {
+    time: secondsUtc(2024, 3, 22, 12, 1, 0),
+    open: 1.2,
+    high: 1.2,
+    low: 1.2,
+    close: 1.2,
+    volume: 3,
+    source: 'live_candle' as const,
+    closed: false,
+  };
+
+  const normalized = sanitizeCandlesForChart([realFlatHistory, realFlatLive], { timeframe: 'M1' });
+
+  assert.deepEqual(normalized.map((candle) => candle.time), [
+    secondsUtc(2024, 3, 22, 12, 0, 0),
+    secondsUtc(2024, 3, 22, 12, 1, 0),
+  ]);
 });
 
 test('in-memory candle cache keeps only the most recent chart contexts', () => {

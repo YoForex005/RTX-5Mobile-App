@@ -114,6 +114,50 @@ test('quote details opens the complete screen without a temporary shell', () => 
   assert.doesNotMatch(source, /SYMBOL_DETAILS_FULL_CONTENT_DELAY_MS/);
 });
 
+test('quote details specification shows point and account leverage', () => {
+  const source = readSymbolDetailsSource();
+  const contractSpecStart = source.indexOf('<Section title="Contract Specification"');
+  const pricingFeesStart = source.indexOf('<Section title="Pricing & Fees"');
+  const instrumentProfileStart = source.indexOf('<Section title="Instrument Profile"');
+  assert.notEqual(contractSpecStart, -1, 'contract specification section must exist');
+  assert.notEqual(pricingFeesStart, -1, 'pricing and fees section must exist');
+  assert.notEqual(instrumentProfileStart, -1, 'instrument profile section must exist');
+
+  const contractSpec = source.slice(contractSpecStart, pricingFeesStart);
+  const pricingFees = source.slice(pricingFeesStart, instrumentProfileStart);
+  assert.match(source, /import \{ useAccountSummary \} from '..\/..\/..\/query\/account'/);
+  assert.match(source, /resolveTradingLoginString, useResolvedTradingLogin/);
+  assert.doesNotMatch(source, /useSavedAccounts|activeSavedAccountLeverage|brokerId/);
+  assert.match(source, /useAccountSummary\(accountLoginString, \{[\s\S]*enabled: isScreenFocused && !!accountLoginString/);
+  assert.match(source, /base\.point = remoteMeta\.point \?\? base\.point/);
+  assert.match(source, /const point = remoteMeta\?\.point \?\? q\.point \?\? q\.tickSize \?\? pip/);
+  assert.match(source, /const resolvedLeverage = accountSummary\?\.leverage && accountSummary\.leverage > 0[\s\S]*\? accountSummary\.leverage[\s\S]*: undefined/);
+  assert.match(source, /const leverageText = resolvedLeverage && resolvedLeverage > 0[\s\S]*\? `1:\$\{formatDetailNumber\(resolvedLeverage\)\}`[\s\S]*: '--'/);
+  assert.match(contractSpec, /<Row label="Point" value=\{formatDetailNumber\(point\)\} \/>/);
+  assert.match(pricingFees, /<Row label="Leverage" value=\{leverageText\} \/>/);
+  assert.doesNotMatch(pricingFees, /onPress|ActionSheet|Select/);
+});
+
+test('quote details keeps real swap values visible', () => {
+  const source = readSymbolDetailsSource();
+  const pricingFeesStart = source.indexOf('<Section title="Pricing & Fees"');
+  const instrumentProfileStart = source.indexOf('<Section title="Instrument Profile"');
+  assert.notEqual(pricingFeesStart, -1, 'pricing and fees section must exist');
+  assert.notEqual(instrumentProfileStart, -1, 'instrument profile section must exist');
+
+  const pricingFees = source.slice(pricingFeesStart, instrumentProfileStart);
+  assert.match(source, /const resolveDetailNumber = \(\.\.\.values: Array<number \| null \| undefined>\) =>/);
+  assert.match(source, /const formatSwapValue = \(value: number \| null \| undefined\) => \{/);
+  assert.match(source, /base\.swapLong = resolveDetailNumber\(remoteMeta\?\.swapLong, base\.swapLong, mock\.swapLong\) \?\? base\.swapLong/);
+  assert.match(source, /base\.swapShort = resolveDetailNumber\(remoteMeta\?\.swapShort, base\.swapShort, mock\.swapShort\) \?\? base\.swapShort/);
+  assert.match(source, /const swapLong = resolveDetailNumber\(remoteMeta\?\.swapLong, q\.swapLong\)/);
+  assert.match(source, /const swapShort = resolveDetailNumber\(remoteMeta\?\.swapShort, q\.swapShort\)/);
+  assert.match(pricingFees, /<Row label="Swap Long" value=\{formatSwapValue\(swapLong\)\}/);
+  assert.match(pricingFees, /<Row label="Swap Short" value=\{formatSwapValue\(swapShort\)\}/);
+  assert.doesNotMatch(pricingFees, /\(q\.swapLong \?\? 0\)\.toFixed\(2\)/);
+  assert.doesNotMatch(pricingFees, /\(q\.swapShort \?\? 0\)\.toFixed\(2\)/);
+});
+
 test('market statistics opens the complete screen without a temporary shell', () => {
   const source = readMarketStatisticsSource();
 

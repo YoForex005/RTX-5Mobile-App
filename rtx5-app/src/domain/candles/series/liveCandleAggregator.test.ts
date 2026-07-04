@@ -220,6 +220,37 @@ test('quote tick burst preserves every OHLC and volume contribution before rende
   });
 });
 
+test('same-price no-volume heartbeat does not open future candle buckets', () => {
+  const candleMap = buildEmptyMap();
+  applyQuoteTickExtensionToCandleMap(
+    candleMap,
+    { price: 4175.6, time: BUCKET + 1 },
+    TIMEFRAME,
+    { historyCutoffTime: BUCKET - 60 },
+  );
+
+  const nextBucket = BUCKET + 60;
+  const heartbeat = applyQuoteTickExtensionToCandleMap(
+    candleMap,
+    { price: 4175.6, time: nextBucket + 5 },
+    TIMEFRAME,
+    { historyCutoffTime: BUCKET - 60 },
+  );
+
+  assert.equal(heartbeat.ignored, true);
+  assert.equal(heartbeat.changed, false);
+  assert.equal(heartbeat.reason, 'unchanged_no_volume_tick_after_tail');
+  assert.equal(candleMap.has(nextBucket), false);
+  assert.deepEqual(heartbeat.candle, {
+    time: BUCKET,
+    open: 4175.6,
+    high: 4175.6,
+    low: 4175.6,
+    close: 4175.6,
+    volume: 1,
+  });
+});
+
 test('stale non-closing server candle cannot overwrite fresher quote-driven active candle', () => {
   const candleMap = buildEmptyMap();
   applyQuoteTickExtensionToCandleMap(

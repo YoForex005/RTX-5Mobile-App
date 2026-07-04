@@ -37,7 +37,7 @@ test('webview bridge: ChartScreen initializes chart only after WebView READY ena
 });
 
 test('webview bridge: candles arriving before READY are retained and sent after readiness', () => {
-  assertSourceContains(source, /const sanitizedBackendCandles = useMemo\([\s\S]*sanitizeCandlesForChart\(candles, \{ timeframe: chartTimeframe \}\)/, 'native host must sanitize backend candles only when the backend stream changes');
+  assertSourceContains(source, /const sanitizedBackendCandles = useMemo\([\s\S]*sanitizeCandlesForChart\(candles, \{[\s\S]*timeframe: chartTimeframe,[\s\S]*pruneSyntheticFlatLiveTail: chartMarketStatus\?\.status === 'closed' && !isCryptoChartSymbol/, 'native host must sanitize backend candles with closed-market flat-tail pruning only when safe');
   assertSourceContains(source, /const sanitizedCandles = useMemo\([\s\S]*return sanitizedBackendCandles;[\s\S]*\[\s*sanitizedBackendCandles\s*\]/, 'native host must render backend candle data without live-quote candle synthesis');
   assert.doesNotMatch(source, /resolveLivePriceCoherentCandles/, 'native host must not build display candles from quote ticks');
   assertSourceContains(source, /const overlayCandles = sanitizedBackendCandles\.length > 0 \? sanitizedBackendCandles : sanitizedCandles/, 'overlay rebuilds must stay tied to backend candles when backend history exists');
@@ -45,6 +45,24 @@ test('webview bridge: candles arriving before READY are retained and sent after 
   assertSourceContains(source, /const candlesRef = useRef\(sanitizedCandles\)/, 'sanitized candles must be retained outside render timing');
   assertSourceContains(source, /useEffect\(\(\) => \{[\s\S]*candlesRef\.current = sanitizedCandles;[\s\S]*\}, \[[^\]]*sanitizedCandles[^\]]*\]\)/, 'latest sanitized candles must update the retained ref');
   assertSourceContains(source, /const data = candlesRef\.current[\s\S]*const mapped = data\.length > 0 \? buildMappedData\(data\) : \[\][\s\S]*initChart\(/, 'sendInit must initialize the chart shell even before candles arrive');
+});
+
+test('webview bridge: crypto symbols never use market-close flat-tail pruning or close separators', () => {
+  assertSourceContains(
+    source,
+    /const isCryptoChartSymbol = useMemo\([\s\S]*resolveChartSymbolCategory\(chartSymbol\) === 'CRYPTO'/,
+    'native chart must classify crypto symbols before applying market-close behavior',
+  );
+  assertSourceContains(
+    source,
+    /pruneSyntheticFlatLiveTail: chartMarketStatus\?\.status === 'closed' && !isCryptoChartSymbol/,
+    'flat-tail pruning must be disabled for crypto even if market status says closed',
+  );
+  assertSourceContains(
+    source,
+    /if \(chartMarketStatus\?\.status !== 'closed' \|\| isCryptoChartSymbol\) \{[\s\S]*return \[\]/,
+    'market-close separator payload must be disabled for crypto symbols',
+  );
 });
 
 test('webview bridge: symbol switches do not paint cached candles before fresh history commits', () => {
@@ -80,7 +98,7 @@ test('webview bridge: symbol switches do not paint cached candles before fresh h
   );
   assertSourceContains(
     source,
-    /const chartDataActive = chartRuntimeActive[\s\S]*const \{[\s\S]*candles,[\s\S]*paginate,[\s\S]*loading: chartDataLoading,[\s\S]*error: chartDataError,[\s\S]*\} = useLiveCandles\(chartSymbol, chartTimeframe, chartDataActive\)[\s\S]*candles\.length > 0[\s\S]*sanitizeCandlesForChart\(candles, \{ timeframe: chartTimeframe \}\)[\s\S]*EMPTY_DISPLAY_CANDLES/,
+    /const chartDataActive = chartRuntimeActive[\s\S]*const \{[\s\S]*candles,[\s\S]*paginate,[\s\S]*loading: chartDataLoading,[\s\S]*error: chartDataError,[\s\S]*\} = useLiveCandles\(chartSymbol, chartTimeframe, chartDataActive\)[\s\S]*candles\.length > 0[\s\S]*sanitizeCandlesForChart\(candles, \{[\s\S]*timeframe: chartTimeframe,[\s\S]*pruneSyntheticFlatLiveTail: chartMarketStatus\?\.status === 'closed' && !isCryptoChartSymbol,[\s\S]*\}\)[\s\S]*EMPTY_DISPLAY_CANDLES/,
     'native chart may paint live candle ticks before slow REST history finishes',
   );
   assertSourceContains(
