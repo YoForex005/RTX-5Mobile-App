@@ -5,6 +5,8 @@ import { FastPressable } from '../../../ui/components/FastPressable';
 import type { ThemeColors } from '../../../ui/theme/glass';
 import type { SettingsStyles } from './styles';
 
+const SETTINGS_ROW_PRESS_RETENTION_OFFSET = { top: 8, bottom: 8, left: 18, right: 18 } as const;
+
 export function SettingRow({
   icon,
   color,
@@ -13,7 +15,10 @@ export function SettingRow({
   badge,
   rightElement,
   onPress,
+  onPressIn,
+  onTouchStart,
   activateOnPressIn,
+  activateOnTouchStart,
   T,
   styles,
 }: {
@@ -24,17 +29,28 @@ export function SettingRow({
   badge?: string;
   rightElement?: React.ReactNode;
   onPress?: () => void;
+  onPressIn?: () => void;
+  onTouchStart?: () => void;
   activateOnPressIn?: boolean;
+  activateOnTouchStart?: boolean;
   T: ThemeColors;
   styles: SettingsStyles;
 }) {
   return (
     <FastPressable
-      style={styles.row}
+      style={({ pressed }) => [
+        styles.row,
+        pressed && styles.rowPressed,
+      ]}
       latencyLabel={`settings.row.${title}`}
       onPress={onPress}
+      onPressIn={onPressIn}
+      onTouchStart={onTouchStart}
       activateOnPressIn={activateOnPressIn}
+      activateOnTouchStart={activateOnTouchStart}
+      pressRetentionOffset={SETTINGS_ROW_PRESS_RETENTION_OFFSET}
       unstable_pressDelay={0}
+      android_ripple={{ color: `${color}24` }}
       accessibilityRole={onPress ? 'button' : undefined}
     >
       <View style={[styles.iconBox, { backgroundColor: `${color}1A` }, styles.iconBoxTint]}>

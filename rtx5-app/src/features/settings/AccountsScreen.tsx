@@ -64,6 +64,7 @@ import {
 } from '../trade/accountSummary';
 import { useTranslation } from '../../i18n/useTranslation';
 import { translateAccountCardName } from '../../i18n/translations';
+import { useDeferredActiveFlag } from '../../hooks/useDeferredActiveFlag';
 import { runImmediateAction } from '../../utils/actionLatency';
 import {
   clearAuthSessionTokens,
@@ -111,6 +112,7 @@ const ACCOUNT_SWITCH_STALE_QUERY_KEYS: ReadonlyArray<readonly unknown[]> = [
   ['exposure'],
   ['transactions'],
 ];
+const ACCOUNTS_SCREEN_DATA_DELAY_MS = 650;
 
 const normalizeSwitchLogin = (login: string) => {
   const numeric = Number(login);
@@ -344,18 +346,49 @@ export function AccountsScreen() {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
+  const [firstPaintReady, setFirstPaintReady] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    let frameId: number | null = null;
+    const markReady = () => {
+      if (!cancelled) {
+        setFirstPaintReady(true);
+      }
+    };
+
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      frameId = globalThis.requestAnimationFrame(markReady);
+    } else {
+      const timerId = setTimeout(markReady, 16);
+      return () => {
+        cancelled = true;
+        clearTimeout(timerId);
+      };
+    }
+
+    return () => {
+      cancelled = true;
+      if (frameId !== null) {
+        globalThis.cancelAnimationFrame?.(frameId);
+      }
+    };
+  }, []);
 
   // ── GET /accounts — live trading accounts for the authenticated user ──
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
-  const screenDataActive = isLoggedIn && isScreenFocused;
+  const screenDataActive = useDeferredActiveFlag(
+    isLoggedIn && isScreenFocused && firstPaintReady,
+    ACCOUNTS_SCREEN_DATA_DELAY_MS,
+  );
   const { data: accounts } = useAccounts(screenDataActive);
 
   // ── GET /broker/config — broker name and server name ──
   const brokerId = useUserPreferences((s) => s.brokerId);
   const brokerServerUrl = useUserPreferences((s) => s.brokerServerUrl);
   const brokerLogoUrl = useUserPreferences((s) => s.brokerLogoUrl);
-  const { data: brokerConfig } = useBrokerConfig(brokerId, isScreenFocused);
-  const { data: brokerServers } = useBrokerServers(isScreenFocused);
+  const { data: brokerConfig } = useBrokerConfig(brokerId, screenDataActive);
+  const { data: brokerServers } = useBrokerServers(screenDataActive);
   const brokerLogoIndex = useMemo(() => buildBrokerLogoIndex(brokerServers), [brokerServers]);
   const activeBrokerLogoUrl = resolveAccountBrokerLogoUrl(
     brokerLogoIndex,
@@ -562,8 +595,8 @@ export function AccountsScreen() {
   // market moves — same source/cadence as the Trade summary header. Without this,
   // useTradingState.quotes (what useMarketData reads) goes stale off the Quotes
   // screen and the calc falls back to the frozen position-snapshot price.
-  useWatchlistLiveQuotes(livePositionSymbols, isScreenFocused && liveMatchesActiveAccount);
-  const liveQuotes = useMarketData(livePositionSymbols, isScreenFocused && liveMatchesActiveAccount);
+  useWatchlistLiveQuotes(livePositionSymbols, screenDataActive && liveMatchesActiveAccount);
+  const liveQuotes = useMarketData(livePositionSymbols, screenDataActive && liveMatchesActiveAccount);
   // Live equity = balance + credit + (live floating); free margin = equity - margin.
   const liveAccountSummary = useMemo(() => {
     const summary = buildTradeAccountSummary(
@@ -622,8 +655,8 @@ export function AccountsScreen() {
   logAccountsScreenDiagnostic('[AccountsScreen] live WS metrics:', { liveBalance, liveEquity, liveMarginFree, liveFloating });
   logAccountsScreenDiagnostic('[AccountsScreen] display values:', { displayBalance, displayEquity, displayFreeMargin, displayFloatingPnl, displayCurrency });
 
-  const { data: health } = useHealth(isScreenFocused);
-  const { data: mt5Status } = useMt5Status(isScreenFocused);
+  const { data: health } = useHealth(screenDataActive);
+  const { data: mt5Status } = useMt5Status(screenDataActive);
 
   const handleConnectAccount = () => {
     router.push('/settings/brokers');
@@ -877,7 +910,9 @@ export function AccountsScreen() {
             hitSlop={15}
             onPress={() => safeRouterBack(router, '/(tabs)/settings')}
             activateOnPressIn
+            activateOnTouchStart
             latencyLabel="accounts.back"
+            latencyBudgetMs={50}
             unstable_pressDelay={0}
           >
             <Ionicons name="arrow-back" size={28} color={T.text} />

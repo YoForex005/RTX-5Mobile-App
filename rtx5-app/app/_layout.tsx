@@ -93,6 +93,7 @@ function InnerLayout() {
   const registerScreenOptions = {
     headerShown: false,
     animation: 'none',
+    presentation: 'transparentModal',
     freezeOnBlur: false,
     contentStyle: { backgroundColor: brokerFlowBackground },
   } as const;

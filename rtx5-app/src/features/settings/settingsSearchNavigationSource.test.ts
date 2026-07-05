@@ -17,7 +17,7 @@ test('settings search results reuse the same routes as settings rows', () => {
   assert.match(source, /buildHelpMailto\(\{/);
   assert.match(source, /Linking\.openURL\(mailtoUrl\)/);
   assert.match(source, /\{ title: 'Accounts'[\s\S]*routePath: '\/settings\/accounts' \}/);
-  assert.match(source, /\{ title: 'New Account'[\s\S]*routePath: '\/register' \}/);
+  assert.match(source, /\{ title: 'New Account'[\s\S]*routePath: '\/register-entry' \}/);
   assert.match(source, /\{ title: 'Economic Calender'[\s\S]*routePath: '\/settings\/economic-calendar' \}/);
   assert.match(source, /\{ title: 'Theme', sub: themeMode === 'light' \? 'Light Mode' : 'Dark Mode', icon: 'color-palette-outline' \}/);
   assert.match(source, /\{ title: 'Language Preference'[\s\S]*routePath: '\/settings\/interface' \}/);
@@ -29,7 +29,11 @@ test('settings search results reuse the same routes as settings rows', () => {
   assert.match(source, /openReadySettingsRoute\(item\.routePath\)/);
   assert.match(source, /const isThemeItem = item\.title === 'Theme'/);
   assert.match(source, /rightElement=\{[\s\S]*isThemeItem \? \([\s\S]*<Switch[\s\S]*onValueChange=\{\(val\) => setThemeMode\(val \? 'light' : 'dark'\)\}/);
-  assert.match(source, /onPress=\{isThemeItem \? toggleThemeMode : item\.routePath \|\| item\.action \? \(\) => handleSearchResultPress\(item\) : undefined\}/);
+  assert.match(source, /const routePath = item\.routePath/);
+  assert.match(source, /onPress=\{isThemeItem \? toggleThemeMode : routePath \|\| item\.action \? \(\) => handleSearchResultPress\(item\) : undefined\}/);
+  assert.match(source, /onPressIn=\{routePath \? \(\) => prepareReadySettingsRoute\(routePath\) : undefined\}/);
+  assert.doesNotMatch(source, /onTouchStart=\{routePath \? \(\) => showRouteLaunchPreview\(routePath\) : undefined\}/);
+  assert.doesNotMatch(source, /activateOnPressIn=\{isThemeItem \|\| Boolean\(routePath\)\}/);
   assert.match(source, /title=\{t\('Support'\)\}[\s\S]*sub=\{supportEmail\}[\s\S]*onPress=\{handleEmailSupport\}/);
   assert.match(source, /title=\{t\('Help'\)\}[\s\S]*sub=\{t\('FAQ'\)\}[\s\S]*onPress=\{\(\) => openReadySettingsRoute\('\/settings\/help'\)\}/);
   assert.match(source, /t\('MARKET UPDATES'\)/);

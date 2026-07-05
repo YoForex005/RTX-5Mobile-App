@@ -25,7 +25,7 @@ import { useThemeMode } from '../src/state/themeMode';
 import { useSavedAccounts, setSavedAccountPassword } from '../src/state/savedAccounts';
 import { loginAPI } from '../src/api/auth';
 import { extractFeedBrokerToken } from '../src/api/feedAuth';
-import { getBrokerConfig, type BrokerServer } from '../src/api/broker';
+import { getBrokerConfig } from '../src/api/broker';
 import { useTheme, type ThemeColors } from '../src/ui/theme/useTheme';
 import { useDeferredActiveFlag } from '../src/hooks/useDeferredActiveFlag';
 import { useQueryClient } from '@tanstack/react-query';
@@ -37,6 +37,8 @@ import {
   ORRNN_DEMO_BROKER_ID,
   ORRNN_DEMO_INITIAL_BALANCE,
   ORRNN_DEMO_ORIGIN_BROKER,
+  ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME,
+  ORRNN_DEMO_ORIGIN_BROKER_LABEL,
   isOrrnnDemoHealthy,
   resolveOrrnnDemoBrokerAuthRoute,
 } from '../src/api/publicDemo';
@@ -70,7 +72,7 @@ const REGISTER_FIELD_SCROLL_OFFSET_Y = Platform.OS === 'android' ? 232 : 176;
 const REGISTER_FIELD_FOCUS_DELAY_MS = Platform.OS === 'android' ? 260 : 80;
 const REGISTER_KEYBOARD_BOTTOM_PADDING = Platform.OS === 'android' ? 220 : 120;
 const REGISTER_QUOTES_LIGHT_BACKGROUND = '#F2F4F8';
-const REGISTER_BACK_FALLBACK_HREF = '/settings/brokers';
+const REGISTER_BACK_FALLBACK_HREF = '/(tabs)/settings';
 const REGISTER_INITIAL_PICKER_PRESS_GUARD_MS = 900;
 const REGISTER_ROUTE_DATA_DELAY_MS = 900;
 const getRegisterInteractionNow = () => (
@@ -78,6 +80,14 @@ const getRegisterInteractionNow = () => (
     ? globalThis.performance.now()
     : Date.now()
 );
+const scheduleRegisterBackAfterVisualFrame = (action: () => void) => {
+  const runAfterFrame = () => setTimeout(action, 0);
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(runAfterFrame);
+    return;
+  }
+  setTimeout(action, 0);
+};
 const DEMO_COUNTRY_OPTIONS = [
   { label: 'United States', code: 'US', dialCode: '+1' },
   { label: 'India', code: 'IN', dialCode: '+91' },
@@ -124,16 +134,7 @@ type RegisterPickerHostKey =
   | 'country'
   | 'phoneCountry'
   | 'leverage'
-  | 'originBroker'
   | 'group';
-
-type RegisterBrokerOption = {
-  key: string;
-  brokerId: string;
-  brokerName: string;
-  region: string;
-  protocol: string;
-};
 
 const DEMO_LEVERAGE_OPTIONS: readonly DemoLeverageOption[] = Array.from(
   { length: (DEMO_LEVERAGE_MAX - DEMO_LEVERAGE_MIN) / DEMO_LEVERAGE_STEP + 1 },
@@ -141,12 +142,6 @@ const DEMO_LEVERAGE_OPTIONS: readonly DemoLeverageOption[] = Array.from(
     const value = DEMO_LEVERAGE_MIN + index * DEMO_LEVERAGE_STEP;
     return { value, label: `1:${value}` as const };
   },
-);
-
-const normalizeRegisterBrokerKey = (brokerId: string) => brokerId.trim().toLowerCase();
-
-const formatRegisterBrokerOptionSubtitle = (option: RegisterBrokerOption) => (
-  [option.brokerId, option.region, option.protocol.toUpperCase()].filter(Boolean).join(' / ')
 );
 
 const isDemoLeverageValue = (value: number | null | undefined): value is number => (
@@ -220,8 +215,6 @@ export default function RegisterScreen() {
   } = useOrrnnDemoGroups(registerDataActive && isDemoServiceReady);
   const {
     data: brokerServers = [],
-    isLoading: isBrokerServersLoading,
-    isFetching: isBrokerServersFetching,
     refetch: refetchBrokerServers,
   } = useBrokerServers(registerDataActive);
   const createDemoAccount = useCreateOrrnnDemoAccount();
@@ -251,13 +244,10 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState('');
   const [investorPassword, setInvestorPassword] = useState('');
   const [initialBalance, setInitialBalance] = useState(String(ORRNN_DEMO_INITIAL_BALANCE));
-  const [originBroker, setOriginBroker] = useState(ORRNN_DEMO_ORIGIN_BROKER ?? '');
-  const [originBrokerPickerOpen, setOriginBrokerPickerOpen] = useState(false);
   const [mountedPickerHosts, setMountedPickerHosts] = useState<Record<RegisterPickerHostKey, boolean>>({
     country: false,
     phoneCountry: false,
     leverage: false,
-    originBroker: false,
     group: false,
   });
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -344,7 +334,13 @@ export default function RegisterScreen() {
     }
 
     registerBackNavigationStartedRef.current = true;
-    safeRouterBack(router, REGISTER_BACK_FALLBACK_HREF);
+    if (fieldFocusTimerRef.current) {
+      clearTimeout(fieldFocusTimerRef.current);
+      fieldFocusTimerRef.current = null;
+    }
+    scheduleRegisterBackAfterVisualFrame(() => {
+      safeRouterBack(router, REGISTER_BACK_FALLBACK_HREF);
+    });
   }, []);
 
   const handleFieldLayout = React.useCallback((field: RegisterFieldKey) => (event: LayoutChangeEvent) => {
@@ -420,7 +416,7 @@ export default function RegisterScreen() {
     const selectedPhoneCountry =
       DEMO_COUNTRY_OPTIONS.find((option) => option.code === phoneCountryCode) ?? DEFAULT_DEMO_COUNTRY;
     const trimmedCountry = selectedCountry?.code ?? country.trim().toUpperCase();
-    const trimmedOriginBroker = originBroker.trim();
+    const trimmedOriginBroker = ORRNN_DEMO_ORIGIN_BROKER.trim();
     const parsedInitialBalance = Number(initialBalance);
     const submissionPhone = formatDemoPhoneForSubmission(selectedPhoneCountry.dialCode, trimmedPhone);
     const effectiveCurrency = selectedDemoGroup.currency;
@@ -641,48 +637,7 @@ export default function RegisterScreen() {
   const selectedLeverage = selectedLeverageValue ?? getDefaultDemoLeverage(selectedDemoGroup?.leverage);
   const selectedPhoneCountry =
     DEMO_COUNTRY_OPTIONS.find((option) => option.code === phoneCountryCode) ?? DEFAULT_DEMO_COUNTRY;
-  const originBrokerOptions = React.useMemo<RegisterBrokerOption[]>(() => {
-    const rows = [...brokerServers]
-      .filter((broker: BrokerServer) => broker.enabled !== false && !!broker.broker_id?.trim())
-      .sort((a, b) => {
-        const aName = a.broker_name?.trim() || a.broker_id;
-        const bName = b.broker_name?.trim() || b.broker_id;
-        const byName = aName.localeCompare(bName);
-        if (byName !== 0) return byName;
-        return a.id - b.id;
-      });
-    const seen = new Set<string>();
-    const options: RegisterBrokerOption[] = [];
-
-    for (const broker of rows) {
-      const brokerId = broker.broker_id.trim();
-      const key = normalizeRegisterBrokerKey(brokerId);
-      if (seen.has(key)) {
-        continue;
-      }
-
-      seen.add(key);
-      options.push({
-        key,
-        brokerId,
-        brokerName: broker.broker_name?.trim() || brokerId,
-        region: broker.region?.trim() || '',
-        protocol: broker.protocol?.trim() || '',
-      });
-    }
-
-    return options;
-  }, [brokerServers]);
-  const selectedOriginBrokerOption = React.useMemo(() => {
-    const selectedKey = normalizeRegisterBrokerKey(originBroker);
-    if (!selectedKey) {
-      return undefined;
-    }
-
-    return originBrokerOptions.find((option) => option.key === selectedKey);
-  }, [originBroker, originBrokerOptions]);
-  const originBrokerDisplayValue =
-    selectedOriginBrokerOption?.brokerName || originBroker || t('Select broker');
+  const originBrokerDisplayValue = ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME;
   const mountPickerHost = React.useCallback((key: RegisterPickerHostKey) => {
     setMountedPickerHosts((current) => (
       current[key] ? current : { ...current, [key]: true }
@@ -738,40 +693,6 @@ export default function RegisterScreen() {
     })) : [],
     [leveragePickerMounted, selectedDemoGroup?.leverage, t],
   );
-  const originBrokerPickerMounted = mountedPickerHosts.originBroker || originBrokerPickerOpen;
-  const originBrokerPickerActions = React.useMemo(() => {
-    if (!originBrokerPickerMounted) {
-      return [];
-    }
-
-    if (originBrokerOptions.length === 0) {
-      const isBusy = !registerDataActive || isBrokerServersLoading || isBrokerServersFetching;
-      return [{
-        label: isBusy ? t('Loading brokers...') : t('Retry broker list'),
-        subtitle: isBusy
-          ? t('Please wait while the broker list loads.')
-          : t('Broker list is unavailable. Try loading it again.'),
-        disabled: isBusy,
-        onPress: () => {
-          void refetchBrokerServers();
-        },
-      }];
-    }
-
-    return originBrokerOptions.map((option) => ({
-      label: option.brokerName,
-      subtitle: formatRegisterBrokerOptionSubtitle(option),
-      onPress: () => setOriginBroker(option.brokerId),
-    }));
-  }, [
-    isBrokerServersFetching,
-    isBrokerServersLoading,
-    originBrokerOptions,
-    originBrokerPickerMounted,
-    registerDataActive,
-    refetchBrokerServers,
-    t,
-  ]);
   const groupPickerMounted = mountedPickerHosts.group || groupPickerOpen;
   const groupPickerActions = React.useMemo(
     () => groupPickerMounted ? demoGroupOptions.map((group) => ({
@@ -793,27 +714,6 @@ export default function RegisterScreen() {
     mountPickerHost('leverage');
     setLeveragePickerOpen(true);
   }, [isRegisterInitialPickerPressBlocked, mountPickerHost]);
-  const handleOpenOriginBrokerPicker = React.useCallback(() => {
-    if (isRegisterInitialPickerPressBlocked()) {
-      return;
-    }
-
-    Keyboard.dismiss();
-    handleFieldFocus('originBroker');
-    mountPickerHost('originBroker');
-    if (originBrokerOptions.length === 0 && !isBrokerServersLoading && !isBrokerServersFetching) {
-      void refetchBrokerServers();
-    }
-    setOriginBrokerPickerOpen(true);
-  }, [
-    handleFieldFocus,
-    isBrokerServersFetching,
-    isBrokerServersLoading,
-    isRegisterInitialPickerPressBlocked,
-    mountPickerHost,
-    originBrokerOptions.length,
-    refetchBrokerServers,
-  ]);
   const handleOpenGroupPicker = React.useCallback(() => {
     if (isRegisterInitialPickerPressBlocked()) {
       return;
@@ -870,7 +770,9 @@ export default function RegisterScreen() {
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     onPress={handleRegisterBack}
                     activateOnPressIn
+                    activateOnTouchStart
                     latencyLabel="register.back"
+                    latencyBudgetMs={50}
                     unstable_pressDelay={0}
                     style={styles.heroBackButton}
                   >
@@ -1158,24 +1060,20 @@ export default function RegisterScreen() {
 
               <View style={styles.inputRow} onLayout={handleFieldLayout('originBroker')}>
                 <Text style={styles.inputLabel}>{t('Origin broker')}</Text>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.inputShell,
-                    pressed && styles.inputShellPressed,
-                  ]}
-                  onPress={handleOpenOriginBrokerPicker}
-                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                  latencyLabel="register.originBroker.open"
-                  accessibilityRole="button"
+                <View
+                  style={styles.inputShell}
                   accessibilityLabel={t('Origin broker')}
-                  accessibilityState={{ expanded: originBrokerPickerOpen }}
                 >
                   <Ionicons name="business-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
-                  <Text style={styles.selectValue} numberOfLines={1}>
-                    {originBrokerDisplayValue}
-                  </Text>
-                  <Ionicons name="chevron-down" size={20} color={fieldIconColor} />
-                </Pressable>
+                  <View style={styles.originBrokerValueStack}>
+                    <Text style={styles.originBrokerPrimaryValue} numberOfLines={1}>
+                      {originBrokerDisplayValue}
+                    </Text>
+                    <Text style={styles.originBrokerSecondaryValue} numberOfLines={1}>
+                      {ORRNN_DEMO_ORIGIN_BROKER_LABEL}
+                    </Text>
+                  </View>
+                </View>
               </View>
 
               <View style={styles.inputRow}>
@@ -1297,20 +1195,6 @@ export default function RegisterScreen() {
             onClose={() => setLeveragePickerOpen(false)}
             searchable
             searchPlaceholder={t('Search leverage...')}
-            detent="large"
-            instantOpen
-            runActionAfterClose={false}
-            androidKeyboardAvoidance="resize"
-          />
-        ) : null}
-        {originBrokerPickerMounted ? (
-          <ActionSheet
-            visible={originBrokerPickerOpen}
-            title={t('Origin broker')}
-            actions={originBrokerPickerActions}
-            onClose={() => setOriginBrokerPickerOpen(false)}
-            searchable={originBrokerOptions.length > 0}
-            searchPlaceholder={t('Search brokers...')}
             detent="large"
             instantOpen
             runActionAfterClose={false}
@@ -1859,6 +1743,25 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       fontSize: 14,
       fontWeight: '500',
       includeFontPadding: false,
+    },
+    originBrokerValueStack: {
+      flex: 1,
+      minWidth: 0,
+    },
+    originBrokerPrimaryValue: {
+      color: fieldText,
+      fontSize: 14,
+      lineHeight: 17,
+      fontWeight: '600',
+      includeFontPadding: false,
+    },
+    originBrokerSecondaryValue: {
+      color: secondaryText,
+      fontSize: 12,
+      lineHeight: 15,
+      fontWeight: '500',
+      includeFontPadding: false,
+      marginTop: 2,
     },
     demoTypeRow: {
       minHeight: 48,

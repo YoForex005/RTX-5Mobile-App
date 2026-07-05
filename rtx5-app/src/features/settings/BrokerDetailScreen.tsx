@@ -41,6 +41,7 @@ import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../../query/accounts';
 import { BROKER_CONFIG_KEY, useBrokerServers } from '../../query/broker';
 import { getTradingAccountTypeFromBackend } from '../../domain/accountType';
 import { safeRouterBack } from '../../utils/navigation';
+import { preloadRegisterScreen } from './registerScreenPreload';
 import { ActionSheet } from '../../ui/components/ActionSheet';
 import {
   setSecureItemAsync,
@@ -375,21 +376,8 @@ export function BrokerDetailScreen() {
       );
       return;
     }
-    const effectiveBrokerId = selectedServer.brokerId || apiBrokerId;
-    const effectiveBrokerName = selectedServer.brokerName || brokerName;
-    const effectiveServerUrl = selectedServer.serverUrl || initialServerUrl;
-    const effectiveLogoUrl = selectedServer.logoUrl || initialLogoUrl;
-
-    router.push({
-      pathname: '/register',
-      params: {
-        brokerId: effectiveBrokerId,
-        brokerName: effectiveBrokerName,
-        server: selectedServer.label,
-        serverUrl: effectiveServerUrl,
-        logoUrl: effectiveLogoUrl,
-      },
-    });
+    void preloadRegisterScreen().catch(() => undefined);
+    router.push('/register-entry');
   };
 
   const openServerSelector = () => {
@@ -693,6 +681,9 @@ export function BrokerDetailScreen() {
                   styles.optionCommand,
                   pressed && styles.optionCommandPressed,
                 ]}
+                onPressIn={() => {
+                  void preloadRegisterScreen().catch(() => undefined);
+                }}
                 onPress={() => navigateToRegister('demo')}
                 activateOnPressIn
                 latencyLabel="brokerDetail.openDemo"

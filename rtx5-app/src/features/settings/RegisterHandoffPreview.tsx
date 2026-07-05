@@ -13,6 +13,10 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { useThemeMode } from '../../state/themeMode';
 import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { useTheme, type ThemeColors } from '../../ui/theme/useTheme';
+import {
+  ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME,
+  ORRNN_DEMO_ORIGIN_BROKER_LABEL,
+} from '../../api/publicDemo';
 
 const REGISTER_HANDOFF_LIGHT_BACKGROUND = '#F2F4F8';
 
@@ -49,7 +53,9 @@ export function RegisterHandoffPreview({
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 onPress={onBack}
                 activateOnPressIn
+                activateOnTouchStart
                 latencyLabel={backLatencyLabel}
+                latencyBudgetMs={50}
                 unstable_pressDelay={0}
                 style={styles.heroBackButton}
               >
@@ -155,12 +161,13 @@ export function RegisterHandoffPreview({
             label={t('Initial balance')}
             value="10000"
           />
-          <SelectPreview
+          <ReadonlyPreview
             styles={styles}
             icon="business-outline"
             iconColor={iconColor}
             label={t('Origin broker')}
-            value={t('Select broker')}
+            value={ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME}
+            detailValue={ORRNN_DEMO_ORIGIN_BROKER_LABEL}
           />
           <SelectPreview
             styles={styles}
@@ -195,6 +202,7 @@ type PreviewProps = {
   iconColor: string;
   label: string;
   value: string;
+  detailValue?: string;
   rightIcon?: keyof typeof Ionicons.glyphMap;
 };
 
@@ -226,13 +234,18 @@ function SelectPreview({ styles, icon, iconColor, label, value }: PreviewProps) 
   );
 }
 
-function ReadonlyPreview({ styles, icon, iconColor, label, value }: PreviewProps) {
+function ReadonlyPreview({ styles, icon, iconColor, label, value, detailValue }: PreviewProps) {
   return (
     <View style={styles.inputRow}>
       <Text style={styles.inputLabel}>{label}</Text>
       <View style={styles.inputShell}>
         <Ionicons name={icon} size={21} color={iconColor} style={styles.inputRowIcon} />
-        <Text style={styles.selectValue} numberOfLines={1}>{value}</Text>
+        <View style={styles.readonlyValueStack}>
+          <Text style={styles.readonlyPrimaryValue} numberOfLines={1}>{value}</Text>
+          {detailValue ? (
+            <Text style={styles.readonlySecondaryValue} numberOfLines={1}>{detailValue}</Text>
+          ) : null}
+        </View>
       </View>
     </View>
   );
@@ -373,6 +386,27 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       fontWeight: '500',
       letterSpacing: 0,
       includeFontPadding: false,
+    },
+    readonlyValueStack: {
+      flex: 1,
+      minWidth: 0,
+    },
+    readonlyPrimaryValue: {
+      color: T.text,
+      fontSize: 14,
+      lineHeight: 17,
+      fontWeight: '600',
+      letterSpacing: 0,
+      includeFontPadding: false,
+    },
+    readonlySecondaryValue: {
+      color: T.textSub,
+      fontSize: 12,
+      lineHeight: 15,
+      fontWeight: '500',
+      letterSpacing: 0,
+      includeFontPadding: false,
+      marginTop: 2,
     },
     phoneCodeButton: {
       minWidth: 54,

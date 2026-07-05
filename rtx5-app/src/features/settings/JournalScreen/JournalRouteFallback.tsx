@@ -25,7 +25,7 @@ export function JournalRouteFallback() {
         </View>
         <View style={styles.statusPill}>
           <View style={[styles.statusDot, styles.statusDotMuted]} />
-          <Text style={styles.statusPillText}>Opening</Text>
+          <Text style={styles.statusPillText}>Ready</Text>
         </View>
       </View>
 
@@ -34,7 +34,7 @@ export function JournalRouteFallback() {
           <View style={styles.summaryHeader}>
             <View>
               <Text style={styles.summaryTitle}>Session Summary</Text>
-              <Text style={styles.summarySub}>Preparing journal</Text>
+              <Text style={styles.summarySub}>Recent activity</Text>
             </View>
             <View style={styles.summaryStatus}>
               <Ionicons name="flash-outline" size={14} color={actionColor} />

@@ -19,6 +19,7 @@ import {
   Switch,
   Text,
   TextInput,
+  type GestureResponderEvent,
   View,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -45,16 +46,21 @@ import { accountWsService } from '../../../api/ws/accountSocket';
 import { candlesWsService } from '../../../domain/candles/ws/candlesSocket';
 import { buildHelpMailto } from '../helpViewModel';
 import { hasAuthenticatedAccountSession } from '../accountConnectionStatus';
+import { RegisterHandoffPreview } from '../RegisterHandoffPreview';
+import { SettingsRouteLaunchPreview } from '../SettingsRouteLaunchPreview';
 import { SettingRow } from './SettingRow';
 import { makeSettingsStyles } from './styles';
 import { useDeferredActiveFlag } from '../../../hooks/useDeferredActiveFlag';
 import { preloadRegisterScreen } from '../registerScreenPreload';
+import { warmSettingsRouteModules } from '../../../utils/settingsRouteWarmup';
 
-const SETTINGS_ROUTE_LOCK_MS = 250;
-const SETTINGS_ROUTE_PREFETCH_DELAY_MS = 16;
-const SETTINGS_REGISTER_SCREEN_PRELOAD_DELAY_MS = 120;
+const SETTINGS_ROUTE_LOCK_MS = 1800;
+const SETTINGS_ROUTE_PREFETCH_DELAY_MS = 0;
+const SETTINGS_REGISTER_SCREEN_PRELOAD_DELAY_MS = 0;
+const SETTINGS_ROUTE_PREVIEW_ROUTE_DELAY_MS = 32;
 const SETTINGS_SCREEN_DATA_DELAY_MS = 8000;
-const SETTINGS_REGISTER_ROUTE_LATENCY_BUDGET_MS = 350;
+const SETTINGS_REGISTER_ROUTE_LATENCY_BUDGET_MS = 50;
+const SETTINGS_SCROLL_PRESS_RETENTION_OFFSET = { top: 8, bottom: 8, left: 18, right: 18 } as const;
 const SETTINGS_READY_ROUTE_PATHS = [
   '/settings/accounts',
   '/register-entry',
@@ -64,6 +70,14 @@ const SETTINGS_READY_ROUTE_PATHS = [
   '/settings/journal',
   '/settings/help',
 ] as const;
+const scheduleSettingsRouteAfterVisualFrame = (action: () => void) => {
+  const runAfterFrame = () => setTimeout(action, 0);
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(runAfterFrame);
+    return;
+  }
+  setTimeout(action, 0);
+};
 
 type SettingsReadyRoute = (typeof SETTINGS_READY_ROUTE_PATHS)[number];
 type PrefetchRouter = {
@@ -76,6 +90,14 @@ type SearchableSettingsItem = {
   routePath?: SettingsReadyRoute;
   action?: 'support-email';
 };
+type SettingsRouteLaunchPreviewState =
+  | { kind: 'register' }
+  | {
+      kind: 'settings';
+      title: string;
+      subtitle?: string;
+      icon: keyof typeof Ionicons.glyphMap;
+    };
 
 export function SettingsScreen() {
   const isScreenFocused = useIsFocused();
@@ -95,6 +117,12 @@ export function SettingsScreen() {
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const isAccountConnected = hasAuthenticatedAccountSession(isLoggedIn, accountDetails);
   const sidebarOpen = useUIState((s) => s.sidebarOpen);
+  const warmRegisterScreen = useCallback(() => {
+    void preloadRegisterScreen().catch(() => undefined);
+  }, []);
+  const scheduleRegisterScreenWarmupAfterTouch = useCallback(() => {
+    scheduleSettingsRouteAfterVisualFrame(warmRegisterScreen);
+  }, [warmRegisterScreen]);
   const liveLogin = useLiveAccountState((s) => s.login);
   const liveBalance = useLiveAccountState((s) => s.balance);
   const liveHasBalance = useLiveAccountState((s) => s.metricFlags.balance);
@@ -182,8 +210,12 @@ export function SettingsScreen() {
   const logout = useUserPreferences((s) => s.logout);
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [routeLaunchPreview, setRouteLaunchPreview] = useState<SettingsRouteLaunchPreviewState | null>(null);
   const routeLockRef = useRef(false);
   const routeUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const routeLaunchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const routeLaunchFrameRef = useRef<number | null>(null);
+  const routeLaunchCancelledRef = useRef(false);
 
   const handleLogout = () => {
     const accountLoginForJournal = accountDetails?.id;
@@ -220,8 +252,30 @@ export function SettingsScreen() {
         clearTimeout(routeUnlockTimerRef.current);
         routeUnlockTimerRef.current = null;
       }
+      if (routeLaunchTimerRef.current) {
+        clearTimeout(routeLaunchTimerRef.current);
+        routeLaunchTimerRef.current = null;
+      }
+      if (routeLaunchFrameRef.current !== null) {
+        globalThis.cancelAnimationFrame?.(routeLaunchFrameRef.current);
+        routeLaunchFrameRef.current = null;
+      }
     };
   }, [setSearchActive]);
+
+  useEffect(() => {
+    if (!isScreenFocused) {
+      return;
+    }
+
+    routeLockRef.current = false;
+    routeLaunchCancelledRef.current = false;
+    setRouteLaunchPreview(null);
+    if (routeUnlockTimerRef.current) {
+      clearTimeout(routeUnlockTimerRef.current);
+      routeUnlockTimerRef.current = null;
+    }
+  }, [isScreenFocused]);
 
   useEffect(() => {
     if (!isScreenFocused || sidebarOpen) {
@@ -275,6 +329,14 @@ export function SettingsScreen() {
 
   useEffect(() => {
     if (!isScreenFocused || sidebarOpen) {
+      return;
+    }
+
+    warmSettingsRouteModules();
+  }, [isScreenFocused, sidebarOpen]);
+
+  useEffect(() => {
+    if (!isScreenFocused || sidebarOpen) {
       return undefined;
     }
 
@@ -282,11 +344,11 @@ export function SettingsScreen() {
     let timerId: ReturnType<typeof setTimeout> | null = null;
     let frameId: number | null = null;
 
-    const warmRegisterScreen = () => {
+    const scheduleRegisterScreenWarmup = () => {
       timerId = setTimeout(() => {
         timerId = null;
         if (!cancelled) {
-          void preloadRegisterScreen().catch(() => undefined);
+          warmRegisterScreen();
         }
       }, SETTINGS_REGISTER_SCREEN_PRELOAD_DELAY_MS);
     };
@@ -294,10 +356,10 @@ export function SettingsScreen() {
     if (typeof globalThis.requestAnimationFrame === 'function') {
       frameId = globalThis.requestAnimationFrame(() => {
         frameId = null;
-        warmRegisterScreen();
+        scheduleRegisterScreenWarmup();
       });
     } else {
-      timerId = setTimeout(warmRegisterScreen, 16);
+      timerId = setTimeout(scheduleRegisterScreenWarmup, 16);
     }
 
     return () => {
@@ -309,7 +371,7 @@ export function SettingsScreen() {
         globalThis.cancelAnimationFrame?.(frameId);
       }
     };
-  }, [isScreenFocused, sidebarOpen]);
+  }, [isScreenFocused, sidebarOpen, warmRegisterScreen]);
 
   const unlockSettingsRoute = useCallback(() => {
     if (routeUnlockTimerRef.current) {
@@ -321,18 +383,143 @@ export function SettingsScreen() {
     }, SETTINGS_ROUTE_LOCK_MS);
   }, []);
 
+  const clearRouteLaunchNavigation = useCallback(() => {
+    if (routeLaunchTimerRef.current) {
+      clearTimeout(routeLaunchTimerRef.current);
+      routeLaunchTimerRef.current = null;
+    }
+    if (routeLaunchFrameRef.current !== null) {
+      globalThis.cancelAnimationFrame?.(routeLaunchFrameRef.current);
+      routeLaunchFrameRef.current = null;
+    }
+  }, []);
+
+  const scheduleRouteAfterPreviewPaint = useCallback((action: () => void) => {
+    clearRouteLaunchNavigation();
+
+    const runAfterPreviewPaint = () => {
+      routeLaunchFrameRef.current = null;
+      routeLaunchTimerRef.current = setTimeout(() => {
+        routeLaunchTimerRef.current = null;
+        action();
+      }, SETTINGS_ROUTE_PREVIEW_ROUTE_DELAY_MS);
+    };
+
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      routeLaunchFrameRef.current = globalThis.requestAnimationFrame(runAfterPreviewPaint);
+      return;
+    }
+
+    routeLaunchTimerRef.current = setTimeout(() => {
+      routeLaunchTimerRef.current = null;
+      action();
+    }, SETTINGS_ROUTE_PREVIEW_ROUTE_DELAY_MS);
+  }, [clearRouteLaunchNavigation]);
+
+  const resolveSettingsRouteLaunchPreview = useCallback((routePath: SettingsReadyRoute): SettingsRouteLaunchPreviewState => {
+    switch (routePath) {
+      case '/register-entry':
+      case '/register':
+        return { kind: 'register' };
+      case '/settings/accounts':
+        return {
+          kind: 'settings',
+          title: 'Accounts',
+          subtitle: 'Manage trading accounts',
+          icon: 'server-outline',
+        };
+      case '/settings/economic-calendar':
+        return {
+          kind: 'settings',
+          title: 'Economic Calender',
+          subtitle: 'Market updates',
+          icon: 'calendar-outline',
+        };
+      case '/settings/interface':
+        return {
+          kind: 'settings',
+          title: 'Language Preference',
+          subtitle: currentLanguageNative,
+          icon: 'browsers-outline',
+        };
+      case '/settings/journal':
+        return {
+          kind: 'settings',
+          title: 'Journal',
+          subtitle: 'Activity log',
+          icon: 'reader-outline',
+        };
+      case '/settings/help':
+        return {
+          kind: 'settings',
+          title: 'Help',
+          subtitle: 'FAQ',
+          icon: 'information-circle-outline',
+        };
+    }
+
+    return {
+      kind: 'settings',
+      title: 'Settings',
+      icon: 'settings-outline',
+    };
+  }, [currentLanguageNative]);
+
+  const showRouteLaunchPreview = useCallback((routePath: SettingsReadyRoute) => {
+    routeLaunchCancelledRef.current = false;
+    setRouteLaunchPreview(resolveSettingsRouteLaunchPreview(routePath));
+    if (routePath === '/register-entry' || routePath === '/register') {
+      scheduleRegisterScreenWarmupAfterTouch();
+      return;
+    }
+
+    warmSettingsRouteModules();
+  }, [resolveSettingsRouteLaunchPreview, scheduleRegisterScreenWarmupAfterTouch]);
+
+  const prepareReadySettingsRoute = useCallback((routePath: SettingsReadyRoute) => {
+    if (routePath === '/register-entry' || routePath === '/register') {
+      scheduleRegisterScreenWarmupAfterTouch();
+      return;
+    }
+
+    warmSettingsRouteModules();
+  }, [scheduleRegisterScreenWarmupAfterTouch]);
+
+  const hideRouteLaunchPreview = useCallback((event?: GestureResponderEvent) => {
+    event?.preventDefault();
+    event?.stopPropagation();
+    routeLaunchCancelledRef.current = true;
+    clearRouteLaunchNavigation();
+    routeLockRef.current = false;
+    setRouteLaunchPreview(null);
+  }, [clearRouteLaunchNavigation]);
+
   const openReadySettingsRoute = useCallback((routePath: SettingsReadyRoute) => {
     if (routeLockRef.current) {
       return;
     }
 
     routeLockRef.current = true;
+    const isRegisterRoute = routePath === '/register-entry' || routePath === '/register';
+    showRouteLaunchPreview(routePath);
     // Push (never replace): keep the (tabs) navigator — and the pre-warmed chart
     // WebView — mounted underneath, so BACK is an instant pop instead of a full
     // tab re-mount (which froze the screen ~1.8s).
-    router.push(routePath as any);
-    unlockSettingsRoute();
-  }, [unlockSettingsRoute]);
+    const pushRoute = () => {
+      if (routeLaunchCancelledRef.current) {
+        routeLockRef.current = false;
+        return;
+      }
+
+      router.push(routePath as any);
+      if (isRegisterRoute) {
+        warmRegisterScreen();
+      }
+      unlockSettingsRoute();
+    };
+
+    scheduleRouteAfterPreviewPaint(pushRoute);
+  }, [scheduleRouteAfterPreviewPaint, showRouteLaunchPreview, unlockSettingsRoute, warmRegisterScreen]);
 
   const enableSearch = () => {
     setIsSearching(true);
@@ -472,6 +659,7 @@ export function SettingsScreen() {
               {renderDarkCardHighlight()}
               {searchResults.length > 0 ? searchResults.map((item, index) => {
                 const isThemeItem = item.title === 'Theme';
+                const routePath = item.routePath;
 
                 return (
                 <View key={item.title}>
@@ -496,8 +684,8 @@ export function SettingsScreen() {
                         </View>
                       ) : undefined
                     }
-                    onPress={isThemeItem ? toggleThemeMode : item.routePath || item.action ? () => handleSearchResultPress(item) : undefined}
-                    activateOnPressIn={isThemeItem}
+                    onPress={isThemeItem ? toggleThemeMode : routePath || item.action ? () => handleSearchResultPress(item) : undefined}
+                    onPressIn={routePath ? () => prepareReadySettingsRoute(routePath) : undefined}
                   />
                   {index < searchResults.length - 1 && <View style={styles.dividerInner} />}
                 </View>
@@ -518,8 +706,12 @@ export function SettingsScreen() {
             {isAccountConnected ? (
               <FastPressable
                 onPress={() => openReadySettingsRoute('/settings/accounts')}
+                onPressIn={() => prepareReadySettingsRoute('/settings/accounts')}
+                pressRetentionOffset={SETTINGS_SCROLL_PRESS_RETENTION_OFFSET}
                 unstable_pressDelay={0}
+                android_ripple={{ color: 'rgba(255,255,255,0.14)' }}
                 latencyLabel="settings.accounts.open"
+                latencyBudgetMs={SETTINGS_REGISTER_ROUTE_LATENCY_BUDGET_MS}
               >
                 <View style={[styles.accountCard, styles.cardShadow]}>
                   <View style={[styles.ribbonContainer, isDemoAccount ? styles.ribbonDemo : styles.ribbonLive]}>
@@ -650,9 +842,15 @@ export function SettingsScreen() {
 
             <Text style={styles.sectionTitle}>{t('TRADING & ACCOUNT')}</Text>
             <FastPressable
-              style={[styles.singleRowCard, styles.cardShadow]}
+              style={({ pressed }) => [
+                styles.singleRowCard,
+                styles.cardShadow,
+                pressed && styles.singleRowCardPressed,
+              ]}
               onPress={() => openReadySettingsRoute('/register-entry')}
-              activateOnPressIn
+              onPressIn={() => prepareReadySettingsRoute('/register-entry')}
+              pressRetentionOffset={SETTINGS_SCROLL_PRESS_RETENTION_OFFSET}
+              android_ripple={{ color: settingsAccentBg }}
               unstable_pressDelay={0}
               latencyLabel="settings.register.open"
               latencyBudgetMs={SETTINGS_REGISTER_ROUTE_LATENCY_BUDGET_MS}
@@ -668,7 +866,16 @@ export function SettingsScreen() {
             <Text style={styles.sectionTitle}>{t('MARKET UPDATES')}</Text>
             <View style={[styles.groupCard, styles.cardShadow]}>
               {renderDarkCardHighlight()}
-              <SettingRow T={T} styles={styles} icon="calendar-outline" color={settingsAccent} title={t('Economic Calender')} sub="" onPress={() => openReadySettingsRoute('/settings/economic-calendar')} />
+              <SettingRow
+                T={T}
+                styles={styles}
+                icon="calendar-outline"
+                color={settingsAccent}
+                title={t('Economic Calender')}
+                sub=""
+                onPress={() => openReadySettingsRoute('/settings/economic-calendar')}
+                onPressIn={() => prepareReadySettingsRoute('/settings/economic-calendar')}
+              />
             </View>
 
             <Text style={styles.sectionTitle}>{t('PREFERENCES & TOOLS')}</Text>
@@ -682,7 +889,6 @@ export function SettingsScreen() {
                 title={t('Theme')}
                 sub={themeMode === 'light' ? t('Light Mode') : t('Dark Mode')}
                 onPress={toggleThemeMode}
-                activateOnPressIn
                 rightElement={
                   <View pointerEvents="none">
                     <Switch
@@ -697,9 +903,27 @@ export function SettingsScreen() {
                 }
               />
               <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles} icon="browsers-outline" color={settingsAccent} title={t('Language Preference')} sub={currentLanguageNative} onPress={() => openReadySettingsRoute('/settings/interface')} />
+              <SettingRow
+                T={T}
+                styles={styles}
+                icon="browsers-outline"
+                color={settingsAccent}
+                title={t('Language Preference')}
+                sub={currentLanguageNative}
+                onPress={() => openReadySettingsRoute('/settings/interface')}
+                onPressIn={() => prepareReadySettingsRoute('/settings/interface')}
+              />
               <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles} icon="reader-outline" color={settingsAccent} title={t('Journal')} sub="Activity log" onPress={() => openReadySettingsRoute('/settings/journal')} />
+              <SettingRow
+                T={T}
+                styles={styles}
+                icon="reader-outline"
+                color={settingsAccent}
+                title={t('Journal')}
+                sub="Activity log"
+                onPress={() => openReadySettingsRoute('/settings/journal')}
+                onPressIn={() => prepareReadySettingsRoute('/settings/journal')}
+              />
             </View>
 
             <Text style={styles.sectionTitle}>{t('SUPPORT & HELP')}</Text>
@@ -707,14 +931,27 @@ export function SettingsScreen() {
               {renderDarkCardHighlight()}
               <SettingRow T={T} styles={styles} icon="help-buoy-outline" color={settingsAccent} title={t('Support')} sub={supportEmail} onPress={handleEmailSupport} />
               <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles} icon="information-circle-outline" color={settingsAccent} title={t('Help')} sub={t('FAQ')} onPress={() => openReadySettingsRoute('/settings/help')} />
+              <SettingRow
+                T={T}
+                styles={styles}
+                icon="information-circle-outline"
+                color={settingsAccent}
+                title={t('Help')}
+                sub={t('FAQ')}
+                onPress={() => openReadySettingsRoute('/settings/help')}
+                onPressIn={() => prepareReadySettingsRoute('/settings/help')}
+              />
             </View>
 
             <View style={styles.logoutContainer}>
               <FastPressable
-                style={styles.singleRowCardLogout}
+                style={({ pressed }) => [
+                  styles.singleRowCardLogout,
+                  pressed && styles.singleRowCardLogoutPressed,
+                ]}
                 onPress={handleLogout}
                 latencyLabel="settings.logout.prompt"
+                android_ripple={{ color: 'rgba(239, 68, 68, 0.16)' }}
               >
                 {renderDarkCardHighlight()}
                 <View style={[styles.iconBox, { backgroundColor: themeMode === 'dark' ? '#1E1E1E' : 'rgba(239, 68, 68, 0.1)' }]}>
@@ -725,6 +962,23 @@ export function SettingsScreen() {
             </View>
         </View>
       </ScrollView>
+      {routeLaunchPreview?.kind === 'register' ? (
+        <View style={styles.registerLaunchPreviewLayer} pointerEvents="auto">
+          <RegisterHandoffPreview
+            onBack={hideRouteLaunchPreview}
+            backLatencyLabel="settings.register.preview.back"
+          />
+        </View>
+      ) : routeLaunchPreview?.kind === 'settings' ? (
+        <View style={styles.registerLaunchPreviewLayer} pointerEvents="auto">
+          <SettingsRouteLaunchPreview
+            title={routeLaunchPreview.title}
+            subtitle={routeLaunchPreview.subtitle}
+            icon={routeLaunchPreview.icon}
+            onBack={hideRouteLaunchPreview}
+          />
+        </View>
+      ) : null}
     </Screen>
   );
 }

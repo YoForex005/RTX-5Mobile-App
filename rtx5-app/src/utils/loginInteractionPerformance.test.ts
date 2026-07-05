@@ -48,7 +48,9 @@ test('login screen exposes register account navigation to the demo registration 
   assert.match(source, /const handleRegisterAccountPress = \(\) => \{/);
   assert.match(source, /runImmediateAction\('login\.register\.open'/);
   assert.match(source, /Keyboard\.dismiss\(\)/);
-  assert.match(source, /router\.push\('\/register'\)/);
+  assert.match(source, /import \{ preloadRegisterScreen \} from '\.\.\/src\/features\/settings\/registerScreenPreload'/);
+  assert.match(source, /void preloadRegisterScreen\(\)\.catch\(\(\) => undefined\)/);
+  assert.match(source, /router\.push\('\/register-entry'\)/);
   assert.match(source, /onPress=\{handleRegisterAccountPress\}/);
   assert.match(source, /accessibilityLabel=\{t\('Register account'\)\}/);
   assert.match(source, /testID="login-register-account-button"/);

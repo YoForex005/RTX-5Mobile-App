@@ -15,7 +15,9 @@ test('trade bulk launcher opens through the shared Quotes-style action sheet pat
 
   assert.match(source, /import \{ runImmediateAction \} from '\.\.\/\.\.\/\.\.\/utils\/actionLatency'/);
   assert.match(source, /const bulkActionSheetConfig = useMemo<Parameters<typeof showTradeActionSheet>\[0\]>/);
-  assert.match(source, /title: t\('Bulk Operations'\)/);
+  assert.doesNotMatch(source, /title: t\('Bulk Operations'\)/);
+  assert.match(source, /presentation: 'mt5Plain'/);
+  assert.match(source, /showActionIcons: true/);
   assert.match(source, /detent: 'auto'/);
   assert.match(source, /instantOpen: true/);
   assert.match(source, /label: t\('Close All Positions'\)/);
@@ -30,7 +32,7 @@ test('trade bulk launcher opens through the shared Quotes-style action sheet pat
     /const showBulkSheet = useCallback\(\(\) => \{[\s\S]*runImmediateAction\('trade\.bulkSheet\.open', \(\) => showTradeActionSheet\(bulkActionSheetConfig\)\)/,
   );
   assert.match(summarySource, /latencyLabel="trade\.bulk\.open"[\s\S]*activateOnTouchStart/);
-  assert.match(source, /requestAnimationFrame\(showBulkSheet\)/);
+  assert.doesNotMatch(source, /requestAnimationFrame\(showBulkSheet\)/);
   assert.doesNotMatch(source, /Close BTCUSD Positions/);
   assert.doesNotMatch(source, /symbol:BTCUSD/);
   assert.doesNotMatch(source, /Close USDJPY Positions/);

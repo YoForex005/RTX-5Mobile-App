@@ -137,12 +137,14 @@ test('settings and trade screens pause polling when another stack screen is focu
   const accountsQuerySource = readSource('src/query/accounts.ts');
 
   assert.match(accountsSource, /const isScreenFocused = useIsFocused\(\)/);
-  assert.match(accountsSource, /const screenDataActive = isLoggedIn && isScreenFocused/);
+  assert.match(accountsSource, /const ACCOUNTS_SCREEN_DATA_DELAY_MS = 650/);
+  assert.match(accountsSource, /const \[firstPaintReady, setFirstPaintReady\] = React\.useState\(false\)/);
+  assert.match(accountsSource, /const screenDataActive = useDeferredActiveFlag\(\s*isLoggedIn && isScreenFocused && firstPaintReady,\s*ACCOUNTS_SCREEN_DATA_DELAY_MS,\s*\)/);
   assert.match(accountsSource, /useAccounts\(screenDataActive\)/);
-  assert.match(accountsSource, /useBrokerConfig\(brokerId, isScreenFocused\)/);
+  assert.match(accountsSource, /useBrokerConfig\(brokerId, screenDataActive\)/);
   assert.match(accountsSource, /useAccountDetails\(activeLogin, screenDataActive && !!activeLogin\)/);
-  assert.match(accountsSource, /useHealth\(isScreenFocused\)/);
-  assert.match(accountsSource, /useMt5Status\(isScreenFocused\)/);
+  assert.match(accountsSource, /useHealth\(screenDataActive\)/);
+  assert.match(accountsSource, /useMt5Status\(screenDataActive\)/);
 
   assert.match(settingsSource, /const isScreenFocused = useIsFocused\(\)/);
   assert.match(settingsSource, /const SETTINGS_SCREEN_DATA_DELAY_MS = 8000/);
@@ -202,9 +204,11 @@ test('settings and trade screens pause polling when another stack screen is focu
   assert.match(readSource('src/api/ws/quotesSocket/flushPipeline.ts'), /const QUOTE_STORE_FLUSH_INTERVAL_MS = 16/);
   assert.doesNotMatch(tradeSummarySource, /pulseAnim|Animated\.loop|Animated\.Text/);
   assert.match(calendarSource, /const isScreenFocused = useIsFocused\(\)/);
-  assert.match(calendarSource, /const CALENDAR_INITIAL_DATA_DELAY_MS = 120/);
-  assert.match(calendarSource, /const calendarDataReady = useDeferredRouteContentReady\(CALENDAR_INITIAL_DATA_DELAY_MS\)/);
-  assert.match(calendarSource, /if \(!isScreenFocused \|\| !calendarDataReady\) \{[\s\S]*return;[\s\S]*\}/);
+  assert.match(calendarSource, /getInitialEconomicCalendarData/);
+  assert.match(calendarSource, /const initialEvents = useMemo\(\(\) => getInitialEconomicCalendarData\(\), \[\]\)/);
+  assert.match(calendarSource, /const \[dataEvents, setDataEvents\] = useState<EconomicEvent\[\]>\(initialEvents\)/);
+  assert.match(calendarSource, /if \(!isScreenFocused\) \{[\s\S]*return;[\s\S]*\}/);
+  assert.doesNotMatch(calendarSource, /CALENDAR_INITIAL_DATA_DELAY_MS|calendarDataReady|useDeferredRouteContentReady/);
 
   assert.match(healthSource, /export function useHealth\(enabled = true\)/);
   assert.match(healthSource, /refetchInterval: enabled \? 30000 : false/);

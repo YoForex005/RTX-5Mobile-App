@@ -415,25 +415,36 @@ test('sidebar keeps the main option routes warm and available', () => {
   assert.match(sidebarWarmupSource, /delayMs: SIDEBAR_ROUTE_MODULE_WARMUP_INITIAL_DELAY_MS/);
   assert.match(sidebarWarmupSource, /delayMs: SIDEBAR_ROUTE_MODULE_WARMUP_BATCH_DELAY_MS/);
   assert.match(deferredMountSource, /fallback = null/);
-  assert.match(deferredMountSource, /if \(!RouteComponent\) \{\s*return <>\{fallback\}<\/>;\s*\}/);
+  assert.match(deferredMountSource, /mountDelayMs\?: number/);
+  assert.match(deferredMountSource, /function useOptionalDeferredRouteMountReady\(delayMs: number \| undefined\)/);
+  assert.match(deferredMountSource, /const mountReady = useOptionalDeferredRouteMountReady\(mountDelayMs\)/);
+  assert.match(deferredMountSource, /if \(!RouteComponent \|\| !mountReady\) \{\s*return <>\{fallback\}<\/>;\s*\}/);
   assert.doesNotMatch(deferredMountSource, /DeferredRoutePlaceholder|placeholderTitle|title\?: string/);
   assert.match(journalRouteSource, /DeferredRouteModule/);
   assert.match(journalRouteSource, /cacheKey=\{JOURNAL_ROUTE_CACHE_KEY\}/);
   assert.match(journalRouteSource, /load=\{loadJournalScreenRoute\}/);
+  assert.match(journalRouteSource, /mountDelayMs=\{SETTINGS_ROUTE_MOUNT_DELAY_MS\}/);
   assert.match(journalRouteSource, /fallback=\{<JournalRouteFallback \/>\}/);
   assert.doesNotMatch(journalRouteSource, /import \{ JournalScreen \}/);
-  assert.match(accountsRouteSource, /<AccountsScreen \/>/);
-  assert.doesNotMatch(accountsRouteSource, /DeferredRouteScreen/);
+  assert.match(accountsRouteSource, /DeferredRouteModule/);
+  assert.match(accountsRouteSource, /cacheKey="settings\/accounts"/);
+  assert.match(accountsRouteSource, /mountDelayMs=\{SETTINGS_ROUTE_MOUNT_DELAY_MS\}/);
+  assert.match(accountsRouteSource, /SettingsRouteLaunchPreview/);
   assert.match(actionWarmupSource, /ACTION_DEFERRED_MODULE_WARMUPS/);
   assert.match(actionWarmupSource, /preloadDeferredRouteModule\(module\.cacheKey, module\.load\)/);
   for (const file of deferredRouteFiles) {
     const routeSource = readSource(file);
-    assert.doesNotMatch(routeSource, /DeferredRouteModule|const load[A-Za-z0-9]+Screen = \(\) => import\('/);
-    assert.match(routeSource, /import \{ [A-Za-z0-9]+Screen \} from '..\/..\/src\/features\/settings\//);
-    // Rendered directly, or via the route-level deferred-mount wrapper that keeps
-    // the synchronous import (warm) while letting the heavy screen mount a frame
-    // after navigation so the tap never freezes.
-    assert.match(routeSource, /<[A-Za-z0-9]+Screen \/>|<DeferredRouteScreen Screen=\{[A-Za-z0-9]+Screen\}/);
-    assert.doesNotMatch(routeSource, /title="/);
+    if (/DeferredRouteModule/.test(routeSource)) {
+      assert.match(routeSource, /const SETTINGS_ROUTE_MOUNT_DELAY_MS = 0/);
+      assert.match(routeSource, /const load[A-Za-z0-9]+ScreenRoute = \(\) => import\('..\/..\/src\/features\/settings\//);
+      assert.match(routeSource, /mountDelayMs=\{SETTINGS_ROUTE_MOUNT_DELAY_MS\}/);
+      assert.match(routeSource, /fallback=\{\([\s\S]*<SettingsRouteLaunchPreview/);
+      assert.doesNotMatch(routeSource, /<Stack\.Screen[^>]*title="/);
+    } else {
+      assert.doesNotMatch(routeSource, /DeferredRouteModule|const load[A-Za-z0-9]+ScreenRoute = \(\) => import\('/);
+      assert.match(routeSource, /import \{ [A-Za-z0-9]+Screen \} from '..\/..\/src\/features\/settings\//);
+      assert.match(routeSource, /<[A-Za-z0-9]+Screen \/>|<DeferredRouteScreen Screen=\{[A-Za-z0-9]+Screen\}/);
+      assert.doesNotMatch(routeSource, /title="/);
+    }
   }
 });

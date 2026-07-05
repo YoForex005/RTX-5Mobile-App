@@ -14,7 +14,6 @@ import { useUIState } from '../../state/uiState';
 import { Screen } from '../../ui/components/Screen';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { AppLogo } from '../../ui/components/AppLogo';
-import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import { SidebarDrawer } from '../../ui/components/SidebarDrawer';
 import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../ui/components/sidebarDrawerController';
 import { makeUserGuideStyles, type UserGuideStyles } from './UserGuideScreen.styles';
@@ -26,19 +25,13 @@ import {
   type GuideManualSection,
 } from './userGuideViewModel';
 
-const USER_GUIDE_MANUAL_DELAY_MS = 320;
-
 export function UserGuideScreen() {
   const insets = useSafeAreaInsets();
   const isDark = useIsDarkTheme();
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const styles = useMemo(() => makeUserGuideStyles(isDark), [isDark]);
   const summary = useMemo(() => buildGuideSummary(), []);
-  const manualReady = useDeferredRouteContentReady(USER_GUIDE_MANUAL_DELAY_MS);
-  const visibleSections = useMemo(
-    () => (manualReady ? GUIDE_MANUAL_SECTIONS : GUIDE_MANUAL_SECTIONS.slice(0, 3)),
-    [manualReady],
-  );
+  const visibleSections = GUIDE_MANUAL_SECTIONS;
   const menuIconColor = isDark ? '#F8FAFC' : '#050505';
   const sectionIconColor = isDark ? '#60A5FA' : '#0A6EEB';
   const appName = Constants.expoConfig?.name ?? 'RTX5';
@@ -89,14 +82,14 @@ export function UserGuideScreen() {
             <GuideSectionRow
               key={section.id}
               section={section}
-              isLast={manualReady && index === GUIDE_MANUAL_SECTIONS.length - 1}
+              isLast={index === GUIDE_MANUAL_SECTIONS.length - 1}
               styles={styles}
               iconColor={sectionIconColor}
             />
           ))}
         </View>
 
-        {manualReady ? <Text style={styles.footerNote}>{GUIDE_FOOTER_NOTE}</Text> : null}
+        <Text style={styles.footerNote}>{GUIDE_FOOTER_NOTE}</Text>
       </ScrollView>
 
       <SidebarDrawer />

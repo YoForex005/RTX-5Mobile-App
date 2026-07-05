@@ -57,6 +57,7 @@ const API_URL = 'https://nfs.faireconomy.media/ff_calendar_thisweek.json';
 // ── In-memory cache ─────────────────────────────────────────────────
 let _cachedEvents: EconomicEvent[] | null = null;
 let _cacheTimestamp = 0;
+let _cacheIsFallback = false;
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
 function mapRawToEvents(raw: RawCalendarEvent[]): EconomicEvent[] {
@@ -179,7 +180,7 @@ function generateFallbackEvents(): EconomicEvent[] {
  */
 export async function fetchEconomicCalendarData(): Promise<EconomicEvent[]> {
   // Return cache if still fresh
-  if (_cachedEvents && Date.now() - _cacheTimestamp < CACHE_TTL) {
+  if (_cachedEvents && !_cacheIsFallback && Date.now() - _cacheTimestamp < CACHE_TTL) {
     console.log('[EconCalendar] Serving from cache:', _cachedEvents.length, 'events');
     return _cachedEvents;
   }
@@ -206,6 +207,7 @@ export async function fetchEconomicCalendarData(): Promise<EconomicEvent[]> {
     const events = mapRawToEvents(raw);
     _cachedEvents = events;
     _cacheTimestamp = Date.now();
+    _cacheIsFallback = false;
     return events;
   } catch (err) {
     console.warn('[EconCalendar] API fetch failed:', err);
@@ -221,6 +223,19 @@ export async function fetchEconomicCalendarData(): Promise<EconomicEvent[]> {
     const fallback = generateFallbackEvents();
     _cachedEvents = fallback;
     _cacheTimestamp = Date.now();
+    _cacheIsFallback = true;
     return fallback;
   }
+}
+
+export function getInitialEconomicCalendarData(): EconomicEvent[] {
+  if (_cachedEvents && Date.now() - _cacheTimestamp < CACHE_TTL) {
+    return _cachedEvents;
+  }
+
+  const fallback = generateFallbackEvents();
+  _cachedEvents = fallback;
+  _cacheTimestamp = Date.now();
+  _cacheIsFallback = true;
+  return fallback;
 }

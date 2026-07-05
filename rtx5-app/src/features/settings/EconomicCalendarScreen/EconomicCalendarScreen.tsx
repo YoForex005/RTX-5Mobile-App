@@ -8,18 +8,22 @@ import { FastPressable as Pressable } from '../../../ui/components/FastPressable
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
-import { Animated, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../../ui/components/Screen';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useUIState } from '../../../state/uiState';
 import { useTheme } from '../../../ui/theme/useTheme';
-import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
 import { SidebarDrawer } from '../../../ui/components/SidebarDrawer';
 import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../../ui/components/sidebarDrawerController';
-import { fetchEconomicCalendarData, type EconomicEvent, type ImpactLevel } from '../../../dev/mock/calendarData';
+import {
+  fetchEconomicCalendarData,
+  getInitialEconomicCalendarData,
+  type EconomicEvent,
+  type ImpactLevel,
+} from '../../../dev/mock/calendarData';
 import {
   CURRENCY_FILTERS,
   DATE_TABS,
@@ -31,9 +35,6 @@ import {
 import { CountryBadge, PulseDot } from './subComponents';
 import { makeEconomicCalendarStyles } from './styles';
 
-const CALENDAR_INITIAL_DATA_DELAY_MS = 120;
-const CALENDAR_FULL_EVENT_LIST_DELAY_MS = 320;
-
 export function EconomicCalendarScreen() {
   const T = useTheme();
   const isScreenFocused = useIsFocused();
@@ -41,8 +42,7 @@ export function EconomicCalendarScreen() {
   const styles = useMemo(() => makeEconomicCalendarStyles(T, isDark), [T, isDark]);
   const insets = useSafeAreaInsets();
   const hideActionSheet = useUIState((state) => state.hideActionSheet);
-  const calendarDataReady = useDeferredRouteContentReady(CALENDAR_INITIAL_DATA_DELAY_MS);
-  const fullEventListReady = useDeferredRouteContentReady(CALENDAR_FULL_EVENT_LIST_DELAY_MS);
+  const initialEvents = useMemo(() => getInitialEconomicCalendarData(), []);
 
   const [activeTab, setActiveTab] = useState('Today');
   const [selectedImpacts, setSelectedImpacts] = useState<Set<ImpactLevel>>(new Set(['high', 'medium', 'low', 'holiday']));
@@ -50,36 +50,37 @@ export function EconomicCalendarScreen() {
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
 
-  const [dataEvents, setDataEvents] = useState<EconomicEvent[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [fetchError, setFetchError] = useState(false);
+  const [dataEvents, setDataEvents] = useState<EconomicEvent[]>(initialEvents);
+  const [fetchError, setFetchError] = useState(initialEvents.length === 0);
+  const dataEventsCountRef = useRef(initialEvents.length);
+
+  useEffect(() => {
+    dataEventsCountRef.current = dataEvents.length;
+  }, [dataEvents.length]);
 
   const loadData = useCallback(() => {
-    setIsLoading(true);
-    setFetchError(false);
     fetchEconomicCalendarData().then((data) => {
       if (data.length > 0) {
+        dataEventsCountRef.current = data.length;
         setDataEvents(data);
         setFetchError(false);
       } else {
-        setFetchError(true);
+        setFetchError(dataEventsCountRef.current === 0);
       }
-      setIsLoading(false);
     }).catch(() => {
-      setFetchError(true);
-      setIsLoading(false);
+      setFetchError(dataEventsCountRef.current === 0);
     });
   }, []);
 
   useEffect(() => {
-    if (!isScreenFocused || !calendarDataReady) {
+    if (!isScreenFocused) {
       return;
     }
 
     loadData();
     const interval = setInterval(loadData, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [calendarDataReady, isScreenFocused, loadData]);
+  }, [isScreenFocused, loadData]);
 
   const toggleImpact = useCallback((impact: ImpactLevel) => {
     setSelectedImpacts((prev) => {
@@ -107,16 +108,7 @@ export function EconomicCalendarScreen() {
     })).filter((s) => s.events.length > 0);
   }, [activeTab, selectedImpacts, selectedCurrency, dataEvents]);
 
-  const visibleSections = useMemo(() => {
-    if (fullEventListReady) {
-      return sections;
-    }
-
-    return sections.slice(0, 2).map((section) => ({
-      ...section,
-      events: section.events.slice(0, 6),
-    })).filter((section) => section.events.length > 0);
-  }, [fullEventListReady, sections]);
+  const visibleSections = sections;
 
   const renderEvent = useCallback((event: EconomicEvent, idx: number, total: number) => {
     const isExpanded = expandedEventId === event.id;
@@ -350,16 +342,7 @@ export function EconomicCalendarScreen() {
         keyboardShouldPersistTaps="always"
         canCancelContentTouches={Platform.OS === 'ios'} style={styles.scroll} contentContainerStyle={[styles.content, { paddingTop: 20 }]} showsVerticalScrollIndicator={false}>
 
-        {isLoading ? (
-          <View style={{ alignItems: 'center', paddingVertical: 60 }}>
-            <Animated.View style={{ alignItems: 'center', justifyContent: 'center' }}>
-              <PulseDot color={isDark ? T.accent : '#4F46E5'} size={12} />
-            </Animated.View>
-            <Text style={{ marginTop: 24, fontSize: 15, fontWeight: '700', color: isDark ? T.textSub : '#64748B' }}>
-              Fetching live calendar data...
-            </Text>
-          </View>
-        ) : fetchError ? (
+        {fetchError && dataEvents.length === 0 ? (
           <View style={styles.emptyState}>
             <View style={styles.emptyIcon}>
               <Ionicons name="cloud-offline-outline" size={32} color={isDark ? '#EF4444' : '#DC2626'} />

@@ -38,6 +38,7 @@ import {
 } from '../src/state/brokerSessionStorage';
 import { bootstrapApp } from '../src/services/bootstrapApp';
 import { recordAccountJournalEvent } from '../src/state/terminalJournalState';
+import { preloadRegisterScreen } from '../src/features/settings/registerScreenPreload';
 
 const LOGIN_SCREEN_COPY = {
   headerTitle: 'Login Account',
@@ -816,7 +817,8 @@ export function AccountLoginScreen() {
   const handleRegisterAccountPress = () => {
     runImmediateAction('login.register.open', () => {
       Keyboard.dismiss();
-      router.push('/register');
+      void preloadRegisterScreen().catch(() => undefined);
+      router.push('/register-entry');
     });
   };
 

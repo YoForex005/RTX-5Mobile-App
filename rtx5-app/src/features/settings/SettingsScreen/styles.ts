@@ -167,11 +167,14 @@ export const makeSettingsStyles = (T: ThemeColors, themeMode: 'light' | 'dark') 
   // Sections
   sectionTitle: { color: themeMode === 'dark' ? SETTINGS_DARK_MUTED_TEXT : T.textMuted, fontSize: 12, fontWeight: '600', letterSpacing: 0.4, marginLeft: 20, marginTop: 28, marginBottom: 8, textTransform: 'uppercase' },
   singleRowCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: settingsCardBackground, marginHorizontal: 16, padding: 16, borderRadius: themeMode === 'dark' ? 22 : 16, borderWidth: 1, borderColor: themeMode === 'light' ? 'rgba(0,0,0,0.03)' : SETTINGS_DARK_BORDER, overflow: 'hidden', position: 'relative' },
+  singleRowCardPressed: { backgroundColor: themeMode === 'dark' ? '#252525' : 'rgba(29, 78, 216, 0.06)', borderColor: themeMode === 'dark' ? 'rgba(52,125,255,0.26)' : 'rgba(29,78,216,0.18)' },
   singleRowCardLogout: { flexDirection: 'row', alignItems: 'center', backgroundColor: settingsCardBackground, padding: 16, borderRadius: themeMode === 'dark' ? 22 : 16, borderWidth: 1, borderColor: themeMode === 'light' ? 'rgba(0,0,0,0.03)' : SETTINGS_DARK_BORDER, overflow: 'hidden', position: 'relative' },
+  singleRowCardLogoutPressed: { backgroundColor: themeMode === 'dark' ? 'rgba(255,90,95,0.10)' : 'rgba(239,68,68,0.08)', borderColor: themeMode === 'dark' ? 'rgba(255,90,95,0.28)' : 'rgba(239,68,68,0.20)' },
   rowTitleSingle: { flex: 1, color: themeMode === 'dark' ? SETTINGS_DARK_PRIMARY_TEXT : T.text, fontSize: 15, fontWeight: '600', marginLeft: 16, zIndex: 1 },
 
   groupCard: { backgroundColor: settingsCardBackground, marginHorizontal: 16, borderRadius: themeMode === 'dark' ? 22 : 16, borderWidth: 1, borderColor: themeMode === 'light' ? 'rgba(0,0,0,0.03)' : SETTINGS_DARK_BORDER, overflow: 'hidden', position: 'relative' },
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, zIndex: 1 },
+  rowPressed: { backgroundColor: themeMode === 'dark' ? 'rgba(255,255,255,0.045)' : 'rgba(29,78,216,0.055)' },
   dividerInner: { height: 1, backgroundColor: themeMode === 'dark' ? SETTINGS_DARK_DIVIDER : T.borderMedium, marginLeft: 72, zIndex: 1 },
 
   iconBox: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
@@ -188,6 +191,12 @@ export const makeSettingsStyles = (T: ThemeColors, themeMode: 'light' | 'dark') 
     backgroundColor: T.trading.buy.primary, borderRadius: 75, opacity: 0.05,
   },
   logoutContainer: { marginTop: 24, marginBottom: 24, paddingHorizontal: 16 },
+  registerLaunchPreviewLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 100,
+    elevation: 100,
+    backgroundColor: themeMode === 'dark' ? SETTINGS_DARK_BACKGROUND : '#F2F4F8',
+  },
   });
 };
 

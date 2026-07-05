@@ -8,6 +8,7 @@ type DeferredRouteModuleProps = {
   load: () => Promise<ComponentType>;
   cacheKey?: string;
   fallback?: ReactNode;
+  mountDelayMs?: number;
 };
 
 const ROUTE_MODULE_LOAD_DELAY_MS = 0;
@@ -169,10 +170,50 @@ export function DeferredRouteScreen({
   return <Screen />;
 }
 
-export function DeferredRouteModule({ load, cacheKey, fallback = null }: DeferredRouteModuleProps) {
+function useOptionalDeferredRouteMountReady(delayMs: number | undefined) {
+  const [ready, setReady] = useState(delayMs === undefined);
+
+  useEffect(() => {
+    if (delayMs === undefined) {
+      setReady(true);
+      return;
+    }
+
+    let cancelled = false;
+    let cancelFrameWork: (() => void) | null = null;
+
+    setReady(false);
+
+    const markReady = () => {
+      cancelFrameWork = scheduleDeferredFrameWork(2, () => {
+        if (!cancelled) {
+          setReady(true);
+        }
+      });
+    };
+
+    const delayTimer = delayMs > 0 ? setTimeout(markReady, delayMs) : null;
+    if (delayTimer === null) {
+      markReady();
+    }
+
+    return () => {
+      cancelled = true;
+      if (delayTimer) {
+        clearTimeout(delayTimer);
+      }
+      cancelFrameWork?.();
+    };
+  }, [delayMs]);
+
+  return ready;
+}
+
+export function DeferredRouteModule({ load, cacheKey, fallback = null, mountDelayMs }: DeferredRouteModuleProps) {
   const [RouteComponent, setRouteComponent] = useState<ComponentType | null>(() => (
     cacheKey ? routeModuleCache.get(cacheKey)?.component ?? null : null
   ));
+  const mountReady = useOptionalDeferredRouteMountReady(mountDelayMs);
 
   useEffect(() => {
     if (RouteComponent) {
@@ -199,7 +240,7 @@ export function DeferredRouteModule({ load, cacheKey, fallback = null }: Deferre
     };
   }, [RouteComponent, cacheKey, load]);
 
-  if (!RouteComponent) {
+  if (!RouteComponent || !mountReady) {
     return <>{fallback}</>;
   }
 

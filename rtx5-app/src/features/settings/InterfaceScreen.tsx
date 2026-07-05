@@ -31,6 +31,11 @@ export function InterfaceScreen() {
       <View style={styles.header}>
         <Pressable
           onPress={() => safeRouterBack(router, '/(tabs)/settings')}
+          activateOnPressIn
+          activateOnTouchStart
+          latencyLabel="interface.back"
+          latencyBudgetMs={50}
+          unstable_pressDelay={0}
           hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
           style={styles.backBtn}
         >
@@ -53,6 +58,9 @@ export function InterfaceScreen() {
           return (
             <Pressable
               onPress={() => setLanguage(item.code)}
+              activateOnPressIn
+              latencyLabel={`interface.language.${item.code}`}
+              unstable_pressDelay={0}
               accessibilityRole="button"
               accessibilityState={{ selected }}
               style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}

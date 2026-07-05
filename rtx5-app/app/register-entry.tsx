@@ -13,6 +13,14 @@ const REGISTER_ENTRY_FORM_IMPORT_DELAY_MS = 0;
 const REGISTER_ENTRY_PREVIEW_READY_HIDE_DELAY_MS = 0;
 const REGISTER_ENTRY_PREVIEW_FALLBACK_HIDE_DELAY_MS = 3200;
 const REGISTER_BACK_FALLBACK_HREF = '/(tabs)/settings';
+const scheduleRegisterEntryBackAfterVisualFrame = (action: () => void) => {
+  const runAfterFrame = () => setTimeout(action, 0);
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(runAfterFrame);
+    return;
+  }
+  setTimeout(action, 0);
+};
 
 export default function RegisterEntryScreen() {
   const isScreenFocused = useIsFocused();
@@ -21,6 +29,7 @@ export default function RegisterEntryScreen() {
   const loadRegisterTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const readyHideTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const fallbackHideTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadRegisterFrameRef = React.useRef<number | null>(null);
   const readyUnsubscribeRef = React.useRef<(() => void) | null>(null);
   const loadCancelledRef = React.useRef(false);
   const registerScreenLoadedRef = React.useRef(false);
@@ -39,10 +48,41 @@ export default function RegisterEntryScreen() {
       clearTimeout(fallbackHideTimerRef.current);
       fallbackHideTimerRef.current = null;
     }
+    if (loadRegisterFrameRef.current !== null) {
+      globalThis.cancelAnimationFrame?.(loadRegisterFrameRef.current);
+      loadRegisterFrameRef.current = null;
+    }
     if (readyUnsubscribeRef.current) {
       readyUnsubscribeRef.current();
       readyUnsubscribeRef.current = null;
     }
+  }, []);
+
+  const scheduleRegisterScreenMount = React.useCallback((screenComponent: RegisterScreenComponent) => {
+    if (loadCancelledRef.current) {
+      return;
+    }
+
+    const mountScreen = () => {
+      loadRegisterTimerRef.current = null;
+      if (loadCancelledRef.current) {
+        return;
+      }
+      registerScreenLoadedRef.current = true;
+      setRegisterScreen(() => screenComponent);
+    };
+
+    const scheduleMountTimer = () => {
+      loadRegisterFrameRef.current = null;
+      loadRegisterTimerRef.current = setTimeout(mountScreen, REGISTER_ENTRY_FORM_IMPORT_DELAY_MS);
+    };
+
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      loadRegisterFrameRef.current = globalThis.requestAnimationFrame(scheduleMountTimer);
+      return;
+    }
+
+    scheduleMountTimer();
   }, []);
 
   React.useEffect(() => {
@@ -74,16 +114,12 @@ export default function RegisterEntryScreen() {
 
     const preloadedScreen = getPreloadedRegisterScreen();
     if (preloadedScreen) {
-      registerScreenLoadedRef.current = true;
-      setRegisterScreen(() => preloadedScreen);
+      scheduleRegisterScreenMount(preloadedScreen);
     } else {
       loadRegisterTimerRef.current = setTimeout(() => {
         loadRegisterTimerRef.current = null;
         void preloadRegisterScreen().then((screenComponent) => {
-          if (!loadCancelledRef.current) {
-            registerScreenLoadedRef.current = true;
-            setRegisterScreen(() => screenComponent);
-          }
+          scheduleRegisterScreenMount(screenComponent);
         });
       }, REGISTER_ENTRY_FORM_IMPORT_DELAY_MS);
     }
@@ -103,7 +139,7 @@ export default function RegisterEntryScreen() {
       loadCancelledRef.current = true;
       clearHandoffTimers();
     };
-  }, [clearHandoffTimers, isScreenFocused]);
+  }, [clearHandoffTimers, isScreenFocused, scheduleRegisterScreenMount]);
 
   const handleBack = React.useCallback((event: GestureResponderEvent) => {
     event.preventDefault();
@@ -116,7 +152,9 @@ export default function RegisterEntryScreen() {
     backNavigationStartedRef.current = true;
     loadCancelledRef.current = true;
     clearHandoffTimers();
-    safeRouterBack(router, REGISTER_BACK_FALLBACK_HREF);
+    scheduleRegisterEntryBackAfterVisualFrame(() => {
+      safeRouterBack(router, REGISTER_BACK_FALLBACK_HREF);
+    });
   }, [clearHandoffTimers]);
 
   return (

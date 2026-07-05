@@ -76,12 +76,11 @@ export function TradeScreen() {
   const showTradeActionSheet = useUIState((st) => st.showTradeActionSheet);
   const sidebarOpen = useUIState((st) => st.sidebarOpen);
 
-  const { positions, refreshPositions, hydrateCachedPositions, isLoading, lastFetchLogin, hydratedLogin, lastError } = usePositionsState(
+  const { positions, refreshPositions, hydrateCachedPositions, lastFetchLogin, hydratedLogin, lastError } = usePositionsState(
     useShallow((state) => ({
       positions: state.positions,
       refreshPositions: state.refreshPositions,
       hydrateCachedPositions: state.hydrateCachedPositions,
-      isLoading: state.isLoading,
       lastFetchLogin: state.lastFetchLogin,
       hydratedLogin: state.hydratedLogin,
       lastError: state.lastError,
@@ -345,7 +344,7 @@ export function TradeScreen() {
           <View style={s.emptyState}>
             <Ionicons name="receipt-outline" size={48} color={T.textDimmed} />
             <Text style={[s.emptyTitle, { color: T.textMuted }]}>
-              {isLoading ? t('Loading positions...') : t('No open positions')}
+              {t('No open positions')}
             </Text>
             <Text style={[s.emptySub, { color: T.textDimmed }]}>
               {lastError

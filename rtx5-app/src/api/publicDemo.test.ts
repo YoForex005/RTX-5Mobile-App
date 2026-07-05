@@ -84,6 +84,14 @@ test('createOrrnnDemoAccount posts compact body to /api/v1/public/demo-account',
   assert.equal(response.api_key, 'rtx5_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
 });
 
+test('Orrnn demo origin broker defaults to the fixed global demo broker option', () => {
+  const source = readSource('src/api/publicDemo.ts');
+
+  assert.match(source, /export const ORRNN_DEMO_ORIGIN_BROKER =[\s\S]*'testorrnn'/);
+  assert.match(source, /export const ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME =[\s\S]*'Orrnn Global Demo Broker'/);
+  assert.match(source, /export const ORRNN_DEMO_ORIGIN_BROKER_LABEL =[\s\S]*'Test Orrnn Broker \(Demo\)'/);
+});
+
 test('resolveOrrnnDemoBrokerAuthRoute prefers the Orrnn broker services domain', () => {
   const route = resolveOrrnnDemoBrokerAuthRoute('orrnn', [{
     broker_id: 'orrnn',

@@ -23,7 +23,14 @@ export const ORRNN_DEMO_INITIAL_BALANCE = configuredPositiveNumber(
 export const ORRNN_DEMO_ORIGIN_BROKER =
   process.env.EXPO_PUBLIC_ORRNN_DEMO_ORIGIN_BROKER ||
   process.env.EXPO_PUBLIC_ORIGIN_BROKER ||
-  undefined;
+  process.env.EXPO_PUBLIC_TEST_BROKER_ID ||
+  'testorrnn';
+export const ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME =
+  process.env.EXPO_PUBLIC_ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME ||
+  'Orrnn Global Demo Broker';
+export const ORRNN_DEMO_ORIGIN_BROKER_LABEL =
+  process.env.EXPO_PUBLIC_ORRNN_DEMO_ORIGIN_BROKER_LABEL ||
+  'Test Orrnn Broker (Demo)';
 export const PUBLIC_API_V1_BASE_URL =
   process.env.EXPO_PUBLIC_API_V1_BASE_URL ||
   CONFIGURED_API_BASE_URL.replace(/\/api\/v\d+\/?$/, '/api/v1');

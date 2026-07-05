@@ -494,8 +494,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     header: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingLeft: 12,
-      paddingRight: 12,
+      paddingLeft: 16,
+      paddingRight: 16,
       paddingTop: safeTop + 8,
       paddingBottom: 8,
       gap: 8,
