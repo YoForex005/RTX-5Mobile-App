@@ -160,11 +160,13 @@ export function createDrawingToolsActionSheetActions(
 
   return [
     ...DRAWING_SHEET_OPTIONS.map((definition) => ({
+      activateOnPressIn: true,
       icon: definition.renderIcon(iconColor),
       label: definition.actionLabel,
       onPress: () => config.onSelectTool(definition.tool),
     })),
     ...DRAWING_TOOL_COMMANDS.map((definition) => ({
+      activateOnPressIn: true,
       danger: definition.danger,
       icon: definition.renderIcon(definition.danger ? dangerIconColor : iconColor),
       label: resolveDrawingToolCommandLabel(definition, commandState),

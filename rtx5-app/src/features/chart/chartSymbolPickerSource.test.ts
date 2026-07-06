@@ -349,5 +349,5 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.doesNotMatch(toolbarTradeTextStyle, /color:\s*BLUE/);
   assert.match(tradeFeatureSource, /onPress=\{handlers\.onOpenExpirationMenu\}[\s\S]*activateOnPressIn/);
   assert.match(menuSource, /onPressIn=\{onPress\}/);
-  assert.match(drawingSource, /onPressIn=\{onPress\}/);
+  assert.match(drawingSource, /onPress=\{onPress\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart/);
 });

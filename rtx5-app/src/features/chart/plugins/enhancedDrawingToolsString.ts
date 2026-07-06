@@ -1246,6 +1246,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._records = [];
     this._chartHost = null;
     this._activeTouchId = null;
+    this._activePointerTouches = {};
     this._lastTouchParam = null;
     this._touchGestureMode = 'idle';
     this._touchDidMove = false;
@@ -1260,6 +1261,10 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._textEditState = null;
     this._snapBypassActive = false;
     this._crosshairOverlay = null;
+    this._handlePointerStart = this._handlePointerStart.bind(this);
+    this._handlePointerMove = this._handlePointerMove.bind(this);
+    this._handlePointerEnd = this._handlePointerEnd.bind(this);
+    this._handlePointerCancel = this._handlePointerCancel.bind(this);
     this._handleTouchStart = this._handleTouchStart.bind(this);
     this._handleTouchMove = this._handleTouchMove.bind(this);
     this._handleTouchEnd = this._handleTouchEnd.bind(this);
@@ -1386,10 +1391,17 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._chartHost = host;
     host.addEventListener('dblclick', this._handleHostDoubleClick, true);
     if (this.shouldUseDirectTouchInput()) {
-      host.addEventListener('touchstart', this._handleTouchStart, { capture: true, passive: false });
-      host.addEventListener('touchmove', this._handleTouchMove, { capture: true, passive: false });
-      host.addEventListener('touchend', this._handleTouchEnd, { capture: true, passive: false });
-      host.addEventListener('touchcancel', this._handleTouchCancel, { capture: true, passive: false });
+      if (this._supportsPointerTouchBridge()) {
+        host.addEventListener('pointerdown', this._handlePointerStart, { capture: true, passive: false });
+        host.addEventListener('pointermove', this._handlePointerMove, { capture: true, passive: false });
+        host.addEventListener('pointerup', this._handlePointerEnd, { capture: true, passive: false });
+        host.addEventListener('pointercancel', this._handlePointerCancel, { capture: true, passive: false });
+      } else {
+        host.addEventListener('touchstart', this._handleTouchStart, { capture: true, passive: false });
+        host.addEventListener('touchmove', this._handleTouchMove, { capture: true, passive: false });
+        host.addEventListener('touchend', this._handleTouchEnd, { capture: true, passive: false });
+        host.addEventListener('touchcancel', this._handleTouchCancel, { capture: true, passive: false });
+      }
     }
   };
 
@@ -1399,6 +1411,10 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     }
 
     this._chartHost.removeEventListener('dblclick', this._handleHostDoubleClick, true);
+    this._chartHost.removeEventListener('pointerdown', this._handlePointerStart, true);
+    this._chartHost.removeEventListener('pointermove', this._handlePointerMove, true);
+    this._chartHost.removeEventListener('pointerup', this._handlePointerEnd, true);
+    this._chartHost.removeEventListener('pointercancel', this._handlePointerCancel, true);
     this._chartHost.removeEventListener('touchstart', this._handleTouchStart, true);
     this._chartHost.removeEventListener('touchmove', this._handleTouchMove, true);
     this._chartHost.removeEventListener('touchend', this._handleTouchEnd, true);
@@ -1412,6 +1428,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
     this._chartHost = null;
     this._activeTouchId = null;
+    this._activePointerTouches = {};
     this._lastTouchParam = null;
     this._touchGestureMode = 'idle';
     this._touchDidMove = false;
@@ -2112,6 +2129,108 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this.refreshCrosshairData();
   };
 
+  AdvancedDrawingToolsManager.prototype._supportsPointerTouchBridge = function () {
+    try {
+      return typeof window !== 'undefined' && typeof window.PointerEvent === 'function';
+    } catch (_error) {
+      return false;
+    }
+  };
+
+  AdvancedDrawingToolsManager.prototype._isTouchPointerEvent = function (event) {
+    if (!event) return false;
+    if (!event.pointerType) return true;
+    return event.pointerType === 'touch' || event.pointerType === 'pen';
+  };
+
+  AdvancedDrawingToolsManager.prototype._makeTouchLikeFromPointerEvent = function (event) {
+    if (!this._isTouchPointerEvent(event)) {
+      return null;
+    }
+    if (!isFiniteNumber(event.clientX) || !isFiniteNumber(event.clientY)) {
+      return null;
+    }
+    var pointerId = event.pointerId;
+    return {
+      identifier: pointerId === undefined || pointerId === null ? 1 : pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY
+    };
+  };
+
+  AdvancedDrawingToolsManager.prototype._activePointerTouchList = function () {
+    var touches = [];
+    Object.keys(this._activePointerTouches || {}).forEach(function (key) {
+      var touch = this._activePointerTouches[key];
+      if (touch) {
+        touches.push(touch);
+      }
+    }, this);
+    return touches;
+  };
+
+  AdvancedDrawingToolsManager.prototype._buildPointerTouchEvent = function (event, phase) {
+    var touch = this._makeTouchLikeFromPointerEvent(event);
+    if (!touch) {
+      return null;
+    }
+    var key = String(touch.identifier);
+    if (phase === 'start' || phase === 'move') {
+      this._activePointerTouches[key] = touch;
+    }
+    if (phase === 'end' || phase === 'cancel') {
+      delete this._activePointerTouches[key];
+    }
+    var touches = this._activePointerTouchList();
+    var changedTouches = [touch];
+    return {
+      touches: touches,
+      targetTouches: touches,
+      changedTouches: changedTouches,
+      preventDefault: function () {
+        if (event && typeof event.preventDefault === 'function') event.preventDefault();
+      },
+      stopPropagation: function () {
+        if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+      },
+      stopImmediatePropagation: function () {
+        if (event && typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+      }
+    };
+  };
+
+  AdvancedDrawingToolsManager.prototype._handlePointerStart = function (event) {
+    var touchEvent = this._buildPointerTouchEvent(event, 'start');
+    if (!touchEvent) {
+      return;
+    }
+    this._handleTouchStart(touchEvent);
+  };
+
+  AdvancedDrawingToolsManager.prototype._handlePointerMove = function (event) {
+    var touchEvent = this._buildPointerTouchEvent(event, 'move');
+    if (!touchEvent) {
+      return;
+    }
+    this._handleTouchMove(touchEvent);
+  };
+
+  AdvancedDrawingToolsManager.prototype._handlePointerEnd = function (event) {
+    var touchEvent = this._buildPointerTouchEvent(event, 'end');
+    if (!touchEvent) {
+      return;
+    }
+    this._handleTouchEnd(touchEvent);
+  };
+
+  AdvancedDrawingToolsManager.prototype._handlePointerCancel = function (event) {
+    var touchEvent = this._buildPointerTouchEvent(event, 'cancel');
+    if (!touchEvent) {
+      return;
+    }
+    this._handleTouchCancel(touchEvent);
+  };
+
   AdvancedDrawingToolsManager.prototype._getActiveTouchTool = function () {
     if (!this._isDrawingToolActive()) {
       return null;
@@ -2583,6 +2702,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       return;
     }
 
+    this._suppressHostTapMenu();
     this._activeTouchId = touch.identifier;
     // Snapshot before the tool acts so a pinch that follows this first finger can
     // roll back whatever it started/committed (e.g. a single-tap Level).

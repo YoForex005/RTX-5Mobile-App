@@ -42,9 +42,9 @@
     },
     "android": {
       "package": "com.rtx5.app",
-      "icon": "./assets/adaptive-icon.png",
+      "icon": "./assets/android-icon.png",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/android-adaptive-foreground.png",
         "backgroundColor": "#2d2c31"
       },
       "softwareKeyboardLayoutMode": "resize",

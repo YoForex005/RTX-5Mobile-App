@@ -70,6 +70,7 @@ test('drawing lock hide and sticky state are pushed after WebView chart is ready
 
 test('drawing tools open path is resilient to iOS chart overlay touch ordering', () => {
   const drawingFeatureSource = readProjectSource('src/features/chart/components/ChartDrawingToolsFeature.tsx');
+  const drawingToolsSource = readProjectSource('src/features/chart/drawingTools/index.ts');
   const radialMenuSource = readProjectSource('src/features/chart/components/ChartTapRadialMenu.tsx');
 
   assertSourceContains(
@@ -93,8 +94,43 @@ test('drawing tools open path is resilient to iOS chart overlay touch ordering',
     'drawing sidebar tool rows must fire on touch-down for iOS',
   );
   assertSourceContains(
+    drawingToolsSource,
+    /DRAWING_SHEET_OPTIONS\.map\(\(definition\) => \(\{[\s\S]*activateOnPressIn:\s*true[\s\S]*onPress: \(\) => config\.onSelectTool\(definition\.tool\)/,
+    'drawing action sheet selectable rows must fire on touch-down for iOS',
+  );
+  assertSourceContains(
+    drawingToolsSource,
+    /DRAWING_TOOL_COMMANDS\.map\(\(definition\) => \(\{[\s\S]*activateOnPressIn:\s*true[\s\S]*onPress: commandHandlers\[definition\.key\]/,
+    'drawing action sheet command rows must fire on touch-down for iOS',
+  );
+  assertSourceContains(
     radialMenuSource,
     /onPress=\{\(event\) => handleActionItemPress\(event, item\.onPress\)\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart/,
     'radial action items must not wait for iOS press release before opening drawing tools',
+  );
+});
+
+test('drawing WebView touch bridge supports iOS pointer events', () => {
+  const enhancedDrawingSource = readProjectSource('src/features/chart/plugins/enhancedDrawingToolsString.ts');
+
+  assertSourceContains(
+    enhancedDrawingSource,
+    /_supportsPointerTouchBridge[\s\S]*typeof window\.PointerEvent === 'function'/,
+    'drawing manager must detect WKWebView pointer-event capable touch input',
+  );
+  assertSourceContains(
+    enhancedDrawingSource,
+    /host\.addEventListener\('pointerdown', this\._handlePointerStart[\s\S]*host\.addEventListener\('pointermove', this\._handlePointerMove[\s\S]*host\.addEventListener\('pointerup', this\._handlePointerEnd[\s\S]*host\.addEventListener\('pointercancel', this\._handlePointerCancel/,
+    'drawing manager must bind pointer events when the WebView dispatches them',
+  );
+  assertSourceContains(
+    enhancedDrawingSource,
+    /_handlePointerStart = function \(event\) \{[\s\S]*_buildPointerTouchEvent\(event, 'start'\)[\s\S]*this\._handleTouchStart\(touchEvent\)/,
+    'pointerdown must feed the existing drawing touch-start path',
+  );
+  assertSourceContains(
+    enhancedDrawingSource,
+    /var tool = this\._getActiveTouchTool\(\);[\s\S]*var touch = this\._findTrackedTouch\(event\.changedTouches \|\| event\.touches\);[\s\S]*this\._suppressHostTapMenu\(\);[\s\S]*this\._activeTouchId = touch\.identifier/,
+    'active drawing touches must suppress the host chart-tap menu while drawing',
   );
 });

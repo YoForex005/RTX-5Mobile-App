@@ -45,6 +45,7 @@ export type DrawingToolSidebarGroup = {
 };
 
 export type DrawingToolsActionSheetAction = {
+  activateOnPressIn?: boolean;
   danger?: boolean;
   icon?: ReactNode;
   label: string;
