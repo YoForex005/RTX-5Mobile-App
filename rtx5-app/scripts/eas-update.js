@@ -12,7 +12,13 @@ if (!CHANNELS.has(channel)) {
 }
 
 const easBin = process.platform === "win32" ? "eas.cmd" : "eas";
-const updateArgs = ["update", "--channel", channel, "--platform", "all", ...process.argv.slice(3)];
+const updateArgs = ["update", "--channel", channel, "--platform", "all"];
+
+if (channel === "production") {
+  updateArgs.push("--environment", "production");
+}
+
+updateArgs.push(...process.argv.slice(3));
 const env = {
   ...process.env,
   CI: process.env.CI || "1",

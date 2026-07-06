@@ -1,11 +1,11 @@
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, StyleSheet, Text, View } from 'react-native';
 import type { OtaUpdatePromptController } from '../../utils/otaUpdates';
+import { FastPressable as Pressable } from './FastPressable';
 
 type OtaUpdateModalProps = OtaUpdatePromptController;
 
 export function OtaUpdateModal({
   visible,
-  targetVersion,
   status,
   progressPercent,
   errorMessage,
@@ -21,12 +21,12 @@ export function OtaUpdateModal({
       <View style={styles.backdrop}>
         <View style={styles.panel} accessibilityViewIsModal>
           <Text style={styles.title}>
-            {status === 'error' ? 'Update failed' : `Update ${targetVersion} available`}
+            {status === 'error' ? 'Update failed' : 'Update available'}
           </Text>
           <Text style={styles.message}>
             {status === 'error'
               ? errorMessage ?? 'Please check your internet connection and try again.'
-              : `Install the latest version ${targetVersion} to continue with the newest app update.`}
+              : 'Install the latest version to continue with the newest app update.'}
           </Text>
 
           {showProgress ? (
@@ -48,6 +48,9 @@ export function OtaUpdateModal({
             accessibilityRole="button"
             disabled={isInstalling}
             onPress={status === 'error' ? onRetry : onInstall}
+            activateOnPressIn
+            latencyLabel={status === 'error' ? 'otaUpdate.retry' : 'otaUpdate.install'}
+            unstable_pressDelay={0}
             style={({ pressed }) => [
               styles.button,
               isInstalling ? styles.buttonDisabled : null,

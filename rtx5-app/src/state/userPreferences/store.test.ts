@@ -36,7 +36,8 @@ test('persisted user preferences are normalized before second-launch hydration r
   assert.match(storeSource, /isLoggedIn = asBoolean\(state\.isLoggedIn, false\) && accountDetails !== null/);
   assert.match(storeSource, /merge: \(persistedState, currentState\) => \(\{/);
   assert.match(storeSource, /Ignoring invalid persisted preferences/);
-  assert.match(storeSource, /setItem: \(name, value\) => \{[\s\S]*pendingPreferenceWrites\.set\(name, value\);[\s\S]*flushPendingPreferenceWrites\(\);[\s\S]*\}/);
-  assert.doesNotMatch(storeSource, /schedulePreferenceWriteFlush/);
+  assert.match(storeSource, /let preferenceWriteFlushScheduled = false/);
+  assert.match(storeSource, /function schedulePreferenceWriteFlush\(\) \{[\s\S]*if \(preferenceWriteFlushScheduled\) return;[\s\S]*preferenceWriteFlushScheduled = true;[\s\S]*setTimeout\(flushPendingPreferenceWrites, 0\)/);
+  assert.match(storeSource, /setItem: \(name, value\) => \{[\s\S]*pendingPreferenceWrites\.set\(name, value\);[\s\S]*schedulePreferenceWriteFlush\(\);[\s\S]*\}/);
   assert.doesNotMatch(storeSource, /state\.marketNewsSavedIds\.map\(\(id\) => id\.trim\(\)\)/);
 });

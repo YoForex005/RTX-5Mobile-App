@@ -481,8 +481,13 @@ test('overlay bridge: trade overlays stay out of price-scale autoscale', () => {
 });
 
 test('chart preferences exposes persistent show-on-chart filters', () => {
-  // The "Show on chart" section exposes buy/sell trade visibility and MT5-style SL/TP level visibility.
-  assert.match(chartSettingsScreenSource, /CHART_SHOW_ON_CHART_ITEMS\.map/);
+  // The "Show on chart" section exposes buy/sell visibility, while the chart display
+  // trade-level toggle owns the same persisted SL/TP visibility flag.
+  assert.match(chartSettingsScreenSource, /CHART_TRADE_VISIBILITY_ITEMS = CHART_SHOW_ON_CHART_ITEMS\.filter/);
+  assert.match(chartSettingsScreenSource, /item\.key !== 'slTpLevels'/);
+  assert.match(chartSettingsScreenSource, /CHART_TRADE_VISIBILITY_ITEMS\.map/);
+  assert.match(chartSettingsScreenSource, /showTradeLevels: 'slTpLevels'/);
+  assert.match(chartSettingsScreenSource, /setChartShowOnChartItem\(linkedShowOnChartKey, value\)/);
   assert.match(chartSettingsScreenSource, /setChartShowOnChartItem\(key, value\)/);
   assert.match(chartSettingsScreenSource, /SHOW ON CHART/);
   assert.match(chartSettingsScreenSource, /buyTrade: 'trending-up-outline'/);

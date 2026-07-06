@@ -120,8 +120,8 @@ export const lightStyles = StyleSheet.create({
 
 export const darkStyles = StyleSheet.create({
   tradeControlsRow: { borderColor: '#334155' },
-  actionLotSlot: { backgroundColor: '#1E1E1E' },
-  actionLotControl: { backgroundColor: '#1E1E1E', borderColor: '#334155' },
+  actionLotSlot: { backgroundColor: '#1F2937' },
+  actionLotControl: { backgroundColor: '#1F2937', borderColor: '#334155' },
   actionLotControlPicker: { borderColor: '#334155' },
   actionLotValue: { color: '#F8FAFC' },
   actionLotAdjustIcon: { color: '#CBD5E1' },

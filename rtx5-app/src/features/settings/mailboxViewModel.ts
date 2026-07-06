@@ -139,6 +139,10 @@ export type MailboxScreenData = {
   uiActionState: UiActionState;
 };
 
+const MAILBOX_PREVIEW_NOW = Date.now();
+const getMailboxPreviewTimestamp = (minutesAgo: number) =>
+  new Date(MAILBOX_PREVIEW_NOW - minutesAgo * 60 * 1000).toISOString();
+
 const MAILBOX_PREVIEW_MESSAGES: MailboxMessage[] = [
   {
     message_id: 'msg-risk-daily-loss',
@@ -158,8 +162,8 @@ const MAILBOX_PREVIEW_MESSAGES: MailboxMessage[] = [
     archived_status: false,
     action_required: true,
     action_label: 'View Risk Dashboard',
-    created_at: '2026-05-14T10:43:00.000Z',
-    updated_at: '2026-05-14T10:43:00.000Z',
+    created_at: getMailboxPreviewTimestamp(10),
+    updated_at: getMailboxPreviewTimestamp(10),
     attachments: [],
     related_account_id: '**** 4891',
     related_challenge_id: 'Core Challenge',
@@ -183,8 +187,8 @@ const MAILBOX_PREVIEW_MESSAGES: MailboxMessage[] = [
     archived_status: false,
     action_required: false,
     action_label: 'View Invoice',
-    created_at: '2026-05-14T10:27:00.000Z',
-    updated_at: '2026-05-14T10:27:00.000Z',
+    created_at: getMailboxPreviewTimestamp(26),
+    updated_at: getMailboxPreviewTimestamp(26),
     attachments: [],
     deeplink_url: '/payouts',
   },
@@ -206,8 +210,8 @@ const MAILBOX_PREVIEW_MESSAGES: MailboxMessage[] = [
     archived_status: false,
     action_required: false,
     action_label: 'View Ticket',
-    created_at: '2026-05-14T05:15:00.000Z',
-    updated_at: '2026-05-14T05:18:00.000Z',
+    created_at: getMailboxPreviewTimestamp(360),
+    updated_at: getMailboxPreviewTimestamp(357),
     attachments: [
       {
         attachment_id: 'att-support-summary',
@@ -237,8 +241,8 @@ const MAILBOX_PREVIEW_MESSAGES: MailboxMessage[] = [
     pinned_status: false,
     archived_status: false,
     action_required: false,
-    created_at: '2026-05-13T14:10:00.000Z',
-    updated_at: '2026-05-13T14:10:00.000Z',
+    created_at: getMailboxPreviewTimestamp(1500),
+    updated_at: getMailboxPreviewTimestamp(1500),
     attachments: [],
     related_challenge_id: 'Core Challenge',
     deeplink_url: '/challenges',
@@ -260,8 +264,8 @@ const MAILBOX_PREVIEW_MESSAGES: MailboxMessage[] = [
     pinned_status: false,
     archived_status: false,
     action_required: false,
-    created_at: '2026-05-13T08:36:00.000Z',
-    updated_at: '2026-05-13T08:36:00.000Z',
+    created_at: getMailboxPreviewTimestamp(3000),
+    updated_at: getMailboxPreviewTimestamp(3000),
     attachments: [],
     related_account_id: '**** 4891',
     deeplink_url: '/security',
@@ -284,8 +288,8 @@ const MAILBOX_PREVIEW_MESSAGES: MailboxMessage[] = [
     archived_status: false,
     action_required: true,
     action_label: 'Upload Document',
-    created_at: '2026-05-12T03:30:00.000Z',
-    updated_at: '2026-05-12T03:30:00.000Z',
+    created_at: getMailboxPreviewTimestamp(4500),
+    updated_at: getMailboxPreviewTimestamp(4500),
     attachments: [],
     deeplink_url: '/kyc',
   },
@@ -332,7 +336,7 @@ export const MAILBOX_PREVIEW_DATA: MailboxScreenData = {
     sender_type: 'Risk',
     category: 'Prop Firm',
     priority: 'Critical',
-    published_at: '2026-05-14T10:43:00.000Z',
+    published_at: getMailboxPreviewTimestamp(10),
     action_required: true,
     action_label: 'View Risk Dashboard',
     read_status: 'Unread',
@@ -341,7 +345,7 @@ export const MAILBOX_PREVIEW_DATA: MailboxScreenData = {
   messages: MAILBOX_PREVIEW_MESSAGES,
   supportState: {
     open_ticket_count: 1,
-    latest_support_reply_time: '2026-05-14T05:18:00.000Z',
+    latest_support_reply_time: getMailboxPreviewTimestamp(357),
     support_status: 'Available',
     contact_support_enabled: true,
   },

@@ -1621,7 +1621,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       minHeight: 40,
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: '#FFFFFF',
+      backgroundColor: isDark ? SURFACE : '#FFFFFF',
+      borderWidth: isDark ? 1 : 0,
+      borderColor: isDark ? T.border : 'transparent',
       borderLeftWidth: 3,
       borderRadius: 2,
       paddingHorizontal: 12,
@@ -1635,7 +1637,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     tradeConfirmationSymbol: {
       flex: 1.2,
       minWidth: 0,
-      color: '#0F172A',
+      color: WHITE,
       fontSize: 13,
       fontWeight: '600',
       letterSpacing: 0,
@@ -1650,7 +1652,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     tradeConfirmationVolume: {
       flex: 0.6,
       minWidth: 0,
-      color: '#0F172A',
+      color: WHITE,
       fontSize: 13,
       fontWeight: '600',
       letterSpacing: 0,

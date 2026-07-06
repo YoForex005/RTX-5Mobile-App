@@ -49,7 +49,11 @@ test('register demo form scrolls the focused lower fields above the keyboard', (
     source,
     /<View style=\{styles\.inputRow\} onLayout=\{handleFieldLayout\('originBroker'\)\}>[\s\S]*accessibilityLabel=\{t\('Origin broker'\)\}/,
   );
-  assert.doesNotMatch(source, /handleOpenOriginBrokerPicker/);
+  assert.match(
+    source,
+    /const handleOpenOriginBrokerPicker = React\.useCallback\(\(\) => \{[\s\S]*handleFieldFocus\('originBroker'\)[\s\S]*setOriginBrokerPickerOpen\(true\)/,
+  );
+  assert.match(source, /onPress=\{handleOpenOriginBrokerPicker\}/);
 });
 
 test('register demo form keeps last name optional and formats phone with selected dial code', () => {
@@ -74,7 +78,7 @@ test('register demo form keeps last name optional and formats phone with selecte
   assert.match(source, /searchPlaceholder=\{t\('Search country codes\.\.\.'\)\}/);
 });
 
-test('register demo form uses fixed origin broker, read-only currency, and searchable local leverage range', () => {
+test('register demo form uses selectable origin broker, read-only currency, and searchable local leverage range', () => {
   const source = readSource('app/register.tsx');
 
   assert.match(source, /import \{ BROKER_CONFIG_KEY, useBrokerServers \} from '\.\.\/src\/query\/broker'/);
@@ -85,16 +89,23 @@ test('register demo form uses fixed origin broker, read-only currency, and searc
   assert.match(source, /DEMO_LEVERAGE_OPTIONS\.map\(\(option\) => \(\{/);
   assert.match(source, /searchPlaceholder=\{t\('Search leverage\.\.\.'\)\}/);
 
+  assert.match(source, /const DEMO_ORIGIN_BROKER_OPTIONS: readonly DemoOriginBrokerOption\[\] = \[/);
   assert.match(source, /ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME/);
   assert.match(source, /ORRNN_DEMO_ORIGIN_BROKER_LABEL/);
-  assert.match(source, /const originBrokerDisplayValue = ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME/);
+  assert.match(source, /TEST_ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME/);
+  assert.match(source, /TEST_ORRNN_DEMO_ORIGIN_BROKER_LABEL/);
+  assert.match(source, /const \[selectedOriginBrokerValue, setSelectedOriginBrokerValue\] = useState\(DEFAULT_DEMO_ORIGIN_BROKER\.value\)/);
+  assert.match(source, /const \[originBrokerPickerOpen, setOriginBrokerPickerOpen\] = useState\(false\)/);
+  assert.match(source, /const selectedOriginBroker =[\s\S]*DEMO_ORIGIN_BROKER_OPTIONS\.find\(\(option\) => option\.value === selectedOriginBrokerValue\)[\s\S]*DEFAULT_DEMO_ORIGIN_BROKER/);
+  assert.match(source, /const originBrokerDisplayValue = selectedOriginBroker\.label/);
   assert.match(source, /styles\.originBrokerPrimaryValue/);
   assert.match(source, /styles\.originBrokerSecondaryValue/);
-  assert.match(source, /const trimmedOriginBroker = ORRNN_DEMO_ORIGIN_BROKER\.trim\(\)/);
+  assert.match(source, /const trimmedOriginBroker = selectedOriginBrokerValue\.trim\(\)/);
   assert.match(source, /origin_broker: trimmedOriginBroker \|\| undefined/);
-  assert.doesNotMatch(source, /originBrokerOptions/);
-  assert.doesNotMatch(source, /originBrokerPickerActions/);
-  assert.doesNotMatch(source, /originBrokerPickerOpen/);
+  assert.match(source, /const originBrokerPickerActions = React\.useMemo/);
+  assert.match(source, /DEMO_ORIGIN_BROKER_OPTIONS\.map\(\(option\) => \(\{/);
+  assert.match(source, /onPress: \(\) => setSelectedOriginBrokerValue\(option\.value\)/);
+  assert.match(source, /visible=\{originBrokerPickerOpen\}/);
   assert.doesNotMatch(source, /Search brokers\.\.\./);
 
   assert.match(source, /const selectedCurrency = selectedDemoGroup\?\.currency \|\| 'USD'/);

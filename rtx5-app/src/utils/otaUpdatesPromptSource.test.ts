@@ -16,10 +16,13 @@ test('ota update prompt waits for user install and exposes download progress', (
   assert.match(otaSource, /Platform\.OS !== 'web'/);
   assert.doesNotMatch(otaSource, /Platform\.OS === 'ios'/);
   assert.match(otaSource, /downloadProgress/);
+  assert.match(otaSource, /OTA_ACTIVE_RETRY_LIMIT/);
+  assert.match(otaSource, /updateState\.isUpdatePending/);
   assert.match(otaSource, /checkForUpdateAsync/);
   assert.match(otaSource, /fetchUpdateAsync/);
   assert.doesNotMatch(otaSource, /Alert\.alert/);
   assert.match(modalSource, /Install latest version/);
-  assert.match(modalSource, /Update \$\{targetVersion\} available/);
+  assert.match(modalSource, /Update available/);
+  assert.doesNotMatch(modalSource, /Update \$\{targetVersion\} available/);
   assert.match(modalSource, /progressPercent/);
 });

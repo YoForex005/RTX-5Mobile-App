@@ -1,5 +1,8 @@
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
-const FALLBACK_API_BASE_URL = 'https://backend.orrnn.com/api/v2';
+const FALLBACK_API_BASE_URL = 'https://superbackend.orrnn.com/api/v2';
+const FALLBACK_PUBLIC_BROKER_DIRECTORY_BASE_URL = 'https://superbackend.orrnn.com/api/v1';
+const LEGACY_SHARED_API_BASE_URL = 'https://backend.orrnn.com/api/v2';
+const LEGACY_TEST_BROKER_DIRECTORY_BASE_URL = 'https://testsuperbackend.orrnn.com/api/v1';
 
 export const BROKER_BACKEND_DOMAIN_UNAVAILABLE_MESSAGE =
   'Broker backend domain is missing or invalid for this broker. Please update the broker services domain in super admin and try again.';
@@ -14,7 +17,7 @@ const SHARED_AUTH_PROXY_API_BASE_URL = trimTrailingSlash(
 export const PUBLIC_BROKER_DIRECTORY_BASE_URL = trimTrailingSlash(
   process.env.EXPO_PUBLIC_BROKER_DIRECTORY_BASE_URL ||
     process.env.EXPO_PUBLIC_API_V1_BASE_URL ||
-    'https://testsuperbackend.orrnn.com/api/v1',
+    FALLBACK_PUBLIC_BROKER_DIRECTORY_BASE_URL,
 );
 
 export type BrokerServiceDiscovery = {
@@ -95,6 +98,10 @@ const getSharedBackendOrigins = (): string[] =>
     DEFAULT_API_BASE_URL,
     SHARED_AUTH_PROXY_API_BASE_URL,
     PUBLIC_BROKER_DIRECTORY_BASE_URL,
+    FALLBACK_API_BASE_URL,
+    FALLBACK_PUBLIC_BROKER_DIRECTORY_BASE_URL,
+    LEGACY_SHARED_API_BASE_URL,
+    LEGACY_TEST_BROKER_DIRECTORY_BASE_URL,
   ]
     .map(normalizeBrokerServerUrl)
     .filter((origin): origin is string => Boolean(origin));

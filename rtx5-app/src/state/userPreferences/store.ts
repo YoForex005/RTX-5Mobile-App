@@ -96,6 +96,7 @@ type PersistedUserPreferencesState = Omit<
 const pendingPreferenceWrites = new Map<string, StorageValue<PersistedUserPreferencesState>>();
 let pendingThemeModeCommit: ThemeMode | null = null;
 let themeModeCommitScheduled = false;
+let preferenceWriteFlushScheduled = false;
 const PREFERENCES_STORAGE_VERSION = 20;
 const CHART_DRAWING_RECORDS_STORAGE_KEY = 'rtx5-chart-drawing-records-v1';
 const LEGACY_BLUE_DEFAULT_CHART_COLORS: ChartColorsConfig = {
@@ -372,6 +373,21 @@ function flushPendingPreferenceWrites() {
   });
 }
 
+function schedulePreferenceWriteFlush() {
+  if (preferenceWriteFlushScheduled) return;
+  preferenceWriteFlushScheduled = true;
+
+  const scheduleAfterFrame =
+    typeof globalThis.requestAnimationFrame === 'function'
+      ? globalThis.requestAnimationFrame
+      : (callback: FrameRequestCallback) => setTimeout(() => callback(Date.now()), 16);
+
+  scheduleAfterFrame(() => {
+    preferenceWriteFlushScheduled = false;
+    setTimeout(flushPendingPreferenceWrites, 0);
+  });
+}
+
 function scheduleThemeModePreferenceCommit(commit: () => void) {
   if (themeModeCommitScheduled) return;
   themeModeCommitScheduled = true;
@@ -404,7 +420,7 @@ const userPreferencesStorage: PersistStorage<PersistedUserPreferencesState, void
   },
   setItem: (name, value) => {
     pendingPreferenceWrites.set(name, value);
-    flushPendingPreferenceWrites();
+    schedulePreferenceWriteFlush();
   },
   removeItem: (name) => {
     pendingPreferenceWrites.delete(name);

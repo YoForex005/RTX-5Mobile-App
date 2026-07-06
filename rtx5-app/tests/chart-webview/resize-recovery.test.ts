@@ -80,7 +80,7 @@ test('chart viewport keeps scale controls in the radial menu, not price-scale do
   );
   assertSourceContains(
     radialMenuSource,
-    /accessibilityLabel: 'Chart scale controls'[\s\S]*onPress: onOpenScaleControls[\s\S]*<Ionicons name="options-outline"/,
+    /accessibilityLabel: `\$\{t\('Chart'\)\} \$\{t\('Options'\)\}`[\s\S]*onPress: onOpenScaleControls[\s\S]*<Ionicons name="options-outline"/,
     'radial menu must render one filter-style chart scale button',
   );
   assertSourceContains(

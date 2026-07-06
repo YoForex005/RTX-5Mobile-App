@@ -44,6 +44,7 @@ export function RegisterHandoffPreview({
         style={styles.container}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="always"
+        canCancelContentTouches={Platform.OS === 'ios'}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.formContainer}>

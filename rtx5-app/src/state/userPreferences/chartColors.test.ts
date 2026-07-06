@@ -33,7 +33,7 @@ test('chart color resolver uses app-theme structure with default green/red candl
   });
 });
 
-test('chart color resolver keeps built-in light schemes explicit in dark theme and adapts dark schemes in light theme', () => {
+test('chart color resolver keeps built-in chart schemes aligned to the app theme', () => {
   const darkAppWithWhiteScheme = resolveChartColorsForTheme(
     CHART_COLOR_SCHEME_PRESETS.black_on_white.colors,
     'black_on_white',
@@ -45,8 +45,11 @@ test('chart color resolver keeps built-in light schemes explicit in dark theme a
     false,
   );
 
-  assert.equal(darkAppWithWhiteScheme.background, CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.background);
-  assert.equal(darkAppWithWhiteScheme.hollowBody, CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.hollowBody);
+  assert.equal(darkAppWithWhiteScheme.background, CHART_COLOR_SCHEME_PRESETS.green_on_black.colors.background);
+  assert.equal(darkAppWithWhiteScheme.foreground, CHART_COLOR_SCHEME_PRESETS.green_on_black.colors.foreground);
+  assert.equal(darkAppWithWhiteScheme.grid, CHART_COLOR_SCHEME_PRESETS.green_on_black.colors.grid);
+  assert.equal(darkAppWithWhiteScheme.hollowBody, CHART_COLOR_SCHEME_PRESETS.green_on_black.colors.hollowBody);
+  assert.equal(darkAppWithWhiteScheme.candlesUptrend, CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.candlesUptrend);
   assert.equal(lightAppWithGreenScheme.background, CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.background);
   assert.equal(lightAppWithGreenScheme.hollowBody, CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.hollowBody);
   assert.equal(lightAppWithGreenScheme.candlesUptrend, CHART_COLOR_SCHEME_PRESETS.green_on_black.colors.candlesUptrend);
@@ -63,7 +66,7 @@ test('chart color resolver preserves explicit custom grid choices in dark theme'
   assert.equal(darkColors.grid, customGrid);
 });
 
-test('chart color resolver preserves explicit custom light canvas colors in dark theme', () => {
+test('chart color resolver rejects explicit custom light canvas colors in dark theme', () => {
   const darkColors = resolveChartColorsForTheme(
     {
       ...DEFAULT_CHART_COLORS,
@@ -76,10 +79,10 @@ test('chart color resolver preserves explicit custom light canvas colors in dark
     true,
   );
 
-  assert.equal(darkColors.background, '#FAFAFA');
-  assert.equal(darkColors.foreground, '#111827');
-  assert.equal(darkColors.grid, 'rgba(0,0,0,0.09)');
-  assert.equal(darkColors.hollowBody, '#FFFFFF');
+  assert.equal(darkColors.background, CHART_COLOR_SCHEME_PRESETS.green_on_black.colors.background);
+  assert.equal(darkColors.foreground, CHART_COLOR_SCHEME_PRESETS.green_on_black.colors.foreground);
+  assert.equal(darkColors.grid, CHART_COLOR_SCHEME_PRESETS.green_on_black.colors.grid);
+  assert.equal(darkColors.hollowBody, CHART_COLOR_SCHEME_PRESETS.green_on_black.colors.hollowBody);
 });
 
 test('chart color resolver preserves explicit custom dark canvas colors in dark theme', () => {
@@ -99,7 +102,7 @@ test('chart color resolver preserves explicit custom dark canvas colors in dark 
   assert.equal(darkColors.hollowBody, '#101827');
 });
 
-test('chart color resolver preserves explicit custom dark canvas colors in light theme', () => {
+test('chart color resolver rejects explicit custom dark canvas colors in light theme', () => {
   const lightColors = resolveChartColorsForTheme(
     {
       ...DEFAULT_CHART_COLORS,
@@ -112,8 +115,8 @@ test('chart color resolver preserves explicit custom dark canvas colors in light
     false,
   );
 
-  assert.equal(lightColors.background, '#101827');
-  assert.equal(lightColors.foreground, '#E5E7EB');
-  assert.equal(lightColors.grid, 'rgba(255,255,255,0.18)');
-  assert.equal(lightColors.hollowBody, '#101827');
+  assert.equal(lightColors.background, CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.background);
+  assert.equal(lightColors.foreground, CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.foreground);
+  assert.equal(lightColors.grid, CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.grid);
+  assert.equal(lightColors.hollowBody, CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.hollowBody);
 });

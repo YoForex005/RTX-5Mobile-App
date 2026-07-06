@@ -5,6 +5,8 @@ import { APP_DISPLAY_VERSION } from '../config/appDisplayVersion';
 import { logStartupDiagnostic, logStartupError } from './startupDiagnostics';
 
 const OTA_CHECK_DELAY_MS = 1500;
+const OTA_ACTIVE_RETRY_MS = 1000;
+const OTA_ACTIVE_RETRY_LIMIT = 10;
 const EAS_UPDATE_CHANNELS = new Set(['preview', 'staging', 'production']);
 const DISABLE_OTA_UPDATES = process.env.EXPO_PUBLIC_DISABLE_OTA_UPDATES === 'true';
 
@@ -106,6 +108,15 @@ export function useOtaUpdateOnLaunch(): OtaUpdatePromptController {
     });
 
     try {
+      if (updateState.isUpdatePending) {
+        logStartupDiagnostic('updates.reload.pending', {
+          targetVersion: APP_DISPLAY_VERSION,
+        });
+        setStatus('restarting');
+        await Updates.reloadAsync();
+        return;
+      }
+
       const fetchResult = await Updates.fetchUpdateAsync();
       logStartupDiagnostic('updates.fetch.finished', {
         isNew: fetchResult.isNew,
@@ -142,17 +153,34 @@ export function useOtaUpdateOnLaunch(): OtaUpdatePromptController {
 
   useEffect(() => {
     if (!canCheckForUpdates) return;
-    const timeout = setTimeout(() => {
+
+    let retryCount = 0;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+
+    const runLaunchCheck = () => {
       if (AppState.currentState !== 'active') {
-        logStartupDiagnostic('updates.check.skipped', { appState: AppState.currentState });
+        logStartupDiagnostic('updates.check.skipped', {
+          appState: AppState.currentState,
+          reason: 'launch',
+          retryCount,
+        });
+
+        if (retryCount < OTA_ACTIVE_RETRY_LIMIT) {
+          retryCount += 1;
+          timeout = setTimeout(runLaunchCheck, OTA_ACTIVE_RETRY_MS);
+        }
         return;
       }
 
       void checkForAvailableUpdate('launch');
-    }, OTA_CHECK_DELAY_MS);
+    };
+
+    timeout = setTimeout(runLaunchCheck, OTA_CHECK_DELAY_MS);
 
     return () => {
-      clearTimeout(timeout);
+      if (timeout) {
+        clearTimeout(timeout);
+      }
     };
   }, [canCheckForUpdates, checkForAvailableUpdate]);
 
@@ -169,7 +197,10 @@ export function useOtaUpdateOnLaunch(): OtaUpdatePromptController {
   }, [canCheckForUpdates, checkForAvailableUpdate, visible]);
 
   useEffect(() => {
-    if (updateState.isUpdateAvailable && !updateState.isUpdatePending && !isInstallingRef.current) {
+    if (
+      (updateState.isUpdateAvailable || updateState.isUpdatePending) &&
+      !isInstallingRef.current
+    ) {
       setStatus('available');
       setVisible(true);
     }

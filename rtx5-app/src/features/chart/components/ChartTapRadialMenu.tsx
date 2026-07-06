@@ -8,6 +8,7 @@ import {
   TvLayers,
   TvRadialPencil,
 } from './ChartToolbarIcons';
+import { useTranslation } from '../../../i18n/useTranslation';
 
 export type ChartTapMenuAnchor = {
   x: number;
@@ -221,9 +222,11 @@ export function ChartTapRadialMenu({
   onOpenSymbolPicker,
   onOpenScaleControls,
 }: ChartTapRadialMenuProps) {
+  const { t } = useTranslation();
   const styles = React.useMemo(() => createStyles(isDark), [isDark]);
   const containerWidth = bounds.width;
   const containerHeight = bounds.height;
+  const timeframeMenuLabel = t('Timeframes');
 
   const resolveMenuPosition = React.useCallback(
     (centerX: number, centerY: number) => {
@@ -393,7 +396,7 @@ export function ChartTapRadialMenu({
       key: 'objects',
       angle: 282,
       boxSize: 26,
-      accessibilityLabel: 'Objects',
+      accessibilityLabel: t('Objects'),
       render: (color) => <TvLayers color={color} />,
       onPress: onOpenObjects,
     },
@@ -401,7 +404,7 @@ export function ChartTapRadialMenu({
       key: 'draw',
       angle: 252,
       boxSize: 24,
-      accessibilityLabel: 'Drawing tools',
+      accessibilityLabel: t('Drawing Tools'),
       render: (color) => <TvRadialPencil color={color} />,
       onPress: onOpenDrawingTools,
     },
@@ -409,7 +412,7 @@ export function ChartTapRadialMenu({
       key: 'scale',
       angle: 222,
       boxSize: 24,
-      accessibilityLabel: 'Chart scale controls',
+      accessibilityLabel: `${t('Chart')} ${t('Options')}`,
       onPress: onOpenScaleControls,
       render: (color) => <Ionicons name="options-outline" size={22} color={color} />,
     },
@@ -417,7 +420,7 @@ export function ChartTapRadialMenu({
       key: 'symbol',
       angle: 192,
       boxSize: 24,
-      accessibilityLabel: 'Symbol picker',
+      accessibilityLabel: t('Select Symbol'),
       render: (color) => <TvFx color={color} />,
       onPress: onOpenSymbolPicker,
     },
@@ -425,7 +428,7 @@ export function ChartTapRadialMenu({
       key: 'indicators',
       angle: 168,
       boxSize: 24,
-      accessibilityLabel: 'Indicators',
+      accessibilityLabel: t('Indicators'),
       render: (color) => <TvRadialIndicators color={color} />,
       onPress: onOpenIndicators,
     },
@@ -452,6 +455,7 @@ export function ChartTapRadialMenu({
         {...panResponder.panHandlers}
       >
         <Animated.View
+          accessibilityLabel={timeframeMenuLabel}
           style={[
             styles.menuContent,
             {

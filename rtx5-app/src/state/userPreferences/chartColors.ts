@@ -89,6 +89,61 @@ const isNearBlackChartColor = (color: string): boolean => {
   return Number(red) <= 16 && Number(green) <= 16 && Number(blue) <= 16;
 };
 
+const parseOpaqueRgbChartColor = (color: string): { red: number; green: number; blue: number } | null => {
+  const normalized = normalizeStructuralChartColor(color);
+  if (normalized === 'white') {
+    return { red: 255, green: 255, blue: 255 };
+  }
+  if (normalized === 'black') {
+    return { red: 0, green: 0, blue: 0 };
+  }
+
+  const hex = normalized.match(/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i);
+  if (hex) {
+    const value = hex[1];
+    const red = value.length === 3 ? parseInt(value[0] + value[0], 16) : parseInt(value.slice(0, 2), 16);
+    const green = value.length === 3 ? parseInt(value[1] + value[1], 16) : parseInt(value.slice(2, 4), 16);
+    const blue = value.length === 3 ? parseInt(value[2] + value[2], 16) : parseInt(value.slice(4, 6), 16);
+    const alpha = value.length === 8 ? parseInt(value.slice(6, 8), 16) / 255 : 1;
+    return alpha <= 0 ? null : { red, green, blue };
+  }
+
+  const rgb = normalized.match(/^rgba?\((\d+),(\d+),(\d+)(?:,([0-9.]+))?\)$/);
+  if (!rgb) {
+    return null;
+  }
+
+  const [, red, green, blue, alpha] = rgb;
+  if (alpha !== undefined && Number(alpha) <= 0) {
+    return null;
+  }
+
+  return {
+    red: Number(red),
+    green: Number(green),
+    blue: Number(blue),
+  };
+};
+
+const getChartColorLuminance = (color: string): number | null => {
+  const rgb = parseOpaqueRgbChartColor(color);
+  if (!rgb) {
+    return null;
+  }
+
+  return (0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue) / 255;
+};
+
+const isLightChartColor = (color: string): boolean => {
+  const luminance = getChartColorLuminance(color);
+  return luminance !== null && luminance >= 0.72;
+};
+
+const isDarkChartColor = (color: string): boolean => {
+  const luminance = getChartColorLuminance(color);
+  return luminance !== null && luminance <= 0.28;
+};
+
 const LIGHT_THEME_CHART_FALLBACKS: StructuralChartColors = {
   background: CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.background,
   foreground: CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.foreground,
@@ -152,25 +207,18 @@ export function resolveChartColorsForTheme(
   };
 
   const resolvedColors = { ...mergedColors };
-  const presetStructuralColors = chartColorScheme && chartColorScheme !== 'custom'
-    ? {
-        background: CHART_COLOR_SCHEME_PRESETS[chartColorScheme].colors.background,
-        foreground: CHART_COLOR_SCHEME_PRESETS[chartColorScheme].colors.foreground,
-        grid: CHART_COLOR_SCHEME_PRESETS[chartColorScheme].colors.grid,
-        hollowBody: CHART_COLOR_SCHEME_PRESETS[chartColorScheme].colors.hollowBody,
-      }
-    : null;
-  const schemeStructuralColors = presetStructuralColors
-    ? (isDark ? presetStructuralColors : LIGHT_THEME_CHART_FALLBACKS)
-    : null;
-  const themeStructuralColors = schemeStructuralColors ?? (isDark ? DARK_THEME_CHART_FALLBACKS : LIGHT_THEME_CHART_FALLBACKS);
-  const forceThemeStructure = schemeStructuralColors !== null;
+  const themeStructuralColors = isDark ? DARK_THEME_CHART_FALLBACKS : LIGHT_THEME_CHART_FALLBACKS;
+  const forceThemeStructure = Boolean(chartColorScheme && chartColorScheme !== 'custom');
+  const canvasBrightnessMismatchesTheme = chartColorScheme === 'custom' && (
+    isDark ? isLightChartColor(mergedColors.background) : isDarkChartColor(mergedColors.background)
+  );
 
   (Object.keys(themeStructuralColors) as Array<keyof StructuralChartColors>).forEach((key) => {
     const normalizedValue = normalizeStructuralChartColor(mergedColors[key]);
     const isInvisibleDarkGrid = key === 'grid' && isDark && isNearBlackChartColor(mergedColors[key]);
     if (
       forceThemeStructure ||
+      canvasBrightnessMismatchesTheme ||
       (!chartColorScheme && (isInvisibleDarkGrid || BUILTIN_STRUCTURAL_VALUES[key].has(normalizedValue)))
     ) {
       resolvedColors[key] = themeStructuralColors[key];

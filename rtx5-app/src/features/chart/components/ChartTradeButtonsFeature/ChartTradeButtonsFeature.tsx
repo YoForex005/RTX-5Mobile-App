@@ -11,6 +11,7 @@ import {
   resolveFooterLotChevronState,
 } from '../../chartTradeInteractionUtils';
 import {
+  resolveChartTradeButtonPriceColor,
   resolveChartTradeButtonQuote,
 } from './quoteFallback';
 import { baseStyles, darkStyles, lightStyles, textBaseStyles } from './styles';
@@ -91,6 +92,8 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   invalidLotDisplay,
 }: ChartTradeButtonsProps) {
   const latestQuote = useLiveSymbolQuote(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS);
+  const previousBidRef = React.useRef<number | null>(null);
+  const previousAskRef = React.useRef<number | null>(null);
   const { bid: latestBid, ask: latestAsk } = resolveChartTradeButtonQuote({
     liveBid: latestQuote?.bid,
     liveAsk: latestQuote?.ask,
@@ -171,8 +174,34 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   const themeStyles = isDark ? darkStyles : lightStyles;
   const sellAction = getChartTradeAction('sell');
   const buyAction = getChartTradeAction('buy');
-  const sellTileColor = sellColor;
-  const buyTileColor = buyColor;
+  const sellTileVisual = resolveChartTradeButtonPriceColor({
+    currentPrice: latestBid,
+    previousPrice: previousBidRef.current,
+    upColor: buyColor,
+    downColor: sellColor,
+    fallbackColor: sellColor,
+  });
+  const buyTileVisual = resolveChartTradeButtonPriceColor({
+    currentPrice: latestAsk,
+    previousPrice: previousAskRef.current,
+    upColor: buyColor,
+    downColor: sellColor,
+    fallbackColor: buyColor,
+  });
+  const sellTileColor = sellTileVisual.color;
+  const buyTileColor = buyTileVisual.color;
+
+  React.useEffect(() => {
+    if (hasLiveBid) {
+      previousBidRef.current = latestBid;
+    }
+  }, [hasLiveBid, latestBid]);
+
+  React.useEffect(() => {
+    if (hasLiveAsk) {
+      previousAskRef.current = latestAsk;
+    }
+  }, [hasLiveAsk, latestAsk]);
   const lotDisplayValue = (
     <Text style={[textBaseStyles.actionLotValue, baseStyles.actionLotDisplayGhost, themeStyles.actionLotValue, lotInvalid && { color: INVALID_LOT_COLOR }]} numberOfLines={1}>
       {lotDisplayText}

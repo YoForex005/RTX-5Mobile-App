@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  DEFAULT_API_BASE_URL,
+  PUBLIC_BROKER_DIRECTORY_BASE_URL,
   buildBrokerApiBaseUrl,
   buildBrokerWsUrl,
   isBrokerServiceBaseUrl,
@@ -10,6 +12,11 @@ import {
   resolveBrokerServiceBaseUrl,
   shouldUseBrokerHostedQuoteFeed,
 } from './brokerRouting';
+
+test('production fallbacks use production superbackend routes when EAS env is absent', () => {
+  assert.equal(DEFAULT_API_BASE_URL, 'https://superbackend.orrnn.com/api/v2');
+  assert.equal(PUBLIC_BROKER_DIRECTORY_BASE_URL, 'https://superbackend.orrnn.com/api/v1');
+});
 
 test('normalizeBrokerServerUrl keeps broker service bases on secure domains', () => {
   assert.equal(
@@ -62,7 +69,9 @@ test('resolveBrokerServiceBaseUrl uses the discovery service domain instead of s
 
 test('resolveBrokerServiceBaseUrl rejects shared backends as broker service domains', () => {
   assert.equal(isSharedBackendOrigin('https://backend.orrnn.com/api/v2'), true);
+  assert.equal(isSharedBackendOrigin('https://superbackend.orrnn.com/api/v2'), true);
   assert.equal(isBrokerServiceBaseUrl('https://backend.orrnn.com/api/v2'), false);
+  assert.equal(isBrokerServiceBaseUrl('https://superbackend.orrnn.com/api/v2'), false);
   assert.equal(
     resolveBrokerServiceBaseUrl({
       server_url: 'https://backend.orrnn.com/api/v2',
@@ -82,7 +91,7 @@ test('resolveBrokerServiceBaseUrl rejects shared backends as broker service doma
 test('buildBrokerApiBaseUrl falls back instead of constructing raw-ip broker requests', () => {
   assert.equal(
     buildBrokerApiBaseUrl('http://69.197.178.27:8090'),
-    'https://backend.orrnn.com/api/v2',
+    'https://superbackend.orrnn.com/api/v2',
   );
 });
 

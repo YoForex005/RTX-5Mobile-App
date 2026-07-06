@@ -342,11 +342,11 @@ test('global action sheet actions avoid selecting rows while scrolling', () => {
   assert.match(source, /const handleActionRowPress = useCallback\(\(actionPress\?: \(\) => void\) => \{[\s\S]*if \(gesture\.cancelled\) \{[\s\S]*return;[\s\S]*\}[\s\S]*handleActionPress\(actionPress\)/);
   assert.match(source, /onPressIn=\{recordActionRowPressStart\}/);
   assert.match(source, /onTouchMove=\{recordActionRowPressMove\}/);
-  assert.match(source, /onPress=\{action\.disabled \? undefined : \(\) => handleActionRowPress\(action\.onPress\)\}/);
-  assert.match(source, /activateOnPressIn=\{action\.activateOnPressIn === true && !action\.disabled\}/);
+  assert.match(source, /const isActiveDisabled = action\.disabled \|\| action\.selected === true/);
+  assert.match(source, /onPress=\{isActiveDisabled \? undefined : \(\) => handleActionRowPress\(action\.onPress\)\}/);
+  assert.match(source, /activateOnPressIn=\{action\.activateOnPressIn === true && !isActiveDisabled/);
   assert.match(source, /onScrollBeginDrag=\{cancelActionRowPressForScroll\}/);
   assert.match(source, /onMomentumScrollBegin=\{cancelActionRowPressForScroll\}/);
-  assert.match(source, /latencyLabel="actionSheet\.cancel"/);
   assert.match(source, /latencyLabel="actionSheet\.dismissOverlay"/);
   assert.match(source, /style=\{\[StyleSheet\.absoluteFillObject, styles\.backdrop\]\}/);
   assert.match(source, /BackHandler\.addEventListener\('hardwareBackPress'/);
@@ -978,7 +978,9 @@ test('theme toggles acknowledge before persisted preference writes', () => {
   assert.match(sidebarSource, /<Pressable[\s\S]*style=\{selectedIsDark \? ds\.themeOptActive : ds\.themeOptInactive\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="sidebar\.themeDark"[\s\S]*unstable_pressDelay=\{0\}/);
   assert.match(settingsSource, /const toggleThemeMode = useCallback\(\(\) => \{\s*setThemeMode\(themeMode === 'light' \? 'dark' : 'light'\);/);
   assert.match(settingsSource, /const isThemeItem = item\.title === 'Theme'/);
-  assert.match(settingsSource, /onPress=\{isThemeItem \? toggleThemeMode : item\.routePath \|\| item\.action \? \(\) => handleSearchResultPress\(item\) : undefined\}/);
+  assert.match(settingsSource, /const routePath = item\.routePath/);
+  assert.match(settingsSource, /onPress=\{isThemeItem \? toggleThemeMode : routePath \|\| item\.action \? \(\) => handleSearchResultPress\(item\) : undefined\}/);
+  assert.match(settingsSource, /onPressIn=\{routePath \? \(\) => prepareReadySettingsRoute\(routePath\) : undefined\}/);
   assert.doesNotMatch(settingsSource, /activateOnPressIn=\{isThemeItem\}/);
   assert.doesNotMatch(settingsSource, /title=\{t\('Theme'\)\}[\s\S]*onPress=\{toggleThemeMode\}[\s\S]*activateOnPressIn/);
   assert.match(settingsSource, /<View pointerEvents="none">[\s\S]*<Switch/);

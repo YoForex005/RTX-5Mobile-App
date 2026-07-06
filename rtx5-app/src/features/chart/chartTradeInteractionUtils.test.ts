@@ -94,16 +94,22 @@ test('chart footer lot editor has an iOS Apply accessory and stable focus retry'
   assert.match(chartScreenSource, /const maxAttempts = 8/);
 });
 
-test('chart quick trade buttons use blue for buy and red for sell', () => {
+test('chart quick trade buttons use side fallback colors and per-side tick movement colors', () => {
   const tradeButtonsSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/ChartTradeButtonsFeature.tsx');
+  const quoteSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/quoteFallback.ts');
   const chartScreenSource = readSource('src/features/chart/ChartScreen.native.tsx');
 
   assert.match(chartScreenSource, /const BLUE = T\.trading\.buy\.primary/);
   assert.match(chartScreenSource, /buyColor=\{BLUE\}/);
   assert.match(chartScreenSource, /sellColor=\{T\.trading\.sell\.primary\}/);
-  assert.match(tradeButtonsSource, /const sellTileColor = sellColor/);
-  assert.match(tradeButtonsSource, /const buyTileColor = buyColor/);
-  assert.doesNotMatch(tradeButtonsSource, /resolveChartTradeButtonPriceColor|PriceColorResult|bidPriceVisualRef|askPriceVisualRef/);
+  assert.match(tradeButtonsSource, /const sellTileVisual = resolveChartTradeButtonPriceColor/);
+  assert.match(tradeButtonsSource, /fallbackColor: sellColor/);
+  assert.match(tradeButtonsSource, /const buyTileVisual = resolveChartTradeButtonPriceColor/);
+  assert.match(tradeButtonsSource, /fallbackColor: buyColor/);
+  assert.match(tradeButtonsSource, /const sellTileColor = sellTileVisual\.color/);
+  assert.match(tradeButtonsSource, /const buyTileColor = buyTileVisual\.color/);
+  assert.match(quoteSource, /current > previous[\s\S]*direction = 'up'/);
+  assert.match(quoteSource, /current < previous[\s\S]*direction = 'down'/);
   assert.match(tradeButtonsSource, /baseStyles\.chartTradeMarketActionButton,\s*\{ backgroundColor: sellColor \}/);
   assert.match(tradeButtonsSource, /baseStyles\.chartTradeMarketActionButton,\s*\{ backgroundColor: buyColor \}/);
 });

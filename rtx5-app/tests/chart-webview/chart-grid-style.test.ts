@@ -273,7 +273,7 @@ test('WebView chart grid combines fixed horizontal guides with moving vertical g
   );
   assert.match(
     chartWebViewHtmlSource,
-    /function scheduleMovingVerticalGridUpdate\(\)[\s\S]*if \(movingVerticalGridRaf\) \{[\s\S]*return;[\s\S]*requestAnimationFrame/,
+    /function scheduleMovingVerticalGridUpdate\(preferTransformOnly\)[\s\S]*if \(movingVerticalGridRaf\) \{[\s\S]*return;[\s\S]*requestAnimationFrame/,
     'vertical grid updates must coalesce to the next animation frame without canceling every scroll event',
   );
   assert.match(
@@ -364,7 +364,7 @@ test('chart time scale keeps older history open and bounds the live right edge',
   );
   assert.match(
     chartWebViewHtmlSource,
-    /subscribeVisibleLogicalRangeChange\(function\(range\) \{[\s\S]*if \(clampVisibleLogicalRangeToLiveEdge\(range\)\) \{[\s\S]*return;[\s\S]*\}[\s\S]*scheduleMovingVerticalGridUpdate\(\)/,
+    /subscribeVisibleLogicalRangeChange\(function\(range\) \{[\s\S]*if \(clampVisibleLogicalRangeToLiveEdge\(range\)\) \{[\s\S]*return;[\s\S]*\}[\s\S]*scheduleMovingVerticalGridUpdate\(isActiveHorizontalGesture\)/,
     'WebView must clamp extra live-side scroll before doing scroll-path work',
   );
 });

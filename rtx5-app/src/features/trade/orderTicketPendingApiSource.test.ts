@@ -90,6 +90,20 @@ test('order ticket graph uses the screen background instead of a white card', ()
   assert.doesNotMatch(graphWrapStyle, /#FFFFFF/);
 });
 
+test('order ticket trade confirmation toast follows the active app theme', () => {
+  const source = readOrderTicketSource();
+  const stylesStart = source.indexOf('tradeConfirmationCard: {');
+  const stylesEnd = source.indexOf('tradeConfirmationSide:', stylesStart);
+  assert.notEqual(stylesStart, -1, 'trade confirmation style must exist');
+  assert.notEqual(stylesEnd, -1, 'trade confirmation style boundary must exist');
+
+  const toastStyles = source.slice(stylesStart, stylesEnd);
+  assert.match(toastStyles, /backgroundColor:\s*isDark \? SURFACE : '#FFFFFF'/);
+  assert.match(toastStyles, /borderColor:\s*isDark \? T\.border : 'transparent'/);
+  assert.match(toastStyles, /tradeConfirmationSymbol:[\s\S]*color:\s*WHITE/);
+  assert.doesNotMatch(toastStyles, /color:\s*'#0F172A'/);
+});
+
 test('order ticket buy and sell buttons use blue and red trading colors', () => {
   const source = readOrderTicketSource();
   const actionsStart = source.indexOf('const tradeButtonActions: readonly OrderTicketTradeAction[] = [');

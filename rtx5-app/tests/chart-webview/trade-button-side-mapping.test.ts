@@ -74,7 +74,8 @@ test('chart trade buttons keep buy and sell press handlers mapped to the matchin
     handlerSource,
     /placeOrder\(payload,[\s\S]*?\}\);\s*releaseTradeTapLock\(CHART_TRADE_TAP_RELEASE_DELAY_MS\);/,
   );
-  assert.match(source, /disabled=\{chartTradeActionDisabled\}/);
+  assert.match(source, /const tradeBlocked = chartTradeActionDisabled \|\| lotInvalid/);
+  assert.match(source, /disabled=\{tradeBlocked\}/);
 });
 
 test('chart market order payload keeps the pressed side on first trades and symbol switches', () => {

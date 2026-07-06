@@ -71,10 +71,11 @@ test('help screen and route are wired as a real settings destination', () => {
 
   assert.match(legalLinksSource, /supportEmail: 'support@orrnn\.com'/);
   assert.match(legalLinksSource, /getConfiguredSupportEmail/);
-  assert.match(routeSource, /import \{ HelpScreen \}/);
+  assert.match(routeSource, /loadHelpScreenRoute = \(\) => import\('\.\.\/\.\.\/src\/features\/settings\/HelpScreen'\)\.then\(\(module\) => module\.HelpScreen\)/);
   // Rendered directly or via the deferred-mount wrapper (so opening Help shows
   // the screen background instantly instead of freezing on the heavy mount).
-  assert.match(routeSource, /<HelpScreen \/>|<DeferredRouteScreen Screen=\{HelpScreen\}/);
+  assert.match(routeSource, /<HelpScreen \/>|<DeferredRouteScreen Screen=\{HelpScreen\}|<DeferredRouteModule/);
+  assert.match(routeSource, /fallback=\{\([\s\S]*<SettingsRouteLaunchPreview[\s\S]*title="Help"[\s\S]*subtitle="FAQ"/);
   assert.match(layoutSource, /<Stack\.Screen name='settings\/help'/);
   assert.match(screenSource, /HELP_CATEGORY_FILTERS/);
   assert.match(screenSource, /getHelpCategoryCounts/);

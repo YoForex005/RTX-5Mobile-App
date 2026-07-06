@@ -609,7 +609,7 @@ test('SL/TP sheet comment editor accepts typing immediately and applies cleanly'
 test('compact footer lot editing does not add an Android pre-keyboard lift gap', () => {
   assertSourceContains(
     chartTradeFeatureSource,
-    /const tradeFooterDockEditGap =[\s\S]*Platform\.OS === 'ios'[\s\S]*footer\.footerTradeRowKeyboardOffset > 0[\s\S]*\? FOOTER_TRADE_DOCK_EDIT_GAP[\s\S]*: 0/,
+    /const resolvedTradeFooterDockBottom = resolveFooterTradeDockBottom\(\{[\s\S]*platform: Platform\.OS,[\s\S]*androidFocusedLotEditorBottomGap: FOOTER_TRADE_DOCK_ANDROID_BOTTOM_SAFE_GAP/,
     'footer lot editing must not jump upward on Android before keyboard layout settles',
   );
   assertSourceContains(
@@ -629,7 +629,7 @@ test('compact footer lot editing does not add an Android pre-keyboard lift gap',
   );
   assertSourceContains(
     chartTradeFeatureSource,
-    /isAndroidFloatingFooterLotEditor[\s\S]*\? FOOTER_TRADE_DOCK_ANDROID_BOTTOM_SAFE_GAP[\s\S]*: footer\.footerTradeRowKeyboardOffset \+ tradeFooterDockEditGap/,
+    /const fallbackTradeFooterDockBottom = isAndroidFloatingFooterLotEditor[\s\S]*\? FOOTER_TRADE_DOCK_ANDROID_BOTTOM_SAFE_GAP[\s\S]*: footer\.footerTradeRowKeyboardOffset/,
     'Android compact lot editing must not apply the first keyboard offset as an extra dock lift',
   );
 });

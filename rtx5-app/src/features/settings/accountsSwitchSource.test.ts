@@ -82,7 +82,8 @@ test('accounts screen uses broker branding and opens long-press delete for other
   assert.match(source, /addBrokerLogoLookup\(byBrokerName, broker\.broker_name, logoUrl\)/);
   assert.match(source, /addBrokerLogoLookup\(byServerName, broker\.server, logoUrl\)/);
   assert.match(source, /const findBrokerLogoLookup = \(/);
-  assert.match(source, /const \{ data: brokerServers \} = useBrokerServers\(isScreenFocused\)/);
+  assert.match(source, /const screenDataActive = useDeferredActiveFlag\([\s\S]*isLoggedIn && isScreenFocused && firstPaintReady[\s\S]*ACCOUNTS_SCREEN_DATA_DELAY_MS/);
+  assert.match(source, /const \{ data: brokerServers \} = useBrokerServers\(screenDataActive\)/);
   assert.match(source, /const brokerLogoIndex = useMemo\(\(\) => buildBrokerLogoIndex\(brokerServers\), \[brokerServers\]\)/);
   assert.match(source, /const activeBrokerLogoUrl = resolveAccountBrokerLogoUrl\([\s\S]*brokerLogoIndex,[\s\S]*brokerId,[\s\S]*serverUrl: brokerServerUrl,[\s\S]*brokerName: brokerConfig\?\.broker_name,[\s\S]*serverName: brokerConfig\?\.server_name,[\s\S]*brokerLogoUrl,[\s\S]*brokerConfig\?\.logo_url,[\s\S]*\)/);
   assert.match(source, /const savedLogoUrl = sa\.brokerId === activeBrokerId[\s\S]*brokerId: sa\.brokerId,[\s\S]*serverUrl: sa\.serverUrl,[\s\S]*brokerName: sa\.server,[\s\S]*serverName: sa\.server,[\s\S]*sa\.logoUrl,[\s\S]*activeBrokerLogoUrl/);

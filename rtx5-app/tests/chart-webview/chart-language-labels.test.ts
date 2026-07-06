@@ -20,6 +20,16 @@ const liveHeadersSource = (() => {
   assert.ok(filePath, 'ChartLiveHeaders.tsx was not found from the test working directory');
   return readFileSync(filePath, 'utf8');
 })();
+const chartTapRadialMenuSource = (() => {
+  const candidates = [
+    resolve(process.cwd(), 'src/features/chart/components/ChartTapRadialMenu.tsx'),
+    resolve(process.cwd(), 'rtx5-app/src/features/chart/components/ChartTapRadialMenu.tsx'),
+  ];
+  const filePath = candidates.find((candidate) => existsSync(candidate));
+  assert.ok(filePath, 'ChartTapRadialMenu.tsx was not found from the test working directory');
+  return readFileSync(filePath, 'utf8');
+})();
+const chartRuntimeLabelSource = `${nativeSource}\n${chartTapRadialMenuSource}`;
 
 test('LivePriceHeader subscribes to i18n and renders translated Price label', () => {
   const start = liveHeadersSource.indexOf('const LivePriceHeader');
@@ -46,7 +56,7 @@ test('ChartScreen listed static runtime labels use translation calls', () => {
     'Select Symbol',
     'Expiration',
   ]) {
-    assertSourceContains(nativeSource, new RegExp(`t\\('${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'\\)`), `${key} must use t()`);
+    assertSourceContains(chartRuntimeLabelSource, new RegExp(`t\\('${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'\\)`), `${key} must use t()`);
   }
 });
 
