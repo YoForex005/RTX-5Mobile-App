@@ -7,8 +7,8 @@ import { FastPressable as Pressable } from '../FastPressable';
  * That keeps updates scoped to the affected row instead of forcing the whole
  * trade list to re-render on every market tick.
  */
-import { memo, useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View, LayoutAnimation, Platform, UIManager } from 'react-native';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { StyleSheet, Text, View, LayoutAnimation, Platform, UIManager, PanResponder } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
@@ -84,10 +84,27 @@ function formatTradeLeverage(value: number | null | undefined): string {
   return leverage !== undefined ? `1:${formatTradeDetailNumber(leverage)}` : '--';
 }
 
+function formatTradeLimitValue(value: number | null | undefined): string | null {
+  const resolved = resolveFiniteTradeDetailNumber(value);
+  return resolved !== undefined ? fmt.price(resolved) : null;
+}
+
+function formatTradeLimits(item: PositionItem): string {
+  const slText = formatTradeLimitValue(item.sl);
+  const tpText = formatTradeLimitValue(item.tp);
+  if (slText || tpText) {
+    return `SL ${slText ?? '--'} / TP ${tpText ?? '--'}`;
+  }
+  return 'SL / TP';
+}
+
 const TRADE_ROW_ACTIONS_WIDTH = 270;
 const TRADE_ROW_SWIPE_ACTIVE_OFFSET_X: [number, number] = Platform.OS === 'ios' ? [-10, 10] : [-18, 18];
 const TRADE_ROW_SWIPE_FAIL_OFFSET_Y: [number, number] = Platform.OS === 'ios' ? [-28, 28] : [-10, 10];
 const TRADE_ROW_SWIPE_OPEN_VELOCITY_X = Platform.OS === 'ios' ? -360 : -500;
+const TRADE_ROW_IOS_SWIPE_CLAIM_DISTANCE = 8;
+const TRADE_ROW_IOS_SWIPE_VERTICAL_RATIO = 1.15;
+const TRADE_ROW_IOS_SWIPE_OPEN_VELOCITY_X = -0.35;
 
 function TradePositionRowComponent({
   item,
@@ -123,6 +140,10 @@ function TradePositionRowComponent({
 
   const closeOverlay = () => {
     translateX.value = withSpring(TRADE_ROW_ACTIONS_WIDTH, { damping: 20, stiffness: 200, overshootClamping: true });
+  };
+
+  const openOverlay = () => {
+    translateX.value = withSpring(0, { damping: 20, stiffness: 200, overshootClamping: true });
   };
 
   useEffect(() => () => {
@@ -161,6 +182,7 @@ function TradePositionRowComponent({
   };
 
   const panGesture = Gesture.Pan()
+    .enabled(Platform.OS !== 'ios')
     .activeOffsetX(TRADE_ROW_SWIPE_ACTIVE_OFFSET_X)
     .failOffsetY(TRADE_ROW_SWIPE_FAIL_OFFSET_Y)
     .onStart(() => {
@@ -178,6 +200,48 @@ function TradePositionRowComponent({
       }
     });
 
+  const iosSwipePanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponderCapture: (_event, gestureState) => {
+          if (Platform.OS !== 'ios' || overlayActionLockRef.current) {
+            return false;
+          }
+
+          const horizontalDistance = Math.abs(gestureState.dx);
+          const verticalDistance = Math.abs(gestureState.dy);
+          const isHorizontalSwipe =
+            horizontalDistance >= TRADE_ROW_IOS_SWIPE_CLAIM_DISTANCE &&
+            horizontalDistance > verticalDistance * TRADE_ROW_IOS_SWIPE_VERTICAL_RATIO;
+          const overlayIsVisible = translateX.value < TRADE_ROW_ACTIONS_WIDTH - 1;
+
+          return isHorizontalSwipe && (gestureState.dx < 0 || overlayIsVisible);
+        },
+        onPanResponderGrant: () => {
+          startX.value = translateX.value;
+        },
+        onPanResponderMove: (_event, gestureState) => {
+          const nextX = startX.value + gestureState.dx;
+          translateX.value = Math.max(0, Math.min(TRADE_ROW_ACTIONS_WIDTH, nextX));
+        },
+        onPanResponderRelease: (_event, gestureState) => {
+          if (gestureState.vx < TRADE_ROW_IOS_SWIPE_OPEN_VELOCITY_X || translateX.value < TRADE_ROW_ACTIONS_WIDTH / 2) {
+            openOverlay();
+          } else {
+            closeOverlay();
+          }
+        },
+        onPanResponderTerminate: () => {
+          closeOverlay();
+        },
+        onPanResponderTerminationRequest: () => false,
+        onShouldBlockNativeResponder: () => false,
+      }),
+    [startX, translateX],
+  );
+  const iosSwipePanHandlers = Platform.OS === 'ios' ? iosSwipePanResponder.panHandlers : {};
+
   const overlayStyle = useAnimatedStyle(() => {
     return {
       transform: [{ translateX: translateX.value }],
@@ -192,6 +256,7 @@ function TradePositionRowComponent({
   const pointValue = resolveFiniteTradeDetailNumber(instrumentMeta?.point, liveQuote?.point);
   const pointText = formatTradeDetailNumber(pointValue);
   const leverageText = formatTradeLeverage(accountLeverage);
+  const limitsText = formatTradeLimits(item);
 
   const isJpy = item.symbol.includes('JPY');
   const decimals = isJpy ? 3 : 5; // Standard FX: 5 decimals, JPY pairs: 3 decimals
@@ -227,6 +292,7 @@ function TradePositionRowComponent({
   return (
     <GestureDetector gesture={panGesture}>
       <Animated.View
+        {...iosSwipePanHandlers}
         collapsable={false}
         style={[
           styles.row,
@@ -315,8 +381,11 @@ function TradePositionRowComponent({
               <View style={styles.detailCell}>
                 <Text style={[styles.detailLabel, { color: detailLabelColor }]}>Limits</Text>
                 <Pressable onPressIn={navigateToModifyPosition} hitSlop={12} unstable_pressDelay={0}>
-                  <Text style={[styles.detailValue, { color: T.accent }]}>
-                    SL / TP
+                  <Text
+                    numberOfLines={2}
+                    style={[styles.detailValue, styles.limitsValue, { color: T.accent }]}
+                  >
+                    {limitsText}
                   </Text>
                 </Pressable>
               </View>

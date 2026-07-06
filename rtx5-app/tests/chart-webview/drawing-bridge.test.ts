@@ -1,4 +1,6 @@
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import {
   assertSourceContains,
@@ -7,6 +9,7 @@ import {
 } from '../support/chartSourceTestUtils';
 
 const source = readChartScreenSource();
+const readProjectSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
 test('required drawing bridge functions remain exposed on window', () => {
   [
@@ -62,5 +65,36 @@ test('drawing lock hide and sticky state are pushed after WebView chart is ready
     source,
     /if \(!webViewReady \|\| !chartCanvasReady\) return[\s\S]*setDrawingsLocked\(\$\{chartLockAll\}\)[\s\S]*setDrawingsHidden\(\$\{chartHideAll\}\)[\s\S]*setStayInDrawingMode\(\$\{stickyDrawingMode\}\)/,
     'drawing interaction flags must be bridged only after the chart exists',
+  );
+});
+
+test('drawing tools open path is resilient to iOS chart overlay touch ordering', () => {
+  const drawingFeatureSource = readProjectSource('src/features/chart/components/ChartDrawingToolsFeature.tsx');
+  const radialMenuSource = readProjectSource('src/features/chart/components/ChartTapRadialMenu.tsx');
+
+  assertSourceContains(
+    source,
+    /const handleOpenDrawingTools = useCallback\(\(\) => \{[\s\S]*runImmediateAction\('chart\.drawingTools\.open'[\s\S]*closeChartTapMenu\(\);[\s\S]*showChartActionSheet\(\{/,
+    'opening drawing tools must close chart overlays before showing the sheet',
+  );
+  assertSourceContains(
+    source,
+    /onOpenDrawingTools=\{\(\) => \{[\s\S]*closeChartTapMenu\(\);[\s\S]*handleOpenDrawingTools\(\);[\s\S]*\}\}/,
+    'radial-menu drawing action must dismiss the radial overlay before opening the drawing sheet',
+  );
+  assertSourceContains(
+    drawingFeatureSource,
+    /onPress=\{onOpenDrawingTools\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart/,
+    'drawing toolbar opener must fire on touch-down for iOS',
+  );
+  assertSourceContains(
+    drawingFeatureSource,
+    /onPress=\{\(\) => onSelectTool\(entry\.definition\.tool\)\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart/,
+    'drawing sidebar tool rows must fire on touch-down for iOS',
+  );
+  assertSourceContains(
+    radialMenuSource,
+    /onPress=\{\(event\) => handleActionItemPress\(event, item\.onPress\)\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart/,
+    'radial action items must not wait for iOS press release before opening drawing tools',
   );
 });

@@ -167,7 +167,9 @@ export function ChartDrawingToolbarButton({
     <View style={[baseStyles.toolbarSlot, themeStyles.toolbarSlot]}>
       <Pressable
         style={baseStyles.toolbarIconButton}
-        onPressIn={onPress}
+        onPress={onPress}
+        activateOnPressIn
+        activateOnTouchStart
         hitSlop={8}
         unstable_pressDelay={0}
       >
@@ -216,6 +218,10 @@ export function ChartDrawingToolsSidebar({
           key={entry.definition.tool}
           style={[baseStyles.toolIcon, active && themeStyles.toolIconActive]}
           onPress={() => onSelectTool(entry.definition.tool)}
+          activateOnPressIn
+          activateOnTouchStart
+          hitSlop={6}
+          unstable_pressDelay={0}
         >
           {entry.definition.renderIcon(active ? colors.blue : colors.textMuted)}
         </Pressable>
@@ -229,6 +235,10 @@ export function ChartDrawingToolsSidebar({
         key={entry.definition.key}
         style={[baseStyles.toolIcon, active && themeStyles.toolIconActive]}
         onPress={commandHandlers[entry.definition.key]}
+        activateOnPressIn
+        activateOnTouchStart
+        hitSlop={6}
+        unstable_pressDelay={0}
       >
         {entry.definition.renderIcon(active ? colors.blue : colors.textMuted)}
       </Pressable>
@@ -259,6 +269,10 @@ export function ChartDrawingToolsSidebar({
           { backgroundColor: colors.blue, shadowColor: colors.blue },
         ]}
         onPress={onOpenDrawingTools}
+        activateOnPressIn
+        activateOnTouchStart
+        hitSlop={6}
+        unstable_pressDelay={0}
       >
         <TvRadialPlus color="#FFFFFF" />
       </Pressable>

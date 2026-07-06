@@ -326,6 +326,7 @@ export function TradeScreen() {
       />
       <FlatList
         keyboardShouldPersistTaps="always"
+        canCancelContentTouches={Platform.OS === 'ios'}
         style={s.list}
         data={renderablePositions}
         keyExtractor={(item) => item.id}

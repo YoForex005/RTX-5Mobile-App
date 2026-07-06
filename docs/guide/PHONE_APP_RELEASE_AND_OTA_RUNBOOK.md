@@ -7,21 +7,31 @@ Use this file when you want to update the RTX5 mobile app in the future.
 - Real app folder: `rtx5-app`
 - Expo project owner: `chinese-hedger`
 - Expo project slug: `rtx5-app`
-- Runtime version policy: `appVersion`
-- Current app version: `1.0.0`
+- OTA system: Expo EAS Update through `expo-updates`
+- Runtime version policy: `fingerprint`
+- Current native config version: see `rtx5-app/app.json`
+- Current OTA display version: see `rtx5-app/src/config/appDisplayVersion.ts`
+- Update URL: `https://u.expo.dev/092a58db-dea9-469a-a383-f27300598812`
 - OTA channels:
   - `preview`
   - `staging`
   - `production`
 - GitHub production OTA branch: `release`
 - GitHub secret required for OTA: `EXPO_TOKEN`
+- Required EAS environment names for every OTA channel:
+  - `EXPO_PUBLIC_API_BASE_URL`
+  - `EXPO_PUBLIC_BROKER_DIRECTORY_BASE_URL`
+  - `EXPO_PUBLIC_DEMO_API_BASE_URL`
+  - `EXPO_PUBLIC_FEED_BROKER_TOKEN`
+  - `EXPO_PUBLIC_TERMS_URL`
+  - `EXPO_PUBLIC_PRIVACY_POLICY_URL`
 
 ## What Is Already Done
 
 - OTA is enabled in `rtx5-app/app.json`.
 - `expo-updates` is installed.
 - `rtx5-app/eas.json` has `preview`, `staging`, and `production` channels.
-- GitHub workflow `RTX5 OTA Update` is present.
+- GitHub workflow `RTX5 OTA Update` is present in `.github/workflows/eas-update.yml`.
 - GitHub secret `EXPO_TOKEN` has been added.
 - GitHub `release` branch has been created.
 - Manual GitHub OTA workflow was tested successfully on the `production` channel.
@@ -31,6 +41,10 @@ Use this file when you want to update the RTX5 mobile app in the future.
 OTA does not upload a new app to Play Store or App Store.
 
 OTA publishes JavaScript and bundled asset changes to Expo. Users who already installed the compatible app build receive the update when they open or restart the app.
+
+With `runtimeVersion.policy: fingerprint`, a normal OTA must publish to the fingerprint that Expo resolves from the current source. Do not use `RTX5_FORCE_RUNTIME_VERSION` to push new source into an older binary. That bypasses the safety gate. Use it only for an explicitly approved rollback to a known compatible update.
+
+If the current resolved fingerprint differs from the installed binary fingerprint, either the installed binary is old or the current source has native/config/dependency changes. Compare against the binary commit first. If native-impacting files changed, make a new binary build.
 
 ## When OTA Is Allowed
 
@@ -89,6 +103,9 @@ Follow these steps when the change is OTA-safe.
    ```powershell
    cd C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app
    npm run typecheck
+   node .\scripts\ota\check-eas-env.js production
+   node .\scripts\ota\check-ota-safety.js --base <installed-binary-git-sha>
+   node .\scripts\ota\print-update-context.js --channel production
    npx expo-doctor
    ```
 
@@ -188,8 +205,13 @@ Use this if GitHub is not working and you want to publish from this computer.
 4. Publish production OTA.
 
    ```powershell
-   npx eas-cli@latest update --channel production --platform all --message "Production OTA update"
+   $env:RTX5_OTA_BASE_REF="<installed-binary-git-sha>"
+   npm run update:prod -- --message "production $(git rev-parse --short HEAD)"
    ```
+
+   The wrapper uses `--environment production`, checks required EAS env names, prints Android/iOS runtime context, and blocks production OTA if native-impacting files changed since the installed binary commit.
+
+   Preview and staging must have their own EAS environment variables before they can be used for production-parity testing. If `node .\scripts\ota\check-eas-env.js preview` fails, do not trust preview OTA behavior.
 
 ## Production Store Build
 
@@ -297,4 +319,3 @@ For production phone app updates, use:
 ```text
 release
 ```
-

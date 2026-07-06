@@ -7,6 +7,7 @@ import { useUserPreferences } from '../state/userPreferences';
 import { resolveTradingLoginString } from '../state/tradingLogin';
 import { ACCOUNTS_LIST_KEY } from '../query/accounts';
 import { brokerRealtimeService } from '../api/ws/BrokerRealtimeService';
+import { buildAccountDetailPath } from '../api/accountsRoutes';
 import type { InstrumentContractSpec } from '../domain/account/equity';
 
 type BootstrapResult = {
@@ -30,6 +31,12 @@ const unwrapArray = (value: unknown): unknown[] => {
   return [];
 };
 
+const unwrapAccountRows = (value: unknown): unknown[] => {
+  const rows = unwrapArray(value);
+  if (rows.length > 0) return rows;
+  return value && typeof value === 'object' && !Array.isArray(value) ? [value] : [];
+};
+
 const requestJson = async <T>(endpoint: string): Promise<T | null> => {
   try {
     return await brokerApi.getJson<T>(endpoint);
@@ -40,7 +47,7 @@ const requestJson = async <T>(endpoint: string): Promise<T | null> => {
 };
 
 const updateAccountMetricsFromBootstrap = (accounts: unknown, accountLogin: string | undefined) => {
-  const rows = unwrapArray(accounts);
+  const rows = unwrapAccountRows(accounts);
   const selected = rows.find((item) => {
     const record = item as Record<string, unknown>;
     return String(record.login ?? record.account_login ?? record.id ?? '') === String(accountLogin ?? '');
@@ -83,6 +90,7 @@ const updateAccountMetricsFromBootstrap = (accounts: unknown, accountLogin: stri
 
 export async function bootstrapApp(options: { accountLogin?: string | number } = {}): Promise<BootstrapResult> {
   const accountLogin = options.accountLogin ? String(options.accountLogin) : resolveTradingLoginString();
+  const encodedAccountLogin = accountLogin ? encodeURIComponent(accountLogin) : '';
 
   const state = useUserPreferences.getState();
   if (state.isLoggedIn && state.accountDetails?.credentials?.accessToken) {
@@ -92,43 +100,34 @@ export async function bootstrapApp(options: { accountLogin?: string | number } =
   // Start startup requests together and apply each result as soon as it lands.
   // This keeps quotes/account/positions from waiting on a slower endpoint.
   const mePromise = requestJson('/auth/me');
-  const accountsPromise = requestJson('/accounts').then((accounts) => {
-    if (accounts) {
-      appQueryClient.setQueryData([ACCOUNTS_LIST_KEY], unwrapArray(accounts));
-      updateAccountMetricsFromBootstrap(accounts, accountLogin);
-    }
-    return accounts;
-  });
-  const positionsPromise = requestJson('/positions').then(async (positions) => {
-    const unscopedRows = unwrapArray(positions);
-    // The generic endpoint can be an empty catalog while the login-scoped
-    // endpoint has real open trades, so never let it clear an active account.
-    const needsScopedPositions = Boolean(accountLogin && unscopedRows.length === 0);
-    const resolvedPositions = needsScopedPositions && accountLogin
-      ? await requestJson(`/positions/${encodeURIComponent(accountLogin)}`)
-      : positions;
-    const resolvedRows = unwrapArray(resolvedPositions);
-    // If there is no account login and the generic endpoint is empty, skip the
-    // store update. An unscoped empty response does not prove the active account
-    // has no open trades, and applying it would blank the Trade screen.
-    if (resolvedPositions && (accountLogin || resolvedRows.length > 0)) {
-      usePositionsState.getState().applyPositionsSnapshot(resolvedRows, accountLogin, {
-        preserveMissingExisting: false,
-      });
-    }
-    return resolvedPositions;
-  });
-  const ordersPromise = requestJson('/orders').then(async (orders) => {
-    const resolvedOrders = orders || (
-      accountLogin
-        ? await requestJson(`/orders/${encodeURIComponent(accountLogin)}`)
-        : null
-    );
-    if (resolvedOrders) {
-      appQueryClient.setQueryData(['orders', accountLogin], unwrapArray(resolvedOrders));
-    }
-    return resolvedOrders;
-  });
+  const accountsPromise = accountLogin
+    ? requestJson(buildAccountDetailPath(accountLogin)).then((accounts) => {
+      if (accounts) {
+        appQueryClient.setQueryData([ACCOUNTS_LIST_KEY], unwrapAccountRows(accounts));
+        updateAccountMetricsFromBootstrap(accounts, accountLogin);
+      }
+      return accounts;
+    })
+    : Promise.resolve(null);
+  const positionsPromise = accountLogin
+    ? requestJson(`/positions/${encodedAccountLogin}`).then((positions) => {
+      if (positions) {
+        const resolvedRows = unwrapArray(positions);
+        usePositionsState.getState().applyPositionsSnapshot(resolvedRows, accountLogin, {
+          preserveMissingExisting: false,
+        });
+      }
+      return positions;
+    })
+    : Promise.resolve(null);
+  const ordersPromise = accountLogin
+    ? requestJson(`/orders/${encodedAccountLogin}`).then((orders) => {
+      if (orders) {
+        appQueryClient.setQueryData(['orders', accountLogin], unwrapArray(orders));
+      }
+      return orders;
+    })
+    : Promise.resolve(null);
   const instrumentsPromise = requestJson('/instruments?favorites=true').then((instruments) => {
     if (instruments) {
       const instrumentRows = unwrapArray(instruments) as InstrumentContractSpec[];

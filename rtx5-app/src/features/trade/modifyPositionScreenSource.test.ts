@@ -21,3 +21,16 @@ test('modify position SL and TP controls use semantic theme colors in the chart 
   assert.match(source, /<Rect width=\{60\} height=\{20\} fill=\{TP_COLOR\}/);
   assert.doesNotMatch(source, /#22D3EE|#06B6D4|#388E3C/);
 });
+
+test('modify position validates SL and TP at least five points from market close price', () => {
+  assert.match(source, /const MIN_STOP_DISTANCE_POINTS = 5;/);
+  assert.match(source, /const minStopDistance = point \* MIN_STOP_DISTANCE_POINTS;/);
+  assert.match(source, /closingMarketPrice - minStopDistance/);
+  assert.match(source, /closingMarketPrice \+ minStopDistance/);
+  assert.match(source, /at least \$\{minDistanceLabel\} below the current Bid/);
+  assert.match(source, /at least \$\{minDistanceLabel\} above the current Ask/);
+  assert.match(source, /at least \$\{minDistanceLabel\} above the current Bid/);
+  assert.match(source, /at least \$\{minDistanceLabel\} below the current Ask/);
+  assert.match(source, /SL\/TP must be at least \{MIN_STOP_DISTANCE_POINTS\} points away from the market price/);
+  assert.doesNotMatch(source, /SL\/TP must be at least 10 points away/);
+});

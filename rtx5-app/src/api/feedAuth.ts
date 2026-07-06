@@ -25,20 +25,6 @@ const FEED_TOKEN_NESTED_KEYS = [
   'quoteFeed',
 ] as const;
 
-const FEED_TOKEN_ENV_KEYS = [
-  'EXPO_PUBLIC_FEED_BROKER_TOKEN',
-  'EXPO_PUBLIC_BROKER_FEED_TOKEN',
-  'EXPO_PUBLIC_MYPROP_FEED_TOKEN',
-  'EXPO_PUBLIC_WS_FEED_TOKEN',
-  'EXPO_PUBLIC_FEED_TOKEN',
-] as const;
-
-const FEED_BROKER_ID_ENV_KEYS = [
-  'EXPO_PUBLIC_FEED_BROKER_ID',
-  'EXPO_PUBLIC_BROKER_FEED_ID',
-  'EXPO_PUBLIC_MYPROP_FEED_BROKER_ID',
-] as const;
-
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -51,15 +37,11 @@ const cleanString = (value: unknown): string => {
   return String(value).trim();
 };
 
-const firstProcessEnvValue = (keys: readonly string[]): string => {
-  if (typeof process === 'undefined') {
-    return '';
-  }
-
-  for (const key of keys) {
-    const value = cleanString(process.env[key]);
-    if (value) {
-      return value;
+const firstConfiguredValue = (values: readonly unknown[]): string => {
+  for (const value of values) {
+    const cleaned = cleanString(value);
+    if (cleaned) {
+      return cleaned;
     }
   }
   return '';
@@ -92,10 +74,20 @@ export const extractFeedBrokerToken = (payload: unknown): string => {
 };
 
 export const resolveConfiguredFeedBrokerToken = (): string =>
-  firstProcessEnvValue(FEED_TOKEN_ENV_KEYS);
+  firstConfiguredValue([
+    process.env.EXPO_PUBLIC_FEED_BROKER_TOKEN,
+    process.env.EXPO_PUBLIC_BROKER_FEED_TOKEN,
+    process.env.EXPO_PUBLIC_MYPROP_FEED_TOKEN,
+    process.env.EXPO_PUBLIC_WS_FEED_TOKEN,
+    process.env.EXPO_PUBLIC_FEED_TOKEN,
+  ]);
 
 export const resolveConfiguredFeedBrokerId = (): string =>
-  firstProcessEnvValue(FEED_BROKER_ID_ENV_KEYS);
+  firstConfiguredValue([
+    process.env.EXPO_PUBLIC_FEED_BROKER_ID,
+    process.env.EXPO_PUBLIC_BROKER_FEED_ID,
+    process.env.EXPO_PUBLIC_MYPROP_FEED_BROKER_ID,
+  ]);
 
 const normalizeBrokerId = (value: unknown): string =>
   cleanString(value).toLowerCase();

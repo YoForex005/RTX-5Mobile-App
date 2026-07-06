@@ -5,7 +5,7 @@
  *  GET  /api/v2/positions/{login}             — open positions for an account
  *  GET  /api/v2/positions/{login}/history     — closed-trade history (paginated)
  *  POST /api/v2/positions/{ticket}/close      — close a single position
- *  POST /api/v2/positions/{ticket}/modify     — modify SL/TP on an open position
+ *  PUT  /api/v2/positions/{ticket}            — modify SL/TP on an open position
  *
  * All calls routed through `apiClient` which auto-injects Bearer token and
  * handles 401 refresh loops. Originally a single 514-line file; split for the
@@ -182,12 +182,12 @@ export const positionsApi = {
   /**
    * Modify an open position's SL/TP values.
    *
-   * POST /api/v2/positions/{ticketId}/modify
+   * PUT /api/v2/positions/{ticketId}
    *
    * SL/TP values are validated against the current market price on the server.
    *
    * @param ticketId - The position ticket number to modify
-   * @param payload  - New SL/TP and trailing stop values
+   * @param payload  - New SL/TP values
    * @returns Updated position object
    */
   modifyPosition: async (
@@ -197,8 +197,8 @@ export const positionsApi = {
     recordModifyPositionJournalRequest(ticketId, payload);
     let failureRecorded = false;
     try {
-      const response = await apiClient(`/positions/${ticketId}/modify`, {
-        method: 'POST',
+      const response = await apiClient(`/positions/${ticketId}`, {
+        method: 'PUT',
         body: JSON.stringify(payload),
       });
 

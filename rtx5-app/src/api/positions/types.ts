@@ -93,8 +93,6 @@ export interface ClosePositionResponse {
 export interface ModifyPositionPayload {
   price_sl: number;
   price_tp: number;
-  trailing_stop?: number;
-  trailing_step?: number;
 }
 
 export type JsonRecord = Record<string, unknown>;

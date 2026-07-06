@@ -158,6 +158,9 @@ export const tradePositionRowStyles = StyleSheet.create({
     fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
+  limitsValue: {
+    lineHeight: 18,
+  },
   modBadge: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import {
   appendFeedAuthToWsUrl,
@@ -107,4 +109,12 @@ test('resolveConfiguredFeedBrokerTokenForBroker applies env token to any broker 
       process.env.EXPO_PUBLIC_FEED_BROKER_TOKEN = previousToken;
     }
   }
+});
+
+test('feed auth uses static EXPO_PUBLIC env access so release OTA bundles inline values', () => {
+  const source = readFileSync(resolve(process.cwd(), 'src/api/feedAuth.ts'), 'utf8');
+
+  assert.doesNotMatch(source, /process\.env\[[^\]]+\]/);
+  assert.match(source, /process\.env\.EXPO_PUBLIC_FEED_BROKER_TOKEN/);
+  assert.match(source, /process\.env\.EXPO_PUBLIC_FEED_BROKER_ID/);
 });

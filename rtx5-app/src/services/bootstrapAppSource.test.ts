@@ -10,9 +10,9 @@ test('bootstrap applies live data as each startup request resolves', () => {
 
   const realtimeConnectIndex = bootstrapSource.indexOf('brokerRealtimeService.connect()');
   const mePromiseIndex = bootstrapSource.indexOf("const mePromise = requestJson('/auth/me')");
-  const accountsPromiseIndex = bootstrapSource.indexOf("const accountsPromise = requestJson('/accounts').then");
-  const positionsPromiseIndex = bootstrapSource.indexOf("const positionsPromise = requestJson('/positions').then");
-  const ordersPromiseIndex = bootstrapSource.indexOf("const ordersPromise = requestJson('/orders').then");
+  const accountsPromiseIndex = bootstrapSource.indexOf('const accountsPromise = accountLogin');
+  const positionsPromiseIndex = bootstrapSource.indexOf('const positionsPromise = accountLogin');
+  const ordersPromiseIndex = bootstrapSource.indexOf('const ordersPromise = accountLogin');
   const instrumentsPromiseIndex = bootstrapSource.indexOf("const instrumentsPromise = requestJson('/instruments?favorites=true').then");
   const marketStatusPromiseIndex = bootstrapSource.indexOf("const marketStatusPromise = requestJson('/market/status').then");
   const promiseAllIndex = bootstrapSource.indexOf('] = await Promise.all([');
@@ -25,12 +25,12 @@ test('bootstrap applies live data as each startup request resolves', () => {
   assert.notEqual(instrumentsPromiseIndex, -1);
   assert.notEqual(marketStatusPromiseIndex, -1);
   assert.ok(promiseAllIndex > marketStatusPromiseIndex);
-  assert.match(bootstrapSource, /accountsPromise = requestJson\('\/accounts'\)\.then\(\(accounts\) => \{[\s\S]*updateAccountMetricsFromBootstrap\(accounts, accountLogin\)/);
-  assert.match(bootstrapSource, /positionsPromise = requestJson\('\/positions'\)\.then\(async \(positions\) => \{[\s\S]*applyPositionsSnapshot\(resolvedRows, accountLogin/);
-  assert.match(bootstrapSource, /const unscopedRows = unwrapArray\(positions\)/);
-  assert.match(bootstrapSource, /const needsScopedPositions = Boolean\(accountLogin && unscopedRows\.length === 0\)/);
-  assert.match(bootstrapSource, /needsScopedPositions[\s\S]*requestJson\(`\/positions\/\$\{encodeURIComponent\(accountLogin\)\}`\)/);
-  assert.match(bootstrapSource, /if \(resolvedPositions && \(accountLogin \|\| resolvedRows\.length > 0\)\)/);
+  assert.match(bootstrapSource, /accountsPromise = accountLogin[\s\S]*requestJson\(buildAccountDetailPath\(accountLogin\)\)[\s\S]*updateAccountMetricsFromBootstrap\(accounts, accountLogin\)/);
+  assert.match(bootstrapSource, /positionsPromise = accountLogin[\s\S]*requestJson\(`\/positions\/\$\{encodedAccountLogin\}`\)[\s\S]*applyPositionsSnapshot\(resolvedRows, accountLogin/);
+  assert.match(bootstrapSource, /ordersPromise = accountLogin[\s\S]*requestJson\(`\/orders\/\$\{encodedAccountLogin\}`\)[\s\S]*appQueryClient\.setQueryData\(\['orders', accountLogin\]/);
+  assert.doesNotMatch(bootstrapSource, /requestJson\('\/accounts'\)/);
+  assert.doesNotMatch(bootstrapSource, /requestJson\('\/positions'\)/);
+  assert.doesNotMatch(bootstrapSource, /requestJson\('\/orders'\)/);
   assert.match(bootstrapSource, /instrumentsPromise = requestJson\('\/instruments\?favorites=true'\)\.then\(\(instruments\) => \{[\s\S]*brokerRealtimeService\.setInstrumentSpecs\(instrumentRows\)/);
   assert.match(bootstrapSource, /marketStatusPromise = requestJson\('\/market\/status'\)\.then\(\(marketStatus\) => \{[\s\S]*appQueryClient\.setQueryData\(\['marketStatus'\], marketStatus\)/);
 });
@@ -38,6 +38,7 @@ test('bootstrap applies live data as each startup request resolves', () => {
 test('bootstrap account metrics accepts common backend account aliases', () => {
   const bootstrapSource = source();
 
+  assert.match(bootstrapSource, /const unwrapAccountRows = \(value: unknown\): unknown\[\] => \{/);
   assert.match(bootstrapSource, /const credit = Number\(record\.credit\)/);
   assert.match(bootstrapSource, /record\.margin \?\? record\.usedMargin \?\? record\.used_margin/);
   assert.match(bootstrapSource, /record\.margin_free \?\? record\.freeMargin \?\? record\.free_margin \?\? record\.margin_available/);

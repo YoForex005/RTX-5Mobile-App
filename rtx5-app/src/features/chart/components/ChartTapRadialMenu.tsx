@@ -524,6 +524,7 @@ export function ChartTapRadialMenu({
                 accessibilityLabel={item.accessibilityLabel}
                 onPress={(event) => handleActionItemPress(event, item.onPress)}
                 activateOnPressIn
+                activateOnTouchStart
                 hitSlop={CHART_TAP_ACTION_HIT_SLOP}
                 unstable_pressDelay={0}
                 style={[styles.actionItem, position, { width: itemBoxSize, height: itemBoxSize }]}

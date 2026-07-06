@@ -1,6 +1,9 @@
+import * as Application from 'expo-application';
 import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
 import { Platform } from 'react-native';
+import { DEFAULT_API_BASE_URL, PUBLIC_BROKER_DIRECTORY_BASE_URL } from '../api/brokerRouting';
+import { APP_DISPLAY_VERSION } from '../config/appDisplayVersion';
 import { serializeStartupError } from './errorSerialization';
 
 export { serializeStartupError } from './errorSerialization';
@@ -23,17 +26,38 @@ const toIsoString = (value: unknown): string | null => {
   return String(value);
 };
 
+const extra = (): Record<string, any> =>
+  (Constants.expoConfig?.extra && typeof Constants.expoConfig.extra === 'object'
+    ? Constants.expoConfig.extra
+    : {}) as Record<string, any>;
+
 export const getStartupDiagnostics = () => ({
   platform: Platform.OS,
-  appVersion: Constants.nativeAppVersion ?? Constants.expoConfig?.version ?? null,
-  nativeBuildVersion: Constants.nativeBuildVersion ?? null,
+  environment: extra().appEnv ?? process.env.EXPO_PUBLIC_APP_ENV ?? null,
+  appDisplayVersion: APP_DISPLAY_VERSION,
+  appVersion:
+    Application.nativeApplicationVersion ??
+    Constants.nativeAppVersion ??
+    Constants.expoConfig?.version ??
+    null,
+  nativeBuildVersion:
+    Application.nativeBuildVersion ??
+    Constants.nativeBuildVersion ??
+    null,
   runtimeVersion: Updates.runtimeVersion ?? null,
   channel: Updates.channel ?? null,
+  updatesUrl: Constants.expoConfig?.updates?.url ?? null,
   updateId: Updates.updateId ?? null,
   isEnabled: Updates.isEnabled,
   isEmbeddedLaunch: Updates.isEmbeddedLaunch,
   createdAt: toIsoString(Updates.createdAt),
   emergencyLaunchReason: Updates.emergencyLaunchReason ?? null,
+  apiBaseUrl: extra().apiBaseUrl ?? DEFAULT_API_BASE_URL,
+  brokerDirectoryBaseUrl: extra().brokerDirectoryBaseUrl ?? PUBLIC_BROKER_DIRECTORY_BASE_URL,
+  easProjectId: extra().eas?.projectId ?? (Constants as any).easConfig?.projectId ?? null,
+  easBuildProfile: extra().easBuildProfile ?? null,
+  gitCommitSha: extra().gitCommitSha ?? null,
+  gitDirty: extra().gitDirty ?? null,
 });
 
 export function logStartupDiagnostic(event: string, details: Record<string, unknown> = {}) {

@@ -3579,6 +3579,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   const handleOpenDrawingTools = useCallback(() => {
     runImmediateAction('chart.drawingTools.open', () => {
+      closeChartTapMenu();
       showChartActionSheet({
         presentation: 'mt5Plain',
         showActionIcons: true,
@@ -3589,7 +3590,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       });
       scheduleChartActionSheetContextReset();
     });
-  }, [drawingToolsActions, drawingToolsSheetTopInset, scheduleChartActionSheetContextReset, showChartActionSheet]);
+  }, [closeChartTapMenu, drawingToolsActions, drawingToolsSheetTopInset, scheduleChartActionSheetContextReset, showChartActionSheet]);
 
   const handleOpenSettingsScreen = useCallback(() => {
     runImmediateAction('chart.settings.open', () => {
@@ -5692,6 +5693,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                       router.push('/chart/objects');
                     }}
                     onOpenDrawingTools={() => {
+                      closeChartTapMenu();
                       handleOpenDrawingTools();
                     }}
                     onOpenIndicators={() => {

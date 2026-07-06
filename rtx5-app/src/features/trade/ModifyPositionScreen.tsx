@@ -44,6 +44,38 @@ import {
 
 const SETTINGS_DARK_BACKGROUND = '#121212';
 const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E';
+const MIN_STOP_DISTANCE_POINTS = 5;
+
+const hasOwn = (source: Record<string, unknown>, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(source, key);
+
+const normalizeModifiedStopValue = (value: unknown): number => {
+  if (value === null || value === undefined || value === '') {
+    return 0;
+  }
+
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+};
+
+const readModifiedStopValue = (
+  response: unknown,
+  keys: string[],
+  fallback: number,
+): { value: number; confirmed: boolean } => {
+  if (!response || typeof response !== 'object') {
+    return { value: fallback, confirmed: false };
+  }
+
+  const record = response as Record<string, unknown>;
+  for (const key of keys) {
+    if (hasOwn(record, key)) {
+      return { value: normalizeModifiedStopValue(record[key]), confirmed: true };
+    }
+  }
+
+  return { value: fallback, confirmed: false };
+};
 
 function formatModifyPrice(val: number, decimals: number) {
   const str = val.toFixed(decimals);
@@ -138,6 +170,7 @@ export function ModifyPositionScreen() {
     return Math.pow(10, -decimals);
   }, [instrumentMeta?.point, decimals]);
   const pipSize = point * 10;
+  const minStopDistance = point * MIN_STOP_DISTANCE_POINTS;
   // Header open-price precision always follows the POSITION's symbol, even
   // while the live view is pointed at another instrument.
   const positionHeaderDecimals = symbolsMatch
@@ -292,36 +325,43 @@ export function ModifyPositionScreen() {
   }, [viewSymbol]);
 
   // A buy closes at the Bid and a sell closes at the Ask — the broker validates
-  // SL/TP against that closing price. Stepping clamps to at least one pip on
-  // the valid side so chips/steppers can never build a value the server rejects.
+  // SL/TP against that closing price. Stepping clamps to at least five points
+  // on the valid side so chips/steppers can never build a value the server rejects.
   const closingMarketPrice = position ? (position.side === 'buy' ? BID : ASK) : 0;
 
   const clampStopTarget = (value: number, kind: 'sl' | 'tp') => {
     if (!position || !(closingMarketPrice > 0)) return value;
     const mustStayBelow = (position.side === 'buy') === (kind === 'sl');
     return mustStayBelow
-      ? Math.min(value, closingMarketPrice - pipSize)
-      : Math.max(value, closingMarketPrice + pipSize);
+      ? Math.min(value, closingMarketPrice - minStopDistance)
+      : Math.max(value, closingMarketPrice + minStopDistance);
   };
 
   const validateStopTargets = (): string | null => {
     if (!position || !(closingMarketPrice > 0)) return null;
     const priceLabel = closingMarketPrice.toFixed(decimals);
+    const minDistanceLabel = `${MIN_STOP_DISTANCE_POINTS} points`;
     const isBuySide = position.side === 'buy';
     if (stopLoss !== null) {
-      if (isBuySide && stopLoss >= closingMarketPrice) {
-        return `Stop Loss must be below the current Bid (${priceLabel}) for a buy position.`;
+      const slLimit = isBuySide
+        ? closingMarketPrice - minStopDistance
+        : closingMarketPrice + minStopDistance;
+      if (isBuySide && stopLoss > slLimit) {
+        return `Stop Loss must be at least ${minDistanceLabel} below the current Bid (${priceLabel}) for a buy position.`;
       }
-      if (!isBuySide && stopLoss <= closingMarketPrice) {
-        return `Stop Loss must be above the current Ask (${priceLabel}) for a sell position.`;
+      if (!isBuySide && stopLoss < slLimit) {
+        return `Stop Loss must be at least ${minDistanceLabel} above the current Ask (${priceLabel}) for a sell position.`;
       }
     }
     if (takeProfit !== null) {
-      if (isBuySide && takeProfit <= closingMarketPrice) {
-        return `Take Profit must be above the current Bid (${priceLabel}) for a buy position.`;
+      const tpLimit = isBuySide
+        ? closingMarketPrice + minStopDistance
+        : closingMarketPrice - minStopDistance;
+      if (isBuySide && takeProfit < tpLimit) {
+        return `Take Profit must be at least ${minDistanceLabel} above the current Bid (${priceLabel}) for a buy position.`;
       }
-      if (!isBuySide && takeProfit >= closingMarketPrice) {
-        return `Take Profit must be below the current Ask (${priceLabel}) for a sell position.`;
+      if (!isBuySide && takeProfit > tpLimit) {
+        return `Take Profit must be at least ${minDistanceLabel} below the current Ask (${priceLabel}) for a sell position.`;
       }
     }
     return null;
@@ -399,24 +439,50 @@ export function ModifyPositionScreen() {
     setIsSubmitting(true);
     setSubmitMessage(null);
     try {
-      await positionsApi.modifyPosition(position.id, {
-        price_sl: stopLoss || 0,
-        price_tp: takeProfit || 0,
-        trailing_stop: 0,
-        trailing_step: 0,
+      const requestedSl = stopLoss || 0;
+      const requestedTp = takeProfit || 0;
+      const modifyResult = await positionsApi.modifyPosition(position.id, {
+        price_sl: requestedSl,
+        price_tp: requestedTp,
       });
 
-      const newSl = stopLoss || 0;
-      const newTp = takeProfit || 0;
+      const slResult = readModifiedStopValue(modifyResult, ['price_sl', 'sl'], requestedSl);
+      const tpResult = readModifiedStopValue(modifyResult, ['price_tp', 'tp'], requestedTp);
+      const newSl = slResult.value;
+      const newTp = tpResult.value;
+
+      if ((requestedSl > 0 && slResult.confirmed && newSl <= 0) || (requestedTp > 0 && tpResult.confirmed && newTp <= 0)) {
+        setSubmitMessage(
+          formatTradingErrorFeedback(
+            createFrontendTradingError(
+              'SL/TP Not Applied',
+              'The backend accepted the modify request but did not confirm the requested Stop Loss or Take Profit values. Please refresh positions and try again.',
+            ),
+          ),
+        );
+        return;
+      }
 
       // Optimistic update
-      usePositionsState.setState((state) => ({
-        positions: state.positions.map((p) =>
-          p.id === position.id
-            ? { ...p, sl: newSl, tp: newTp, clientModifiedAt: Date.now() }
-            : p
-        ),
-      }));
+      const modifiedAt = Date.now();
+      usePositionsState.setState((state) => {
+        const positionKey = String(position.id);
+        const patch = { sl: newSl, tp: newTp, clientModifiedAt: modifiedAt };
+        return {
+          positions: state.positions.map((p) =>
+            String(p.id) === positionKey
+              ? { ...p, ...patch }
+              : p
+          ),
+          positionSnapshots: {
+            ...state.positionSnapshots,
+            [positionKey]: {
+              ...(state.positionSnapshots[positionKey] ?? position),
+              ...patch,
+            },
+          },
+        };
+      });
 
       appQueryClient.invalidateQueries({ queryKey: ['positions'] });
       appQueryClient.invalidateQueries({ queryKey: ['positionHistory'] });
@@ -855,7 +921,7 @@ export function ModifyPositionScreen() {
           <View style={styles.disclaimerBox}>
             <Ionicons name="information-circle-outline" size={16} color={T.textMuted} style={styles.disclaimerIcon} />
             <Text style={styles.disclaimer}>
-              SL/TP must be at least 10 points away from the market price. Orders are executed by the broker.
+              SL/TP must be at least {MIN_STOP_DISTANCE_POINTS} points away from the market price. Orders are executed by the broker.
             </Text>
           </View>
 

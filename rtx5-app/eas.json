@@ -8,6 +8,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "channel": "development",
+      "environment": "development",
       "env": {
         "EXPO_PUBLIC_APP_ENV": "development"
       }
@@ -15,6 +16,7 @@
     "preview": {
       "distribution": "internal",
       "channel": "preview",
+      "environment": "preview",
       "env": {
         "EXPO_PUBLIC_APP_ENV": "preview"
       },
@@ -28,6 +30,7 @@
     "staging": {
       "distribution": "internal",
       "channel": "staging",
+      "environment": "staging",
       "env": {
         "EXPO_PUBLIC_APP_ENV": "staging"
       },
@@ -41,6 +44,7 @@
     "production": {
       "channel": "production",
       "distribution": "store",
+      "environment": "production",
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_APP_ENV": "production"
@@ -67,6 +71,7 @@
     "production-no-ota": {
       "channel": "production",
       "distribution": "store",
+      "environment": "production",
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_APP_ENV": "production",

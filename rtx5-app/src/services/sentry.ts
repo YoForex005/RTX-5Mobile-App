@@ -20,7 +20,9 @@ export const isSentryEnabled = sentryDsn.length > 0;
 Sentry.init({
   dsn: sentryDsn || undefined,
   enabled: isSentryEnabled,
-  enableLogs: true,
+  enableLogs: false,
+  enableAutoConsoleLogs: false,
+  maxBreadcrumbs: 0,
   sendDefaultPii: false,
 });
 
