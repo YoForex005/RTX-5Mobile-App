@@ -13,6 +13,8 @@ const modalSource = readFileSync(
 
 test('ota update prompt waits for user install and exposes download progress', () => {
   assert.match(otaSource, /Updates\.useUpdates\(\)/);
+  assert.match(otaSource, /Platform\.OS !== 'web'/);
+  assert.doesNotMatch(otaSource, /Platform\.OS === 'ios'/);
   assert.match(otaSource, /downloadProgress/);
   assert.match(otaSource, /checkForUpdateAsync/);
   assert.match(otaSource, /fetchUpdateAsync/);

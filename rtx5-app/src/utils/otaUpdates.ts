@@ -11,7 +11,7 @@ const DISABLE_OTA_UPDATES = process.env.EXPO_PUBLIC_DISABLE_OTA_UPDATES === 'tru
 const getActiveUpdateChannel = () => Updates.channel ?? process.env.EXPO_PUBLIC_APP_ENV ?? null;
 
 const canUseOtaUpdates = () =>
-  Platform.OS === 'ios' &&
+  Platform.OS !== 'web' &&
   (typeof __DEV__ === 'undefined' || !__DEV__) &&
   !DISABLE_OTA_UPDATES &&
   Updates.isEnabled &&

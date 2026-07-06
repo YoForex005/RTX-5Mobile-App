@@ -84,12 +84,19 @@ test('createOrrnnDemoAccount posts compact body to /api/v1/public/demo-account',
   assert.equal(response.api_key, 'rtx5_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
 });
 
-test('Orrnn demo origin broker defaults to the fixed global demo broker option', () => {
+test('Orrnn demo origin broker defaults to global demo and keeps test broker as an option', () => {
   const source = readSource('src/api/publicDemo.ts');
+  const registerSource = readSource('app/register.tsx');
 
-  assert.match(source, /export const ORRNN_DEMO_ORIGIN_BROKER =[\s\S]*'testorrnn'/);
-  assert.match(source, /export const ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME =[\s\S]*'Orrnn Global Demo Broker'/);
-  assert.match(source, /export const ORRNN_DEMO_ORIGIN_BROKER_LABEL =[\s\S]*'Test Orrnn Broker \(Demo\)'/);
+  assert.match(source, /export const ORRNN_DEMO_ORIGIN_BROKER =[\s\S]*?'orrnn';/);
+  assert.match(source, /export const ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME =[\s\S]*?'Orrnn Global Demo broker';/);
+  assert.match(source, /export const TEST_ORRNN_DEMO_ORIGIN_BROKER =[\s\S]*?'testorrnn';/);
+  assert.match(source, /export const TEST_ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME =[\s\S]*?'Test Orrnn broker';/);
+  assert.match(registerSource, /const DEMO_ORIGIN_BROKER_OPTIONS: readonly DemoOriginBrokerOption\[] = \[/);
+  assert.match(registerSource, /const DEFAULT_DEMO_ORIGIN_BROKER = DEMO_ORIGIN_BROKER_OPTIONS\[0\]/);
+  assert.match(registerSource, /const \[selectedOriginBrokerValue, setSelectedOriginBrokerValue\]/);
+  assert.match(registerSource, /origin_broker: trimmedOriginBroker \|\| undefined/);
+  assert.match(registerSource, /latencyLabel="register\.originBroker\.open"/);
 });
 
 test('resolveOrrnnDemoBrokerAuthRoute prefers the Orrnn broker services domain', () => {

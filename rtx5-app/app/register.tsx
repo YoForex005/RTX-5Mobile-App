@@ -39,6 +39,9 @@ import {
   ORRNN_DEMO_ORIGIN_BROKER,
   ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME,
   ORRNN_DEMO_ORIGIN_BROKER_LABEL,
+  TEST_ORRNN_DEMO_ORIGIN_BROKER,
+  TEST_ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME,
+  TEST_ORRNN_DEMO_ORIGIN_BROKER_LABEL,
   isOrrnnDemoHealthy,
   resolveOrrnnDemoBrokerAuthRoute,
 } from '../src/api/publicDemo';
@@ -134,7 +137,28 @@ type RegisterPickerHostKey =
   | 'country'
   | 'phoneCountry'
   | 'leverage'
+  | 'originBroker'
   | 'group';
+
+type DemoOriginBrokerOption = {
+  value: string;
+  label: string;
+  subtitle: string;
+};
+
+const DEMO_ORIGIN_BROKER_OPTIONS: readonly DemoOriginBrokerOption[] = [
+  {
+    value: ORRNN_DEMO_ORIGIN_BROKER,
+    label: ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME,
+    subtitle: ORRNN_DEMO_ORIGIN_BROKER_LABEL,
+  },
+  {
+    value: TEST_ORRNN_DEMO_ORIGIN_BROKER,
+    label: TEST_ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME,
+    subtitle: TEST_ORRNN_DEMO_ORIGIN_BROKER_LABEL,
+  },
+] as const;
+const DEFAULT_DEMO_ORIGIN_BROKER = DEMO_ORIGIN_BROKER_OPTIONS[0];
 
 const DEMO_LEVERAGE_OPTIONS: readonly DemoLeverageOption[] = Array.from(
   { length: (DEMO_LEVERAGE_MAX - DEMO_LEVERAGE_MIN) / DEMO_LEVERAGE_STEP + 1 },
@@ -240,6 +264,8 @@ export default function RegisterScreen() {
   const [phoneCountryPickerOpen, setPhoneCountryPickerOpen] = useState(false);
   const [selectedLeverageValue, setSelectedLeverageValue] = useState<number | null>(null);
   const [leveragePickerOpen, setLeveragePickerOpen] = useState(false);
+  const [selectedOriginBrokerValue, setSelectedOriginBrokerValue] = useState(DEFAULT_DEMO_ORIGIN_BROKER.value);
+  const [originBrokerPickerOpen, setOriginBrokerPickerOpen] = useState(false);
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   const [password, setPassword] = useState('');
   const [investorPassword, setInvestorPassword] = useState('');
@@ -248,6 +274,7 @@ export default function RegisterScreen() {
     country: false,
     phoneCountry: false,
     leverage: false,
+    originBroker: false,
     group: false,
   });
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -416,7 +443,7 @@ export default function RegisterScreen() {
     const selectedPhoneCountry =
       DEMO_COUNTRY_OPTIONS.find((option) => option.code === phoneCountryCode) ?? DEFAULT_DEMO_COUNTRY;
     const trimmedCountry = selectedCountry?.code ?? country.trim().toUpperCase();
-    const trimmedOriginBroker = ORRNN_DEMO_ORIGIN_BROKER.trim();
+    const trimmedOriginBroker = selectedOriginBrokerValue.trim();
     const parsedInitialBalance = Number(initialBalance);
     const submissionPhone = formatDemoPhoneForSubmission(selectedPhoneCountry.dialCode, trimmedPhone);
     const effectiveCurrency = selectedDemoGroup.currency;
@@ -637,7 +664,10 @@ export default function RegisterScreen() {
   const selectedLeverage = selectedLeverageValue ?? getDefaultDemoLeverage(selectedDemoGroup?.leverage);
   const selectedPhoneCountry =
     DEMO_COUNTRY_OPTIONS.find((option) => option.code === phoneCountryCode) ?? DEFAULT_DEMO_COUNTRY;
-  const originBrokerDisplayValue = ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME;
+  const selectedOriginBroker =
+    DEMO_ORIGIN_BROKER_OPTIONS.find((option) => option.value === selectedOriginBrokerValue) ??
+    DEFAULT_DEMO_ORIGIN_BROKER;
+  const originBrokerDisplayValue = selectedOriginBroker.label;
   const mountPickerHost = React.useCallback((key: RegisterPickerHostKey) => {
     setMountedPickerHosts((current) => (
       current[key] ? current : { ...current, [key]: true }
@@ -693,6 +723,16 @@ export default function RegisterScreen() {
     })) : [],
     [leveragePickerMounted, selectedDemoGroup?.leverage, t],
   );
+  const originBrokerPickerMounted = mountedPickerHosts.originBroker || originBrokerPickerOpen;
+  const originBrokerPickerActions = React.useMemo(
+    () => originBrokerPickerMounted ? DEMO_ORIGIN_BROKER_OPTIONS.map((option) => ({
+      label: t(option.label),
+      subtitle: t(option.subtitle),
+      selected: option.value === selectedOriginBroker.value,
+      onPress: () => setSelectedOriginBrokerValue(option.value),
+    })) : [],
+    [originBrokerPickerMounted, selectedOriginBroker.value, t],
+  );
   const groupPickerMounted = mountedPickerHosts.group || groupPickerOpen;
   const groupPickerActions = React.useMemo(
     () => groupPickerMounted ? demoGroupOptions.map((group) => ({
@@ -714,6 +754,16 @@ export default function RegisterScreen() {
     mountPickerHost('leverage');
     setLeveragePickerOpen(true);
   }, [isRegisterInitialPickerPressBlocked, mountPickerHost]);
+  const handleOpenOriginBrokerPicker = React.useCallback(() => {
+    if (isRegisterInitialPickerPressBlocked()) {
+      return;
+    }
+
+    Keyboard.dismiss();
+    handleFieldFocus('originBroker');
+    mountPickerHost('originBroker');
+    setOriginBrokerPickerOpen(true);
+  }, [handleFieldFocus, isRegisterInitialPickerPressBlocked, mountPickerHost]);
   const handleOpenGroupPicker = React.useCallback(() => {
     if (isRegisterInitialPickerPressBlocked()) {
       return;
@@ -1060,20 +1110,29 @@ export default function RegisterScreen() {
 
               <View style={styles.inputRow} onLayout={handleFieldLayout('originBroker')}>
                 <Text style={styles.inputLabel}>{t('Origin broker')}</Text>
-                <View
-                  style={styles.inputShell}
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.inputShell,
+                    pressed && styles.inputShellPressed,
+                  ]}
+                  onPress={handleOpenOriginBrokerPicker}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  latencyLabel="register.originBroker.open"
+                  accessibilityRole="button"
                   accessibilityLabel={t('Origin broker')}
+                  accessibilityState={{ expanded: originBrokerPickerOpen }}
                 >
                   <Ionicons name="business-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
                   <View style={styles.originBrokerValueStack}>
                     <Text style={styles.originBrokerPrimaryValue} numberOfLines={1}>
-                      {originBrokerDisplayValue}
+                      {t(originBrokerDisplayValue)}
                     </Text>
                     <Text style={styles.originBrokerSecondaryValue} numberOfLines={1}>
-                      {ORRNN_DEMO_ORIGIN_BROKER_LABEL}
+                      {t(selectedOriginBroker.subtitle)}
                     </Text>
                   </View>
-                </View>
+                  <Ionicons name="chevron-down" size={20} color={fieldIconColor} />
+                </Pressable>
               </View>
 
               <View style={styles.inputRow}>
@@ -1199,6 +1258,17 @@ export default function RegisterScreen() {
             instantOpen
             runActionAfterClose={false}
             androidKeyboardAvoidance="resize"
+          />
+        ) : null}
+        {originBrokerPickerMounted ? (
+          <ActionSheet
+            visible={originBrokerPickerOpen}
+            title={t('Origin broker')}
+            actions={originBrokerPickerActions}
+            onClose={() => setOriginBrokerPickerOpen(false)}
+            detent="auto"
+            instantOpen
+            runActionAfterClose={false}
           />
         ) : null}
         {groupPickerMounted ? (
