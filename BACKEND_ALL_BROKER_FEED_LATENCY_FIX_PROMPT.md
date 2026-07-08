@@ -1,483 +1,756 @@
-# Backend Prompt: Fix Live Feed Latency And Reliability For All Brokers
+# Backend Prompt: All-Broker Feed Latency, Candle Contract, And Frontend Fix Decision
 
-You are the backend engineer responsible for the RTX5 broker directory, quote feed status API, and quote websocket services.
+Use this prompt for the backend team or backend AI agent. The goal is not only to say "backend is fast" or "frontend is slow". The goal is to prove, broker by broker and symbol by symbol, where the delay starts, whether the payload contract is clean, and exactly what the mobile frontend should change only if backend evidence requires it.
 
-This is not a MyProp-only issue. Please audit and fix the live quote feed pipeline for every broker returned by:
+## Main Objective
 
-`GET https://superbackend.orrnn.com/api/v1/broker/servers`
+Audit and fix the backend live quote/candle feed for the RTX5 mobile app across all brokers.
 
-The mobile app is React Native/Expo. It consumes each broker's configured:
+We need a precise answer to this question:
 
-- `feed_status_https_url` or `feed_status_url`
-- `feed_wss_url`, `feed_ws_url`, or `feed_url`
-- `server_url`, `services_domain`, or broker service domain
-- `broker_id`
+> The backend says candle/feed data is coming fast. The mobile UI already uses a frame-based incremental chart path. Is the backend feed contract truly real-time, ordered, and compatible with the frontend, or does the frontend need a specific mapping/configuration change?
 
-The expected mobile behavior is: when any broker is selected, live bid/ask, chart price lines, active candles, open position P/L, account/trade screens, quotes screen, and symbol details should receive fresh ticks quickly and consistently.
+Return proof, not assumptions.
 
-## Problem
+## Important Frontend Context
 
-Live feed data is slow or unavailable across broker feeds. This must be solved for all brokers, not only `myprop-trade`.
+The RTX5 mobile frontend should not render every raw WebSocket packet directly. It follows the same general pattern used by MT5/TradingView-style charts:
 
-Observed backend-side problems include:
-
-1. Some broker directory rows expose `http://` and `ws://` raw IP feed URLs.
-2. Some secure broker feeds are reachable by status endpoint but all symbols are stale/silent.
-3. Some secure broker websocket connections do not open.
-4. Some working websockets deliver ticks but with backend feed timestamps several seconds old.
-5. Several brokers report many stale/silent symbols even while `upstream_connected` is true.
-6. `cserver_connected` is false on multiple broker feeds, which must be explained or fixed.
-
-The mobile frontend already uses a fast direct per-symbol websocket path and commits active quote UI at frame speed, so multi-second delay must be investigated at the backend/feed layer first.
-
-## Frontend Contract Already In Place
-
-The mobile app already does the following:
-
-- Builds broker-hosted feed URLs from the selected broker service domain.
-- Uses `wss://<broker-domain>/ws/feed?broker_id=<broker_id>&token=<redacted>` for broker-hosted feeds when required.
-- Rejects insecure/raw-IP broker feeds for mobile safety, especially iOS.
-- Uses direct per-symbol quote listeners for live bid/ask UI.
-- Commits active live quote UI at `0ms` to `16ms` intervals depending on screen.
-- Uses a REST `/quotes` fallback only when websocket data is stale or missing.
-- Has a websocket watchdog for silent TCP drops.
-
-Relevant mobile files:
-
-- `rtx5-app/src/api/brokerRouting.ts`
-- `rtx5-app/src/api/feedStatus.ts`
-- `rtx5-app/src/api/feedAuth.ts`
-- `rtx5-app/src/api/ws/quotesSocket/QuotesWebSocketService.ts`
-- `rtx5-app/src/api/ws/quotesSocket/tickProcessor.ts`
-- `rtx5-app/src/query/websocket.ts`
-- `rtx5-app/src/features/quotes/useLiveQuotes.ts`
-
-Please do not ask the mobile app to accept insecure `ws://` raw IP feeds. The backend directory must provide mobile-safe HTTPS/WSS domains with valid TLS.
-
-## Evidence From Current Broker Directory
-
-Current broker directory returned 10 brokers.
-
-### Mobile-Unsafe Feed URL Rows
-
-These brokers currently expose `http://` status URLs and `ws://` raw IP websocket URLs. These are not acceptable for iOS/Android production mobile feeds.
-
-| Broker | Status URL | Websocket URL | Problem |
-| --- | --- | --- | --- |
-| `alphafx` | `http://203.0.113.10/ws/feed/status` | `ws://203.0.113.10/ws/feed` | Raw IP, insecure HTTP/WS, timed out |
-| `betatrade` | `http://203.0.113.11/ws/feed/status` | `ws://203.0.113.11/ws/feed` | Raw IP, insecure HTTP/WS, timed out |
-| `deltapro` | `http://203.0.113.13/ws/feed/status` | `ws://203.0.113.13/ws/feed` | Raw IP, insecure HTTP/WS, timed out |
-| `gammacapital` | `http://203.0.113.12/ws/feed/status` | `ws://203.0.113.12/ws/feed` | Raw IP, insecure HTTP/WS, timed out |
-| `omegaglobal` | `http://203.0.113.14/ws/feed/status` | `ws://203.0.113.14/ws/feed` | Raw IP, insecure HTTP/WS, timed out |
-
-Required backend fix:
-
-- Replace every raw-IP feed URL with a real HTTPS/WSS domain.
-- Use valid TLS certificates.
-- Make `GET /ws/feed/status?broker_id=<broker_id>` respond within 1 second.
-- Make `wss://<domain>/ws/feed?broker_id=<broker_id>` open from mobile/public internet.
-- If a broker is mock/unavailable, mark it disabled or return a clear backend health state so mobile does not present it as live.
-
-### Feed Status Probe Results
-
-Probe date: 2026-07-06 IST.
-
-Endpoint pattern:
-
-`GET <feed_status_url>?broker_id=<broker_id>`
-
-Summary:
-
-| Broker | HTTP | Response time | Auth required | Upstream | CServer | Symbols | Stale/silent | Max age | Notes |
-| --- | ---: | ---: | --- | --- | --- | ---: | ---: | ---: | --- |
-| `achiever-financials` | 200 | 981ms | true | true | false | 331 | 331 | 1072s | All watched symbols stale/silent |
-| `alphafx` | timeout | 3505ms | unknown | unknown | unknown | unknown | unknown | unknown | Raw IP HTTP/WS |
-| `betatrade` | timeout | 3503ms | unknown | unknown | unknown | unknown | unknown | unknown | Raw IP HTTP/WS |
-| `deltapro` | timeout | 3502ms | unknown | unknown | unknown | unknown | unknown | unknown | Raw IP HTTP/WS |
-| `gammacapital` | timeout | 3501ms | unknown | unknown | unknown | unknown | unknown | unknown | Raw IP HTTP/WS |
-| `gta_broker` | 200 | 157ms | true | true | false | 294 | 178 | 1168s | Many stale/silent symbols |
-| `myprop-trade` | 200 | 566ms | true | true | false | 40 | 3 | 21s | Working but some latency remains |
-| `omegaglobal` | timeout | 3508ms | unknown | unknown | unknown | unknown | unknown | unknown | Raw IP HTTP/WS |
-| `orrnn` | 200 | 987ms | false | true | true | 331 | 185 | 103s | Many stale/silent symbols |
-| `testorrnn` | 200 | 925ms | false | true | true | 331 | 185 | 103s | Many stale/silent symbols |
-
-Watched symbols checked:
-
-- `XAUUSD`
-- `BTCUSD`
-- `EURUSD`
-- `GBPUSD`
-- `US30`
-- `USDJPY`
-
-Critical finding:
-
-`achiever-financials` returned HTTP 200 but every symbol was stale/silent. For watched symbols, ages were around 969 to 971 seconds. This is not a frontend rendering issue.
-
-## Secure Websocket Probe Results
-
-Probe pattern:
-
-`wss://<broker-domain>/ws/feed?broker_id=<broker_id>&token=<redacted-if-required>`
-
-Subscription payload:
-
-```json
-{
-  "type": "subscribe",
-  "symbols": ["XAUUSD", "BTCUSD", "EURUSD", "GBPUSD", "US30", "USDJPY"]
-}
+```text
+broker/source feed
+  -> backend quote/candle websocket
+  -> frontend candle engine
+  -> merge/order/validate latest active candle
+  -> React Native bridge
+  -> WebView updateTick
+  -> chart paints on animation frame
 ```
 
-### `achiever-financials`
+Frontend code has already been checked for excessive candle-body throttling:
 
-- Websocket did not open.
-- Error count: 1
-- Close code: `1006`
-- Raw messages: 0
-- Parsed ticks: 0
+- Candle stream flush is frame-based, with a 16ms fallback.
+- Active candle changes are sent to WebView using incremental `updateTick(...)`, not full `setData(...)`.
+- WebView coalesces pending ticks and paints on `requestAnimationFrame`.
+- A 100ms sync interval exists for the live price guide line only, not for candle body updates.
+- Server candle stream is not enabled by default. The safe default is quote-driven active candles until backend server candles are proven compatible.
 
-Required backend fix:
+Therefore, do not simply recommend "send raw websocket candle data directly to UI". That is not the desired architecture.
 
-- Make `wss://service.achieverfinancials.com/ws/feed?broker_id=achiever-financials` open successfully.
-- If auth is required, return documented close code and reason when token is missing/invalid.
-- Do not expose status as healthy while websocket cannot open and all symbols are stale.
+## Frontend Current Contract
 
-### `gta_broker`
+The frontend can support two modes:
 
-- Websocket opened in 139ms.
-- First message in 179ms.
-- Parsed ticks in 10 seconds: 262.
-- Tick cadence is frequent, but feed timestamps are stale for several symbols.
+### Mode A: Quote-driven active candles, current safe default
 
-Observed average/max feed timestamp latency:
+This mode is preferred unless backend server candles are fully proven compatible.
 
-- `XAUUSD`: avg 3236ms, max 7427ms
-- `BTCUSD`: avg 3252ms, max 8018ms
-- `EURUSD`: avg 4456ms, max 9228ms
-- `GBPUSD`: avg 3184ms, max 8021ms
-- `US30`: avg 7519ms, max 12427ms
-- `USDJPY`: one tick only, latency 33652ms
+Required backend behavior:
 
-Required backend fix:
+- Quote WebSocket must send fresh bid/ask/last updates.
+- Quote timestamps must be current and monotonic enough for active candle building.
+- Quote payloads must include symbol identity consistently.
+- The feed must not go silent while backend status claims it is live.
 
-- Investigate why websocket emits frequent messages but the feed timestamp is several seconds old.
-- Ensure tick timestamps represent the actual market tick/source time, not stale cached data.
-- Reduce p95 feed timestamp latency for active watched symbols.
+Frontend builds the active candle from quote ticks:
 
-### `myprop-trade`
+```text
+quote tick -> active candle open/high/low/close update -> updateTick -> chart
+```
 
-- Websocket opened in 574ms.
-- First message in 740ms.
-- Parsed ticks in 10 seconds: 51.
-- Working but some symbols have multi-second gaps or stale feed timestamps.
+### Mode B: Server-candle-driven active candles, only if proven
 
-Observed average/max feed timestamp latency:
+This mode should be enabled only if backend confirms all compatibility requirements:
 
-- `US30`: avg 11504ms, max 14258ms
-- `USDJPY`: avg 2556ms, max 5259ms
-- `EURUSD`: avg 1743ms, max 4259ms
-- `GBPUSD`: avg 1388ms, max 3271ms
+- Live candle snapshots update the same current forming candle, not only bar-close.
+- Candle `time` is always the candle bucket start time, in Unix seconds.
+- Candle update ordering uses a separate event/update timestamp such as `server_time`.
+- Delayed snapshots never rewind newer active candle state.
+- Symbol and timeframe fields exactly match frontend subscriptions.
+- OHLC values are structurally valid.
+- Reconnect/replay does not send stale active candle updates after fresh updates.
 
-Required backend fix:
+If any of the above is not true, tell frontend to keep quote-driven active candles.
 
-- This broker must be fixed as part of the global broker-feed system, not as a one-off.
-- Investigate why `cserver_connected` is false while ticks are still emitted.
-- Reduce latency and gaps across all active symbols.
+## Backend Investigation Scope
 
-### `orrnn`
+Check every production-supported broker/feed, not only one symbol.
 
-- Websocket opened in 931ms.
-- First message in 1229ms.
-- Parsed ticks in 10 seconds: 72.
-- Working, but some symbols still show stale timestamps.
+At minimum, include:
 
-Observed average/max feed timestamp latency:
+- Broker id
+- Broker display name
+- Broker service/domain used by mobile app
+- Quote WebSocket origin
+- Candle WebSocket origin, if separate
+- REST candle endpoint origin
+- Feed auth requirement
+- Whether feed token is required, optional, or unavailable
+- Whether broker feed is direct, proxied, or aggregated
+- Symbols tested
+- Timeframes tested
 
-- `USDJPY`: avg 7180ms, max 11917ms
-- `EURUSD`: avg 1239ms, max 4952ms
-- `XAUUSD`: avg 546ms, max 4164ms
+Test at least these symbol types where available:
 
-Required backend fix:
+- Major forex symbol, for example `EURUSD`
+- Metal, for example `XAUUSD`
+- Crypto, for example `BTCUSD`
+- Index, if broker supports it
+- Any broker-specific symbol suffix/prefix variant
 
-- Keep the healthy low-latency behavior for BTCUSD/GBPUSD.
-- Fix stale timestamp behavior on slower symbols like USDJPY.
+Test at least these timeframes:
 
-### `testorrnn`
+- `M1`
+- `M5`
+- `M15`
+- `H1`
 
-- Websocket opened in 801ms.
-- First message in 1060ms.
-- Parsed ticks in 10 seconds: 82.
-- Working, but some symbols still show stale timestamps.
+## Required Status Endpoint Audit
 
-Observed average/max feed timestamp latency:
+For each broker, check the backend feed status endpoint or equivalent internal status source.
 
-- `USDJPY`: avg 3607ms, max 13914ms
-- `EURUSD`: avg 2412ms, max 6436ms
-- `US30`: avg 1075ms, max 3776ms
+Expected endpoint pattern:
 
-Required backend fix:
+```text
+GET /ws/feed/status?broker_id=<broker_id>
+```
 
-- Same as `orrnn`: reduce stale timestamp latency on slower symbols.
-
-## Required Backend Work
-
-Please implement a global broker-feed reliability fix with these deliverables.
-
-### 1. Broker Directory Hygiene
-
-For every enabled broker returned by `/broker/servers`:
-
-- `server_url` must be a valid `https://` domain, not raw IP.
-- `feed_status_https_url` must be a valid `https://` domain.
-- `feed_wss_url` must be a valid `wss://` domain.
-- The host must have valid TLS certificates.
-- Do not return `http://`, `ws://`, or raw-IP feed URLs for production mobile brokers.
-- If the broker is not live, mark it disabled or include a clear non-live status.
-
-Acceptance:
-
-- No enabled production broker row contains `http://`, `ws://`, or raw IP feed URLs.
-- iOS and Android can connect without ATS/cleartext/network-security exceptions.
-
-### 2. Feed Status API Contract
-
-Every broker must support:
-
-`GET /ws/feed/status?broker_id=<broker_id>`
-
-Response must include:
+Return the exact status fields and values, including:
 
 - `broker_id`
 - `feed_auth_required`
 - `upstream_connected`
+- `provider_connected`
 - `cserver_connected`
-- `provider_status`
-- `server_time`
-- `symbol_status`
-
-Each `symbol_status` row must include:
-
-- `symbol`
-- `has_quote`
-- `silent`
 - `last_tick_age_sec`
-- `last_bid`
-- `last_ask`
-- `last_tick_time` or equivalent source tick timestamp
-- `last_server_emit_time` if different
-- reason when stale/silent
+- `last_candle_age_sec`, if available
+- `silent_symbols_count`
+- `provider_symbols_streaming`
+- per-symbol freshness
+- per-symbol subscription status
+- connection uptime
+- reconnect count
+- last backend receive time
+- last app broadcast time
+- error/reject reason, if any
 
-Acceptance:
+If the current status endpoint does not expose these fields, add them or provide equivalent internal logs.
 
-- Status endpoint responds within 1000ms p95.
-- For active market symbols, `last_tick_age_sec` should usually be under 2 seconds and should not exceed 5 seconds p95 during active market periods.
-- If the market is closed or a symbol is intentionally inactive, status must say so explicitly instead of presenting a silent failure.
+## Quote WebSocket Latency Audit
 
-### 3. Websocket Contract
+For each tested broker and symbol, measure quote latency at each stage.
 
-Every broker must support:
+Required timestamps:
 
-`wss://<broker-domain>/ws/feed?broker_id=<broker_id>`
+```text
+source_tick_time
+backend_received_time
+backend_normalized_time
+backend_broadcast_time
+frontend_received_time, if backend can help correlate
+```
 
-If auth is required:
+Return:
 
-`wss://<broker-domain>/ws/feed?broker_id=<broker_id>&token=<token>`
+- sample count
+- min latency
+- average latency
+- p50
+- p95
+- p99
+- max latency
+- lost/dropped packet count
+- duplicate packet count
+- out-of-order packet count
+- reconnect count during test
 
-Subscription payload:
+Use a test window of at least 2 minutes per broker/symbol.
+
+Required quote payload proof:
+
+Return 5 to 10 raw quote payload examples per symbol, redacting secrets only.
+
+Each quote payload must make these fields clear:
+
+- symbol
+- bid
+- ask
+- last, if available
+- timestamp/server_time
+- broker_id or feed id
+- digits/precision, if available
+- point/tickSize, if available
+- volume, if available
+- source/provider sequence id, if available
+
+## Candle WebSocket Latency Audit
+
+For each tested broker, symbol, and timeframe, measure candle latency at each stage.
+
+Required timestamps:
+
+```text
+source_candle_update_time
+backend_received_time
+backend_normalized_time
+backend_broadcast_time
+```
+
+Also prove the candle cadence:
+
+- Does backend send live candle updates on every tick?
+- Does backend send live candle updates every N milliseconds/seconds?
+- Does backend send only on bar close?
+- Does backend send a mix of current forming candle plus bar-close candle?
+- Does backend replay the current active candle on reconnect?
+
+Return:
+
+- sample count
+- average update interval
+- p95 update interval
+- p99 update interval
+- max gap between candle updates
+- stale/replayed candle count
+- out-of-order candle count
+- duplicate candle count
+- invalid OHLC count
+- missing timeframe count
+- missing symbol count
+
+Required candle payload proof:
+
+Return 5 to 10 raw candle payload examples per symbol/timeframe, redacting secrets only.
+
+Each candle payload must make these fields clear:
+
+- symbol
+- timeframe
+- `time` as bucket start time in Unix seconds
+- `server_time` or equivalent update event timestamp
+- open
+- high
+- low
+- close
+- volume, if available
+- closed/final flag, if available
+- source/provider sequence id, if available
+
+## Candle Payload Contract Required By Frontend
+
+Confirm whether backend can guarantee this exact contract:
 
 ```json
 {
-  "type": "subscribe",
-  "symbols": ["XAUUSD", "BTCUSD", "EURUSD", "GBPUSD", "US30", "USDJPY"]
+  "type": "candle",
+  "broker_id": "example-broker",
+  "symbol": "XAUUSD",
+  "timeframe": "M1",
+  "time": 1760000000,
+  "server_time": 1760000034,
+  "open": 2360.12,
+  "high": 2361.20,
+  "low": 2359.80,
+  "close": 2360.95,
+  "volume": 42,
+  "closed": false
 }
 ```
 
-Expected acknowledgement:
+Field requirements:
+
+- `time` must be candle bucket start, not update event time.
+- `server_time` must be the real update event time or source receive time.
+- `server_time` must be monotonic for the same broker/symbol/timeframe stream, or a sequence id must be provided.
+- OHLC must be valid:
+  - high >= open
+  - high >= close
+  - high >= low
+  - low <= open
+  - low <= close
+  - low <= high
+- `symbol` must match the symbol used by frontend subscription after normalization.
+- `timeframe` must match frontend values: `M1`, `M5`, `M15`, `M30`, `H1`, `H4`, `D1`, `W1`, `MN`.
+- Numeric values must be numbers, not localized strings.
+- Timestamps must not mix milliseconds and seconds without clear field naming.
+
+If backend cannot guarantee this, say exactly which field or rule fails.
+
+## Ordering And Replay Audit
+
+For every broker/symbol/timeframe, verify these cases:
+
+1. Normal tick stream:
+   - quote ticks arrive in time order or include enough metadata to order safely.
+
+2. Candle same-bucket update:
+   - multiple updates for the same M1 candle must not rewind `close`, `high`, or `low` incorrectly.
+
+3. New bucket transition:
+   - final update of previous bucket and first update of new bucket must arrive in deterministic order or include sequence/update time.
+
+4. Reconnect:
+   - after reconnect, backend must not broadcast old active candle snapshots after newer snapshots.
+
+5. Burst:
+   - if source sends many updates quickly, backend must preserve latest state and not emit stale states later.
+
+6. Multi-instance backend:
+   - if backend runs multiple instances, all websocket clients must get the same latest feed state.
+   - If Redis, NATS, Kafka, or another fan-out layer is used, confirm message ordering per broker/symbol/timeframe key.
+
+Return evidence for each case.
+
+## Symbol And Timeframe Normalization Audit
+
+Check whether backend sends symbols exactly as frontend expects.
+
+For every broker, return:
+
+- raw provider symbol
+- normalized backend symbol
+- frontend subscription symbol
+- websocket payload symbol
+- REST candle symbol
+- any suffix/prefix mapping
+
+Examples:
+
+```text
+Provider: EURUSD.r
+Backend normalized: EURUSD
+Frontend subscribes: EURUSD
+Payload sends: EURUSD
+```
+
+If these differ, provide the exact frontend fix required:
+
+- Should frontend subscribe with raw provider symbol?
+- Should frontend display normalized symbol but subscribe with broker symbol?
+- Should backend add `display_symbol` and `feed_symbol` separately?
+- Should backend normalize before broadcasting?
+
+## Precision And Metadata Audit
+
+For every tested symbol, return:
+
+- digits
+- precision
+- point
+- tickSize
+- contract size, if available
+- quote currency, if available
+- price source: bid, ask, last, midpoint
+
+Confirm whether quote price and candle OHLC use the same price basis:
+
+- bid candles
+- ask candles
+- last-trade candles
+- midpoint candles
+- mixed/unknown
+
+If quote ticks are bid/ask but candles are last/midpoint, state this clearly because frontend candle parity may appear wrong even when transport is fast.
+
+## Backend Latency Instrumentation To Add If Missing
+
+If backend does not already log these timestamps, add temporary diagnostic logging with redacted secrets.
+
+Recommended structured log:
 
 ```json
 {
-  "type": "subscribed",
-  "symbols": ["XAUUSD", "BTCUSD", "EURUSD", "GBPUSD", "US30", "USDJPY"]
+  "event": "feed_latency_probe",
+  "broker_id": "example-broker",
+  "symbol": "XAUUSD",
+  "timeframe": "M1",
+  "feed_type": "quote|candle",
+  "source_time": 1760000000.123,
+  "backend_received_time": 1760000000.150,
+  "backend_normalized_time": 1760000000.152,
+  "backend_broadcast_time": 1760000000.158,
+  "payload_time": 1760000000,
+  "payload_server_time": 1760000000.123,
+  "sequence": 123456,
+  "connection_id": "redacted",
+  "latency_source_to_backend_ms": 27,
+  "latency_backend_to_broadcast_ms": 8
 }
 ```
 
-Every quote tick should include:
+Do not log access tokens, feed tokens, passwords, account passwords, or full secret URLs.
 
-- `symbol`
-- `bid`
-- `ask`
-- `time`, `timestamp`, or `timestamp_ms`
-- `source`
-- `sequence` or `tick_id`
-- optional `digits`, `point`, `tickSize`, `volume`
+## Direct WebSocket Probe Requirement
 
-Acceptance:
+For each broker, run a direct websocket probe from outside the mobile app.
 
-- Websocket open time under 1000ms p95.
-- First subscribed tick under 1000ms p95 after subscribe.
-- No unexplained close code `1006`.
-- If auth fails, close with a documented code such as `1008` or `4001` and a clear reason.
-- For active watched symbols, p95 inter-tick gap should be under 2000ms where market liquidity allows.
-- For active watched symbols, p95 feed timestamp latency should be under 1000ms and must not regularly exceed 3000ms.
+The probe must prove:
 
-### 4. Fix Stale Timestamp And Cached Tick Emission
+- connection opens
+- auth requirements are satisfied
+- subscribe message is accepted
+- quote messages arrive
+- candle messages arrive, if supported
+- no silent period longer than expected
+- sample payloads match frontend contract
 
-Several websocket feeds emit messages frequently but with old tick timestamps. Please trace:
+Return:
 
-- LP/source tick receive time
-- backend ingest time
-- normalization time
-- cache write time
-- websocket emit time
-- client receive time
+- sanitized websocket URL
+- subscribe payload used
+- first 20 message timestamps
+- first 5 payloads
+- any backend close/error codes
+- whether token was required
 
-Add backend logs/metrics for:
+If `/ws/feed/status` says feed is unhealthy but direct authenticated WebSocket works, explain the mismatch and fix the status endpoint.
 
-- `broker_id`
-- `symbol`
-- `source_tick_time`
-- `backend_received_at`
-- `ws_emitted_at`
-- `client_subscribed_at` if available
-- `source_to_backend_ms`
-- `backend_to_ws_ms`
-- `source_to_ws_ms`
-- `sequence`
-- stale reason
+## REST Candle Proof
 
-Acceptance:
+For each broker/symbol/timeframe, compare REST candles with live candle/quote data.
 
-- Backend can prove whether delay is coming from LP/source, CServer, backend cache, queue, or websocket fanout.
-- No broker emits old cached ticks as if they are live without marking them stale/degraded.
+Return:
 
-### 5. CServer Connectivity
+- REST endpoint used
+- request params
+- authenticated or unauthenticated
+- first candle
+- last closed candle
+- current forming candle if REST returns one
+- whether REST includes current open candle or only closed candles
+- whether REST timestamp is seconds or milliseconds
+- whether REST candle price basis matches websocket candle price basis
 
-Investigate why these brokers reported `cserver_connected: false`:
+If REST requires logged-in account context, state that clearly.
 
-- `achiever-financials`
-- `gta_broker`
-- `myprop-trade`
+## Two-Minute Parity Test
 
-Acceptance:
+Run a two-minute live capture for each priority broker/symbol/timeframe.
 
-- If CServer is required for real-time feed, it must be connected and monitored.
-- If CServer is not required for a broker, rename or document this field so it does not look like a feed failure.
-- Status must expose the actual provider connection that determines live quotes.
+Capture:
 
-### 6. Symbol Coverage
+- quote ticks
+- server candle snapshots
+- REST candle before test
+- REST candle after test
+- backend status at start
+- backend status at end
 
-For every enabled broker, verify these common symbols:
+For each M1 candle formed during the test, compare:
 
-- `XAUUSD`
-- `BTCUSD`
-- `EURUSD`
-- `GBPUSD`
-- `US30`
-- `USDJPY`
-
-Also verify all symbols returned in broker instruments/market symbols.
-
-Acceptance:
-
-- No active symbol remains silently stale for minutes.
-- If a symbol is unavailable, disabled, closed, or unsupported, backend status must say that explicitly.
-
-### 7. Monitoring And Alerts
-
-Add backend monitoring for each broker:
-
-- status endpoint availability
-- websocket open success
-- subscription acknowledgement
-- tick rate by symbol
-- p50/p95/p99 source-to-ws latency
-- stale/silent symbol count
-- auth rejection count
-- abnormal close code count
-- raw IP or insecure feed URL detection in broker directory
-
-Acceptance:
-
-- Backend team gets alerts before mobile users report slow/no live data.
-- A daily/continuous broker-feed health report can be shared with frontend/mobile.
-
-## Reproduction Commands
-
-Use these commands from any machine with Node 20+.
-
-### Broker Directory
-
-```js
-const res = await fetch('https://superbackend.orrnn.com/api/v1/broker/servers', {
-  headers: { accept: 'application/json' },
-});
-console.log(await res.json());
+```text
+quote-built open/high/low/close
+server-candle open/high/low/close
+REST final open/high/low/close
 ```
 
-### Feed Status
+Return a table:
 
-```js
-const brokerId = '<broker_id>';
-const statusUrl = '<feed_status_https_url>';
-const res = await fetch(`${statusUrl}?broker_id=${encodeURIComponent(brokerId)}`, {
-  headers: { accept: 'application/json' },
-});
-console.log(res.status, await res.json());
+```text
+broker_id | symbol | timeframe | bucket_time | quote_ohlc | ws_candle_ohlc | rest_ohlc | match? | reason_if_not
 ```
 
-### Websocket
+If the quote-built candle and server-candle differ, explain whether the reason is:
 
-```js
-const brokerId = '<broker_id>';
-const token = '<redacted token if required>';
-const symbols = ['XAUUSD', 'BTCUSD', 'EURUSD', 'GBPUSD', 'US30', 'USDJPY'];
-const wsUrl = `wss://<broker-domain>/ws/feed?broker_id=${encodeURIComponent(brokerId)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
-const ws = new WebSocket(wsUrl);
+- bid vs ask vs last price basis
+- delayed server candle
+- source aggregation
+- symbol mismatch
+- timezone/timestamp bucket mismatch
+- stale replay
+- invalid OHLC
+- missing ticks
+- frontend mapping issue
 
-ws.addEventListener('open', () => {
-  ws.send(JSON.stringify({ type: 'subscribe', symbols }));
-});
+## Decision Matrix: What Should Frontend Fix?
 
-ws.addEventListener('message', (event) => {
-  const receivedAt = Date.now();
-  const payload = JSON.parse(event.data);
-  console.log(receivedAt, payload);
-});
+After backend investigation, return exactly one recommendation per broker/feed.
 
-ws.addEventListener('close', (event) => {
-  console.log('closed', event.code, event.reason);
-});
+### Recommendation 1: No frontend change needed
 
-ws.addEventListener('error', (event) => {
-  console.log('error', event);
-});
+Use this if:
+
+- quote feed is fresh
+- frontend receives correct quote ticks
+- candle body should stay quote-driven
+- backend server candles are not fully compatible or not necessary
+
+Return:
+
+```text
+Frontend action: no change.
+Reason: quote-driven active candles are the correct mode for this broker.
+Backend action: fix/monitor feed freshness only, if needed.
 ```
 
-## Final Backend Deliverables Requested
+### Recommendation 2: Frontend should enable server candle mode
 
-Please return:
+Use this only if:
 
-1. A list of every broker and whether its feed is production-mobile-safe.
-2. Before/after broker directory rows for all fixed URLs.
-3. Before/after `/ws/feed/status` samples for every broker.
-4. Before/after websocket probe output for every broker.
-5. Per-symbol latency table for `XAUUSD`, `BTCUSD`, `EURUSD`, `GBPUSD`, `US30`, and `USDJPY`.
-6. Explanation of every broker where `cserver_connected` is false.
-7. Confirmation that all enabled broker feeds use HTTPS/WSS domains with valid TLS.
-8. Confirmation that all websocket auth failures use documented close codes and reasons.
-9. Monitoring dashboard or logs proving p95 latency and stale/silent counts.
-10. Exact deployment version/commit and deployment time.
+- server candles are real-time
+- server candles update the forming candle
+- `time` is bucket start
+- `server_time` or sequence id is monotonic
+- payload is clean across reconnects
+- OHLC is valid
+- symbol/timeframe mapping matches frontend
 
-## Definition Of Done
+Return:
 
-This backend issue is fixed only when:
+```text
+Frontend action: enable server candle mode for broker_id=<id>.
+Required env/config:
+EXPO_PUBLIC_CANDLE_SOURCE_MODE=server
+EXPO_PUBLIC_SERVER_CANDLES_PROVEN_COMPATIBLE=true
+Reason: backend proved server-candle compatibility with attached evidence.
+```
 
-- All enabled brokers have mobile-safe feed URLs.
-- All enabled broker status endpoints respond reliably.
-- All enabled broker websockets open and acknowledge subscriptions.
-- Active symbols receive fresh ticks.
-- Feed timestamp latency is consistently low.
-- Stale/silent symbol reasons are explicit.
-- Mobile app does not need broker-specific workarounds.
+### Recommendation 3: Frontend should change field mapping
 
+Use this if backend payload is good but field names differ.
+
+Return exact mapping:
+
+```text
+Frontend action: map backend field <backend_field> to frontend field <frontend_field>.
+Example:
+payload.updated_at -> LiveCandle.updateTime
+payload.t -> Candle.time
+payload.tf -> timeframe
+```
+
+### Recommendation 4: Frontend should change symbol/timeframe subscription
+
+Use this if backend requires raw broker symbols or a different timeframe format.
+
+Return exact mapping:
+
+```text
+Frontend action: subscribe using feed_symbol, display using symbol.
+Example:
+display_symbol=EURUSD
+feed_symbol=EURUSD.r
+```
+
+### Recommendation 5: Backend must fix feed contract first
+
+Use this if:
+
+- feed goes silent
+- timestamps are wrong
+- OHLC is invalid
+- server candles are bar-close only but claimed real-time
+- stale replays happen
+- status endpoint is misleading
+- payload lacks symbol/timeframe/update time
+
+Return:
+
+```text
+Frontend action: keep current quote-driven safe mode.
+Backend action: fix <exact backend issue>.
+Reason: <evidence>.
+```
+
+## Backend Fix Requirements If Issues Are Found
+
+If backend is the cause, implement fixes in these areas as applicable:
+
+### Feed freshness
+
+- Ensure backend subscribes to provider quote streams for every requested broker/symbol.
+- Ensure subscriptions are re-established after reconnect.
+- Ensure broker feed auth tokens are refreshed or rejected clearly.
+- Ensure backend status endpoint reports stale/silent symbols accurately.
+
+### Candle stream compatibility
+
+- Send current forming candle updates, not only closed candles, if server candle mode is desired.
+- Add `server_time` or monotonic sequence id.
+- Keep `time` as bucket start only.
+- Do not broadcast stale active candle snapshots after newer ones.
+- Normalize timestamp units.
+- Validate OHLC before broadcast.
+
+### Multi-instance fan-out
+
+- If backend API and WebSocket broadcaster run on different instances, use a shared ordered fan-out layer.
+- Partition messages by `broker_id:symbol:timeframe`.
+- Preserve per-key ordering.
+- Avoid replaying stale messages after reconnect.
+
+### Payload normalization
+
+- Include broker id.
+- Include normalized symbol and raw provider symbol if they differ.
+- Include timeframe.
+- Include digits/point/tickSize metadata.
+- Include price basis.
+
+## Exact Deliverables Required From Backend
+
+Return all of these:
+
+1. Summary conclusion:
+
+```text
+Root cause:
+Frontend action:
+Backend action:
+Confidence:
+```
+
+2. Broker-by-broker table:
+
+```text
+broker_id | quote_ws_status | candle_ws_status | rest_candle_status | auth_required | root_cause | frontend_action
+```
+
+3. Symbol-by-symbol freshness table:
+
+```text
+broker_id | symbol | quote_last_age_sec | candle_last_age_sec | avg_quote_latency_ms | p95_quote_latency_ms | p99_quote_latency_ms
+```
+
+4. Candle compatibility table:
+
+```text
+broker_id | symbol | timeframe | realtime_forming_updates | has_bucket_time | has_server_time | ordered | valid_ohlc | compatible_with_server_mode
+```
+
+5. Raw sanitized payload examples:
+
+- quote payloads
+- candle payloads
+- REST candle response
+- status endpoint response
+
+6. Latency histogram or metrics:
+
+- source to backend
+- backend normalize time
+- backend broadcast time
+- total backend-side latency
+
+7. Reconnect/replay proof:
+
+- logs from a forced reconnect or natural reconnect
+- proof stale candles do not overwrite fresh candles
+
+8. Final frontend instruction:
+
+Choose exactly one:
+
+```text
+NO_FRONTEND_CHANGE
+ENABLE_SERVER_CANDLE_MODE
+CHANGE_FIELD_MAPPING
+CHANGE_SYMBOL_MAPPING
+CHANGE_TIMEFRAME_MAPPING
+KEEP_QUOTE_DRIVEN_AND_BACKEND_FIX_REQUIRED
+```
+
+Include the exact config or code contract frontend must use.
+
+## Acceptance Criteria
+
+Backend work is complete only when all are true:
+
+- `/ws/feed/status?broker_id=<id>` accurately shows live/silent state.
+- Quote WebSocket emits fresh data for tested symbols.
+- Latency metrics include avg, p95, p99, and max.
+- Raw sample payloads are provided.
+- Candle payload contract is proven or rejected with exact reason.
+- Delayed/out-of-order/replayed candle behavior is tested.
+- REST candle parity is compared against live stream.
+- Backend gives one clear frontend action from the decision matrix.
+- Secrets are redacted.
+- Evidence is attached, not just a verbal claim.
+
+## Final Answer Format Backend Must Use
+
+Please respond in this exact structure:
+
+```md
+# Backend Feed Latency And Candle Contract Result
+
+## 1. Direct Conclusion
+
+Root cause:
+Frontend action:
+Backend action:
+Confidence:
+
+## 2. Brokers Tested
+
+| broker_id | quote status | candle status | auth | result |
+| --- | --- | --- | --- | --- |
+
+## 3. Latency Metrics
+
+| broker_id | symbol | feed | avg ms | p95 ms | p99 ms | max ms | sample count |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
+
+## 4. Payload Contract Result
+
+| broker_id | symbol | timeframe | bucket time ok | server_time ok | ordered | OHLC valid | compatible |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+
+## 5. Raw Payload Samples
+
+### Quote
+
+```json
+{}
+```
+
+### Candle
+
+```json
+{}
+```
+
+### Status
+
+```json
+{}
+```
+
+## 6. Two-Minute Parity Result
+
+| broker_id | symbol | timeframe | bucket | quote OHLC | WS candle OHLC | REST OHLC | match | reason |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
+## 7. Reconnect And Replay Result
+
+Result:
+Evidence:
+
+## 8. Required Frontend Change
+
+Choose one:
+
+- NO_FRONTEND_CHANGE
+- ENABLE_SERVER_CANDLE_MODE
+- CHANGE_FIELD_MAPPING
+- CHANGE_SYMBOL_MAPPING
+- CHANGE_TIMEFRAME_MAPPING
+- KEEP_QUOTE_DRIVEN_AND_BACKEND_FIX_REQUIRED
+
+Exact frontend instruction:
+
+## 9. Backend Fix Implemented Or Required
+
+Files/services changed:
+Monitoring added:
+Remaining risk:
+```
+
+## Important Rule
+
+If server candles are not guaranteed real-time, ordered, timestamp-clean, and compatible across reconnects, the correct frontend instruction is:
+
+```text
+KEEP_QUOTE_DRIVEN_AND_BACKEND_FIX_REQUIRED
+```
+
+Do not tell frontend to render raw WebSocket candle packets directly.
