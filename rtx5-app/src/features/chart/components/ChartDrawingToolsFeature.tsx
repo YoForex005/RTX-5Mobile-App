@@ -29,14 +29,18 @@ type ChartDrawingToolsSidebarProps = {
     blue: string;
     textMuted: string;
   };
+  drawingMagnetMode: boolean;
   isChartExpanded: boolean;
   isDark: boolean;
   onClearDrawings: () => void;
   onOpenDrawingTools: () => void;
+  onRedoDrawing: () => void;
   onSelectTool: (tool: string) => void;
   onToggleHide: () => void;
   onToggleLock: () => void;
+  onToggleMagnetMode: () => void;
   onToggleStickyMode: () => void;
+  onUndoDrawing: () => void;
   onZoomTool: () => void;
   showDrawingToolbar: boolean;
   stickyDrawingMode: boolean;
@@ -46,14 +50,18 @@ type ChartDrawingToolsActionSheetProps = {
   chartHideAll: boolean;
   chartLockAll: boolean;
   dangerIconColor?: string;
+  drawingMagnetMode: boolean;
   iconColor?: string;
   minimumTopInset?: number;
   onClearDrawings: () => void;
   onClose: () => void;
+  onRedoDrawing: () => void;
   onSelectTool: (tool: string) => void;
   onToggleHide: () => void;
   onToggleLock: () => void;
+  onToggleMagnetMode: () => void;
   onToggleStickyMode: () => void;
+  onUndoDrawing: () => void;
   onZoomTool: () => void;
   stickyDrawingMode: boolean;
   visible: boolean;
@@ -184,14 +192,18 @@ export function ChartDrawingToolsSidebar({
   chartHideAll,
   chartLockAll,
   colors,
+  drawingMagnetMode,
   isChartExpanded,
   isDark,
   onClearDrawings,
   onOpenDrawingTools,
+  onRedoDrawing,
   onSelectTool,
   onToggleHide,
   onToggleLock,
+  onToggleMagnetMode,
   onToggleStickyMode,
+  onUndoDrawing,
   onZoomTool,
   showDrawingToolbar,
   stickyDrawingMode,
@@ -200,13 +212,17 @@ export function ChartDrawingToolsSidebar({
   const commandState: DrawingToolsCommandState = {
     chartHideAll,
     chartLockAll,
+    drawingMagnetMode,
     stickyDrawingMode,
   };
   const commandHandlers: DrawingToolCommandHandlers = createDrawingToolsCommandHandlers({
     onClearDrawings,
+    onRedoDrawing,
     onToggleHide,
     onToggleLock,
+    onToggleMagnetMode,
     onToggleStickyMode,
+    onUndoDrawing,
     onZoomTool,
   });
   const renderSidebarEntry = (entry: DrawingToolSidebarEntry) => {
@@ -292,14 +308,18 @@ export function ChartDrawingToolsActionSheet({
   chartHideAll,
   chartLockAll,
   dangerIconColor = '#DC2626',
+  drawingMagnetMode,
   iconColor = '#64748B',
   minimumTopInset,
   onClearDrawings,
   onClose,
+  onRedoDrawing,
   onSelectTool,
   onToggleHide,
   onToggleLock,
+  onToggleMagnetMode,
   onToggleStickyMode,
+  onUndoDrawing,
   onZoomTool,
   stickyDrawingMode,
   visible,
@@ -317,12 +337,16 @@ export function ChartDrawingToolsActionSheet({
         chartHideAll,
         chartLockAll,
         dangerIconColor,
+        drawingMagnetMode,
         iconColor,
         onClearDrawings,
+        onRedoDrawing,
         onSelectTool,
         onToggleHide,
         onToggleLock,
+        onToggleMagnetMode,
         onToggleStickyMode,
+        onUndoDrawing,
         onZoomTool,
         stickyDrawingMode,
       })}

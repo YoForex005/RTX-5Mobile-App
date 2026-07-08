@@ -14,6 +14,10 @@ import {
 } from './testing/chartStabilityTestUtils';
 
 const nativeSource = readChartScreenSource();
+const webSource = readFileSync(
+  resolve(process.cwd(), 'src/features/chart/ChartScreen.web.tsx'),
+  'utf8',
+);
 const webViewHtmlSource = readFileSync(
   resolve(process.cwd(), 'src/features/chart/rendering/ChartWebViewHtml.ts'),
   'utf8',
@@ -101,12 +105,64 @@ test('overlay bridge: draggable SL and TP lines emit CHART_TRADE_LINE_DRAG', () 
   assertSourceContains(postDragBody, /type: 'CHART_TRADE_LINE_DRAG'/, 'drag events must use the chart trade-line event type');
   assertSourceContains(postDragBody, /phase: phase/, 'drag events must include phase');
   assertSourceContains(postDragBody, /dragKey: dragKey/, 'drag events must include dragKey');
-  assertSourceContains(previewLinesSource, /dragKey: 'sl'/, 'SL preview line must be draggable');
-  assertSourceContains(previewLinesSource, /dragKey: 'tp'/, 'TP preview line must be draggable');
+  assertSourceContains(previewLinesSource, /const chartTradeSlDragKey = chartTradePositionStopTarget[\s\S]*buildChartPositionStopDragKey\(chartTradePositionStopTarget\.id, 'sl'\)[\s\S]*: 'sl'/, 'SL preview must use a real position drag key when one chart position is targeted');
+  assertSourceContains(previewLinesSource, /const chartTradeTpDragKey = chartTradePositionStopTarget[\s\S]*buildChartPositionStopDragKey\(chartTradePositionStopTarget\.id, 'tp'\)[\s\S]*: 'tp'/, 'TP preview must use a real position drag key when one chart position is targeted');
+  assertSourceContains(previewLinesSource, /id: 'chart-trade-sl-preview'[\s\S]*labelPlacement: 'line'[\s\S]*dragKey: chartTradeSlDragKey/, 'SL preview line must draw to the right price scale');
+  assertSourceContains(previewLinesSource, /id: 'chart-trade-tp-preview'[\s\S]*labelPlacement: 'line'[\s\S]*dragKey: chartTradeTpDragKey/, 'TP preview line must draw to the right price scale');
+});
+
+test('overlay bridge: dragged open-position SL/TP commits through modify-position API', () => {
+  const sharedCommitStart = nativeSource.indexOf('const commitChartPositionStopLevels = useCallback');
+  const commitStart = nativeSource.indexOf('const commitChartPositionStopDrag = useCallback');
+  const sharedCommitEnd = nativeSource.indexOf('const commitChartTradeSheetStopsForPosition = useCallback', sharedCommitStart);
+  const commitEnd = nativeSource.indexOf('const handleChartPositionStopDragMessage = useCallback', commitStart);
+  const handlerEnd = nativeSource.indexOf('const handleChartTradePreviewDragMessage = useCallback', commitEnd);
+  assert.notEqual(sharedCommitStart, -1, 'shared position stop commit callback must exist');
+  assert.notEqual(sharedCommitEnd, -1, 'shared position stop commit callback boundary must exist');
+  assert.notEqual(commitStart, -1, 'commitChartPositionStopDrag callback must exist');
+  assert.notEqual(commitEnd, -1, 'handleChartPositionStopDragMessage callback must exist');
+  assert.notEqual(handlerEnd, -1, 'chart trade preview drag callback must still exist');
+  const sharedCommitSource = nativeSource.slice(sharedCommitStart, sharedCommitEnd);
+  const commitSource = nativeSource.slice(commitStart, commitEnd);
+  const handlerSource = nativeSource.slice(commitEnd, handlerEnd);
+
+  assertSourceContains(
+    handlerSource,
+    /parseChartPositionStopDragKey\(msg\?\.dragKey\)[\s\S]*phase === 'end'[\s\S]*commitChartPositionStopDrag\(target, nextPrice\)/,
+    'open-position SL/TP drag messages must parse the position key and commit only on release',
+  );
+  assertSourceContains(
+    commitSource,
+    /const requestedSl = target\.kind === 'sl' \? nextPrice : previousSl[\s\S]*const requestedTp = target\.kind === 'tp' \? nextPrice : previousTp/,
+    'dragging one stop level must preserve the other stop level',
+  );
+  assertSourceContains(
+    commitSource,
+    /commitChartPositionStopLevels\(position\.id, requestedSl, requestedTp\)/,
+    'drag release must hand the requested SL/TP values to the shared modify-position committer',
+  );
+  assertSourceContains(
+    sharedCommitSource,
+    /applyLocalStopPatch\(requestedSl, requestedTp\)[\s\S]*positionsApi\s*\.modifyPosition\(position\.id,\s*\{\s*price_sl: requestedSl,\s*price_tp: requestedTp,\s*\}\)/,
+    'shared stop commit must optimistically move the chart line and submit the backend SL/TP modify request',
+  );
+  assertSourceContains(
+    nativeSource,
+    /const handleToggleChartTradeStopLevel = useCallback[\s\S]*commitChartTradeSheetStopsForPosition\(positionTarget, nextPrice, currentTp\)[\s\S]*commitChartTradeSheetStopsForPosition\(positionTarget, currentSl, nextPrice\)/,
+    'top chart SL/TP sheet toggles must save enabled stop levels through the position modify path',
+  );
+  assertSourceContains(
+    nativeSource,
+    /msg\.type === 'CHART_TRADE_LINE_DRAG'[\s\S]*if \(!handleChartPositionStopDragMessage\(msg\)\) \{[\s\S]*handleChartTradePreviewDragMessage\(msg\)/,
+    'position stop drags must be handled before falling back to the new-trade preview drag handler',
+  );
 });
 
 test('overlay bridge: draggable trade labels keep touch ownership through the full gesture', () => {
   assertSourceContains(source, /var getClampedRelativePoint = function\(clientX, clientY\)/, 'drag movement must clamp to the chart bounds instead of dropping updates');
+  assertSourceContains(source, /var CHART_TRADE_LINE_DRAG_HOLD_MS = 300/, 'SL/TP line dragging must require a short hold before activation');
+  assertSourceContains(source, /scheduleTradeLineDragHold[\s\S]*setTimeout\(function\(\)[\s\S]*beginTradeLineDrag\(pending\.event, pending\.hit\)[\s\S]*CHART_TRADE_LINE_DRAG_HOLD_MS/, 'hold timer must own SL/TP drag activation');
+  assertSourceContains(source, /cancelPendingTradeLineHoldIfMoved[\s\S]*TRADE_LINE_HOLD_MOVE_CANCEL_PX/, 'movement before the hold completes must cancel pending SL/TP drag');
   assertSourceContains(source, /beginTradeLineDrag[\s\S]*setPointerCapture\(event\.pointerId\)/, 'drag start must capture the active pointer');
   assertSourceContains(source, /beginTradeLineDrag[\s\S]*el\.style\.touchAction = 'none'/, 'drag start must disable competing touch panning');
   assertSourceContains(source, /continueTradeLineDrag[\s\S]*getTradeLineDragPoint\(pointFromEvent\.x, pointFromEvent\.y\)/, 'drag move must keep updating after the finger reaches chart edges');
@@ -204,10 +260,13 @@ test('chart pending CTA submits the pending order and then exposes chart-side le
   assert.doesNotMatch(source, /Chart-side pending submission is still preview-only in this build/);
   assert.doesNotMatch(source, /Alert\.alert/);
   assertSourceContains(handlerSource, /ordersApi\.placePendingOrder\(payload\)/, 'pending CTA must submit to the pending-order API');
+  assert.doesNotMatch(handlerSource, /Unsupported Order Type|not supported by the current trading API/);
   assertSourceContains(handlerSource, /price_sl: chartTradeSlPrice/, 'pending CTA must include enabled SL price');
   assertSourceContains(handlerSource, /price_tp: chartTradeTpPrice/, 'pending CTA must include enabled TP price');
+  assertSourceContains(handlerSource, /stopLimitPrice: chartTradeStopLimitPrice/, 'pending CTA must include stop-limit price');
   assertSourceContains(handlerSource, /refetchOrders\(\)/, 'pending CTA must refresh orders so overlays can draw the new order');
   assertSourceContains(handlerSource, /snapTradeSheet\('collapsed'\)/, 'pending CTA must expose chart-side levels after submission');
+  assert.doesNotMatch(handlerSource, /\|\|\s*isStopLimitChartOrder/);
 });
 
 test('chart market execution submits selected sheet SL and TP levels', () => {
@@ -258,7 +317,12 @@ test('chart market execution submits selected sheet SL and TP levels', () => {
   assert.doesNotMatch(chartTradeResultSource, /setChartTradeConfirmations/);
 });
 
-test('chart header: OHLC high and low use fixed market colors', () => {
+test('chart header: OHLC values use fixed requested colors', () => {
+  assertSourceContains(
+    nativeSource,
+    /const CHART_OHLC_NEUTRAL_COLOR = '#FFFFFF'/,
+    'OHLC open and close must use fixed white text',
+  );
   assertSourceContains(
     nativeSource,
     /const CHART_OHLC_HIGH_COLOR = '#089981'/,
@@ -268,6 +332,11 @@ test('chart header: OHLC high and low use fixed market colors', () => {
     nativeSource,
     /const CHART_OHLC_LOW_COLOR = '#F23645'/,
     'OHLC low must use the fixed red market color',
+  );
+  assertSourceContains(
+    nativeSource,
+    /\{ label: 'O', value: formatChartValue\(chartMetaLastCandle\.open\), color: CHART_OHLC_NEUTRAL_COLOR \}/,
+    'O value must stay white regardless of candle direction',
   );
   assertSourceContains(
     nativeSource,
@@ -281,10 +350,38 @@ test('chart header: OHLC high and low use fixed market colors', () => {
   );
   assertSourceContains(
     nativeSource,
+    /\{ label: 'C', value: formatChartValue\(chartMetaLastCandle\.close\), color: CHART_OHLC_NEUTRAL_COLOR \}/,
+    'C value must stay white regardless of candle direction',
+  );
+  assertSourceContains(
+    nativeSource,
     /styles\.symbolOhlcValue, \{ color: item\.color,/,
     'OHLC value rendering must use the per-item color',
   );
   assert.doesNotMatch(nativeSource, /styles\.symbolOhlcValue, \{ color: chartMetaIsUp \?/);
+  assert.doesNotMatch(nativeSource, /chartMetaDirectionColor/);
+  assertSourceContains(
+    webSource,
+    /\{ label: 'O', value: formatChartValue\(chartMetaLastCandle\.open\), color: CHART_OHLC_NEUTRAL_COLOR \}/,
+    'web O value must stay white too',
+  );
+  assertSourceContains(
+    webSource,
+    /\{ label: 'H', value: formatChartValue\(chartMetaLastCandle\.high\), color: CHART_OHLC_HIGH_COLOR \}/,
+    'web H value must stay green too',
+  );
+  assertSourceContains(
+    webSource,
+    /\{ label: 'L', value: formatChartValue\(chartMetaLastCandle\.low\), color: CHART_OHLC_LOW_COLOR \}/,
+    'web L value must stay red too',
+  );
+  assertSourceContains(
+    webSource,
+    /\{ label: 'C', value: formatChartValue\(chartMetaLastCandle\.close\), color: CHART_OHLC_NEUTRAL_COLOR \}/,
+    'web C value must stay white too',
+  );
+  assertSourceContains(webSource, /\{ color: item\.color \}/, 'web OHLC value rendering must use the per-item color');
+  assert.doesNotMatch(webSource, /chartMetaIsUp \? resolvedChartColors\.candlesUptrend/);
 });
 test('overlay bridge: repeated overlay sync clears previous lines before recreating', () => {
   const body = extractFunctionBody(source, 'applyOverlayPayload');
@@ -298,18 +395,17 @@ test('overlay bridge: repeated overlay sync clears previous lines before recreat
   assertSourceContains(clearBody, /_overlayPriceLinesByDragKey = Object\.create\(null\)/, 'clear must reset drag-key lookup');
 });
 
-test('overlay bridge: anchored trade labels stay below the chart header', () => {
-  const boundsBody = extractFunctionBody(source, 'resolveAnchoredOverlayLabelBounds');
+test('overlay bridge: trade labels follow their price coordinate off screen', () => {
   const refreshBody = extractFunctionBody(source, 'refreshOverlayDomLabels');
   const anchoredLineBody = extractFunctionBody(source, 'renderAnchoredTradeLine');
   const anchoredLeftsBody = extractFunctionBody(source, 'resolveAnchoredOverlayLabelLefts');
   const applyOverlayBody = extractFunctionBody(source, 'applyOverlayPayload');
   const shouldCreateNativeLineBody = extractFunctionBody(source, 'shouldCreateOverlayNativePriceLine');
 
-  assertSourceContains(
-    boundsBody,
-    /var minTop = Math\.max\(OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING, plotTop \+ 2\)/,
-    'line-anchored open-position labels must clamp only to the chart edge so their price line stays glued to the real coordinate',
+  assert.doesNotMatch(
+    source,
+    /resolveAnchoredOverlayLabelBounds|resolveOverlayLabelBounds|OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING|OVERLAY_LABEL_TOP_SAFE_PADDING/,
+    'trade labels must not keep stale top/bottom clamp helpers that pin off-screen prices inside the pane',
   );
   assertSourceContains(
     refreshBody,
@@ -318,8 +414,18 @@ test('overlay bridge: anchored trade labels stay below the chart header', () => 
   );
   assertSourceContains(
     refreshBody,
-    /var anchoredDesiredTop = Math\.round\(anchoredLabels\[anchoredTopIndex\]\.y - OVERLAY_LABEL_LINE_HEIGHT - OVERLAY_LABEL_LINE_GAP\)[\s\S]*anchoredTops\[anchoredTopIndex\] = Math\.max\(anchoredBounds\.minTop, Math\.min\(anchoredBounds\.maxTop, anchoredDesiredTop\)\)/,
-    'MT5-style open-position labels must stay fixed to their own trade price line instead of floating away from nearby lines',
+    /var desiredTop = Math\.round\(floatingLabels\[j\]\.y - OVERLAY_LABEL_HEIGHT \/ 2\)[\s\S]*tops\[j\] = desiredTop/,
+    'floating order labels must use their real price coordinate instead of being clamped into the visible pane',
+  );
+  assertSourceContains(
+    refreshBody,
+    /var anchoredDesiredTop = Math\.round\(anchoredLabels\[anchoredTopIndex\]\.y - OVERLAY_LABEL_LINE_HEIGHT - OVERLAY_LABEL_LINE_GAP\)[\s\S]*anchoredTops\[anchoredTopIndex\] = anchoredDesiredTop/,
+    'MT5-style open-position labels must leave the chart when their price coordinate leaves the chart',
+  );
+  assertSourceContains(
+    refreshBody,
+    /var floatingTop = tops\[labelIndex\][\s\S]*renderLabel\(floatingItem, floatingTop\)/,
+    'floating labels must render from the unclamped top value',
   );
   assertSourceContains(
     refreshBody,
@@ -392,6 +498,7 @@ test('overlay bridge: anchored trade labels stay below the chart header', () => 
     'line-anchored open-position labels must draw the full-width line and live P/L label from the same fixed price coordinate',
   );
   assert.doesNotMatch(refreshBody, /anchoredInitialBackIndex/);
+  assert.doesNotMatch(refreshBody, /anchoredBounds|bounds\.minTop|bounds\.maxTop/);
   assert.doesNotMatch(refreshBody, /nudgeAnchoredLabelsAwayFrom/);
   assert.doesNotMatch(refreshBody, /label\.style\.textShadow = '0 1px 1px/);
   assert.doesNotMatch(refreshBody, /label\.style\.background/);
@@ -418,9 +525,20 @@ test('overlay bridge: right-axis trade price boxes keep close entries visible', 
   );
   assertSourceContains(
     refreshBody,
+    /var desiredBoxTop = Math\.round\(ry - POSITION_BOX_HEIGHT \/ 2\)[\s\S]*top: desiredBoxTop/,
+    'right-axis trade boxes must start from the exact price coordinate',
+  );
+  assertSourceContains(
+    refreshBody,
+    /var nextBoxTop = positionBoxes\[boxLayoutIndex\]\.desiredTop[\s\S]*positionBoxes\[boxLayoutIndex\]\.top = nextBoxTop/,
+    'right-axis trade boxes must not clamp off-screen trade prices back inside the chart',
+  );
+  assertSourceContains(
+    refreshBody,
     /boxEl\.style\.left = \(positionBoxMetrics \? positionBoxMetrics\.axisLeft[\s\S]*boxEl\.style\.width = \(positionBoxMetrics \? positionBoxMetrics\.axisWidth[\s\S]*boxEl\.style\.textAlign = 'right'[\s\S]*boxEl\.style\.zIndex = '16'/,
     'right-axis trade boxes must stay pinned inside the measured price-scale strip during chart movement',
   );
+  assert.doesNotMatch(refreshBody, /positionBoxMinTop|positionBoxMaxTop|Math\.max\(positionBoxMinTop/);
   assert.doesNotMatch(refreshBody, /boxEl\.style\.right = '2px'/);
   assert.doesNotMatch(refreshBody, /levelScale \* 1e-4/);
 });
@@ -443,7 +561,7 @@ test('overlay bridge: trade overlays stay out of price-scale autoscale', () => {
   );
   assertSourceContains(
     source,
-    /\^\(open-\|order-entry-\|order-sl-\|order-tp-\|sl-\|tp-\|chart-trade-\)/,
+    /\^\(open-\|order-entry-\|order-stop-limit-\|order-sl-\|order-tp-\|sl-\|tp-\|chart-trade-\)/,
     'account trade overlays and draggable chart-trade preview lines must be recognized before native price-line creation',
   );
   assertSourceContains(

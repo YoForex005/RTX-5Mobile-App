@@ -35,6 +35,9 @@ import {
 import { CountryBadge, PulseDot } from './subComponents';
 import { makeEconomicCalendarStyles } from './styles';
 
+/**
+ * Screen displaying a calendar of upcoming global macroeconomic events and their expected market impact.
+ */
 export function EconomicCalendarScreen() {
   const T = useTheme();
   const isScreenFocused = useIsFocused();
@@ -91,6 +94,9 @@ export function EconomicCalendarScreen() {
     });
   }, []);
 
+  /**
+   * Opens the sidebar navigation drawer.
+   */
   const handleOpenMenu = useCallback(() => {
     openSidebarDrawerImmediately();
     scheduleAfterSidebarOpenVisual(hideActionSheet);

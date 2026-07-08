@@ -22,6 +22,9 @@ const scheduleRegisterEntryBackAfterVisualFrame = (action: () => void) => {
   setTimeout(action, 0);
 };
 
+/**
+ * Landing screen for registration, prompting the user to choose between opening a Demo account or a Real account.
+ */
 export default function RegisterEntryScreen() {
   const isScreenFocused = useIsFocused();
   const [RegisterScreen, setRegisterScreen] = React.useState<RegisterScreenComponent | null>(null);

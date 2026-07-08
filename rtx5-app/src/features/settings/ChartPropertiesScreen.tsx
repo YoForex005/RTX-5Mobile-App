@@ -33,6 +33,10 @@ type ColorGroup = {
   fields: Array<{ key: keyof ChartColorsConfig; label: string; hint?: string }>;
 };
 
+/**
+ * Configuration layout for the individual chart color settings.
+ * Groups colors into logical sections (e.g., Canvas, Candles, Volumes) for the user interface.
+ */
 const COLOR_GROUPS: ColorGroup[] = [
   {
     title: 'CANVAS',
@@ -53,11 +57,19 @@ const COLOR_GROUPS: ColorGroup[] = [
   },
 ];
 
+/**
+ * Maps main candle colors to secondary elements like bar charts or volume bars,
+ * ensuring the chart looks consistent when the user changes the primary bull/bear color.
+ */
 const LINKED_CANDLE_COLOR_KEYS: Partial<Record<keyof ChartColorsConfig, keyof ChartColorsConfig>> = {
   candlesUptrend: 'barsUptrend',
   candlesDowntrend: 'barsDowntrend',
 };
 
+/**
+ * Pre-defined chart color schemes. 
+ * The 'Custom' scheme is activated automatically if the user manually overrides a specific color.
+ */
 const SCHEME_OPTIONS: Array<{ key: ChartColorScheme; label: string }> = [
   { key: 'green_on_black', label: CHART_COLOR_SCHEME_PRESETS.green_on_black.label },
   { key: 'black_on_white', label: CHART_COLOR_SCHEME_PRESETS.black_on_white.label },
@@ -85,6 +97,9 @@ const isTransparent = (color?: string) => typeof color === 'string' && color.toL
 const formatQuote = (value?: number, digits = 2) =>
   Number.isFinite(value) ? Number(value).toFixed(Math.min(Math.max(digits, 2), 5)) : '--';
 
+/**
+ * Screen for configuring global chart visual properties and display preferences.
+ */
 export function ChartPropertiesScreen() {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';

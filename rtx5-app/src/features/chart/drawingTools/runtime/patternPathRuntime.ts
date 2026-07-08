@@ -3,6 +3,9 @@ import type { EnhancedDrawingToolRuntime } from '../types';
 export const patternPathEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
   tool: 'patterns',
   script: `
+  /**
+   * Constructor function for the drawing tool class, initializing its state and event listeners.
+   */
   function PatternTool(chart, series, manager) {
     BaseTool.call(this, 'patterns', chart, series, manager);
     this._points = [];
@@ -15,14 +18,23 @@ export const patternPathEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime =
 
   PatternTool.prototype = Object.create(BaseTool.prototype);
   PatternTool.prototype.constructor = PatternTool;
+  /**
+   * Initiates the drawing process for the tool.
+   */
   PatternTool.prototype.startDrawing = function () {
     BaseTool.prototype.startDrawing.call(this);
     this._points = [];
   };
+  /**
+   * Terminates the active drawing process and cleans up.
+   */
   PatternTool.prototype.stopDrawing = function () {
     BaseTool.prototype.stopDrawing.call(this);
     this._points = [];
   };
+  /**
+   * Handles click events on the chart to process point placement for the drawing tool.
+   */
   PatternTool.prototype._handleClick = function (param) {
     if (!this._drawing) return;
     var point = this._resolvePoint(param);
@@ -42,6 +54,9 @@ export const patternPathEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime =
       });
     }
   };
+  /**
+   * Removes the tool and cleans up associated event listeners.
+   */
   PatternTool.prototype.remove = function () {
     this.stopDrawing();
     if (this._usesNativeChartInput) {
@@ -49,6 +64,9 @@ export const patternPathEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime =
     }
   };
 
+  /**
+   * Registers this drawing tool with the global drawing manager so it can be instantiated by the chart.
+   */
   registerEnhancedDrawingTool({
     kind: 'patterns',
     defaultLabel: 'Pattern',

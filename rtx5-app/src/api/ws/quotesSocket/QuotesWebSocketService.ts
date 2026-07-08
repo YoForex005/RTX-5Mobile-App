@@ -50,6 +50,11 @@ import {
   processIncomingPayload,
   type TickProcessorBridge,
 } from './tickProcessor';
+import {
+  buildCandleFeedSubscriptionMessages,
+  createCandleFeedSubscription,
+  type CandleFeedSubscription,
+} from './candleSubscriptions';
 import type { GlobalTickListener, SymbolTickListener } from './types';
 
 const shouldLogCandleDiagnostics = (): boolean =>
@@ -127,6 +132,9 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   private stickySymbols: Set<string> = new Set();
   private symbolConsumerCounts: Map<string, number> = new Map();
   private storeConsumerCounts: Map<string, number> = new Map();
+  private candleConsumerCounts: Map<string, number> = new Map();
+  private activeCandleSubscriptions: Map<string, CandleFeedSubscription> = new Map();
+  private sentCandleSubscriptions: Map<string, CandleFeedSubscription> = new Map();
   /** @internal Used by the flush pipeline. */
   public pendingUpdates: Map<string, any> = new Map();
   /** @internal Used by the flush pipeline. */
@@ -521,6 +529,9 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
         if (this.activeSymbols.size > 0) {
           this.sendSubscription();
         }
+        if (this.activeCandleSubscriptions.size > 0) {
+          this.sendCandleSubscriptionDiff();
+        }
       };
 
       this.ws.onmessage = (event) => {
@@ -590,6 +601,8 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     this.stickySymbols.clear();
     this.symbolConsumerCounts.clear();
     this.storeConsumerCounts.clear();
+    this.candleConsumerCounts.clear();
+    this.activeCandleSubscriptions.clear();
     this.teardownSocket();
   }
 
@@ -613,7 +626,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     this.stopWatchdog();
     this.watchdogInterval = setInterval(() => {
       if (!this.isConnected || this.ws?.readyState !== WebSocket.OPEN) return;
-      if (this.activeSymbols.size === 0) return;
+      if (!this.hasActiveDemand()) return;
 
       const staleFor = Date.now() - this.lastMessageAt;
       if (staleFor > QUOTE_WS_SILENT_STALE_MS) {
@@ -638,7 +651,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   }
 
   private recordFeedGapIfNeeded(feedGapMs: number): void {
-    if (this.activeSymbols.size === 0) {
+    if (!this.hasActiveDemand()) {
       return;
     }
 
@@ -677,6 +690,41 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     this.syncActiveSymbols();
   }
 
+  public subscribeToCandles(symbol: string, tf: string): () => void {
+    const subscription = createCandleFeedSubscription(symbol, tf);
+    if (!subscription) {
+      return () => {};
+    }
+
+    this.candleConsumerCounts.set(
+      subscription.key,
+      (this.candleConsumerCounts.get(subscription.key) ?? 0) + 1,
+    );
+    this.activeCandleSubscriptions.set(subscription.key, subscription);
+    this.logCandleFeed('subscribe_candles_requested', {
+      symbol: subscription.symbol,
+      tf: subscription.tf,
+      bridgeTf: subscription.bridgeTf,
+    }, 20);
+    this.syncActiveCandleSubscriptions();
+
+    let unsubscribed = false;
+    return () => {
+      if (unsubscribed) return;
+      unsubscribed = true;
+
+      const nextCount = (this.candleConsumerCounts.get(subscription.key) ?? 0) - 1;
+      if (nextCount <= 0) {
+        this.candleConsumerCounts.delete(subscription.key);
+        this.activeCandleSubscriptions.delete(subscription.key);
+      } else {
+        this.candleConsumerCounts.set(subscription.key, nextCount);
+      }
+
+      this.syncActiveCandleSubscriptions();
+    };
+  }
+
   private sendSubscription(): void {
     this.sendSubscriptionDiff(new Set(this.activeSymbols));
   }
@@ -699,6 +747,12 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       if (this.isConnected && this.sentSymbols.size > 0) {
         this.sendSubscriptionDiff(new Set());
       }
+      if (this.hasActiveDemand()) {
+        if (!this.isConnected) {
+          this.connect();
+        }
+        return;
+      }
       this.shouldReconnect = false;
       this.reconnectAttempts = 0;
       this.clearReconnectTimer();
@@ -709,6 +763,29 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
 
     if (this.isConnected) {
       this.sendSubscription();
+      return;
+    }
+
+    this.connect();
+  }
+
+  private syncActiveCandleSubscriptions(): void {
+    if (this.activeCandleSubscriptions.size === 0) {
+      if (this.isConnected && this.sentCandleSubscriptions.size > 0) {
+        this.sendCandleSubscriptionDiff();
+      }
+      if (!this.hasActiveDemand()) {
+        this.shouldReconnect = false;
+        this.reconnectAttempts = 0;
+        this.clearReconnectTimer();
+        this.clearNetInfoListener();
+        this.teardownSocket();
+      }
+      return;
+    }
+
+    if (this.isConnected) {
+      this.sendCandleSubscriptionDiff();
       return;
     }
 
@@ -745,6 +822,37 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       });
       this.logCandleFeed('subscribe_diff_sent', { symbols: subscribeSymbols }, 20);
     }
+  }
+
+  private sendCandleSubscriptionDiff(): void {
+    const unsubscribeSubscriptions = Array.from(this.sentCandleSubscriptions.entries())
+      .filter(([key]) => !this.activeCandleSubscriptions.has(key))
+      .map(([, subscription]) => subscription);
+    const subscribeSubscriptions = Array.from(this.activeCandleSubscriptions.entries())
+      .filter(([key]) => !this.sentCandleSubscriptions.has(key))
+      .map(([, subscription]) => subscription);
+
+    for (const message of buildCandleFeedSubscriptionMessages('unsubscribe_candles', unsubscribeSubscriptions)) {
+      this.send(message);
+      this.logCandleFeed('unsubscribe_candles_diff_sent', {
+        symbols: message.symbols,
+        tf: message.tf,
+      }, 20);
+    }
+    unsubscribeSubscriptions.forEach((subscription) => {
+      this.sentCandleSubscriptions.delete(subscription.key);
+    });
+
+    for (const message of buildCandleFeedSubscriptionMessages('subscribe_candles', subscribeSubscriptions)) {
+      this.send(message);
+      this.logCandleFeed('subscribe_candles_diff_sent', {
+        symbols: message.symbols,
+        tf: message.tf,
+      }, 20);
+    }
+    subscribeSubscriptions.forEach((subscription) => {
+      this.sentCandleSubscriptions.set(subscription.key, subscription);
+    });
   }
 
   private handleSubscriptionAckPayload(payload: unknown): void {
@@ -855,7 +963,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   }
 
   private hasActiveDemand(): boolean {
-    return this.activeSymbols.size > 0;
+    return this.activeSymbols.size > 0 || this.activeCandleSubscriptions.size > 0;
   }
 
   private getMergedConsumerCounts(): Map<string, number> {
@@ -932,6 +1040,8 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       this.stickySymbols.clear();
       this.symbolConsumerCounts.clear();
       this.storeConsumerCounts.clear();
+      this.candleConsumerCounts.clear();
+      this.activeCandleSubscriptions.clear();
     }
   }
 
@@ -940,6 +1050,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     this.pendingSubscribeSymbols.clear();
     this.pendingUnsubscribeSymbols.clear();
     this.confirmedSymbols.clear();
+    this.sentCandleSubscriptions.clear();
   }
 
   /** @internal Used by the tick processor. */

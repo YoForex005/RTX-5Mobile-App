@@ -19,6 +19,9 @@ type SettingsRouteLaunchPreviewProps = {
   onBack?: (event: GestureResponderEvent) => void;
 };
 
+/**
+ * A preview component displayed while a settings route is loading or animating into view.
+ */
 export function SettingsRouteLaunchPreview({
   title,
   subtitle,

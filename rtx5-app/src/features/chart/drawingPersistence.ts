@@ -1,12 +1,28 @@
 export type ChartDrawingKind =
   | 'trendline'
+  | 'arrow'
+  | 'horizontalLine'
+  | 'horizontalRay'
+  | 'verticalLine'
+  | 'ray'
+  | 'extendedLine'
   | 'fib'
+  | 'fibExtension'
+  | 'rectangle'
+  | 'ellipse'
+  | 'freehand'
   | 'brush'
   | 'text'
   | 'textLevel'
   | 'patterns'
+  | 'parallelChannel'
   | 'prediction'
+  | 'shortPosition'
   | 'pitchfork'
+  | 'gannFan'
+  | 'regressionChannel'
+  | 'elliottWave'
+  | 'xabcd'
   | 'smiley'
   | 'measure';
 
@@ -34,6 +50,8 @@ export type PersistedDrawingStyle = {
   width?: number;
   lineStyle?: 'solid' | 'dashed' | 'dotted';
   opacity?: number;
+  arrowHeadLength?: number;
+  arrowHeadWidth?: number;
   fillColor?: string;
   previewFillColor?: string;
   borderColor?: string;
@@ -215,41 +233,93 @@ export type PersistedChartDrawingsBySymbol = Record<string, PersistedChartDrawin
 
 export const CHART_DRAWING_KINDS: ChartDrawingKind[] = [
   'trendline',
+  'arrow',
+  'horizontalLine',
+  'horizontalRay',
+  'verticalLine',
+  'ray',
+  'extendedLine',
   'fib',
+  'fibExtension',
+  'rectangle',
+  'ellipse',
+  'freehand',
   'brush',
   'text',
   'textLevel',
   'patterns',
+  'parallelChannel',
   'prediction',
+  'shortPosition',
   'pitchfork',
+  'gannFan',
+  'regressionChannel',
+  'elliottWave',
+  'xabcd',
   'smiley',
   'measure',
 ];
 
 const REQUIRED_POINT_COUNT: Record<ChartDrawingKind, number> = {
   trendline: 2,
+  arrow: 2,
+  horizontalLine: 2,
+  horizontalRay: 2,
+  verticalLine: 2,
+  ray: 2,
+  extendedLine: 2,
   fib: 2,
+  fibExtension: 2,
+  rectangle: 2,
+  ellipse: 2,
+  freehand: 2,
   brush: 2,
   text: 1,
   textLevel: 1,
   patterns: 3,
+  parallelChannel: 3,
   prediction: 2,
+  shortPosition: 2,
   pitchfork: 3,
+  gannFan: 2,
+  regressionChannel: 2,
+  elliottWave: 6,
+  xabcd: 5,
   smiley: 1,
   measure: 2,
 };
 
 const DEFAULT_DRAWING_LABELS: Record<ChartDrawingKind, string> = {
   trendline: 'Trend Line',
-  fib: 'Fib Zone',
+  arrow: 'Arrow / Marker',
+  horizontalLine: 'Horizontal Line',
+  horizontalRay: 'Horizontal Ray',
+  verticalLine: 'Vertical Line',
+  ray: 'Ray',
+  extendedLine: 'Extended Line',
+  fib: 'Fibonacci Retracement',
+  fibExtension: 'Fibonacci Extension',
+  rectangle: 'Rectangle',
+  ellipse: 'Circle / Ellipse',
+  freehand: 'Freehand Brush',
   brush: 'Highlight',
   text: 'Text',
   textLevel: 'Text Level',
   patterns: 'Pattern',
+  parallelChannel: 'Parallel Channel',
   prediction: 'Long Position',
+  shortPosition: 'Short Position',
   pitchfork: 'Pitchfork',
+  gannFan: 'Gann Fan',
+  regressionChannel: 'Regression Channel',
+  elliottWave: 'Elliott Wave',
+  xabcd: 'XABCD Harmonic',
   smiley: 'Sticker',
-  measure: 'Measure',
+  measure: 'Scale',
+};
+
+const MAX_POINT_COUNT: Partial<Record<ChartDrawingKind, number>> = {
+  freehand: 512,
 };
 
 function isChartDrawingKind(value: unknown): value is ChartDrawingKind {
@@ -326,6 +396,8 @@ function sanitizeDrawingStyle(value: unknown): PersistedDrawingStyle | undefined
     style.lineStyle = candidate.lineStyle;
   }
   if (typeof candidate.opacity === 'number' && Number.isFinite(candidate.opacity)) style.opacity = candidate.opacity;
+  if (typeof candidate.arrowHeadLength === 'number' && Number.isFinite(candidate.arrowHeadLength)) style.arrowHeadLength = candidate.arrowHeadLength;
+  if (typeof candidate.arrowHeadWidth === 'number' && Number.isFinite(candidate.arrowHeadWidth)) style.arrowHeadWidth = candidate.arrowHeadWidth;
   if (typeof candidate.fillColor === 'string') style.fillColor = candidate.fillColor;
   if (typeof candidate.previewFillColor === 'string') style.previewFillColor = candidate.previewFillColor;
   if (typeof candidate.borderColor === 'string') style.borderColor = candidate.borderColor;
@@ -617,11 +689,12 @@ function sanitizePersistedChartDrawing(
   }
 
   const requiredPointCount = REQUIRED_POINT_COUNT[candidate.kind];
+  const maxPointCount = Math.max(requiredPointCount, MAX_POINT_COUNT[candidate.kind] ?? requiredPointCount);
   const points = Array.isArray(candidate.points)
     ? candidate.points
         .map((point) => sanitizeDrawingPoint(point))
         .filter((point): point is PersistedChartDrawingPoint => point !== null)
-        .slice(0, requiredPointCount)
+        .slice(0, maxPointCount)
     : [];
 
   if (points.length < requiredPointCount) {

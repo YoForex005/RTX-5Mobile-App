@@ -126,6 +126,9 @@ function hasBrokerPressMovedBeyondThreshold(start: BrokerPressPoint, end: Broker
   );
 }
 
+/**
+ * Screen for searching and selecting a broker from a predefined list or remote API directory.
+ */
 export function BrokersScreen() {
   const [search, setSearch] = useState('');
   const [logoFailed, setLogoFailed] = useState<Record<string, boolean>>({});
@@ -200,6 +203,9 @@ export function BrokersScreen() {
     });
   }, [brokerRecords, isSearching, trimmedQuery]);
 
+  /**
+   * Navigates to the Broker Detail (login) screen for the chosen broker.
+   */
   const handleSelectBroker = (broker: BrokerRow) => {
     setBrokerConnection(broker.brokerId, broker.serverUrl, broker.logoUrl);
     void persistSelectedBrokerSession({
@@ -277,6 +283,9 @@ export function BrokersScreen() {
     return false;
   };
 
+  /**
+   * Triggered when the user taps on a specific broker row in the search results.
+   */
   const handleBrokerRowPress = (broker: BrokerRow, event: GestureResponderEvent) => {
     if (shouldIgnoreBrokerRowPress(event)) {
       return;
@@ -284,6 +293,9 @@ export function BrokersScreen() {
     handleSelectBroker(broker);
   };
 
+  /**
+   * Returns to the Accounts management screen.
+   */
   const handleBack = () => safeRouterBack(routerInstance, '/settings/accounts');
 
   return (
@@ -446,6 +458,9 @@ export function BrokersScreen() {
   );
 }
 
+/**
+ * Displays the broker's logo in a standardized circular format for the search list.
+ */
 function BrokerAvatar({
   broker,
   failed,

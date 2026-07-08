@@ -326,6 +326,9 @@ const areSavedAccountSnapshotsEqual = (
     && left.updatedAt === right.updatedAt;
 };
 
+/**
+ * Allows the user to manage their trading accounts, switch between them, and add new ones.
+ */
 export function AccountsScreen() {
   const router = useRouter();
   const isScreenFocused = useIsFocused();
@@ -658,6 +661,9 @@ export function AccountsScreen() {
   const { data: health } = useHealth(screenDataActive);
   const { data: mt5Status } = useMt5Status(screenDataActive);
 
+  /**
+   * Navigates the user to the Brokers screen to search for and connect a new trading account.
+   */
   const handleConnectAccount = () => {
     router.push('/settings/brokers');
   };
@@ -671,6 +677,9 @@ export function AccountsScreen() {
   const [tradeNotificationsSheetVisible, setTradeNotificationsSheetVisible] = React.useState(false);
   const [brokerLogoFailed, setBrokerLogoFailed] = React.useState<Record<string, boolean>>({});
 
+  /**
+   * Callback triggered when a remote broker logo URL fails to load, gracefully falling back to a placeholder icon.
+   */
   const handleBrokerLogoError = React.useCallback((logoUri: string) => {
     setBrokerLogoFailed((current) => (
       current[logoUri] ? current : { ...current, [logoUri]: true }
@@ -685,6 +694,9 @@ export function AccountsScreen() {
   );
   const setTradeNotificationsEnabled = useTradeNotifications((s) => s.setEnabled);
 
+  /**
+   * Logs the user into the selected saved account.
+   */
   const handleConnectSavedAccount = async (row: OtherAccountRow) => {
     if (connectingKey) return;
     setConnectingKey(row.key);
@@ -811,6 +823,9 @@ export function AccountsScreen() {
     }
   };
 
+  /**
+   * Prompts the user with a confirmation dialog before deleting the saved credentials for an account.
+   */
   const handleRemoveSavedAccount = (row: OtherAccountRow) => {
     setDeleteTarget({ type: 'saved', row });
   };
@@ -834,10 +849,16 @@ export function AccountsScreen() {
     setPasswordSheetVisible(true);
   };
 
+  /**
+   * Cancels the account deletion process and closes the confirmation modal.
+   */
   const handleDismissDeleteAccount = () => {
     setDeleteTarget(null);
   };
 
+  /**
+   * Permanently removes the selected account from local device storage and state.
+   */
   const handleConfirmDeleteAccount = () => {
     const target = deleteTarget;
     setDeleteTarget(null);
@@ -1427,6 +1448,9 @@ export function AccountsScreen() {
   );
 }
 
+/**
+ * Renders a circular avatar displaying the broker's logo, falling back to a generic icon if the image fails to load.
+ */
 function BrokerLogoAvatar({
   logoUri,
   label,

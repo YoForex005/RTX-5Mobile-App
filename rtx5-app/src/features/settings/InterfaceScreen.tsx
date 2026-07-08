@@ -19,6 +19,9 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { SUPPORTED_LANGUAGES } from '../../i18n/translations';
 import { safeRouterBack } from '../../utils/navigation';
 
+/**
+ * Allows the user to customize the application's UI, such as theme (light/dark) and language.
+ */
 export function InterfaceScreen() {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';

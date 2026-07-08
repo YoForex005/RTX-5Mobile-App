@@ -14,9 +14,9 @@ import { FastPressable as Pressable } from '../../../ui/components/FastPressable
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator, KeyboardAvoidingView, Platform, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,8 +32,42 @@ import { safeRouterBack } from '../../../utils/navigation';
 import { AlertRow } from './AlertRow';
 import { makePriceAlertsStyles } from './styles';
 
+type PriceAlertRouteParams = {
+  condition?: string | string[];
+  drawingId?: string | string[];
+  drawingKind?: string | string[];
+  message?: string | string[];
+  price?: string | string[];
+  symbol?: string | string[];
+};
+
+const firstRouteParam = (value: string | string[] | undefined) =>
+  Array.isArray(value) ? value[0] : value;
+
+const normalizeRouteSymbol = (value: string | string[] | undefined) =>
+  (firstRouteParam(value) ?? '').replace(/\//g, '').trim().toUpperCase();
+
+const normalizeRoutePrice = (value: string | string[] | undefined) => {
+  const raw = (firstRouteParam(value) ?? '').trim().replace(',', '.');
+  if (!raw) {
+    return '';
+  }
+
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? raw : '';
+};
+
+const normalizeRouteCondition = (value: string | string[] | undefined): AlertCondition | undefined => {
+  const raw = (firstRouteParam(value) ?? '').trim().toLowerCase();
+  return raw === 'above' || raw === 'below' ? raw : undefined;
+};
+
+const normalizeRouteMessage = (value: string | string[] | undefined) =>
+  (firstRouteParam(value) ?? '').replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim();
+
 export function PriceAlertsScreen() {
   const router = useRouter();
+  const routeParams = useLocalSearchParams<PriceAlertRouteParams>();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
@@ -42,6 +76,28 @@ export function PriceAlertsScreen() {
 
   // Current chart symbol pre-fills the symbol field
   const chartSymbol = useUserPreferences((s) => s.chartSymbol);
+  const routePrefillSymbol = useMemo(() => normalizeRouteSymbol(routeParams.symbol), [routeParams.symbol]);
+  const routePrefillPrice = useMemo(() => normalizeRoutePrice(routeParams.price), [routeParams.price]);
+  const routePrefillCondition = useMemo(() => normalizeRouteCondition(routeParams.condition), [routeParams.condition]);
+  const routePrefillMessage = useMemo(() => normalizeRouteMessage(routeParams.message), [routeParams.message]);
+  const routePrefillKey = useMemo(
+    () => [
+      routePrefillSymbol,
+      routePrefillPrice,
+      routePrefillCondition ?? '',
+      routePrefillMessage,
+      firstRouteParam(routeParams.drawingId) ?? '',
+      firstRouteParam(routeParams.drawingKind) ?? '',
+    ].join('|'),
+    [
+      routeParams.drawingId,
+      routeParams.drawingKind,
+      routePrefillCondition,
+      routePrefillMessage,
+      routePrefillPrice,
+      routePrefillSymbol,
+    ],
+  );
 
   // ── Alert list ───────────────────────────────────────────────────────────
   const { data: alerts = [], isLoading, refetch, isRefetching } = useAlertsQuery({
@@ -50,13 +106,40 @@ export function PriceAlertsScreen() {
   const { mutate: deleteAlert, isPending: isDeleting } = useDeleteAlertMutation();
 
   // ── Create form state ────────────────────────────────────────────────────
-  const [symbol, setSymbol] = useState(chartSymbol ?? '');
-  const [condition, setCondition] = useState<AlertCondition>('above');
-  const [price, setPrice] = useState('');
-  const [message, setMessage] = useState('');
+  const [symbol, setSymbol] = useState(routePrefillSymbol || chartSymbol || '');
+  const [condition, setCondition] = useState<AlertCondition>(routePrefillCondition ?? 'above');
+  const [price, setPrice] = useState(routePrefillPrice);
+  const [message, setMessage] = useState(routePrefillMessage);
   const [formError, setFormError] = useState('');
+  const [appliedRoutePrefillKey, setAppliedRoutePrefillKey] = useState(routePrefillKey);
 
   const { mutate: createAlert, isPending: isCreating } = useCreateAlertMutation();
+
+  useEffect(() => {
+    if (!routePrefillKey || routePrefillKey === appliedRoutePrefillKey) {
+      return;
+    }
+
+    if (routePrefillSymbol) {
+      setSymbol(routePrefillSymbol);
+    }
+    if (routePrefillCondition) {
+      setCondition(routePrefillCondition);
+    }
+    if (routePrefillPrice) {
+      setPrice(routePrefillPrice);
+    }
+    setMessage(routePrefillMessage);
+    setFormError('');
+    setAppliedRoutePrefillKey(routePrefillKey);
+  }, [
+    appliedRoutePrefillKey,
+    routePrefillCondition,
+    routePrefillKey,
+    routePrefillMessage,
+    routePrefillPrice,
+    routePrefillSymbol,
+  ]);
 
   const handleCreate = () => {
     const trimmedSymbol = symbol.trim().toUpperCase();

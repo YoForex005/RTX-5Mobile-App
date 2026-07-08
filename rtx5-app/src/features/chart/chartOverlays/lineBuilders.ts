@@ -27,6 +27,7 @@ export const buildPendingOrderLines = (
     const entryPrice = Number(order.price_open);
     const slValue = Number(order.price_sl);
     const tpValue = Number(order.price_tp);
+    const stopLimitValue = Number(order.stopLimitPrice ?? order.stop_limit_price ?? order.price_stop_limit);
     const entryColor = order.side === 'buy' ? colors.tradeOpen || '#2962FF' : sellColor;
 
     if (Number.isFinite(entryPrice) && entryPrice > 0) {
@@ -41,6 +42,19 @@ export const buildPendingOrderLines = (
       });
     }
 
+    if (Number.isFinite(stopLimitValue) && stopLimitValue > 0) {
+      accumulator.push({
+        id: `order-stop-limit-${order.ticket}`,
+        price: stopLimitValue,
+        color: entryColor,
+        lineWidth: 1,
+        lineStyle: CHART_LINE_STYLE.Dashed,
+        axisLabelVisible: false,
+        title: `${order.side === 'buy' ? 'BUY' : 'SELL'} STOP LIMIT ${Number(order.volume).toFixed(2)}`,
+        labelPlacement: 'line',
+      });
+    }
+
     if (Number.isFinite(tpValue) && tpValue > 0) {
       accumulator.push({
         id: `order-tp-${order.ticket}`,
@@ -50,6 +64,7 @@ export const buildPendingOrderLines = (
         lineStyle: CHART_LINE_STYLE.Solid,
         axisLabelVisible: false,
         title: formatTpSlOverlayLabel('tp', order.symbol, entryPrice, tpValue, Number(order.volume)),
+        labelPlacement: 'line',
       });
     }
 
@@ -62,6 +77,7 @@ export const buildPendingOrderLines = (
         lineStyle: CHART_LINE_STYLE.Solid,
         axisLabelVisible: false,
         title: formatTpSlOverlayLabel('sl', order.symbol, entryPrice, slValue, Number(order.volume)),
+        labelPlacement: 'line',
       });
     }
 

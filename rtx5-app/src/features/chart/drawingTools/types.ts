@@ -17,11 +17,15 @@ export type EnhancedDrawingToolRuntime = {
 export type DrawingToolsCommandState = {
   chartHideAll: boolean;
   chartLockAll: boolean;
+  drawingMagnetMode: boolean;
   stickyDrawingMode: boolean;
 };
 
 export type DrawingToolCommandKey =
+  | 'undoDrawing'
+  | 'redoDrawing'
   | 'zoomToFit'
+  | 'toggleMagnetMode'
   | 'stayInDrawingMode'
   | 'lockAllDrawings'
   | 'hideAllDrawings'
@@ -56,10 +60,13 @@ export type DrawingToolsActionSheetConfig = DrawingToolsCommandState & {
   dangerIconColor?: string;
   iconColor?: string;
   onClearDrawings: () => void;
+  onRedoDrawing: () => void;
   onSelectTool: (tool: string) => void;
   onToggleHide: () => void;
   onToggleLock: () => void;
+  onToggleMagnetMode: () => void;
   onToggleStickyMode: () => void;
+  onUndoDrawing: () => void;
   onZoomTool: () => void;
 };
 

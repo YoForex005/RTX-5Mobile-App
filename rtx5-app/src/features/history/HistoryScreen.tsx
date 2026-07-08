@@ -361,6 +361,9 @@ function mapClosedPositionToRow(position: ClosedPosition): HistoryRow {
   };
 }
 
+/**
+ * Main screen for the History tab, displaying past trades, closed positions, and account operations over a selected time period.
+ */
 export function HistoryScreen() {
   const isScreenFocused = useIsFocused();
   const [tab, setTab] = useState<Tab>('Positions');
@@ -703,6 +706,9 @@ export function HistoryScreen() {
   );
 }
 
+/**
+ * Renders a generic row for historical account operations such as deposits, withdrawals, or balance adjustments.
+ */
 function HistoryItemRow({ item, T, isDark, currency }: { item: HistoryRow; T: ThemeColors; isDark: boolean; currency: string }) {
   const isClosedPosition = item.recordKind === 'closed-position';
 
@@ -897,6 +903,9 @@ function ClosedPositionRow({ item, T, isDark, currency }: { item: HistoryRow; T:
   );
 }
 
+/**
+ * Reusable UI component displaying a small colored badge or pill with a specific metric value (e.g., profit/loss amount).
+ */
 function MetricPill({
   label, value, icon, tone, T, isDark, onPress,
 }: {

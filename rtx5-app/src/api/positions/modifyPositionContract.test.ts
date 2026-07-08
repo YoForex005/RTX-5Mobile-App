@@ -33,3 +33,11 @@ test('modify position screen applies confirmed backend SL and TP response to vis
   assert.match(screenSource, /positionSnapshots:/);
   assert.match(screenSource, /\[positionKey\]: \{/);
 });
+
+test('modify position submit button activates on press-in with a double-submit guard', () => {
+  assert.match(screenSource, /const modifySubmittingRef = useRef\(false\)/);
+  assert.match(screenSource, /if \(modifySubmittingRef\.current\) \{[\s\S]*return;[\s\S]*\}/);
+  assert.match(screenSource, /modifySubmittingRef\.current = true[\s\S]*setIsSubmitting\(true\)/);
+  assert.match(screenSource, /finally \{[\s\S]*modifySubmittingRef\.current = false[\s\S]*setIsSubmitting\(false\)/);
+  assert.match(screenSource, /onPress=\{handleModify\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="modifyPosition\.submit"/);
+});

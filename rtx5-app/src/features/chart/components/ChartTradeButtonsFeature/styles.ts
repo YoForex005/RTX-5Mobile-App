@@ -100,7 +100,7 @@ export const baseStyles = StyleSheet.create({
   },
   actionBtnLabelTitle: { color: '#FFFFFF', fontSize: 8, fontWeight: '600', letterSpacing: 0.2 },
   actionBtnPriceText: {
-    width: '100%', color: 'rgba(255,255,255,0.85)', fontSize: 17, lineHeight: 20,
+    width: '100%', color: '#FFFFFF', fontSize: 17, lineHeight: 20,
     fontWeight: '700', fontVariant: ['tabular-nums'], textAlign: 'right',
     paddingRight: 6, includeFontPadding: false,
   },

@@ -74,6 +74,9 @@ type ContactDetailsLayout = {
 
 type DeveloperContactMode = 'contact-developer' | 'account-deletion';
 
+/**
+ * Displays information about the app version, copyright, and developer details.
+ */
 export function AboutScreen() {
   const router = useRouter();
   const isDark = useIsDarkTheme();

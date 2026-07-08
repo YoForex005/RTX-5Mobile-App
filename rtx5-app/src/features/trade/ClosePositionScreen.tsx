@@ -53,6 +53,9 @@ function isRenderableClosePosition(position: PositionItem | undefined): position
   );
 }
 
+/**
+ * Screen dedicated to partially or fully closing an open position at the current market price.
+ */
 export function ClosePositionScreen() {
   const { positionId } = useLocalSearchParams<{ positionId?: string }>();
   const [submitted, setSubmitted] = useState(false);
@@ -124,6 +127,9 @@ export function ClosePositionScreen() {
     finalize();
   }, []);
 
+  /**
+   * Executes the market order to close the specified volume of the position.
+   */
   const handleClosePosition = useCallback(async () => {
     if (!position || actionLockRef.current || isClosing) {
       return;
@@ -202,6 +208,9 @@ export function ClosePositionScreen() {
       });
   }, [isClosing, position, releaseActionLock, resolvedLogin]);
 
+  /**
+   * Navigates the user to the 'Close By' screen, allowing them to close this position by merging it with an opposite open position.
+   */
   const handleOpenCloseBy = useCallback(() => {
     if (!position || actionLockRef.current || isClosing) {
       return;
@@ -322,6 +331,9 @@ export function ClosePositionScreen() {
   );
 }
 
+/**
+ * A reusable UI sub-component for rendering a small label/value statistic (e.g. commission, swap).
+ */
 function Metric({
   label,
   value,

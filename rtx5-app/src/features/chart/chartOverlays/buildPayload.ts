@@ -29,6 +29,7 @@ import {
   formatSignedUsdOverlayLabel,
   formatTpSlOverlayLabel,
 } from './orderHelpers';
+import { buildChartPositionStopDragKey } from './positionStopDragKeys';
 import { normalizeChartOverlaySymbol } from './symbolUtils';
 import {
   CHART_LINE_STYLE,
@@ -190,6 +191,8 @@ export const buildChartOverlayPayload = ({
           lineStyle: CHART_LINE_STYLE.Dashed,
           axisLabelVisible: false,
           title: formatTpSlOverlayLabel('tp', position.symbol, parsedPrice, tpValue, Number(position.volume)),
+          labelPlacement: 'line',
+          dragKey: buildChartPositionStopDragKey(position.id, 'tp'),
         });
       }
 
@@ -203,6 +206,8 @@ export const buildChartOverlayPayload = ({
           lineStyle: CHART_LINE_STYLE.Dashed,
           axisLabelVisible: false,
           title: formatTpSlOverlayLabel('sl', position.symbol, parsedPrice, slValue, Number(position.volume)),
+          labelPlacement: 'line',
+          dragKey: buildChartPositionStopDragKey(position.id, 'sl'),
         });
       }
     }

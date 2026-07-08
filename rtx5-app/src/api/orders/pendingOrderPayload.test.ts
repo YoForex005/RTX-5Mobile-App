@@ -54,8 +54,54 @@ test('pending order payload accepts price_open only as a local migration alias',
   );
 });
 
-test('pending order payload rejects unsupported stop-limit orders before POST', () => {
-  assert.equal(normalizePendingOrderType('Buy Stop Limit'), null);
+test('pending order payload supports stop-limit orders with their limit price', () => {
+  assert.equal(normalizePendingOrderType('Buy Stop Limit'), 'buy_stop_limit');
+  assert.equal(normalizePendingOrderType('sell-stop-limit'), 'sell_stop_limit');
+
+  assert.deepEqual(
+    buildPendingOrderRequestBody({
+      account_login: 200074,
+      symbol: 'EURUSD',
+      side: 'buy',
+      volume: 0.01,
+      type: 'buy_stop_limit',
+      price: 1.08,
+      stopLimitPrice: 1.075,
+    }),
+    {
+      login: 200074,
+      symbol: 'EURUSD',
+      side: 'buy',
+      volume: 0.01,
+      type: 'buy_stop_limit',
+      price: 1.08,
+      stopLimitPrice: 1.075,
+    },
+  );
+
+  assert.deepEqual(
+    buildPendingOrderRequestBody({
+      account_login: 200074,
+      symbol: 'EURUSD',
+      side: 'sell',
+      volume: 0.01,
+      type: 'Sell Stop Limit',
+      price: 1.07,
+      stop_limit_price: 1.075,
+    }),
+    {
+      login: 200074,
+      symbol: 'EURUSD',
+      side: 'sell',
+      volume: 0.01,
+      type: 'sell_stop_limit',
+      price: 1.07,
+      stopLimitPrice: 1.075,
+    },
+  );
+});
+
+test('pending order payload validates stop-limit price direction', () => {
   assert.throws(
     () => buildPendingOrderRequestBody({
       account_login: 200074,
@@ -64,6 +110,32 @@ test('pending order payload rejects unsupported stop-limit orders before POST', 
       volume: 0.01,
       type: 'buy_stop_limit',
       price: 1.08,
+    }),
+    PendingOrderPayloadError,
+  );
+
+  assert.throws(
+    () => buildPendingOrderRequestBody({
+      account_login: 200074,
+      symbol: 'EURUSD',
+      side: 'buy',
+      volume: 0.01,
+      type: 'buy_stop_limit',
+      price: 1.08,
+      stopLimitPrice: 1.081,
+    }),
+    PendingOrderPayloadError,
+  );
+
+  assert.throws(
+    () => buildPendingOrderRequestBody({
+      account_login: 200074,
+      symbol: 'EURUSD',
+      side: 'sell',
+      volume: 0.01,
+      type: 'sell_stop_limit',
+      price: 1.07,
+      stopLimitPrice: 1.069,
     }),
     PendingOrderPayloadError,
   );

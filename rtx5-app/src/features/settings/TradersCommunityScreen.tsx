@@ -57,6 +57,9 @@ const CHART_CANDLES = [
   { body: 36, wick: 68, up: true },
 ];
 
+/**
+ * Provides access to the social trading community, forums, and shared signals.
+ */
 export function TradersCommunityScreen() {
   const T = useTheme();
   const insets = useSafeAreaInsets();

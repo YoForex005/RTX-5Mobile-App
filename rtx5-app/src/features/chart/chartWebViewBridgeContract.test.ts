@@ -170,6 +170,11 @@ test('webview bridge: symbol switches reject stale drawing bridge updates', () =
     'CHART_READY drawing replay must use the current render-scoped drawing records, including an empty list to clear stale overlays',
   );
   assertSourceContains(
+    source,
+    /if \(!isScreenFocused \|\| !preferencesHydrated \|\| !webViewReady \|\| !chartCanvasReady \|\| !webViewRef\.current\)[\s\S]*setSerializedDrawings\(\$\{JSON\.stringify\(chartDrawingRecords\)\}\)[\s\S]*\}, \[[^\]]*isScreenFocused[^\]]*\]/,
+    'native-side object/style edits must replay saved drawings when the chart regains focus',
+  );
+  assertSourceContains(
     enhancedDrawingToolsSource,
     /currentSymbol = this\._crosshairConfig[\s\S]*symbol:[\s\S]*currentSymbol \|\| undefined[\s\S]*timeframe:[\s\S]*currentTimeframe \|\| undefined/,
     'drawing plugin must stamp new drawing records with the active chart symbol and timeframe',
@@ -252,12 +257,27 @@ test('webview bridge: exposes required bridge methods for updates and recovery',
     'setVerticalScrollingLocked',
     'setChartAutoScaleEnabled',
     'setSerializedDrawings',
+    'undoDrawingAction',
+    'redoDrawingAction',
     'publishSerializedDrawings',
     'applyDrawingTextEdit',
     'cancelDrawingTextEdit',
   ].forEach((method) => {
     assertSourceContains(chartWebViewHtmlSource, new RegExp(`window\\.${method} = ${method}`), `${method} must be exposed on window`);
   });
+});
+
+test('webview bridge: drawing undo and redo delegate to the drawing manager', () => {
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /function undoDrawingAction\(\)[\s\S]*window\._drawingManager\.undoDrawingAction\(\)/,
+    'undoDrawingAction must delegate to the drawing manager history stack',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /function redoDrawingAction\(\)[\s\S]*window\._drawingManager\.redoDrawingAction\(\)/,
+    'redoDrawingAction must delegate to the drawing manager history stack',
+  );
 });
 
 test('webview bridge: objects navigation flushes current drawing records first', () => {
@@ -432,20 +452,27 @@ test('webview bridge: open-position labels separate trade side color from live P
 });
 
 test('webview bridge: open-position trade labels stay attached to their price line while vertical panning', () => {
-  assertSourceContains(
-    chartWebViewHtmlSource,
-    /var OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING = 2/,
-    'anchored trade labels must not be forced below the chart header while their price line stays at the real coordinate',
-  );
-  assertSourceContains(
-    chartWebViewHtmlSource,
-    /function resolveAnchoredOverlayLabelBounds\(layer\)[\s\S]*var minTop = Math\.max\(OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING, plotTop \+ 2\)/,
-    'anchored trade labels must clamp only to the chart edge so top-of-chart trades remain glued to their line',
-  );
+  const refreshBody = extractFunctionBody(chartWebViewHtmlSource, 'refreshOverlayDomLabels');
+
   assertSourceContains(
     chartWebViewHtmlSource,
     /priceScaleApi\.setVisibleRange\(nextRange\)[\s\S]*refreshVerticalGestureOverlayPositions\(\)[\s\S]*return true/,
     'vertical price panning must move the native price range and repaint trade labels on the same touchmove',
+  );
+  assertSourceContains(
+    refreshBody,
+    /var anchoredDesiredTop = Math\.round\(anchoredLabels\[anchoredTopIndex\]\.y - OVERLAY_LABEL_LINE_HEIGHT - OVERLAY_LABEL_LINE_GAP\)[\s\S]*anchoredTops\[anchoredTopIndex\] = anchoredDesiredTop/,
+    'anchored trade labels must use the real price coordinate so they can leave the visible chart range',
+  );
+  assertSourceContains(
+    refreshBody,
+    /var floatingTop = tops\[labelIndex\][\s\S]*renderLabel\(floatingItem, floatingTop\)/,
+    'floating order labels must also render from the unclamped price coordinate',
+  );
+  assert.doesNotMatch(
+    chartWebViewHtmlSource,
+    /resolveAnchoredOverlayLabelBounds|OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING|anchoredBounds|bounds\.minTop|bounds\.maxTop/,
+    'vertical panning must not pin trade labels inside the screen when their price is off-screen',
   );
 });
 
@@ -646,6 +673,7 @@ test('webview bridge: setLivePriceLine hides native market badges and paints one
   const healPriceScaleBody = extractFunctionBody(chartWebViewHtmlSource, 'healCollapsedPriceScaleRange');
   const renderMarketPriceScaleExtensionBody = extractFunctionBody(chartWebViewHtmlSource, 'renderMarketPriceScaleExtension');
   const renderMarketPriceScaleExtensionsBody = extractFunctionBody(chartWebViewHtmlSource, 'renderMarketPriceScaleExtensions');
+  const collectMarketPriceScaleBadgeBody = extractFunctionBody(chartWebViewHtmlSource, 'collectMarketPriceScaleBadge');
   const renderMarketPriceScaleBadgeBody = extractFunctionBody(chartWebViewHtmlSource, 'renderMarketPriceScaleBadge');
   const renderMarketPriceScaleBadgesBody = extractFunctionBody(chartWebViewHtmlSource, 'renderMarketPriceScaleBadges');
   const axisMetricsBody = extractFunctionBody(chartWebViewHtmlSource, 'resolveMarketPriceScaleAxisMetrics');
@@ -680,8 +708,10 @@ test('webview bridge: setLivePriceLine hides native market badges and paints one
   assertSourceContains(renderMarketPriceScaleExtensionsBody, /clearMarketPriceScaleExtensions\(layer\)[\s\S]*renderMarketPriceScaleExtension\(layer, lastLivePrice, marketLiveColor\)/, 'overlay refresh must repaint the custom live price-scale extension');
   assertSourceContains(axisMetricsBody, /resolveRightPriceScaleFallbackAxisMetrics\(Object\.assign[\s\S]*MARKET_PRICE_SCALE_BADGE_MIN_WIDTH[\s\S]*axisLeft \+ axisWidth > chartWidth/, 'custom market price badges must occupy the owned right price-scale strip without overflowing the chart');
   assertSourceContains(badgeFormatterBody, /resolveOverlayDisplayDecimals\(\)[\s\S]*Number\(price\)\.toFixed\(decimals\)/, 'custom market price badges must use the same configured display precision as the overlay');
+  assertSourceContains(collectMarketPriceScaleBadgeBody, /var desiredTop = Math\.round\(y - MARKET_PRICE_SCALE_BADGE_HEIGHT \/ 2\)[\s\S]*desiredTop: desiredTop[\s\S]*top: desiredTop/, 'custom market price badges must follow the real price coordinate instead of clamping to the visible pane');
   assertSourceContains(renderMarketPriceScaleBadgeBody, /className = 'rtx5-market-price-scale-badge rtx5-market-price-scale-badge-' \+ badge\.role[\s\S]*textContent = formatMarketPriceScaleBadgeLabel\(badge\.price\)[\s\S]*style\.left = axisMetrics\.axisLeft \+ 'px'[\s\S]*style\.width = axisMetrics\.axisWidth \+ 'px'[\s\S]*style\.background = badge\.color[\s\S]*style\.color = '#FFFFFF'[\s\S]*style\.textAlign = 'right'/, 'custom market price-scale badge must render as a colored right-axis price box');
   assertSourceContains(renderMarketPriceScaleBadgesBody, /clearMarketPriceScaleBadges\(layer\)[\s\S]*collectMarketPriceScaleBadge\(layer, axisMetrics, lastLivePrice, marketLiveColor, 'live'\)[\s\S]*badges\.sort[\s\S]*MARKET_PRICE_SCALE_BADGE_GAP[\s\S]*renderMarketPriceScaleBadge\(layer, badges\[badgeIndex\], axisMetrics\)/, 'overlay refresh must repaint the custom live price-scale badge');
+  assert.doesNotMatch(renderMarketPriceScaleBadgesBody, /Math\.max\(minTop|Math\.min\(maxTop|maxTop|axisMetrics\.plotBottom - MARKET_PRICE_SCALE_BADGE_HEIGHT/, 'custom market price badges must not be pinned to the top or bottom edge while the chart is vertically panned');
   assertSourceContains(visibleRangeBody, /includeMarketPriceBadges === false[\s\S]*expandPriceRangeForMarketPriceBadges\(robustRange\)/, 'visible price-scale recovery must be able to ignore a far live price badge during horizontal navigation');
   assertSourceContains(
     chartWebViewHtmlSource,

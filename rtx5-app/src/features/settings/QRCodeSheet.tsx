@@ -20,6 +20,9 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * Displays a QR code for easy sharing of account details, app download links, or payment addresses.
+ */
 export function QRCodeSheet({ data, onClose }: Props) {
   const T = useTheme();
   const styles = useMemo(() => makeStyles(T), [T]);

@@ -1,6 +1,6 @@
 import {
-  normalizeCandleHistoryTimeframeStrict,
   normalizeTimestampToSeconds,
+  toRestCandleTf,
 } from '../core/candles';
 import { asRecord } from '../core/candleUtils';
 
@@ -114,7 +114,7 @@ export const buildCandleHistorySearchParams = (
   const params = new URLSearchParams();
   const requestTimeframe = timeframe.trim();
   const normalizedRequestTimeframe =
-    normalizeCandleHistoryTimeframeStrict(requestTimeframe) ?? requestTimeframe.toUpperCase();
+    toRestCandleTf(requestTimeframe) ?? requestTimeframe.toUpperCase();
   if (style === 'tfCount') {
     params.set('tf', normalizedRequestTimeframe);
     params.set('count', String(count));
@@ -141,6 +141,6 @@ export const buildCandleHistorySearchParams = (
 };
 
 export const getCandleHistoryRequestTimeframes = (timeframe: string): string[] => {
-  const normalizedTimeframe = normalizeCandleHistoryTimeframeStrict(timeframe);
+  const normalizedTimeframe = toRestCandleTf(timeframe);
   return normalizedTimeframe ? [normalizedTimeframe] : [];
 };

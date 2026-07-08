@@ -3,14 +3,23 @@ import type { EnhancedDrawingToolRuntime } from '../types';
 export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
   tool: 'brush',
   script: `
+  /**
+   * Helper function: normalizeHighlightExtendMode.
+   */
   function normalizeHighlightExtendMode(value) {
     return value === 'left' || value === 'right' || value === 'both' ? value : 'none';
   }
 
+  /**
+   * Normalizes the style configuration for the drawing tool, providing defaults for missing values.
+   */
   function normalizeHighlightLineStyle(value) {
     return value === 'dashed' || value === 'dotted' ? value : 'solid';
   }
 
+  /**
+   * Helper function: highlightDashPattern.
+   */
   function highlightDashPattern(style, ratio) {
     var px = Math.max(1, ratio || 1);
     if (style === 'dashed') return [8 * px, 5 * px];
@@ -18,6 +27,9 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
     return [];
   }
 
+  /**
+   * Helper function: normalizeHighlightZoneType.
+   */
   function normalizeHighlightZoneType(value) {
     if (value === 'supply' || value === 'demand' || value === 'range' || value === 'session' || value === 'neutral' || value === 'custom') {
       return value;
@@ -25,10 +37,16 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
     return 'neutral';
   }
 
+  /**
+   * Helper function: normalizeHighlightExtendUntil.
+   */
   function normalizeHighlightExtendUntil(value) {
     return typeof value === 'string' && value ? value : 'none';
   }
 
+  /**
+   * Normalizes the style configuration for the drawing tool, providing defaults for missing values.
+   */
   function normalizeHighlightStyle(style, draft) {
     var source = style && typeof style === 'object' ? style : {};
     return {
@@ -55,6 +73,9 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
     };
   }
 
+  /**
+   * Helper function: resolveHighlightBounds.
+   */
   function resolveHighlightBounds(pointA, pointB) {
     var timeA = timeToComparableValue(pointA && pointA.time);
     var timeB = timeToComparableValue(pointB && pointB.time);
@@ -70,6 +91,9 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
     };
   }
 
+  /**
+   * Helper function: buildHighlightZoneMetadata.
+   */
   function buildHighlightZoneMetadata(points, zoneType, extendMode) {
     var bounds = points && points.length >= 2 ? resolveHighlightBounds(points[0], points[1]) : null;
     return {
@@ -83,6 +107,9 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
     };
   }
 
+  /**
+   * Helper function: normalizeHighlightAlertMetadata.
+   */
   function normalizeHighlightAlertMetadata(metadata, points, zoneType, extendMode) {
     var source = metadata && typeof metadata === 'object' ? metadata : {};
     if (metadata && typeof metadata === 'object') {
@@ -107,6 +134,9 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
     };
   }
 
+  /**
+   * Helper function: normalizeHighlightRecord.
+   */
   function normalizeHighlightRecord(record, draft) {
     var source = record && typeof record === 'object' ? record : {};
     var points = Array.isArray(source.points) ? clonePoints(source.points.slice(0, 2)) : [];
@@ -128,6 +158,9 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
     };
   }
 
+  /**
+   * Helper function: resolveHighlightRenderBox.
+   */
   function resolveHighlightRenderBox(p1, p2, extendMode, paneWidth) {
     var left = Math.min(p1.x, p2.x);
     var right = Math.max(p1.x, p2.x);
@@ -146,6 +179,9 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
     };
   }
 
+  /**
+   * Helper function: drawHighlightHandle.
+   */
   function drawHighlightHandle(ctx, x, y, radius, fill, stroke, ratio) {
     ctx.fillStyle = fill;
     ctx.strokeStyle = stroke;
@@ -156,6 +192,9 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
     ctx.stroke();
   }
 
+  /**
+   * Helper function: distanceToHighlightPoint.
+   */
   function distanceToHighlightPoint(a, b) {
     if (!a || !b || !isFiniteNumber(a.x) || !isFiniteNumber(a.y) || !isFiniteNumber(b.x) || !isFiniteNumber(b.y)) {
       return Number.POSITIVE_INFINITY;
@@ -165,6 +204,9 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
     return Math.sqrt((dx * dx) + (dy * dy));
   }
 
+  /**
+   * Helper function: buildHighlightLabel.
+   */
   function buildHighlightLabel(source) {
     var style = source._options.style;
     if (!style.showLabel) return '';
@@ -179,12 +221,21 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
     return parts.join(' ');
   }
 
+  /**
+   * Creates the visual primitive object that gets rendered on the chart canvas.
+   */
   function createHighlightBoxPrimitive(pointA, pointB, record, draft) {
+  /**
+   * Helper function: HighlightBoxPaneRenderer.
+   */
     function HighlightBoxPaneRenderer(source, geometry) {
       this._source = source;
       this._geometry = geometry;
     }
 
+  /**
+   * Helper function: draw.
+   */
     HighlightBoxPaneRenderer.prototype.draw = function (target) {
       var source = this._source;
       var geometry = this._geometry;
@@ -260,11 +311,17 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
       });
     };
 
+  /**
+   * Helper function: HighlightBoxPaneView.
+   */
     function HighlightBoxPaneView(source) {
       this._source = source;
       this._geometry = { p1: null, p2: null, box: null };
     }
 
+  /**
+   * Helper function: update.
+   */
     HighlightBoxPaneView.prototype.update = function () {
       var series = this._source.series;
       var p1 = {
@@ -279,10 +336,16 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
       this._source._geometry = this._geometry;
     };
 
+  /**
+   * Helper function: renderer.
+   */
     HighlightBoxPaneView.prototype.renderer = function () {
       return new HighlightBoxPaneRenderer(this._source, this._geometry);
     };
 
+  /**
+   * Helper function: HighlightBoxPrimitive.
+   */
     function HighlightBoxPrimitive(anchorA, anchorB, opts) {
       PrimitiveBase.call(this);
       this._p1 = clonePoint(anchorA);
@@ -296,35 +359,62 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
 
     HighlightBoxPrimitive.prototype = Object.create(PrimitiveBase.prototype);
     HighlightBoxPrimitive.prototype.constructor = HighlightBoxPrimitive;
+  /**
+   * Helper function: updateAllViews.
+   */
     HighlightBoxPrimitive.prototype.updateAllViews = function () {
       this._paneViews.forEach(function (view) { view.update(); });
     };
+  /**
+   * Helper function: paneViews.
+   */
     HighlightBoxPrimitive.prototype.paneViews = function () {
       return this._paneViews;
     };
+  /**
+   * Helper function: setVisible.
+   */
     HighlightBoxPrimitive.prototype.setVisible = function (visible) {
       this._options.visible = !!visible;
       this.requestUpdate();
     };
+  /**
+   * Helper function: setSelected.
+   */
     HighlightBoxPrimitive.prototype.setSelected = function (selected) {
       this._options.selected = !!selected;
       this.requestUpdate();
     };
+  /**
+   * Helper function: setHovered.
+   */
     HighlightBoxPrimitive.prototype.setHovered = function (hovered) {
       this._options.hovered = !!hovered;
       this.requestUpdate();
     };
+  /**
+   * Helper function: updatePoints.
+   */
     HighlightBoxPrimitive.prototype.updatePoints = function (pointA, pointB) {
       this._p1 = clonePoint(pointA);
       this._p2 = clonePoint(pointB);
       this.requestUpdate();
     };
+  /**
+   * Helper function: getPoints.
+   */
     HighlightBoxPrimitive.prototype.getPoints = function () {
       return clonePoints([this._p1, this._p2]);
     };
+  /**
+   * Helper function: getLogicalBounds.
+   */
     HighlightBoxPrimitive.prototype.getLogicalBounds = function () {
       return resolveHighlightBounds(this._p1, this._p2);
     };
+  /**
+   * Helper function: getHandleCoordinates.
+   */
     HighlightBoxPrimitive.prototype.getHandleCoordinates = function () {
       this.updateAllViews();
       var geometry = this._geometry;
@@ -348,6 +438,9 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
         { part: 'left', x: left, y: midY }
       ];
     };
+  /**
+   * Helper function: getGeometry.
+   */
     HighlightBoxPrimitive.prototype.getGeometry = function () {
       this.updateAllViews();
       var geometry = this._geometry;
@@ -373,6 +466,9 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
         }
       };
     };
+  /**
+   * Helper function: hitTest.
+   */
     HighlightBoxPrimitive.prototype.hitTest = function (point, context) {
       this.updateAllViews();
       var geometry = this._geometry;
@@ -397,6 +493,9 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
       }
       return null;
     };
+  /**
+   * Helper function: buildEditPoints.
+   */
     HighlightBoxPrimitive.prototype.buildEditPoints = function (part, originalPoints, startPoint, editPoint) {
       if (!Array.isArray(originalPoints) || originalPoints.length < 2 || !editPoint) return null;
       if (part === 'body' || part === 'border') return null;
@@ -416,6 +515,9 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
     return new HighlightBoxPrimitive(pointA, pointB, record, draft);
   }
 
+  /**
+   * Builds a serialized record object representing the current state of the drawing tool for persistence.
+   */
   function buildHighlightBoxRecord(points, style, extendMode, zoneType, extendUntil, alertMetadata) {
     var now = Date.now();
     var normalizedExtendMode = normalizeHighlightExtendMode(extendMode);
@@ -438,6 +540,9 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
     };
   }
 
+  /**
+   * Constructor function for the drawing tool class, initializing its state and event listeners.
+   */
   function HighlightBoxTool(chart, series, manager) {
     BaseTool.call(this, 'brush', chart, series, manager);
     this._points = [];
@@ -457,32 +562,53 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
 
   HighlightBoxTool.prototype = Object.create(BaseTool.prototype);
   HighlightBoxTool.prototype.constructor = HighlightBoxTool;
+  /**
+   * Initiates the drawing process for the tool.
+   */
   HighlightBoxTool.prototype.startDrawing = function () {
     BaseTool.prototype.startDrawing.call(this);
     this._resetDrawingSession();
   };
+  /**
+   * Helper function: _resetDrawingSession.
+   */
   HighlightBoxTool.prototype._resetDrawingSession = function () {
     this._points = [];
     this._removePreview();
   };
+  /**
+   * Terminates the active drawing process and cleans up.
+   */
   HighlightBoxTool.prototype.stopDrawing = function () {
     BaseTool.prototype.stopDrawing.call(this);
     this._resetDrawingSession();
   };
+  /**
+   * Removes the tool and cleans up associated event listeners.
+   */
   HighlightBoxTool.prototype._removePreview = function () {
     if (this._preview) {
       try { this._series.detachPrimitive(this._preview); } catch (_error) {}
       this._preview = null;
     }
   };
+  /**
+   * Helper function: _sameLogicalPoint.
+   */
   HighlightBoxTool.prototype._sameLogicalPoint = function (pointA, pointB) {
     return pointA && pointB && pointA.time === pointB.time && pointA.price === pointB.price;
   };
+  /**
+   * Helper function: _startPreview.
+   */
   HighlightBoxTool.prototype._startPreview = function (point) {
     var record = buildHighlightBoxRecord([point, point], this._style, this._extendMode, this._zoneType, this._extendUntil, null);
     this._preview = createHighlightBoxPrimitive(point, point, record, true);
     this._series.attachPrimitive(this._preview);
   };
+  /**
+   * Helper function: _completeHighlightBox.
+   */
   HighlightBoxTool.prototype._completeHighlightBox = function (secondPoint) {
     var firstPoint = this._points[0];
     if (!firstPoint || !secondPoint || this._sameLogicalPoint(firstPoint, secondPoint)) {
@@ -493,6 +619,9 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
     var serialized = buildHighlightBoxRecord(points, this._style, this._extendMode, this._zoneType, this._extendUntil, null);
     this._completeDrawing(createHighlightBoxPrimitive(points[0], points[1], serialized, false), 'Highlight', serialized);
   };
+  /**
+   * Handles click events on the chart to process point placement for the drawing tool.
+   */
   HighlightBoxTool.prototype._handleClick = function (param) {
     if (!this._drawing) return;
     var point = this._resolvePoint(param);
@@ -504,12 +633,18 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
     }
     this._completeHighlightBox(point);
   };
+  /**
+   * Helper function: _handleMove.
+   */
   HighlightBoxTool.prototype._handleMove = function (param) {
     if (!this._drawing || !this._preview || this._points.length !== 1) return;
     var point = this._resolvePoint(param);
     if (!point) return;
     this._preview.updatePoints(this._points[0], point);
   };
+  /**
+   * Removes the tool and cleans up associated event listeners.
+   */
   HighlightBoxTool.prototype.remove = function () {
     this.stopDrawing();
     if (this._usesNativeChartInput) {
@@ -518,6 +653,9 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
     }
   };
 
+  /**
+   * Registers this drawing tool with the global drawing manager so it can be instantiated by the chart.
+   */
   registerEnhancedDrawingTool({
     kind: 'brush',
     defaultLabel: 'Highlight',

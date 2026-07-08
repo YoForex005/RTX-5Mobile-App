@@ -3,10 +3,16 @@ import type { EnhancedDrawingToolRuntime } from '../types';
 export const trendLineEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
   tool: 'trendline',
   script: `
+  /**
+   * Helper function: normalizeTrendLineExtendMode.
+   */
   function normalizeTrendLineExtendMode(value) {
     return value === 'left' || value === 'right' || value === 'both' ? value : 'none';
   }
 
+  /**
+   * Normalizes the style configuration for the drawing tool, providing defaults for missing values.
+   */
   function normalizeTrendLineStyle(style, draft) {
     var source = style && typeof style === 'object' ? style : {};
     return {
@@ -22,6 +28,9 @@ export const trendLineEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     };
   }
 
+  /**
+   * Helper function: buildTrendLinePrimitiveOptions.
+   */
   function buildTrendLinePrimitiveOptions(pointA, pointB, record, draft) {
     var style = normalizeTrendLineStyle(record && record.style, draft);
     return {
@@ -42,6 +51,9 @@ export const trendLineEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     };
   }
 
+  /**
+   * Creates the visual primitive object that gets rendered on the chart canvas.
+   */
   function createTrendLinePrimitive(pointA, pointB, record, draft) {
     return createLinePrimitive(
       pointA,
@@ -50,6 +62,9 @@ export const trendLineEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     );
   }
 
+  /**
+   * Builds a serialized record object representing the current state of the drawing tool for persistence.
+   */
   function buildTrendLineRecord(points, style, extendMode) {
     var now = Date.now();
     return {
@@ -66,6 +81,9 @@ export const trendLineEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     };
   }
 
+  /**
+   * Constructor function for the drawing tool class, initializing its state and event listeners.
+   */
   function TrendLineTool(chart, series, manager) {
     BaseTool.call(this, 'trendline', chart, series, manager);
     this._points = [];
@@ -83,27 +101,45 @@ export const trendLineEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
 
   TrendLineTool.prototype = Object.create(BaseTool.prototype);
   TrendLineTool.prototype.constructor = TrendLineTool;
+  /**
+   * Initiates the drawing process for the tool.
+   */
   TrendLineTool.prototype.startDrawing = function () {
     BaseTool.prototype.startDrawing.call(this);
     this._resetDrawingSession();
   };
+  /**
+   * Helper function: _resetDrawingSession.
+   */
   TrendLineTool.prototype._resetDrawingSession = function () {
     this._points = [];
     this._removePreview();
   };
+  /**
+   * Terminates the active drawing process and cleans up.
+   */
   TrendLineTool.prototype.stopDrawing = function () {
     BaseTool.prototype.stopDrawing.call(this);
     this._resetDrawingSession();
   };
+  /**
+   * Removes the tool and cleans up associated event listeners.
+   */
   TrendLineTool.prototype._removePreview = function () {
     if (this._preview) {
       try { this._series.detachPrimitive(this._preview); } catch (_error) {}
       this._preview = null;
     }
   };
+  /**
+   * Helper function: _sameLogicalPoint.
+   */
   TrendLineTool.prototype._sameLogicalPoint = function (pointA, pointB) {
     return pointA && pointB && pointA.time === pointB.time && pointA.price === pointB.price;
   };
+  /**
+   * Helper function: _startPreview.
+   */
   TrendLineTool.prototype._startPreview = function (point) {
     // Draft anchors use the same coordinate object as final drawings, so snapping and live coordinate math stay identical.
     this._preview = createTrendLinePrimitive(point, point, {
@@ -113,6 +149,9 @@ export const trendLineEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     }, true);
     this._series.attachPrimitive(this._preview);
   };
+  /**
+   * Helper function: _completeTrendLine.
+   */
   TrendLineTool.prototype._completeTrendLine = function (secondPoint) {
     var firstPoint = this._points[0];
     if (!firstPoint || !secondPoint || this._sameLogicalPoint(firstPoint, secondPoint)) {
@@ -127,6 +166,9 @@ export const trendLineEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
       serialized
     );
   };
+  /**
+   * Handles click events on the chart to process point placement for the drawing tool.
+   */
   TrendLineTool.prototype._handleClick = function (param) {
     if (!this._drawing) return;
     var point = this._resolvePoint(param);
@@ -138,6 +180,9 @@ export const trendLineEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     }
     this._completeTrendLine(point);
   };
+  /**
+   * Helper function: _handleMove.
+   */
   TrendLineTool.prototype._handleMove = function (param) {
     if (!this._drawing || !this._preview || this._points.length !== 1) return;
     var point = this._resolvePoint(param);
@@ -145,6 +190,9 @@ export const trendLineEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     // Only the lightweight primitive mutates during preview; React persistence waits until the second anchor is confirmed.
     this._preview.updatePoints(this._points[0], point);
   };
+  /**
+   * Removes the tool and cleans up associated event listeners.
+   */
   TrendLineTool.prototype.remove = function () {
     this.stopDrawing();
     if (this._usesNativeChartInput) {
@@ -153,6 +201,9 @@ export const trendLineEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     }
   };
 
+  /**
+   * Registers this drawing tool with the global drawing manager so it can be instantiated by the chart.
+   */
   registerEnhancedDrawingTool({
     kind: 'trendline',
     defaultLabel: 'Trend Line',

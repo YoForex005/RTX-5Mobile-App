@@ -3,6 +3,9 @@ import type { EnhancedDrawingToolRuntime } from '../types';
 export const pitchforkEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
   tool: 'pitchfork',
   script: `
+  /**
+   * Constructor function for the drawing tool class, initializing its state and event listeners.
+   */
   function PitchforkTool(chart, series, manager) {
     BaseTool.call(this, 'pitchfork', chart, series, manager);
     this._points = [];
@@ -15,14 +18,23 @@ export const pitchforkEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
 
   PitchforkTool.prototype = Object.create(BaseTool.prototype);
   PitchforkTool.prototype.constructor = PitchforkTool;
+  /**
+   * Initiates the drawing process for the tool.
+   */
   PitchforkTool.prototype.startDrawing = function () {
     BaseTool.prototype.startDrawing.call(this);
     this._points = [];
   };
+  /**
+   * Terminates the active drawing process and cleans up.
+   */
   PitchforkTool.prototype.stopDrawing = function () {
     BaseTool.prototype.stopDrawing.call(this);
     this._points = [];
   };
+  /**
+   * Handles click events on the chart to process point placement for the drawing tool.
+   */
   PitchforkTool.prototype._handleClick = function (param) {
     if (!this._drawing) return;
     var point = this._resolvePoint(param);
@@ -37,6 +49,9 @@ export const pitchforkEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
       });
     }
   };
+  /**
+   * Removes the tool and cleans up associated event listeners.
+   */
   PitchforkTool.prototype.remove = function () {
     this.stopDrawing();
     if (this._usesNativeChartInput) {
@@ -44,6 +59,9 @@ export const pitchforkEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     }
   };
 
+  /**
+   * Registers this drawing tool with the global drawing manager so it can be instantiated by the chart.
+   */
   registerEnhancedDrawingTool({
     kind: 'pitchfork',
     defaultLabel: 'Pitchfork',

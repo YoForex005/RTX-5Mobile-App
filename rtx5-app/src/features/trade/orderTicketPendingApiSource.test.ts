@@ -15,6 +15,7 @@ test('order ticket pending submit uses the pending-order API contract', () => {
 
   const pendingHandler = source.slice(pendingStart, pendingEnd);
   assert.match(pendingHandler, /price:\s*pendingEntryPrice/);
+  assert.match(pendingHandler, /stopLimitPrice:\s*pendingStopLimitPrice/);
   assert.match(pendingHandler, /ordersApi\.placePendingOrder\(payload\)/);
   assert.doesNotMatch(pendingHandler, /ordersApi\.placeMarketOrder\(payload as any\)/);
 });

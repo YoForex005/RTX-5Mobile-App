@@ -25,6 +25,9 @@ import {
   type GuideManualSection,
 } from './userGuideViewModel';
 
+/**
+ * Displays tutorials, documentation, and user guides on how to use the trading platform.
+ */
 export function UserGuideScreen() {
   const insets = useSafeAreaInsets();
   const isDark = useIsDarkTheme();

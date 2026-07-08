@@ -120,6 +120,9 @@ const BREAKING_NEWS_PALETTES: Record<'dark' | 'light', Record<NewsSentiment, Bre
   },
 };
 
+/**
+ * UI component that displays an important breaking news headline or alert within the settings or news section.
+ */
 export function BreakingNewsCard({
   breakingNews,
   isLoading = false,

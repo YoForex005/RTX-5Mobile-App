@@ -189,6 +189,9 @@ const formatDemoPhoneForSubmission = (dialCode: string, phoneNumber: string) => 
   return trimmedPhone.startsWith('+') ? trimmedPhone : `${dialCode}${trimmedPhone}`;
 };
 
+/**
+ * Screen for opening a new Demo or Real account. Contains forms for user details, server selection, and account preferences.
+ */
 export default function RegisterScreen() {
   const login = useUserPreferences((s) => s.login);
   const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);

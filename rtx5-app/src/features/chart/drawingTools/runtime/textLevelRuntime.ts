@@ -3,18 +3,30 @@ import type { EnhancedDrawingToolRuntime } from '../types';
 export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
   tool: 'textLevel',
   script: `
+  /**
+   * Normalizes the style configuration for the drawing tool, providing defaults for missing values.
+   */
   function normalizeTextLevelLineStyle(value) {
     return value === 'dashed' || value === 'dotted' ? value : 'solid';
   }
 
+  /**
+   * Helper function: normalizeTextLevelExtendMode.
+   */
   function normalizeTextLevelExtendMode(value) {
     return value === 'none' || value === 'left' || value === 'both' ? value : 'right';
   }
 
+  /**
+   * Helper function: normalizeTextLevelPosition.
+   */
   function normalizeTextLevelPosition(value) {
     return value === 'left' || value === 'center' || value === 'anchor' || value === 'price-axis' ? value : 'right';
   }
 
+  /**
+   * Helper function: normalizeTextLevelType.
+   */
   function normalizeTextLevelType(value) {
     return value === 'entry' ||
       value === 'stopLoss' ||
@@ -32,6 +44,9 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
       : 'neutral';
   }
 
+  /**
+   * Helper function: sanitizeTextLevelText.
+   */
   function sanitizeTextLevelText(value) {
     var text = typeof value === 'string' ? value : 'Level';
     text = text.replace(/<[^>]*>/g, '').replace(/[\\u0000-\\u001F\\u007F]/g, ' ').replace(/[<>]/g, '').replace(/\\s+/g, ' ').trim();
@@ -39,6 +54,9 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     return text.length > 120 ? text.slice(0, 120) : text;
   }
 
+  /**
+   * Helper function: normalizeTextLevelOffset.
+   */
   function normalizeTextLevelOffset(value) {
     var source = value && typeof value === 'object' ? value : {};
     return {
@@ -47,6 +65,9 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     };
   }
 
+  /**
+   * Normalizes the style configuration for the drawing tool, providing defaults for missing values.
+   */
   function normalizeTextLevelStyle(style, draft) {
     var source = style && typeof style === 'object' ? style : {};
     return {
@@ -74,6 +95,9 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     };
   }
 
+  /**
+   * Helper function: normalizeTextLevelLine.
+   */
   function normalizeTextLevelLine(levelLine) {
     var source = levelLine && typeof levelLine === 'object' ? levelLine : {};
     return {
@@ -86,6 +110,9 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     };
   }
 
+  /**
+   * Helper function: textLevelDashPattern.
+   */
   function textLevelDashPattern(style, ratio) {
     var px = Math.max(1, ratio || 1);
     if (style === 'dashed') return [8 * px, 5 * px];
@@ -93,6 +120,9 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     return [];
   }
 
+  /**
+   * Helper function: normalizeTextLevelRecord.
+   */
   function normalizeTextLevelRecord(record, draft) {
     var source = record && typeof record === 'object' ? record : {};
     return {
@@ -118,6 +148,9 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     };
   }
 
+  /**
+   * Helper function: getTextLevelRenderPrice.
+   */
   function getTextLevelRenderPrice(source) {
     if (!source._options.followLastPrice) {
       return source._point.price;
@@ -129,6 +162,9 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     return source._point.price;
   }
 
+  /**
+   * Helper function: buildTextLevelDisplayText.
+   */
   function buildTextLevelDisplayText(source) {
     var text = sanitizeTextLevelText(source._options.text);
     if (source._options.showPrice) {
@@ -137,12 +173,18 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     return text;
   }
 
+  /**
+   * Helper function: estimateTextLevelLabelSize.
+   */
   function estimateTextLevelLabelSize(text, style) {
     var width = Math.max(36, Math.min(240, (String(text).length * style.fontSize * 0.58) + (style.paddingX * 2)));
     var height = Math.max(20, style.fontSize + (style.paddingY * 2) + 2);
     return { width: width, height: height };
   }
 
+  /**
+   * Helper function: resolveTextLevelLabelBox.
+   */
   function resolveTextLevelLabelBox(anchor, paneWidth, paneHeight, text, options) {
     var style = options.style;
     var offset = options.labelOffset || { x: 0, y: 0 };
@@ -174,6 +216,9 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     };
   }
 
+  /**
+   * Helper function: resolveTextLevelLineRange.
+   */
   function resolveTextLevelLineRange(anchorX, labelBox, paneWidth, extendMode) {
     var mode = normalizeTextLevelExtendMode(extendMode);
     var anchor = isFiniteNumber(anchorX) ? anchorX : (labelBox ? labelBox.left : paneWidth);
@@ -187,30 +232,63 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     };
   }
 
+  /**
+   * Creates the visual primitive object that gets rendered on the chart canvas.
+   */
   function createTextLevelPrimitive(point, record, draft) {
+  /**
+   * Helper function: TextLevelPriceAxisView.
+   */
     function TextLevelPriceAxisView(source) {
       this._source = source;
       this._pos = null;
     }
 
+  /**
+   * Helper function: update.
+   */
     TextLevelPriceAxisView.prototype.update = function () {
       var price = getTextLevelRenderPrice(this._source);
       this._pos = this._source.series && typeof this._source.series.priceToCoordinate === 'function'
         ? this._source.series.priceToCoordinate(price)
         : null;
     };
+  /**
+   * Helper function: coordinate.
+   */
     TextLevelPriceAxisView.prototype.coordinate = function () { return this._pos === null ? -1 : this._pos; };
+  /**
+   * Helper function: visible.
+   */
     TextLevelPriceAxisView.prototype.visible = function () { return this._source._options.visible && this._source._options.showPriceAxisLabel; };
+  /**
+   * Helper function: tickVisible.
+   */
     TextLevelPriceAxisView.prototype.tickVisible = function () { return this.visible(); };
+  /**
+   * Helper function: text.
+   */
     TextLevelPriceAxisView.prototype.text = function () { return formatCrosshairPrice(this._source.series, getTextLevelRenderPrice(this._source)); };
+  /**
+   * Helper function: textColor.
+   */
     TextLevelPriceAxisView.prototype.textColor = function () { return this._source._options.style.textColor; };
+  /**
+   * Helper function: backColor.
+   */
     TextLevelPriceAxisView.prototype.backColor = function () { return this._source._options.levelLine.lineColor || this._source._options.style.backgroundColor; };
 
+  /**
+   * Helper function: TextLevelPaneRenderer.
+   */
     function TextLevelPaneRenderer(source, geometry) {
       this._source = source;
       this._geometry = geometry;
     }
 
+  /**
+   * Helper function: draw.
+   */
     TextLevelPaneRenderer.prototype.draw = function (target) {
       var source = this._source;
       var geometry = this._geometry;
@@ -301,11 +379,17 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
       });
     };
 
+  /**
+   * Helper function: TextLevelPaneView.
+   */
     function TextLevelPaneView(source) {
       this._source = source;
       this._geometry = { anchor: { x: null, y: null } };
     }
 
+  /**
+   * Helper function: update.
+   */
     TextLevelPaneView.prototype.update = function () {
       var price = getTextLevelRenderPrice(this._source);
       this._geometry = {
@@ -317,10 +401,16 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
       this._source._geometry = Object.assign({}, this._source._geometry || {}, this._geometry);
     };
 
+  /**
+   * Helper function: renderer.
+   */
     TextLevelPaneView.prototype.renderer = function () {
       return new TextLevelPaneRenderer(this._source, this._geometry);
     };
 
+  /**
+   * Helper function: TextLevelPrimitive.
+   */
     function TextLevelPrimitive(anchor, opts) {
       PrimitiveBase.call(this);
       this._point = clonePoint(anchor);
@@ -334,38 +424,68 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
 
     TextLevelPrimitive.prototype = Object.create(PrimitiveBase.prototype);
     TextLevelPrimitive.prototype.constructor = TextLevelPrimitive;
+  /**
+   * Helper function: updateAllViews.
+   */
     TextLevelPrimitive.prototype.updateAllViews = function () {
       this._paneViews.forEach(function (view) { view.update(); });
       this._priceAxisViews.forEach(function (view) { view.update(); });
     };
+  /**
+   * Helper function: paneViews.
+   */
     TextLevelPrimitive.prototype.paneViews = function () { return this._paneViews; };
+  /**
+   * Helper function: priceAxisViews.
+   */
     TextLevelPrimitive.prototype.priceAxisViews = function () { return this._priceAxisViews; };
+  /**
+   * Helper function: setFallbackPaneSize.
+   */
     TextLevelPrimitive.prototype.setFallbackPaneSize = function (width, height) {
       this._fallbackPaneSize = {
         width: isFiniteNumber(width) && width > 0 ? width : null,
         height: isFiniteNumber(height) && height > 0 ? height : null
       };
     };
+  /**
+   * Helper function: setVisible.
+   */
     TextLevelPrimitive.prototype.setVisible = function (visible) {
       this._options.visible = !!visible;
       this.requestUpdate();
     };
+  /**
+   * Helper function: setSelected.
+   */
     TextLevelPrimitive.prototype.setSelected = function (selected) {
       this._options.selected = !!selected;
       this.requestUpdate();
     };
+  /**
+   * Helper function: setHovered.
+   */
     TextLevelPrimitive.prototype.setHovered = function (hovered) {
       this._options.hovered = !!hovered;
       this.requestUpdate();
     };
+  /**
+   * Helper function: updateText.
+   */
     TextLevelPrimitive.prototype.updateText = function (text) {
       this._options.text = sanitizeTextLevelText(text);
       this.requestUpdate();
     };
+  /**
+   * Helper function: updatePoints.
+   */
     TextLevelPrimitive.prototype.updatePoints = function (pointValue) {
       this._point = clonePoint(pointValue);
       this.requestUpdate();
     };
+  /**
+   * Helper function: beginEdit.
+   */
     TextLevelPrimitive.prototype.beginEdit = function (part, startPoint) {
       if (part === 'label') {
         this._labelDragState = {
@@ -376,6 +496,9 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
         this._labelDragState = null;
       }
     };
+  /**
+   * Helper function: endEdit.
+   */
     TextLevelPrimitive.prototype.endEdit = function (commit) {
       if (this._labelDragState && !commit) {
         this._options.labelOffset = normalizeTextLevelOffset(this._labelDragState.offset);
@@ -383,15 +506,24 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
       }
       this._labelDragState = null;
     };
+  /**
+   * Helper function: getPoints.
+   */
     TextLevelPrimitive.prototype.getPoints = function () {
       return clonePoints([this._point]);
     };
+  /**
+   * Helper function: getSerializableState.
+   */
     TextLevelPrimitive.prototype.getSerializableState = function () {
       return {
         labelOffset: normalizeTextLevelOffset(this._options.labelOffset),
         text: sanitizeTextLevelText(this._options.text)
       };
     };
+  /**
+   * Helper function: getGeometry.
+   */
     TextLevelPrimitive.prototype.getGeometry = function () {
       this.updateAllViews();
       var geometry = this._geometry;
@@ -409,9 +541,15 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
       }
       return geometry;
     };
+  /**
+   * Helper function: getTextEditGeometry.
+   */
     TextLevelPrimitive.prototype.getTextEditGeometry = function () {
       return this.getGeometry();
     };
+  /**
+   * Helper function: getTextEditStyle.
+   */
     TextLevelPrimitive.prototype.getTextEditStyle = function () {
       var style = this._options.style;
       return {
@@ -425,6 +563,9 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
         textAlign: style.align
       };
     };
+  /**
+   * Helper function: hitTest.
+   */
     TextLevelPrimitive.prototype.hitTest = function (pointValue, context) {
       var geometry = this.getGeometry();
       if (!geometry || !pointValue) return null;
@@ -444,6 +585,9 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
       }
       return null;
     };
+  /**
+   * Helper function: buildEditPoints.
+   */
     TextLevelPrimitive.prototype.buildEditPoints = function (part, originalPoints, startPoint, editPoint) {
       if (!Array.isArray(originalPoints) || !originalPoints.length || !editPoint) return null;
       var next = clonePoint(originalPoints[0]);
@@ -482,6 +626,9 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     return new TextLevelPrimitive(point, record);
   }
 
+  /**
+   * Helper function: buildTextLevelAlertMetadata.
+   */
   function buildTextLevelAlertMetadata(pointValue, levelType) {
     return {
       supportedEvents: [
@@ -497,6 +644,9 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     };
   }
 
+  /**
+   * Builds a serialized record object representing the current state of the drawing tool for persistence.
+   */
   function buildTextLevelRecord(pointValue, text, style, levelLine, labelPosition, levelType) {
     var now = Date.now();
     var normalizedType = normalizeTextLevelType(levelType);
@@ -521,6 +671,9 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     };
   }
 
+  /**
+   * Constructor function for the drawing tool class, initializing its state and event listeners.
+   */
   function TextLevelTool(chart, series, manager) {
     BaseTool.call(this, 'textLevel', chart, series, manager);
     this._style = normalizeTextLevelStyle(null, false);
@@ -536,6 +689,9 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
 
   TextLevelTool.prototype = Object.create(BaseTool.prototype);
   TextLevelTool.prototype.constructor = TextLevelTool;
+  /**
+   * Handles click events on the chart to process point placement for the drawing tool.
+   */
   TextLevelTool.prototype._handleClick = function (param) {
     if (!this._drawing) return;
     var point = this._resolvePoint(param);
@@ -548,6 +704,9 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     serialized.editAfterCreate = true;
     this._completeDrawing(createTextLevelPrimitive(point, serialized, false), 'Text Level', serialized);
   };
+  /**
+   * Removes the tool and cleans up associated event listeners.
+   */
   TextLevelTool.prototype.remove = function () {
     this.stopDrawing();
     if (this._usesNativeChartInput) {
@@ -555,6 +714,9 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     }
   };
 
+  /**
+   * Registers this drawing tool with the global drawing manager so it can be instantiated by the chart.
+   */
   registerEnhancedDrawingTool({
     kind: 'textLevel',
     defaultLabel: 'Text Level',

@@ -597,6 +597,9 @@ const QuoteCard = React.memo(function QuoteCard({
   );
 });
 
+/**
+ * Renders an individual draggable row in the watchlist edit mode, allowing users to reorder or remove symbols.
+ */
 function EditQuoteRow({
   symbol,
   index,
@@ -679,6 +682,9 @@ function EditQuoteRow({
   );
 }
 
+/**
+ * Fallback modal for adding symbols to the watchlist, showing a nested folder structure of available market instruments.
+ */
 function LegacyAddSymbolModal({
   visible,
   onClose,
@@ -917,6 +923,9 @@ const ADD_SYMBOL_FOLDER_LOGO_META: Record<AddSymbolFolderKey, AddSymbolFolderLog
   },
 };
 
+/**
+ * UI component that renders the icon or logo associated with a specific instrument folder/category.
+ */
 function AddSymbolFolderLogo({ folderKey, isDark }: { folderKey: AddSymbolFolderKey; isDark: boolean }) {
   const meta = ADD_SYMBOL_FOLDER_LOGO_META[folderKey];
 
@@ -1213,6 +1222,9 @@ const SYMBOL_KIND_META: Record<SymbolKind, { label: string; accent: string; tint
   other: { label: 'SYMBOL', accent: '#64748B', tintDark: 'rgba(148,163,184,0.14)', tintLight: '#F8FAFC' },
 };
 
+/**
+ * Modern modal for searching and adding new symbols to the user's active watchlist.
+ */
 function AddSymbolModal({
   visible,
   onClose,
@@ -1872,10 +1884,16 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
     setIsEditing(!isEditing);
   };
 
+  /**
+   * Closes the 'Add Symbol' modal and returns focus to the main quotes watchlist.
+   */
   const closeAddSymbolModal = useCallback(() => {
     setShowAddModal(false);
   }, []);
 
+  /**
+   * Opens the 'Add Symbol' modal to browse and add new instruments.
+   */
   const openAddSymbolModal = useCallback(() => {
     hideActionSheet();
     setShowAddModal(true);
@@ -1971,6 +1989,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
         instantOpen: true,
         runActionAfterClose: true,
         actions: [
+          // Navigates the user to the Order Ticket screen to place a new trade for this symbol.
           {
             label: t('New Order'),
             activateOnPressIn: true,
@@ -1981,6 +2000,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
               }, { routeChange: true });
             },
           },
+          // Switches to the Chart tab and loads this specific symbol's chart data.
           {
             label: t('Chart'),
             activateOnPressIn: true,
@@ -1991,11 +2011,13 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
               }, { routeChange: true });
             },
           },
+          // Opens the Contract Specification screen showing trading conditions (spreads, swaps, sessions) for this symbol.
           {
             label: t('Properties'),
             activateOnPressIn: true,
             onPress: () => goDetail(sym),
           },
+          // Opens a detailed real-time market depth / statistics screen for this symbol.
           {
             label: t('Market Statistics'),
             activateOnPressIn: true,
@@ -2008,6 +2030,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
           // Both view modes are listed; the currently-active one is shown
           // disabled (via `selected`) and you tap the other to switch.
           // The quotes rows treat viewMode === 'table' as the simple view.
+          // Toggles the watchlist layout to Simple mode (less data density, table view).
           {
             label: t('Simple view mode'),
             activateOnPressIn: true,
@@ -2018,6 +2041,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
               });
             },
           },
+          // Toggles the watchlist layout to Advanced mode (high data density, list view showing spread, high/low, etc.).
           {
             label: t('Advanced view mode'),
             activateOnPressIn: true,
@@ -2046,6 +2070,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
         instantOpen: true,
         runActionAfterClose: true,
         actions: [
+          // Switches to the Chart tab and loads this specific symbol's chart data.
           {
             label: t('Chart'),
             activateOnPressIn: true,
@@ -2085,6 +2110,9 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
     }
   }, [quoteSymbols, quoteTapActionSheetConfigs, preloadQuotesActionSheet]);
 
+  /**
+   * Callback triggered when a user taps on a symbol row, typically opening the order/trade panel or chart for that instrument.
+   */
   const handleSymbolTap = useCallback((sym: string) => {
     if (showAddModal) return;
     const config = quoteTapActionSheetConfigs.get(sym);
@@ -2096,6 +2124,9 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
     }
   }, [pauseQuoteSheetFeed, quoteTapActionSheetConfigs, showQuotesActionSheet, showAddModal]);
 
+  /**
+   * Callback triggered when a user long-presses on a symbol row, typically opening a context menu with options like 'Chart', 'Details', or 'Remove'.
+   */
   const handleSymbolLongPress = useCallback((sym: string) => {
     if (showAddModal) return;
     const config = quoteLongPressActionSheetConfigs.get(sym);
@@ -2107,6 +2138,9 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
     }
   }, [pauseQuoteSheetFeed, quoteLongPressActionSheetConfigs, showQuotesActionSheet, showAddModal]);
 
+  /**
+   * Handles user input in the symbol search bar, updating the filtered list of available instruments.
+   */
   const handleSearchChange = useCallback((text: string) => {
     setSearch(text);
   }, []);
@@ -2315,6 +2349,9 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
 // Thin wrapper: derive the quotes-route boolean from the path here so the heavy
 // memoized QuotesScreen above does not reconcile on every bottom-tab switch — it
 // only re-renders when its own focus or the quotes-route active state changes.
+/**
+ * Main screen component that displays the user's active watchlist (quotes), allowing them to monitor live prices, tap symbols to trade, and manage their lists.
+ */
 export function QuotesScreen() {
   const pathname = usePathname();
   const isQuotesRouteActive =
@@ -2830,6 +2867,9 @@ function GmtClock({ style, active }: { style: any; active: boolean }) {
   return <Text style={style}>{t('Updated')}: {gmtClock(now)} GMT</Text>;
 }
 
+/**
+ * Helper component that visualizes the frequency of incoming ticks/price updates for performance and latency monitoring.
+ */
 function TickCounter({
   T,
   palette,

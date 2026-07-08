@@ -1,7 +1,7 @@
 import { LIGHTWEIGHT_CHARTS_JS } from "./lightweightChartsBundle";
 import { RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS } from "../../../domain/candles/rendering/customCandlestickSeriesWebView";
 import { ENHANCED_DRAWING_TOOLS_JS } from "../plugins/enhancedDrawingToolsString";
-import { CHART_AXIS_DIVIDER_STROKE_WIDTH, CHART_DEFAULT_VISIBLE_BAR_MAX, CHART_DEFAULT_VISIBLE_BAR_TARGET_PX, CHART_DEFAULT_VISIBLE_BAR_MIN, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_RESET_BAR_SPACING_MAX, CHART_DEFAULT_RESET_BAR_SPACING_MIN, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_GRID_DASH_PATTERN, CHART_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET, CHART_GRID_HORIZONTAL_LINE_COUNT, CHART_GRID_HORIZONTAL_SPACING, CHART_GRID_STROKE_WIDTH, CHART_GRID_VERTICAL_SPACING, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE } from "../ChartScreen.constants";
+import { CHART_AXIS_DIVIDER_STROKE_WIDTH, CHART_DEFAULT_VISIBLE_BAR_MAX, CHART_DEFAULT_VISIBLE_BAR_TARGET_PX, CHART_DEFAULT_VISIBLE_BAR_MIN, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_RESET_BAR_SPACING_MAX, CHART_DEFAULT_RESET_BAR_SPACING_MIN, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_DRAWING_MAGNET_THRESHOLD_PX, CHART_GRID_DASH_PATTERN, CHART_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET, CHART_GRID_HORIZONTAL_LINE_COUNT, CHART_GRID_HORIZONTAL_SPACING, CHART_GRID_STROKE_WIDTH, CHART_GRID_VERTICAL_SPACING, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE } from "../ChartScreen.constants";
 
 export const CH_HTML = `
 <!DOCTYPE html>
@@ -245,12 +245,9 @@ export const CH_HTML = `
       var OVERLAY_LABEL_HEIGHT = 18;
       var OVERLAY_LABEL_GAP = 4;
       var OVERLAY_LABEL_LINE_GAP = 1;
-      var OVERLAY_LABEL_TOP_SAFE_PADDING = 42;
-      var OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING = 2;
       var OVERLAY_ANCHORED_LABEL_LEFT = 8;
       var OVERLAY_ANCHORED_LABEL_LANE_WIDTH = 164;
       var OVERLAY_ANCHORED_LABEL_RIGHT_PADDING = 16;
-      var OVERLAY_LABEL_BOTTOM_SAFE_PADDING = 10;
       var MARKET_PRICE_SCALE_EXTENSION_HEIGHT = 1;
       var MARKET_PRICE_SCALE_BADGE_HEIGHT = 22;
       var MARKET_PRICE_SCALE_BADGE_MIN_WIDTH = 56;
@@ -2693,7 +2690,7 @@ export const CH_HTML = `
         if (!line || typeof line.id !== 'string') {
           return false;
         }
-        return /^(open-|order-entry-|order-sl-|order-tp-|sl-|tp-|chart-trade-)/.test(line.id);
+        return /^(open-|order-entry-|order-stop-limit-|order-sl-|order-tp-|sl-|tp-|chart-trade-)/.test(line.id);
       }
 
       function isTradeOverlayNearScaleRange(price, range) {
@@ -4435,15 +4432,36 @@ export const CH_HTML = `
           }
         };
 
-        var beginTradeLineDrag = function(event) {
+        var resolveTradeLineDragHitFromEvent = function(event) {
           var pointFromEvent = getClientPoint(event);
-          if (!pointFromEvent) return false;
+          if (!pointFromEvent) return null;
           var point = getClampedRelativePoint(pointFromEvent.x, pointFromEvent.y);
-          if (!point) return false;
+          if (!point) return null;
           var hit = pickDraggableOverlayLineAtY(point.y);
+          if (!hit || !hit.dragKey) return null;
+          return {
+            hit: hit,
+            pointFromEvent: pointFromEvent,
+          };
+        };
+
+        var shouldDelayTradeLineDragForHold = function(dragKey) {
+          if (dragKey === 'sl' || dragKey === 'tp') {
+            return true;
+          }
+          return typeof dragKey === 'string' && /^position-stop:(sl|tp):/.test(dragKey);
+        };
+
+        var beginTradeLineDrag = function(event, initialHit) {
+          var hit = initialHit || null;
+          if (!hit) {
+            var resolvedHit = resolveTradeLineDragHitFromEvent(event);
+            hit = resolvedHit && resolvedHit.hit;
+          }
           if (!hit || !hit.dragKey) return false;
           var startPrice = sanitizeOverlayDragPrice(hit.price);
           cancelChartTradeLineDragMove();
+          cancelPendingTradeLineHold();
           // Capture the pointer so subsequent move/up events route to us
           // even when the finger leaves the chart bounds. Disable the chart
           // element's default touch-action panning so the page doesn't
@@ -4478,6 +4496,50 @@ export const CH_HTML = `
           scheduleOverlayDomRefresh();
           stopChartEvent(event);
           return true;
+        };
+
+        var scheduleTradeLineDragHold = function(event, resolvedHit) {
+          if (!resolvedHit || !resolvedHit.hit || !resolvedHit.hit.dragKey) {
+            return false;
+          }
+          if (!shouldDelayTradeLineDragForHold(resolvedHit.hit.dragKey)) {
+            return beginTradeLineDrag(event, resolvedHit.hit);
+          }
+          cancelPendingTradeLineHold();
+          pendingTradeLineHold = {
+            event: event,
+            hit: resolvedHit.hit,
+            startX: resolvedHit.pointFromEvent.x,
+            startY: resolvedHit.pointFromEvent.y,
+            timer: null,
+          };
+          pendingTradeLineHold.timer = setTimeout(function() {
+            var pending = pendingTradeLineHold;
+            if (!pending) {
+              return;
+            }
+            pendingTradeLineHold = null;
+            beginTradeLineDrag(pending.event, pending.hit);
+          }, CHART_TRADE_LINE_DRAG_HOLD_MS);
+          return true;
+        };
+
+        var cancelPendingTradeLineHoldIfMoved = function(event) {
+          if (!pendingTradeLineHold) {
+            return false;
+          }
+          var pointFromEvent = getClientPoint(event);
+          if (!pointFromEvent) {
+            cancelPendingTradeLineHold();
+            return true;
+          }
+          var dx = Math.abs(pointFromEvent.x - pendingTradeLineHold.startX);
+          var dy = Math.abs(pointFromEvent.y - pendingTradeLineHold.startY);
+          if (dx > TRADE_LINE_HOLD_MOVE_CANCEL_PX || dy > TRADE_LINE_HOLD_MOVE_CANCEL_PX) {
+            cancelPendingTradeLineHold();
+            return true;
+          }
+          return false;
         };
 
         var continueTradeLineDrag = function(event) {
@@ -4555,7 +4617,8 @@ export const CH_HTML = `
             suppressChartTapAfterScale();
             return;
           }
-          if (beginTradeLineDrag(event)) {
+          var tradeLineHit = resolveTradeLineDragHitFromEvent(event);
+          if (scheduleTradeLineDragHold(event, tradeLineHit)) {
             return;
           }
           var point = getClientPoint(event);
@@ -4602,6 +4665,9 @@ export const CH_HTML = `
             // Keep pinch/scale gestures light. Rebuilding every custom overlay
             // on each move drops the WebView far below MT5-like frame cadence.
             scheduleGestureRightPriceScaleFallbackRefresh();
+            return;
+          }
+          if (cancelPendingTradeLineHoldIfMoved(event)) {
             return;
           }
           if (continueTradeLineDrag(event)) {
@@ -4668,6 +4734,7 @@ export const CH_HTML = `
 
         var onPointerUp = function(event) {
           var wasScaleGesture = isScaleGestureEvent(event) || gestureHadMultitouch || Date.now() <= suppressChartTapUntil;
+          cancelPendingTradeLineHold();
           if (finishTradeLineDrag(event, false)) {
             releasePointer(event);
             finishHorizontalScrollGesture();
@@ -4734,6 +4801,7 @@ export const CH_HTML = `
         };
 
         var onPointerCancel = function(event) {
+          cancelPendingTradeLineHold();
           if (finishTradeLineDrag(event, true)) {
             releasePointer(event);
             finishHorizontalScrollGesture();
@@ -4801,12 +4869,14 @@ export const CH_HTML = `
         };
 
         var onWindowPointerMove = function(event) {
+          cancelPendingTradeLineHoldIfMoved(event);
           if (activeTradeLineDrag) {
             continueTradeLineDrag(event);
           }
         };
 
         var onWindowPointerUp = function(event) {
+          cancelPendingTradeLineHold();
           if (finishTradeLineDrag(event, false)) {
             releasePointer(event);
             if (activePointerCount <= 0) {
@@ -4825,6 +4895,7 @@ export const CH_HTML = `
         };
 
         var onWindowPointerCancel = function(event) {
+          cancelPendingTradeLineHold();
           if (finishTradeLineDrag(event, true)) {
             releasePointer(event);
             if (activePointerCount <= 0) {
@@ -4897,6 +4968,7 @@ export const CH_HTML = `
           syntheticRightPriceScaleFallbackRange = null;
           rightPriceScaleGestureActive = false;
           activeTradeLineDrag = null;
+          cancelPendingTradeLineHold();
           suppressNextChartClickUntil = 0;
           suppressChartTapUntil = 0;
           chartTouchInteractionSuspendDepth = 0;
@@ -6960,6 +7032,16 @@ export const CH_HTML = `
           window._drawingManager.removeAllDrawings();
         }
       }
+      function undoDrawingAction() {
+        if (window._drawingManager && typeof window._drawingManager.undoDrawingAction === 'function') {
+          window._drawingManager.undoDrawingAction();
+        }
+      }
+      function redoDrawingAction() {
+        if (window._drawingManager && typeof window._drawingManager.redoDrawingAction === 'function') {
+          window._drawingManager.redoDrawingAction();
+        }
+      }
       function setSerializedDrawings(drawings) {
         if (window._drawingManager && typeof window._drawingManager.setSerializedDrawings === 'function') {
           window._drawingManager.setSerializedDrawings(drawings);
@@ -6995,6 +7077,17 @@ export const CH_HTML = `
           window._drawingManager.setStayInDrawingMode(sticky);
         }
       }
+      function setDrawingMagnetMode(enabled) {
+        if (window._drawingManager && typeof window._drawingManager.setCrosshairConfig === 'function') {
+          window._drawingManager.setCrosshairConfig({
+            snap: {
+              enabled: enabled === true,
+              type: enabled === true ? 'ohlc-nearest' : 'none',
+              thresholdPx: ${CHART_DRAWING_MAGNET_THRESHOLD_PX}
+            }
+          });
+        }
+      }
       function setVerticalScrollingLocked(locked) {
         verticalScrollingLocked = locked === true;
       }
@@ -7015,8 +7108,11 @@ export const CH_HTML = `
       var _overlayResyncTimer = null;
       var _overlayLabelLayer = null;
       var activeTradeLineDrag = null;
+      var pendingTradeLineHold = null;
       var suppressNextChartClickUntil = 0;
       var TRADE_LINE_DRAG_HIT_SLOP = 30;
+      var CHART_TRADE_LINE_DRAG_HOLD_MS = 300;
+      var TRADE_LINE_HOLD_MOVE_CANCEL_PX = 12;
       var CHART_TRADE_LINE_DRAG_NATIVE_MOVE_INTERVAL_MS = 96;
       // The dragged price line itself moves every pointermove (lightweight-charts
       // coalesces its own paints to one frame), but the floating price label is
@@ -7027,6 +7123,17 @@ export const CH_HTML = `
       // one frame (~60fps) just lets the label keep pace with the line.
       var CHART_TRADE_LINE_DRAG_DOM_REFRESH_INTERVAL_MS = 16;
 
+      function cancelPendingTradeLineHold() {
+        if (!pendingTradeLineHold) {
+          return false;
+        }
+        if (pendingTradeLineHold.timer) {
+          try { clearTimeout(pendingTradeLineHold.timer); } catch (_e) {}
+        }
+        pendingTradeLineHold = null;
+        return true;
+      }
+
       function clearOverlayPriceLines() {
         if (series) {
           for (var i = 0; i < _positionLinesArr.length; i++) {
@@ -7036,6 +7143,7 @@ export const CH_HTML = `
         _positionLinesArr = [];
         _overlayPriceLinesByDragKey = Object.create(null);
         activeTradeLineDrag = null;
+        cancelPendingTradeLineHold();
         chartTouchInteractionSuspendDepth = 0;
       }
 
@@ -7271,40 +7379,6 @@ export const CH_HTML = `
         scheduleTradeLineDragDomRefresh();
       }
 
-      function resolveOverlayLabelBounds(layer) {
-        var metrics = resolvePrimaryPaneMetrics();
-        var plotTop = metrics.plotTop || 0;
-        var plotBottom = plotTop + (metrics.plotHeight || 0);
-        var layerHeight = layer && layer.clientHeight ? layer.clientHeight : metrics.chartHeight || 0;
-        var minTop = Math.max(OVERLAY_LABEL_TOP_SAFE_PADDING, plotTop + 6);
-        var maxTop = Math.max(
-          minTop,
-          Math.min(layerHeight - OVERLAY_LABEL_HEIGHT - 2, plotBottom - OVERLAY_LABEL_HEIGHT - OVERLAY_LABEL_BOTTOM_SAFE_PADDING)
-        );
-
-        return {
-          minTop: minTop,
-          maxTop: maxTop,
-        };
-      }
-
-      function resolveAnchoredOverlayLabelBounds(layer) {
-        var metrics = resolvePrimaryPaneMetrics();
-        var plotTop = metrics.plotTop || 0;
-        var plotBottom = plotTop + (metrics.plotHeight || 0);
-        var layerHeight = layer && layer.clientHeight ? layer.clientHeight : metrics.chartHeight || 0;
-        var minTop = Math.max(OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING, plotTop + 2);
-        var maxTop = Math.max(
-          minTop,
-          Math.min(layerHeight - OVERLAY_LABEL_LINE_HEIGHT - 1, plotBottom - OVERLAY_LABEL_LINE_HEIGHT - 1)
-        );
-
-        return {
-          minTop: minTop,
-          maxTop: maxTop,
-        };
-      }
-
       function resolveOverlayDomLineBorderStyle(lineStyle) {
         if (lineStyle === 1 || lineStyle === 4) return 'dotted';
         if (lineStyle === 2 || lineStyle === 3) return 'dashed';
@@ -7514,15 +7588,13 @@ export const CH_HTML = `
         if (typeof y !== 'number' || !isFinite(y)) {
           return null;
         }
-        var minTop = axisMetrics.plotTop;
-        var maxTop = Math.max(minTop, axisMetrics.plotBottom - MARKET_PRICE_SCALE_BADGE_HEIGHT);
         var desiredTop = Math.round(y - MARKET_PRICE_SCALE_BADGE_HEIGHT / 2);
         return {
           color: color || '#2962FF',
-          desiredTop: Math.max(minTop, Math.min(maxTop, desiredTop)),
+          desiredTop: desiredTop,
           price: price,
           role: role,
-          top: Math.max(minTop, Math.min(maxTop, desiredTop)),
+          top: desiredTop,
           y: y,
         };
       }
@@ -7571,21 +7643,13 @@ export const CH_HTML = `
           return;
         }
         badges.sort(function(left, right) { return left.desiredTop - right.desiredTop; });
-        var minTop = axisMetrics.plotTop;
-        var maxTop = Math.max(minTop, axisMetrics.plotBottom - MARKET_PRICE_SCALE_BADGE_HEIGHT);
         var step = MARKET_PRICE_SCALE_BADGE_HEIGHT + MARKET_PRICE_SCALE_BADGE_GAP;
         for (var i = 0; i < badges.length; i++) {
           var nextTop = badges[i].desiredTop;
           if (i > 0) {
             nextTop = Math.max(nextTop, badges[i - 1].top + step);
           }
-          badges[i].top = Math.max(minTop, Math.min(maxTop, nextTop));
-        }
-        if (badges.length > 1 && badges[badges.length - 1].top > maxTop) {
-          badges[badges.length - 1].top = maxTop;
-          for (var backIndex = badges.length - 2; backIndex >= 0; backIndex--) {
-            badges[backIndex].top = Math.max(minTop, Math.min(badges[backIndex].top, badges[backIndex + 1].top - step));
-          }
+          badges[i].top = nextTop;
         }
         for (var badgeIndex = 0; badgeIndex < badges.length; badgeIndex++) {
           renderMarketPriceScaleBadge(layer, badges[badgeIndex], axisMetrics);
@@ -7698,8 +7762,6 @@ export const CH_HTML = `
           var lines = Array.isArray(payload && payload.priceLines) ? payload.priceLines : [];
           var floatingLabels = [];
           var anchoredLabels = [];
-          var bounds = resolveOverlayLabelBounds(layer);
-          var anchoredBounds = resolveAnchoredOverlayLabelBounds(layer);
           for (var i = 0; i < lines.length; i++) {
             var ln = lines[i];
             if (!ln || !ln.title || typeof ln.price !== 'number' || !isFinite(ln.price)) continue;
@@ -7733,31 +7795,13 @@ export const CH_HTML = `
             if (j > 0) {
               desiredTop = Math.max(desiredTop, tops[j - 1] + step);
             }
-            tops[j] = Math.max(bounds.minTop, Math.min(bounds.maxTop, desiredTop));
-          }
-          if (tops.length > 0 && tops[tops.length - 1] > bounds.maxTop) {
-            tops[tops.length - 1] = bounds.maxTop;
-            for (var backIndex = tops.length - 2; backIndex >= 0; backIndex--) {
-              tops[backIndex] = Math.min(tops[backIndex], tops[backIndex + 1] - step);
-            }
-            if (tops[0] < bounds.minTop) {
-              tops[0] = bounds.minTop;
-              for (var forwardIndex = 1; forwardIndex < tops.length; forwardIndex++) {
-                tops[forwardIndex] = Math.max(tops[forwardIndex], tops[forwardIndex - 1] + step);
-              }
-              if (tops[tops.length - 1] > bounds.maxTop) {
-                tops[tops.length - 1] = bounds.maxTop;
-                for (var secondBackIndex = tops.length - 2; secondBackIndex >= 0; secondBackIndex--) {
-                  tops[secondBackIndex] = Math.min(tops[secondBackIndex], tops[secondBackIndex + 1] - step);
-                }
-              }
-            }
+            tops[j] = desiredTop;
           }
           anchoredLabels.sort(function(left, right) { return left.y - right.y; });
           var anchoredTops = [];
           for (var anchoredTopIndex = 0; anchoredTopIndex < anchoredLabels.length; anchoredTopIndex++) {
             var anchoredDesiredTop = Math.round(anchoredLabels[anchoredTopIndex].y - OVERLAY_LABEL_LINE_HEIGHT - OVERLAY_LABEL_LINE_GAP);
-            anchoredTops[anchoredTopIndex] = Math.max(anchoredBounds.minTop, Math.min(anchoredBounds.maxTop, anchoredDesiredTop));
+            anchoredTops[anchoredTopIndex] = anchoredDesiredTop;
           }
           var anchoredLefts = resolveAnchoredOverlayLabelLefts(anchoredLabels, anchoredTops, layer);
 
@@ -7811,13 +7855,13 @@ export const CH_HTML = `
 
           for (var labelIndex = 0; labelIndex < floatingLabels.length; labelIndex++) {
             var floatingItem = floatingLabels[labelIndex];
-            var floatingTop = Math.max(bounds.minTop, Math.min(bounds.maxTop, tops[labelIndex]));
+            var floatingTop = tops[labelIndex];
             renderLabel(floatingItem, floatingTop);
           }
 
           for (var anchoredIndex = 0; anchoredIndex < anchoredLabels.length; anchoredIndex++) {
             var anchoredItem = anchoredLabels[anchoredIndex];
-            var anchoredTop = Math.max(anchoredBounds.minTop, Math.min(anchoredBounds.maxTop, anchoredTops[anchoredIndex]));
+            var anchoredTop = anchoredTops[anchoredIndex];
             renderAnchoredTradeLine(layer, anchoredItem);
             renderLabel(anchoredItem, anchoredTop, anchoredLefts[anchoredIndex]);
           }
@@ -7828,7 +7872,7 @@ export const CH_HTML = `
           // the right scale. We dedupe only by the exact displayed price text
           // so close GBPUSD entries still get their own highlighted marker.
           // Nearby boxes are stacked vertically so one marker does not cover another.
-          var POSITION_BOX_ID = /^(open-|order-entry-|order-sl-|order-tp-|sl-|tp-)/;
+          var POSITION_BOX_ID = /^(open-|order-entry-|order-stop-limit-|order-sl-|order-tp-|sl-|tp-)/;
           var boxDecimals = (typeof lastDisplayDecimals === 'number' && isFinite(lastDisplayDecimals) && lastDisplayDecimals >= 0)
             ? Math.min(8, Math.max(0, Math.floor(lastDisplayDecimals)))
             : 2;
@@ -7857,27 +7901,13 @@ export const CH_HTML = `
             });
           }
           positionBoxes.sort(function(left, right) { return left.desiredTop - right.desiredTop; });
-          var positionBoxMinTop = positionBoxMetrics ? positionBoxMetrics.plotTop : 0;
-          var positionBoxMaxTop = Math.max(
-            positionBoxMinTop,
-            (positionBoxMetrics ? positionBoxMetrics.plotBottom : (layer && layer.clientHeight ? layer.clientHeight : 0)) - POSITION_BOX_HEIGHT
-          );
           var positionBoxStep = POSITION_BOX_HEIGHT + resolvePositionBoxGap(positionBoxes.length);
           for (var boxLayoutIndex = 0; boxLayoutIndex < positionBoxes.length; boxLayoutIndex++) {
             var nextBoxTop = positionBoxes[boxLayoutIndex].desiredTop;
             if (boxLayoutIndex > 0) {
               nextBoxTop = Math.max(nextBoxTop, positionBoxes[boxLayoutIndex - 1].top + positionBoxStep);
             }
-            positionBoxes[boxLayoutIndex].top = Math.max(positionBoxMinTop, Math.min(positionBoxMaxTop, nextBoxTop));
-          }
-          if (positionBoxes.length > 0 && positionBoxes[positionBoxes.length - 1].top > positionBoxMaxTop) {
-            positionBoxes[positionBoxes.length - 1].top = positionBoxMaxTop;
-            for (var boxBackIndex = positionBoxes.length - 2; boxBackIndex >= 0; boxBackIndex--) {
-              positionBoxes[boxBackIndex].top = Math.max(
-                positionBoxMinTop,
-                Math.min(positionBoxes[boxBackIndex].top, positionBoxes[boxBackIndex + 1].top - positionBoxStep)
-              );
-            }
+            positionBoxes[boxLayoutIndex].top = nextBoxTop;
           }
           for (var bi = 0; bi < positionBoxes.length; bi++) {
             var box = positionBoxes[bi];
@@ -8084,6 +8114,8 @@ export const CH_HTML = `
       window.setLastPriceLineVisible = setLastPriceLineVisible;
       window.setDrawingTool = setDrawingTool;
       window.clearDrawings = clearDrawings;
+      window.undoDrawingAction = undoDrawingAction;
+      window.redoDrawingAction = redoDrawingAction;
       window.setSerializedDrawings = setSerializedDrawings;
       window.publishSerializedDrawings = publishSerializedDrawings;
       window.applyDrawingTextEdit = applyDrawingTextEdit;
@@ -8091,6 +8123,7 @@ export const CH_HTML = `
       window.setDrawingsLocked = setDrawingsLocked;
       window.setDrawingsHidden = setDrawingsHidden;
       window.setStayInDrawingMode = setStayInDrawingMode;
+      window.setDrawingMagnetMode = setDrawingMagnetMode;
       window.setVerticalScrollingLocked = setVerticalScrollingLocked;
       window.setChartAutoScaleEnabled = setChartAutoScaleEnabled;
       window.zoomChart = zoomChart;

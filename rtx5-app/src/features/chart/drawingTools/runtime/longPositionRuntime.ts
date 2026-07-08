@@ -3,6 +3,9 @@ import type { EnhancedDrawingToolRuntime } from '../types';
 export const longPositionEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
   tool: 'prediction',
   script: `
+  /**
+   * Registers this drawing tool with the global drawing manager so it can be instantiated by the chart.
+   */
   registerEnhancedDrawingTool({
     kind: 'prediction',
     defaultLabel: 'Position',

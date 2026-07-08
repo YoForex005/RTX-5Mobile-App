@@ -126,8 +126,9 @@ test('live candle hook keeps quote socket demand active for fast forming candles
   assert.match(hookSource, /shouldUseServerCandleStream/);
   assert.match(hookSource, /Keep the quote socket on for this chart/);
   assert.match(hookSource, /quote[\s\S]*ticks are the only active-candle body source/);
+  assert.match(hookSource, /quotesWsService\.subscribeToCandles\(normalizedSymbol, normalizedTimeframe\)/);
   assert.match(hookSource, /const unsubscribeQuoteDemand = quotesWsService\.subscribeToSymbol\(symbol, \(\) => \{\}\)/);
-  assert.match(hookSource, /unsubscribeQuoteDemand\(\);[\s\S]*unsubscribeEngine\(\);[\s\S]*if \(useServerCandleStream\)/);
+  assert.match(hookSource, /unsubscribeQuoteDemand\(\);[\s\S]*unsubscribeEngine\(\);[\s\S]*unsubscribeCandleDemand\?\.\(\)/);
 });
 
 test('backend candle cache bootstrap does not reject valid intraday gaps', () => {

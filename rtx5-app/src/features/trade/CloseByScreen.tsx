@@ -34,6 +34,9 @@ import {
 const SETTINGS_DARK_BACKGROUND = '#121212';
 const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E';
 
+/**
+ * Screen used for 'Close By' operations, which allows closing two opposite positions of the same symbol against each other.
+ */
 export function CloseByScreen() {
   const { positionId } = useLocalSearchParams<{ positionId?: string }>();
   const [submitted, setSubmitted] = useState(false);
@@ -108,6 +111,9 @@ export function CloseByScreen() {
     finalize();
   }, []);
 
+  /**
+   * Executes the 'Close By' operation with the selected opposite position.
+   */
   const handleSubmit = useCallback(async () => {
     if (!sourcePosition || !selectedPair || actionLockRef.current || isClosing) return;
 

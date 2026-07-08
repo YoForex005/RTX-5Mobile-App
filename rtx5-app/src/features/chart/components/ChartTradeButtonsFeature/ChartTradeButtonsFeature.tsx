@@ -1,7 +1,7 @@
 import { FastPressable as Pressable } from '../../../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { ActivityIndicator, InputAccessoryView, Platform, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Animated, InputAccessoryView, Platform, Text, TextInput, View } from 'react-native';
 import { useLiveSymbolQuote } from '../../../../query/websocket';
 import { formatTradeVolume, type TradeVolumeBounds } from '../../../../utils/tradeVolume';
 import type { TradeSide } from '../../../../domain/tradeSide';
@@ -11,7 +11,6 @@ import {
   resolveFooterLotChevronState,
 } from '../../chartTradeInteractionUtils';
 import {
-  resolveChartTradeButtonPriceColor,
   resolveChartTradeButtonQuote,
 } from './quoteFallback';
 import { baseStyles, darkStyles, lightStyles, textBaseStyles } from './styles';
@@ -22,6 +21,10 @@ type FooterLotPickerMode = 'absolute' | 'increase' | 'decrease';
 const LOT_ADJUST_HIT_SLOP = { top: 8, bottom: 8, left: 6, right: 6 } as const;
 const LOT_VALUE_HIT_SLOP = { top: 8, bottom: 8, left: 0, right: 0 } as const;
 const TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS = 0;
+const TRADE_BUTTON_PRICE_REPAINT_MS = 160;
+const TRADE_BUTTON_PRICE_TEXT_COLOR = '#FFFFFF';
+const TRADE_BUTTON_VALUE_GLOW_COLOR = 'rgba(255,255,255,0.95)';
+const TRADE_BUTTON_VALUE_GLOW_RADIUS = 8;
 const IOS_LOT_INPUT_ACCESSORY_ID = 'chart-trade-lot-input-accessory';
 
 type ChartTradeButtonsProps = {
@@ -60,6 +63,59 @@ type ChartTradeButtonsProps = {
 
 const INVALID_LOT_COLOR = '#EF4444';
 
+const ChartTradeButtonPriceText = React.memo(function ChartTradeButtonPriceText({
+  text,
+  testID,
+}: {
+  text: string;
+  testID: string;
+}) {
+  const flashProgress = React.useRef(new Animated.Value(0)).current;
+  const previousTextRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    const previousText = previousTextRef.current;
+    previousTextRef.current = text;
+
+    if (previousText === null || previousText === text || text === '---') {
+      return;
+    }
+
+    flashProgress.stopAnimation();
+    flashProgress.setValue(1);
+    Animated.timing(flashProgress, {
+      toValue: 0,
+      duration: TRADE_BUTTON_PRICE_REPAINT_MS,
+      useNativeDriver: false,
+    }).start();
+  }, [flashProgress, text]);
+
+  const flashShadowRadius = flashProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, TRADE_BUTTON_VALUE_GLOW_RADIUS],
+  });
+
+  return (
+    <Animated.Text
+      style={[
+        baseStyles.actionBtnPriceText,
+        {
+          color: TRADE_BUTTON_PRICE_TEXT_COLOR,
+          opacity: 1,
+          textShadowColor: TRADE_BUTTON_VALUE_GLOW_COLOR,
+          textShadowOffset: { width: 0, height: 0 },
+          textShadowRadius: flashShadowRadius,
+        },
+      ]}
+      numberOfLines={1}
+      adjustsFontSizeToFit
+      testID={testID}
+    >
+      {text}
+    </Animated.Text>
+  );
+});
+
 export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   symbol,
   displayDecimals,
@@ -92,8 +148,6 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   invalidLotDisplay,
 }: ChartTradeButtonsProps) {
   const latestQuote = useLiveSymbolQuote(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS);
-  const previousBidRef = React.useRef<number | null>(null);
-  const previousAskRef = React.useRef<number | null>(null);
   const { bid: latestBid, ask: latestAsk } = resolveChartTradeButtonQuote({
     liveBid: latestQuote?.bid,
     liveAsk: latestQuote?.ask,
@@ -174,34 +228,8 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   const themeStyles = isDark ? darkStyles : lightStyles;
   const sellAction = getChartTradeAction('sell');
   const buyAction = getChartTradeAction('buy');
-  const sellTileVisual = resolveChartTradeButtonPriceColor({
-    currentPrice: latestBid,
-    previousPrice: previousBidRef.current,
-    upColor: buyColor,
-    downColor: sellColor,
-    fallbackColor: sellColor,
-  });
-  const buyTileVisual = resolveChartTradeButtonPriceColor({
-    currentPrice: latestAsk,
-    previousPrice: previousAskRef.current,
-    upColor: buyColor,
-    downColor: sellColor,
-    fallbackColor: buyColor,
-  });
-  const sellTileColor = sellTileVisual.color;
-  const buyTileColor = buyTileVisual.color;
-
-  React.useEffect(() => {
-    if (hasLiveBid) {
-      previousBidRef.current = latestBid;
-    }
-  }, [hasLiveBid, latestBid]);
-
-  React.useEffect(() => {
-    if (hasLiveAsk) {
-      previousAskRef.current = latestAsk;
-    }
-  }, [hasLiveAsk, latestAsk]);
+  const sellTileColor = sellColor;
+  const buyTileColor = buyColor;
   const lotDisplayValue = (
     <Text style={[textBaseStyles.actionLotValue, baseStyles.actionLotDisplayGhost, themeStyles.actionLotValue, lotInvalid && { color: INVALID_LOT_COLOR }]} numberOfLines={1}>
       {lotDisplayText}
@@ -401,9 +429,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           <View style={baseStyles.actionBtnHeader}>
             <Text style={baseStyles.actionBtnLabelTitle}>{sellAction.displayLabel}</Text>
           </View>
-          <Text style={baseStyles.actionBtnPriceText} numberOfLines={1} adjustsFontSizeToFit>
-            {formattedBid}
-          </Text>
+          <ChartTradeButtonPriceText text={formattedBid} testID="chart-trade-sell-price-text" />
         </Pressable>
       </View>
 
@@ -465,9 +491,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           <View style={baseStyles.actionBtnHeader}>
             <Text style={baseStyles.actionBtnLabelTitle}>{buyAction.displayLabel}</Text>
           </View>
-          <Text style={baseStyles.actionBtnPriceText} numberOfLines={1} adjustsFontSizeToFit>
-            {formattedAsk}
-          </Text>
+          <ChartTradeButtonPriceText text={formattedAsk} testID="chart-trade-buy-price-text" />
         </Pressable>
       </View>
     </View>

@@ -74,7 +74,7 @@ test('trade rows and summary use direct live websocket quote listeners', () => {
   assert.doesNotMatch(summaryHeaderSource, /liveQuotes: Record<string, Partial<QuoteItem> \| undefined>/);
 });
 
-test('trade expanded position row shows backend point and backend account leverage', () => {
+test('trade expanded position row shows backend point metadata and backend account leverage', () => {
   const tradeScreenSource = readSource('src/features/trade/TradeScreen/TradeScreen.tsx');
   const rowSource = readSource('src/ui/components/TradePositionRow/TradePositionRow.tsx');
   const expandedStart = rowSource.indexOf('{expanded && (');
@@ -92,9 +92,22 @@ test('trade expanded position row shows backend point and backend account levera
   assert.match(rowSource, /import \{ useInstrumentMeta \} from '..\/..\/..\/query\/instruments'/);
   assert.match(rowSource, /accountLeverage\?: number \| null/);
   assert.match(rowSource, /const \{ data: instrumentMeta \} = useInstrumentMeta\(item\.symbol, active\)/);
-  assert.match(rowSource, /const pointValue = resolveFiniteTradeDetailNumber\(instrumentMeta\?\.point, liveQuote\?\.point\)/);
+  assert.match(rowSource, /const pointValue = resolveTradePositionPointValue\(\{ symbol: item\.symbol, instrumentMeta, liveQuote \}\)/);
+  assert.match(rowSource, /instrumentMeta\?\.point[\s\S]*liveQuote\?\.point[\s\S]*instrumentMeta\?\.tickSize[\s\S]*liveQuote\?\.tickSize/);
+  assert.match(rowSource, /resolvePointFromDigits\(instrumentMeta\?\.digits\)[\s\S]*resolvePointFromDigits\(liveQuote\?\.digits\)/);
+  assert.match(rowSource, /resolveSymbolPointFallback\(symbol\)/);
   assert.match(rowSource, /const leverageText = formatTradeLeverage\(accountLeverage\)/);
   assert.match(expandedSource, />Point<\/Text>[\s\S]*\{pointText\}/);
   assert.match(expandedSource, />Leverage<\/Text>[\s\S]*\{leverageText\}/);
   assert.doesNotMatch(expandedSource, /onPress=\{|ActionSheet|Select/);
+});
+
+test('trade expanded point fallback covers digits and common symbol classes', () => {
+  const rowSource = readSource('src/ui/components/TradePositionRow/TradePositionRow.tsx');
+
+  assert.match(rowSource, /function resolvePointFromDigits\([\s\S]*return Math\.pow\(10, -value\)/);
+  assert.match(rowSource, /cleanedSymbol\.includes\('BTC'\)[\s\S]*cleanedSymbol\.includes\('ETH'\)/);
+  assert.match(rowSource, /cleanedSymbol\.includes\('XAU'\)[\s\S]*cleanedSymbol\.includes\('XAG'\)/);
+  assert.match(rowSource, /return quote === 'JPY' \? 0\.001 : 0\.00001/);
+  assert.match(rowSource, /return 0\.01/);
 });

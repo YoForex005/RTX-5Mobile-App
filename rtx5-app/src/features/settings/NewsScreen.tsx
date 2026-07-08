@@ -46,6 +46,9 @@ import { safeRouterBack } from '../../utils/navigation';
 
 const NEWS_SECONDARY_CONTENT_DELAY_MS = 320;
 
+/**
+ * Displays the latest financial news feed, economic updates, and market analysis.
+ */
 export function NewsScreen() {
   const T = useTheme();
   const insets = useSafeAreaInsets();

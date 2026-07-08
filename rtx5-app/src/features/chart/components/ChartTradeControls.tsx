@@ -29,6 +29,9 @@ import { makeStyles } from "../ChartScreen.styles";
 import { CHART_TRADE_SLIDER_THUMB_SIZE, FOOTER_LOT_PICKER_VALUE_ITEM_HEIGHT } from "../ChartScreen.constants";
 
 
+/**
+ * Modal component allowing the user to precisely step-adjust the trade volume/lot size with +/- buttons.
+ */
 export function ChartStepperModal({
   visible,
   title,
@@ -187,6 +190,9 @@ export function ChartStepperModal({
   );
 }
 
+/**
+ * A tappable footer component displaying the currently selected lot size, opening the ChartStepperModal when pressed.
+ */
 export function ChartFooterLotPicker({
   visible,
   mode,
@@ -343,6 +349,9 @@ export function ChartFooterLotPicker({
   );
 }
 
+/**
+ * A slider component used to rapidly adjust the trade volume (lot size) within the chart's one-click trading panel.
+ */
 export function ChartTradeVolumeSlider({
   styles,
   value,

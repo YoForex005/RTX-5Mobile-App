@@ -25,6 +25,9 @@ import {
   type HelpFaqItem,
 } from './helpViewModel';
 
+/**
+ * Provides support resources, FAQs, and contact methods for users needing assistance.
+ */
 export function HelpScreen() {
   const insets = useSafeAreaInsets();
   const isDark = useIsDarkTheme();
@@ -43,6 +46,9 @@ export function HelpScreen() {
   const menuIconColor = isDark ? T.text : '#050505';
   const accentColor = isDark ? T.accent : '#0A6EEB';
 
+  /**
+   * Opens the sidebar navigation drawer.
+   */
   const handleOpenMenu = useCallback(() => {
     openSidebarDrawerImmediately();
     scheduleAfterSidebarOpenVisual(hideActionSheet);
@@ -52,16 +58,25 @@ export function HelpScreen() {
     setExpandedFaqId(selectHelpFaqItems({ category, query })[0]?.id ?? '');
   }, []);
 
+  /**
+   * Filters the visible FAQ items based on the selected support category (e.g., Accounts, Trading, Security).
+   */
   const handleSelectCategory = useCallback((category: HelpFaqCategory) => {
     setSelectedCategory(category);
     updateVisibleSelection(category, faqQuery);
   }, [faqQuery, updateVisibleSelection]);
 
+  /**
+   * Updates the search term state, actively filtering the FAQ list as the user types.
+   */
   const handleChangeQuery = useCallback((query: string) => {
     setFaqQuery(query);
     updateVisibleSelection(selectedCategory, query);
   }, [selectedCategory, updateVisibleSelection]);
 
+  /**
+   * Clears the current search term, resetting the FAQ list to show all items.
+   */
   const handleClearQuery = useCallback(() => {
     setFaqQuery('');
     updateVisibleSelection(selectedCategory, '');
@@ -200,6 +215,9 @@ export function HelpScreen() {
   );
 }
 
+/**
+ * A collapsible UI component representing a single Frequently Asked Question and its detailed answer.
+ */
 function FaqRow({
   item,
   expanded,

@@ -1,7 +1,6 @@
 import { TradeVolumeBounds, resolveTradeVolumeBounds } from '../../utils/tradeVolume';
 import { normalizeSymbol } from '../../domain/symbols';
 import { CANDLE_HISTORY_TIMEFRAMES } from '../../domain/candles/core/timeframeUtils';
-import { ChartOverlayPriceLine } from './chartOverlays';
 
 // Basic constants
 export const CHART_TRADE_SLIDER_THUMB_SIZE = 20;
@@ -17,6 +16,7 @@ export const CHART_TRADE_MINI_PREVIEW_BOTTOM_PAD = 16;
 export const CHART_TRADE_MINI_PREVIEW_TAG_WIDTH = 68;
 export const CHART_TRADE_MINI_PREVIEW_TAG_HEIGHT = 22;
 export const CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH = 62;
+export const CHART_DRAWING_MAGNET_THRESHOLD_PX = 18;
 export const CHART_DEFAULT_VISIBLE_BAR_MAX = 88;
 export const CHART_DEFAULT_VISIBLE_BAR_TARGET_PX = 8;
 export const CHART_DEFAULT_VISIBLE_BAR_MIN = 42;
@@ -88,7 +88,7 @@ export type ChartTapMenuViewport = {
 };
 
 export type ChartTradeTypeTabLayout = { x: number; width: number };
-export type ChartTradePreviewDragKey = NonNullable<ChartOverlayPriceLine['dragKey']>;
+export type ChartTradePreviewDragKey = 'entry' | 'stopLimit' | 'sl' | 'tp';
 export type TextInputCommitEvent = { nativeEvent: { text: string } };
 
 // Functions

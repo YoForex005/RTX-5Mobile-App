@@ -230,8 +230,20 @@ test('compact footer lot slot paints the full center area in dark theme', () => 
 });
 
 test('compact footer buy and sell prices stay right aligned independently from labels', () => {
+  const buttonSource = readSource('src/features/chart/components/ChartTradeButtonsFeature.tsx');
   const stylesSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/styles.ts');
 
+  assert.doesNotMatch(buttonSource, /TRADE_BUTTON_PRICE_FLASH|ChartTradeButtonPriceFlash|Animated\.View/);
+  assert.match(buttonSource, /const TRADE_BUTTON_PRICE_REPAINT_MS = 160/);
+  assert.match(buttonSource, /const TRADE_BUTTON_PRICE_TEXT_COLOR = '#FFFFFF'/);
+  assert.match(buttonSource, /const TRADE_BUTTON_VALUE_GLOW_RADIUS = 8/);
+  assert.match(buttonSource, /const ChartTradeButtonPriceText = React\.memo/);
+  assert.match(buttonSource, /previousTextRef\.current = text/);
+  assert.match(buttonSource, /Animated\.timing\(flashProgress/);
+  assert.match(buttonSource, /useNativeDriver: false/);
+  assert.match(buttonSource, /flashProgress\.interpolate/);
+  assert.match(buttonSource, /textShadowRadius: flashShadowRadius/);
+  assert.match(buttonSource, /opacity: 1/);
   assert.match(
     stylesSource,
     /actionBtn:\s*\{[\s\S]*justifyContent:\s*'center'[\s\S]*alignItems:\s*'center'[\s\S]*position:\s*'relative'/,
@@ -243,6 +255,10 @@ test('compact footer buy and sell prices stay right aligned independently from l
   assert.match(
     stylesSource,
     /actionBtnPriceText:\s*\{[\s\S]*width:\s*'100%'[\s\S]*textAlign:\s*'right'[\s\S]*paddingRight:\s*6[\s\S]*includeFontPadding:\s*false/,
+  );
+  assert.match(
+    buttonSource,
+    /<Animated\.Text[\s\S]*color: TRADE_BUTTON_PRICE_TEXT_COLOR[\s\S]*opacity: 1[\s\S]*textShadowRadius: flashShadowRadius[\s\S]*testID=\{testID\}/,
   );
 });
 
@@ -289,21 +305,34 @@ test('compact footer buy and sell backgrounds cover the full button slots', () =
   );
 });
 
-test('compact footer buy and sell tile colors follow per-side MT5 tick movement', () => {
+test('compact footer buy and sell tile colors stay fixed to their side', () => {
   const buttonSource = readSource('src/features/chart/components/ChartTradeButtonsFeature.tsx');
   const quoteSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/quoteFallback.ts');
 
-  assert.match(buttonSource, /resolveChartTradeButtonPriceColor/);
   assert.match(
     buttonSource,
-    /const sellTileVisual = resolveChartTradeButtonPriceColor\(\{[\s\S]*currentPrice: latestBid[\s\S]*upColor: buyColor[\s\S]*downColor: sellColor[\s\S]*fallbackColor: sellColor/,
+    /const sellTileColor = sellColor;/,
   );
   assert.match(
     buttonSource,
-    /const buyTileVisual = resolveChartTradeButtonPriceColor\(\{[\s\S]*currentPrice: latestAsk[\s\S]*upColor: buyColor[\s\S]*downColor: sellColor[\s\S]*fallbackColor: buyColor/,
+    /const buyTileColor = buyColor;/,
   );
-  assert.match(quoteSource, /current > previous[\s\S]*direction = 'up'/);
-  assert.match(quoteSource, /current < previous[\s\S]*direction = 'down'/);
+  assert.doesNotMatch(buttonSource, /previousBidRef|previousAskRef|sellTileVisual|buyTileVisual/);
+  assert.doesNotMatch(quoteSource, /resolveChartTradeButtonPriceColor|direction = 'up'|direction = 'down'/);
+  assert.match(buttonSource, /const formattedBid = hasLiveBid \? latestBid\.toFixed\(displayDecimals\) : '---'/);
+  assert.match(buttonSource, /const formattedAsk = hasLiveAsk \? latestAsk\.toFixed\(displayDecimals\) : '---'/);
+  assert.match(
+    buttonSource,
+    /<ChartTradeButtonPriceText text=\{formattedBid\} testID="chart-trade-sell-price-text" \/>/,
+  );
+  assert.match(
+    buttonSource,
+    /<ChartTradeButtonPriceText text=\{formattedAsk\} testID="chart-trade-buy-price-text" \/>/,
+  );
+  assert.doesNotMatch(
+    buttonSource,
+    /chart-trade-sell-price-text"[\s\S]{0,120}formattedAsk|chart-trade-buy-price-text"[\s\S]{0,120}formattedBid/,
+  );
 });
 
 test('order ticket buy and sell execution buttons call the matching side', () => {

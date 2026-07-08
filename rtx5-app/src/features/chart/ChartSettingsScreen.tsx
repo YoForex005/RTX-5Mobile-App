@@ -81,6 +81,9 @@ const shouldNavigateFromChartSettingsSwipe = (dx: number, dy: number, vx: number
   );
 };
 
+/**
+ * Screen where users can toggle various chart visual preferences (OHLC, grid, trade levels, volumes) and configure chart behaviors.
+ */
 export function ChartSettingsScreen() {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
@@ -100,6 +103,9 @@ export function ChartSettingsScreen() {
   const setChartDisplaySetting = useUserPreferences((s) => s.setChartDisplaySetting);
   const setChartShowOnChartItem = useUserPreferences((s) => s.setChartShowOnChartItem);
   const queueChartCommand = useUIState((s) => s.queueChartCommand);
+  /**
+   * Closes the chart settings screen and returns the user to the active chart.
+   */
   const handleReturnToChart = useCallback(() => {
     safeRouterBack(router, '/(tabs)/chart');
   }, []);
@@ -113,6 +119,9 @@ export function ChartSettingsScreen() {
     },
     [chartDisplay, chartShowOnChart],
   );
+  /**
+   * Toggles a specific display setting (like OHLC, grid, ticker) within the user's chart display preferences.
+   */
   const handleToggleChartDisplaySetting = useCallback(
     (key: keyof ChartDisplaySettings, value: boolean) => {
       setChartDisplaySetting(key, value);
@@ -123,18 +132,27 @@ export function ChartSettingsScreen() {
     },
     [setChartDisplaySetting, setChartShowOnChartItem],
   );
+  /**
+   * Toggles whether the user can scroll the chart freely along the vertical price axis.
+   */
   const handleToggleChartVerticalMovement = useCallback(
     (enabled: boolean) => {
       setChartVerticalScrollingLocked(!enabled);
     },
     [setChartVerticalScrollingLocked],
   );
+  /**
+   * Toggles whether trade-specific UI elements (like SL/TP levels, open positions, history) are rendered directly on the chart.
+   */
   const handleToggleShowOnChart = useCallback(
     (key: ChartShowOnChartKey, value: boolean) => {
       setChartShowOnChartItem(key, value);
     },
     [setChartShowOnChartItem],
   );
+  /**
+   * Executes a global chart command (such as reverting to default settings or clearing drawings).
+   */
   const handleRunChartCommand = useCallback(
     (command: PendingChartCommand) => {
       queueChartCommand(command);
@@ -343,6 +361,9 @@ export function ChartSettingsScreen() {
   );
 }
 
+/**
+ * A reusable list row component that renders a label on the left and a switch toggle on the right.
+ */
 function ToggleRow({
   item,
   enabled,
@@ -387,6 +408,9 @@ function ToggleRow({
   );
 }
 
+/**
+ * A specific toggle row tied directly to the global user preferences state, automatically managing updates.
+ */
 function PreferenceToggleRow({
   title,
   description,
@@ -436,6 +460,9 @@ function PreferenceToggleRow({
   );
 }
 
+/**
+ * A specialized row component for executing chart commands or actions rather than just toggling a boolean.
+ */
 function ActionPreferenceRow({
   title,
   description,
@@ -473,6 +500,9 @@ function ActionPreferenceRow({
   );
 }
 
+/**
+ * A navigation row component that acts as a button, navigating the user to a deeper sub-menu (like Chart Colors) when tapped.
+ */
 function NavRow({
   label,
   value,

@@ -12,6 +12,9 @@ import { FastPressable } from '../../ui/components/FastPressable';
 import { spacing } from '../../ui/theme/index';
 import { safeRouterBack } from '../../utils/navigation';
 
+/**
+ * A reusable custom navigation bar component with a back button for settings screens.
+ */
 export function SettingsBackBar({ title }: { title?: string }) {
   const T = useTheme();
   const router = useRouter();

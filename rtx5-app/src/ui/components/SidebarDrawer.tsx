@@ -97,6 +97,9 @@ function shouldPushSidebarRoute(route: string) {
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
+/**
+ * Main global navigation drawer component. It houses the user's active account context, global navigation links (Trade, Quotes, History, Settings), and the theme toggle.
+ */
 export function SidebarDrawer() {
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const onClose = useCallback(() => setSidebarOpen(false), [setSidebarOpen]);
@@ -214,6 +217,9 @@ export function SidebarDrawer() {
     showInteractiveAfterVisualFrame();
   }), [showInteractiveAfterVisualFrame, startOpenAnimation]);
 
+  /**
+   * Animates the sidebar drawer off-screen and updates the global visibility state to closed.
+   */
   const handleClose = useCallback((afterClose?: () => void) => {
     if (isClosingRef.current) return;
     animatedVisibleRef.current = false;
@@ -395,6 +401,9 @@ export function SidebarDrawer() {
     });
   }, [hideInteractiveNow, onClose, openSupportEmail, snapClosedForNavigation, unlockSidebarNavigation]);
 
+  /**
+   * Navigates to the selected route when a menu item is tapped, automatically closing the drawer.
+   */
   const handleMenuItemPress = useCallback((item: MenuItem) => {
     if (item.action === 'support-email') {
       openSupportEmailFromSidebar();
@@ -545,6 +554,9 @@ type SidebarThemeSelectorProps = {
   T: ThemeColors;
 };
 
+/**
+ * A segmented control component allowing the user to select their app-wide color theme preference (System, Light, Dark).
+ */
 function SidebarThemeSelector({ ds, T }: SidebarThemeSelectorProps) {
   const appliedThemeMode = useThemeMode();
   const setThemeMode = useUserPreferences((s) => s.setThemeMode);
@@ -558,6 +570,9 @@ function SidebarThemeSelector({ ds, T }: SidebarThemeSelectorProps) {
     }
   }, [appliedThemeMode, pendingThemeMode]);
 
+  /**
+   * Dispatches the selected theme mode to the global state and triggers the UI re-render for the new theme.
+   */
   const handleThemeModePress = useCallback((nextMode: ThemeMode) => {
     if (selectedThemeMode === nextMode && appliedThemeMode === nextMode) {
       return;

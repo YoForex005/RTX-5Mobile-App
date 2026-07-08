@@ -51,6 +51,9 @@ interface Props {
   onSuccess: () => void;
 }
 
+/**
+ * A bottom sheet modal allowing the user to securely change their account password.
+ */
 export function ChangePasswordSheet({ loginId, type, onClose, onSuccess }: Props) {
   const { control, handleSubmit, setError, watch, formState: { errors } } = useForm<PasswordFormValues>({
     resolver: zodResolver(passwordSchema),

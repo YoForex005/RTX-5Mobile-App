@@ -32,6 +32,28 @@ export const CANDLE_HISTORY_TIMEFRAMES: readonly Timeframe[] = [
   'MN',
 ];
 
+export const BRIDGE_CANDLE_TIMEFRAMES = [
+  '1m',
+  '5m',
+  '15m',
+  '30m',
+  '1h',
+  '4h',
+  '1d',
+] as const;
+
+export type BridgeCandleTimeframe = typeof BRIDGE_CANDLE_TIMEFRAMES[number];
+
+const BRIDGE_CANDLE_TF_BY_CANONICAL: Partial<Record<Timeframe, BridgeCandleTimeframe>> = {
+  M1: '1m',
+  M5: '5m',
+  M15: '15m',
+  M30: '30m',
+  H1: '1h',
+  H4: '4h',
+  D1: '1d',
+};
+
 const TIMEFRAME_SECONDS: Record<Timeframe, number> = {
   M1: 60,
   M5: 5 * 60,
@@ -120,6 +142,16 @@ export const normalizeCandleHistoryTimeframeStrict = (timeframe: unknown): Timef
     ? normalizedTimeframe
     : null;
 };
+
+/** Maps app/chart timeframe keys to broker bridge `/ws/feed` candle keys. */
+export const toBridgeCandleTf = (timeframe: unknown): BridgeCandleTimeframe | null => {
+  const normalizedTimeframe = normalizeTimeframeStrict(timeframe);
+  return normalizedTimeframe ? BRIDGE_CANDLE_TF_BY_CANONICAL[normalizedTimeframe] ?? null : null;
+};
+
+/** Maps app/chart timeframe keys to REST candle query keys. */
+export const toRestCandleTf = (timeframe: unknown): Timeframe | null =>
+  normalizeCandleHistoryTimeframeStrict(timeframe);
 
 /** Returns true if the provided timeframe can be requested from REST candle history. */
 export const isCandleHistoryTimeframe = (timeframe: unknown): boolean =>

@@ -14,7 +14,6 @@ import {
   type CandleParams,
 } from '../stream/liveCandleStream';
 import { quotesWsService } from '../../../api/ws/quotesSocket';
-import { candlesWsService } from '../ws/candlesSocket';
 import {
   normalizeSymbol,
   normalizeTimeframeStrict,
@@ -127,9 +126,9 @@ export function useLiveCandles(symbol: string, timeframe: string, active = true)
         return () => {};
       }
 
-      if (useServerCandleStream) {
-        candlesWsService.subscribe(normalizedSymbol, normalizedTimeframe);
-      }
+      const unsubscribeCandleDemand = useServerCandleStream
+        ? quotesWsService.subscribeToCandles(normalizedSymbol, normalizedTimeframe)
+        : null;
       // Keep the quote socket on for this chart. In the default mode, quote
       // ticks are the only active-candle body source; server candles are opt-in
       // only after runtime compatibility has been proven.
@@ -138,9 +137,7 @@ export function useLiveCandles(symbol: string, timeframe: string, active = true)
       return () => {
         unsubscribeQuoteDemand();
         unsubscribeEngine();
-        if (useServerCandleStream) {
-          candlesWsService.unsubscribe(normalizedSymbol, normalizedTimeframe);
-        }
+        unsubscribeCandleDemand?.();
       };
     },
     [active, normalizedSymbol, normalizedTimeframe, symbol, useServerCandleStream],

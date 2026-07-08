@@ -188,6 +188,9 @@ const groupJournalRowsByDate = (items: JournalLogRow[]): JournalLogSection[] => 
   return groups;
 };
 
+/**
+ * A detailed logging screen that tracks system events, connection status changes, and raw trade execution responses for diagnostic purposes.
+ */
 export function JournalScreen() {
   const T = useTheme();
   const styles = useMemo(() => makeJournalStyles(T), [T]);
@@ -309,17 +312,26 @@ export function JournalScreen() {
     }
   }, [selectedDateIso, todayDateIso]);
 
+  /**
+   * Opens the sidebar navigation drawer.
+   */
   const handleOpenMenu = useCallback(() => {
     openSidebarDrawerImmediately();
     scheduleAfterSidebarOpenVisual(hideActionSheet);
   }, [hideActionSheet]);
 
+  /**
+   * Pulls the latest batch of journal logs from the internal database or state.
+   */
   const handleRefresh = useCallback(() => {
     setIsPullRefreshing(true);
     pruneTerminalEntries();
     void Promise.resolve(refetch()).finally(() => setIsPullRefreshing(false));
   }, [pruneTerminalEntries, refetch]);
 
+  /**
+   * Filters the journal log view to show events occurring only on the selected calendar date.
+   */
   const handleCalendarDayPress = useCallback((day: { dateString?: string }) => {
     if (day.dateString) {
       setSelectedDateIso(day.dateString);
@@ -327,6 +339,9 @@ export function JournalScreen() {
     }
   }, []);
 
+  /**
+   * Saves a user-annotated text note attached to a specific journal entry or trading day.
+   */
   const handleSaveNote = useCallback(() => {
     const trimmed = noteText.trim();
     if (!trimmed) {

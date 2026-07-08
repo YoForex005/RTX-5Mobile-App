@@ -134,6 +134,9 @@ const buildServerOptionFromBrokerServer = (broker: BrokerServer): ServerOption |
   };
 };
 
+/**
+ * Displays detailed information and connection settings for a specific broker.
+ */
 export function BrokerDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
@@ -272,11 +275,17 @@ export function BrokerDetailScreen() {
     }, delayMs);
   }, []);
 
+  /**
+   * Callback fired when a text input receives focus, used to trigger keyboard avoidance or UI scrolling.
+   */
   const handleLoginInputFocus = useCallback(() => {
     loginInputFocusedRef.current = true;
     scrollLoginPanelAboveKeyboard();
   }, [scrollLoginPanelAboveKeyboard]);
 
+  /**
+   * Callback fired when a text input loses focus.
+   */
   const handleLoginInputBlur = useCallback(() => {
     loginInputFocusedRef.current = false;
   }, []);
@@ -363,6 +372,9 @@ export function BrokerDetailScreen() {
     };
   }, []);
 
+  /**
+   * Navigates back to the previous screen (usually the broker search/selection screen).
+   */
   const handleBack = () => safeRouterBack(router, '/settings/brokers');
 
   const navigateToRegister = (type: 'demo' | 'real') => {
@@ -605,6 +617,9 @@ export function BrokerDetailScreen() {
     }
   };
 
+  /**
+   * Opens a webview or deep link to the broker's password recovery page.
+   */
   const handleForgotPassword = () => {
     setForgotPasswordVisible(true);
   };

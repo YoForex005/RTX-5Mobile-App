@@ -139,6 +139,9 @@ type LoginCredentialsSnapshot = {
   password: string;
 };
 
+/**
+ * Form screen for entering server credentials (login, password, server selection) to authenticate an account.
+ */
 export function AccountLoginScreen() {
   const login = useUserPreferences((s) => s.login);
   const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
@@ -1123,6 +1126,9 @@ export function AccountLoginScreen() {
 }
 
 // ─── RTX5 Dynamic Theme + Minimalist Layout ──────────────────────────────────
+/**
+ * Main entry point for authentication. Allows the user to select an existing account or proceed to login with a new account.
+ */
 export default function LoginScreen() {
   return <AccountLoginScreen />;
 }

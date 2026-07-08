@@ -57,6 +57,9 @@ type ConfirmationConfig = {
 const MQL5_PRIMARY_CONTENT_DELAY_MS = 120;
 const MQL5_SECONDARY_CONTENT_DELAY_MS = 320;
 
+/**
+ * Settings and integration page for MQL5 algorithmic trading features and subscriptions.
+ */
 export function Mql5AlgoTradingScreen() {
   const T = useTheme();
   const insets = useSafeAreaInsets();

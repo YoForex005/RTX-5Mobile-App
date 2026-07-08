@@ -62,10 +62,12 @@ test('SL and TP preview lines are draggable chart overlays', () => {
     source.indexOf('const chartType = chartVisualType'),
   );
 
-  assertSourceContains(previewSource, /dragKey: 'sl'/, 'SL preview line must carry drag key');
-  assertSourceContains(previewSource, /dragKey: 'tp'/, 'TP preview line must carry drag key');
+  assertSourceContains(previewSource, /const chartTradeSlDragKey = chartTradePositionStopTarget[\s\S]*: 'sl'/, 'SL preview line must carry a fallback drag key');
+  assertSourceContains(previewSource, /const chartTradeTpDragKey = chartTradePositionStopTarget[\s\S]*: 'tp'/, 'TP preview line must carry a fallback drag key');
   assertSourceContains(previewSource, /chartTradeSlEnabled[\s\S]*chartTradeSlPrice/, 'SL line must be driven by sheet state');
   assertSourceContains(previewSource, /chartTradeTpEnabled[\s\S]*chartTradeTpPrice/, 'TP line must be driven by sheet state');
+  assertSourceContains(previewSource, /id: 'chart-trade-sl-preview'[\s\S]*labelPlacement: 'line'[\s\S]*dragKey: chartTradeSlDragKey/, 'SL preview must draw a full-width guide line');
+  assertSourceContains(previewSource, /id: 'chart-trade-tp-preview'[\s\S]*labelPlacement: 'line'[\s\S]*dragKey: chartTradeTpDragKey/, 'TP preview must draw a full-width guide line');
 });
 
 test('drag messages from WebView reach chart trade preview state handler', () => {
@@ -117,7 +119,7 @@ test('SL and TP drag keeps touch ownership until release', () => {
   );
   assertSourceContains(
     source,
-    /beginTradeLineDrag[\s\S]*getClampedRelativePoint\(pointFromEvent\.x, pointFromEvent\.y\)/,
+    /resolveTradeLineDragHitFromEvent[\s\S]*getClampedRelativePoint\(pointFromEvent\.x, pointFromEvent\.y\)/,
     'drag start must tolerate touches on the price-scale edge',
   );
   assertSourceContains(
@@ -631,6 +633,34 @@ test('compact footer lot editing does not add an Android pre-keyboard lift gap',
     chartTradeFeatureSource,
     /const fallbackTradeFooterDockBottom = isAndroidFloatingFooterLotEditor[\s\S]*\? FOOTER_TRADE_DOCK_ANDROID_BOTTOM_SAFE_GAP[\s\S]*: footer\.footerTradeRowKeyboardOffset/,
     'Android compact lot editing must not apply the first keyboard offset as an extra dock lift',
+  );
+});
+
+test('SL and TP drag starts only after a short deliberate hold', () => {
+  assertSourceContains(
+    source,
+    /var CHART_TRADE_LINE_DRAG_HOLD_MS = 300/,
+    'SL/TP drag must require a short hold before moving the line',
+  );
+  assertSourceContains(
+    source,
+    /shouldDelayTradeLineDragForHold[\s\S]*dragKey === 'sl'[\s\S]*dragKey === 'tp'[\s\S]*\^position-stop:\(sl\|tp\):/,
+    'new-trade and open-position SL/TP lines must be hold-gated',
+  );
+  assertSourceContains(
+    source,
+    /scheduleTradeLineDragHold[\s\S]*setTimeout\(function\(\)[\s\S]*beginTradeLineDrag\(pending\.event, pending\.hit\)[\s\S]*CHART_TRADE_LINE_DRAG_HOLD_MS/,
+    'line drag must start from the hold timer instead of pointer-down',
+  );
+  assertSourceContains(
+    source,
+    /cancelPendingTradeLineHoldIfMoved[\s\S]*TRADE_LINE_HOLD_MOVE_CANCEL_PX/,
+    'moving before the hold completes must cancel the pending SL/TP drag',
+  );
+  assertSourceContains(
+    source,
+    /var onPointerDown = function\(event\)[\s\S]*resolveTradeLineDragHitFromEvent\(event\)[\s\S]*scheduleTradeLineDragHold\(event, tradeLineHit\)/,
+    'pointer-down must schedule the hold gate for SL/TP lines',
   );
 });
 

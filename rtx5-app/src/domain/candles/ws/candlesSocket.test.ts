@@ -168,3 +168,24 @@ test('normalizeLiveCandle keeps candle bucket time separate from backend server_
   assert.equal(candle.timeframe, 'M1');
   assert.equal(candle.closed, false);
 });
+
+test('normalizeLiveCandle maps bridge tf and keeps server candle time as Unix seconds', () => {
+  const candle = normalizeLiveCandle({
+    type: 'candle',
+    symbol: 'EURUSD',
+    tf: '1m',
+    time: 1_777_431_660,
+    open: 1.17078,
+    high: 1.17082,
+    low: 1.17072,
+    close: 1.1708,
+    volume: 6,
+    closed: false,
+  });
+
+  assert.ok(candle);
+  assert.equal(candle.timeframe, 'M1');
+  assert.equal(candle.time, 1_777_431_660);
+  assert.equal(candle.time * 1000, 1_777_431_660_000);
+  assert.equal(candle.closed, false);
+});

@@ -57,6 +57,9 @@ type ConfirmationConfig = {
   onConfirm: () => void;
 };
 
+/**
+ * In-app messaging center for receiving notifications, broker messages, and system alerts.
+ */
 export function MailboxScreen() {
   const T = useTheme();
   const insets = useSafeAreaInsets();

@@ -12,6 +12,9 @@ import { getLegalDocument, type LegalDocument } from './legalDocumentViewModel';
 
 export type LegalDocumentKind = 'terms' | 'privacy';
 
+/**
+ * Displays legal agreements, privacy policies, and terms of service.
+ */
 export function LegalDocumentScreen({ document }: { document: LegalDocumentKind }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();

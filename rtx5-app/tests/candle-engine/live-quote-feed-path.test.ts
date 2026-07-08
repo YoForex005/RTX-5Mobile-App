@@ -198,26 +198,21 @@ test('backend live data can materialize a keyed candle stream even when REST his
 
 test('useLiveCandles defaults to quote-driven candles and gates backend candle sockets', () => {
   const source = readModuleSource('src/domain/candles/hooks/useLiveCandles');
-  const socketSource = readModuleSource('src/domain/candles/ws/candlesSocket');
-  const protocolSource = readModuleSource('src/domain/candles/ws/candlesSocketProtocol');
+  const quoteSocketSource = readModuleSource('src/api/ws/quotesSocket');
 
   assert.match(source, /import \{ shouldUseServerCandleStream \} from '\.\.\/ws\/liveCandlesEnginePolicy'/);
   assert.match(source, /const useServerCandleStream = shouldUseServerCandleStream\(\)/);
-  assert.match(source, /if \(useServerCandleStream\) \{[\s\S]*candlesWsService\.subscribe\(normalizedSymbol, normalizedTimeframe\)/);
-  assert.match(source, /if \(useServerCandleStream\) \{[\s\S]*candlesWsService\.unsubscribe\(normalizedSymbol, normalizedTimeframe\)/);
-  assert.match(source, /candlesWsService\.subscribe\(normalizedSymbol, normalizedTimeframe\)/);
-  assert.match(source, /candlesWsService\.unsubscribe\(normalizedSymbol, normalizedTimeframe\)/);
+  assert.match(source, /const unsubscribeCandleDemand = useServerCandleStream[\s\S]*quotesWsService\.subscribeToCandles\(normalizedSymbol, normalizedTimeframe\)/);
+  assert.match(source, /unsubscribeCandleDemand\?\.\(\)/);
   assert.match(source, /quotesWsService\.subscribeToSymbol\(symbol, \(\) => \{\}\)/);
   assert.doesNotMatch(source, /quote_store_fallback_tick/);
   assert.doesNotMatch(source, /liveCandlesEngine\.ingestQuoteTick/);
   assert.doesNotMatch(source, /normalizeLiveTick/);
-  assert.match(socketSource, /resolveCandlesWsUrl\(process\.env\.EXPO_PUBLIC_CANDLES_WS_URL\)/);
-  assert.match(socketSource, /createCandleChannel\(state\.symbol, state\.tf\)/);
-  assert.match(socketSource, /action: 'subscribe', channel/);
-  assert.match(protocolSource, /export const hasBackendCandleShape = \(payload: unknown\): boolean =>/);
-  assert.match(protocolSource, /export const getCandlePayloadItems = \(payload: unknown\): unknown\[\] =>/);
-  assert.match(protocolSource, /export const extractCandlePayloadContext = \(payload: unknown\)/);
-  assert.match(socketSource, /if \(!hasBackendCandleShape\(item\)\) \{/);
+  assert.match(quoteSocketSource, /subscribeToCandles\(symbol: string, tf: string\)/);
+  assert.match(quoteSocketSource, /buildCandleFeedSubscriptionMessages\('subscribe_candles', subscribeSubscriptions\)/);
+  assert.match(quoteSocketSource, /toBridgeCandleTf/);
+  assert.match(quoteSocketSource, /routeBackendCandleUpdates/);
+  assert.match(quoteSocketSource, /shouldRouteBackendCandlePayloads\(\)/);
   assert.doesNotMatch(source, /pushPrice\(/);
 });
 

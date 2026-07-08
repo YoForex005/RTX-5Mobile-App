@@ -36,16 +36,22 @@ type ChartTimeframePickerOverlayProps = {
 
 const CHART_DARK_PANEL_BACKGROUND = '#1E1E1E';
 
+/**
+ * Categorizes the available chart timeframes into Minutes, Hours, and Days for organized rendering in the picker.
+ */
 export const TIMEFRAME_PICKER_GROUPS: readonly TimeframePickerGroup[] = [
   {
+    // Short-term intraday timeframes (1 minute to 30 minutes)
     title: 'Minutes',
     options: ['M1', 'M5', 'M15', 'M30'],
   },
   {
+    // Medium-term intraday timeframes (1 hour to 4 hours)
     title: 'Hours',
     options: ['H1', 'H4'],
   },
   {
+    // Long-term macro timeframes (Daily, Weekly, Monthly)
     title: 'Days',
     options: ['D1', 'W1', 'MN'],
   },
@@ -76,6 +82,9 @@ export function createTimeframePickerActionSheetActions({
   );
 }
 
+/**
+ * A modal overlay presenting the user with a grid of available timeframes (M1, H1, D1, etc.) to switch the chart's current resolution.
+ */
 export function ChartTimeframePickerOverlay({
   visible,
   activeTimeframe,

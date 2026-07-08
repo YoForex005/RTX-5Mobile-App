@@ -1,0 +1,82 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import test from 'node:test';
+
+const readSource = (relativePath: string) =>
+  readFileSync(resolve(process.cwd(), relativePath), 'utf8');
+
+test('drawing tools action sheet exposes the full supported tool set', () => {
+  const source = readSource('src/features/chart/drawingTools/index.ts');
+  const arrowSource = readSource('src/features/chart/drawingTools/arrowMarkerTool.tsx');
+  const ellipseSource = readSource('src/features/chart/drawingTools/ellipseTool.tsx');
+  const extendedLineSource = readSource('src/features/chart/drawingTools/extendedLineTool.tsx');
+  const fibExtensionSource = readSource('src/features/chart/drawingTools/fibExtensionTool.tsx');
+  const fibSource = readSource('src/features/chart/drawingTools/fibZoneTool.tsx');
+  const freehandSource = readSource('src/features/chart/drawingTools/freehandBrushTool.tsx');
+  const horizontalRaySource = readSource('src/features/chart/drawingTools/horizontalRayTool.tsx');
+  const measureSource = readSource('src/features/chart/drawingTools/measureRangeTool.tsx');
+  const magnetSource = readSource('src/features/chart/drawingTools/magnetModeTool.tsx');
+  const rectangleSource = readSource('src/features/chart/drawingTools/rectangleTool.tsx');
+  const redoSource = readSource('src/features/chart/drawingTools/redoDrawingTool.tsx');
+  const undoSource = readSource('src/features/chart/drawingTools/undoDrawingTool.tsx');
+  const sheetOptions = source.slice(
+    source.indexOf('export const DRAWING_SHEET_OPTIONS'),
+    source.indexOf('export const DRAWING_TOOL_COMMANDS'),
+  );
+  const commandOptions = source.slice(
+    source.indexOf('export const DRAWING_TOOL_COMMANDS'),
+    source.indexOf('export const DRAWING_TOOL_SIDEBAR_GROUPS'),
+  );
+  const toolbarOptions = source.slice(
+    source.indexOf('export const DRAWING_TOOL_OPTIONS'),
+    source.indexOf('export const DRAWING_SHEET_OPTIONS'),
+  );
+  const actionSheetFactory = source.slice(
+    source.indexOf('export function createDrawingToolsActionSheetActions'),
+  );
+
+  assert.match(toolbarOptions, /\btextLabelDrawingTool\b/);
+  assert.match(toolbarOptions, /\bextendedLineDrawingTool\b/);
+  assert.match(toolbarOptions, /\bhorizontalRayDrawingTool\b/);
+  assert.match(sheetOptions, /\.\.\.DRAWING_TOOL_OPTIONS/);
+  assert.match(arrowSource, /actionLabel:\s*'Arrow \/ Marker'/);
+  assert.match(ellipseSource, /actionLabel:\s*'Circle \/ Ellipse'/);
+  assert.match(extendedLineSource, /actionLabel:\s*'Extended Line'/);
+  assert.match(fibSource, /actionLabel:\s*'Fibonacci Retracement'/);
+  assert.match(fibExtensionSource, /actionLabel:\s*'Fibonacci Extension'/);
+  assert.match(freehandSource, /actionLabel:\s*'Freehand Brush'/);
+  assert.match(horizontalRaySource, /actionLabel:\s*'Horizontal Ray'/);
+  assert.match(measureSource, /actionLabel:\s*'Scale'/);
+  assert.match(rectangleSource, /actionLabel:\s*'Rectangle'/);
+  assert.match(undoSource, /actionLabel:\s*'Undo Drawing'/);
+  assert.match(redoSource, /actionLabel:\s*'Redo Drawing'/);
+  assert.match(commandOptions, /undoDrawingToolAction[\s\S]*redoDrawingToolAction/);
+  assert.match(source, /key:\s*'history'[\s\S]*undoDrawingToolAction[\s\S]*redoDrawingToolAction/);
+  assert.match(actionSheetFactory, /const historyCommands = DRAWING_TOOL_COMMANDS\.filter/);
+  assert.match(
+    actionSheetFactory,
+    /return \[\s*\.\.\.historyCommands\.map[\s\S]*\.\.\.DRAWING_SHEET_OPTIONS\.map[\s\S]*\.\.\.utilityCommands\.map/,
+  );
+  assert.doesNotMatch(actionSheetFactory, /activateOnPressIn:\s*true/);
+  assert.match(source, /\bmagnetModeDrawingToolAction\b/);
+  assert.match(magnetSource, /actionLabel:\s*\(\{ drawingMagnetMode \}\)/);
+  for (const toolDefinition of [
+    'horizontalLineDrawingTool',
+    'verticalLineDrawingTool',
+    'rayDrawingTool',
+    'arrowMarkerDrawingTool',
+    'parallelChannelDrawingTool',
+    'fibExtensionDrawingTool',
+    'rectangleDrawingTool',
+    'ellipseDrawingTool',
+    'freehandBrushDrawingTool',
+    'highlightBoxDrawingTool',
+    'patternPathDrawingTool',
+    'pitchforkDrawingTool',
+    'shortPositionDrawingTool',
+    'stickerDrawingTool',
+  ]) {
+    assert.match(sheetOptions, new RegExp(`\\b${toolDefinition}\\b`));
+  }
+});

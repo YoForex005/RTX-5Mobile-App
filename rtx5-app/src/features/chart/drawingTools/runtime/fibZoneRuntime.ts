@@ -3,14 +3,23 @@ import type { EnhancedDrawingToolRuntime } from '../types';
 export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
   tool: 'fib',
   script: `
+  /**
+   * Helper function: normalizeFibExtendMode.
+   */
   function normalizeFibExtendMode(value) {
-    return value === 'left' || value === 'right' || value === 'both' ? value : 'right';
+    return value === 'left' || value === 'right' || value === 'both' ? value : 'none';
   }
 
+  /**
+   * Normalizes the style configuration for the drawing tool, providing defaults for missing values.
+   */
   function normalizeFibLineStyle(value) {
     return value === 'dashed' || value === 'dotted' ? value : 'solid';
   }
 
+  /**
+   * Helper function: fibDashPattern.
+   */
   function fibDashPattern(style, ratio) {
     var px = Math.max(1, ratio || 1);
     if (style === 'dashed') return [7 * px, 5 * px];
@@ -18,35 +27,29 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     return [];
   }
 
+  /**
+   * Helper function: calculateFibPrice.
+   */
   function calculateFibPrice(anchorA, anchorB, levelValue) {
     return anchorA.price + ((anchorB.price - anchorA.price) * levelValue);
   }
 
+  /**
+   * Helper function: createDefaultFibLevels.
+   */
   function createDefaultFibLevels() {
     var values = [
-      [-0.618, '-0.618', 'Extension'],
-      [-0.272, '-0.272', 'Extension'],
-      [0, '0', 'A'],
+      [0, '0', '0%'],
       [0.236, '0.236', '23.6%'],
       [0.382, '0.382', '38.2%'],
-      [0.5, 'EQ', '50%'],
+      [0.5, '0.5', '50%'],
       [0.618, '0.618', '61.8%'],
-      [0.65, '0.65', '65%'],
-      [0.705, '0.705', '70.5%'],
       [0.786, '0.786', '78.6%'],
-      [0.886, '0.886', '88.6%'],
-      [1, '1', 'B'],
-      [1.272, '1.272', 'Extension'],
-      [1.414, '1.414', 'Extension'],
-      [1.618, '1.618', 'Extension'],
-      [2, '2', 'Extension'],
-      [2.618, '2.618', 'Extension'],
-      [3.618, '3.618', 'Extension'],
-      [4.236, '4.236', 'Extension']
+      [1, '1', '100%']
     ];
     return values.map(function (entry, index) {
       var value = entry[0];
-      var baseColor = value >= 0.618 && value <= 0.65 ? '#F59E0B' : '#64748B';
+      var baseColor = value === 0 || value === 1 ? '#2962FF' : '#64748B';
       return {
         id: 'fib_' + String(value).replace('-', 'neg_').replace('.', '_'),
         value: value,
@@ -54,16 +57,19 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
         label: entry[1],
         color: baseColor,
         lineColor: baseColor,
-        lineWidth: value === 0 || value === 0.5 || value === 1 ? 1.4 : 1,
-        lineStyle: value === 0 || value === 1 ? 'solid' : 'dashed',
-        fillColor: index % 2 === 0 ? 'rgba(100, 116, 139, 0.08)' : 'rgba(41, 98, 255, 0.06)',
-        fillOpacity: value >= 0.618 && value <= 0.65 ? 0.2 : 0.11,
+        lineWidth: value === 0 || value === 1 ? 1.4 : 1,
+        lineStyle: 'solid',
+        fillColor: index % 2 === 0 ? 'rgba(100, 116, 139, 0.06)' : 'rgba(41, 98, 255, 0.05)',
+        fillOpacity: 0.1,
         showPrice: true,
         showPercent: true
       };
     });
   }
 
+  /**
+   * Helper function: normalizeFibLevel.
+   */
   function normalizeFibLevel(level, fallbackIndex) {
     var defaults = createDefaultFibLevels();
     var fallback = defaults[Math.min(defaults.length - 1, Math.max(0, fallbackIndex || 0))];
@@ -86,6 +92,9 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     };
   }
 
+  /**
+   * Helper function: normalizeFibLevels.
+   */
   function normalizeFibLevels(levels) {
     var source = Array.isArray(levels) && levels.length ? levels : createDefaultFibLevels();
     return source
@@ -93,6 +102,9 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
       .filter(function (level) { return isFiniteNumber(level.value); });
   }
 
+  /**
+   * Normalizes the style configuration for the drawing tool, providing defaults for missing values.
+   */
   function normalizeFibStyle(style, draft) {
     var source = style && typeof style === 'object' ? style : {};
     return {
@@ -123,6 +135,9 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     };
   }
 
+  /**
+   * Helper function: normalizeFibZoneConfig.
+   */
   function normalizeFibZoneConfig(config, fallback) {
     var source = config && typeof config === 'object' ? config : {};
     return {
@@ -135,10 +150,13 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     };
   }
 
+  /**
+   * Helper function: normalizeFibRecord.
+   */
   function normalizeFibRecord(record, draft) {
     var source = record && typeof record === 'object' ? record : {};
     return {
-      type: 'fibZone',
+      type: 'fibRetracement',
       paneId: typeof source.paneId === 'string' ? source.paneId : 'main',
       levels: normalizeFibLevels(source.levels),
       style: normalizeFibStyle(source.style, draft),
@@ -148,7 +166,7 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
       visible: source.visible === false || source.hidden === true ? false : true,
       selected: !!source.selected,
       goldenPocket: normalizeFibZoneConfig(source.goldenPocket, {
-        enabled: true,
+        enabled: false,
         from: 0.618,
         to: 0.65,
         color: 'rgba(245, 158, 11, 0.22)',
@@ -166,6 +184,9 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     };
   }
 
+  /**
+   * Helper function: buildFibLabel.
+   */
   function buildFibLabel(level, price, style, series) {
     var parts = [];
     if (style.showLevelLabels && level.label) parts.push(level.label);
@@ -174,6 +195,9 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     return parts.join(' ');
   }
 
+  /**
+   * Helper function: resolveFibRenderRange.
+   */
   function resolveFibRenderRange(p1, p2, extendMode, paneWidth) {
     var left = Math.min(p1.x, p2.x);
     var right = Math.max(p1.x, p2.x);
@@ -188,6 +212,9 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     return { left: left, right: Math.max(left + 1, right) };
   }
 
+  /**
+   * Helper function: drawFibHandle.
+   */
   function drawFibHandle(ctx, x, y, radius, fill, stroke, ratio) {
     ctx.fillStyle = fill;
     ctx.strokeStyle = stroke;
@@ -198,6 +225,9 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     ctx.stroke();
   }
 
+  /**
+   * Helper function: distanceToFibPoint.
+   */
   function distanceToFibPoint(a, b) {
     if (!a || !b || !isFiniteNumber(a.x) || !isFiniteNumber(a.y) || !isFiniteNumber(b.x) || !isFiniteNumber(b.y)) return Number.POSITIVE_INFINITY;
     var dx = a.x - b.x;
@@ -205,6 +235,9 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     return Math.sqrt((dx * dx) + (dy * dy));
   }
 
+  /**
+   * Helper function: distanceToFibSegment.
+   */
   function distanceToFibSegment(point, a, b) {
     var dx = b.x - a.x;
     var dy = b.y - a.y;
@@ -215,12 +248,21 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     return distanceToFibPoint(point, { x: a.x + (t * dx), y: a.y + (t * dy) });
   }
 
+  /**
+   * Creates the visual primitive object that gets rendered on the chart canvas.
+   */
   function createFibZonePrimitive(anchorA, anchorB, record, draft) {
+  /**
+   * Helper function: FibZonePaneRenderer.
+   */
     function FibZonePaneRenderer(source, geometry) {
       this._source = source;
       this._geometry = geometry;
     }
 
+  /**
+   * Helper function: _drawSpecialZone.
+   */
     FibZonePaneRenderer.prototype._drawSpecialZone = function (ctx, scope, config, labelText, p1, p2, range, style) {
       if (!config || !config.enabled) return;
       var fromPrice = calculateFibPrice(p1, p2, config.from);
@@ -251,6 +293,9 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
       }
     };
 
+  /**
+   * Helper function: draw.
+   */
     FibZonePaneRenderer.prototype.draw = function (target) {
       var source = this._source;
       var geometry = this._geometry;
@@ -320,7 +365,8 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
         }
 
         if (source._options.style.showLevelLabels) {
-          var lastLabelBottom = -Infinity;
+          var labelGap = 2 * ratioY;
+          var labelLayouts = [];
           levels.forEach(function (entry) {
             var text = buildFibLabel(entry, entry.price, source._options.style, source.series);
             if (!text) return;
@@ -335,16 +381,49 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
               ? range.left * ratioX + padding
               : range.right * ratioX - labelWidth - padding;
             labelX = Math.max(2 * ratioX, Math.min((paneWidth * ratioX) - labelWidth - 2 * ratioX, labelX));
-            var labelY = Math.max(2 * ratioY, Math.min((paneHeight * ratioY) - labelHeight - 2 * ratioY, y - labelHeight / 2));
-            if (source._options.style.avoidLabelOverlap && labelY < lastLabelBottom + 2 * ratioY) {
-              return;
+            var minLabelY = 2 * ratioY;
+            var maxLabelY = Math.max(minLabelY, (paneHeight * ratioY) - labelHeight - 2 * ratioY);
+            var labelY = Math.max(minLabelY, Math.min(maxLabelY, y - labelHeight / 2));
+            if (source._options.style.avoidLabelOverlap && labelLayouts.length) {
+              var previous = labelLayouts[labelLayouts.length - 1];
+              labelY = Math.max(labelY, previous.labelY + previous.labelHeight + labelGap);
             }
-            lastLabelBottom = labelY + labelHeight;
-            roundRectPath(ctx, labelX, labelY, labelWidth, labelHeight, 5 * ratioX);
+            labelLayouts.push({
+              fontSize: fontSize,
+              labelHeight: labelHeight,
+              labelWidth: labelWidth,
+              labelX: labelX,
+              labelY: labelY,
+              padding: padding,
+              text: text
+            });
+          });
+          if (source._options.style.avoidLabelOverlap && labelLayouts.length) {
+            var lastLayout = labelLayouts[labelLayouts.length - 1];
+            var overflow = (lastLayout.labelY + lastLayout.labelHeight + 2 * ratioY) - (paneHeight * ratioY);
+            if (overflow > 0) {
+              labelLayouts.forEach(function (layout) {
+                layout.labelY -= overflow;
+              });
+              for (var labelIndex = labelLayouts.length - 2; labelIndex >= 0; labelIndex -= 1) {
+                var nextLayout = labelLayouts[labelIndex + 1];
+                var currentLayout = labelLayouts[labelIndex];
+                currentLayout.labelY = Math.min(currentLayout.labelY, nextLayout.labelY - currentLayout.labelHeight - labelGap);
+              }
+              var underflow = (2 * ratioY) - labelLayouts[0].labelY;
+              if (underflow > 0) {
+                labelLayouts.forEach(function (layout) {
+                  layout.labelY += underflow;
+                });
+              }
+            }
+          }
+          labelLayouts.forEach(function (layout) {
+            roundRectPath(ctx, layout.labelX, layout.labelY, layout.labelWidth, layout.labelHeight, 5 * ratioX);
             ctx.fillStyle = source._options.style.labelBackground;
             ctx.fill();
             ctx.fillStyle = source._options.style.labelTextColor;
-            ctx.fillText(text, labelX + padding, labelY + labelHeight - padding * 0.7);
+            ctx.fillText(layout.text, layout.labelX + layout.padding, layout.labelY + layout.labelHeight - layout.padding * 0.7);
           });
         }
 
@@ -357,11 +436,17 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
       });
     };
 
+  /**
+   * Helper function: FibZonePaneView.
+   */
     function FibZonePaneView(source) {
       this._source = source;
       this._geometry = { p1: null, p2: null, levels: [], range: null };
     }
 
+  /**
+   * Helper function: update.
+   */
     FibZonePaneView.prototype.update = function () {
       var series = this._source.series;
       var p1 = {
@@ -383,10 +468,16 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
       this._source._geometry = this._geometry;
     };
 
+  /**
+   * Helper function: renderer.
+   */
     FibZonePaneView.prototype.renderer = function () {
       return new FibZonePaneRenderer(this._source, this._geometry);
     };
 
+  /**
+   * Helper function: FibZonePrimitive.
+   */
     function FibZonePrimitive(pointA, pointB, opts) {
       PrimitiveBase.call(this);
       this._p1 = clonePoint(pointA);
@@ -400,28 +491,49 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
 
     FibZonePrimitive.prototype = Object.create(PrimitiveBase.prototype);
     FibZonePrimitive.prototype.constructor = FibZonePrimitive;
+  /**
+   * Helper function: updateAllViews.
+   */
     FibZonePrimitive.prototype.updateAllViews = function () {
       this._paneViews.forEach(function (view) { view.update(); });
     };
+  /**
+   * Helper function: paneViews.
+   */
     FibZonePrimitive.prototype.paneViews = function () {
       return this._paneViews;
     };
+  /**
+   * Helper function: setVisible.
+   */
     FibZonePrimitive.prototype.setVisible = function (visible) {
       this._options.visible = !!visible;
       this.requestUpdate();
     };
+  /**
+   * Helper function: setSelected.
+   */
     FibZonePrimitive.prototype.setSelected = function (selected) {
       this._options.selected = !!selected;
       this.requestUpdate();
     };
+  /**
+   * Helper function: updatePoints.
+   */
     FibZonePrimitive.prototype.updatePoints = function (pointA, pointB) {
       this._p1 = clonePoint(pointA);
       this._p2 = clonePoint(pointB);
       this.requestUpdate();
     };
+  /**
+   * Helper function: getPoints.
+   */
     FibZonePrimitive.prototype.getPoints = function () {
       return clonePoints([this._p1, this._p2]);
     };
+  /**
+   * Helper function: getLevelPrices.
+   */
     FibZonePrimitive.prototype.getLevelPrices = function () {
       return this._options.levels.map(function (level) {
         return {
@@ -431,6 +543,9 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
         };
       }, this);
     };
+  /**
+   * Helper function: hitTest.
+   */
     FibZonePrimitive.prototype.hitTest = function (point, context) {
       this.updateAllViews();
       var geometry = this._geometry;
@@ -465,10 +580,13 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     return new FibZonePrimitive(anchorA, anchorB, record, draft);
   }
 
+  /**
+   * Builds a serialized record object representing the current state of the drawing tool for persistence.
+   */
   function buildFibZoneRecord(points, style, levels, extendMode) {
     var now = Date.now();
     return {
-      type: 'fibZone',
+      type: 'fibRetracement',
       paneId: 'main',
       points: clonePoints(points.slice(0, 2)),
       levels: normalizeFibLevels(levels),
@@ -479,7 +597,7 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
       visible: true,
       selected: false,
       goldenPocket: normalizeFibZoneConfig(null, {
-        enabled: true,
+        enabled: false,
         from: 0.618,
         to: 0.65,
         color: 'rgba(245, 158, 11, 0.22)',
@@ -499,13 +617,16 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     };
   }
 
+  /**
+   * Constructor function for the drawing tool class, initializing its state and event listeners.
+   */
   function FibZoneTool(chart, series, manager) {
     BaseTool.call(this, 'fib', chart, series, manager);
     this._points = [];
     this._preview = null;
     this._style = normalizeFibStyle(null, false);
     this._levels = createDefaultFibLevels();
-    this._extendMode = 'right';
+    this._extendMode = 'none';
     this._handleClick = this._handleClick.bind(this);
     this._handleMove = this._handleMove.bind(this);
     this._usesNativeChartInput = !manager.shouldUseDirectTouchInput();
@@ -517,32 +638,53 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
 
   FibZoneTool.prototype = Object.create(BaseTool.prototype);
   FibZoneTool.prototype.constructor = FibZoneTool;
+  /**
+   * Initiates the drawing process for the tool.
+   */
   FibZoneTool.prototype.startDrawing = function () {
     BaseTool.prototype.startDrawing.call(this);
     this._resetDrawingSession();
   };
+  /**
+   * Helper function: _resetDrawingSession.
+   */
   FibZoneTool.prototype._resetDrawingSession = function () {
     this._points = [];
     this._removePreview();
   };
+  /**
+   * Terminates the active drawing process and cleans up.
+   */
   FibZoneTool.prototype.stopDrawing = function () {
     BaseTool.prototype.stopDrawing.call(this);
     this._resetDrawingSession();
   };
+  /**
+   * Removes the tool and cleans up associated event listeners.
+   */
   FibZoneTool.prototype._removePreview = function () {
     if (this._preview) {
       try { this._series.detachPrimitive(this._preview); } catch (_error) {}
       this._preview = null;
     }
   };
+  /**
+   * Helper function: _isSamePoint.
+   */
   FibZoneTool.prototype._isSamePoint = function (pointA, pointB) {
     return pointA && pointB && pointA.time === pointB.time && pointA.price === pointB.price;
   };
+  /**
+   * Helper function: _startPreview.
+   */
   FibZoneTool.prototype._startPreview = function (point) {
     // Draft and final drawings share the same Fib calculation path, so preview prices match the committed object.
     this._preview = createFibZonePrimitive(point, point, buildFibZoneRecord([point, point], this._style, this._levels, this._extendMode), true);
     this._series.attachPrimitive(this._preview);
   };
+  /**
+   * Helper function: _completeFibZone.
+   */
   FibZoneTool.prototype._completeFibZone = function (secondPoint) {
     var firstPoint = this._points[0];
     if (!firstPoint || !secondPoint || this._isSamePoint(firstPoint, secondPoint)) {
@@ -553,6 +695,9 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     var serialized = buildFibZoneRecord(points, this._style, this._levels, this._extendMode);
     this._completeDrawing(createFibZonePrimitive(points[0], points[1], serialized, false), null, serialized);
   };
+  /**
+   * Handles click events on the chart to process point placement for the drawing tool.
+   */
   FibZoneTool.prototype._handleClick = function (param) {
     if (!this._drawing) return;
     var point = this._resolvePoint(param);
@@ -564,12 +709,18 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     }
     this._completeFibZone(point);
   };
+  /**
+   * Helper function: _handleMove.
+   */
   FibZoneTool.prototype._handleMove = function (param) {
     if (!this._drawing || !this._preview || this._points.length !== 1) return;
     var point = this._resolvePoint(param);
     if (!point) return;
     this._preview.updatePoints(this._points[0], point);
   };
+  /**
+   * Removes the tool and cleans up associated event listeners.
+   */
   FibZoneTool.prototype.remove = function () {
     this.stopDrawing();
     if (this._usesNativeChartInput) {
@@ -578,9 +729,12 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
     }
   };
 
+  /**
+   * Registers this drawing tool with the global drawing manager so it can be instantiated by the chart.
+   */
   registerEnhancedDrawingTool({
     kind: 'fib',
-    defaultLabel: 'Fib Zone',
+    defaultLabel: 'Fibonacci Retracement',
     requiredPointCount: 2,
     createTool: function (chart, series, manager) {
       return new FibZoneTool(chart, series, manager);

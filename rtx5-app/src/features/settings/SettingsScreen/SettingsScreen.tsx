@@ -99,6 +99,9 @@ type SettingsRouteLaunchPreviewState =
       icon: keyof typeof Ionicons.glyphMap;
     };
 
+/**
+ * Main screen for the Settings tab, providing access to user profile, account management, app preferences, and support links.
+ */
 export function SettingsScreen() {
   const isScreenFocused = useIsFocused();
   const { quoteSymbols, chartDrawings, oneClickAccepted, setOneClickAccepted, isDemoAccount, setThemeMode, accountDetails } = useUserPreferences(
@@ -217,6 +220,9 @@ export function SettingsScreen() {
   const routeLaunchFrameRef = useRef<number | null>(null);
   const routeLaunchCancelledRef = useRef(false);
 
+  /**
+   * Callback triggered when the user requests to sign out of their current active account.
+   */
   const handleLogout = () => {
     const accountLoginForJournal = accountDetails?.id;
     Alert.alert(
@@ -534,6 +540,9 @@ export function SettingsScreen() {
     Keyboard.dismiss();
   };
 
+  /**
+   * Callback triggered to open the native email client pre-filled with the customer support address.
+   */
   const handleEmailSupport = useCallback(async () => {
     const mailtoUrl = buildHelpMailto({
       appName,
@@ -572,6 +581,9 @@ export function SettingsScreen() {
     ));
   }, [searchQuery, SEARCHABLE_ITEMS, t]);
 
+  /**
+   * Callback triggered when a user taps a result from the in-app settings search bar, navigating them to the relevant screen.
+   */
   const handleSearchResultPress = useCallback((item: SearchableSettingsItem) => {
     if (!item.routePath && !item.action) {
       return;

@@ -19,6 +19,8 @@ import {
 } from './candleValidator';
 import {
   CANDLE_HISTORY_TIMEFRAMES,
+  BRIDGE_CANDLE_TIMEFRAMES,
+  type BridgeCandleTimeframe,
   createCandleStreamKey,
   getBucketGapCount,
   getBucketStart,
@@ -32,6 +34,8 @@ import {
   normalizeTimeframe,
   normalizeTimeframeStrict,
   normalizeTimestampToSeconds,
+  toBridgeCandleTf,
+  toRestCandleTf,
   SUPPORTED_TIMEFRAMES,
 } from './timeframeUtils';
 import type { Candle } from './candleTypes';
@@ -40,6 +44,8 @@ export type { Candle } from './candleTypes';
 export type { CandleValidationContext } from './candleValidator';
 export {
   CANDLE_HISTORY_TIMEFRAMES,
+  BRIDGE_CANDLE_TIMEFRAMES,
+  type BridgeCandleTimeframe,
   createCandleStreamKey,
   getBucketGapCount,
   getExpectedNextCandleTime,
@@ -52,6 +58,8 @@ export {
   normalizeTimeframe,
   normalizeTimeframeStrict,
   normalizeTimestampToSeconds,
+  toBridgeCandleTf,
+  toRestCandleTf,
   logCandleSeriesDiagnosticsInDevelopment,
   SUPPORTED_TIMEFRAMES,
   validateCandles,

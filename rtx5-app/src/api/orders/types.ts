@@ -61,6 +61,10 @@ export interface LoginOrder {
   price_sl?: number;
   /** Optional take-profit price (0 or absent means no TP) */
   price_tp?: number;
+  /** Optional stop-limit execution price for buy/sell stop-limit pending orders */
+  stopLimitPrice?: number | null;
+  stop_limit_price?: number | null;
+  price_stop_limit?: number | null;
 }
 
 /**
@@ -87,7 +91,9 @@ export type PendingOrderType =
   | 'buy_limit'
   | 'sell_limit'
   | 'buy_stop'
-  | 'sell_stop';
+  | 'sell_stop'
+  | 'buy_stop_limit'
+  | 'sell_stop_limit';
 
 /**
  * Payload for POST /api/v2/orders/pending.
@@ -99,6 +105,8 @@ export interface PlacePendingOrderPayload extends PlaceOrderPayload {
   type: PendingOrderType | string;
   price?: number;
   price_open?: number;
+  stopLimitPrice?: number;
+  stop_limit_price?: number;
   expiration?: number;
 }
 
@@ -146,6 +154,9 @@ export interface PlacePendingOrderResponse {
   volume: number;
   price?: number;
   price_open?: number;
+  stopLimitPrice?: number | null;
+  stop_limit_price?: number | null;
+  price_stop_limit?: number | null;
   price_sl?: number | null;
   price_tp?: number | null;
   status?: string;

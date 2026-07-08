@@ -2,11 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildChartPositionStopDragKey,
   buildChartOverlayPayload,
   CHART_LINE_STYLE,
   normalizeChartOverlaySymbol,
   type ChartOverlayCandle,
 } from './chartOverlays';
+import { buildPendingOrderLines } from './chartOverlays/lineBuilders';
+import type { LoginOrder } from '../../api/orders';
 
 const TEST_CHART_COLORS = {
   background: '#000000',
@@ -115,7 +118,43 @@ test('buildChartOverlayPayload maps open positions for the chart symbol with the
   assert.equal(openLine?.labelSideColor, TEST_CHART_COLORS.tradeOpen);
   assert.equal(openLine?.labelValueColor, TEST_CHART_COLORS.tradeTpSl);
   assert.equal(openLine?.labelPlacement, 'line');
+  assert.equal(payload.priceLines.find((line: any) => line.id === 'tp-1')?.labelPlacement, 'line');
+  assert.equal(payload.priceLines.find((line: any) => line.id === 'sl-1')?.labelPlacement, 'line');
+  assert.equal(payload.priceLines.find((line: any) => line.id === 'tp-1')?.dragKey, buildChartPositionStopDragKey('1', 'tp'));
+  assert.equal(payload.priceLines.find((line: any) => line.id === 'sl-1')?.dragKey, buildChartPositionStopDragKey('1', 'sl'));
   assert.equal(payload.markers.length, 0);
+});
+
+test('buildPendingOrderLines anchors pending SL, TP, and stop-limit labels to visible guide lines', () => {
+  const lines = buildPendingOrderLines(
+    [
+      {
+        ticket: 77,
+        account_login: 10001,
+        symbol: 'XAUUSD',
+        type: 'buy_stop_limit',
+        side: 'buy',
+        volume: 0.1,
+        price_open: 4150.1,
+        stopLimitPrice: 4148.9,
+        price_sl: 4142.5,
+        price_tp: 4161.8,
+        status: 'placed',
+        comment: '',
+        time_setup: 1_700_000_000,
+        time_done: 0,
+      } satisfies LoginOrder,
+    ],
+    TEST_CHART_COLORS,
+    '#EF5350',
+  );
+
+  const stopLimitLine = lines.find((line) => line.id === 'order-stop-limit-77');
+  assert.equal(stopLimitLine?.price, 4148.9);
+  assert.equal(stopLimitLine?.title, 'BUY STOP LIMIT 0.10');
+  assert.equal(stopLimitLine?.labelPlacement, 'line');
+  assert.equal(lines.find((line) => line.id === 'order-tp-77')?.labelPlacement, 'line');
+  assert.equal(lines.find((line) => line.id === 'order-sl-77')?.labelPlacement, 'line');
 });
 
 test('buildChartOverlayPayload drops a position and its SL/TP once it is no longer active', () => {

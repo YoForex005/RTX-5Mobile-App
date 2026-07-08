@@ -6,6 +6,13 @@ const PENDING_ORDER_TYPES = new Set<PendingOrderType>([
   'sell_limit',
   'buy_stop',
   'sell_stop',
+  'buy_stop_limit',
+  'sell_stop_limit',
+]);
+
+const STOP_LIMIT_PENDING_ORDER_TYPES = new Set<PendingOrderType>([
+  'buy_stop_limit',
+  'sell_stop_limit',
 ]);
 
 export class PendingOrderPayloadError extends Error {
@@ -25,6 +32,11 @@ export const normalizePendingOrderType = (value: unknown): PendingOrderType | nu
 
 export const resolvePendingOrderTriggerPrice = (payload: PlacePendingOrderPayload): number => {
   const price = payload.price ?? payload.price_open;
+  return typeof price === 'number' ? price : Number(price);
+};
+
+export const resolvePendingOrderStopLimitPrice = (payload: PlacePendingOrderPayload): number => {
+  const price = payload.stopLimitPrice ?? payload.stop_limit_price;
   return typeof price === 'number' ? price : Number(price);
 };
 
@@ -62,6 +74,20 @@ export function buildPendingOrderRequestBody(payload: PlacePendingOrderPayload):
     type: orderType,
     price,
   };
+
+  if (STOP_LIMIT_PENDING_ORDER_TYPES.has(orderType)) {
+    const stopLimitPrice = resolvePendingOrderStopLimitPrice(payload);
+    if (!Number.isFinite(stopLimitPrice) || stopLimitPrice <= 0) {
+      throw new PendingOrderPayloadError('Stop-limit price must be greater than 0.');
+    }
+    if (orderType === 'buy_stop_limit' && stopLimitPrice >= price) {
+      throw new PendingOrderPayloadError('Buy stop-limit price must be below the stop trigger price.');
+    }
+    if (orderType === 'sell_stop_limit' && stopLimitPrice <= price) {
+      throw new PendingOrderPayloadError('Sell stop-limit price must be above the stop trigger price.');
+    }
+    body.stopLimitPrice = stopLimitPrice;
+  }
 
   if (typeof payload.price_sl === 'number' && payload.price_sl > 0) {
     body.price_sl = payload.price_sl;

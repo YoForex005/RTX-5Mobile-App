@@ -263,3 +263,147 @@ test('getChartDrawingBucketKey normalizes symbol casing and whitespace', () => {
   assert.equal(getChartDrawingBucketKey('  gbpusd  '), 'GBPUSD');
   assert.equal(getChartDrawingBucketKey(''), 'DEFAULT');
 });
+
+test('sanitizePersistedChartDrawings supports the added TradingView-style drawing kinds', () => {
+  const drawings = sanitizePersistedChartDrawings([
+    {
+      id: 'horizontal_saved',
+      kind: 'horizontalLine',
+      points: [{ time: 1, price: 90 }, { time: 2, price: 90 }],
+    },
+    {
+      id: 'horizontal_ray_saved',
+      kind: 'horizontalRay',
+      type: 'horizontalRay',
+      extendMode: 'right',
+      points: [{ time: 1, price: 90 }, { time: 2, price: 90 }],
+      style: {
+        color: '#0EA5E9',
+        lineStyle: 'dotted',
+      },
+    },
+    {
+      id: 'vertical_saved',
+      kind: 'verticalLine',
+      points: [{ time: 2, price: 89 }, { time: 2, price: 91 }],
+    },
+    {
+      id: 'ray_saved',
+      kind: 'ray',
+      extendMode: 'right',
+      points: [{ time: 1, price: 90 }, { time: 3, price: 94 }],
+    },
+    {
+      id: 'extended_line_saved',
+      kind: 'extendedLine',
+      type: 'extendedLine',
+      extendMode: 'both',
+      points: [{ time: 1, price: 90 }, { time: 3, price: 94 }],
+      style: {
+        color: '#7C3AED',
+        width: 3,
+      },
+    },
+    {
+      id: 'arrow_saved',
+      kind: 'arrow',
+      type: 'arrow',
+      style: {
+        arrowHeadLength: 16,
+        arrowHeadWidth: 13,
+        color: '#F97316',
+        lineStyle: 'dotted',
+        width: 3,
+      },
+      points: [{ time: 1, price: 90 }, { time: 3, price: 94 }],
+    },
+    {
+      id: 'fib_extension_saved',
+      kind: 'fibExtension',
+      type: 'fibExtension',
+      levels: [{ id: 'fib_ext_1_618', value: 1.618, visible: true, label: '1.618' }],
+      points: [{ time: 1, price: 90 }, { time: 3, price: 94 }],
+    },
+    {
+      id: 'parallel_channel_saved',
+      kind: 'parallelChannel',
+      points: [{ time: 1, price: 90 }, { time: 3, price: 94 }, { time: 2, price: 88 }],
+    },
+    {
+      id: 'rectangle_saved',
+      kind: 'rectangle',
+      type: 'rectangle',
+      style: {
+        borderColor: '#64748B',
+        borderStyle: 'dashed',
+        fillColor: 'rgba(100, 116, 139, 0.12)',
+      },
+      points: [{ time: 1, price: 90 }, { time: 3, price: 94 }],
+    },
+    {
+      id: 'ellipse_saved',
+      kind: 'ellipse',
+      type: 'ellipse',
+      style: {
+        borderColor: '#8B5CF6',
+        borderStyle: 'dotted',
+        fillColor: 'rgba(139, 92, 246, 0.12)',
+      },
+      points: [{ time: 1, price: 90 }, { time: 3, price: 94 }],
+    },
+    {
+      id: 'freehand_saved',
+      kind: 'freehand',
+      type: 'freehand',
+      style: {
+        color: '#EC4899',
+        lineStyle: 'dashed',
+        width: 4,
+      },
+      points: Array.from({ length: 5 }, (_, index) => ({
+        time: index + 1,
+        price: 90 + index,
+      })),
+    },
+    {
+      id: 'short_position_saved',
+      kind: 'shortPosition',
+      points: [{ time: 1, price: 90 }, { time: 3, price: 86 }],
+    },
+  ]);
+
+  assert.deepEqual(drawings.map((drawing) => drawing.kind), [
+    'horizontalLine',
+    'horizontalRay',
+    'verticalLine',
+    'ray',
+    'extendedLine',
+    'arrow',
+    'fibExtension',
+    'parallelChannel',
+    'rectangle',
+    'ellipse',
+    'freehand',
+    'shortPosition',
+  ]);
+  assert.equal(drawings[0]?.label, 'Horizontal Line 1');
+  assert.equal(drawings[1]?.type, 'horizontalRay');
+  assert.equal(drawings[1]?.extendMode, 'right');
+  assert.equal(drawings[1]?.style?.lineStyle, 'dotted');
+  assert.equal(drawings[4]?.type, 'extendedLine');
+  assert.equal(drawings[4]?.extendMode, 'both');
+  assert.equal(drawings[4]?.style?.width, 3);
+  assert.equal(drawings[5]?.type, 'arrow');
+  assert.equal(drawings[5]?.style?.arrowHeadLength, 16);
+  assert.equal(drawings[5]?.style?.arrowHeadWidth, 13);
+  assert.equal(drawings[5]?.style?.lineStyle, 'dotted');
+  assert.equal(drawings[6]?.levels?.[0]?.value, 1.618);
+  assert.equal(drawings[7]?.points.length, 3);
+  assert.equal(drawings[8]?.type, 'rectangle');
+  assert.equal(drawings[8]?.style?.borderStyle, 'dashed');
+  assert.equal(drawings[9]?.type, 'ellipse');
+  assert.equal(drawings[9]?.style?.borderStyle, 'dotted');
+  assert.equal(drawings[10]?.type, 'freehand');
+  assert.equal(drawings[10]?.points.length, 5);
+  assert.equal(drawings[10]?.style?.lineStyle, 'dashed');
+});

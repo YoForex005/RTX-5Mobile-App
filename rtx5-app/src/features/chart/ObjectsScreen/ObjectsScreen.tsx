@@ -6,8 +6,8 @@ import { FastPressable as Pressable } from '../../../ui/components/FastPressable
  */
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useCallback, useMemo, useState } from 'react';
-import { Platform, ScrollView, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { KeyboardAvoidingView, Modal, Platform, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/shallow';
 import { ActionSheet } from '../../../ui/components/ActionSheet';
@@ -28,9 +28,96 @@ import {
   buildLegacyDrawingDescription,
   type DisplayDrawing,
 } from './drawingMeta';
+import {
+  cloneDrawingObjectRecord,
+  getDrawingObjectPriceAlertDraft,
+  renameDrawingObjectRecord,
+  sanitizeDrawingObjectLabel,
+  toggleDrawingObjectLock,
+} from './drawingObjectActions';
+import {
+  DRAWING_STYLE_COLOR_SWATCHES,
+  DRAWING_STYLE_EXTEND_MODE_OPTIONS,
+  DRAWING_STYLE_LINE_STYLE_OPTIONS,
+  applyDrawingStylePatch,
+  drawingSupportsStyleEditor,
+  getDrawingStyleEditorValues,
+  type DrawingStyleExtendMode,
+  type DrawingStyleLineStyle,
+  type DrawingStylePatch,
+} from './drawingStyleEditor';
 import { ActionRow, ToggleRow } from './rows';
-import { makeObjectsScreenStyles } from './styles';
+import { makeObjectsScreenStyles, type ObjectsScreenStyles } from './styles';
 
+const STYLE_OPACITY_STEP = 0.1;
+
+function formatOpacity(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function StyleSegmentedControl<T extends string>({
+  options,
+  value,
+  onChange,
+  styles,
+}: {
+  options: Array<{ label: string; value: T }>;
+  value: T;
+  onChange: (value: T) => void;
+  styles: ObjectsScreenStyles;
+}) {
+  return (
+    <View style={styles.segmentedControl}>
+      {options.map((option) => {
+        const active = option.value === value;
+        return (
+          <Pressable
+            key={option.value}
+            style={[styles.segmentItem, active && styles.segmentItemActive]}
+            onPress={() => onChange(option.value)}
+          >
+            <Text style={[styles.segmentText, active && styles.segmentTextActive]} numberOfLines={1}>
+              {option.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function StyleStepper({
+  label,
+  value,
+  onDecrease,
+  onIncrease,
+  styles,
+}: {
+  label: string;
+  value: string;
+  onDecrease: () => void;
+  onIncrease: () => void;
+  styles: ObjectsScreenStyles;
+}) {
+  return (
+    <View style={styles.styleStepperRow}>
+      <Text style={styles.styleControlLabel}>{label}</Text>
+      <View style={styles.stepperControl}>
+        <Pressable style={styles.stepperButton} onPress={onDecrease} hitSlop={8}>
+          <Ionicons name="remove" size={18} color="#2563EB" />
+        </Pressable>
+        <Text style={styles.stepperValue} numberOfLines={1}>{value}</Text>
+        <Pressable style={styles.stepperButton} onPress={onIncrease} hitSlop={8}>
+          <Ionicons name="add" size={18} color="#2563EB" />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Screen displaying a list of all active drawing objects (trendlines, fibonacci, etc.) on the current chart symbol.
+ */
 export function ObjectsScreen() {
   const {
     chartSymbol,
@@ -69,6 +156,9 @@ export function ObjectsScreen() {
   const styles = useMemo(() => makeObjectsScreenStyles(T, isDark), [T, isDark]);
   const [showAddObjectSheet, setShowAddObjectSheet] = useState(false);
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
+  const [styleEditorDrawingId, setStyleEditorDrawingId] = useState<string | null>(null);
+  const [renameDrawingId, setRenameDrawingId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
 
   const chartDrawings = chartDrawingRecordsBySymbol[getChartDrawingBucketKey(chartSymbol)] ?? [];
 
@@ -82,6 +172,7 @@ export function ObjectsScreen() {
           label: drawing.label,
           description: `${meta.description}${extraText}`,
           hidden: drawing.hidden,
+          locked: Boolean(drawing.locked),
           kind: drawing.kind,
           text: drawing.text,
           supportsVisibility: true,
@@ -94,6 +185,7 @@ export function ObjectsScreen() {
       label,
       description: buildLegacyDrawingDescription(label),
       hidden: false,
+      locked: false,
       kind: null,
       supportsVisibility: false,
     }));
@@ -103,11 +195,61 @@ export function ObjectsScreen() {
     () => displayDrawings.find((drawing) => drawing.id === selectedDrawingId) ?? null,
     [displayDrawings, selectedDrawingId],
   );
+  const styleEditorDrawing = useMemo(
+    () => chartDrawings.find((drawing) => drawing.id === styleEditorDrawingId) ?? null,
+    [chartDrawings, styleEditorDrawingId],
+  );
+  const renameDrawing = useMemo(
+    () => chartDrawings.find((drawing) => drawing.id === renameDrawingId) ?? null,
+    [chartDrawings, renameDrawingId],
+  );
+  const selectedDrawingRecord = useMemo(
+    () => selectedDrawing?.supportsVisibility
+      ? chartDrawings.find((drawing) => drawing.id === selectedDrawing.id) ?? null
+      : null,
+    [chartDrawings, selectedDrawing],
+  );
+  const selectedDrawingPriceAlertDraft = useMemo(
+    () => selectedDrawingRecord ? getDrawingObjectPriceAlertDraft(selectedDrawingRecord, chartSymbol) : null,
+    [chartSymbol, selectedDrawingRecord],
+  );
+  const styleEditorValues = useMemo(
+    () => styleEditorDrawing ? getDrawingStyleEditorValues(styleEditorDrawing) : null,
+    [styleEditorDrawing],
+  );
 
+  useEffect(() => {
+    if (styleEditorDrawingId && !styleEditorDrawing) {
+      setStyleEditorDrawingId(null);
+    }
+  }, [styleEditorDrawing, styleEditorDrawingId]);
+
+  useEffect(() => {
+    if (renameDrawingId && !renameDrawing) {
+      setRenameDrawingId(null);
+      setRenameDraft('');
+    }
+  }, [renameDrawing, renameDrawingId]);
+
+  /**
+   * Opens a bottom sheet action menu allowing the user to select a new drawing tool to add to the chart.
+   */
   const handleOpenAddObjectSheet = useCallback(() => {
     runImmediateAction('chart.objects.addObjectSheet.open', () => setShowAddObjectSheet(true));
   }, []);
 
+  const handleCloseStyleEditor = useCallback(() => {
+    setStyleEditorDrawingId(null);
+  }, []);
+
+  const handleCloseRenameDialog = useCallback(() => {
+    setRenameDrawingId(null);
+    setRenameDraft('');
+  }, []);
+
+  /**
+   * Fired when the user selects a specific drawing tool from the 'Add Object' bottom sheet, activating the tool on the chart.
+   */
   const handleSelectTool = useCallback((tool: ChartDrawingKind) => {
     setShowAddObjectSheet(false);
     clearPendingChartDrawingTool();
@@ -138,6 +280,9 @@ export function ObjectsScreen() {
     setChartLockAll,
   ]);
 
+  /**
+   * Deletes the selected drawing object from the chart permanently.
+   */
   const handleRemoveDrawing = useCallback((drawing: DisplayDrawing) => {
     if (chartDrawings.length > 0 && drawing.supportsVisibility) {
       removeChartDrawingRecordForSymbol(chartSymbol, drawing.id);
@@ -147,6 +292,9 @@ export function ObjectsScreen() {
     removeChartDrawing(drawing.label);
   }, [chartDrawings.length, chartSymbol, removeChartDrawing, removeChartDrawingRecordForSymbol]);
 
+  /**
+   * Temporarily hides or shows a specific drawing object without deleting it.
+   */
   const handleToggleDrawingVisibility = useCallback((drawing: DisplayDrawing) => {
     if (!drawing.supportsVisibility) {
       return;
@@ -159,6 +307,101 @@ export function ObjectsScreen() {
     );
     setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
   }, [chartDrawings, chartSymbol, setChartDrawingRecordsForSymbol]);
+
+  const handleToggleDrawingLock = useCallback((drawing: DisplayDrawing) => {
+    if (!drawing.supportsVisibility) {
+      return;
+    }
+
+    setSelectedDrawingId(null);
+    setChartDrawingRecordsForSymbol(
+      chartSymbol,
+      toggleDrawingObjectLock(chartDrawings, drawing.id),
+    );
+  }, [chartDrawings, chartSymbol, setChartDrawingRecordsForSymbol]);
+
+  const handleOpenRenameDialog = useCallback((drawing: DisplayDrawing) => {
+    if (!drawing.supportsVisibility) {
+      return;
+    }
+
+    setSelectedDrawingId(null);
+    setRenameDrawingId(drawing.id);
+    setRenameDraft(drawing.label);
+  }, []);
+
+  const handleSubmitRename = useCallback(() => {
+    if (!renameDrawing) {
+      handleCloseRenameDialog();
+      return;
+    }
+
+    setChartDrawingRecordsForSymbol(
+      chartSymbol,
+      renameDrawingObjectRecord(chartDrawings, renameDrawing.id, renameDraft),
+    );
+    handleCloseRenameDialog();
+  }, [
+    chartDrawings,
+    chartSymbol,
+    handleCloseRenameDialog,
+    renameDraft,
+    renameDrawing,
+    setChartDrawingRecordsForSymbol,
+  ]);
+
+  const handleCloneDrawing = useCallback((drawing: DisplayDrawing) => {
+    if (!drawing.supportsVisibility) {
+      return;
+    }
+
+    setSelectedDrawingId(null);
+    setChartDrawingRecordsForSymbol(
+      chartSymbol,
+      cloneDrawingObjectRecord(chartDrawings, drawing.id),
+    );
+  }, [chartDrawings, chartSymbol, setChartDrawingRecordsForSymbol]);
+
+  const handleOpenStyleEditor = useCallback((drawing: DisplayDrawing) => {
+    if (!drawing.kind || !drawingSupportsStyleEditor(drawing.kind)) {
+      return;
+    }
+
+    setSelectedDrawingId(null);
+    setStyleEditorDrawingId(drawing.id);
+  }, []);
+
+  const handleOpenPriceAlertFromDrawing = useCallback(() => {
+    if (!selectedDrawingPriceAlertDraft) {
+      return;
+    }
+
+    setSelectedDrawingId(null);
+    router.push({
+      pathname: '/chart/alerts',
+      params: {
+        condition: selectedDrawingPriceAlertDraft.condition,
+        drawingId: selectedDrawingPriceAlertDraft.drawingId,
+        drawingKind: selectedDrawingPriceAlertDraft.drawingKind,
+        message: selectedDrawingPriceAlertDraft.message,
+        price: selectedDrawingPriceAlertDraft.price,
+        symbol: selectedDrawingPriceAlertDraft.symbol,
+      },
+    });
+  }, [selectedDrawingPriceAlertDraft]);
+
+  const handleUpdateDrawingStyle = useCallback((patch: DrawingStylePatch) => {
+    if (!styleEditorDrawing) {
+      return;
+    }
+
+    const nextDrawings = chartDrawings.map((record) =>
+      record.id === styleEditorDrawing.id
+        ? applyDrawingStylePatch(record, patch)
+        : record,
+    );
+    setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
+  }, [chartDrawings, chartSymbol, setChartDrawingRecordsForSymbol, styleEditorDrawing]);
 
   const addObjectActions = useMemo(
     () =>
@@ -182,6 +425,35 @@ export function ObjectsScreen() {
 
     if (selectedDrawing.supportsVisibility) {
       actions.push({
+        label: 'Rename',
+        onPress: () => handleOpenRenameDialog(selectedDrawing),
+      });
+      actions.push({
+        label: selectedDrawing.locked ? 'Unlock object' : 'Lock object',
+        onPress: () => handleToggleDrawingLock(selectedDrawing),
+      });
+    }
+
+    if (selectedDrawing.kind && drawingSupportsStyleEditor(selectedDrawing.kind)) {
+      actions.push({
+        label: 'Edit style',
+        onPress: () => handleOpenStyleEditor(selectedDrawing),
+      });
+    }
+
+    if (selectedDrawingPriceAlertDraft) {
+      actions.push({
+        label: 'Create price alert',
+        onPress: handleOpenPriceAlertFromDrawing,
+      });
+    }
+
+    if (selectedDrawing.supportsVisibility) {
+      actions.push({
+        label: 'Duplicate / clone',
+        onPress: () => handleCloneDrawing(selectedDrawing),
+      });
+      actions.push({
         label: selectedDrawing.hidden ? 'Show on chart' : 'Hide on chart',
         onPress: () => handleToggleDrawingVisibility(selectedDrawing),
       });
@@ -201,29 +473,65 @@ export function ObjectsScreen() {
     });
 
     return actions;
-  }, [handleRemoveDrawing, handleSelectTool, handleToggleDrawingVisibility, selectedDrawing]);
+  }, [
+    handleCloneDrawing,
+    handleOpenRenameDialog,
+    handleOpenPriceAlertFromDrawing,
+    handleOpenStyleEditor,
+    handleRemoveDrawing,
+    handleSelectTool,
+    handleToggleDrawingLock,
+    handleToggleDrawingVisibility,
+    selectedDrawing,
+    selectedDrawingPriceAlertDraft,
+  ]);
+
+  const styleEditorOpen = Boolean(styleEditorDrawing && styleEditorValues);
+  const renameLabelPreview = renameDrawing
+    ? sanitizeDrawingObjectLabel(renameDraft, renameDrawing.label)
+    : '';
+  const renameSaveDisabled = renameDrawing
+    ? renameLabelPreview === renameDrawing.label
+    : true;
 
   return (
     <Screen style={styles.screen}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 18) + 10 }]}>
         <View style={styles.headerRow}>
-          <Pressable onPress={() => safeRouterBack(router, '/(tabs)/chart')} hitSlop={16} style={styles.headerButton}>
-            <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
-          </Pressable>
-          <Text style={styles.headerTitle} numberOfLines={1}>Objects</Text>
           <Pressable
-            onPress={handleOpenAddObjectSheet}
-            activateOnPressIn
-            activateOnTouchStart
-            unstable_pressDelay={0}
+            onPress={styleEditorOpen ? handleCloseStyleEditor : () => safeRouterBack(router, '/(tabs)/chart')}
             hitSlop={16}
             style={styles.headerButton}
           >
-            <Ionicons name="add" size={24} color="#3B82F6" />
+            <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
           </Pressable>
+          <Text style={styles.headerTitle} numberOfLines={1}>{styleEditorOpen ? 'Style' : 'Objects'}</Text>
+          {styleEditorOpen ? (
+            <Pressable
+              onPress={handleCloseStyleEditor}
+              activateOnPressIn
+              activateOnTouchStart
+              unstable_pressDelay={0}
+              hitSlop={16}
+              style={styles.headerButton}
+            >
+              <Ionicons name="checkmark" size={24} color="#3B82F6" />
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={handleOpenAddObjectSheet}
+              activateOnPressIn
+              activateOnTouchStart
+              unstable_pressDelay={0}
+              hitSlop={16}
+              style={styles.headerButton}
+            >
+              <Ionicons name="add" size={24} color="#3B82F6" />
+            </Pressable>
+          )}
         </View>
         <Text style={styles.headerSubtitle} numberOfLines={1}>
-          {chartSymbol.replace(/\//g, '')} chart objects
+          {styleEditorDrawing?.label ?? `${chartSymbol.replace(/\//g, '')} chart objects`}
         </Text>
       </View>
 
@@ -233,6 +541,111 @@ export function ObjectsScreen() {
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 20) + 24 }}
         showsVerticalScrollIndicator={false}
       >
+        {styleEditorDrawing && styleEditorValues ? (
+          <>
+            <Text style={styles.sectionLabel}>Preview</Text>
+            <View style={[styles.panel, styles.stylePreviewPanel]}>
+              <View style={styles.stylePreviewHeader}>
+                <View style={styles.stylePreviewCopy}>
+                  <Text style={styles.rowTitle} numberOfLines={1}>{styleEditorDrawing.label}</Text>
+                  <Text style={styles.rowSubtitle} numberOfLines={1}>
+                    {DRAWING_TOOL_META[styleEditorDrawing.kind].label}
+                  </Text>
+                </View>
+                <View style={[styles.styleColorPill, { backgroundColor: styleEditorValues.color }]} />
+              </View>
+              <View style={styles.stylePreviewLineTrack}>
+                <View
+                  style={[
+                    styles.stylePreviewLine,
+                    {
+                      borderTopColor: styleEditorValues.color,
+                      borderTopWidth: styleEditorValues.width,
+                      borderStyle: styleEditorValues.lineStyle,
+                      opacity: styleEditorValues.opacity,
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+
+            <Text style={styles.sectionLabel}>Color</Text>
+            <View style={[styles.panel, styles.colorSwatchPanel]}>
+              {DRAWING_STYLE_COLOR_SWATCHES.map((color) => {
+                const active = color.toLowerCase() === styleEditorValues.color.toLowerCase();
+                return (
+                  <Pressable
+                    key={color}
+                    style={[
+                      styles.colorSwatch,
+                      { backgroundColor: color },
+                      color === '#FFFFFF' && styles.colorSwatchLight,
+                      active && styles.colorSwatchActive,
+                    ]}
+                    onPress={() => handleUpdateDrawingStyle({ color })}
+                    accessibilityLabel={`Set drawing color ${color}`}
+                  >
+                    {active ? (
+                      <Ionicons name="checkmark" size={18} color={color === '#FFFFFF' ? '#0F172A' : '#FFFFFF'} />
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Text style={styles.sectionLabel}>Stroke</Text>
+            <View style={[styles.panel, styles.styleControlsPanel]}>
+              <StyleStepper
+                label="Width"
+                value={`${styleEditorValues.width}px`}
+                onDecrease={() => handleUpdateDrawingStyle({ width: styleEditorValues.width - 1 })}
+                onIncrease={() => handleUpdateDrawingStyle({ width: styleEditorValues.width + 1 })}
+                styles={styles}
+              />
+              <View style={styles.panelDivider} />
+              <View style={styles.styleControlBlock}>
+                <Text style={styles.styleControlLabel}>Pattern</Text>
+                <StyleSegmentedControl<DrawingStyleLineStyle>
+                  options={DRAWING_STYLE_LINE_STYLE_OPTIONS}
+                  value={styleEditorValues.lineStyle}
+                  onChange={(lineStyle) => handleUpdateDrawingStyle({ lineStyle })}
+                  styles={styles}
+                />
+              </View>
+            </View>
+
+            <Text style={styles.sectionLabel}>Opacity</Text>
+            <View style={styles.panel}>
+              <StyleStepper
+                label="Opacity"
+                value={formatOpacity(styleEditorValues.opacity)}
+                onDecrease={() =>
+                  handleUpdateDrawingStyle({ opacity: styleEditorValues.opacity - STYLE_OPACITY_STEP })
+                }
+                onIncrease={() =>
+                  handleUpdateDrawingStyle({ opacity: styleEditorValues.opacity + STYLE_OPACITY_STEP })
+                }
+                styles={styles}
+              />
+            </View>
+
+            {styleEditorValues.supportsExtendMode ? (
+              <>
+                <Text style={styles.sectionLabel}>Extend</Text>
+                <View style={[styles.panel, styles.styleControlBlock]}>
+                  <Text style={styles.styleControlLabel}>Mode</Text>
+                  <StyleSegmentedControl<DrawingStyleExtendMode>
+                    options={DRAWING_STYLE_EXTEND_MODE_OPTIONS}
+                    value={styleEditorValues.extendMode}
+                    onChange={(extendMode) => handleUpdateDrawingStyle({ extendMode })}
+                    styles={styles}
+                  />
+                </View>
+              </>
+            ) : null}
+          </>
+        ) : (
+          <>
         <Text style={styles.sectionLabel}>Actions</Text>
         <View style={styles.panel}>
           <ActionRow
@@ -327,8 +740,13 @@ export function ObjectsScreen() {
                           <Text style={styles.hiddenPillText}>Hidden</Text>
                         </View>
                       ) : null}
+                      {drawing.locked ? (
+                        <View style={styles.lockedPill}>
+                          <Text style={styles.lockedPillText}>Locked</Text>
+                        </View>
+                      ) : null}
                       <Ionicons
-                        name={drawing.hidden ? 'eye-off-outline' : 'eye-outline'}
+                        name={drawing.locked ? 'lock-closed-outline' : (drawing.hidden ? 'eye-off-outline' : 'eye-outline')}
                         size={18}
                         color={isDark ? '#64748B' : '#94A3B8'}
                       />
@@ -344,9 +762,11 @@ export function ObjectsScreen() {
 
         {displayDrawings.length > 0 ? (
           <Text style={styles.footerHint}>
-            Tap an object row for actions like hide, repeat, or delete.
+            Tap an object row for rename, lock, clone, hide, or delete.
           </Text>
         ) : null}
+          </>
+        )}
       </ScrollView>
 
       <ActionSheet
@@ -366,6 +786,53 @@ export function ObjectsScreen() {
         instantOpen
         actions={selectedDrawingActions}
       />
+
+      <Modal
+        visible={Boolean(renameDrawing)}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCloseRenameDialog}
+        statusBarTranslucent
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.renameModalOverlay}
+        >
+          <Pressable style={styles.renameModalBackdrop} onPress={handleCloseRenameDialog} />
+          <View style={styles.renameModalSheet}>
+            <Text style={styles.renameModalTitle}>Rename object</Text>
+            <Text style={styles.renameModalSubtitle} numberOfLines={1}>
+              {renameDrawing?.label ?? 'Chart object'}
+            </Text>
+            <TextInput
+              value={renameDraft}
+              onChangeText={setRenameDraft}
+              autoFocus
+              selectTextOnFocus
+              maxLength={64}
+              returnKeyType="done"
+              onSubmitEditing={handleSubmitRename}
+              placeholder="Object name"
+              placeholderTextColor={isDark ? '#64748B' : '#94A3B8'}
+              style={styles.renameInput}
+            />
+            <View style={styles.renameModalActions}>
+              <Pressable style={styles.renameModalButton} onPress={handleCloseRenameDialog}>
+                <Text style={styles.renameModalCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.renameModalButton, styles.renameModalSaveButton, renameSaveDisabled && styles.renameModalSaveDisabled]}
+                onPress={handleSubmitRename}
+                disabled={renameSaveDisabled}
+              >
+                <Text style={[styles.renameModalSaveText, renameSaveDisabled && styles.renameModalSaveTextDisabled]}>
+                  Save
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </Screen>
   );
 }

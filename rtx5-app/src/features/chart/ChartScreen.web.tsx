@@ -110,6 +110,9 @@ import {
   CHART_TIME_SCALE_FIX_RIGHT_EDGE,
 } from './ChartScreen.constants';
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
+const CHART_OHLC_NEUTRAL_COLOR = '#FFFFFF';
+const CHART_OHLC_HIGH_COLOR = '#089981';
+const CHART_OHLC_LOW_COLOR = '#F23645';
 
 const buildAvailableChartSymbols = (chartSymbol: string, apiSymbols: readonly string[]): string[] => {
   const ordered: string[] = [];
@@ -804,15 +807,14 @@ export function ChartScreen() {
     () => calculateMarketSentiment(chartSentimentQuote, chartDailyRangeCandle),
     [chartDailyRangeCandle, chartSentimentQuote],
   );
-  const chartMetaIsUp = chartMetaLastCandle ? chartMetaLastCandle.close >= chartMetaLastCandle.open : true;
   const chartMetaItems = useMemo(
     () =>
       chartMetaLastCandle
         ? [
-          { label: 'O', value: formatChartValue(chartMetaLastCandle.open) },
-          { label: 'H', value: formatChartValue(chartMetaLastCandle.high) },
-          { label: 'L', value: formatChartValue(chartMetaLastCandle.low) },
-          { label: 'C', value: formatChartValue(chartMetaLastCandle.close) },
+          { label: 'O', value: formatChartValue(chartMetaLastCandle.open), color: CHART_OHLC_NEUTRAL_COLOR },
+          { label: 'H', value: formatChartValue(chartMetaLastCandle.high), color: CHART_OHLC_HIGH_COLOR },
+          { label: 'L', value: formatChartValue(chartMetaLastCandle.low), color: CHART_OHLC_LOW_COLOR },
+          { label: 'C', value: formatChartValue(chartMetaLastCandle.close), color: CHART_OHLC_NEUTRAL_COLOR },
         ]
         : [],
     [chartMetaLastCandle, formatChartValue],
@@ -1596,7 +1598,7 @@ export function ChartScreen() {
                         <Text
                           style={[
                             styles.chartMetaValue,
-                            { color: chartMetaIsUp ? resolvedChartColors.candlesUptrend : resolvedChartColors.candlesDowntrend },
+                            { color: item.color },
                           ]}
                         >
                           {item.value}

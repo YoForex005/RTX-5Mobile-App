@@ -62,8 +62,15 @@ const TIMEFRAME_ITEMS: Array<{ key: string; angle: number; width: number }> = [
   { key: 'MN', angle: 144, width: 40 },
 ];
 
+/**
+ * Helper to restrict a value within a given min and max range.
+ */
 const clampValue = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
+/**
+ * Ensures the radial menu does not render partially off-screen by clamping its center
+ * position relative to the container boundaries and its padding.
+ */
 const clampMenuCenter = (value: number, containerSize: number) =>
   clampValue(
     value,
@@ -74,6 +81,10 @@ const clampMenuCenter = (value: number, containerSize: number) =>
     ),
   );
 
+/**
+ * Calculates the absolute (left, top) pixel position of a radial menu item
+ * given its angle and distance (radius) from the center.
+ */
 const getRadialItemPosition = (
   angleFromTop: number,
   radius: number,
@@ -88,6 +99,10 @@ const getRadialItemPosition = (
   };
 };
 
+/**
+ * Calculates the proper rotation angle for text items on the radial ring
+ * so they remain readable (not upside-down).
+ */
 const getRadialTextRotation = (angleFromTop: number) => {
   let rotation = angleFromTop <= 180 ? angleFromTop : angleFromTop - 360;
   if (rotation > 90) {
@@ -206,6 +221,10 @@ const createStyles = (isDark: boolean) =>
     },
   });
 
+/**
+ * Renders an MT5-style interactive radial menu at a specific tap location on the chart.
+ * This menu allows quick access to timeframes, drawing tools, objects, and settings.
+ */
 export function ChartTapRadialMenu({
   anchor,
   bounds,
@@ -379,6 +398,10 @@ export function ChartTapRadialMenu({
     onDismiss();
   }, [onDismiss]);
 
+  /**
+   * Wrapper for radial item press events to ensure the menu gracefully closes
+   * and touch events do not propagate through to the chart underneath.
+   */
   const handleActionItemPress = React.useCallback((event: any, onPress: () => void) => {
     event.stopPropagation?.();
     onPress();

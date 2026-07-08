@@ -7,6 +7,9 @@ import type { SettingsStyles } from './styles';
 
 const SETTINGS_ROW_PRESS_RETENTION_OFFSET = { top: 8, bottom: 8, left: 18, right: 18 } as const;
 
+/**
+ * A reusable UI list row component used across the settings screens to display individual configurable options.
+ */
 export function SettingRow({
   icon,
   color,

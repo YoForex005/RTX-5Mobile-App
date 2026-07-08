@@ -252,7 +252,7 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(drawingSource, /presentation="mt5Plain"[\s\S]*showActionIcons[\s\S]*actions=\{createDrawingToolsActionSheetActions/);
   assert.match(drawingTypesSource, /icon\?: ReactNode/);
   assert.match(drawingToolsSource, /DRAWING_SHEET_OPTIONS\.map\(\(definition\) => \(\{[\s\S]*icon: definition\.renderIcon\(iconColor\)/);
-  assert.match(drawingToolsSource, /DRAWING_TOOL_COMMANDS\.map\(\(definition\) => \(\{[\s\S]*icon: definition\.renderIcon\(definition\.danger \? dangerIconColor : iconColor\)/);
+  assert.match(drawingToolsSource, /historyCommands\.map\(\(definition\) => \(\{[\s\S]*icon: definition\.renderIcon\(definition\.danger \? dangerIconColor : iconColor\)/);
   assert.match(source, /title: t\('Chart Type'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: chartTypePickerActions/);
   assert.match(source, /runImmediateAction\('chart\.moreMenu\.open'[\s\S]*showChartActionSheet\(\{[\s\S]*presentation:\s*'mt5Plain'[\s\S]*showActionIcons:\s*true[\s\S]*instantOpen:\s*true[\s\S]*actions: chartMoreActions/);
   assert.doesNotMatch(source, /label: t\(isVerticalScrollingLocked \? 'Unlock Vertical Scrolling' : 'Lock Vertical Scrolling'\)[\s\S]*onPress: handleToggleVerticalScrollingLock/);

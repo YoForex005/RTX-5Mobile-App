@@ -97,6 +97,9 @@ type OrderTicketTradeConfirmation = {
   volumeLabel: string;
 };
 
+/**
+ * Main Order Ticket screen for placing new trades. Orchestrates order type tabs (Market, Limit, Stop), lot size, and SL/TP fields.
+ */
 export function OrderTicketScreen() {
   const contentReady = useDeferredRouteContentReady(ORDER_TICKET_FULL_CONTENT_DELAY_MS);
 
@@ -107,6 +110,9 @@ export function OrderTicketScreen() {
   return <OrderTicketInteractiveContent />;
 }
 
+/**
+ * A placeholder loading shell displayed while the Order Ticket fetches initial quote and configuration data.
+ */
 function OrderTicketInitialShell() {
   const { symbol: routeSymbol } = useLocalSearchParams<{ symbol?: string }>();
   const symbol = normalizeSymbol(routeSymbol || 'EURUSD');
@@ -217,6 +223,9 @@ function OrderTicketInitialShell() {
   );
 }
 
+/**
+ * The fully loaded, interactive portion of the Order Ticket containing the trade forms and order type tabs.
+ */
 function OrderTicketInteractiveContent() {
   // Route params let chart and quote screens open the ticket with a specific
   // symbol, initial trade side, or order comment.
@@ -996,6 +1005,7 @@ function OrderTicketInteractiveContent() {
         side: pendingSideValue,
         volume,
         ...(pendingEntryPrice > 0 ? { price: pendingEntryPrice } : {}),
+        ...(isStopLimitOrderType && pendingStopLimitPrice > 0 ? { stopLimitPrice: pendingStopLimitPrice } : {}),
         ...(slEnabled && slPrice > 0 ? { price_sl: slPrice } : {}),
         ...(tpEnabled && tpPrice > 0 ? { price_tp: tpPrice } : {}),
         comment: routeComment?.trim() || '',
@@ -1117,7 +1127,11 @@ function OrderTicketInteractiveContent() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="always"
       >
-        {/* Order type tabs: market execution or one of the pending order types. */}
+        {/* 
+ * Order type tabs: 
+ * Allows the user to switch between Market Execution and pending order types 
+ * (Buy Limit, Sell Limit, Buy Stop, Sell Stop, Buy Stop Limit, Sell Stop Limit).
+ */}
         <Text style={styles.sectionTitle}>ORDER TYPE</Text>
         <ScrollView
           ref={orderTypeTabsRef}

@@ -64,6 +64,9 @@ function areStringSetsEqual(left: Set<string>, right: Set<string>) {
   return true;
 }
 
+/**
+ * Main screen for the Trade tab, displaying the user's active open positions, pending orders, and real-time equity/margin summary.
+ */
 export function TradeScreen() {
   const isScreenFocused = useIsFocused();
   const [viewablePositionIds, setViewablePositionIds] = useState<Set<string>>(() => new Set());
@@ -190,6 +193,9 @@ export function TradeScreen() {
     [accountLeverage, rowActivationKey],
   );
 
+  /**
+   * Callback to update which position rows are currently visible on screen, typically used for performance optimization in long lists.
+   */
   const handleViewablePositionRowsChanged = useRef(({ viewableItems }: { viewableItems: Array<{ item?: PositionItem | null }> }) => {
     // FlatList calls this as rows enter/leave the viewport. We store only the
     // visible ticket ids so newly visible rows can start live quote updates.

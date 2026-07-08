@@ -19,3 +19,9 @@ export {
 } from './types';
 export { normalizeChartOverlaySymbol } from './symbolUtils';
 export { buildChartOverlayPayload } from './buildPayload';
+export {
+  buildChartPositionStopDragKey,
+  parseChartPositionStopDragKey,
+  type ChartPositionStopDragTarget,
+  type ChartPositionStopKind,
+} from './positionStopDragKeys';

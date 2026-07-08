@@ -82,6 +82,9 @@ function scheduleTabSwitchBudgetCheck(label: string, startedAtMs: number, naviga
   });
 }
 
+/**
+ * A highly optimized, custom button wrapper for the bottom menubar tabs. Uses immediate touch events (onPressIn) to ensure instant tab switching with zero delay.
+ */
 const FastTabBarButton = memo(function FastTabBarButton({
   latencyLabel = 'bottom tab',
   onNavigateStart,
@@ -185,6 +188,9 @@ const GlobalActionSheetHost = memo(function GlobalActionSheetHost() {
   );
 });
 
+/**
+ * Main navigator configuring the bottom tab/menu bar. Handles routing between primary sections (Quotes, Chart, Trade, History, Settings).
+ */
 export default function TabsLayout() {
   const isChartFullscreen = useUIState((s) => s.isChartFullscreen);
   const isSearchActive = useUIState((s) => s.isSearchActive);

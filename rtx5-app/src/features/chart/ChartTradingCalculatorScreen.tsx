@@ -29,6 +29,9 @@ const fmtMoney = (n: number | undefined, currency: string) =>
 const fmtPipValue = (n: number | undefined, currency: string) =>
   n === undefined || !Number.isFinite(n) ? '—' : `${n.toFixed(4)} ${currency}`;
 
+/**
+ * A fully featured trading calculator tool. Allows the user to simulate trades, calculating required margin, pip value, spread cost, and projected profits based on lot size and entry/exit prices.
+ */
 export function ChartTradingCalculatorScreen() {
   const { symbol } = useLocalSearchParams<{ symbol: string }>();
   const T = useTheme();
@@ -56,6 +59,9 @@ export function ChartTradingCalculatorScreen() {
   const [openPrice, setOpenPrice] = useState('');
   const [closePrice, setClosePrice] = useState('');
 
+  /**
+   * Increments or decrements the simulated lot size, clamping it within the symbol's allowed min/max trade volume limits.
+   */
   const adjustLotSize = (amount: number) => {
     setLotSize((prev) => {
       const parsed = parseFloat(prev) || 0;

@@ -94,7 +94,7 @@ test('chart footer lot editor has an iOS Apply accessory and stable focus retry'
   assert.match(chartScreenSource, /const maxAttempts = 8/);
 });
 
-test('chart quick trade buttons use side fallback colors and per-side tick movement colors', () => {
+test('chart quick trade buttons keep side colors stable while bid and ask update', () => {
   const tradeButtonsSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/ChartTradeButtonsFeature.tsx');
   const quoteSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/quoteFallback.ts');
   const chartScreenSource = readSource('src/features/chart/ChartScreen.native.tsx');
@@ -102,14 +102,23 @@ test('chart quick trade buttons use side fallback colors and per-side tick movem
   assert.match(chartScreenSource, /const BLUE = T\.trading\.buy\.primary/);
   assert.match(chartScreenSource, /buyColor=\{BLUE\}/);
   assert.match(chartScreenSource, /sellColor=\{T\.trading\.sell\.primary\}/);
-  assert.match(tradeButtonsSource, /const sellTileVisual = resolveChartTradeButtonPriceColor/);
-  assert.match(tradeButtonsSource, /fallbackColor: sellColor/);
-  assert.match(tradeButtonsSource, /const buyTileVisual = resolveChartTradeButtonPriceColor/);
-  assert.match(tradeButtonsSource, /fallbackColor: buyColor/);
-  assert.match(tradeButtonsSource, /const sellTileColor = sellTileVisual\.color/);
-  assert.match(tradeButtonsSource, /const buyTileColor = buyTileVisual\.color/);
-  assert.match(quoteSource, /current > previous[\s\S]*direction = 'up'/);
-  assert.match(quoteSource, /current < previous[\s\S]*direction = 'down'/);
+  assert.match(tradeButtonsSource, /const sellTileColor = sellColor;/);
+  assert.match(tradeButtonsSource, /const buyTileColor = buyColor;/);
+  assert.doesNotMatch(tradeButtonsSource, /previousBidRef|previousAskRef|sellTileVisual|buyTileVisual/);
+  assert.doesNotMatch(quoteSource, /resolveChartTradeButtonPriceColor|direction = 'up'|direction = 'down'/);
+  assert.doesNotMatch(tradeButtonsSource, /TRADE_BUTTON_PRICE_FLASH|ChartTradeButtonPriceFlash|Animated\.View/);
+  assert.match(tradeButtonsSource, /const TRADE_BUTTON_PRICE_REPAINT_MS = 160/);
+  assert.match(tradeButtonsSource, /const TRADE_BUTTON_PRICE_TEXT_COLOR = '#FFFFFF'/);
+  assert.match(tradeButtonsSource, /const TRADE_BUTTON_VALUE_GLOW_RADIUS = 8/);
+  assert.match(tradeButtonsSource, /const ChartTradeButtonPriceText = React\.memo/);
+  assert.match(tradeButtonsSource, /previousTextRef\.current = text/);
+  assert.match(tradeButtonsSource, /Animated\.timing\(flashProgress/);
+  assert.match(tradeButtonsSource, /useNativeDriver: false/);
+  assert.match(tradeButtonsSource, /flashProgress\.interpolate/);
+  assert.match(tradeButtonsSource, /textShadowRadius: flashShadowRadius/);
+  assert.match(tradeButtonsSource, /opacity: 1/);
+  assert.match(tradeButtonsSource, /<ChartTradeButtonPriceText text=\{formattedBid\} testID="chart-trade-sell-price-text" \/>/);
+  assert.match(tradeButtonsSource, /<ChartTradeButtonPriceText text=\{formattedAsk\} testID="chart-trade-buy-price-text" \/>/);
   assert.match(tradeButtonsSource, /baseStyles\.chartTradeMarketActionButton,\s*\{ backgroundColor: sellColor \}/);
   assert.match(tradeButtonsSource, /baseStyles\.chartTradeMarketActionButton,\s*\{ backgroundColor: buyColor \}/);
 });

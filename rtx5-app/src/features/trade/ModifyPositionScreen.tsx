@@ -9,7 +9,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text, TextInput, View,
   Platform
@@ -32,7 +32,7 @@ import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 import { ActionSheet } from '../../ui/components/ActionSheet';
 import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import { findPositionById } from './tradeFlow';
-import { runImmediateAction } from '../../utils/actionLatency';
+import { CRITICAL_TRADE_ACTION_MAX_LATENCY_MS, runImmediateAction } from '../../utils/actionLatency';
 import { fmt } from '../../utils/format';
 import { safeRouterBack } from '../../utils/navigation';
 import { resolveModifyPositionMarkerYPositions } from './modifyPositionChartLayout';
@@ -86,6 +86,9 @@ function formatModifyPrice(val: number, decimals: number) {
   };
 }
 
+/**
+ * Screen used to adjust the Stop Loss (SL) and Take Profit (TP) parameters for an active, open position.
+ */
 export function ModifyPositionScreen() {
   const { positionId } = useLocalSearchParams<{ positionId?: string }>();
   const insets = useSafeAreaInsets();
@@ -110,6 +113,7 @@ export function ModifyPositionScreen() {
   const [stopLoss, setStopLoss] = useState<number | null>(null);
   const [takeProfit, setTakeProfit] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const modifySubmittingRef = useRef(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
   const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
   const [positionPickerOpen, setPositionPickerOpen] = useState(false);
@@ -218,6 +222,9 @@ export function ModifyPositionScreen() {
   }, [position?.id, position?.sl, position?.tp]);
 
 
+  /**
+   * Navigates back to the previous screen (usually the Trade tab or Chart).
+   */
   const handleBack = useCallback(() => {
     safeRouterBack(router, '/(tabs)/trade');
   }, []);
@@ -230,12 +237,18 @@ export function ModifyPositionScreen() {
   const { data: marketSymbols = [], isFetching: marketSymbolsFetching } =
     useMarketSymbols(isScreenFocused || positionPickerOpen);
 
+  /**
+   * Opens a modal allowing the user to select a different open position to modify.
+   */
   const handleOpenPositionPicker = useCallback(() => {
     runImmediateAction('modifyPosition.positionPicker.open', () => {
       setPositionPickerOpen(true);
     });
   }, []);
 
+  /**
+   * Callback fired when a new position is selected from the picker, updating the screen to modify the chosen position.
+   */
   const handlePickPosition = useCallback((nextPositionId: string) => {
     setPositionPickerOpen(false);
     setViewSymbolOverride(null);
@@ -245,6 +258,9 @@ export function ModifyPositionScreen() {
     router.setParams({ positionId: nextPositionId });
   }, [position?.id]);
 
+  /**
+   * Navigates the user to the Chart screen to view the price action of the currently selected position's symbol.
+   */
   const handlePickViewSymbol = useCallback((candidate: string) => {
     setPositionPickerOpen(false);
     const normalized = normalizeSymbol(candidate);
@@ -367,6 +383,9 @@ export function ModifyPositionScreen() {
     return null;
   };
 
+  /**
+   * Incrementally steps the Stop Loss value up or down by a predefined point amount when tapping the +/- buttons.
+   */
   const handleStepSl = (delta: number) => {
     if (!position) return;
     setStopLoss((prev) => {
@@ -382,6 +401,9 @@ export function ModifyPositionScreen() {
     });
   };
 
+  /**
+   * Incrementally steps the Take Profit value up or down by a predefined point amount when tapping the +/- buttons.
+   */
   const handleStepTp = (delta: number) => {
     if (!position) return;
     setTakeProfit((prev) => {
@@ -396,19 +418,31 @@ export function ModifyPositionScreen() {
     });
   };
 
+  /**
+   * Callback fired when the user manually types a new Stop Loss price into the input field.
+   */
   const handleSlChange = (text: string) => {
     const val = parseFloat(text);
     if (!isNaN(val)) setStopLoss(val);
     if (text === '') setStopLoss(null);
   };
 
+  /**
+   * Callback fired when the user manually types a new Take Profit price into the input field.
+   */
   const handleTpChange = (text: string) => {
     const val = parseFloat(text);
     if (!isNaN(val)) setTakeProfit(val);
     if (text === '') setTakeProfit(null);
   };
 
+  /**
+   * Submits the requested SL/TP modifications to the trade server and displays a success or error confirmation alert.
+   */
   const handleModify = async () => {
+    if (modifySubmittingRef.current) {
+      return;
+    }
     if (!position || !symbolsMatch) {
       return;
     }
@@ -436,6 +470,7 @@ export function ModifyPositionScreen() {
       return;
     }
 
+    modifySubmittingRef.current = true;
     setIsSubmitting(true);
     setSubmitMessage(null);
     try {
@@ -499,6 +534,7 @@ export function ModifyPositionScreen() {
         ),
       );
     } finally {
+      modifySubmittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -940,6 +976,11 @@ export function ModifyPositionScreen() {
             ]}
             disabled={isSubmitting}
             onPress={handleModify}
+            activateOnPressIn
+            unstable_pressDelay={0}
+            hitSlop={12}
+            latencyLabel="modifyPosition.submit"
+            latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
           >
             {isSubmitting ? (
               <ActivityIndicator color="#FFF" />

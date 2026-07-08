@@ -25,6 +25,9 @@ type RegisterHandoffPreviewProps = {
   backLatencyLabel?: string;
 };
 
+/**
+ * Preview component used during the registration or onboarding process handoff.
+ */
 export function RegisterHandoffPreview({
   onBack,
   backLatencyLabel = 'register.entry.back',

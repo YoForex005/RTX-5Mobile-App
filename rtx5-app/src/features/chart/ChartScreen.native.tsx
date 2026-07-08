@@ -68,6 +68,7 @@ import { useLiveAccountState } from '../../state/liveAccountState';
 import { useOrdersByLoginQuery } from '../../query/orders';
 import { TradeFeedbackModal, TradeFeedbackState, TRADE_MODAL_INITIAL } from '../../ui/components/TradeFeedbackModal';
 import { ordersApi } from '../../api/orders';
+import { positionsApi } from '../../api/positions';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 
 
@@ -87,7 +88,15 @@ import {
   getBucketGapCount,
   getExpectedNextCandleTime,
 } from '../../domain/candles/core/timeframeUtils';
-import { buildChartOverlayPayload, CHART_LINE_STYLE, type ChartOverlayPriceLine } from './chartOverlays';
+import {
+  buildChartPositionStopDragKey,
+  buildChartOverlayPayload,
+  CHART_LINE_STYLE,
+  normalizeChartOverlaySymbol,
+  parseChartPositionStopDragKey,
+  type ChartOverlayPriceLine,
+  type ChartPositionStopDragTarget,
+} from './chartOverlays';
 import { resolveChartDisplayDecimals } from './chartPricePrecision';
 import { isPriceCoherentWithCandle } from '../../domain/candles/series/priceCoherence';
 import {
@@ -154,7 +163,7 @@ import { LiveQuotePairHeader } from "./components/ChartLiveHeaders";
 import { ChartStepperModal, ChartFooterLotPicker, ChartTradeVolumeSlider } from "./components/ChartTradeControls";
 import { resolveChartTradeButtonQuote } from "./components/ChartTradeButtonsFeature/quoteFallback";
 import { TvLayers } from "./components/ChartToolbarIcons";
-import { ChartTapMenuViewport, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_GRID_LINE_STYLE, CHART_MARKET_PRICE_LINE_SYNC_INTERVAL_MS, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_SYMBOL_PICKER_PREFETCH_DELAY_MS, CHART_SYMBOL_PICKER_PREFETCH_LIMIT, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent } from "./ChartScreen.constants";
+import { ChartTapMenuViewport, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_DRAWING_MAGNET_THRESHOLD_PX, CHART_GRID_LINE_STYLE, CHART_MARKET_PRICE_LINE_SYNC_INTERVAL_MS, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_SYMBOL_PICKER_PREFETCH_DELAY_MS, CHART_SYMBOL_PICKER_PREFETCH_LIMIT, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent } from "./ChartScreen.constants";
 import {
   DEFAULT_CHART_SYMBOLS,
   SYMBOL_FLAGS,
@@ -215,6 +224,7 @@ const CHART_BRIDGE_DEBUG = false;
 // Match the Quotes screen: every bid/ask tick should reach the live candle immediately.
 const CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS = 0;
 const CHART_SYMBOL_HEADER_HIT_SLOP = { top: 10, bottom: 18, left: 16, right: 48 };
+const CHART_OHLC_NEUTRAL_COLOR = '#FFFFFF';
 const CHART_OHLC_HIGH_COLOR = '#089981';
 const CHART_OHLC_LOW_COLOR = '#F23645';
 const CHART_SCALE_DISPLAY_ITEMS: Array<{
@@ -1083,6 +1093,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const [chartTapMenuViewport, setChartTapMenuViewport] = useState<ChartTapMenuViewport>({ x: 0, y: 0, width: 0, height: 0 });
   const [, setChartPlotArea] = useState<FixedHorizontalGridPlotArea | null>(null);
   const [stickyDrawingMode, setStickyDrawingMode] = useState(false);
+  const [drawingMagnetMode, setDrawingMagnetMode] = useState(false);
   const [textLevelEditRequest, setTextLevelEditRequest] = useState<TextLevelEditRequest | null>(null);
   const [chartViewportTouchActive, setChartViewportTouchActive] = useState(false);
   const pendingChartDrawingTool = useUIState((s) => s.pendingChartDrawingTool);
@@ -1610,6 +1621,25 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     },
     [displayDecimals],
   );
+  const resolveSingleChartPositionStopTarget = useCallback(() => {
+    const normalizedChartSymbol = normalizeChartOverlaySymbol(chartSymbol);
+    const latestPositions = usePositionsState.getState().positions;
+    const seenPositionIds = new Set<string>();
+    const matchingPositions = [...latestPositions, ...positions].filter((position) => {
+      const positionId = String(position.id);
+      if (seenPositionIds.has(positionId)) {
+        return false;
+      }
+      seenPositionIds.add(positionId);
+      return normalizeChartOverlaySymbol(position.symbol) === normalizedChartSymbol;
+    });
+
+    return matchingPositions.length === 1 ? matchingPositions[0] : null;
+  }, [chartSymbol, positions]);
+  const chartTradePositionStopTarget = useMemo(
+    () => resolveSingleChartPositionStopTarget(),
+    [resolveSingleChartPositionStopTarget],
+  );
   const resolveDefaultPendingPrice = useCallback(
     (orderType: ChartOrderType) => {
       const bid = chartBid > 0 ? chartBid : latestChartClose;
@@ -1684,11 +1714,30 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     injectChartScript('clearDrawings();');
   };
 
+  const handleUndoDrawing = () => {
+    closeChartTapMenu();
+    allowNextEmptyDrawingSyncRef.current = true;
+    injectChartScript('undoDrawingAction();');
+  };
+
+  const handleRedoDrawing = () => {
+    closeChartTapMenu();
+    allowNextEmptyDrawingSyncRef.current = true;
+    injectChartScript('redoDrawingAction();');
+  };
+
   const handleToggleStickyMode = () => {
     closeChartTapMenu();
     const next = !stickyDrawingMode;
     setStickyDrawingMode(next);
     injectChartScript(`setStayInDrawingMode(${next});`);
+  };
+
+  const handleToggleMagnetMode = () => {
+    closeChartTapMenu();
+    const next = !drawingMagnetMode;
+    setDrawingMagnetMode(next);
+    injectChartScript(`setDrawingMagnetMode(${next});`);
   };
 
   const handleToggleLock = () => {
@@ -1898,19 +1947,31 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   }, [chartAsk, chartBid, resolveDefaultPendingPrice, roundTradePrice]);
 
   const resetChartTradePanelLevels = useCallback((orderType: ChartOrderType = chartTradeOrderType) => {
-    const side = getChartOrderSide(orderType);
-    const entryPrice = resolveChartTradeEntryPrice(orderType);
+    const positionTarget = isPendingChartOrderType(orderType) ? null : resolveSingleChartPositionStopTarget();
+    const side = positionTarget?.side ?? getChartOrderSide(orderType);
+    const entryPrice = positionTarget ? roundTradePrice(Number(positionTarget.openPrice)) : resolveChartTradeEntryPrice(orderType);
+    const positionSl = Number(positionTarget?.sl);
+    const positionTp = Number(positionTarget?.tp);
+    const hasPositionSl = Number.isFinite(positionSl) && positionSl > 0;
+    const hasPositionTp = Number.isFinite(positionTp) && positionTp > 0;
     setChartTradePrice(entryPrice);
     setChartTradeStopLimitPrice(
       resolveDefaultStopLimitPrice(orderType, entryPrice, chartStopLimitOffset, roundTradePrice),
     );
-    setChartTradeSlEnabled(false);
-    setChartTradeTpEnabled(false);
-    setChartTradeSlPrice(resolveTradeStopPreviewPrice('sl', entryPrice, side, chartStopOffset, roundTradePrice));
-    setChartTradeTpPrice(resolveTradeStopPreviewPrice('tp', entryPrice, side, chartStopOffset, roundTradePrice));
+    setChartTradeSlEnabled(hasPositionSl);
+    setChartTradeTpEnabled(hasPositionTp);
+    setChartTradeSlPrice(hasPositionSl ? roundTradePrice(positionSl) : resolveTradeStopPreviewPrice('sl', entryPrice, side, chartStopOffset, roundTradePrice));
+    setChartTradeTpPrice(hasPositionTp ? roundTradePrice(positionTp) : resolveTradeStopPreviewPrice('tp', entryPrice, side, chartStopOffset, roundTradePrice));
     setChartTradeComment('');
     setChartTradeCommentFocused(false);
-  }, [chartStopLimitOffset, chartStopOffset, chartTradeOrderType, resolveChartTradeEntryPrice, roundTradePrice]);
+  }, [
+    chartStopLimitOffset,
+    chartStopOffset,
+    chartTradeOrderType,
+    resolveChartTradeEntryPrice,
+    resolveSingleChartPositionStopTarget,
+    roundTradePrice,
+  ]);
 
   const openChartTradeSheet = useCallback((orderType: ChartOrderType = chartTradeOrderType) => {
     closeChartTapMenu();
@@ -1995,64 +2056,224 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     scrollChartTradeTypeTabsToOrderType(chartTradeOrderType, false);
   }, [chartTradeOrderType, scrollChartTradeTypeTabsToOrderType, showChartTradeSheet]);
 
+  const commitChartPositionStopLevels = useCallback(
+    (positionId: string | number, requestedSlRaw: number, requestedTpRaw: number) => {
+      const requestedSl = Number.isFinite(requestedSlRaw) && requestedSlRaw > 0 ? roundTradePrice(requestedSlRaw) : 0;
+      const requestedTp = Number.isFinite(requestedTpRaw) && requestedTpRaw > 0 ? roundTradePrice(requestedTpRaw) : 0;
+      const positionKey = String(positionId);
+      const latestPositions = usePositionsState.getState().positions;
+      const position = latestPositions.find((item) => String(item.id) === positionKey)
+        ?? positions.find((item) => String(item.id) === positionKey);
+      if (!position) {
+        const feedback = createFrontendTradingError(
+          'Position Not Found',
+          'The selected position is no longer open. Refresh positions and try again.',
+        );
+        setTradeFeedback({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
+        return false;
+      }
+
+      const entryPrice = Number(position.openPrice);
+      const validation = validateChartTradeProtectionLevels({
+        side: position.side,
+        entryPrice,
+        slEnabled: requestedSl > 0,
+        slPrice: requestedSl,
+        tpEnabled: requestedTp > 0,
+        tpPrice: requestedTp,
+        pointSize: chartPointSize,
+      });
+      if (!validation.valid) {
+        const feedback = createFrontendTradingError('Invalid SL/TP', validation.message);
+        setTradeFeedback({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side: position.side });
+        return false;
+      }
+
+      const accountState = useUserPreferences.getState();
+      if (!accountState.accountDetails?.credentials?.accessToken) {
+        const feedback = createFrontendTradingError(
+          'Sign In Required',
+          'Please sign in to your trading account before modifying SL/TP.',
+        );
+        setTradeFeedback({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
+        return false;
+      }
+
+      const previousPosition = { ...position };
+      const previousSl = Number(position.sl) > 0 ? Number(position.sl) : 0;
+      const previousTp = Number(position.tp) > 0 ? Number(position.tp) : 0;
+      if (requestedSl === previousSl && requestedTp === previousTp) {
+        return true;
+      }
+
+      const applyLocalStopPatch = (sl: number, tp: number) => {
+        const modifiedAt = Date.now();
+        usePositionsState.setState((state) => {
+          const snapshotBase = state.positionSnapshots[positionKey] ?? previousPosition;
+          return {
+            positions: state.positions.map((item) =>
+              String(item.id) === positionKey
+                ? { ...item, sl, tp, clientModifiedAt: modifiedAt }
+                : item,
+            ),
+            positionSnapshots: {
+              ...state.positionSnapshots,
+              [positionKey]: {
+                ...snapshotBase,
+                sl,
+                tp,
+                clientModifiedAt: modifiedAt,
+              },
+            },
+          };
+        });
+      };
+
+      applyLocalStopPatch(requestedSl, requestedTp);
+
+      void positionsApi
+        .modifyPosition(position.id, {
+          price_sl: requestedSl,
+          price_tp: requestedTp,
+        })
+        .then((modifyResult) => {
+          const readStopValue = (value: unknown, fallback: number) => {
+            const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+            return Number.isFinite(parsed) ? parsed : fallback;
+          };
+          const result = modifyResult as any;
+          applyLocalStopPatch(
+            readStopValue(result?.price_sl ?? result?.sl, requestedSl),
+            readStopValue(result?.price_tp ?? result?.tp, requestedTp),
+          );
+          if (accountLogin) {
+            void refreshPositions(String(accountLogin));
+          }
+          void refetchAccountSummary();
+        })
+        .catch((error) => {
+          usePositionsState.setState((state) => ({
+            positions: state.positions.map((item) =>
+              String(item.id) === positionKey ? previousPosition : item,
+            ),
+            positionSnapshots: {
+              ...state.positionSnapshots,
+              [positionKey]: previousPosition,
+            },
+          }));
+          const feedback = classifyTradingError(error, { action: 'modify-position' });
+          setTradeFeedback({
+            visible: true,
+            type: 'error',
+            title: feedback.title,
+            message: feedback.message,
+          });
+          if (accountLogin) {
+            void refreshPositions(String(accountLogin));
+          }
+        });
+
+      return true;
+    },
+    [accountLogin, chartPointSize, positions, refetchAccountSummary, refreshPositions, roundTradePrice],
+  );
+
+  const commitChartTradeSheetStopsForPosition = useCallback(
+    (position: typeof chartTradePositionStopTarget, nextSl: number, nextTp: number) => {
+      if (!position || isPendingChartOrderType(chartTradeOrderType)) {
+        return;
+      }
+      commitChartPositionStopLevels(position.id, nextSl, nextTp);
+    },
+    [chartTradeOrderType, commitChartPositionStopLevels],
+  );
+
   const handleEnableChartTradeStops = useCallback(() => {
     runImmediateAction('chart.tradeSheet.enableStops', () => {
+      const positionTarget = isPendingChartOrderType(chartTradeOrderType) ? null : resolveSingleChartPositionStopTarget();
       const baseEntry = isPendingChartOrderType(chartTradeOrderType)
         ? chartTradePrice
-        : resolveChartTradeEntryPrice(chartTradeOrderType);
-      const side = getChartOrderSide(chartTradeOrderType);
-      if (!chartTradeSlEnabled) {
-        setChartTradeSlEnabled(true);
-        setChartTradeSlPrice(resolveTradeStopPreviewPrice('sl', baseEntry, side, chartStopOffset, roundTradePrice));
-      }
-      if (!chartTradeTpEnabled) {
-        setChartTradeTpEnabled(true);
-        setChartTradeTpPrice(resolveTradeStopPreviewPrice('tp', baseEntry, side, chartStopOffset, roundTradePrice));
-      }
+        : positionTarget
+          ? roundTradePrice(Number(positionTarget.openPrice))
+          : resolveChartTradeEntryPrice(chartTradeOrderType);
+      const side = positionTarget?.side ?? getChartOrderSide(chartTradeOrderType);
+      const nextSl = chartTradeSlEnabled && chartTradeSlPrice > 0
+        ? chartTradeSlPrice
+        : resolveTradeStopPreviewPrice('sl', baseEntry, side, chartStopOffset, roundTradePrice);
+      const nextTp = chartTradeTpEnabled && chartTradeTpPrice > 0
+        ? chartTradeTpPrice
+        : resolveTradeStopPreviewPrice('tp', baseEntry, side, chartStopOffset, roundTradePrice);
+      setChartTradeSlEnabled(true);
+      setChartTradeSlPrice(nextSl);
+      setChartTradeTpEnabled(true);
+      setChartTradeTpPrice(nextTp);
+      setChartShowOnChartItem('slTpLevels', true);
+      commitChartTradeSheetStopsForPosition(positionTarget, nextSl, nextTp);
       snapTradeSheet('expanded');
     });
   }, [
     chartStopOffset,
     chartTradeOrderType,
     chartTradePrice,
+    chartTradeSlPrice,
     chartTradeSlEnabled,
+    chartTradeTpPrice,
     chartTradeTpEnabled,
+    commitChartTradeSheetStopsForPosition,
     resolveChartTradeEntryPrice,
+    resolveSingleChartPositionStopTarget,
     roundTradePrice,
+    setChartShowOnChartItem,
     snapTradeSheet,
   ]);
 
   const handleToggleChartTradeStopLevel = useCallback((kind: 'sl' | 'tp') => {
+    const positionTarget = isPendingChartOrderType(chartTradeOrderType) ? null : resolveSingleChartPositionStopTarget();
     const baseEntry = isPendingChartOrderType(chartTradeOrderType)
       ? chartTradePrice
-      : resolveChartTradeEntryPrice(chartTradeOrderType);
-    const side = getChartOrderSide(chartTradeOrderType);
+      : positionTarget
+        ? roundTradePrice(Number(positionTarget.openPrice))
+        : resolveChartTradeEntryPrice(chartTradeOrderType);
+    const side = positionTarget?.side ?? getChartOrderSide(chartTradeOrderType);
     const nextPrice = resolveTradeStopPreviewPrice(kind, baseEntry, side, chartStopOffset, roundTradePrice);
+    const currentSl = chartTradeSlEnabled && chartTradeSlPrice > 0 ? chartTradeSlPrice : 0;
+    const currentTp = chartTradeTpEnabled && chartTradeTpPrice > 0 ? chartTradeTpPrice : 0;
 
     if (kind === 'sl') {
       if (chartTradeSlEnabled) {
         setChartTradeSlEnabled(false);
+        commitChartTradeSheetStopsForPosition(positionTarget, 0, currentTp);
         return;
       }
       setChartTradeSlEnabled(true);
       setChartTradeSlPrice(nextPrice);
+      setChartShowOnChartItem('slTpLevels', true);
+      commitChartTradeSheetStopsForPosition(positionTarget, nextPrice, currentTp);
       return;
     }
 
     if (chartTradeTpEnabled) {
       setChartTradeTpEnabled(false);
+      commitChartTradeSheetStopsForPosition(positionTarget, currentSl, 0);
       return;
     }
     setChartTradeTpEnabled(true);
     setChartTradeTpPrice(nextPrice);
+    setChartShowOnChartItem('slTpLevels', true);
+    commitChartTradeSheetStopsForPosition(positionTarget, currentSl, nextPrice);
   }, [
     chartStopOffset,
     chartTradeOrderType,
     chartTradePrice,
     chartTradeSlEnabled,
+    chartTradeSlPrice,
     chartTradeTpEnabled,
+    chartTradeTpPrice,
+    commitChartTradeSheetStopsForPosition,
     resolveChartTradeEntryPrice,
+    resolveSingleChartPositionStopTarget,
     roundTradePrice,
+    setChartShowOnChartItem,
   ]);
   const handleSubmitPendingTradeFromSheet = useCallback(() => {
     if (chartPendingOrderSubmitting) {
@@ -2070,15 +2291,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       }
 
       const side = getChartOrderSide(chartTradeOrderType);
-      if (isStopLimitChartOrderType(chartTradeOrderType)) {
-        const feedback = createFrontendTradingError(
-          'Unsupported Order Type',
-          'Buy Stop Limit and Sell Stop Limit are not supported by the current trading API.',
-        );
-        handleChartTradeResult({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side });
-        return;
-      }
-
       if (!isPendingChartTradeValid({
         orderType: chartTradeOrderType,
         entryPrice: chartTradePrice,
@@ -2147,6 +2359,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         side,
         volume,
         price: chartTradePrice,
+        ...(isStopLimitChartOrderType(chartTradeOrderType) && chartTradeStopLimitPrice > 0
+          ? { stopLimitPrice: chartTradeStopLimitPrice }
+          : {}),
         ...(chartTradeSlEnabled && chartTradeSlPrice > 0 ? { price_sl: chartTradeSlPrice } : {}),
         ...(chartTradeTpEnabled && chartTradeTpPrice > 0 ? { price_tp: chartTradeTpPrice } : {}),
         ...(trimmedComment ? { comment: trimmedComment } : {}),
@@ -2803,7 +3018,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   const disablePendingTradePlaceButton = isPendingChartOrder
     ? chartPendingOrderSubmitting
-      || isStopLimitChartOrder
       || !stablePendingTradePlaceButtonEnabled
       || !chartTradeProtectionValidation.valid
     : false;
@@ -2869,6 +3083,72 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       roundTradePrice,
       showChartTradeSheet,
     ],
+  );
+  const commitChartPositionStopDrag = useCallback(
+    (target: ChartPositionStopDragTarget, rawPrice: number) => {
+      const nextPrice = roundTradePrice(rawPrice);
+      if (!Number.isFinite(nextPrice) || nextPrice <= 0) {
+        return;
+      }
+
+      const latestPositions = usePositionsState.getState().positions;
+      const position = latestPositions.find((item) => String(item.id) === target.positionId)
+        ?? positions.find((item) => String(item.id) === target.positionId);
+      if (!position) {
+        const feedback = createFrontendTradingError(
+          'Position Not Found',
+          'The selected position is no longer open. Refresh positions and try again.',
+        );
+        setTradeFeedback({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
+        return;
+      }
+
+      const previousSl = Number(position.sl) > 0 ? Number(position.sl) : 0;
+      const previousTp = Number(position.tp) > 0 ? Number(position.tp) : 0;
+      const requestedSl = target.kind === 'sl' ? nextPrice : previousSl;
+      const requestedTp = target.kind === 'tp' ? nextPrice : previousTp;
+      commitChartPositionStopLevels(position.id, requestedSl, requestedTp);
+    },
+    [commitChartPositionStopLevels, positions, roundTradePrice],
+  );
+  const handleChartPositionStopDragMessage = useCallback(
+    (msg: any) => {
+      const target = parseChartPositionStopDragKey(msg?.dragKey);
+      if (!target) {
+        return false;
+      }
+
+      if (msg?.phase === 'start') {
+        closeChartTapMenu();
+      }
+
+      const phase = msg?.phase;
+      if (phase !== 'start' && phase !== 'move' && phase !== 'end') {
+        return true;
+      }
+
+      const nextPrice = typeof msg?.price === 'number' ? msg.price : NaN;
+      if (!Number.isFinite(nextPrice) || nextPrice <= 0) {
+        return true;
+      }
+
+      if (String(chartTradePositionStopTarget?.id) === target.positionId) {
+        if (target.kind === 'sl') {
+          setChartTradeSlEnabled(true);
+          setChartTradeSlPrice(roundTradePrice(nextPrice));
+        } else {
+          setChartTradeTpEnabled(true);
+          setChartTradeTpPrice(roundTradePrice(nextPrice));
+        }
+      }
+
+      if (phase === 'end') {
+        commitChartPositionStopDrag(target, nextPrice);
+      }
+
+      return true;
+    },
+    [chartTradePositionStopTarget?.id, closeChartTapMenu, commitChartPositionStopDrag, roundTradePrice],
   );
   const handleChartTradePreviewDragMessage = useCallback(
     (msg: any) => {
@@ -3057,6 +3337,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     const pendingEntryColor = isDark ? '#94A3B8' : '#475569';
     const pointsFor = (targetPrice: number) => Math.max(1, Math.round(Math.abs(targetPrice - entryPrice) / chartPointSize));
     const usdFor = (targetPrice: number) => Math.abs(targetPrice - entryPrice) * contractSize * tradeVolume;
+    const renderPositionStopsFromOpenPosition = !isPendingChartOrder && chartTradePositionStopTarget !== null;
+    const chartTradeSlDragKey = chartTradePositionStopTarget
+      ? buildChartPositionStopDragKey(chartTradePositionStopTarget.id, 'sl')
+      : 'sl';
+    const chartTradeTpDragKey = chartTradePositionStopTarget
+      ? buildChartPositionStopDragKey(chartTradePositionStopTarget.id, 'tp')
+      : 'tp';
 
     if (isPendingChartOrderType(chartTradeOrderType)) {
       previewLines.push({
@@ -3086,7 +3373,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       });
     }
 
-    if (chartTradeTpEnabled && Number.isFinite(chartTradeTpPrice) && chartTradeTpPrice > 0) {
+    if (!renderPositionStopsFromOpenPosition && chartTradeTpEnabled && Number.isFinite(chartTradeTpPrice) && chartTradeTpPrice > 0) {
       previewLines.push({
         id: 'chart-trade-tp-preview',
         price: chartTradeTpPrice,
@@ -3097,11 +3384,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         title: showChartTradeStopLabelsOnChart
           ? `TP, + ${usdFor(chartTradeTpPrice).toFixed(2)} ${accountCurrency}, ${pointsFor(chartTradeTpPrice)} points`
           : '',
-        dragKey: 'tp',
+        labelPlacement: 'line',
+        dragKey: chartTradeTpDragKey,
       });
     }
 
-    if (chartTradeSlEnabled && Number.isFinite(chartTradeSlPrice) && chartTradeSlPrice > 0) {
+    if (!renderPositionStopsFromOpenPosition && chartTradeSlEnabled && Number.isFinite(chartTradeSlPrice) && chartTradeSlPrice > 0) {
       previewLines.push({
         id: 'chart-trade-sl-preview',
         price: chartTradeSlPrice,
@@ -3112,7 +3400,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         title: showChartTradeStopLabelsOnChart
           ? `SL, - ${usdFor(chartTradeSlPrice).toFixed(2)} ${accountCurrency}, ${pointsFor(chartTradeSlPrice)} points`
           : '',
-        dragKey: 'sl',
+        labelPlacement: 'line',
+        dragKey: chartTradeSlDragKey,
       });
     }
 
@@ -3126,6 +3415,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     chartSymbol,
     chartTradeEntryPrice,
     chartTradeOrderType,
+    chartTradePositionStopTarget,
     chartTradeSlEnabled,
     chartTradeSlPrice,
     chartTradeStopLimitPrice,
@@ -3200,8 +3490,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   // hold this header row back while bid/ask ticks are moving.
   const chartMetaLiveLastCandle = sanitizedCandles.length > 0 ? sanitizedCandles[sanitizedCandles.length - 1] : null;
   const chartMetaLastCandle = chartMetaLiveLastCandle;
-  const chartMetaIsUp = chartMetaLastCandle ? chartMetaLastCandle.close >= chartMetaLastCandle.open : true;
-  const chartMetaDirectionColor = chartMetaIsUp ? resolvedChartColors.candlesUptrend : resolvedChartColors.candlesDowntrend;
   const chartLatestCandleGap = useMemo(
     () => resolveLatestCandleGap(chartCandles, chartTimeframe),
     [chartCandles, chartTimeframe],
@@ -3214,16 +3502,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
       const items = chartDisplay.showOHLC
         ? [
-          { label: 'O', value: formatChartValue(chartMetaLastCandle.open), color: chartMetaDirectionColor },
+          { label: 'O', value: formatChartValue(chartMetaLastCandle.open), color: CHART_OHLC_NEUTRAL_COLOR },
           { label: 'H', value: formatChartValue(chartMetaLastCandle.high), color: CHART_OHLC_HIGH_COLOR },
           { label: 'L', value: formatChartValue(chartMetaLastCandle.low), color: CHART_OHLC_LOW_COLOR },
-          { label: 'C', value: formatChartValue(chartMetaLastCandle.close), color: chartMetaDirectionColor },
+          { label: 'C', value: formatChartValue(chartMetaLastCandle.close), color: CHART_OHLC_NEUTRAL_COLOR },
         ]
         : [];
 
       return items;
     },
-    [chartDisplay.showOHLC, chartLatestCandleGap, chartMetaDirectionColor, chartMetaLastCandle, formatChartValue],
+    [chartDisplay.showOHLC, chartLatestCandleGap, chartMetaLastCandle, formatChartValue],
   );
   const showChartMetaRow = chartMetaItems.length > 0;
   const showChartVolumePane = chartViewportShowVolumePane;
@@ -3553,12 +3841,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       chartHideAll,
       chartLockAll,
       dangerIconColor: T.trading.sell.primary,
+      drawingMagnetMode,
       iconColor: TEXT_MUTED,
       onClearDrawings: handleClearDrawings,
+      onRedoDrawing: handleRedoDrawing,
       onSelectTool: handleSetTool,
       onToggleHide: handleToggleHide,
       onToggleLock: handleToggleLock,
+      onToggleMagnetMode: handleToggleMagnetMode,
       onToggleStickyMode: handleToggleStickyMode,
+      onUndoDrawing: handleUndoDrawing,
       onZoomTool: handleZoomTool,
       stickyDrawingMode,
     }),
@@ -3567,11 +3859,15 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       T.trading.sell.primary,
       chartHideAll,
       chartLockAll,
+      drawingMagnetMode,
       handleClearDrawings,
+      handleRedoDrawing,
       handleSetTool,
       handleToggleHide,
       handleToggleLock,
+      handleToggleMagnetMode,
       handleToggleStickyMode,
+      handleUndoDrawing,
       handleZoomTool,
       stickyDrawingMode,
     ],
@@ -3607,20 +3903,33 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     });
   }, [closeChartTapMenu, isChartExpanded, setIsChartExpanded]);
 
+  /**
+   * Action handler for removing the current symbol from the user's favorites list.
+   * This is triggered from the chart's more (3-dot) menu.
+   */
   const handleChartMoreRemoveFromFavorites = useCallback(() => {
     hideActionSheet();
   }, [hideActionSheet]);
 
+  /**
+   * Action handler for opening the Trading Calculator screen for the current symbol.
+   */
   const handleOpenChartTradingCalculator = useCallback(() => {
     hideActionSheet();
     router.push({ pathname: '/chart/calculator', params: { symbol: chartSymbol } });
   }, [chartSymbol, hideActionSheet]);
 
+  /**
+   * Action handler for opening the Analytics screen for the current symbol.
+   */
   const handleOpenChartAnalytics = useCallback(() => {
     hideActionSheet();
     router.push({ pathname: '/chart/analytics', params: { symbol: chartSymbol } });
   }, [chartSymbol, hideActionSheet]);
 
+  /**
+   * Action handler for opening the Contract Specification screen for the current symbol.
+   */
   const handleOpenChartSpecification = useCallback(() => {
     hideActionSheet();
     router.push({ pathname: '/chart/specification', params: { symbol: chartSymbol } });
@@ -3633,13 +3942,20 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         ? 'bar-chart-outline'
         : 'trending-up-outline';
 
+  /**
+   * Defines the list of actions available in the Chart's More (3-dot) menu.
+   * This includes options to toggle UI elements like the Volume Bar, change Chart Type,
+   * and navigate to related screens (Analytics, Specification, etc.).
+   */
   const chartMoreActions = useMemo(
     () => [
+      // Toggles the visibility of the volume histogram pane at the bottom of the chart
       {
         label: t(showChartVolumePane ? 'Hide Volume Bar' : 'Show Volume Bar'),
         icon: <Ionicons name={showChartVolumePane ? 'eye-off-outline' : 'bar-chart-outline'} size={20} color={TEXT_MUTED} />,
         onPress: () => setChartViewportShowVolumePane(!showChartVolumePane),
       },
+      // Conditional action: Toggles the drawing tools sidebar when the chart is in fullscreen mode
       ...(isChartExpanded
         ? [{
           label: t(chartViewportShowDrawingToolbar ? 'Hide Drawing Tools' : 'Show Drawing Tools'),
@@ -3647,6 +3963,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           onPress: () => setChartViewportShowDrawingToolbar(!chartViewportShowDrawingToolbar),
         }]
         : []),
+      // Opens a picker to change the visual chart type (Candlesticks, Bars, Line, Hollow)
       {
         label: t('Chart Type'),
         icon: <Ionicons name={chartTypeIconName} size={20} color={TEXT_MUTED} />,
@@ -3654,6 +3971,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           requestAnimationFrame(handleOpenChartTypePicker);
         },
       },
+      // Opens the screen to manage active drawn objects and indicators
       {
         label: t('Objects'),
         icon: <TvLayers color={TEXT_MUTED} size={20} />,
@@ -3662,26 +3980,31 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           handleOpenObjectsScreen();
         },
       },
+      // Resets the chart's zoom, scale, and scroll state back to the default view
       {
         label: t('Reset'),
         icon: <Ionicons name="refresh-outline" size={20} color={TEXT_MUTED} />,
         onPress: handleResetChartViewport,
       },
+      // Removes the currently active symbol from the user's favorites
       {
         label: t('Remove from favorites'),
         icon: <Ionicons name="star" size={20} color={TEXT_MUTED} />,
         onPress: handleChartMoreRemoveFromFavorites,
       },
+      // Navigates to the Trading Calculator screen
       {
         label: t('Trading calculator'),
         icon: <Ionicons name="calculator-outline" size={20} color={TEXT_MUTED} />,
         onPress: handleOpenChartTradingCalculator,
       },
+      // Navigates to the Analytics screen
       {
         label: t('Analytics'),
         icon: <Ionicons name="analytics-outline" size={20} color={TEXT_MUTED} />,
         onPress: handleOpenChartAnalytics,
       },
+      // Navigates to the Contract Specification screen
       {
         label: t('Specification'),
         icon: <Ionicons name="clipboard-outline" size={20} color={TEXT_MUTED} />,
@@ -3939,12 +4262,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       upColor: resolvedChartColors.candlesUptrend,
       downColor: resolvedChartColors.candlesDowntrend,
       snap: {
-        enabled: false,
-        type: 'none',
+        enabled: drawingMagnetMode,
+        type: drawingMagnetMode ? 'ohlc-nearest' : 'none',
+        thresholdPx: CHART_DRAWING_MAGNET_THRESHOLD_PX,
       },
     },
     periodSeparators: periodSeparatorOptions,
-  }), [chartAxisBorderColor, chartDisplay.showGrid, chartGridColor, chartSymbol, chartTimeframe, chartType, isDark, periodSeparatorOptions, resolvedChartColors, showChartVolumePane]);
+  }), [chartAxisBorderColor, chartDisplay.showGrid, chartGridColor, chartSymbol, chartTimeframe, chartType, drawingMagnetMode, isDark, periodSeparatorOptions, resolvedChartColors, showChartVolumePane]);
 
   const [overlaySyncRevision, setOverlaySyncRevision] = useState(0);
   // Monotonic counter — incremented every time the WebView confirms
@@ -4081,11 +4405,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       setDrawingsLocked(${chartLockAll});
       setDrawingsHidden(${chartHideAll});
       setStayInDrawingMode(${stickyDrawingMode});
+      setDrawingMagnetMode(${drawingMagnetMode});
       setVerticalScrollingLocked(${isVerticalScrollingLocked});
       setChartAutoScaleEnabled(${isChartAutoScaleEnabled});
       setDrawingTool(${JSON.stringify(bridgedTool)}, { startDrawing: ${shouldStartDrawing} });
     `);
-  }, [activeTool, chartDrawingInputActive, webViewReady, chartCanvasReady, chartLockAll, chartHideAll, stickyDrawingMode, isVerticalScrollingLocked, isChartAutoScaleEnabled, chartSymbol, chartTimeframe, chartType]);
+  }, [activeTool, chartDrawingInputActive, webViewReady, chartCanvasReady, chartLockAll, chartHideAll, stickyDrawingMode, drawingMagnetMode, isVerticalScrollingLocked, isChartAutoScaleEnabled, chartSymbol, chartTimeframe, chartType]);
 
   useEffect(() => {
     if (!hasCandles || !webViewReady || !chartCanvasReady) {
@@ -4707,7 +5032,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     overlayPayloadRef.current = overlayPayload;
   }, [overlayPayloadSignature]);
   useEffect(() => {
-    if (!preferencesHydrated || !webViewReady || !chartCanvasReady || !webViewRef.current) {
+    if (!isScreenFocused || !preferencesHydrated || !webViewReady || !chartCanvasReady || !webViewRef.current) {
       return;
     }
 
@@ -4735,7 +5060,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       true;
     `);
     lastInjectedDrawingSyncRef.current = { signature: chartDrawingSignature, epoch: chartReadyEpoch };
-  }, [chartCanvasReady, chartDrawingRecords, chartDrawingSignature, chartReadyEpoch, preferencesHydrated, webViewReady]);
+  }, [chartCanvasReady, chartDrawingRecords, chartDrawingSignature, chartReadyEpoch, isScreenFocused, preferencesHydrated, webViewReady]);
 
   // ── Chart Overlays Bridge ───────────────────────────────────────
   // Single effect that pushes ALL 7 "Show on Chart" features to the WebView:
@@ -5273,14 +5598,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                 chartHideAll={chartHideAll}
                 chartLockAll={chartLockAll}
                 colors={{ blue: BLUE, textMuted: TEXT_MUTED }}
+                drawingMagnetMode={drawingMagnetMode}
                 isChartExpanded={isChartExpanded}
                 isDark={isDark}
                 onClearDrawings={handleClearDrawings}
                 onOpenDrawingTools={handleOpenDrawingTools}
+                onRedoDrawing={handleRedoDrawing}
                 onSelectTool={handleSetTool}
                 onToggleHide={handleToggleHide}
                 onToggleLock={handleToggleLock}
+                onToggleMagnetMode={handleToggleMagnetMode}
                 onToggleStickyMode={handleToggleStickyMode}
+                onUndoDrawing={handleUndoDrawing}
                 onZoomTool={handleZoomTool}
                 showDrawingToolbar={showChartDrawingToolbar}
                 stickyDrawingMode={stickyDrawingMode}
@@ -5546,7 +5875,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                           setActiveTool(typeof msg.tool === 'string' ? msg.tool : CHART_NO_DRAWING_TOOL);
                           setChartDrawingInputActive(msg.drawingActive === true);
                         } else if (msg.type === 'CHART_TRADE_LINE_DRAG') {
-                          handleChartTradePreviewDragMessage(msg);
+                          if (!handleChartPositionStopDragMessage(msg)) {
+                            handleChartTradePreviewDragMessage(msg);
+                          }
                         } else if (msg.type === 'ON_PAGINATE_HISTORY') {
                           paginate();
                         } else if (msg.type === 'CHART_TAP') {
@@ -6495,6 +6826,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 // Thin wrapper: derive the chart-active boolean from the path here so the heavy
 // memoized component above does not reconcile on every bottom-tab switch. Only a
 // change in isChartRouteActive (entering/leaving the chart) re-renders it.
+/**
+ * The main entry point and container for the Chart view. Orchestrates the webview-based chart, one-click trading panel, order placement buttons, lot sizing, price scale interactions, and all drawing tools.
+ */
 export function ChartScreen() {
   const pathname = usePathname();
   const isChartRouteActive =
