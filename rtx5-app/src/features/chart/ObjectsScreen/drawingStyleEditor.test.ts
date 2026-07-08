@@ -193,6 +193,38 @@ test('applyDrawingStylePatch cascades fib style changes to levels', () => {
   assert.equal(updated.levels?.[0]?.fillOpacity, 0.4);
 });
 
+test('applyDrawingStylePatch updates box-style tools with fill and border controls', () => {
+  const measure: PersistedChartDrawing = {
+    id: 'measure_1',
+    kind: 'measure',
+    label: 'Scale 1',
+    hidden: false,
+    points: [
+      { time: 1, price: 100 },
+      { time: 2, price: 110 },
+    ],
+  };
+
+  const updated = applyDrawingStylePatch(
+    measure,
+    {
+      color: '#64748B',
+      width: 3,
+      lineStyle: 'dashed',
+      opacity: 0.35,
+    },
+    12345,
+  );
+
+  assert.equal(updated.style?.color, '#64748B');
+  assert.equal(updated.style?.borderColor, '#64748B');
+  assert.equal(updated.style?.fillColor, 'rgba(100, 116, 139, 0.32)');
+  assert.equal(updated.style?.borderWidth, 3);
+  assert.equal(updated.style?.borderStyle, 'dashed');
+  assert.equal(updated.style?.opacity, 0.35);
+  assert.equal(updated.style?.fillOpacity, 0.35);
+});
+
 test('style editor is exposed only for drawing kinds that restore saved style', () => {
   assert.equal(drawingSupportsStyleEditor('trendline'), true);
   assert.equal(drawingSupportsStyleEditor('arrow'), true);
@@ -203,7 +235,11 @@ test('style editor is exposed only for drawing kinds that restore saved style', 
   assert.equal(drawingSupportsStyleEditor('freehand'), true);
   assert.equal(drawingSupportsStyleEditor('parallelChannel'), true);
   assert.equal(drawingSupportsStyleEditor('textLevel'), true);
-  assert.equal(drawingSupportsStyleEditor('measure'), false);
-  assert.equal(drawingSupportsStyleEditor('text'), false);
-  assert.equal(drawingSupportsStyleEditor('smiley'), false);
+  assert.equal(drawingSupportsStyleEditor('patterns'), true);
+  assert.equal(drawingSupportsStyleEditor('prediction'), true);
+  assert.equal(drawingSupportsStyleEditor('shortPosition'), true);
+  assert.equal(drawingSupportsStyleEditor('pitchfork'), true);
+  assert.equal(drawingSupportsStyleEditor('measure'), true);
+  assert.equal(drawingSupportsStyleEditor('text'), true);
+  assert.equal(drawingSupportsStyleEditor('smiley'), true);
 });

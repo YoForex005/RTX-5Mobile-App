@@ -1,11 +1,12 @@
 import type { PersistedChartDrawing } from '../drawingPersistence';
 
 const MAX_DRAWING_LABEL_LENGTH = 64;
-type PriceAlertDrawingKind = 'horizontalLine' | 'textLevel';
+type PriceAlertDrawingKind = 'horizontalLine' | 'horizontalRay' | 'textLevel';
 type PriceAlertDrawing = PersistedChartDrawing & { kind: PriceAlertDrawingKind };
 
 const PRICE_ALERT_DRAWING_KINDS = new Set<PriceAlertDrawingKind>([
   'horizontalLine',
+  'horizontalRay',
   'textLevel',
 ]);
 

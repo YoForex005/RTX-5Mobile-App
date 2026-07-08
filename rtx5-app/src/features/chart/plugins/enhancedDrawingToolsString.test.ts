@@ -1094,6 +1094,7 @@ test('Text Label creates a one-point label drawing', () => {
   assert.equal(drawings.length, 1);
   assert.equal(drawings[0].kind, 'text');
   assert.equal(drawings[0].points.length, 1);
+  assert.equal(drawings[0].style.textColor, '#FFFFFF');
 });
 
 test('Text Level creates a snapped one-point price level drawing', () => {
@@ -1252,6 +1253,8 @@ test('Pattern Path creates a three-point polyline drawing', () => {
   assert.equal(drawings.length, 1);
   assert.equal(drawings[0].kind, 'patterns');
   assert.equal(drawings[0].points.length, 3);
+  assert.equal(drawings[0].style.color, '#A855F7');
+  assert.equal(drawings[0].style.lineStyle, 'solid');
 });
 
 test('Pitchfork direct touch commits three anchors in empty chart space', () => {
@@ -1291,6 +1294,8 @@ test('Long Position creates a two-point position box drawing', () => {
   assert.equal(drawings.length, 1);
   assert.equal(drawings[0].kind, 'prediction');
   assert.equal(drawings[0].points.length, 2);
+  assert.equal(drawings[0].style.borderColor, '#10B981');
+  assert.equal(drawings[0].style.borderStyle, 'solid');
 });
 
 test('Horizontal and Vertical Line create full-axis line drawings from one tap', () => {
@@ -1474,6 +1479,8 @@ test('Short Position creates a two-point short box drawing', () => {
   assert.equal(drawings.length, 1);
   assert.equal(drawings[0].kind, 'shortPosition');
   assert.equal(drawings[0].points.length, 2);
+  assert.equal(drawings[0].style.borderColor, '#F43F5E');
+  assert.equal(drawings[0].style.borderStyle, 'solid');
   const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
   assert.match(primitive._options.label, /^Short /);
 });
@@ -1490,6 +1497,8 @@ test('Pitchfork creates a three-point pitchfork drawing', () => {
   assert.equal(drawings.length, 1);
   assert.equal(drawings[0].kind, 'pitchfork');
   assert.equal(drawings[0].points.length, 3);
+  assert.equal(drawings[0].style.color, '#8B5CF6');
+  assert.equal(drawings[0].style.lineStyle, 'solid');
 
   const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
   primitive.updateAllViews();
@@ -1525,6 +1534,7 @@ test('Sticker creates a one-point sticker drawing', () => {
   assert.equal(drawings.length, 1);
   assert.equal(drawings[0].kind, 'smiley');
   assert.equal(drawings[0].points.length, 1);
+  assert.equal(drawings[0].style.backgroundColor, 'rgba(245, 158, 11, 0.94)');
 });
 
 test('Scale creates a two-point measurement box with TradingView-style details', () => {
@@ -1541,6 +1551,8 @@ test('Scale creates a two-point measurement box with TradingView-style details',
   assert.equal(drawings[0].symbol, 'AUDJPY');
   assert.equal(drawings[0].timeframe, 'M1');
   assert.equal(drawings[0].points.length, 2);
+  assert.equal(drawings[0].style.borderColor, '#94A3B8');
+  assert.equal(drawings[0].style.borderStyle, 'solid');
   const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
   assert.match(primitive._options.label, /\+2\.0000 \(\+2\.22%\) \/ 2 bars \/ 2s/);
 });
@@ -1646,6 +1658,120 @@ test('XABCD Harmonic creates a five-point pattern with ratio labels', () => {
   assert.ok(drawTarget.texts.map((entry) => entry.text).includes('D'));
   assert.equal(primitive.hitTest({ x: 10, y: 80 }, { isTouch: false })?.part, 'p1');
   assert.equal(primitive.hitTest({ x: 210, y: 60 }, { isTouch: false })?.part, 'p5');
+});
+
+test('Serialized style restores for object-menu drawing tools', () => {
+  const harness = createFakeChartEnvironment();
+
+  harness.manager.setSerializedDrawings([
+    {
+      hidden: false,
+      id: 'patterns_saved',
+      kind: 'patterns',
+      label: 'Pattern saved',
+      points: [{ time: 1, price: 90 }, { time: 2, price: 93 }, { time: 3, price: 91 }],
+      style: { color: '#14B8A6', width: 5, lineStyle: 'dashed', opacity: 0.55 },
+    },
+    {
+      hidden: false,
+      id: 'text_saved',
+      kind: 'text',
+      label: 'Text saved',
+      points: [{ time: 1, price: 90 }],
+      text: 'TXT',
+      style: { backgroundColor: '#111827', textColor: '#F59E0B', anchorLineColor: '#F59E0B', fontSize: 13, opacity: 0.66 },
+    },
+    {
+      hidden: false,
+      id: 'long_saved',
+      kind: 'prediction',
+      label: 'Long saved',
+      points: [{ time: 1, price: 90 }, { time: 3, price: 94 }],
+      style: { fillColor: 'rgba(20, 184, 166, 0.22)', borderColor: '#14B8A6', borderWidth: 4, borderStyle: 'dotted', opacity: 0.44 },
+    },
+    {
+      hidden: false,
+      id: 'short_saved',
+      kind: 'shortPosition',
+      label: 'Short saved',
+      points: [{ time: 1, price: 90 }, { time: 3, price: 86 }],
+      style: { fillColor: 'rgba(239, 68, 68, 0.22)', borderColor: '#EF4444', borderWidth: 3, borderStyle: 'dashed', opacity: 0.5 },
+    },
+    {
+      hidden: false,
+      id: 'pitchfork_saved',
+      kind: 'pitchfork',
+      label: 'Pitchfork saved',
+      points: [{ time: 1, price: 90 }, { time: 2, price: 93 }, { time: 3, price: 91 }],
+      style: { color: '#EC4899', width: 4, lineStyle: 'dotted', opacity: 0.6 },
+    },
+    {
+      hidden: false,
+      id: 'sticker_saved',
+      kind: 'smiley',
+      label: 'Sticker saved',
+      points: [{ time: 1, price: 90 }],
+      text: ':)',
+      style: { color: '#F59E0B', textColor: '#111827', opacity: 0.7 },
+    },
+    {
+      hidden: false,
+      id: 'measure_saved',
+      kind: 'measure',
+      label: 'Scale saved',
+      points: [{ time: 1, price: 90 }, { time: 3, price: 94 }],
+      style: { fillColor: 'rgba(100, 116, 139, 0.32)', borderColor: '#64748B', borderWidth: 2, borderStyle: 'dashed', opacity: 0.35 },
+    },
+  ]);
+
+  const [
+    patternPrimitive,
+    textPrimitive,
+    longPrimitive,
+    shortPrimitive,
+    pitchforkPrimitive,
+    stickerPrimitive,
+    measurePrimitive,
+  ] = harness.attachedPrimitives as any[];
+
+  assert.equal(patternPrimitive._options.color, '#14B8A6');
+  assert.equal(patternPrimitive._options.width, 5);
+  assert.equal(patternPrimitive._options.lineStyle, 'dashed');
+  assert.equal(patternPrimitive._options.opacity, 0.55);
+
+  assert.equal(textPrimitive._options.backgroundColor, '#111827');
+  assert.equal(textPrimitive._options.textColor, '#F59E0B');
+  assert.equal(textPrimitive._options.anchorColor, '#F59E0B');
+  assert.equal(textPrimitive._options.fontSize, 13);
+  assert.equal(textPrimitive._options.opacity, 0.66);
+
+  assert.equal(longPrimitive._options.fillColor, 'rgba(20, 184, 166, 0.22)');
+  assert.equal(longPrimitive._options.borderColor, '#14B8A6');
+  assert.equal(longPrimitive._options.borderWidth, 4);
+  assert.equal(longPrimitive._options.borderStyle, 'dotted');
+  assert.equal(longPrimitive._options.opacity, 0.44);
+
+  assert.equal(shortPrimitive._options.fillColor, 'rgba(239, 68, 68, 0.22)');
+  assert.equal(shortPrimitive._options.borderColor, '#EF4444');
+  assert.equal(shortPrimitive._options.borderWidth, 3);
+  assert.equal(shortPrimitive._options.borderStyle, 'dashed');
+  assert.equal(shortPrimitive._options.opacity, 0.5);
+
+  assert.equal(pitchforkPrimitive._options.color, '#EC4899');
+  assert.equal(pitchforkPrimitive._options.width, 4);
+  assert.equal(pitchforkPrimitive._options.lineStyle, 'dotted');
+  assert.equal(pitchforkPrimitive._options.opacity, 0.6);
+
+  assert.equal(stickerPrimitive._options.backgroundColor, '#F59E0B');
+  assert.equal(stickerPrimitive._options.textColor, '#111827');
+  assert.equal(stickerPrimitive._options.anchorColor, '#F59E0B');
+  assert.equal(stickerPrimitive._options.opacity, 0.7);
+
+  assert.equal(measurePrimitive._options.fillColor, 'rgba(100, 116, 139, 0.32)');
+  assert.equal(measurePrimitive._options.borderColor, '#64748B');
+  assert.equal(measurePrimitive._options.borderWidth, 2);
+  assert.equal(measurePrimitive._options.borderStyle, 'dashed');
+  assert.equal(measurePrimitive._options.opacity, 0.35);
 });
 
 test('Serialized drawings restore each registered drawing tool through the runtime registry', async (t) => {

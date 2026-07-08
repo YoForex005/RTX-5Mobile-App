@@ -6,12 +6,12 @@ import test from 'node:test';
 const readSource = (relativePath: string) =>
   readFileSync(resolve(process.cwd(), relativePath), 'utf8');
 
-test('objects screen opens price alerts prefilled from horizontal line and text level drawings', () => {
+test('objects screen opens price alerts prefilled from price-level drawings', () => {
   const objectsSource = readSource('src/features/chart/ObjectsScreen/ObjectsScreen.tsx');
   const actionsSource = readSource('src/features/chart/ObjectsScreen/drawingObjectActions.ts');
   const priceAlertsSource = readSource('src/features/chart/PriceAlertsScreen/PriceAlertsScreen.tsx');
 
-  assert.match(actionsSource, /PRICE_ALERT_DRAWING_KINDS[\s\S]*'horizontalLine'[\s\S]*'textLevel'/);
+  assert.match(actionsSource, /PRICE_ALERT_DRAWING_KINDS[\s\S]*'horizontalLine'[\s\S]*'horizontalRay'[\s\S]*'textLevel'/);
   assert.match(actionsSource, /export function getDrawingObjectPriceAlertDraft/);
   assert.match(objectsSource, /getDrawingObjectPriceAlertDraft\(selectedDrawingRecord, chartSymbol\)/);
   assert.match(objectsSource, /label:\s*'Create price alert'/);

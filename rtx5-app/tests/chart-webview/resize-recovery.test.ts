@@ -28,7 +28,20 @@ test('native viewport layout schedules resize and frame sync', () => {
   );
 });
 
+test('inactive route layouts cannot overwrite the chart viewport size', () => {
+  assertSourceContains(
+    source,
+    /onLayout=\{\(event\) => \{[\s\S]*const \{ width, height \} = event\.nativeEvent\.layout;[\s\S]*if \(!isScreenFocused\) \{[\s\S]*return;[\s\S]*\}[\s\S]*setChartTapMenuBounds\(\{ width, height \}\)/,
+    'hidden/prewarmed chart layouts must not teach the WebView a compressed viewport before route entry',
+  );
+});
+
 test('route entry retries kept-alive chart viewport recovery during cold start', () => {
+  const routeEntryRecoverySource = source.slice(
+    source.indexOf('// The chart WebView is kept alive and can be prewarmed while hidden.'),
+    source.indexOf('const chartDataActive = chartRuntimeActive'),
+  );
+
   assertSourceContains(
     source,
     /const scheduleChartViewportColdStartRecovery = useCallback\(\(\) => \{[\s\S]*requestChartViewportRecovery\(6\)[\s\S]*\[180, 650, 1400, 2600\]\.map\(\(delayMs\) =>[\s\S]*setTimeout\(\(\) => \{[\s\S]*requestChartViewportRecovery\(delayMs >= 1400 \? 4 : 5\)[\s\S]*recoveryTimers\.forEach\(\(timer\) => clearTimeout\(timer\)\)/,
@@ -36,8 +49,13 @@ test('route entry retries kept-alive chart viewport recovery during cold start',
   );
   assertSourceContains(
     source,
-    /useEffect\(\(\) => \{[\s\S]*!isScreenFocused \|\| !chartRuntimeActive \|\| !chartSurfaceReady[\s\S]*chartTapMenuBounds\.width <= 0 \|\| chartTapMenuBounds\.height <= 0[\s\S]*const cancelColdStartRecovery = scheduleChartViewportColdStartRecovery\(\)[\s\S]*cancelColdStartRecovery\(\)[\s\S]*cancelChartViewportRecovery\(\)[\s\S]*\}, \[[\s\S]*chartRuntimeActive[\s\S]*chartSurfaceReady[\s\S]*chartTapMenuBounds\.height[\s\S]*chartTapMenuBounds\.width[\s\S]*cancelChartViewportRecovery[\s\S]*isScreenFocused[\s\S]*scheduleChartViewportColdStartRecovery[\s\S]*\]\);/,
+    /useEffect\(\(\) => \{[\s\S]*!isScreenFocused \|\| !chartRuntimeActive \|\| !chartSurfaceReady[\s\S]*const cancelColdStartRecovery = scheduleChartViewportColdStartRecovery\(\)[\s\S]*cancelColdStartRecovery\(\)[\s\S]*cancelChartViewportRecovery\(\)[\s\S]*\}, \[[\s\S]*chartRuntimeActive[\s\S]*chartSurfaceReady[\s\S]*cancelChartViewportRecovery[\s\S]*isScreenFocused[\s\S]*scheduleChartViewportColdStartRecovery[\s\S]*\]\);/,
     'focused chart route must schedule cold-start recovery and clean it up on route changes',
+  );
+  assert.doesNotMatch(
+    routeEntryRecoverySource,
+    /chartTapMenuBounds\.width <= 0 \|\| chartTapMenuBounds\.height <= 0/,
+    'route entry recovery must not wait for focused bounds because first app-open prewarm may not emit a new onLayout',
   );
 });
 
@@ -102,6 +120,8 @@ test('chart viewport keeps scale controls in the radial menu, not price-scale do
 test('requestChartViewportRecovery forces resize passes and ends with recoverChartSurface', () => {
   const body = source.slice(source.indexOf('const requestChartViewportRecovery'), source.indexOf('const { candles } = useLiveCandles'));
 
+  assertSourceContains(body, /const initialBounds = chartTapMenuBoundsRef\.current[\s\S]*cancelChartViewportRecovery\(\)/, 'recovery must run even when focused bounds have not been stored yet');
+  assertSourceContains(body, /const fallbackWidth = fallbackBounds\.width > 0 \? fallbackBounds\.width : initialBounds\.width[\s\S]*const resizeWidth = viewport\.width > 0 \? viewport\.width : fallbackWidth/, 'recovery must prefer measured route-entry viewport before falling back to stale bounds');
   assertSourceContains(body, /scheduleChartViewportResize\(resizeWidth, resizeHeight, true\)/, 'recovery must force resize commits');
   assertSourceContains(body, /recoverChartViewportSurface\(resizeWidth, resizeHeight\)/, 'final recovery pass must call recoverChartSurface bridge');
   assertSourceContains(body, /requestAnimationFrame\(runRecoveryPass\)/, 'recovery must run across animation frames');

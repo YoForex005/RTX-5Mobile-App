@@ -93,12 +93,19 @@ const STYLE_EDITOR_KINDS = new Set<ChartDrawingKind>([
   'ellipse',
   'freehand',
   'brush',
+  'text',
   'textLevel',
+  'patterns',
   'parallelChannel',
+  'prediction',
+  'shortPosition',
+  'pitchfork',
   'gannFan',
   'regressionChannel',
   'elliottWave',
   'xabcd',
+  'smiley',
+  'measure',
 ]);
 
 const EXTEND_MODE_KINDS = new Set<ChartDrawingKind>([
@@ -232,7 +239,7 @@ function applyColorToStyle(
     style.textColor = color;
   }
 
-  if (drawing.kind === 'brush' || drawing.kind === 'rectangle' || drawing.kind === 'ellipse' || drawing.kind === 'parallelChannel' || drawing.kind === 'fib' || drawing.kind === 'fibExtension' || drawing.kind === 'regressionChannel' || drawing.kind === 'xabcd') {
+  if (drawing.kind === 'brush' || drawing.kind === 'rectangle' || drawing.kind === 'ellipse' || drawing.kind === 'parallelChannel' || drawing.kind === 'fib' || drawing.kind === 'fibExtension' || drawing.kind === 'regressionChannel' || drawing.kind === 'xabcd' || drawing.kind === 'prediction' || drawing.kind === 'shortPosition' || drawing.kind === 'measure') {
     style.fillColor = colorWithAlpha(color, Math.min(opacity, 0.32));
   }
 }
@@ -296,7 +303,7 @@ export function applyDrawingStylePatch(
   }
   if (nextOpacity !== undefined) {
     style.opacity = nextOpacity;
-    if (drawing.kind === 'brush' || drawing.kind === 'rectangle' || drawing.kind === 'ellipse' || drawing.kind === 'parallelChannel' || drawing.kind === 'fib' || drawing.kind === 'fibExtension' || drawing.kind === 'regressionChannel' || drawing.kind === 'xabcd') {
+    if (drawing.kind === 'brush' || drawing.kind === 'rectangle' || drawing.kind === 'ellipse' || drawing.kind === 'parallelChannel' || drawing.kind === 'fib' || drawing.kind === 'fibExtension' || drawing.kind === 'regressionChannel' || drawing.kind === 'xabcd' || drawing.kind === 'prediction' || drawing.kind === 'shortPosition' || drawing.kind === 'measure') {
       style.fillOpacity = Math.min(nextOpacity, 0.45);
     }
   }

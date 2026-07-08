@@ -112,8 +112,19 @@ test('price alert drafts are created only from supported price-level objects', (
     points: [{ time: 1, price: 2500 }],
     text: 'Entry',
   };
+  const horizontalRay: PersistedChartDrawing = {
+    ...baseDrawing,
+    id: 'horizontal_ray_1',
+    kind: 'horizontalRay',
+    label: 'Ray level',
+    points: [
+      { time: 1, price: 1.1111 },
+      { time: 2, price: 1.1111 },
+    ],
+  };
 
   assert.equal(drawingSupportsPriceAlert(horizontalLine), true);
+  assert.equal(drawingSupportsPriceAlert(horizontalRay), true);
   assert.equal(drawingSupportsPriceAlert(textLevel), true);
   assert.equal(drawingSupportsPriceAlert(baseDrawing), false);
 
@@ -124,6 +135,15 @@ test('price alert drafts are created only from supported price-level objects', (
     message: 'Breakout level price alert',
     price: '1.2345',
     symbol: 'EURUSD',
+  });
+
+  assert.deepEqual(getDrawingObjectPriceAlertDraft(horizontalRay, 'gbpusd'), {
+    condition: 'above',
+    drawingId: 'horizontal_ray_1',
+    drawingKind: 'horizontalRay',
+    message: 'Ray level price alert',
+    price: '1.1111',
+    symbol: 'GBPUSD',
   });
 
   assert.deepEqual(getDrawingObjectPriceAlertDraft(textLevel, 'xauusd'), {

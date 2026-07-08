@@ -1287,9 +1287,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   }, []);
   const requestChartViewportRecovery = useCallback((passes: number = 4) => {
     const initialBounds = chartTapMenuBoundsRef.current;
-    if (initialBounds.width <= 0 || initialBounds.height <= 0) {
-      return;
-    }
 
     cancelChartViewportRecovery();
     const token = chartViewportRecoveryTokenRef.current;
@@ -1306,8 +1303,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           return;
         }
 
-        const resizeWidth = viewport.width > 0 ? viewport.width : fallbackBounds.width;
-        const resizeHeight = viewport.height > 0 ? viewport.height : fallbackBounds.height;
+        const fallbackWidth = fallbackBounds.width > 0 ? fallbackBounds.width : initialBounds.width;
+        const fallbackHeight = fallbackBounds.height > 0 ? fallbackBounds.height : initialBounds.height;
+        const resizeWidth = viewport.width > 0 ? viewport.width : fallbackWidth;
+        const resizeHeight = viewport.height > 0 ? viewport.height : fallbackHeight;
         if (resizeWidth <= 0 || resizeHeight <= 0) {
           return;
         }
@@ -1398,13 +1397,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     if (!isScreenFocused || !chartRuntimeActive || !chartSurfaceReady) {
       return;
     }
-    if (chartTapMenuBounds.width <= 0 || chartTapMenuBounds.height <= 0) {
-      return;
-    }
 
     // The chart WebView is kept alive and can be prewarmed while hidden.
-    // Re-entering the route must immediately replace any stale hidden-layout
-    // canvas size before the user sees the chart compressed.
+    // Re-entering the route measures the native viewport directly, so a hidden
+    // prewarm layout cannot leave the canvas compressed on first Chart open.
     const cancelColdStartRecovery = scheduleChartViewportColdStartRecovery();
     return () => {
       cancelColdStartRecovery();
@@ -1413,8 +1409,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   }, [
     chartRuntimeActive,
     chartSurfaceReady,
-    chartTapMenuBounds.height,
-    chartTapMenuBounds.width,
     cancelChartViewportRecovery,
     isScreenFocused,
     scheduleChartViewportColdStartRecovery,
@@ -5622,6 +5616,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                 onTouchCancel={handleChartViewportTouchEnd}
                 onLayout={(event) => {
                   const { width, height } = event.nativeEvent.layout;
+                  if (width <= 0 || height <= 0) {
+                    return;
+                  }
+                  if (!isScreenFocused) {
+                    return;
+                  }
                   const freezeViewportResize =
                     (shouldFreezeChartViewportResize || footerLotEditorActiveRef.current) &&
                     lastChartViewportSizeRef.current.height > 0 &&

@@ -7,7 +7,7 @@ import { FastPressable as Pressable } from '../../../ui/components/FastPressable
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, ScrollView, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/shallow';
 import { ActionSheet } from '../../../ui/components/ActionSheet';
@@ -46,6 +46,17 @@ import {
   type DrawingStyleLineStyle,
   type DrawingStylePatch,
 } from './drawingStyleEditor';
+import {
+  addFibLevel,
+  applyFibLevelPatch,
+  drawingSupportsFibLevelEditor,
+  formatFibLevelPercent,
+  formatFibLevelValue,
+  getFibLevelEditorLevels,
+  parseFibLevelValue,
+  removeFibLevel,
+  resetFibLevels,
+} from './fibLevelEditor';
 import { ActionRow, ToggleRow } from './rows';
 import { makeObjectsScreenStyles, type ObjectsScreenStyles } from './styles';
 
@@ -157,6 +168,10 @@ export function ObjectsScreen() {
   const [showAddObjectSheet, setShowAddObjectSheet] = useState(false);
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
   const [styleEditorDrawingId, setStyleEditorDrawingId] = useState<string | null>(null);
+  const [fibEditorDrawingId, setFibEditorDrawingId] = useState<string | null>(null);
+  const [selectedFibLevelId, setSelectedFibLevelId] = useState<string | null>(null);
+  const [fibLevelValueDraft, setFibLevelValueDraft] = useState('');
+  const [fibLevelLabelDraft, setFibLevelLabelDraft] = useState('');
   const [renameDrawingId, setRenameDrawingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
 
@@ -199,6 +214,20 @@ export function ObjectsScreen() {
     () => chartDrawings.find((drawing) => drawing.id === styleEditorDrawingId) ?? null,
     [chartDrawings, styleEditorDrawingId],
   );
+  const fibEditorDrawing = useMemo(
+    () => chartDrawings.find((drawing) =>
+      drawing.id === fibEditorDrawingId && drawingSupportsFibLevelEditor(drawing.kind),
+    ) ?? null,
+    [chartDrawings, fibEditorDrawingId],
+  );
+  const fibEditorLevels = useMemo(
+    () => getFibLevelEditorLevels(fibEditorDrawing),
+    [fibEditorDrawing],
+  );
+  const selectedFibLevel = useMemo(
+    () => fibEditorLevels.find((level) => level.id === selectedFibLevelId) ?? fibEditorLevels[0] ?? null,
+    [fibEditorLevels, selectedFibLevelId],
+  );
   const renameDrawing = useMemo(
     () => chartDrawings.find((drawing) => drawing.id === renameDrawingId) ?? null,
     [chartDrawings, renameDrawingId],
@@ -225,6 +254,39 @@ export function ObjectsScreen() {
   }, [styleEditorDrawing, styleEditorDrawingId]);
 
   useEffect(() => {
+    if (fibEditorDrawingId && !fibEditorDrawing) {
+      setFibEditorDrawingId(null);
+      setSelectedFibLevelId(null);
+      setFibLevelValueDraft('');
+      setFibLevelLabelDraft('');
+    }
+  }, [fibEditorDrawing, fibEditorDrawingId]);
+
+  useEffect(() => {
+    if (!fibEditorDrawing) {
+      return;
+    }
+    if (!selectedFibLevel && fibEditorLevels[0]) {
+      setSelectedFibLevelId(fibEditorLevels[0].id);
+      return;
+    }
+    if (selectedFibLevel && selectedFibLevel.id !== selectedFibLevelId) {
+      setSelectedFibLevelId(selectedFibLevel.id);
+    }
+  }, [fibEditorDrawing, fibEditorLevels, selectedFibLevel, selectedFibLevelId]);
+
+  useEffect(() => {
+    if (!selectedFibLevel) {
+      setFibLevelValueDraft('');
+      setFibLevelLabelDraft('');
+      return;
+    }
+
+    setFibLevelValueDraft(formatFibLevelValue(selectedFibLevel.value));
+    setFibLevelLabelDraft(selectedFibLevel.label);
+  }, [selectedFibLevel]);
+
+  useEffect(() => {
     if (renameDrawingId && !renameDrawing) {
       setRenameDrawingId(null);
       setRenameDraft('');
@@ -240,6 +302,13 @@ export function ObjectsScreen() {
 
   const handleCloseStyleEditor = useCallback(() => {
     setStyleEditorDrawingId(null);
+  }, []);
+
+  const handleCloseFibLevelEditor = useCallback(() => {
+    setFibEditorDrawingId(null);
+    setSelectedFibLevelId(null);
+    setFibLevelValueDraft('');
+    setFibLevelLabelDraft('');
   }, []);
 
   const handleCloseRenameDialog = useCallback(() => {
@@ -368,7 +437,18 @@ export function ObjectsScreen() {
     }
 
     setSelectedDrawingId(null);
+    setFibEditorDrawingId(null);
     setStyleEditorDrawingId(drawing.id);
+  }, []);
+
+  const handleOpenFibLevelEditor = useCallback((drawing: DisplayDrawing) => {
+    if (!drawing.kind || !drawingSupportsFibLevelEditor(drawing.kind)) {
+      return;
+    }
+
+    setSelectedDrawingId(null);
+    setStyleEditorDrawingId(null);
+    setFibEditorDrawingId(drawing.id);
   }, []);
 
   const handleOpenPriceAlertFromDrawing = useCallback(() => {
@@ -403,6 +483,111 @@ export function ObjectsScreen() {
     setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
   }, [chartDrawings, chartSymbol, setChartDrawingRecordsForSymbol, styleEditorDrawing]);
 
+  const handleUpdateFibLevel = useCallback((levelId: string, patch: Parameters<typeof applyFibLevelPatch>[2]) => {
+    if (!fibEditorDrawing) {
+      return;
+    }
+
+    const nextDrawings = chartDrawings.map((record) =>
+      record.id === fibEditorDrawing.id
+        ? applyFibLevelPatch(record, levelId, patch)
+        : record,
+    );
+    setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
+  }, [chartDrawings, chartSymbol, fibEditorDrawing, setChartDrawingRecordsForSymbol]);
+
+  const handleAddFibLevel = useCallback(() => {
+    if (!fibEditorDrawing) {
+      return;
+    }
+
+    const currentIds = new Set(fibEditorLevels.map((level) => level.id));
+    let nextSelectedLevelId = selectedFibLevelId;
+    const nextDrawings = chartDrawings.map((record) => {
+      if (record.id !== fibEditorDrawing.id) {
+        return record;
+      }
+      const next = addFibLevel(record);
+      const addedLevel = getFibLevelEditorLevels(next).find((level) => !currentIds.has(level.id));
+      nextSelectedLevelId = addedLevel?.id ?? nextSelectedLevelId;
+      return next;
+    });
+    setSelectedFibLevelId(nextSelectedLevelId);
+    setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
+  }, [
+    chartDrawings,
+    chartSymbol,
+    fibEditorDrawing,
+    fibEditorLevels,
+    selectedFibLevelId,
+    setChartDrawingRecordsForSymbol,
+  ]);
+
+  const handleRemoveSelectedFibLevel = useCallback(() => {
+    if (!fibEditorDrawing || !selectedFibLevel) {
+      return;
+    }
+
+    let nextSelectedLevelId: string | null = null;
+    const nextDrawings = chartDrawings.map((record) => {
+      if (record.id !== fibEditorDrawing.id) {
+        return record;
+      }
+      const next = removeFibLevel(record, selectedFibLevel.id);
+      nextSelectedLevelId = getFibLevelEditorLevels(next)[0]?.id ?? null;
+      return next;
+    });
+    setSelectedFibLevelId(nextSelectedLevelId);
+    setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
+  }, [
+    chartDrawings,
+    chartSymbol,
+    fibEditorDrawing,
+    selectedFibLevel,
+    setChartDrawingRecordsForSymbol,
+  ]);
+
+  const handleResetFibLevels = useCallback(() => {
+    if (!fibEditorDrawing) {
+      return;
+    }
+
+    let nextSelectedLevelId: string | null = null;
+    const nextDrawings = chartDrawings.map((record) => {
+      if (record.id !== fibEditorDrawing.id) {
+        return record;
+      }
+      const next = resetFibLevels(record);
+      nextSelectedLevelId = getFibLevelEditorLevels(next)[0]?.id ?? null;
+      return next;
+    });
+    setSelectedFibLevelId(nextSelectedLevelId);
+    setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
+  }, [chartDrawings, chartSymbol, fibEditorDrawing, setChartDrawingRecordsForSymbol]);
+
+  const handleCommitFibLevelValue = useCallback(() => {
+    if (!selectedFibLevel) {
+      return;
+    }
+
+    const nextValue = parseFibLevelValue(fibLevelValueDraft);
+    if (nextValue === null) {
+      setFibLevelValueDraft(formatFibLevelValue(selectedFibLevel.value));
+      return;
+    }
+    handleUpdateFibLevel(selectedFibLevel.id, { value: nextValue });
+  }, [fibLevelValueDraft, handleUpdateFibLevel, selectedFibLevel]);
+
+  const handleCommitFibLevelLabel = useCallback(() => {
+    if (!selectedFibLevel) {
+      return;
+    }
+
+    const nextLabel = fibLevelLabelDraft.trim() || formatFibLevelValue(selectedFibLevel.value);
+    setFibLevelLabelDraft(nextLabel);
+    handleUpdateFibLevel(selectedFibLevel.id, { label: nextLabel });
+  }, [fibLevelLabelDraft, handleUpdateFibLevel, selectedFibLevel]);
+
   const addObjectActions = useMemo(
     () =>
       ADD_OBJECT_TOOLS.map((tool) => {
@@ -431,6 +616,13 @@ export function ObjectsScreen() {
       actions.push({
         label: selectedDrawing.locked ? 'Unlock object' : 'Lock object',
         onPress: () => handleToggleDrawingLock(selectedDrawing),
+      });
+    }
+
+    if (selectedDrawing.kind && drawingSupportsFibLevelEditor(selectedDrawing.kind)) {
+      actions.push({
+        label: 'Edit Fibonacci levels',
+        onPress: () => handleOpenFibLevelEditor(selectedDrawing),
       });
     }
 
@@ -475,6 +667,7 @@ export function ObjectsScreen() {
     return actions;
   }, [
     handleCloneDrawing,
+    handleOpenFibLevelEditor,
     handleOpenRenameDialog,
     handleOpenPriceAlertFromDrawing,
     handleOpenStyleEditor,
@@ -487,6 +680,8 @@ export function ObjectsScreen() {
   ]);
 
   const styleEditorOpen = Boolean(styleEditorDrawing && styleEditorValues);
+  const fibLevelEditorOpen = Boolean(fibEditorDrawing);
+  const editorOpen = styleEditorOpen || fibLevelEditorOpen;
   const renameLabelPreview = renameDrawing
     ? sanitizeDrawingObjectLabel(renameDraft, renameDrawing.label)
     : '';
@@ -499,16 +694,22 @@ export function ObjectsScreen() {
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 18) + 10 }]}>
         <View style={styles.headerRow}>
           <Pressable
-            onPress={styleEditorOpen ? handleCloseStyleEditor : () => safeRouterBack(router, '/(tabs)/chart')}
+            onPress={
+              fibLevelEditorOpen
+                ? handleCloseFibLevelEditor
+                : (styleEditorOpen ? handleCloseStyleEditor : () => safeRouterBack(router, '/(tabs)/chart'))
+            }
             hitSlop={16}
             style={styles.headerButton}
           >
             <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
           </Pressable>
-          <Text style={styles.headerTitle} numberOfLines={1}>{styleEditorOpen ? 'Style' : 'Objects'}</Text>
-          {styleEditorOpen ? (
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {fibLevelEditorOpen ? 'Fib levels' : (styleEditorOpen ? 'Style' : 'Objects')}
+          </Text>
+          {editorOpen ? (
             <Pressable
-              onPress={handleCloseStyleEditor}
+              onPress={fibLevelEditorOpen ? handleCloseFibLevelEditor : handleCloseStyleEditor}
               activateOnPressIn
               activateOnTouchStart
               unstable_pressDelay={0}
@@ -531,7 +732,7 @@ export function ObjectsScreen() {
           )}
         </View>
         <Text style={styles.headerSubtitle} numberOfLines={1}>
-          {styleEditorDrawing?.label ?? `${chartSymbol.replace(/\//g, '')} chart objects`}
+          {fibEditorDrawing?.label ?? styleEditorDrawing?.label ?? `${chartSymbol.replace(/\//g, '')} chart objects`}
         </Text>
       </View>
 
@@ -541,7 +742,185 @@ export function ObjectsScreen() {
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 20) + 24 }}
         showsVerticalScrollIndicator={false}
       >
-        {styleEditorDrawing && styleEditorValues ? (
+        {fibEditorDrawing ? (
+          <>
+            <Text style={styles.sectionLabel}>Levels</Text>
+            <View style={styles.panel}>
+              {fibEditorLevels.map((level, index) => {
+                const color = level.lineColor ?? level.color ?? '#64748B';
+                const selected = selectedFibLevel?.id === level.id;
+                return (
+                  <React.Fragment key={level.id}>
+                    <Pressable
+                      style={[styles.fibLevelRow, selected && styles.fibLevelRowSelected]}
+                      onPress={() => setSelectedFibLevelId(level.id)}
+                    >
+                      <View style={styles.rowLeft}>
+                        <View style={[styles.fibLevelColorDot, { backgroundColor: color }]} />
+                        <View style={styles.rowCopy}>
+                          <Text style={styles.rowTitle} numberOfLines={1}>{level.label}</Text>
+                          <Text style={styles.rowSubtitle} numberOfLines={1}>
+                            {formatFibLevelValue(level.value)} | {formatFibLevelPercent(level.value)}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={styles.fibLevelRight}>
+                        {selected ? <Ionicons name="checkmark-circle" size={18} color="#2563EB" /> : null}
+                        <Switch
+                          value={level.visible}
+                          onValueChange={(visible) => handleUpdateFibLevel(level.id, { visible })}
+                          trackColor={{ false: isDark ? '#1E1E1E' : '#CBD5E1', true: '#3B82F6' }}
+                          thumbColor="#FFFFFF"
+                        />
+                      </View>
+                    </Pressable>
+                    {index < fibEditorLevels.length - 1 ? <View style={styles.panelDivider} /> : null}
+                  </React.Fragment>
+                );
+              })}
+            </View>
+
+            <View style={[styles.panel, styles.fibActionPanel]}>
+              <Pressable style={styles.fibActionButton} onPress={handleAddFibLevel}>
+                <Ionicons name="add-circle-outline" size={18} color="#2563EB" />
+                <Text style={styles.fibActionText}>Add level</Text>
+              </Pressable>
+              <View style={styles.fibActionDivider} />
+              <Pressable style={styles.fibActionButton} onPress={handleResetFibLevels}>
+                <Ionicons name="refresh-outline" size={18} color="#2563EB" />
+                <Text style={styles.fibActionText}>Reset</Text>
+              </Pressable>
+            </View>
+
+            {selectedFibLevel ? (
+              <>
+                <Text style={styles.sectionLabel}>Selected level</Text>
+                <View style={styles.panel}>
+                  <View style={styles.fibInputRow}>
+                    <Text style={styles.styleControlLabel}>Value</Text>
+                    <TextInput
+                      value={fibLevelValueDraft}
+                      onChangeText={setFibLevelValueDraft}
+                      onBlur={handleCommitFibLevelValue}
+                      onSubmitEditing={handleCommitFibLevelValue}
+                      keyboardType="decimal-pad"
+                      selectTextOnFocus
+                      style={styles.fibTextInput}
+                    />
+                  </View>
+                  <View style={styles.panelDivider} />
+                  <View style={styles.fibInputRow}>
+                    <Text style={styles.styleControlLabel}>Label</Text>
+                    <TextInput
+                      value={fibLevelLabelDraft}
+                      onChangeText={setFibLevelLabelDraft}
+                      onBlur={handleCommitFibLevelLabel}
+                      onSubmitEditing={handleCommitFibLevelLabel}
+                      selectTextOnFocus
+                      maxLength={24}
+                      style={styles.fibTextInput}
+                    />
+                  </View>
+                </View>
+
+                <Text style={styles.sectionLabel}>Color</Text>
+                <View style={[styles.panel, styles.colorSwatchPanel]}>
+                  {DRAWING_STYLE_COLOR_SWATCHES.map((color) => {
+                    const active = color.toLowerCase() === (selectedFibLevel.lineColor ?? selectedFibLevel.color ?? '').toLowerCase();
+                    return (
+                      <Pressable
+                        key={color}
+                        style={[
+                          styles.colorSwatch,
+                          { backgroundColor: color },
+                          color === '#FFFFFF' && styles.colorSwatchLight,
+                          active && styles.colorSwatchActive,
+                        ]}
+                        onPress={() => handleUpdateFibLevel(selectedFibLevel.id, { color })}
+                        accessibilityLabel={`Set Fibonacci level color ${color}`}
+                      >
+                        {active ? (
+                          <Ionicons name="checkmark" size={18} color={color === '#FFFFFF' ? '#0F172A' : '#FFFFFF'} />
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <Text style={styles.sectionLabel}>Stroke</Text>
+                <View style={[styles.panel, styles.styleControlsPanel]}>
+                  <StyleStepper
+                    label="Width"
+                    value={`${Number((selectedFibLevel.lineWidth ?? 1).toFixed(2))}px`}
+                    onDecrease={() =>
+                      handleUpdateFibLevel(selectedFibLevel.id, { lineWidth: (selectedFibLevel.lineWidth ?? 1) - 1 })
+                    }
+                    onIncrease={() =>
+                      handleUpdateFibLevel(selectedFibLevel.id, { lineWidth: (selectedFibLevel.lineWidth ?? 1) + 1 })
+                    }
+                    styles={styles}
+                  />
+                  <View style={styles.panelDivider} />
+                  <View style={styles.styleControlBlock}>
+                    <Text style={styles.styleControlLabel}>Pattern</Text>
+                    <StyleSegmentedControl<DrawingStyleLineStyle>
+                      options={DRAWING_STYLE_LINE_STYLE_OPTIONS}
+                      value={selectedFibLevel.lineStyle ?? 'solid'}
+                      onChange={(lineStyle) => handleUpdateFibLevel(selectedFibLevel.id, { lineStyle })}
+                      styles={styles}
+                    />
+                  </View>
+                </View>
+
+                <Text style={styles.sectionLabel}>Labels</Text>
+                <View style={styles.panel}>
+                  <ToggleRow
+                    label="Price label"
+                    description="Show price beside this level"
+                    value={selectedFibLevel.showPrice !== false}
+                    onValueChange={(showPrice) => handleUpdateFibLevel(selectedFibLevel.id, { showPrice })}
+                    styles={styles}
+                    isDark={isDark}
+                  />
+                  <View style={styles.panelDivider} />
+                  <ToggleRow
+                    label="Percent label"
+                    description="Show percent beside this level"
+                    value={selectedFibLevel.showPercent !== false}
+                    onValueChange={(showPercent) => handleUpdateFibLevel(selectedFibLevel.id, { showPercent })}
+                    styles={styles}
+                    isDark={isDark}
+                  />
+                </View>
+
+                <View style={styles.panel}>
+                  <Pressable
+                    style={[
+                      styles.fibDeleteButton,
+                      fibEditorLevels.length <= 1 && styles.fibDeleteButtonDisabled,
+                    ]}
+                    onPress={handleRemoveSelectedFibLevel}
+                    disabled={fibEditorLevels.length <= 1}
+                  >
+                    <Ionicons
+                      name="trash-outline"
+                      size={18}
+                      color={fibEditorLevels.length <= 1 ? (isDark ? '#64748B' : '#94A3B8') : '#EF4444'}
+                    />
+                    <Text
+                      style={[
+                        styles.fibDeleteText,
+                        fibEditorLevels.length <= 1 && styles.fibDeleteTextDisabled,
+                      ]}
+                    >
+                      Delete selected level
+                    </Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : null}
+          </>
+        ) : styleEditorDrawing && styleEditorValues ? (
           <>
             <Text style={styles.sectionLabel}>Preview</Text>
             <View style={[styles.panel, styles.stylePreviewPanel]}>

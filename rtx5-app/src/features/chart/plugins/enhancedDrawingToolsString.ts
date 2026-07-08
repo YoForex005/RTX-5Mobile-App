@@ -688,6 +688,13 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   }
 
   function createPolylinePrimitive(points, options) {
+    function resolvePolylineLineStyleDash(style, ratio) {
+      var px = Math.max(1, ratio || 1);
+      if (style === 'dashed') return [8 * px, 5 * px];
+      if (style === 'dotted') return [2 * px, 5 * px];
+      return [];
+    }
+
     function PolylinePaneRenderer(source, coords) {
       this._source = source;
       this._coords = coords;
@@ -701,15 +708,19 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       if (!source._options.visible || coords.length < 2) return;
       target.useBitmapCoordinateSpace(function (scope) {
         var ctx = scope.context;
+        var horizontalRatio = scope.horizontalPixelRatio || 1;
+        var verticalRatio = scope.verticalPixelRatio || 1;
         ctx.save();
+        ctx.globalAlpha = source._options.opacity;
         ctx.strokeStyle = source._options.color;
-        ctx.lineWidth = source._options.width * scope.horizontalPixelRatio;
+        ctx.lineWidth = source._options.width * horizontalRatio;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
+        if (ctx.setLineDash) ctx.setLineDash(resolvePolylineLineStyleDash(source._options.lineStyle, horizontalRatio));
         ctx.beginPath();
         coords.forEach(function (coord, index) {
-          var x = coord.x * scope.horizontalPixelRatio;
-          var y = coord.y * scope.verticalPixelRatio;
+          var x = coord.x * horizontalRatio;
+          var y = coord.y * verticalRatio;
           if (index === 0) {
             ctx.moveTo(x, y);
           } else {
@@ -717,14 +728,15 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
           }
         });
         ctx.stroke();
+        if (ctx.setLineDash) ctx.setLineDash([]);
 
         ctx.fillStyle = source._options.color;
         coords.forEach(function (coord) {
           ctx.beginPath();
           ctx.arc(
-            coord.x * scope.horizontalPixelRatio,
-            coord.y * scope.verticalPixelRatio,
-            2.8 * scope.horizontalPixelRatio,
+            coord.x * horizontalRatio,
+            coord.y * verticalRatio,
+            2.8 * horizontalRatio,
             0,
             Math.PI * 2
           );
@@ -733,18 +745,18 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
         if (source._options.label) {
           var last = coords[coords.length - 1];
-          ctx.font = '600 ' + Math.round(source._options.fontSize * scope.horizontalPixelRatio) + 'px Arial';
-          var padding = 6 * scope.horizontalPixelRatio;
+          ctx.font = '600 ' + Math.round(source._options.fontSize * horizontalRatio) + 'px Arial';
+          var padding = 6 * horizontalRatio;
           var textWidth = ctx.measureText(source._options.label).width;
-          var lx = last.x * scope.horizontalPixelRatio + padding;
-          var ly = last.y * scope.verticalPixelRatio - (source._options.fontSize + padding * 0.35);
+          var lx = last.x * horizontalRatio + padding;
+          var ly = last.y * verticalRatio - (source._options.fontSize + padding * 0.35);
           roundRectPath(
             ctx,
             lx - padding * 0.65,
             ly - padding * 0.85,
             textWidth + padding * 1.3,
             source._options.fontSize + padding * 1.2,
-            6 * scope.horizontalPixelRatio
+            6 * horizontalRatio
           );
           ctx.fillStyle = source._options.labelBackgroundColor;
           ctx.fill();
@@ -782,6 +794,8 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         color: '#A855F7',
         width: 1.8,
         visible: true,
+        opacity: 1,
+        lineStyle: 'solid',
         label: '',
         fontSize: 11,
         labelBackgroundColor: 'rgba(88, 28, 135, 0.92)',
@@ -806,6 +820,13 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   }
 
   function createBoxPrimitive(p1, p2, options) {
+    function resolveBoxLineStyleDash(style, ratio) {
+      var px = Math.max(1, ratio || 1);
+      if (style === 'dashed') return [8 * px, 5 * px];
+      if (style === 'dotted') return [2 * px, 5 * px];
+      return [];
+    }
+
     function BoxPaneRenderer(source, points) {
       this._source = source;
       this._points = points;
@@ -818,26 +839,31 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       if (!source._options.visible || p1p.x === null || p1p.y === null || p2p.x === null || p2p.y === null) return;
       target.useBitmapCoordinateSpace(function (scope) {
         var ctx = scope.context;
-        var left = Math.min(p1p.x, p2p.x) * scope.horizontalPixelRatio;
-        var top = Math.min(p1p.y, p2p.y) * scope.verticalPixelRatio;
-        var width = Math.max(1, Math.abs(p2p.x - p1p.x) * scope.horizontalPixelRatio);
-        var height = Math.max(1, Math.abs(p2p.y - p1p.y) * scope.verticalPixelRatio);
+        var horizontalRatio = scope.horizontalPixelRatio || 1;
+        var verticalRatio = scope.verticalPixelRatio || 1;
+        var left = Math.min(p1p.x, p2p.x) * horizontalRatio;
+        var top = Math.min(p1p.y, p2p.y) * verticalRatio;
+        var width = Math.max(1, Math.abs(p2p.x - p1p.x) * horizontalRatio);
+        var height = Math.max(1, Math.abs(p2p.y - p1p.y) * verticalRatio);
         ctx.save();
+        ctx.globalAlpha = source._options.opacity;
         ctx.fillStyle = source._options.fillColor;
         ctx.strokeStyle = source._options.borderColor;
-        ctx.lineWidth = source._options.borderWidth * scope.horizontalPixelRatio;
-        roundRectPath(ctx, left, top, width, height, 6 * scope.horizontalPixelRatio);
+        ctx.lineWidth = source._options.borderWidth * horizontalRatio;
+        if (ctx.setLineDash) ctx.setLineDash(resolveBoxLineStyleDash(source._options.borderStyle, horizontalRatio));
+        roundRectPath(ctx, left, top, width, height, 6 * horizontalRatio);
         ctx.fill();
         ctx.stroke();
+        if (ctx.setLineDash) ctx.setLineDash([]);
         if (source._options.label) {
-          ctx.font = '600 ' + Math.round(source._options.fontSize * scope.horizontalPixelRatio) + 'px Arial';
-          var padding = 6 * scope.horizontalPixelRatio;
+          ctx.font = '600 ' + Math.round(source._options.fontSize * horizontalRatio) + 'px Arial';
+          var padding = 6 * horizontalRatio;
           var textWidth = ctx.measureText(source._options.label).width;
           var labelWidth = textWidth + padding * 1.4;
           var labelHeight = source._options.fontSize + padding;
           var labelX = left + padding;
           var labelY = top + padding;
-          roundRectPath(ctx, labelX, labelY, labelWidth, labelHeight, 5 * scope.horizontalPixelRatio);
+          roundRectPath(ctx, labelX, labelY, labelWidth, labelHeight, 5 * horizontalRatio);
           ctx.fillStyle = source._options.labelBackgroundColor;
           ctx.fill();
           ctx.fillStyle = source._options.labelTextColor;
@@ -876,6 +902,8 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         fillColor: 'rgba(59, 130, 246, 0.16)',
         borderColor: '#3B82F6',
         borderWidth: 1.5,
+        borderStyle: 'solid',
+        opacity: 1,
         visible: true,
         label: '',
         fontSize: 11,
@@ -921,6 +949,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         var fontSize = Math.round(source._options.fontSize * scope.horizontalPixelRatio);
         var padding = 6 * scope.horizontalPixelRatio;
         ctx.save();
+        ctx.globalAlpha = source._options.opacity;
         ctx.font = '700 ' + fontSize + 'px Arial';
         var textWidth = ctx.measureText(source._options.text).width;
         var bubbleWidth = textWidth + padding * 1.8;
@@ -968,7 +997,8 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         fontSize: 11,
         backgroundColor: 'rgba(37, 99, 235, 0.94)',
         textColor: '#FFFFFF',
-        anchorColor: '#60A5FA'
+        anchorColor: '#60A5FA',
+        opacity: 1
       }, opts || {});
       this._paneViews = [new LabelPaneView(this)];
     }
@@ -989,6 +1019,13 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   }
 
   function createPitchforkPrimitive(p1, p2, p3, options) {
+    function resolvePitchforkLineStyleDash(style, ratio) {
+      var px = Math.max(1, ratio || 1);
+      if (style === 'dashed') return [8 * px, 5 * px];
+      if (style === 'dotted') return [2 * px, 5 * px];
+      return [];
+    }
+
     function resolvePitchforkForwardSegment(origin, direction, paneWidth, paneHeight) {
       var epsilon = 0.0001;
       if (!origin || !direction || !isFiniteNumber(origin.x) || !isFiniteNumber(origin.y) || !isFiniteNumber(direction.x) || !isFiniteNumber(direction.y)) {
@@ -1082,14 +1119,17 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         var upperRail = resolvePitchforkForwardSegment(c2, direction, paneWidth, paneHeight);
         var lowerRail = resolvePitchforkForwardSegment(c3, direction, paneWidth, paneHeight);
         ctx.save();
+        ctx.globalAlpha = source._options.opacity;
         ctx.strokeStyle = source._options.color;
         ctx.lineWidth = source._options.width * ratioX;
         ctx.lineCap = 'round';
+        if (ctx.setLineDash) ctx.setLineDash(resolvePitchforkLineStyleDash(source._options.lineStyle, ratioX));
         ctx.beginPath();
         drawPitchforkSegment(ctx, median, ratioX, ratioY);
         drawPitchforkSegment(ctx, upperRail, ratioX, ratioY);
         drawPitchforkSegment(ctx, lowerRail, ratioX, ratioY);
         ctx.stroke();
+        if (ctx.setLineDash) ctx.setLineDash([]);
         ctx.fillStyle = source._options.color;
         [ [c1.x * ratioX, c1.y * ratioY], [c2.x * ratioX, c2.y * ratioY], [c3.x * ratioX, c3.y * ratioY] ].forEach(function (pair) {
           ctx.beginPath();
@@ -1121,7 +1161,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       this._p1 = pointA;
       this._p2 = pointB;
       this._p3 = pointC;
-      this._options = Object.assign({ color: '#8B5CF6', width: 1.6, visible: true }, opts || {});
+      this._options = Object.assign({ color: '#8B5CF6', width: 1.6, lineStyle: 'solid', opacity: 1, visible: true }, opts || {});
       this._paneViews = [new PitchforkPaneView(this)];
     }
 
@@ -1218,10 +1258,23 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       fillColor: preview ? this._options.previewFillColor : this._options.fillColor,
       borderColor: this._options.borderColor,
       borderWidth: this._options.borderWidth,
+      borderStyle: this._options.borderStyle || 'solid',
+      opacity: isFiniteNumber(this._options.opacity) ? this._options.opacity : 1,
       label: this._buildLabel(p1, p2),
       labelBackgroundColor: this._options.labelBackgroundColor,
       labelTextColor: this._options.labelTextColor,
       fontSize: this._options.fontSize || 11
+    };
+  };
+  BoxTool.prototype._buildStyle = function () {
+    return {
+      fillColor: this._options.fillColor,
+      borderColor: this._options.borderColor,
+      borderWidth: this._options.borderWidth,
+      borderStyle: this._options.borderStyle || 'solid',
+      opacity: isFiniteNumber(this._options.opacity) ? this._options.opacity : 1,
+      labelBackgroundColor: this._options.labelBackgroundColor,
+      labelTextColor: this._options.labelTextColor
     };
   };
   BoxTool.prototype.startDrawing = function () {
@@ -1257,7 +1310,8 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       var p2 = this._points[1];
       this._removePreview();
       this._completeDrawing(createBoxPrimitive(p1, p2, this._buildOptions(p1, p2, false)), null, {
-        points: clonePoints([p1, p2])
+        points: clonePoints([p1, p2]),
+        style: this._buildStyle()
       });
     }
   };
@@ -1289,6 +1343,17 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
   LabelTool.prototype = Object.create(BaseTool.prototype);
   LabelTool.prototype.constructor = LabelTool;
+  LabelTool.prototype._buildStyle = function () {
+    return {
+      color: this._options.textColor,
+      backgroundColor: this._options.backgroundColor,
+      textColor: this._options.textColor,
+      anchorColor: this._options.anchorColor,
+      anchorLineColor: this._options.anchorColor,
+      fontSize: this._options.fontSize || 11,
+      opacity: isFiniteNumber(this._options.opacity) ? this._options.opacity : 1
+    };
+  };
   LabelTool.prototype._handleClick = function (param) {
     if (!this._drawing) return;
     var point = this._resolvePoint(param);
@@ -1298,10 +1363,12 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       backgroundColor: this._options.backgroundColor,
       textColor: this._options.textColor,
       anchorColor: this._options.anchorColor,
+      opacity: isFiniteNumber(this._options.opacity) ? this._options.opacity : 1,
       fontSize: this._options.fontSize || 11
     }), null, {
       points: clonePoints([point]),
-      text: this._options.text
+      text: this._options.text,
+      style: this._buildStyle()
     });
   };
   LabelTool.prototype.remove = function () {

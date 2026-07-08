@@ -12,6 +12,25 @@ export const shortPositionEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime
     return 'Short ' + formatDelta(delta) + ' (' + pct.toFixed(2) + '%)';
   }
 
+  function normalizeShortPositionStyle(style) {
+    var source = style && typeof style === 'object' ? style : {};
+    var borderColor = typeof source.borderColor === 'string'
+      ? source.borderColor
+      : (typeof source.color === 'string' ? source.color : '#F43F5E');
+    var borderStyle = source.borderStyle === 'dashed' || source.borderStyle === 'dotted'
+      ? source.borderStyle
+      : (source.lineStyle === 'dashed' || source.lineStyle === 'dotted' ? source.lineStyle : 'solid');
+    return {
+      fillColor: typeof source.fillColor === 'string' ? source.fillColor : 'rgba(244, 63, 94, 0.14)',
+      borderColor: borderColor,
+      borderWidth: isFiniteNumber(source.borderWidth || source.width) ? Math.max(1, Math.min(8, source.borderWidth || source.width)) : 1.4,
+      borderStyle: borderStyle,
+      opacity: isFiniteNumber(source.opacity) ? Math.max(0.1, Math.min(1, source.opacity)) : 1,
+      labelBackgroundColor: typeof source.labelBackgroundColor === 'string' ? source.labelBackgroundColor : 'rgba(127, 29, 29, 0.92)',
+      labelTextColor: typeof source.labelTextColor === 'string' ? source.labelTextColor : '#FFE4E6'
+    };
+  }
+
   /**
    * Registers this drawing tool with the global drawing manager so it can be instantiated by the chart.
    */
@@ -25,6 +44,8 @@ export const shortPositionEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime
         previewFillColor: 'rgba(244, 63, 94, 0.08)',
         borderColor: '#F43F5E',
         borderWidth: 1.4,
+        borderStyle: 'solid',
+        opacity: 1,
         labelBuilder: buildShortPositionLabel,
         labelBackgroundColor: 'rgba(127, 29, 29, 0.92)',
         labelTextColor: '#FFE4E6'
@@ -32,13 +53,16 @@ export const shortPositionEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime
     },
     createPrimitiveFromRecord: function (record) {
       var points = record.points || [];
+      var style = normalizeShortPositionStyle(record && record.style);
       return createBoxPrimitive(points[0], points[1], {
-        fillColor: 'rgba(244, 63, 94, 0.14)',
-        borderColor: '#F43F5E',
-        borderWidth: 1.4,
+        fillColor: style.fillColor,
+        borderColor: style.borderColor,
+        borderWidth: style.borderWidth,
+        borderStyle: style.borderStyle,
+        opacity: style.opacity,
         label: buildShortPositionLabel(points[0], points[1]),
-        labelBackgroundColor: 'rgba(127, 29, 29, 0.92)',
-        labelTextColor: '#FFE4E6',
+        labelBackgroundColor: style.labelBackgroundColor,
+        labelTextColor: style.labelTextColor,
         fontSize: 11
       });
     }
