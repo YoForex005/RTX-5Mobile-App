@@ -140,7 +140,7 @@ test('about screen follows the active app theme and owns its drawer', () => {
 
   assert.match(screenSource, /const isDark = useIsDarkTheme\(\)/);
   assert.match(screenSource, /makeAboutStyles\(isDark\)/);
-  assert.match(screenSource, /<SidebarDrawer \/>/);
+  assert.doesNotMatch(screenSource, /<SidebarDrawer \/>/);
   assert.match(screenSource, /latencyLabel="about\.menu"/);
   assert.match(screenSource, /const handleOpenMenu = useCallback\(\(\) => \{[\s\S]*openSidebarDrawerImmediately\(\);[\s\S]*scheduleAfterSidebarOpenVisual\(hideActionSheet\);/);
   assert.match(screenSource, /onPress=\{handleOpenMenu\}/);
@@ -148,8 +148,8 @@ test('about screen follows the active app theme and owns its drawer', () => {
   assert.doesNotMatch(screenSource, /ABOUT_BOTTOM_TABS|about\.bottomNav|styles\.bottomNav/);
   assert.doesNotMatch(stylesSource, /bottomNav|bottomTab|bottomIconWrap|bottomLabel/);
   assert.match(stylesSource, /export const makeAboutStyles = \(isDark = false\)/);
-  assert.match(stylesSource, /import \{ GDark \} from '\.\.\/\.\.\/ui\/theme\/glass'/);
-  assert.match(stylesSource, /screen: isDark \? GDark\.bg : '#FFFFFF'/);
+  assert.match(stylesSource, /import \{ GDark, GLight \} from '\.\.\/\.\.\/ui\/theme\/glass'/);
+  assert.match(stylesSource, /screen: isDark \? GDark\.bg : GLight\.bg/);
   assert.match(stylesSource, /surface: isDark \? GDark\.glass2 : '#FFFFFF'/);
   assert.match(stylesSource, /text: isDark \? GDark\.text : '#050505'/);
   assert.match(stylesSource, /border: isDark \? GDark\.border : '#E4E7EC'/);

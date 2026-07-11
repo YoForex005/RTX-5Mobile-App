@@ -10,7 +10,7 @@ export function makeEconomicCalendarStyles(T: ThemeColors, isDark: boolean) {
   const subtleText = isDark ? T.textMuted : '#94A3B8';
 
   return StyleSheet.create({
-    screen: { backgroundColor: isDark ? T.bg : '#F1F5F9' },
+    screen: { backgroundColor: T.bg },
     scroll: { flex: 1 },
     content: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 32 },
     heroCard: {

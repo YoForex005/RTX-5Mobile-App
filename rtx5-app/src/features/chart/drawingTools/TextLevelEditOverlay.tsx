@@ -64,7 +64,7 @@ export function TextLevelEditOverlay({
     card: isDark ? '#1E1E1E' : '#FFFFFF',
     text: isDark ? '#F8FAFC' : '#111827',
     muted: isDark ? '#94A3B8' : '#64748B',
-    border: isDark ? '#263244' : '#E5E7EB',
+    border: isDark ? '#263244' : '#E3E8F0',
   };
 
   const commit = () => {

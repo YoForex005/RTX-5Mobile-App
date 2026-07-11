@@ -53,18 +53,7 @@ export const shortPositionEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime
     },
     createPrimitiveFromRecord: function (record) {
       var points = record.points || [];
-      var style = normalizeShortPositionStyle(record && record.style);
-      return createBoxPrimitive(points[0], points[1], {
-        fillColor: style.fillColor,
-        borderColor: style.borderColor,
-        borderWidth: style.borderWidth,
-        borderStyle: style.borderStyle,
-        opacity: style.opacity,
-        label: buildShortPositionLabel(points[0], points[1]),
-        labelBackgroundColor: style.labelBackgroundColor,
-        labelTextColor: style.labelTextColor,
-        fontSize: 11
-      });
+      return createRiskRewardPositionPrimitive(points, record, 'short');
     }
   });
 `,

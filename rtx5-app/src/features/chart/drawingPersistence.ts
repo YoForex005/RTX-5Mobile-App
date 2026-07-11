@@ -187,6 +187,24 @@ export type PersistedFibLevel = {
   showPercent?: boolean;
 };
 
+export type PersistedElliottWave = {
+  id: string;
+  label: string;
+  visible: boolean;
+};
+
+export type PersistedXabcdRatio = {
+  id: string;
+  target: number | null;
+  visible: boolean;
+};
+
+export type PersistedPositionPlan = {
+  stopPrice: number | null;
+  accountSize: number | null;
+  riskPercent: number | null;
+};
+
 export type PersistedFibZoneRange = {
   enabled: boolean;
   from: number;
@@ -216,6 +234,9 @@ export type PersistedChartDrawing = {
   levelType?: PersistedTextLevelType;
   followLastPrice?: boolean;
   levels?: PersistedFibLevel[];
+  waves?: PersistedElliottWave[];
+  ratios?: PersistedXabcdRatio[];
+  position?: PersistedPositionPlan;
   extendMode?: 'none' | 'left' | 'right' | 'both';
   zoneType?: PersistedHighlightBoxZoneType;
   extendUntil?: PersistedHighlightBoxExtendUntil;
@@ -518,6 +539,79 @@ function sanitizeFibLevels(value: unknown): PersistedFibLevel[] | undefined {
   return levels.length > 0 ? levels : undefined;
 }
 
+function sanitizeElliottWave(value: unknown, index: number): PersistedElliottWave | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const candidate = value as Partial<PersistedElliottWave>;
+  if (typeof candidate.label !== 'string') {
+    return null;
+  }
+
+  return {
+    id: typeof candidate.id === 'string' && candidate.id.trim().length > 0 ? candidate.id.trim() : `wave_${index + 1}`,
+    label: candidate.label,
+    visible: candidate.visible !== false,
+  };
+}
+
+function sanitizeElliottWaves(value: unknown): PersistedElliottWave[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const waves = value
+    .map((wave, index) => sanitizeElliottWave(wave, index))
+    .filter((wave): wave is PersistedElliottWave => wave !== null);
+  return waves.length > 0 ? waves : undefined;
+}
+
+function sanitizeXabcdRatio(value: unknown, index: number): PersistedXabcdRatio | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const candidate = value as Partial<PersistedXabcdRatio>;
+  return {
+    id: typeof candidate.id === 'string' && candidate.id.trim().length > 0 ? candidate.id.trim() : `ratio_${index + 1}`,
+    target: typeof candidate.target === 'number' && Number.isFinite(candidate.target) && candidate.target > 0
+      ? candidate.target
+      : null,
+    visible: candidate.visible !== false,
+  };
+}
+
+function sanitizeXabcdRatios(value: unknown): PersistedXabcdRatio[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const ratios = value
+    .map((ratio, index) => sanitizeXabcdRatio(ratio, index))
+    .filter((ratio): ratio is PersistedXabcdRatio => ratio !== null);
+  return ratios.length > 0 ? ratios : undefined;
+}
+
+function sanitizePositionPlanNumber(value: unknown, max: number): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.min(value, max)
+    : null;
+}
+
+function sanitizePositionPlan(value: unknown): PersistedPositionPlan | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const candidate = value as Partial<PersistedPositionPlan>;
+  return {
+    stopPrice: sanitizePositionPlanNumber(candidate.stopPrice, Number.MAX_SAFE_INTEGER),
+    accountSize: sanitizePositionPlanNumber(candidate.accountSize, Number.MAX_SAFE_INTEGER),
+    riskPercent: sanitizePositionPlanNumber(candidate.riskPercent, 100),
+  };
+}
+
 function sanitizeFibZoneRange(value: unknown): PersistedFibZoneRange | undefined {
   if (!value || typeof value !== 'object') {
     return undefined;
@@ -729,6 +823,9 @@ function sanitizePersistedChartDrawing(
     levelType: sanitizeTextLevelType(candidate.levelType),
     followLastPrice: typeof candidate.followLastPrice === 'boolean' ? candidate.followLastPrice : undefined,
     levels: sanitizeFibLevels(candidate.levels),
+    waves: sanitizeElliottWaves(candidate.waves),
+    ratios: sanitizeXabcdRatios(candidate.ratios),
+    position: sanitizePositionPlan(candidate.position),
     extendMode: sanitizeExtendMode(candidate.extendMode),
     zoneType: sanitizeHighlightBoxZoneType(candidate.zoneType),
     extendUntil: sanitizeHighlightBoxExtendUntil(candidate.extendUntil),

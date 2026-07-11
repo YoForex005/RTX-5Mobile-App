@@ -101,6 +101,10 @@ test('buildBrokerWsUrl always derives broker sockets with wss from the login ser
     'wss://testbrokerbackend.orrnn.com/ws/v2',
   );
   assert.equal(
+    buildBrokerWsUrl('https://services.growtradingacademy.com', '/ws/v2', 'wss://fallback/ws/v2'),
+    'wss://services.growtradingacademy.com/ws/v2',
+  );
+  assert.equal(
     buildBrokerWsUrl('http://69.197.178.27:8090', '/ws/v2', 'wss://fallback/ws/v2'),
     'wss://fallback/ws/v2',
   );
@@ -115,20 +119,20 @@ test('buildBrokerWsUrl falls back only when no broker server url is saved', () =
 
 test('normalizeConfiguredWsUrl keeps configured websocket overrides safe for iOS', () => {
   assert.equal(
-    normalizeConfiguredWsUrl('ws://testbrokerbackend.orrnn.com/ws/feed', 'wss://fallback/ws/feed'),
-    'wss://testbrokerbackend.orrnn.com/ws/feed',
+    normalizeConfiguredWsUrl('ws://testbrokerbackend.orrnn.com/ws/v2', 'wss://fallback/ws/v2'),
+    'wss://testbrokerbackend.orrnn.com/ws/v2',
   );
   assert.equal(
     normalizeConfiguredWsUrl('http://testbrokerbackend.orrnn.com/ws/v2?token=***', 'wss://fallback/ws/v2'),
     'wss://testbrokerbackend.orrnn.com/ws/v2?token=***',
   );
   assert.equal(
-    normalizeConfiguredWsUrl('ws://69.197.178.27:8090/ws/feed', 'wss://fallback/ws/feed'),
-    'wss://fallback/ws/feed',
+    normalizeConfiguredWsUrl('ws://69.197.178.27:8090/ws/v2', 'wss://fallback/ws/v2'),
+    'wss://fallback/ws/v2',
   );
   assert.equal(
-    normalizeConfiguredWsUrl('', 'wss://fallback/ws/feed'),
-    'wss://fallback/ws/feed',
+    normalizeConfiguredWsUrl('', 'wss://fallback/ws/v2'),
+    'wss://fallback/ws/v2',
   );
 });
 

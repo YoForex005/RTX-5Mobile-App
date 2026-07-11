@@ -11,6 +11,7 @@ import { AppProviders } from '../src/state/providers/AppProviders';
 import { ErrorBoundary } from '../src/ui/components/ErrorBoundary';
 import { AppLogo } from '../src/ui/components/AppLogo';
 import { FastPressable } from '../src/ui/components/FastPressable';
+import { SidebarDrawer } from '../src/ui/components/SidebarDrawer';
 import { useUserPreferences } from '../src/state/userPreferences';
 import { useDeferredThemeMode, useIsDarkTheme } from '../src/state/themeMode';
 import { GDark, GLight } from '../src/ui/theme/glass';
@@ -83,7 +84,7 @@ function InnerLayout() {
   const sidebarHeaderScreenOptions = {
     animation: 'none',
   } as const;
-  const brokerFlowBackground = isDark ? T.bg : '#F3F6FA';
+  const brokerFlowBackground = T.bg;
   const brokerFlowScreenOptions = {
     headerShown: false,
     animation: 'none',
@@ -174,6 +175,7 @@ function InnerLayout() {
           <Stack.Screen name='settings/contact-developer' options={sidebarDetailScreenOptions} />
           <Stack.Screen name='settings/about' options={sidebarDetailScreenOptions} />
         </Stack>
+        <SidebarDrawer />
         </ThemeProvider>
       </WebIPhoneFrame>
     </>

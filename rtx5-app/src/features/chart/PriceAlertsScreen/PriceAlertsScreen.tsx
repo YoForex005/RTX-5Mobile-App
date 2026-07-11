@@ -178,7 +178,7 @@ export function PriceAlertsScreen() {
     [alerts],
   );
 
-  const screenBg = isDark ? T.bg : '#F1F5F9';
+  const screenBg = T.bg;
   const placeholderColor = isDark ? T.textFaint : '#94A3B8';
   const sectionIconColor = isDark ? T.textMuted : '#64748B';
 

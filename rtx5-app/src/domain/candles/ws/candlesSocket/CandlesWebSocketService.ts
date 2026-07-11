@@ -4,20 +4,17 @@
  * This service subscribes to backend candle messages and forwards valid
  * payloads into the canonical `liveCandlesEngine` stream.
  *
- * Authentication: the current `/ws/v2` public candle channels stream
- * anonymously. Account and trade realtime sockets handle authenticated data
- * separately; candle channels avoid attaching the user's API/feed token because
- * tokenized `/ws/v2` handshakes can be rejected by public candle backends.
+ * Authentication: candle channels use the same authenticated `/ws/v2` broker
+ * market socket as the webterminal.
  */
 
+import { brokerApi } from '../../../../api/brokerApi';
 import { liveCandleStream as liveCandlesEngine } from '../../stream/liveCandleStream';
 import {
-  appendCandleWsBrokerId,
   createCandleChannel,
   extractCandlePayloadContext,
   getCandlePayloadItems,
   hasBackendCandleShape,
-  resolveCandlesWsUrl,
 } from '../candlesSocketProtocol';
 import type { CandleStreamEvent } from '../../core/candles';
 import { normalizeSymbol, normalizeTimeframeStrict } from '../../core/candles';
@@ -33,8 +30,9 @@ export class CandlesWebSocketService {
   private static instance: CandlesWebSocketService;
 
   private ws: WebSocket | null = null;
-  private url = this.resolveSocketUrl();
+  private url = '';
   private activeBrokerId = '';
+  private isResolvingSocketUrl = false;
   private tokenWatcherUnsubscribe: (() => void) | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
@@ -55,35 +53,47 @@ export class CandlesWebSocketService {
     return CandlesWebSocketService.instance;
   }
 
-  private resolveSocketUrl(): string {
+  private async resolveSocketUrlAsync(): Promise<string> {
     const state = useUserPreferences.getState();
     if (!state.isLoggedIn) {
-      const configuredUrl = resolveCandlesWsUrl(process.env.EXPO_PUBLIC_CANDLES_WS_URL);
-      const hasConfiguredUrl = Boolean(process.env.EXPO_PUBLIC_CANDLES_WS_URL?.trim());
-      if (hasConfiguredUrl) {
-        return configuredUrl;
-      }
-      return resolveCandlesWsUrl(undefined);
+      return '';
     }
-    return resolveCandlesWsUrl(undefined, state.brokerServerUrl, { requireBrokerUrl: true });
+    return brokerApi.getWebSocketUrl();
   }
 
   /**
    * Establishes the WebSocket connection and resubscribes all active candle channels.
    */
   public connect(): void {
+    void this.connectAsync();
+  }
+
+  private async connectAsync(): Promise<void> {
     if (this.subscriptions.size === 0) {
+      return;
+    }
+    if (this.isResolvingSocketUrl) {
       return;
     }
 
     const brokerId = this.resolveConnectionBrokerId();
-    const nextUrl = this.resolveSocketUrl();
+    this.isResolvingSocketUrl = true;
+    let nextUrl = '';
+    try {
+      nextUrl = await this.resolveSocketUrlAsync();
+    } catch (error) {
+      this.isResolvingSocketUrl = false;
+      console.warn('[Candles WS] Failed to resolve broker candle websocket URL.', error);
+      this.scheduleReconnect();
+      return;
+    }
+    this.isResolvingSocketUrl = false;
     if (!nextUrl) {
       if (this.url !== nextUrl) {
         this.url = nextUrl;
         this.tearDownSocketSafe();
       }
-      console.warn('[Candles WS] No broker candle websocket URL available for logged-in session. Waiting for broker domain.');
+      console.warn('[Candles WS] Authenticated broker candle websocket unavailable. Waiting for broker session.');
       this.scheduleReconnect();
       return;
     }
@@ -119,7 +129,7 @@ export class CandlesWebSocketService {
 
     try {
       this.activeBrokerId = brokerId;
-      const wsUrl = appendCandleWsBrokerId(this.url, brokerId);
+      const wsUrl = this.url;
       this.ws = new WebSocket(wsUrl);
       this.ws.onopen = () => {
         this.isConnected = true;

@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  appendCandleWsBrokerId,
   createCandleChannel,
   extractCandlePayloadContext,
   getCandlePayloadItems,
@@ -11,21 +10,21 @@ import {
 } from './candlesSocketProtocol';
 import { normalizeLiveCandle } from '../normalization/candleNormalizer';
 
-test('resolveCandlesWsUrl upgrades stale quote-feed candle config to channel websocket', () => {
+test('resolveCandlesWsUrl resolves the broker candle channel websocket', () => {
   assert.equal(resolveCandlesWsUrl(undefined), 'wss://backend.orrnn.com/ws/v2');
   assert.equal(
-    resolveCandlesWsUrl('wss://backend.orrnn.com/ws/feed'),
+    resolveCandlesWsUrl('wss://backend.orrnn.com/ws/v2'),
     'wss://backend.orrnn.com/ws/v2',
   );
   assert.equal(
-    resolveCandlesWsUrl('wss://backend.orrnn.com/ws/feed?token=***'),
+    resolveCandlesWsUrl('wss://backend.orrnn.com/ws/v2?token=***'),
     'wss://backend.orrnn.com/ws/v2?token=***',
   );
 });
 
 test('resolveCandlesWsUrl keeps configured websocket overrides safe for iOS', () => {
   assert.equal(
-    resolveCandlesWsUrl('ws://testbrokerbackend.orrnn.com/ws/feed'),
+    resolveCandlesWsUrl('ws://testbrokerbackend.orrnn.com/ws/v2'),
     'wss://testbrokerbackend.orrnn.com/ws/v2',
   );
   assert.equal(
@@ -63,27 +62,6 @@ test('resolveCandlesWsUrl can require logged-in broker candle sockets without sh
     '',
   );
   assert.equal(resolveCandlesWsUrl(undefined, '', { requireBrokerUrl: true }), '');
-});
-
-test('appendCandleWsBrokerId appends selected broker identity without touching token auth', () => {
-  assert.equal(
-    appendCandleWsBrokerId('wss://services.myprop.trade/ws/v2', 'myprop-trade'),
-    'wss://services.myprop.trade/ws/v2?broker_id=myprop-trade',
-  );
-  assert.equal(
-    appendCandleWsBrokerId('wss://services.myprop.trade/ws/v2?token=***', 'myprop-trade'),
-    'wss://services.myprop.trade/ws/v2?token=***&broker_id=myprop-trade',
-  );
-});
-
-test('appendCandleWsBrokerId replaces stale broker identity on reconnect', () => {
-  assert.equal(
-    appendCandleWsBrokerId(
-      'wss://services.myprop.trade/ws/v2?broker_id=old&foo=1',
-      'myprop-trade',
-    ),
-    'wss://services.myprop.trade/ws/v2?foo=1&broker_id=myprop-trade',
-  );
 });
 
 test('resolveCandleWsTimeframe maps app timeframes to backend live-channel tokens', () => {

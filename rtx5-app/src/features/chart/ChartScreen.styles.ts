@@ -415,7 +415,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartTypeMenuOptionDivider: {
       borderBottomWidth: 1,
-      borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#E5E7EB',
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#E3E8F0',
     },
     chartTypeMenuOptionActive: {
       backgroundColor: isDark ? 'rgba(37,99,235,0.16)' : 'rgba(37,99,235,0.08)',
@@ -445,7 +445,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       borderBottomWidth: 0,
       borderBottomColor: 'transparent',
       borderTopWidth: 1,
-      borderTopColor: isDark ? 'rgba(255,255,255,0.05)' : '#E5E7EB',
+      borderTopColor: isDark ? 'rgba(255,255,255,0.05)' : '#E3E8F0',
     },
     chartMetaOverlay: {
       position: 'absolute' as any,

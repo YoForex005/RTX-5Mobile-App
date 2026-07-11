@@ -317,11 +317,21 @@ test('chart market execution submits selected sheet SL and TP levels', () => {
   assert.doesNotMatch(chartTradeResultSource, /setChartTradeConfirmations/);
 });
 
-test('chart header: OHLC values use fixed requested colors', () => {
+test('chart header: OHLC values use theme-aware neutral color plus fixed high low colors', () => {
   assertSourceContains(
     nativeSource,
-    /const CHART_OHLC_NEUTRAL_COLOR = '#FFFFFF'/,
-    'OHLC open and close must use fixed white text',
+    /const CHART_OHLC_NEUTRAL_DARK_COLOR = '#FFFFFF'/,
+    'OHLC open and close must stay white in dark theme',
+  );
+  assertSourceContains(
+    nativeSource,
+    /const CHART_OHLC_NEUTRAL_LIGHT_COLOR = '#0F172A'/,
+    'OHLC open and close must use readable dark text in light theme',
+  );
+  assertSourceContains(
+    nativeSource,
+    /const chartMetaNeutralColor = isDark \? CHART_OHLC_NEUTRAL_DARK_COLOR : CHART_OHLC_NEUTRAL_LIGHT_COLOR/,
+    'native OHLC neutral color must switch with the app theme',
   );
   assertSourceContains(
     nativeSource,
@@ -335,8 +345,8 @@ test('chart header: OHLC values use fixed requested colors', () => {
   );
   assertSourceContains(
     nativeSource,
-    /\{ label: 'O', value: formatChartValue\(chartMetaLastCandle\.open\), color: CHART_OHLC_NEUTRAL_COLOR \}/,
-    'O value must stay white regardless of candle direction',
+    /\{ label: 'O', value: formatChartValue\(chartMetaLastCandle\.open\), color: chartMetaNeutralColor \}/,
+    'O value must use the theme-aware neutral color',
   );
   assertSourceContains(
     nativeSource,
@@ -350,8 +360,8 @@ test('chart header: OHLC values use fixed requested colors', () => {
   );
   assertSourceContains(
     nativeSource,
-    /\{ label: 'C', value: formatChartValue\(chartMetaLastCandle\.close\), color: CHART_OHLC_NEUTRAL_COLOR \}/,
-    'C value must stay white regardless of candle direction',
+    /\{ label: 'C', value: formatChartValue\(chartMetaLastCandle\.close\), color: chartMetaNeutralColor \}/,
+    'C value must use the theme-aware neutral color',
   );
   assertSourceContains(
     nativeSource,
@@ -362,8 +372,23 @@ test('chart header: OHLC values use fixed requested colors', () => {
   assert.doesNotMatch(nativeSource, /chartMetaDirectionColor/);
   assertSourceContains(
     webSource,
-    /\{ label: 'O', value: formatChartValue\(chartMetaLastCandle\.open\), color: CHART_OHLC_NEUTRAL_COLOR \}/,
-    'web O value must stay white too',
+    /const CHART_OHLC_NEUTRAL_DARK_COLOR = '#FFFFFF'/,
+    'web OHLC open and close must stay white in dark theme',
+  );
+  assertSourceContains(
+    webSource,
+    /const CHART_OHLC_NEUTRAL_LIGHT_COLOR = '#0F172A'/,
+    'web OHLC open and close must use readable dark text in light theme',
+  );
+  assertSourceContains(
+    webSource,
+    /const chartMetaNeutralColor = isDark \? CHART_OHLC_NEUTRAL_DARK_COLOR : CHART_OHLC_NEUTRAL_LIGHT_COLOR/,
+    'web OHLC neutral color must switch with the app theme',
+  );
+  assertSourceContains(
+    webSource,
+    /\{ label: 'O', value: formatChartValue\(chartMetaLastCandle\.open\), color: chartMetaNeutralColor \}/,
+    'web O value must use the theme-aware neutral color',
   );
   assertSourceContains(
     webSource,
@@ -377,8 +402,8 @@ test('chart header: OHLC values use fixed requested colors', () => {
   );
   assertSourceContains(
     webSource,
-    /\{ label: 'C', value: formatChartValue\(chartMetaLastCandle\.close\), color: CHART_OHLC_NEUTRAL_COLOR \}/,
-    'web C value must stay white too',
+    /\{ label: 'C', value: formatChartValue\(chartMetaLastCandle\.close\), color: chartMetaNeutralColor \}/,
+    'web C value must use the theme-aware neutral color',
   );
   assertSourceContains(webSource, /\{ color: item\.color \}/, 'web OHLC value rendering must use the per-item color');
   assert.doesNotMatch(webSource, /chartMetaIsUp \? resolvedChartColors\.candlesUptrend/);

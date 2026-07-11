@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  buildCandleFeedSubscriptionMessages,
+  buildCandleChannelSubscriptionMessages,
   createCandleFeedSubscription,
 } from './candleSubscriptions';
 import {
@@ -10,7 +10,7 @@ import {
   toRestCandleTf,
 } from '../../../domain/candles/core/candles';
 
-test('toBridgeCandleTf maps app timeframes to /ws/feed bridge candle keys', () => {
+test('toBridgeCandleTf maps app timeframes to broker websocket candle keys', () => {
   assert.equal(toBridgeCandleTf('M1'), '1m');
   assert.equal(toBridgeCandleTf('M5'), '5m');
   assert.equal(toBridgeCandleTf('M15'), '15m');
@@ -30,7 +30,7 @@ test('toRestCandleTf keeps REST candle requests on app timeframe labels', () => 
   assert.equal(toRestCandleTf('MN1'), 'MN');
 });
 
-test('candle feed subscriptions send subscribe_candles with bridge timeframe keys', () => {
+test('candle subscriptions send v2 channel messages with bridge timeframe keys', () => {
   const eurUsd = createCandleFeedSubscription('EURUSD', 'M1');
   const xauUsd = createCandleFeedSubscription('XAUUSD', '1m');
   const btcUsd = createCandleFeedSubscription('BTCUSD', 'D1');
@@ -39,10 +39,10 @@ test('candle feed subscriptions send subscribe_candles with bridge timeframe key
   assert.ok(xauUsd);
   assert.ok(btcUsd);
   assert.deepEqual(
-    buildCandleFeedSubscriptionMessages('subscribe_candles', [eurUsd, xauUsd, btcUsd]),
+    buildCandleChannelSubscriptionMessages('subscribe', [eurUsd, xauUsd, btcUsd]),
     [
-      { type: 'subscribe_candles', symbols: ['EURUSD', 'XAUUSD'], tf: '1m' },
-      { type: 'subscribe_candles', symbols: ['BTCUSD'], tf: '1d' },
+      { action: 'subscribe', channels: ['candles.EURUSD.1m', 'candles.XAUUSD.1m'] },
+      { action: 'subscribe', channels: ['candles.BTCUSD.1d'] },
     ],
   );
 });

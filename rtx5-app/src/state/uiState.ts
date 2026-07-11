@@ -3,6 +3,7 @@
  */
 
 import React from 'react';
+import type { TextStyle } from 'react-native';
 import { create } from 'zustand';
 import type { ChartDrawingKind } from '../features/chart/drawingPersistence';
 
@@ -20,6 +21,10 @@ type ActionSheetAction = {
   muted?: boolean;
   /** If true, styles the button as a destructive/danger action */
   danger?: boolean;
+  /** Optional override for the primary label color */
+  textColor?: string;
+  /** Optional override for the primary label font weight */
+  textFontWeight?: TextStyle['fontWeight'];
   /** If true, the action appears greyed-out and is not interactive */
   disabled?: boolean;
   /** If true, fires on press-in for tiny non-scroll action groups */

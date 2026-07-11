@@ -10,27 +10,8 @@
 import { AppState, NativeEventSubscription } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 
-import {
-  buildBrokerWsUrl,
-  normalizeBrokerServerUrl,
-  normalizeConfiguredWsUrl,
-  shouldUseBrokerHostedQuoteFeed,
-} from '../../brokerRouting';
-import {
-  appendFeedAuthToWsUrl,
-  redactFeedAuthFromWsUrl,
-  resolveConfiguredFeedBrokerId,
-  resolveConfiguredFeedBrokerTokenForBroker,
-  stripFeedAuthQueryFromWsUrl,
-} from '../../feedAuth';
-import {
-  ACTIVE_BROKER_ID_KEY,
-  ACTIVE_BROKER_LOGO_URL_KEY,
-  ACTIVE_BROKER_SERVER_URL_KEY,
-  getStoredFeedBrokerToken,
-} from '../../../state/brokerSessionStorage';
+import { brokerApi } from '../../brokerApi';
 import { useUserPreferences } from '../../../state/userPreferences';
-import { getSecureItemAsync } from '../../../utils/secureStorage';
 import { recordUiFeedGap } from '../../../dev/uiInteractionDiagnostics';
 import {
   applyQuoteSubscriptionDelta,
@@ -51,7 +32,7 @@ import {
   type TickProcessorBridge,
 } from './tickProcessor';
 import {
-  buildCandleFeedSubscriptionMessages,
+  buildCandleChannelSubscriptionMessages,
   createCandleFeedSubscription,
   type CandleFeedSubscription,
 } from './candleSubscriptions';
@@ -67,10 +48,9 @@ const QUOTE_WS_RECONNECT_COOLDOWN_MS = 10_000;
 const QUOTE_WS_SILENT_STALE_MS = 8_000;
 const QUOTE_WS_WATCHDOG_INTERVAL_MS = 3_000;
 const QUOTE_WS_INTERACTION_RECONNECT_DEFER_MS = 2_500;
-const DEFAULT_QUOTES_WS_URL = 'wss://backend.orrnn.com/ws/feed';
-const BROKER_FEED_AUTH_FAILURE_CLOSE_CODES = new Set([1008, 4001]);
+const BROKER_MARKET_AUTH_FAILURE_CLOSE_CODES = new Set([1008, 4001]);
 
-type BrokerFeedBlockReason = 'broker_domain' | 'broker_id' | null;
+type BrokerMarketBlockReason = 'logged_out' | 'auth_session' | 'broker_domain' | null;
 
 const resolveQuoteListenerKeys = (symbol: string): string[] => {
   const rawKey = normalizeQuoteSymbolKey(symbol);
@@ -94,6 +74,18 @@ const extractSymbolList = (value: unknown): string[] => {
   return symbol ? [symbol] : [];
 };
 
+const redactMarketSocketUrl = (url: string): string =>
+  url.replace(/([?&]token=)[^&]*/i, '$1***');
+
+const createTickChannel = (symbol: string): string => `ticks.${symbol}`;
+
+const extractSymbolFromTickChannel = (channel: string): string => {
+  const trimmed = channel.trim();
+  return trimmed.toLowerCase().startsWith('ticks.')
+    ? trimmed.slice('ticks.'.length).trim()
+    : '';
+};
+
 const extractSubscriptionAck = (
   payload: unknown,
 ): { type: 'subscribed' | 'unsubscribed'; symbols: string[] } | null => {
@@ -108,13 +100,16 @@ const extractSubscriptionAck = (
   }
 
   const symbols = extractSymbolList(record.symbols).concat(extractSymbolList(record.symbol));
+  const channels = extractSymbolList(record.channels).concat(extractSymbolList(record.channel));
+  const channelSymbols = channels.map(extractSymbolFromTickChannel).filter(Boolean);
+  symbols.push(...channelSymbols);
   return symbols.length > 0 ? { type, symbols } : null;
 };
 
 export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelineState {
   private static instance: QuotesWebSocketService;
   private ws: WebSocket | null = null;
-  private url = this.resolveSocketUrl();
+  private url = '';
   private reconnectAttempts = 0;
   private maxReconnectAttempts = QUOTE_WS_MAX_RECONNECT_ATTEMPTS;
   private reconnectDelay = QUOTE_WS_RECONNECT_BASE_DELAY_MS;
@@ -122,7 +117,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   private isConnected = false;
   private shouldReconnect = false;
   private isResolvingSocketUrl = false;
-  private pendingBrokerFeedBlockReason: BrokerFeedBlockReason = null;
+  private pendingBrokerMarketBlockReason: BrokerMarketBlockReason = null;
 
   private activeSymbols: Set<string> = new Set();
   private sentSymbols: Set<string> = new Set();
@@ -214,139 +209,47 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     return Math.max(0, this.reconnectDeferredUntil - now);
   }
 
-  private resolveLoggedOutSocketUrl(): string {
-    const configuredUrl = normalizeConfiguredWsUrl(process.env.EXPO_PUBLIC_QUOTES_WS_URL, '');
-    return configuredUrl || DEFAULT_QUOTES_WS_URL;
-  }
-
-  private resolveSocketUrl(): string {
-    const state = useUserPreferences.getState();
-    if (!state.isLoggedIn) {
-      return this.resolveLoggedOutSocketUrl();
-    }
-
-    return this.resolveAuthenticatedBrokerSocketUrl(
-      state.brokerServerUrl,
-      state.brokerId,
-      resolveConfiguredFeedBrokerTokenForBroker(state.brokerId),
-    );
-  }
-
   private async resolveSocketUrlAsync(): Promise<string> {
     const state = useUserPreferences.getState();
     if (!state.isLoggedIn) {
-      return this.resolveLoggedOutSocketUrl();
-    }
-
-    const [storedBrokerId, storedServerUrl, storedLogoUrl, storedFeedToken] = await Promise.all([
-      getSecureItemAsync(ACTIVE_BROKER_ID_KEY).catch(() => ''),
-      getSecureItemAsync(ACTIVE_BROKER_SERVER_URL_KEY).catch(() => ''),
-      getSecureItemAsync(ACTIVE_BROKER_LOGO_URL_KEY).catch(() => ''),
-      getStoredFeedBrokerToken(),
-    ]);
-
-    const latestState = useUserPreferences.getState();
-    if (!latestState.isLoggedIn) {
-      return this.resolveLoggedOutSocketUrl();
-    }
-
-    const brokerId = latestState.brokerId || state.brokerId || storedBrokerId || '';
-    const serverUrl = latestState.brokerServerUrl || state.brokerServerUrl || storedServerUrl || '';
-    const feedToken = resolveConfiguredFeedBrokerTokenForBroker(brokerId) || storedFeedToken || '';
-
-    if (serverUrl && !latestState.brokerServerUrl) {
-      latestState.setBrokerConnection(
-        brokerId,
-        serverUrl,
-        latestState.brokerLogoUrl || storedLogoUrl || '',
-      );
-    }
-
-    return this.resolveAuthenticatedBrokerSocketUrl(serverUrl, brokerId, feedToken);
-  }
-
-  private resolveBrokerSocketUrl(
-    serverUrl?: string | null,
-    options: { requireBrokerUrl?: boolean } = {},
-  ): string {
-    const requireBrokerUrl = Boolean(options.requireBrokerUrl);
-    if (!shouldUseBrokerHostedQuoteFeed(serverUrl)) {
-      return requireBrokerUrl ? '' : DEFAULT_QUOTES_WS_URL;
-    }
-
-    const normalizedServerUrl = normalizeBrokerServerUrl(serverUrl);
-    const brokerSocketUrl = buildBrokerWsUrl(
-      normalizedServerUrl,
-      '/ws/feed',
-      requireBrokerUrl ? '' : DEFAULT_QUOTES_WS_URL,
-    );
-    return brokerSocketUrl;
-  }
-
-  private resolveAuthenticatedBrokerSocketUrl(
-    serverUrl?: string | null,
-    brokerId?: string | null,
-    feedToken?: string | null,
-  ): string {
-    this.pendingBrokerFeedBlockReason = null;
-    const baseUrl = this.resolveBrokerSocketUrl(serverUrl, { requireBrokerUrl: true });
-    if (!baseUrl) {
-      this.pendingBrokerFeedBlockReason = 'broker_domain';
+      this.pendingBrokerMarketBlockReason = 'logged_out';
       return '';
     }
 
-    const resolvedBrokerId = String(brokerId || resolveConfiguredFeedBrokerId() || '').trim();
-    const resolvedFeedToken = String(
-      feedToken || resolveConfiguredFeedBrokerTokenForBroker(resolvedBrokerId) || '',
-    ).trim();
-    if (!resolvedBrokerId) {
-      this.pendingBrokerFeedBlockReason = 'broker_id';
-      return '';
+    try {
+      const socketUrl = await brokerApi.getWebSocketUrl();
+      this.pendingBrokerMarketBlockReason = null;
+      return socketUrl;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error ?? '');
+      this.pendingBrokerMarketBlockReason = /domain is missing|domain unavailable|backend domain/i.test(message)
+        ? 'broker_domain'
+        : 'auth_session';
+      throw error;
     }
-
-    return appendFeedAuthToWsUrl(baseUrl, resolvedBrokerId, resolvedFeedToken);
   }
 
-  private shouldStayOnBrokerQuoteFeed(socketUrl: string): boolean {
+  private shouldStayOnBrokerMarketSocket(socketUrl: string): boolean {
     const state = useUserPreferences.getState();
     if (!state.isLoggedIn) {
       return false;
     }
 
-    const brokerSocketUrl = this.resolveBrokerSocketUrl(state.brokerServerUrl, {
-      requireBrokerUrl: true,
-    });
-    return Boolean(brokerSocketUrl && stripFeedAuthQueryFromWsUrl(socketUrl) === brokerSocketUrl);
+    return /\/ws\/v2(?:\?|$)/.test(socketUrl);
   }
 
   private markBrokerSocketUnavailable(socketUrl: string, reason: string): boolean {
-    if (this.shouldStayOnBrokerQuoteFeed(socketUrl)) {
+    if (this.shouldStayOnBrokerMarketSocket(socketUrl)) {
       console.warn(
-        `[Quotes WS] Broker quote feed unavailable (${reason}). Staying on broker feed.`,
-        { socketUrl: redactFeedAuthFromWsUrl(socketUrl) },
+        `[Quotes WS] Broker market socket unavailable (${reason}). Retrying broker /ws/v2 socket.`,
+        { socketUrl: redactMarketSocketUrl(socketUrl) },
       );
       this.clearReconnectTimer();
       this.teardownSocket(false);
       this.attemptReconnect();
       return true;
     }
-
-    if (
-      process.env.EXPO_PUBLIC_QUOTES_WS_URL ||
-      socketUrl === DEFAULT_QUOTES_WS_URL
-    ) {
-      return false;
-    }
-
-    console.warn(
-      `[Quotes WS] Broker quote feed unavailable (${reason}). Retrying broker feed.`,
-      { socketUrl: redactFeedAuthFromWsUrl(socketUrl) },
-    );
-    this.reconnectAttempts = 0;
-    this.clearReconnectTimer();
-    this.teardownSocket(false);
-    this.scheduleReconnect(250);
-    return true;
+    return false;
   }
 
   public addTickListener(listener: GlobalTickListener): void {
@@ -490,11 +393,13 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
         this.url = nextUrl;
         this.teardownSocket();
       }
-      const reason = this.pendingBrokerFeedBlockReason;
+      const reason = this.pendingBrokerMarketBlockReason;
       console.warn(
-        reason === 'broker_id'
-          ? '[Quotes WS] Broker quote feed broker_id unavailable. Deferring connect until broker_id is available.'
-          : '[Quotes WS] No broker quote feed URL available for logged-in session. Waiting for broker domain.',
+        reason === 'logged_out'
+          ? '[Quotes WS] Market data requires a logged-in broker session. Skipping public feed fallback.'
+          : reason === 'auth_session'
+            ? '[Quotes WS] Authenticated broker market socket unavailable. Waiting for a valid access token.'
+            : '[Quotes WS] No broker market /ws/v2 URL available for logged-in session. Waiting for broker domain.',
       );
       this.attemptReconnect();
       return;
@@ -516,7 +421,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
 
       this.ws.onopen = () => {
         didOpen = true;
-        console.log('[Quotes WS] Connected to', redactFeedAuthFromWsUrl(socketUrl));
+        console.log('[Quotes WS] Connected to', redactMarketSocketUrl(socketUrl));
         this.isConnected = true;
         this.reconnectAttempts = 0;
         this.lastMessageAt = Date.now();
@@ -551,10 +456,10 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       };
 
       this.ws.onclose = (event) => {
-        if (this.isBrokerFeedAuthFailure(socketUrl, event?.code)) {
-          console.warn('[Quotes WS] Broker quote feed auth rejected. Stopping reconnect until a fresh token is available.', {
+        if (this.isBrokerMarketAuthFailure(socketUrl, event?.code)) {
+          console.warn('[Quotes WS] Broker market socket auth rejected. Stopping reconnect until a fresh token is available.', {
             code: event?.code,
-            socketUrl: redactFeedAuthFromWsUrl(socketUrl),
+            socketUrl: redactMarketSocketUrl(socketUrl),
           });
           this.shouldReconnect = false;
           this.reconnectAttempts = 0;
@@ -583,11 +488,11 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     }
   }
 
-  private isBrokerFeedAuthFailure(socketUrl: string, code: number | undefined): boolean {
+  private isBrokerMarketAuthFailure(socketUrl: string, code: number | undefined): boolean {
     return (
       typeof code === 'number' &&
-      BROKER_FEED_AUTH_FAILURE_CLOSE_CODES.has(code) &&
-      this.shouldStayOnBrokerQuoteFeed(socketUrl)
+      BROKER_MARKET_AUTH_FAILURE_CLOSE_CODES.has(code) &&
+      this.shouldStayOnBrokerMarketSocket(socketUrl)
     );
   }
 
@@ -631,8 +536,8 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       const staleFor = Date.now() - this.lastMessageAt;
       if (staleFor > QUOTE_WS_SILENT_STALE_MS) {
         const socketUrl = this.url;
-        // In logged-in broker mode, reconnect only to the selected broker feed
-        // so mobile stays in parity with the web terminal's data source.
+        // In logged-in broker mode, reconnect only to the selected broker
+        // /ws/v2 market socket so mobile stays in parity with the web terminal.
         if (this.markBrokerSocketUnavailable(socketUrl, 'silent after open')) {
           return;
         }
@@ -701,7 +606,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       (this.candleConsumerCounts.get(subscription.key) ?? 0) + 1,
     );
     this.activeCandleSubscriptions.set(subscription.key, subscription);
-    this.logCandleFeed('subscribe_candles_requested', {
+    this.logCandleFeed('subscribe_candle_channels_requested', {
       symbol: subscription.symbol,
       tf: subscription.tf,
       bridgeTf: subscription.bridgeTf,
@@ -803,7 +708,10 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     const unsubscribeSymbols = Array.from(this.sentSymbols).filter((symbol) => !nextDesiredSymbols.has(symbol));
 
     if (unsubscribeSymbols.length > 0) {
-      this.send({ type: 'unsubscribe', symbols: unsubscribeSymbols });
+      this.send({
+        action: 'unsubscribe',
+        channels: unsubscribeSymbols.map(createTickChannel),
+      });
       unsubscribeSymbols.forEach((symbol) => {
         this.sentSymbols.delete(symbol);
         this.confirmedSymbols.delete(symbol);
@@ -814,7 +722,10 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     }
 
     if (subscribeSymbols.length > 0) {
-      this.send({ type: 'subscribe', symbols: subscribeSymbols });
+      this.send({
+        action: 'subscribe',
+        channels: subscribeSymbols.map(createTickChannel),
+      });
       subscribeSymbols.forEach((symbol) => {
         this.sentSymbols.add(symbol);
         this.pendingUnsubscribeSymbols.delete(symbol);
@@ -832,22 +743,20 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       .filter(([key]) => !this.sentCandleSubscriptions.has(key))
       .map(([, subscription]) => subscription);
 
-    for (const message of buildCandleFeedSubscriptionMessages('unsubscribe_candles', unsubscribeSubscriptions)) {
+    for (const message of buildCandleChannelSubscriptionMessages('unsubscribe', unsubscribeSubscriptions)) {
       this.send(message);
-      this.logCandleFeed('unsubscribe_candles_diff_sent', {
-        symbols: message.symbols,
-        tf: message.tf,
+      this.logCandleFeed('unsubscribe_candle_channels_diff_sent', {
+        channels: message.channels,
       }, 20);
     }
     unsubscribeSubscriptions.forEach((subscription) => {
       this.sentCandleSubscriptions.delete(subscription.key);
     });
 
-    for (const message of buildCandleFeedSubscriptionMessages('subscribe_candles', subscribeSubscriptions)) {
+    for (const message of buildCandleChannelSubscriptionMessages('subscribe', subscribeSubscriptions)) {
       this.send(message);
-      this.logCandleFeed('subscribe_candles_diff_sent', {
-        symbols: message.symbols,
-        tf: message.tf,
+      this.logCandleFeed('subscribe_candle_channels_diff_sent', {
+        channels: message.channels,
       }, 20);
     }
     subscribeSubscriptions.forEach((subscription) => {

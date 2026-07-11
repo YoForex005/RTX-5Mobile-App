@@ -13,10 +13,10 @@ import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../../ui/components/Screen';
+import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useUIState } from '../../../state/uiState';
 import { useTheme } from '../../../ui/theme/useTheme';
-import { SidebarDrawer } from '../../../ui/components/SidebarDrawer';
 import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../../ui/components/sidebarDrawerController';
 import {
   fetchEconomicCalendarData,
@@ -34,13 +34,16 @@ import {
 } from './eventHelpers';
 import { CountryBadge, PulseDot } from './subComponents';
 import { makeEconomicCalendarStyles } from './styles';
+import { useNextFrameValue } from '../../../hooks/useNextFrameValue';
+
+const ECON_CALENDAR_IDLE_PREWARM_DELAY_MS = 6000;
 
 /**
  * Screen displaying a calendar of upcoming global macroeconomic events and their expected market impact.
  */
-export function EconomicCalendarScreen() {
+export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
+  const routeBodyReady = useDeferredRouteContentReady(0, isScreenFocused);
   const T = useTheme();
-  const isScreenFocused = useIsFocused();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeEconomicCalendarStyles(T, isDark), [T, isDark]);
   const insets = useSafeAreaInsets();
@@ -60,6 +63,24 @@ export function EconomicCalendarScreen() {
   useEffect(() => {
     dataEventsCountRef.current = dataEvents.length;
   }, [dataEvents.length]);
+
+  useEffect(() => {
+    // MT5-parity prewarm: this shell stays mounted (inactive) in the sidebar
+    // destination host from boot. Replace the generated-fallback cache with
+    // LIVE events once during idle boot time so the FIRST sidebar visit
+    // reveals real rows instead of kicking off a ~1s fetch on focus. The
+    // fetch itself serves from the fresh cache when live data already exists.
+    const prewarmTimer = setTimeout(() => {
+      fetchEconomicCalendarData().then((data) => {
+        if (data.length > 0) {
+          dataEventsCountRef.current = data.length;
+          setDataEvents(data);
+          setFetchError(false);
+        }
+      }).catch(() => undefined);
+    }, ECON_CALENDAR_IDLE_PREWARM_DELAY_MS);
+    return () => clearTimeout(prewarmTimer);
+  }, []);
 
   const loadData = useCallback(() => {
     fetchEconomicCalendarData().then((data) => {
@@ -344,7 +365,7 @@ export function EconomicCalendarScreen() {
         </View>
       </View>
 
-      <ScrollView
+      {routeBodyReady ? <ScrollView
         keyboardShouldPersistTaps="always"
         canCancelContentTouches={Platform.OS === 'ios'} style={styles.scroll} contentContainerStyle={[styles.content, { paddingTop: 20 }]} showsVerticalScrollIndicator={false}>
 
@@ -393,7 +414,7 @@ export function EconomicCalendarScreen() {
         )}
 
         <View style={{ height: 36 }} />
-      </ScrollView>
+      </ScrollView> : <View style={styles.scroll} />}
 
       {filterModalOpen && (
         <Pressable style={styles.modalOverlay} onPress={() => setFilterModalOpen(false)}>
@@ -442,7 +463,12 @@ export function EconomicCalendarScreen() {
           </Pressable>
         </Pressable>
       )}
-      <SidebarDrawer />
     </Screen>
   );
+});
+
+export function EconomicCalendarScreen() {
+  const isScreenFocused = useIsFocused();
+  const deferredScreenFocused = useNextFrameValue(isScreenFocused);
+  return <EconomicCalendarScreenInner isScreenFocused={deferredScreenFocused} />;
 }

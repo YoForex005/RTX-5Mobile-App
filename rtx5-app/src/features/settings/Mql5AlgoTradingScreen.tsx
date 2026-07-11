@@ -1727,7 +1727,7 @@ function withAlpha(color: string, alpha: number): string {
 function getAlgoScreenGradient(isDark: boolean): readonly [string, string, string] {
   return isDark
     ? ['#121212', '#121212', '#121212']
-    : ['#F5F8FC', '#F5F8FC', '#F5F8FC'];
+    : ['#F2F4F8', '#F2F4F8', '#F2F4F8'];
 }
 
 function getAccountCardGradient(accountConnected: boolean, isDark: boolean): readonly [string, string] {

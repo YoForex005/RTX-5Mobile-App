@@ -105,14 +105,21 @@ function scheduleDeferredFrameWork(frameCount: number, action: () => void) {
   };
 }
 
-export function useDeferredRouteContentReady(delayMs = ROUTE_HEAVY_CONTENT_DELAY_MS) {
+export function useDeferredRouteContentReady(
+  delayMs = ROUTE_HEAVY_CONTENT_DELAY_MS,
+  active = true,
+) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    // Eager hidden routes keep only their lightweight real header mounted.
+    // Once focused, their body becomes ready and stays mounted for later taps.
+    if (!active || ready) {
+      return undefined;
+    }
+
     let cancelled = false;
     let cancelFrameWork: (() => void) | null = null;
-
-    setReady(false);
 
     const markReady = () => {
       cancelFrameWork = scheduleDeferredFrameWork(2, () => {
@@ -134,7 +141,7 @@ export function useDeferredRouteContentReady(delayMs = ROUTE_HEAVY_CONTENT_DELAY
       }
       cancelFrameWork?.();
     };
-  }, [delayMs]);
+  }, [active, delayMs, ready]);
 
   return ready;
 }

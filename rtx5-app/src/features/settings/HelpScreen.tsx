@@ -5,16 +5,18 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useMemo, useState } from 'react';
+import { useIsFocused } from '@react-navigation/native';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { Platform, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsDarkTheme } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
 import { FastPressable } from '../../ui/components/FastPressable';
+import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import { Screen } from '../../ui/components/Screen';
-import { SidebarDrawer } from '../../ui/components/SidebarDrawer';
 import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../ui/components/sidebarDrawerController';
 import { useTheme } from '../../ui/theme/useTheme';
+import { useNextFrameValue } from '../../hooks/useNextFrameValue';
 import { makeHelpStyles, type HelpStyles } from './HelpScreen.styles';
 import {
   HELP_CATEGORY_FILTERS,
@@ -28,7 +30,7 @@ import {
 /**
  * Provides support resources, FAQs, and contact methods for users needing assistance.
  */
-export function HelpScreen() {
+export const HelpScreenInner = memo(function HelpScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
   const insets = useSafeAreaInsets();
   const isDark = useIsDarkTheme();
   const T = useTheme();
@@ -37,6 +39,7 @@ export function HelpScreen() {
   const [selectedCategory, setSelectedCategory] = useState<HelpFaqCategory>('All');
   const [faqQuery, setFaqQuery] = useState('');
   const [expandedFaqId, setExpandedFaqId] = useState<string>('connect-account');
+  const routeBodyReady = useDeferredRouteContentReady(0, isScreenFocused);
   const categoryCounts = useMemo(() => getHelpCategoryCounts(), []);
   const visibleFaqItems = useMemo(
     () => selectHelpFaqItems({ category: selectedCategory, query: faqQuery }),
@@ -99,7 +102,7 @@ export function HelpScreen() {
         <Text style={styles.headerTitle} numberOfLines={1}>Help</Text>
       </View>
 
-      <ScrollView
+      {routeBodyReady ? <ScrollView
         keyboardShouldPersistTaps="always"
         canCancelContentTouches={Platform.OS === 'ios'}
         style={styles.scroll}
@@ -208,11 +211,16 @@ export function HelpScreen() {
             </View>
           )}
         </View>
-      </ScrollView>
+      </ScrollView> : <View style={styles.scroll} />}
 
-      <SidebarDrawer />
     </Screen>
   );
+});
+
+export function HelpScreen() {
+  const isScreenFocused = useIsFocused();
+  const deferredScreenFocused = useNextFrameValue(isScreenFocused);
+  return <HelpScreenInner isScreenFocused={deferredScreenFocused} />;
 }
 
 /**

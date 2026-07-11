@@ -1,18 +1,29 @@
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import type { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
+import type { NavigationHelpers, ParamListBase } from '@react-navigation/native';
 import { PlatformPressable } from '@react-navigation/elements';
-import { Tabs, usePathname, useRouter } from 'expo-router';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname, useRouter } from 'expo-router';
+import { memo, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { View, StyleSheet, Text, useWindowDimensions, type GestureResponderEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUIState } from '../../src/state/uiState';
 import { ActionSheet } from '../../src/ui/components/ActionSheet';
-import { SidebarDrawer } from '../../src/ui/components/SidebarDrawer';
 import { useThemeMode } from '../../src/state/themeMode';
 import { GDark, GLight } from '../../src/ui/theme/glass';
 import { useTranslation } from '../../src/i18n/useTranslation';
 import { warmActionRoutes } from '../../src/utils/actionRouteWarmup';
 import { resolveBottomTabBarHeight } from '../../src/ui/layout/bottomTabBar';
+import {
+  registerSidebarTabNavigationHandler,
+  type SidebarMountedTabPath,
+} from '../../src/ui/components/sidebarDrawerController';
+import { SidebarDestinationHost } from '../../src/ui/components/SidebarDestinationHost';
+import { hideSidebarDestination } from '../../src/ui/components/sidebarDestinationHostController';
+import { FastTabs as Tabs } from '../../src/ui/navigation/FastTabNavigator';
+import {
+  scheduleFastTabNavigation,
+  showFastTabVisual,
+} from '../../src/ui/navigation/fastTabVisualController';
 
 const icons = {
   quotes: 'swap-vertical-outline',
@@ -21,39 +32,21 @@ const icons = {
   settings: 'settings-outline',
 } as const;
 
-const tabPaths = {
-  quotes: '/quotes',
-  chart: '/chart',
-  trade: '/trade',
-  history: '/history',
-  settings: '/settings',
-} as const;
-
-type BottomTabName = keyof typeof tabPaths;
-
 const TAB_SWITCH_MAX_LATENCY_MS = 20;
 const STALE_TAB_SWITCH_SAMPLE_MS = 5000;
+const TAB_PRESS_DEDUP_WINDOW_MS = 1500;
+const recentTabPresses = new Map<string, number>();
 type TabPressEvent = Parameters<NonNullable<BottomTabBarButtonProps['onPress']>>[0];
 type TabPressInEvent = Parameters<NonNullable<BottomTabBarButtonProps['onPressIn']>>[0];
 type TabTouchEvent = GestureResponderEvent;
 type FastTabBarButtonProps = BottomTabBarButtonProps & {
   latencyLabel?: string;
-  onNavigateStart?: () => void;
 };
 
 const getNow = () =>
   typeof globalThis.performance?.now === 'function'
     ? globalThis.performance.now()
     : Date.now();
-
-const isBottomTabName = (value: string): value is BottomTabName =>
-  Object.prototype.hasOwnProperty.call(tabPaths, value);
-
-function resolveBottomTabName(pathname: string): BottomTabName {
-  const normalizedPathname = pathname.replace(/^\/\(tabs\)/, '');
-  const segment = normalizedPathname.split('/').filter(Boolean)[0];
-  return segment && isBottomTabName(segment) ? segment : 'quotes';
-}
 
 function scheduleTabSwitchBudgetCheck(label: string, startedAtMs: number, navigationFinishedAtMs: number) {
   if (typeof __DEV__ === 'undefined' || !__DEV__) {
@@ -72,6 +65,7 @@ function scheduleTabSwitchBudgetCheck(label: string, startedAtMs: number, naviga
     if (elapsedMs > STALE_TAB_SWITCH_SAMPLE_MS) {
       return;
     }
+    console.info(`[TabTiming] ${label} first frame ${Math.round(elapsedMs)}ms`);
     if (elapsedMs > TAB_SWITCH_MAX_LATENCY_MS) {
       const navigationMs = Math.max(0, navigationFinishedAtMs - startedAtMs);
       console.warn(
@@ -87,38 +81,52 @@ function scheduleTabSwitchBudgetCheck(label: string, startedAtMs: number, naviga
  */
 const FastTabBarButton = memo(function FastTabBarButton({
   latencyLabel = 'bottom tab',
-  onNavigateStart,
   onPress,
   onPressIn,
   onPressOut,
   ...props
 }: FastTabBarButtonProps) {
   const pressStartedAtRef = useRef<number | null>(null);
-
-  const primeTabNavigation = useCallback(() => {
-    onNavigateStart?.();
-  }, [onNavigateStart]);
+  const handledOnPressInRef = useRef(false);
 
   const runTabPress = useCallback((event: TabPressEvent) => {
     const startedAtMs = pressStartedAtRef.current ?? getNow();
     pressStartedAtRef.current = null;
+    const lastHandledAtMs = recentTabPresses.get(latencyLabel);
+    if (lastHandledAtMs !== undefined && startedAtMs - lastHandledAtMs < TAB_PRESS_DEDUP_WINDOW_MS) {
+      return;
+    }
+    recentTabPresses.set(latencyLabel, startedAtMs);
     useUIState.getState().hideActionSheet();
-    onPress?.(event);
+    const visualRevision = showFastTabVisual(latencyLabel);
+    (event as TabPressEvent & { persist?: () => void }).persist?.();
+    if (visualRevision !== null) {
+      scheduleFastTabNavigation(visualRevision, () => onPress?.(event));
+    } else {
+      onPress?.(event);
+    }
     scheduleTabSwitchBudgetCheck(latencyLabel, startedAtMs, getNow());
   }, [latencyLabel, onPress]);
 
   const handleTouchStart = useCallback((_event: TabTouchEvent) => {
+    handledOnPressInRef.current = false;
     pressStartedAtRef.current = getNow();
-    primeTabNavigation();
-  }, [primeTabNavigation]);
+  }, []);
 
   const handlePressIn = useCallback((event: TabPressInEvent) => {
     pressStartedAtRef.current = pressStartedAtRef.current ?? getNow();
-    primeTabNavigation();
     onPressIn?.(event);
-  }, [onPressIn, primeTabNavigation]);
+    if (onPress && !handledOnPressInRef.current) {
+      handledOnPressInRef.current = true;
+      runTabPress(event as TabPressEvent);
+    }
+  }, [onPress, onPressIn, runTabPress]);
 
   const handlePress: NonNullable<BottomTabBarButtonProps['onPress']> = useCallback((event) => {
+    if (handledOnPressInRef.current) {
+      handledOnPressInRef.current = false;
+      return;
+    }
     runTabPress(event);
   }, [runTabPress]);
 
@@ -188,10 +196,60 @@ const GlobalActionSheetHost = memo(function GlobalActionSheetHost() {
   );
 });
 
+function SidebarTabNavigationRegistrar({
+  children,
+  navigation,
+}: {
+  children: ReactNode;
+  navigation: NavigationHelpers<ParamListBase>;
+}) {
+  useEffect(() => registerSidebarTabNavigationHandler((path: SidebarMountedTabPath) => {
+    navigation.navigate(path.slice(1));
+  }), [navigation]);
+
+  return <>{children}</>;
+}
+
+// Thin wrapper: derive the tab-bar inputs from the path here so the memoized
+// navigator below does not reconcile on every route change. Pushing a sidebar
+// detail over an already-active detail keeps both props stable, so the whole
+// Tabs subtree (5 mounted screens) skips reconciliation on those navigations.
 /**
  * Main navigator configuring the bottom tab/menu bar. Handles routing between primary sections (Quotes, Chart, Trade, History, Settings).
  */
 export default function TabsLayout() {
+  const pathname = usePathname();
+  const previousPathRef = useRef(pathname);
+  const isChartTab = pathname === '/chart' || pathname.startsWith('/chart');
+
+  useEffect(() => {
+    if (previousPathRef.current !== pathname) {
+      // A hosted sidebar page may push a normal stack route (for example,
+      // About -> Privacy Policy). Reveal that real route as soon as its path
+      // changes instead of leaving the independent fast host over it.
+      hideSidebarDestination();
+      const uiState = useUIState.getState();
+      const visibleScopedActionSheet = uiState.actionSheetScope
+        ? uiState.scopedActionSheets[uiState.actionSheetScope] !== null
+        : false;
+
+      if (uiState.actionSheet !== null || visibleScopedActionSheet) {
+        useUIState.getState().hideActionSheet();
+      }
+    }
+    previousPathRef.current = pathname;
+  }, [pathname]);
+
+  return (
+    <TabsLayoutInner isChartTab={isChartTab} />
+  );
+}
+
+const TabsLayoutInner = memo(function TabsLayoutInner({
+  isChartTab,
+}: {
+  isChartTab: boolean;
+}) {
   const isChartFullscreen = useUIState((s) => s.isChartFullscreen);
   const isSearchActive = useUIState((s) => s.isSearchActive);
   const isChartInlineInputActive = useUIState((s) => s.isChartInlineInputActive);
@@ -202,16 +260,20 @@ export default function TabsLayout() {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const pathname = usePathname();
   const router = useRouter();
-  const previousPathRef = useRef(pathname);
-  const optimisticTabClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [optimisticTabName, setOptimisticTabName] = useState<BottomTabName | null>(null);
+  const renderTabsLayout = useCallback(({
+    children,
+    navigation,
+  }: {
+    children: ReactNode;
+    navigation: NavigationHelpers<ParamListBase>;
+  }) => (
+    <SidebarTabNavigationRegistrar navigation={navigation}>
+      {children}
+    </SidebarTabNavigationRegistrar>
+  ), []);
 
-  const isChartTab = pathname === '/chart' || pathname.startsWith('/chart');
   const isLandscape = width > height;
-  const activeTabName = useMemo(() => resolveBottomTabName(pathname), [pathname]);
-  const visualActiveTabName = optimisticTabName ?? activeTabName;
   const shouldHideMenu =
     (isChartFullscreen && isChartTab) ||
     (isChartTab && isChartInlineInputActive) ||
@@ -243,68 +305,15 @@ export default function TabsLayout() {
   const inactiveTabColor = isDark ? T.textMuted : T.textDimmed;
   const bottomTabActiveColor = T.trading.buy.primary;
 
-  const markTabNavigationStarted = useCallback((routeName: string) => {
-    if (!isBottomTabName(routeName)) {
-      return;
-    }
-
-    if (optimisticTabClearTimerRef.current !== null) {
-      clearTimeout(optimisticTabClearTimerRef.current);
-    }
-
-    setOptimisticTabName(routeName);
-
-    optimisticTabClearTimerRef.current = setTimeout(() => {
-      setOptimisticTabName((current) => (current === routeName ? null : current));
-      optimisticTabClearTimerRef.current = null;
-    }, 800);
-  }, []);
-
   useEffect(() => warmActionRoutes(router), [router]);
-
-  useEffect(() => {
-    if (optimisticTabName === activeTabName) {
-      if (optimisticTabClearTimerRef.current !== null) {
-        clearTimeout(optimisticTabClearTimerRef.current);
-        optimisticTabClearTimerRef.current = null;
-      }
-      setOptimisticTabName(null);
-    }
-  }, [activeTabName, optimisticTabName]);
-
-  useEffect(
-    () => () => {
-      if (optimisticTabClearTimerRef.current !== null) {
-        clearTimeout(optimisticTabClearTimerRef.current);
-      }
-    },
-    [],
-  );
-
-  useEffect(() => {
-    if (previousPathRef.current !== pathname) {
-      const uiState = useUIState.getState();
-      const visibleScopedActionSheet = uiState.actionSheetScope
-        ? uiState.scopedActionSheets[uiState.actionSheetScope] !== null
-        : false;
-
-      if (uiState.actionSheet !== null || visibleScopedActionSheet) {
-        useUIState.getState().hideActionSheet();
-      }
-    }
-    previousPathRef.current = pathname;
-  }, [pathname]);
 
   return (
     <View style={styles.root}>
       <Tabs
-        // Keep primary tab routes eagerly mounted so taps never wait on cold route construction,
-        // while route-gated inactive screens keep the active frame tree MT-style lean.
-        // Inactive screens stay natively ATTACHED (no detach): the chart WebView
-        // must boot in the background before the first Chart visit, and a WebView
-        // inside a detached screen does not start loading until the screen
-        // attaches. We do not freeze primary tabs: physical full-bundle checks
-        // showed freeze/thaw can leave old tab content visible for about a second.
+        layout={renderTabsLayout}
+        // The custom navigator keeps the five real primary scenes in plain,
+        // cached absolute views. It does not use native detach/freeze/thaw, so
+        // sidebar and bottom-bar switches share the same constant-size commit.
         detachInactiveScreens={false}
         screenOptions={({ route }) => ({
           headerShown: false,
@@ -321,18 +330,14 @@ export default function TabsLayout() {
             ],
           tabBarActiveTintColor: bottomTabActiveColor,
           tabBarInactiveTintColor: inactiveTabColor,
-          tabBarIcon: ({ size }) => {
-            const tabName = isBottomTabName(route.name) ? route.name : 'quotes';
-            const color = visualActiveTabName === tabName ? bottomTabActiveColor : inactiveTabColor;
+          tabBarIcon: ({ size, color }) => {
             if (route.name === 'chart') {
               return <MaterialIcons name="candlestick-chart" size={size + 2} color={color} />;
             }
             const name = icons[route.name as keyof typeof icons] ?? 'ellipse-outline';
             return <Ionicons name={name} size={size} color={color} />;
           },
-          tabBarLabel: ({ children }) => {
-            const tabName = isBottomTabName(route.name) ? route.name : 'quotes';
-            const color = visualActiveTabName === tabName ? bottomTabActiveColor : inactiveTabColor;
+          tabBarLabel: ({ children, color }) => {
             return (
               <Text
                 allowFontScaling={false}
@@ -350,12 +355,9 @@ export default function TabsLayout() {
             <FastTabBarButton
               {...props}
               latencyLabel={route.name}
-              onNavigateStart={() => markTabNavigationStarted(route.name)}
             />
           ),
-          freezeOnBlur: false,
           lazy: false,
-          animation: 'none',
         })}
       >
         <Tabs.Screen name='quotes' options={{ title: t('Quotes') }} />
@@ -371,7 +373,7 @@ export default function TabsLayout() {
         <Tabs.Screen name='settings' options={{ title: t('Settings') }} />
       </Tabs>
 
-      <SidebarDrawer />
+      <SidebarDestinationHost />
 
       {/* Hamburger menu button is now inside AppHeader for consistent alignment */}
 
@@ -379,7 +381,7 @@ export default function TabsLayout() {
       <GlobalActionSheetHost />
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   root: { flex: 1 },

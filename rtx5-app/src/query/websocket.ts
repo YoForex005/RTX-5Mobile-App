@@ -133,14 +133,11 @@ const fetchRestQuoteSnapshotForEntry = async (entry: RestQuoteFallbackEntry): Pr
   try {
     const state = useUserPreferences.getState();
     const isLoggedIn = state.isLoggedIn;
-    if (isLoggedIn && !isBrokerServiceBaseUrl(state.brokerServerUrl)) {
+    if (!isLoggedIn || !isBrokerServiceBaseUrl(state.brokerServerUrl)) {
       return;
     }
 
-    const response = await apiClient(
-      `/quotes?symbols=${encodeURIComponent(entry.symbol)}`,
-      isLoggedIn ? {} : { skipAuth: true, skipRefresh: true },
-    );
+    const response = await apiClient(`/quotes?symbols=${encodeURIComponent(entry.symbol)}`);
     if (!response.ok) {
       return;
     }
@@ -266,7 +263,8 @@ export function useWebSocketConnection() {
  * when the specific symbols it cares about update.
  */
 export function useMarketData(symbols: string[] = [], active = true) {
-  const isActive = active;
+  const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
+  const isActive = active && isLoggedIn;
   const symbolsKey = JSON.stringify(symbols);
   const transportSymbols = React.useMemo(
     () => Array.from(new Set(symbols.map((symbol) => symbol.trim()).filter(Boolean))),
@@ -448,7 +446,8 @@ export function useLiveSymbolQuote(
   active = true,
   commitIntervalMs = LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS,
 ): Partial<QuoteItem> | undefined {
-  const isActive = active;
+  const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
+  const isActive = active && isLoggedIn;
   const safeCommitIntervalMs = Math.max(0, Math.floor(commitIntervalMs));
   const normalizedSymbol = React.useMemo(() => normalizeSymbol(symbol), [symbol]);
   const seedQuote = React.useMemo(
@@ -590,7 +589,8 @@ export function useLiveSymbolQuotes(
   active = true,
   commitIntervalMs = LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS,
 ): Record<string, Partial<QuoteItem>> {
-  const isActive = active;
+  const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
+  const isActive = active && isLoggedIn;
   const safeCommitIntervalMs = Math.max(0, Math.floor(commitIntervalMs));
   const symbolsKey = JSON.stringify(symbols);
   // Key the result map by the ORIGINAL position symbol, because consumers look

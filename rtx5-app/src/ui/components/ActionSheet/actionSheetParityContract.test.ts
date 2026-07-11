@@ -75,6 +75,7 @@ test('high-traffic scoped action sheets open through immediate action wrappers',
   assert.match(tradeSource, /runImmediateAction\('trade\.bulkSheet\.open'[\s\S]*showTradeActionSheet\(bulkActionSheetConfig\)/);
   assert.match(tradeSource, /runImmediateAction\('trade\.positionSheet\.open'[\s\S]*showTradeActionSheet\(\{/);
   assert.match(historySource, /runImmediateAction\('history\.sortSheet\.open'[\s\S]*showHistoryActionSheet\(\{/);
+  assert.match(historySource, /showHistoryActionSheet\(\{[\s\S]*title: t\('Sort By'\),[\s\S]*presentation: 'mt5Plain'[\s\S]*actions: SORT_OPTIONS\.map/);
   assert.match(newsSource, /runImmediateAction\('news\.filterSheet\.open'[\s\S]*showNewsActionSheet\(\{/);
   assert.match(accountsSource, /runImmediateAction\('accounts\.optionsSheet\.open'[\s\S]*showAccountsActionSheet\(\{/);
   assert.match(brokerDetailSource, /runImmediateAction\('brokerDetail\.serverSheet\.open'[\s\S]*showBrokerDetailActionSheet\(\{/);

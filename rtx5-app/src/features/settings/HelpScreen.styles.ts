@@ -3,8 +3,8 @@ import type { ThemeColors } from '../../ui/theme/glass';
 
 export const makeHelpStyles = (T: ThemeColors, isDark = false) => {
   const palette = {
-    screen: isDark ? T.bgRoot : '#F6F7F9',
-    header: isDark ? T.bgRoot : '#F6F7F9',
+    screen: T.bgRoot,
+    header: T.bgRoot,
     surface: isDark ? T.glass2 : '#FFFFFF',
     surfaceRaised: isDark ? T.glass1 : '#F8FAFC',
     input: isDark ? T.glass1 : '#FFFFFF',

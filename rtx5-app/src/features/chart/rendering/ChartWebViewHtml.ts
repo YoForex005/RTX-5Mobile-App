@@ -287,6 +287,7 @@ export const CH_HTML = `
       var PRICE_SCALE_ROBUST_TRIM_RATIO = 0.08;
       var PRICE_SCALE_ROBUST_TRIM_SPAN_MULTIPLE = 5;
       var FRESH_SERIES_VERTICAL_CENTER_PADDING_RATIO = 0.12;
+      var FRESH_SERIES_ANCHOR_EDGE_MARGIN_RATIO = 0.12;
       var RIGHT_PRICE_SCALE_LAYOUT_RECOVERY_MAX_ATTEMPTS = 6;
       var ACTIVE_SCROLL_PRICE_SCALE_CHECK_INTERVAL_MS = 48;
       var ACTIVE_SCROLL_PRICE_SCALE_SPAN_MULTIPLE = 8;
@@ -3220,27 +3221,35 @@ export const CH_HTML = `
         if (!normalizedRange || typeof anchorPrice !== 'number' || !isFinite(anchorPrice)) {
           return null;
         }
+        // Show the visible DATA range with normal padding and only extend it
+        // when the live price would hug an edge. The old behavior mirrored the
+        // anchor's distance to the FAR data edge on both sides, which after any
+        // trend (live price near one extreme) nearly doubled the span and
+        // squashed all candles into half the pane on every fresh-series reload
+        // (the "chart shrinks when returning to the chart" bug).
         var dataSpan = getPriceRangeSpan(normalizedRange);
-        var maxDistance = Math.max(
-          Math.abs(anchorPrice - normalizedRange.from),
-          Math.abs(normalizedRange.to - anchorPrice)
-        );
-        var halfSpan = Math.max(
-          maxDistance,
-          dataSpan / 2,
-          Math.abs(anchorPrice || 1) * 0.0004
-        );
+        if (!(dataSpan > 0)) {
+          dataSpan = Math.max(Math.abs(anchorPrice || 1) * 0.0008, 1);
+        }
         var padding = Math.max(
-          halfSpan * FRESH_SERIES_VERTICAL_CENTER_PADDING_RATIO,
+          dataSpan * FRESH_SERIES_VERTICAL_CENTER_PADDING_RATIO,
           Math.abs(anchorPrice || 1) * 0.0002
         );
-        halfSpan += padding;
-        if (!(halfSpan > 0)) {
-          halfSpan = 1;
+        var from = normalizedRange.from - padding;
+        var to = normalizedRange.to + padding;
+        var edgeMargin = (to - from) * FRESH_SERIES_ANCHOR_EDGE_MARGIN_RATIO;
+        if (anchorPrice > to - edgeMargin) {
+          to = anchorPrice + edgeMargin;
+        }
+        if (anchorPrice < from + edgeMargin) {
+          from = anchorPrice - edgeMargin;
+        }
+        if (!(to > from)) {
+          return null;
         }
         return normalizePriceRange({
-          from: anchorPrice - halfSpan,
-          to: anchorPrice + halfSpan,
+          from: from,
+          to: to,
         });
       }
 
@@ -3489,8 +3498,26 @@ export const CH_HTML = `
         enableRightPriceAutoScale();
       }
 
+      function isDrawingToolInteractionActive() {
+        // While a drawing tool is armed (or an existing drawing is being
+        // drag-edited), the finger owns the drawing point — the chart body
+        // must not vertically pan underneath it, otherwise the price under
+        // the finger never changes and every dragged line comes out flat.
+        try {
+          var manager = window._drawingManager;
+          if (!manager) return false;
+          if (manager._lineEditState) return true;
+          return (
+            typeof manager._isDrawingToolActive === 'function' &&
+            manager._isDrawingToolActive()
+          );
+        } catch (_e) {
+          return false;
+        }
+      }
+
       function isVerticalChartMovementBlocked() {
-        return verticalScrollingLocked || chartAutoScaleEnabled;
+        return verticalScrollingLocked || chartAutoScaleEnabled || isDrawingToolInteractionActive();
       }
 
       function resetChartVerticalScale() {

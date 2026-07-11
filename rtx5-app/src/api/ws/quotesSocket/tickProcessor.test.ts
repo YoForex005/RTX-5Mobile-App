@@ -25,7 +25,7 @@ test('quote tick processor carries websocket envelope context into nested tick p
   assert.match(source, /for \(const candidate of getQuoteCandidateItems\(parsedPayload\)\)/);
 });
 
-test('quote tick processor extends candles from feed timestamps or crypto received-time ticks', () => {
+test('quote tick processor leaves candle bodies to server channels when enabled', () => {
   const source = readSource('src/api/ws/quotesSocket/tickProcessor.ts');
 
   assert.match(
@@ -36,7 +36,8 @@ test('quote tick processor extends candles from feed timestamps or crypto receiv
     source,
     /normalizedUpdate\.timestampSource === 'feed' \|\| allowReceivedAtCandleExtension[\s\S]*\? normalizedTimestamp[\s\S]*: null/,
   );
-  assert.match(source, /if \(tickPriceForCandle !== null && candleExtensionTimestamp !== null\)/);
+  assert.match(source, /const useServerCandleStream = shouldRouteBackendCandlePayloads\(\)/);
+  assert.match(source, /!useServerCandleStream &&[\s\S]*tickPriceForCandle !== null &&[\s\S]*candleExtensionTimestamp !== null/);
   assert.match(
     source,
     /extendActiveCandlesFromQuoteTick\(normalizedUpdate\.symbol,[\s\S]*price: tickPriceForCandle,[\s\S]*time: candleExtensionTimestamp,[\s\S]*volume: normalizedUpdate\.volume/,

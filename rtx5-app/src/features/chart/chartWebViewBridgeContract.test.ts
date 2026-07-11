@@ -93,8 +93,8 @@ test('webview bridge: symbol switches do not paint cached candles before fresh h
   );
   assertSourceContains(
     liveCandlesHookSource,
-    /if \(!active \|\| !normalizedSymbol \|\| !normalizedTimeframe\)[\s\S]*liveCandlesEngine\.prefetchHistory\(normalizedSymbol, normalizedTimeframe\)/,
-    'useLiveCandles must allow chart data loading without a frontend login gate',
+    /const isLiveActive = active && isLoggedIn[\s\S]*if \(!isLiveActive \|\| !normalizedSymbol \|\| !normalizedTimeframe\)[\s\S]*liveCandlesEngine\.prefetchHistory\(normalizedSymbol, normalizedTimeframe\)/,
+    'useLiveCandles must keep its history and live subscription lifecycle gated while the hidden chart is inactive',
   );
   assertSourceContains(
     source,
@@ -770,8 +770,8 @@ test('webview bridge: native web and WebView creation reserve the right price sc
 test('native chart status overlays do not block symbol recovery controls', () => {
   assertSourceContains(
     source,
-    /const startupChartPrefetchKeyRef = useRef\(''\)[\s\S]*scheduleIdleWork\(\(\) => \{[\s\S]*prefetchChartTimeframeHistory\(chartSymbol, normalizedTimeframe\)[\s\S]*delayMs: CHART_STARTUP_HISTORY_PREWARM_DELAY_MS/,
-    'native chart must warm saved candle history during app startup before the first chart tab visit',
+    /const startupChartPrefetchKeyRef = useRef\(''\)[\s\S]*scheduleAfterFirstFrame\(\(\) => \{[\s\S]*prefetchChartTimeframeHistory\(chartSymbol, normalizedTimeframe\)/,
+    'native chart must start warming saved candle history after the first app frame and before the first chart tab visit',
   );
   assertSourceContains(
     source,

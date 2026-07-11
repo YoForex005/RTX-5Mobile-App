@@ -442,14 +442,11 @@ const fetchRestQuoteSnapshots = async (symbols: string[]): Promise<void> => {
   const symbolsQuery = symbols.map(encodeURIComponent).join(',');
   const state = useUserPreferences.getState();
   const isLoggedIn = state.isLoggedIn;
-  if (isLoggedIn && !isBrokerServiceBaseUrl(state.brokerServerUrl)) {
+  if (!isLoggedIn || !isBrokerServiceBaseUrl(state.brokerServerUrl)) {
     return;
   }
 
-  const response = await apiClient(
-    `/quotes?symbols=${symbolsQuery}`,
-    isLoggedIn ? {} : { skipAuth: true, skipRefresh: true },
-  );
+  const response = await apiClient(`/quotes?symbols=${symbolsQuery}`);
   if (!response.ok) {
     return;
   }

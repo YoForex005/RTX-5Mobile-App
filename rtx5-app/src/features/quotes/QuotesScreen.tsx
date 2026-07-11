@@ -11,7 +11,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
-import { usePathname, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, {
   useCallback, useDeferredValue, useEffect, useRef, useMemo, useState,
@@ -28,7 +28,6 @@ import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket'
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useMarketSymbols } from '../../query/market';
-import { useFeedStatusActiveSymbols } from '../../query/feedStatus';
 import {
   useWatchlistQuery,
   useAddToWatchlistMutation,
@@ -45,6 +44,7 @@ import { prefetchOrderTicketData } from '../../utils/navigationPrefetch';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { runImmediateAction } from '../../utils/actionLatency';
 import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
+import { useNextFrameValue } from '../../hooks/useNextFrameValue';
 import { hasDisplayableLiveQuotePrice } from './liveQuoteSnapshot';
 import {
   buildDefaultQuoteWatchlist,
@@ -1195,8 +1195,8 @@ function getAddSymbolPalette(T: ThemeColors, isDark: boolean): AddSymbolPalette 
   }
 
   return {
-    screenBg: '#F4F6FA',
-    headerBorder: '#E5E7EB',
+    screenBg: '#F2F4F8',
+    headerBorder: '#E3E8F0',
     searchBg: '#FFFFFF',
     searchBorder: '#E1E7F0',
     rowBg: '#FFFFFF',
@@ -1652,9 +1652,8 @@ function AddSymbolModal({
   );
 }
 
-const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteActive }: { isQuotesRouteActive: boolean }) {
+const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
   const router = useRouter();
-  const isScreenFocused = useIsFocused();
   const T = useTheme();
   const { t } = useTranslation();
   const isDark = useIsDarkTheme();
@@ -1676,20 +1675,11 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const [quoteSheetRouteActionPending, setQuoteSheetRouteActionPending] = useState(false);
   const quoteSheetFeedPauseReleaseRef = useRef<(() => void) | null>(null);
-  // isQuotesRouteActive (the /quotes path match) comes from the thin wrapper so
-  // this screen only re-renders when its own focus or route-active state flips,
-  // not on every unrelated tab switch (usePathname re-renders on any path change).
-  const quoteRouteActive = isScreenFocused || isQuotesRouteActive;
+  const quoteRouteActive = isScreenFocused;
   const quoteCatalogActive = quoteRouteActive && !quoteSheetRouteActionPending;
   const quoteWatchlistActive = quoteCatalogActive && isLoggedIn;
   const { data: apiSymbols = [] } = useMarketSymbols(quoteCatalogActive);
-  const { data: activeFeedSymbols = [] } = useFeedStatusActiveSymbols(quoteCatalogActive);
-  const feedAwareSymbols = useMemo(
-    () => activeFeedSymbols.length > 0
-      ? Array.from(new Set([...activeFeedSymbols, ...apiSymbols]))
-      : apiSymbols,
-    [activeFeedSymbols, apiSymbols],
-  );
+  const feedAwareSymbols = apiSymbols;
 
   // ── Server-side watchlist sync ──────────────────────────────────────────
   // Fetch the server watchlist and sync mutations. Local Zustand state stays
@@ -1847,8 +1837,8 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
     ] as const);
     return new Map(entries);
   }, [quoteSymbols, quoteFeedSymbols]);
-  const quoteStickyFeedActive = quoteCatalogActive;
-  const quoteRestFallbackActive = quoteCatalogActive;
+  const quoteStickyFeedActive = quoteCatalogActive && isLoggedIn;
+  const quoteRestFallbackActive = quoteCatalogActive && isLoggedIn;
   const quoteFeedSymbolsKey = quoteFeedSymbols.join('|');
 
   useEffect(() => {
@@ -1940,7 +1930,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
 
   useEffect(() => {
     setQuoteSheetRouteActionPending(false);
-  }, [isQuotesRouteActive]);
+  }, [isScreenFocused]);
 
   useEffect(() => {
     if (!quoteSheetRouteActionPending) {
@@ -2353,13 +2343,9 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
  * Main screen component that displays the user's active watchlist (quotes), allowing them to monitor live prices, tap symbols to trade, and manage their lists.
  */
 export function QuotesScreen() {
-  const pathname = usePathname();
-  const isQuotesRouteActive =
-    pathname === '/quotes' ||
-    pathname.startsWith('/quotes/') ||
-    pathname === '/(tabs)/quotes' ||
-    pathname.startsWith('/(tabs)/quotes/');
-  return <QuotesScreenInner isQuotesRouteActive={isQuotesRouteActive} />;
+  const isScreenFocused = useIsFocused();
+  const deferredScreenFocused = useNextFrameValue(isScreenFocused);
+  return <QuotesScreenInner isScreenFocused={deferredScreenFocused} />;
 }
 
 /* ───── Styles ───── */

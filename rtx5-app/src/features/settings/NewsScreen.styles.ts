@@ -1692,7 +1692,7 @@ export function getNewsThemeColors(isDark: boolean) {
       : ['rgba(255,255,255,0.86)', 'rgba(241,247,255,0.74)', 'rgba(248,251,255,0.82)'] as const,
     screenGradient: isDark
       ? ['#121212', '#121212', '#121212'] as const
-      : ['#FAFCFF', '#EEF6FF', '#F4F7FB'] as const,
+      : ['#F2F4F8', '#F2F4F8', '#F2F4F8'] as const,
     panelGradient: isDark
       ? ['rgba(15,28,50,0.78)', 'rgba(8,17,33,0.72)', 'rgba(3,9,20,0.78)'] as const
       // Light theme: a single solid white so Upcoming Economic Events,

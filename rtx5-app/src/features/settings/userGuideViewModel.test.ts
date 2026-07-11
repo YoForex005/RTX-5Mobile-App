@@ -64,5 +64,5 @@ test('user guide screen uses the simple about-flow mobile manual layout', () => 
   assert.match(screenSource, /const isDark = useIsDarkTheme\(\)/);
   assert.match(screenSource, /makeUserGuideStyles\(isDark\)/);
   assert.match(styleSource, /makeUserGuideStyles = \(isDark = false\)/);
-  assert.match(styleSource, /screen: isDark \? '#121212' : '#FFFFFF'/);
+  assert.match(styleSource, /screen: isDark \? '#121212' : '#F2F4F8'/);
 });

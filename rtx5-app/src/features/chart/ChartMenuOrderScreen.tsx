@@ -40,15 +40,15 @@ export function ChartMenuOrderScreen() {
 function makeStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     screen: {
-      backgroundColor: isDark ? T.bg : '#F1F5F9',
+      backgroundColor: T.bg,
       paddingHorizontal: 0,
     },
     header: {
       paddingHorizontal: 16,
       paddingBottom: 12,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB',
-      backgroundColor: isDark ? T.bg : '#F1F5F9',
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : '#E3E8F0',
+      backgroundColor: T.bg,
     },
     headerRow: {
       flexDirection: 'row',

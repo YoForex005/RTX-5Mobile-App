@@ -9,21 +9,16 @@ const TRUE_ENV_VALUES = new Set(['1', 'true', 'yes', 'on']);
 const isTruthyEnv = (value: unknown): boolean =>
   typeof value === 'string' && TRUE_ENV_VALUES.has(value.trim().toLowerCase());
 
-/**
- * Server candle streams can move chart bodies only after their bid basis,
- * bucket labels, timestamps, and finalization semantics are runtime-proven.
- * The safe production default is quote-driven active candles.
- */
 export const getActiveCandleSourceMode = (): ActiveCandleSourceMode => {
   const requestedMode = String(process.env.EXPO_PUBLIC_CANDLE_SOURCE_MODE ?? '')
     .trim()
     .toLowerCase();
-  const serverModeRequested =
-    requestedMode === 'server' ||
-    isTruthyEnv(process.env.EXPO_PUBLIC_ENABLE_SERVER_CANDLE_STREAMS);
-  const serverModeProven = isTruthyEnv(process.env.EXPO_PUBLIC_SERVER_CANDLES_PROVEN_COMPATIBLE);
+  const quoteModeRequested =
+    requestedMode === 'quote' ||
+    requestedMode === 'quotes' ||
+    isTruthyEnv(process.env.EXPO_PUBLIC_DISABLE_SERVER_CANDLE_STREAMS);
 
-  return serverModeRequested && serverModeProven ? 'server' : 'quote';
+  return quoteModeRequested ? 'quote' : 'server';
 };
 
 export const shouldUseServerCandleStream = (): boolean =>

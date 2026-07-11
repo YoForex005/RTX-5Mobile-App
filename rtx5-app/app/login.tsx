@@ -1134,7 +1134,7 @@ export default function LoginScreen() {
 }
 
 function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
-  const pageBg = isDark ? T.bg : '#F2F4F8';
+  const pageBg = T.bg;
   const fieldBg = isDark ? T.glass1 : '#FFFFFF';
   const fieldBorder = isDark ? T.border : '#DFE7F1';
   const shadowColor = isDark ? '#000000' : T.textDark;

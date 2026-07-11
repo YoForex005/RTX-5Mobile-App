@@ -10,6 +10,25 @@ export const elliottWaveEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime =
   var ELLIOTT_WAVE_LABELS = ['', '1', '2', '3', '4', '5'];
 
   /**
+   * Resolves the per-pivot label list from a record's persisted wave entries,
+   * falling back to the default impulse numbering for missing entries.
+   */
+  function normalizeElliottWaveLabels(waves) {
+    var labels = ELLIOTT_WAVE_LABELS.slice();
+    if (!Array.isArray(waves)) return labels;
+    for (var i = 0; i < labels.length; i += 1) {
+      var wave = waves[i];
+      if (!wave || typeof wave !== 'object') continue;
+      if (wave.visible === false) {
+        labels[i] = '';
+      } else if (typeof wave.label === 'string') {
+        labels[i] = wave.label;
+      }
+    }
+    return labels;
+  }
+
+  /**
    * Normalizes the style configuration for the Elliott Wave, providing defaults for missing values.
    */
   function normalizeElliottWaveStyle(style, draft) {
@@ -125,7 +144,7 @@ export const elliottWaveEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime =
         ctx.font = '700 ' + fontSize + 'px Arial';
         allCoords.forEach(function (coord, index) {
           if (!coord || !isFiniteNumber(coord.x) || !isFiniteNumber(coord.y)) return;
-          var label = ELLIOTT_WAVE_LABELS[index] || '';
+          var label = source._options.waveLabels[index] || '';
           if (!label) return;
           var previous = allCoords[index - 1];
           var goingUp = index > 0 && previous && isFiniteNumber(previous.y)
@@ -202,7 +221,8 @@ export const elliottWaveEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime =
         hovered: !!source.hovered,
         selected: !!source.selected,
         visible: source.visible === false || source.hidden === true ? false : true,
-        style: normalizeElliottWaveStyle(source.style, draft)
+        style: normalizeElliottWaveStyle(source.style, draft),
+        waveLabels: normalizeElliottWaveLabels(source.waves)
       };
       this._coords = [];
       this._paneViews = [new ElliottWavePaneView(this)];

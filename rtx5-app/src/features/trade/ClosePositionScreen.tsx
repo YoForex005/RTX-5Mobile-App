@@ -224,7 +224,7 @@ export function ClosePositionScreen() {
   }, [isClosing, position, primePositionSnapshot, releaseActionLock]);
 
   const insets = useSafeAreaInsets();
-  const screenBg = isDark ? SETTINGS_DARK_BACKGROUND : '#F1F5F9';
+  const screenBg = isDark ? SETTINGS_DARK_BACKGROUND : T.bg;
 
   if (!position) return (
     <View style={{ flex: 1, backgroundColor: screenBg }}>

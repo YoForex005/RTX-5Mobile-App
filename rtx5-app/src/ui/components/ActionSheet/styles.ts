@@ -259,7 +259,7 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       justifyContent: 'center',
       borderWidth: 1,
       borderColor: isDark ? T.border : '#D7DBE2',
-      backgroundColor: isDark ? T.glass2 : '#F7F8FA',
+      backgroundColor: isDark ? T.glass2 : '#F2F4F8',
     },
     timeframeGridActionPressed: {
       backgroundColor: isDark ? T.glass1 : '#E9EDF3',

@@ -2,7 +2,7 @@ import { StyleSheet } from 'react-native';
 
 export const makeUserGuideStyles = (isDark = false) => {
   const palette = {
-    screen: isDark ? '#121212' : '#FFFFFF',
+    screen: isDark ? '#121212' : '#F2F4F8',
     surfaceSoft: isDark ? '#10151D' : '#F7F7F8',
     iconSurface: isDark ? 'rgba(96,165,250,0.14)' : '#F3F4F6',
     activeSoft: isDark ? 'rgba(96,165,250,0.16)' : '#EEF8FF',

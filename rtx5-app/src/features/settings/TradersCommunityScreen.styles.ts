@@ -7,7 +7,7 @@ const COMMUNITY_GOLD = '#F5B642';
 export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: isDark ? '#121212' : '#F7FAFF',
+    backgroundColor: isDark ? '#121212' : '#F2F4F8',
   },
   background: {
     ...StyleSheet.absoluteFillObject,
@@ -21,7 +21,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
   fixedHeader: {
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.sm,
-    backgroundColor: isDark ? 'rgba(2,7,19,0.96)' : 'rgba(247,250,255,0.96)',
+    backgroundColor: isDark ? 'rgba(2,7,19,0.96)' : 'rgba(242,244,248,0.96)',
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(15,23,42,0.1)',
     zIndex: 2,

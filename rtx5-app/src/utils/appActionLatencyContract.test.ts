@@ -335,6 +335,12 @@ test('global action sheet actions avoid selecting rows while scrolling', () => {
   assert.match(source, /const ACTION_SHEET_ROW_PRESS_CANCEL_MOVE_PX = 10/);
   assert.match(source, /type ActionSheetPressGesture = \{[\s\S]*start: ActionSheetPressPoint \| null;[\s\S]*cancelled: boolean;[\s\S]*\}/);
   assert.match(source, /activateOnPressIn\?: boolean/);
+  assert.match(source, /textColor\?: string/);
+  assert.match(uiStateSource, /textColor\?: string/);
+  assert.match(source, /action\.textColor && !isVisuallyMuted && \{ color: action\.textColor \}/);
+  assert.match(source, /textFontWeight\?: TextStyle\['fontWeight'\]/);
+  assert.match(uiStateSource, /textFontWeight\?: TextStyle\['fontWeight'\]/);
+  assert.match(source, /action\.textFontWeight && !isVisuallyMuted && \{ fontWeight: action\.textFontWeight \}/);
   assert.match(source, /const actionPressGestureRef = useRef<ActionSheetPressGesture>\(\{[\s\S]*start: null,[\s\S]*cancelled: false,[\s\S]*\}\)/);
   assert.match(source, /const recordActionRowPressStart = useCallback\(\(event: GestureResponderEvent\) => \{[\s\S]*start: getActionSheetPressPoint\(event\),[\s\S]*cancelled: false/);
   assert.match(source, /const cancelActionRowPressForScroll = useCallback\(\(\) => \{[\s\S]*cancelled: true/);
@@ -483,7 +489,7 @@ test('chart properties dark chrome matches the Settings dark palette', () => {
   assert.match(source, /Match the app dark palette for the chart preferences shell and cards/);
   assert.match(source, /const SETTINGS_DARK_BACKGROUND = '#121212'/);
   assert.match(source, /const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E'/);
-  assert.match(source, /const preferencesBackground = isDark \? SETTINGS_DARK_BACKGROUND : '#F4F5F7'/);
+  assert.match(source, /const preferencesBackground = isDark \? SETTINGS_DARK_BACKGROUND : T\.bg/);
   assert.match(source, /const preferencesCardBackground = isDark \? SETTINGS_DARK_CARD_BACKGROUND : '#FFFFFF'/);
   assert.match(source, /const preferencesSoftCardBackground = isDark \? SETTINGS_DARK_CARD_BACKGROUND : '#F8FAFC'/);
   assert.doesNotMatch(source, /isDark \? '#(?:000000|1C1C1E)'/);
@@ -570,7 +576,12 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   assert.match(settingsSource.slice(registerRowStart, marketUpdatesStart), /onPressIn=\{\(\) => prepareReadySettingsRoute\('\/register-entry'\)\}[\s\S]*pressRetentionOffset=\{SETTINGS_SCROLL_PRESS_RETENTION_OFFSET\}/);
   assert.doesNotMatch(settingsSource.slice(registerRowStart, marketUpdatesStart), /onTouchStart=\{\(\) => showRouteLaunchPreview\('\/register-entry'\)\}|activateOnPressIn/);
   assert.match(backBarSource, /<FastPressable[\s\S]*safeRouterBack\(router, '\/\(tabs\)\/settings'\)[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart[\s\S]*latencyLabel="settings\.back"/);
-  assert.doesNotMatch(settingsSource, /SETTINGS_LOWER_CONTENT_DELAY_MS|lowerSettingsReady|useDeferredRouteContentReady/);
+  assert.doesNotMatch(settingsSource, /SETTINGS_LOWER_CONTENT_DELAY_MS|lowerSettingsReady/);
+  assert.match(settingsSource, /import \{ useDeferredRouteContentReady \} from/);
+  assert.match(settingsSource, /const SETTINGS_BODY_PREWARM_DELAY_MS = 1200/);
+  assert.match(settingsSource, /const routeBodyReady = useDeferredRouteContentReady\(SETTINGS_BODY_PREWARM_DELAY_MS\)/);
+  assert.doesNotMatch(settingsSource, /useDeferredRouteContentReady\([^)]*, isScreenFocused\)/);
+  assert.match(settingsSource, /\{routeBodyReady \? <>/);
   assert.match(settingsSource, /const SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/register-entry'[\s\S]*'\/register'[\s\S]*'\/settings\/economic-calendar'[\s\S]*'\/settings\/journal'[\s\S]*'\/settings\/help'[\s\S]*\] as const/);
   assert.doesNotMatch(settingsSource, /SettingsRegisterOpeningShell|registerOpeningShellVisible|SETTINGS_REGISTER_ROUTE_HANDOFF_DELAY_MS/);
   assert.doesNotMatch(settingsSource, /SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/settings\/user-guide'/);
@@ -693,7 +704,7 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   assert.doesNotMatch(settingsSource, /traceUiInteraction/);
   assert.match(accountsSource, /paddingLeft: 16/);
   assert.match(accountsSource, /marginLeft: 8/);
-  assert.match(accountsSource, /showAccountsActionSheet\(\{[\s\S]*title: t\('Settings'\),[\s\S]*detent: 'auto'/);
+  assert.match(accountsSource, /runImmediateAction\('accounts\.optionsSheet\.open'[\s\S]*showAccountsActionSheet\(\{[\s\S]*presentation: 'mt5Plain',[\s\S]*detent: 'auto'/);
   assert.match(accountsSource, /latencyLabel="accounts\.back"[\s\S]*unstable_pressDelay=\{0\}/);
   assert.match(accountsSource, /latencyLabel="accounts\.connect\.open"/);
   assert.match(accountsSource, /latencyLabel="accounts\.options\.open"/);
@@ -752,7 +763,7 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   assert.match(registerSource, /const handleRegisterBack = React\.useCallback\(\(event: GestureResponderEvent\) => \{[\s\S]*event\.preventDefault\(\);[\s\S]*event\.stopPropagation\(\);[\s\S]*if \(registerBackNavigationStartedRef\.current\) \{[\s\S]*return;[\s\S]*\}[\s\S]*registerBackNavigationStartedRef\.current = true;[\s\S]*safeRouterBack\(router, REGISTER_BACK_FALLBACK_HREF\);[\s\S]*\}, \[\]\);/);
   assert.match(registerSource, /registerBackNavigationStartedRef\.current = true;[\s\S]*clearTimeout\(fieldFocusTimerRef\.current\);[\s\S]*scheduleRegisterBackAfterVisualFrame\(\(\) => \{[\s\S]*safeRouterBack\(router, REGISTER_BACK_FALLBACK_HREF\);[\s\S]*\}\)/);
   assert.match(registerSource, /onPress=\{handleRegisterBack\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart[\s\S]*latencyLabel="register\.back"[\s\S]*latencyBudgetMs=\{50\}[\s\S]*unstable_pressDelay=\{0\}/);
-  assert.match(rootSource, /const brokerFlowBackground = isDark \? T\.bg : '#F3F6FA'/);
+  assert.match(rootSource, /const brokerFlowBackground = T\.bg/);
   assert.match(rootSource, /const brokerFlowScreenOptions = \{[\s\S]*headerShown: false,[\s\S]*animation: 'none',[\s\S]*freezeOnBlur: false,[\s\S]*contentStyle: \{ backgroundColor: brokerFlowBackground \},[\s\S]*\} as const;/);
   assert.match(rootSource, /const registerScreenOptions = \{[\s\S]*headerShown: false,[\s\S]*animation: 'none',[\s\S]*presentation: 'transparentModal',[\s\S]*freezeOnBlur: false,[\s\S]*contentStyle: \{ backgroundColor: brokerFlowBackground \},[\s\S]*\} as const;/);
   assert.match(rootSource, /<Stack\.Screen name='register-entry' options=\{registerScreenOptions\}/);

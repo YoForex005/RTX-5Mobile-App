@@ -369,6 +369,38 @@ test('sanitizePersistedChartDrawings supports the added TradingView-style drawin
       id: 'short_position_saved',
       kind: 'shortPosition',
       points: [{ time: 1, price: 90 }, { time: 3, price: 86 }],
+      position: { stopPrice: 92, accountSize: 'bad', riskPercent: 250 },
+    },
+    {
+      id: 'elliott_saved',
+      kind: 'elliottWave',
+      waves: [
+        { id: 'wave_1', label: '0', visible: false },
+        { id: 'wave_2', label: 'A', visible: true },
+        { label: 'B' },
+        'bad wave entry',
+      ],
+      points: Array.from({ length: 6 }, (_, index) => ({
+        time: index + 1,
+        price: 90 + (index % 2 === 0 ? 0 : 4) + index,
+      })),
+    },
+    {
+      id: 'xabcd_saved',
+      kind: 'xabcd',
+      ratios: [
+        { id: 'ratio_ab', target: 0.618, visible: true },
+        { id: 'ratio_bc', target: 'bad', visible: false },
+        { target: -2 },
+        'bad ratio entry',
+      ],
+      points: [
+        { time: 1, price: 90 },
+        { time: 2, price: 96 },
+        { time: 3, price: 92 },
+        { time: 4, price: 95 },
+        { time: 5, price: 99 },
+      ],
     },
   ]);
 
@@ -385,6 +417,8 @@ test('sanitizePersistedChartDrawings supports the added TradingView-style drawin
     'ellipse',
     'freehand',
     'shortPosition',
+    'elliottWave',
+    'xabcd',
   ]);
   assert.equal(drawings[0]?.label, 'Horizontal Line 1');
   assert.equal(drawings[1]?.type, 'horizontalRay');
@@ -406,4 +440,17 @@ test('sanitizePersistedChartDrawings supports the added TradingView-style drawin
   assert.equal(drawings[10]?.type, 'freehand');
   assert.equal(drawings[10]?.points.length, 5);
   assert.equal(drawings[10]?.style?.lineStyle, 'dashed');
+  assert.equal(drawings[11]?.position?.stopPrice, 92);
+  assert.equal(drawings[11]?.position?.accountSize, null);
+  assert.equal(drawings[11]?.position?.riskPercent, 100);
+  assert.equal(drawings[12]?.waves?.length, 3);
+  assert.equal(drawings[12]?.waves?.[0]?.visible, false);
+  assert.equal(drawings[12]?.waves?.[1]?.label, 'A');
+  assert.equal(drawings[12]?.waves?.[2]?.id, 'wave_3');
+  assert.equal(drawings[13]?.ratios?.length, 3);
+  assert.equal(drawings[13]?.ratios?.[0]?.target, 0.618);
+  assert.equal(drawings[13]?.ratios?.[1]?.target, null);
+  assert.equal(drawings[13]?.ratios?.[1]?.visible, false);
+  assert.equal(drawings[13]?.ratios?.[2]?.target, null);
+  assert.equal(drawings[13]?.ratios?.[2]?.id, 'ratio_3');
 });

@@ -157,7 +157,7 @@ export function ChartColorsScreen() {
 function makeStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     screen: {
-      backgroundColor: isDark ? T.bg : '#F8FAFC',
+      backgroundColor: T.bg,
       paddingHorizontal: 0,
     },
     scrollView: {

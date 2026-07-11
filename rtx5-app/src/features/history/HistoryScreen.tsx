@@ -8,7 +8,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../ui/components/Screen';
 import { AppHeader } from '../../ui/components/AppHeader';
@@ -24,6 +24,7 @@ import { useAccountSummary } from '../../query/account';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { Deal } from '../../api/deals';
 import { useDeferredActiveFlag } from '../../hooks/useDeferredActiveFlag';
+import { useNextFrameValue } from '../../hooks/useNextFrameValue';
 import { LoginOrder } from '../../api/orders';
 import { ClosedPosition } from '../../api/positions';
 import { filterClosedRecordsByDateRange, resolveEffectiveHistoryDateRange } from './historyDateRange';
@@ -364,8 +365,7 @@ function mapClosedPositionToRow(position: ClosedPosition): HistoryRow {
 /**
  * Main screen for the History tab, displaying past trades, closed positions, and account operations over a selected time period.
  */
-export function HistoryScreen() {
-  const isScreenFocused = useIsFocused();
+const HistoryScreenInner = memo(function HistoryScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
   const [tab, setTab] = useState<Tab>('Positions');
   const [sortBy, setSortBy] = useState<SortBy>('Default');
   const { historyRange, historyFromMs, historyToMs, accountDetails } = useUserPreferences(
@@ -616,6 +616,7 @@ export function HistoryScreen() {
                     runImmediateAction('history.sortSheet.open', () =>
                       showHistoryActionSheet({
                         title: t('Sort By'),
+                        presentation: 'mt5Plain',
                         detent: 'adaptive',
                         instantOpen: true,
                         actions: SORT_OPTIONS.map((option) => ({
@@ -704,6 +705,12 @@ export function HistoryScreen() {
       />
     </Screen>
   );
+});
+
+export function HistoryScreen() {
+  const isScreenFocused = useIsFocused();
+  const deferredScreenFocused = useNextFrameValue(isScreenFocused);
+  return <HistoryScreenInner isScreenFocused={deferredScreenFocused} />;
 }
 
 /**
@@ -1102,11 +1109,11 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     accountSummaryHeading: { color: T.text, fontSize: 19, fontWeight: '600', letterSpacing: 0, marginTop: 4, marginHorizontal: spacing.md, marginBottom: 8 },
     summaryBlock: {
       marginTop: spacing.md, marginHorizontal: spacing.md, borderRadius: 16,
-      backgroundColor: accountSummaryCardBg, borderWidth: 1, borderColor: isDark ? T.border : T.borderSubtle,
-      shadowColor: isDark ? '#000000' : '#0F172A',
-      shadowOffset: { width: 0, height: isDark ? 4 : 8 },
-      shadowOpacity: isDark ? 0.08 : 0.04,
-      shadowRadius: isDark ? 16 : 24, elevation: 4,
+      backgroundColor: accountSummaryCardBg, borderWidth: 1, borderColor: T.border,
+      shadowColor: isDark ? '#000000' : '#64748B',
+      shadowOffset: { width: 0, height: isDark ? 4 : 2 },
+      shadowOpacity: isDark ? 0.08 : 0.06,
+      shadowRadius: isDark ? 16 : 8, elevation: isDark ? 4 : 1,
       overflow: 'hidden',
     },
     summaryTop: { paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'transparent', gap: 12 },
@@ -1128,12 +1135,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     gridValue: { fontSize: 13, fontWeight: '600', fontVariant: ['tabular-nums'], letterSpacing: 0 },
     topBlock: {
       marginTop: spacing.lg, marginHorizontal: spacing.md, borderRadius: 16,
-      borderWidth: 1, borderColor: isDark ? T.border : T.borderSubtle,
+      borderWidth: 1, borderColor: T.border,
       backgroundColor: isDark ? T.glass2 : cardBg, padding: 6, paddingBottom: 8,
-      shadowColor: isDark ? '#000000' : '#0F172A',
-      shadowOffset: { width: 0, height: isDark ? 4 : 8 },
-      shadowOpacity: isDark ? 0.08 : 0.04,
-      shadowRadius: isDark ? 16 : 24, elevation: 4,
+      shadowColor: isDark ? '#000000' : '#64748B',
+      shadowOffset: { width: 0, height: isDark ? 4 : 2 },
+      shadowOpacity: isDark ? 0.08 : 0.06,
+      shadowRadius: isDark ? 16 : 8, elevation: isDark ? 4 : 1,
     },
     topControlsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
     iconButton: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },

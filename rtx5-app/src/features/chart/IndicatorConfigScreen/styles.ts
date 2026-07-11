@@ -14,7 +14,7 @@ export function makeIndicatorConfigStyles(
       paddingHorizontal: 16,
       paddingBottom: 12,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB',
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : '#E3E8F0',
       backgroundColor: bgColor,
     },
     headerBackBtn: { width: 40, height: 32, alignItems: 'center', justifyContent: 'center' },
@@ -43,7 +43,7 @@ export function makeIndicatorConfigStyles(
     modalTitle: { color: T.text, fontSize: 15, fontWeight: '700', marginBottom: 14 },
     modalInput: {
       borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.12)' : '#E5E7EB',
+      borderColor: isDark ? 'rgba(255,255,255,0.12)' : '#E3E8F0',
       borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
       fontSize: 16, color: T.text,
       backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F9FAFB',

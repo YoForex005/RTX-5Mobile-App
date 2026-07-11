@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { Calendar } from 'react-native-calendars';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -21,12 +22,13 @@ import {
 } from '../../../state/terminalJournalState';
 import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 import { Screen } from '../../../ui/components/Screen';
+import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
 import { useUIState } from '../../../state/uiState';
-import { SidebarDrawer } from '../../../ui/components/SidebarDrawer';
 import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../../ui/components/sidebarDrawerController';
 import { useTheme } from '../../../ui/theme/useTheme';
 import { useJournalTrades } from './liveJournal';
 import { makeJournalStyles } from './styles';
+import { useNextFrameValue } from '../../../hooks/useNextFrameValue';
 
 type JournalFilter = 'All' | 'Trades' | 'Accounts' | 'Actions' | 'Errors' | 'Notes';
 
@@ -191,12 +193,13 @@ const groupJournalRowsByDate = (items: JournalLogRow[]): JournalLogSection[] => 
 /**
  * A detailed logging screen that tracks system events, connection status changes, and raw trade execution responses for diagnostic purposes.
  */
-export function JournalScreen() {
+export const JournalScreenInner = React.memo(function JournalScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
+  const routeBodyReady = useDeferredRouteContentReady(0, isScreenFocused);
   const T = useTheme();
   const styles = useMemo(() => makeJournalStyles(T), [T]);
   const actionColor = T.trading.buy.primary;
   const insets = useSafeAreaInsets();
-  const { accountLogin, trades, isError, refetch } = useJournalTrades();
+  const { accountLogin, trades, isError, refetch } = useJournalTrades(isScreenFocused);
   const hideActionSheet = useUIState((state) => state.hideActionSheet);
   const addEntry = useJournalState((state) => state.addEntry);
   const terminalEntries = useTerminalJournalState((state) => state.entries);
@@ -209,41 +212,12 @@ export function JournalScreen() {
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isNoteOpen, setIsNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState('');
-  const [drawerReady, setDrawerReady] = useState(false);
 
   useEffect(() => {
-    pruneTerminalEntries();
-  }, [pruneTerminalEntries]);
-
-  useEffect(() => {
-    let cancelled = false;
-    let frameId: number | null = null;
-    let timerId: ReturnType<typeof setTimeout> | null = null;
-
-    const showDrawer = () => {
-      if (!cancelled) {
-        setDrawerReady(true);
-      }
-    };
-
-    // The pushed Journal route owns a drawer too, but it is not needed for the
-    // first paint. Mount it one frame later so the activity screen opens first.
-    if (typeof globalThis.requestAnimationFrame === 'function') {
-      frameId = globalThis.requestAnimationFrame(showDrawer);
-    } else {
-      timerId = setTimeout(showDrawer, 16);
+    if (isScreenFocused) {
+      pruneTerminalEntries();
     }
-
-    return () => {
-      cancelled = true;
-      if (frameId !== null) {
-        globalThis.cancelAnimationFrame?.(frameId);
-      }
-      if (timerId) {
-        clearTimeout(timerId);
-      }
-    };
-  }, []);
+  }, [isScreenFocused, pruneTerminalEntries]);
 
   const selectedDate = useMemo(() => parseCalendarDateString(selectedDateIso), [selectedDateIso]);
   const selectedDateLabel = useMemo(() => formatSelectedDateLabel(selectedDateIso), [selectedDateIso]);
@@ -454,7 +428,7 @@ export function JournalScreen() {
         </View>
       </View>
 
-      <SectionList
+      {routeBodyReady ? <SectionList
         sections={groups}
         keyExtractor={(item) => item.id}
         renderItem={renderJournalRow}
@@ -568,7 +542,7 @@ export function JournalScreen() {
             <Text style={styles.addNoteText}>Add Note</Text>
           </Pressable>
         )}
-      />
+      /> : <View style={styles.container} />}
 
       {isNoteOpen ? (
         <View style={styles.noteOverlay}>
@@ -657,7 +631,12 @@ export function JournalScreen() {
       {/* Own drawer instance so the hamburger works on this pushed route - the
           (tabs) drawer is below this screen and would open invisibly. Matches
           AboutScreen / UserGuideScreen. */}
-      {drawerReady ? <SidebarDrawer /> : null}
     </Screen>
   );
+});
+
+export function JournalScreen() {
+  const isScreenFocused = useIsFocused();
+  const deferredScreenFocused = useNextFrameValue(isScreenFocused);
+  return <JournalScreenInner isScreenFocused={deferredScreenFocused} />;
 }

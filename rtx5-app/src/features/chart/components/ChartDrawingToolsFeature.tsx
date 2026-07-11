@@ -130,7 +130,7 @@ const lightStyles = StyleSheet.create({
   },
   leftToolbar: {
     backgroundColor: '#F8FAFC',
-    borderRightColor: '#E5E7EB',
+    borderRightColor: '#E3E8F0',
   },
   leftToolbarOverlay: {
     backgroundColor: 'rgba(255,255,255,0.95)',
@@ -140,7 +140,7 @@ const lightStyles = StyleSheet.create({
     backgroundColor: 'rgba(59, 130, 246, 0.1)',
   },
   toolSeparator: {
-    backgroundColor: '#E5E7EB',
+    backgroundColor: '#E3E8F0',
   },
 });
 

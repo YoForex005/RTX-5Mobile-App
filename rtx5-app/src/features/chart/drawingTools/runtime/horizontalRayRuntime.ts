@@ -74,6 +74,7 @@ export const horizontalRayEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime
       draft: !!draft,
       handleFillColor: style.handleFillColor,
       label: draft ? '' : String(pair[0].price),
+      labelIsPrice: !draft,
       labelBackgroundColor: style.labelBackgroundColor,
       labelTextColor: style.labelTextColor
     });

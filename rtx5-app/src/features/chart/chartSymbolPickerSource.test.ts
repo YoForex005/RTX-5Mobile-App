@@ -222,8 +222,12 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(timeframePickerSource, /const CHART_DARK_PANEL_BACKGROUND = '#1E1E1E'/);
   assert.match(timeframePickerSource, /backgroundColor: isDark \? CHART_DARK_PANEL_BACKGROUND : '#FFFFFF'/);
   assert.match(timeframePickerSource, /borderColor: isDark \? 'rgba\(255,255,255,0\.10\)' : 'rgba\(15,23,42,0\.08\)'/);
-  assert.match(timeframePickerSource, /shadowColor: '#000000'/);
-  assert.doesNotMatch(timeframePickerSource, /rgba\(59,130,246,0\.25\)|shadowColor: isDark \? accentColor|rgba\(37,99,235,0\.18\)/);
+  assert.match(timeframePickerSource, /shadowColor: 'transparent'/);
+  assert.match(timeframePickerSource, /shadowOffset: \{ width: 0, height: 0 \}/);
+  assert.match(timeframePickerSource, /shadowOpacity: 0/);
+  assert.match(timeframePickerSource, /shadowRadius: 0/);
+  assert.match(timeframePickerSource, /elevation: 0/);
+  assert.doesNotMatch(timeframePickerSource, /shadowColor: '#000000'|rgba\(59,130,246,0\.25\)|shadowColor: isDark \? accentColor|rgba\(37,99,235,0\.18\)|shadowRadius: isDark \? 0 : 28|elevation: isDark \? 0 : 18/);
   assert.doesNotMatch(timeframePickerSource, /Ionicons|iconName|icon:/);
   assert.doesNotMatch(timeframePickerSource, /<Modal|bottomDock/);
   assert.match(source, /import \{ ChartTimeframePickerOverlay \} from '\.\/components\/ChartTimeframePickerSheet'/);

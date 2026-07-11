@@ -41,42 +41,42 @@ const withEnv = (nextEnv: Record<string, string | undefined>, run: () => void): 
   }
 };
 
-test('active candle source defaults to quote-driven until server candles are proven', () => {
+test('active candle source defaults to broker server candles for webterminal parity', () => {
   withEnv(
     {
       EXPO_PUBLIC_CANDLE_SOURCE_MODE: undefined,
       EXPO_PUBLIC_ENABLE_SERVER_CANDLE_STREAMS: undefined,
       EXPO_PUBLIC_SERVER_CANDLES_PROVEN_COMPATIBLE: undefined,
-    },
-    () => {
-      assert.equal(getActiveCandleSourceMode(), 'quote');
-      assert.equal(shouldUseServerCandleStream(), false);
-      assert.equal(shouldRouteBackendCandlePayloads(), false);
-    },
-  );
-});
-
-test('active candle source enables server mode only with explicit proven-compatible flags', () => {
-  withEnv(
-    {
-      EXPO_PUBLIC_CANDLE_SOURCE_MODE: 'server',
-      EXPO_PUBLIC_ENABLE_SERVER_CANDLE_STREAMS: undefined,
-      EXPO_PUBLIC_SERVER_CANDLES_PROVEN_COMPATIBLE: undefined,
-    },
-    () => {
-      assert.equal(getActiveCandleSourceMode(), 'quote');
-    },
-  );
-
-  withEnv(
-    {
-      EXPO_PUBLIC_CANDLE_SOURCE_MODE: 'server',
-      EXPO_PUBLIC_SERVER_CANDLES_PROVEN_COMPATIBLE: 'true',
+      EXPO_PUBLIC_DISABLE_SERVER_CANDLE_STREAMS: undefined,
     },
     () => {
       assert.equal(getActiveCandleSourceMode(), 'server');
       assert.equal(shouldUseServerCandleStream(), true);
       assert.equal(shouldRouteBackendCandlePayloads(), true);
+    },
+  );
+});
+
+test('active candle source can be forced back to quote mode for rollback', () => {
+  withEnv(
+    {
+      EXPO_PUBLIC_CANDLE_SOURCE_MODE: 'quote',
+      EXPO_PUBLIC_DISABLE_SERVER_CANDLE_STREAMS: undefined,
+    },
+    () => {
+      assert.equal(getActiveCandleSourceMode(), 'quote');
+      assert.equal(shouldUseServerCandleStream(), false);
+    },
+  );
+
+  withEnv(
+    {
+      EXPO_PUBLIC_CANDLE_SOURCE_MODE: undefined,
+      EXPO_PUBLIC_DISABLE_SERVER_CANDLE_STREAMS: 'true',
+    },
+    () => {
+      assert.equal(getActiveCandleSourceMode(), 'quote');
+      assert.equal(shouldRouteBackendCandlePayloads(), false);
     },
   );
 });

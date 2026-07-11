@@ -37,7 +37,7 @@ export function IndicatorConfigScreen() {
     }
   }, [meta, editMeta, initialize]);
 
-  const bgColor = isDark ? '#121212' : '#F4F5F7';
+  const bgColor = T.bg;
   const styles = useMemo(() => makeIndicatorConfigStyles(bgColor, isDark, T), [bgColor, isDark, T]);
 
   if (!meta) {

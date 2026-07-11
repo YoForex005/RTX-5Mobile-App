@@ -23,16 +23,20 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   const chartLiveHeadersSource = readSource('src/features/chart/components/ChartLiveHeaders.tsx');
   const chartTradeButtonsSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/ChartTradeButtonsFeature.tsx');
 
-  assert.match(quotesSource, /import \{ usePathname, useRouter \} from 'expo-router'/);
-  assert.match(quotesSource, /const pathname = usePathname\(\)/);
+  assert.match(quotesSource, /import \{ useIsFocused \} from '@react-navigation\/native'/);
+  assert.match(quotesSource, /import \{ useRouter \} from 'expo-router'/);
+  assert.match(quotesSource, /import \{ useNextFrameValue \} from '\.\.\/\.\.\/hooks\/useNextFrameValue'/);
+  assert.doesNotMatch(quotesSource, /import \{[^}]*usePathname[^}]*\} from 'expo-router'/);
   assert.doesNotMatch(quotesSource, /const sidebarOpen = useUIState\(\(s\) => s\.sidebarOpen\)/);
-  assert.match(quotesSource, /const quoteRouteActive =[\s\S]*isScreenFocused[\s\S]*pathname === '\/quotes'[\s\S]*pathname\.startsWith\('\/quotes\/'\)[\s\S]*pathname === '\/\(tabs\)\/quotes'[\s\S]*pathname\.startsWith\('\/\(tabs\)\/quotes\/'\)/);
+  assert.match(quotesSource, /const QuotesScreenInner = React\.memo\(function QuotesScreenInner\(\{ isScreenFocused \}: \{ isScreenFocused: boolean \}\)/);
+  assert.match(quotesSource, /export function QuotesScreen\(\) \{\s*const isScreenFocused = useIsFocused\(\);\s*const deferredScreenFocused = useNextFrameValue\(isScreenFocused\);\s*return <QuotesScreenInner isScreenFocused=\{deferredScreenFocused\} \/>;\s*\}/);
+  assert.match(quotesSource, /const quoteRouteActive = isScreenFocused/);
   assert.match(quotesSource, /const quoteCatalogActive = quoteRouteActive && !quoteSheetRouteActionPending/);
   assert.match(quotesSource, /const quoteWatchlistActive = quoteCatalogActive && isLoggedIn/);
   assert.match(quotesSource, /useMarketSymbols\(quoteCatalogActive\)/);
   assert.match(quotesSource, /useWatchlistQuery\(quoteWatchlistActive\)/);
-  assert.match(quotesSource, /const quoteStickyFeedActive = quoteCatalogActive/);
-  assert.match(quotesSource, /const quoteRestFallbackActive = quoteCatalogActive/);
+  assert.match(quotesSource, /const quoteStickyFeedActive = quoteCatalogActive && isLoggedIn/);
+  assert.match(quotesSource, /const quoteRestFallbackActive = quoteCatalogActive && isLoggedIn/);
   assert.match(quotesSource, /pauseLiveQuoteSnapshotNotifications/);
   assert.match(quotesSource, /const quoteSheetFeedPauseReleaseRef = useRef<\(\(\) => void\) \| null>\(null\)/);
   assert.match(quotesSource, /const pauseQuoteSheetFeed = useCallback\(\(durationMs = QUOTE_SHEET_OPEN_FEED_PAUSE_MS\) => \{/);
@@ -44,8 +48,8 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.doesNotMatch(quotesSource, /useWatchlistLiveQuotes\(quoteFeedSymbols, true\)/);
 
   assert.match(marketDataSource, /export function useMarketData\(symbols: string\[\] = \[\], active = true\)/);
-  assert.doesNotMatch(marketDataSource, /const isLoggedIn = useUserPreferences\(\(state\) => state\.isLoggedIn\)/);
-  assert.match(marketDataSource, /const isActive = active/);
+  assert.match(marketDataSource, /const isLoggedIn = useUserPreferences\(\(state\) => state\.isLoggedIn\)/);
+  assert.match(marketDataSource, /const isActive = active && isLoggedIn/);
   assert.match(marketDataSource, /if \(!isActive \|\| normalizedSymbols\.length === 0\) return EMPTY_LIVE_QUOTES/);
   assert.match(marketDataSource, /if \(!isActive \|\| transportSymbols\.length === 0\) return/);
   assert.match(marketDataSource, /useMarketData\(symbols: string\[\] = \[\], active = true\)/);
@@ -55,11 +59,11 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.match(marketDataSource, /safeCommitIntervalMs <= 16[\s\S]*globalThis\.requestAnimationFrame/);
   assert.match(marketDataSource, /if \(safeCommitIntervalMs <= 16\) \{[\s\S]*updateLiveQuote\(\);[\s\S]*\} else \{[\s\S]*React\.startTransition\(updateLiveQuote\)/);
   assert.match(marketDataSource, /if \(!isActive \|\| !normalizedSymbol\)/);
-  assert.match(marketDataSource, /isLoggedIn \? \{\} : \{ skipAuth: true, skipRefresh: true \}/);
+  assert.doesNotMatch(marketDataSource, /skipAuth: true/);
   assert.match(marketSymbolsSource, /const isLoggedIn = useUserPreferences\(\(state\) => state\.isLoggedIn\)/);
-  assert.match(marketSymbolsSource, /const accountScope = isLoggedIn \? accountId : 'public'/);
-  assert.match(marketSymbolsSource, /const isEnabled = enabled/);
-  assert.match(marketSymbolsSource, /isLoggedIn \? \{\} : \{ skipAuth: true, skipRefresh: true \}/);
+  assert.match(marketSymbolsSource, /const accountScope = accountId \|\| 'none'/);
+  assert.match(marketSymbolsSource, /const isEnabled = enabled && isLoggedIn/);
+  assert.doesNotMatch(marketSymbolsSource, /skipAuth: true/);
   assert.match(marketSymbolsSource, /enabled: isEnabled/);
   assert.match(marketSymbolsSource, /placeholderData: \(previousData\) => previousData/);
   assert.match(instrumentsSource, /const isEnabled = enabled && isLoggedIn && !!normalizedSymbol/);
@@ -75,17 +79,21 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.match(publicDemoSource, /refetchInterval: enabled \? 30 \* 1000 : false/);
 
   assert.match(liveCandlesSource, /export function useLiveCandles\(symbol: string, timeframe: string, active = true\)/);
-  assert.match(liveCandlesSource, /if \(!active \|\| !normalizedSymbol \|\| !normalizedTimeframe\)/);
+  assert.match(liveCandlesSource, /const isLiveActive = active && isLoggedIn/);
+  assert.match(liveCandlesSource, /if \(!isLiveActive \|\| !normalizedSymbol \|\| !normalizedTimeframe\)/);
   assert.doesNotMatch(liveCandlesSource, /hasAuthenticatedCandleSession/);
   assert.match(liveCandlesSource, /export function useLiveTick\(symbol: string, _timeframe\?: string, active = true\)/);
   assert.match(liveCandlesSource, /useMarketData\(symbol \? \[symbol\] : \[\], active\)/);
   assert.doesNotMatch(rootLayoutSource, /prefetchChartCandles/);
 
-  assert.match(chartSource, /import \{ router, useFocusEffect, usePathname \} from 'expo-router'/);
-  assert.match(chartSource, /const pathname = usePathname\(\)/);
-  assert.match(chartSource, /const isChartRouteActive =[\s\S]*pathname === '\/chart'[\s\S]*pathname\.startsWith\('\/chart\/'\)/);
+  assert.match(chartSource, /import \{ useIsFocused \} from '@react-navigation\/native'/);
+  assert.match(chartSource, /import \{ router, useFocusEffect \} from 'expo-router'/);
+  assert.match(chartSource, /import \{ useNextFrameValue \} from '\.\.\/\.\.\/hooks\/useNextFrameValue'/);
+  assert.doesNotMatch(chartSource, /import \{[^}]*usePathname[^}]*\} from 'expo-router'/);
+  assert.match(chartSource, /const ChartScreenInner = React\.memo\(function ChartScreenInner\(\{ isChartRouteActive \}: \{ isChartRouteActive: boolean \}\)/);
+  assert.match(chartSource, /export function ChartScreen\(\) \{\s*const isScreenFocused = useIsFocused\(\);\s*const deferredScreenFocused = useNextFrameValue\(isScreenFocused\);\s*return <ChartScreenInner isChartRouteActive=\{deferredScreenFocused\} \/>;\s*\}/);
   assert.match(chartSource, /import \{ useDeferredActiveFlag \} from '\.\.\/\.\.\/hooks\/useDeferredActiveFlag'/);
-  assert.match(chartSource, /import \{ scheduleIdleWork \} from '\.\.\/\.\.\/utils\/startupScheduler'/);
+  assert.match(chartSource, /import \{ scheduleAfterFirstFrame, scheduleIdleWork \} from '\.\.\/\.\.\/utils\/startupScheduler'/);
   assert.match(chartSource, /const CHART_RUNTIME_ACTIVE_DELAY_MS = 0/);
   assert.match(chartSource, /const CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS = 0/);
   assert.match(chartSource, /const CHART_FOCUS_WORK_DELAY_MS = 650/);
@@ -96,10 +104,10 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   // stay mounted across tab switches (latched) so the WebView never reloads on
   // refocus. Hidden-tab work is paused via chartRuntimeActive instead.
   assert.match(chartSource, /import \{ useLatchedFlag \} from '\.\.\/\.\.\/hooks\/useLatchedFlag'/);
-  assert.match(chartSource, /const CHART_SURFACE_PREWARM_DELAY_MS = 3000/);
   assert.match(chartSource, /const chartSurfaceActivated = useDeferredActiveFlag\(isChartRouteActive, CHART_SURFACE_MOUNT_DELAY_MS\)/);
   assert.match(chartSource, /const \[chartSurfacePrewarmed, setChartSurfacePrewarmed\] = useState\(false\)/);
-  assert.match(chartSource, /scheduleIdleWork\(\(\) => setChartSurfacePrewarmed\(true\), \{\s*delayMs: CHART_SURFACE_PREWARM_DELAY_MS/);
+  assert.match(chartSource, /scheduleAfterFirstFrame\(\(\) => setChartSurfacePrewarmed\(true\)\)/);
+  assert.doesNotMatch(chartSource, /CHART_SURFACE_PREWARM_DELAY_MS|CHART_STARTUP_HISTORY_PREWARM_DELAY_MS/);
   assert.match(chartSource, /const chartSurfaceReady = useLatchedFlag\(chartSurfaceActivated \|\| chartSurfacePrewarmed\)/);
   assert.doesNotMatch(chartSource, /const chartSurfaceReady = useDeferredActiveFlag\(/);
   assert.match(chartSource, /useLiveSymbolQuote\(chartSymbol, chartRuntimeActive, CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS\)/);
@@ -125,10 +133,11 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.match(newsSource, /useMarketSymbols\(isScreenFocused\)/);
 });
 
-test('settings and trade screens pause polling when another stack screen is focused', () => {
+test('settings, trade, and history screens pause work when another screen is focused', () => {
   const accountsSource = readSource('src/features/settings/AccountsScreen.tsx');
   const settingsSource = readSource('src/features/settings/SettingsScreen/SettingsScreen.tsx');
   const tradeSource = readSource('src/features/trade/TradeScreen/TradeScreen.tsx');
+  const historySource = readSource('src/features/history/HistoryScreen.tsx');
   const tradePositionRowSource = readSource('src/ui/components/TradePositionRow/TradePositionRow.tsx');
   const tradeSummarySource = readSource('src/features/trade/TradeScreen/SummaryHeader.tsx');
   const calendarSource = readSource('src/features/settings/EconomicCalendarScreen/EconomicCalendarScreen.tsx');
@@ -146,26 +155,38 @@ test('settings and trade screens pause polling when another stack screen is focu
   assert.match(accountsSource, /useHealth\(screenDataActive\)/);
   assert.match(accountsSource, /useMt5Status\(screenDataActive\)/);
 
-  assert.match(settingsSource, /const isScreenFocused = useIsFocused\(\)/);
+  assert.match(settingsSource, /import \{ useIsFocused \} from '@react-navigation\/native'/);
+  assert.match(settingsSource, /import \{ useNextFrameValue \} from '\.\.\/\.\.\/\.\.\/hooks\/useNextFrameValue'/);
+  assert.match(settingsSource, /const SettingsScreenInner = memo\(function SettingsScreenInner\(\{ isScreenFocused \}: \{ isScreenFocused: boolean \}\)/);
+  assert.match(settingsSource, /export function SettingsScreen\(\) \{\s*const isScreenFocused = useIsFocused\(\);\s*const deferredScreenFocused = useNextFrameValue\(isScreenFocused\);\s*return <SettingsScreenInner isScreenFocused=\{deferredScreenFocused\} \/>;\s*\}/);
   assert.match(settingsSource, /const SETTINGS_SCREEN_DATA_DELAY_MS = 8000/);
+  assert.match(settingsSource, /const SETTINGS_BODY_PREWARM_DELAY_MS = 1200/);
+  assert.match(settingsSource, /const routeBodyReady = useDeferredRouteContentReady\(SETTINGS_BODY_PREWARM_DELAY_MS\)/);
+  assert.doesNotMatch(settingsSource, /useDeferredRouteContentReady\([^)]*, isScreenFocused\)/);
   assert.match(settingsSource, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
-  assert.match(settingsSource, /const sidebarOpen = useUIState\(\(s\) => s\.sidebarOpen\)/);
-  assert.match(settingsSource, /const settingsDataActive = useDeferredActiveFlag\(\s*isAccountConnected && isScreenFocused && firstPaintReady && !sidebarOpen,\s*SETTINGS_SCREEN_DATA_DELAY_MS,\s*\)/);
+  assert.doesNotMatch(settingsSource, /sidebarOpen = useUIState/);
+  assert.match(settingsSource, /const settingsDataActive = useDeferredActiveFlag\(\s*isAccountConnected && isScreenFocused && firstPaintReady,\s*SETTINGS_SCREEN_DATA_DELAY_MS,\s*\)/);
   assert.doesNotMatch(settingsSource, /useAccounts\(settingsDataActive\)/);
   assert.match(settingsSource, /useAccountDetails\(activeLogin, settingsDataActive && !!activeLogin\)/);
   assert.doesNotMatch(settingsSource, /const settingsDataActive = isAccountConnected && isScreenFocused/);
 
-  assert.match(tradeSource, /const isScreenFocused = useIsFocused\(\)/);
+  assert.match(tradeSource, /import \{ useIsFocused \} from '@react-navigation\/native'/);
+  assert.match(tradeSource, /import \{ useNextFrameValue \} from '\.\.\/\.\.\/\.\.\/hooks\/useNextFrameValue'/);
+  assert.match(tradeSource, /const TradeScreenInner = React\.memo\(function TradeScreenInner\(\{ isScreenFocused \}: \{ isScreenFocused: boolean \}\)/);
+  assert.match(tradeSource, /export function TradeScreen\(\) \{\s*const isScreenFocused = useIsFocused\(\);\s*const deferredScreenFocused = useNextFrameValue\(isScreenFocused\);\s*return <TradeScreenInner isScreenFocused=\{deferredScreenFocused\} \/>;\s*\}/);
   assert.match(tradeSource, /const TRADE_INITIAL_POSITION_RENDER_COUNT = 5/);
   assert.match(tradeSource, /const TRADE_POSITION_RENDER_BATCH_SIZE = 5/);
   assert.match(tradeSource, /const TRADE_SCREEN_FETCH_DELAY_MS = 0/);
   assert.match(tradeSource, /const TRADE_SCREEN_REFRESH_INTERVAL_MS = 3000/);
+  assert.match(tradeSource, /const TRADE_BODY_PREWARM_DELAY_MS = 600/);
+  assert.match(tradeSource, /const routeBodyReady = useDeferredRouteContentReady\(TRADE_BODY_PREWARM_DELAY_MS\)/);
+  assert.doesNotMatch(tradeSource, /useDeferredRouteContentReady\([^)]*, isScreenFocused\)/);
   assert.match(tradeSource, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
-  assert.match(tradeSource, /const sidebarOpen = useUIState\(\(st\) => st\.sidebarOpen\)/);
+  assert.doesNotMatch(tradeSource, /sidebarOpen = useUIState/);
   // Live quote subscriptions activate immediately on the focused Trade tab;
   // the heavier backend ledger refresh still waits until after first paint.
-  assert.match(tradeSource, /const tradeLiveActive = isScreenFocused && !sidebarOpen/);
-  assert.match(tradeSource, /const tradeFetchActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady && !sidebarOpen, TRADE_SCREEN_FETCH_DELAY_MS\)/);
+  assert.match(tradeSource, /const tradeLiveActive = isScreenFocused/);
+  assert.match(tradeSource, /const tradeFetchActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady, TRADE_SCREEN_FETCH_DELAY_MS\)/);
   assert.match(tradeSource, /hydrateCachedPositions: state\.hydrateCachedPositions/);
   assert.match(tradeSource, /void hydrateCachedPositions\(String\(resolvedLogin\)\)/);
   assert.match(tradeSource, /if \(!tradeFetchActive \|\| !resolvedLogin\) \{/);
@@ -203,12 +224,29 @@ test('settings and trade screens pause polling when another stack screen is focu
   assert.match(tradeSummarySource, /useLiveSymbolQuotes\(liveQuoteSymbols, active, 0\)/);
   assert.match(readSource('src/api/ws/quotesSocket/flushPipeline.ts'), /const QUOTE_STORE_FLUSH_INTERVAL_MS = 16/);
   assert.doesNotMatch(tradeSummarySource, /pulseAnim|Animated\.loop|Animated\.Text/);
+
+  assert.match(historySource, /import \{ useIsFocused \} from '@react-navigation\/native'/);
+  assert.match(historySource, /import \{ useNextFrameValue \} from '\.\.\/\.\.\/hooks\/useNextFrameValue'/);
+  assert.match(historySource, /const HistoryScreenInner = memo\(function HistoryScreenInner\(\{ isScreenFocused \}: \{ isScreenFocused: boolean \}\)/);
+  assert.match(historySource, /export function HistoryScreen\(\) \{\s*const isScreenFocused = useIsFocused\(\);\s*const deferredScreenFocused = useNextFrameValue\(isScreenFocused\);\s*return <HistoryScreenInner isScreenFocused=\{deferredScreenFocused\} \/>;\s*\}/);
+  assert.match(historySource, /const historyDataActive = useDeferredActiveFlag\(isScreenFocused\)/);
+  assert.match(historySource, /usePositionHistoryQuery\(accountLogin, \{\s*enabled: historyDataActive/);
+  assert.match(historySource, /useAccountDealsQuery\(\{[\s\S]*enabled: historyDataActive/);
+  assert.match(historySource, /useOrdersByLoginQuery\(accountLogin, \{\s*enabled: historyDataActive/);
+
   assert.match(calendarSource, /const isScreenFocused = useIsFocused\(\)/);
   assert.match(calendarSource, /getInitialEconomicCalendarData/);
   assert.match(calendarSource, /const initialEvents = useMemo\(\(\) => getInitialEconomicCalendarData\(\), \[\]\)/);
   assert.match(calendarSource, /const \[dataEvents, setDataEvents\] = useState<EconomicEvent\[\]>\(initialEvents\)/);
   assert.match(calendarSource, /if \(!isScreenFocused\) \{[\s\S]*return;[\s\S]*\}/);
-  assert.doesNotMatch(calendarSource, /CALENDAR_INITIAL_DATA_DELAY_MS|calendarDataReady|useDeferredRouteContentReady/);
+  assert.doesNotMatch(calendarSource, /CALENDAR_INITIAL_DATA_DELAY_MS|calendarDataReady/);
+  assert.match(calendarSource, /const routeBodyReady = useDeferredRouteContentReady\(0, isScreenFocused\)/);
+  // One bounded idle prewarm is the only work the hidden calendar shell may do:
+  // it fills the event cache once, well after boot, so the FIRST sidebar visit
+  // reveals real rows (MT5 parity) instead of fetching on focus.
+  assert.match(calendarSource, /const ECON_CALENDAR_IDLE_PREWARM_DELAY_MS = 6000/);
+  assert.match(calendarSource, /const prewarmTimer = setTimeout\(\(\) => \{\s*fetchEconomicCalendarData\(\)/);
+  assert.match(calendarSource, /\}, ECON_CALENDAR_IDLE_PREWARM_DELAY_MS\);\s*return \(\) => clearTimeout\(prewarmTimer\);/);
 
   assert.match(healthSource, /export function useHealth\(enabled = true\)/);
   assert.match(healthSource, /refetchInterval: enabled \? 30000 : false/);

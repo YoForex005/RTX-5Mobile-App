@@ -29,7 +29,7 @@ export function ChartPriceSourceScreen() {
     setPriceSource(source);
   };
 
-  const screenBg = isDark ? T.bg : '#F1F5F9';
+  const screenBg = T.bg;
 
   return (
     <View style={[styles.screen, { backgroundColor: screenBg }]}>

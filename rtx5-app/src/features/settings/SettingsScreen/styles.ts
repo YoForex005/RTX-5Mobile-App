@@ -195,7 +195,7 @@ export const makeSettingsStyles = (T: ThemeColors, themeMode: 'light' | 'dark') 
     ...StyleSheet.absoluteFillObject,
     zIndex: 100,
     elevation: 100,
-    backgroundColor: themeMode === 'dark' ? SETTINGS_DARK_BACKGROUND : '#F2F4F8',
+    backgroundColor: settingsBackground,
   },
   });
 };

@@ -320,7 +320,9 @@ test('Crosshair touch mode shows and locks the professional cursor overlay witho
   assert.ok(overlay);
   assert.equal(overlay.style.display, 'block');
   assert.ok(overlay.children.some((child: any) => child.textContent === 'LOCK'));
-  assert.equal(harness.host.style.touchAction, 'manipulation');
+  // Crosshair mode locks touch-action so the WebView never claims a drawing
+  // drag-edit as a native gesture (which fired pointercancel mid-drag).
+  assert.equal(harness.host.style.touchAction, 'none');
   assert.equal(startEvent.preventDefaultCalls, 0);
   assert.equal(endEvent.preventDefaultCalls, 0);
   assert.equal(harness.latestDrawings().length, 0);
@@ -371,7 +373,7 @@ test('Magnet mode snaps drawing anchors to nearby OHLC prices', () => {
   assert.equal(drawings[0].points[1].price, 5);
 });
 
-test('Serialized drawings stay hidden until a matching drawing tool is selected', () => {
+test('Serialized drawings stay visible regardless of the selected drawing tool', () => {
   const harness = createFakeChartEnvironment();
 
   harness.manager.setSerializedDrawings([
@@ -394,22 +396,32 @@ test('Serialized drawings stay hidden until a matching drawing tool is selected'
 
   const textLevelPrimitive: any = harness.attachedPrimitives[0];
   const fibPrimitive: any = harness.attachedPrimitives[1];
-  assert.equal(textLevelPrimitive._options.visible, false);
-  assert.equal(fibPrimitive._options.visible, false);
+  // TradingView parity: restored drawings render immediately, before any
+  // drawing tool is armed.
+  assert.equal(textLevelPrimitive._options.visible, true);
+  assert.equal(fibPrimitive._options.visible, true);
   assert.equal(harness.latestDrawings().length, 2);
   assert.equal(harness.latestDrawings()[0].hidden, false);
 
   harness.manager.setActiveTool('textLevel');
   assert.equal(textLevelPrimitive._options.visible, true);
-  assert.equal(fibPrimitive._options.visible, false);
+  assert.equal(fibPrimitive._options.visible, true);
 
   harness.manager.setActiveTool('fib');
-  assert.equal(textLevelPrimitive._options.visible, false);
+  assert.equal(textLevelPrimitive._options.visible, true);
   assert.equal(fibPrimitive._options.visible, true);
 
   harness.manager.setActiveTool('none');
+  assert.equal(textLevelPrimitive._options.visible, true);
+  assert.equal(fibPrimitive._options.visible, true);
+
+  harness.manager.setDrawingsHidden(true);
   assert.equal(textLevelPrimitive._options.visible, false);
   assert.equal(fibPrimitive._options.visible, false);
+
+  harness.manager.setDrawingsHidden(false);
+  assert.equal(textLevelPrimitive._options.visible, true);
+  assert.equal(fibPrimitive._options.visible, true);
 });
 
 test('Trend Line creates a two-point line and keeps only that tool selected', () => {
@@ -1485,6 +1497,66 @@ test('Short Position creates a two-point short box drawing', () => {
   assert.match(primitive._options.label, /^Short /);
 });
 
+test('Position drawings restore risk-reward plans with zones, labels and editable anchors', () => {
+  const harness = createFakeChartEnvironment();
+
+  harness.manager.setSerializedDrawings([
+    {
+      hidden: false,
+      id: 'long_plan_saved',
+      kind: 'prediction',
+      label: 'Long plan',
+      points: [{ time: 1, price: 90 }, { time: 3, price: 94 }],
+      position: { stopPrice: 88, accountSize: 10000, riskPercent: 1 },
+    },
+  ]);
+
+  const drawings = harness.latestDrawings();
+  assert.equal(drawings.length, 1);
+  assert.equal(drawings[0].position.stopPrice, 88);
+  assert.equal(drawings[0].position.accountSize, 10000);
+
+  harness.manager.setActiveTool('prediction');
+  const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  primitive.updateAllViews();
+  const drawTarget = createFakeBitmapTarget();
+  primitive.paneViews()[0].renderer().draw(drawTarget.target);
+  const texts = drawTarget.texts.map((entry) => entry.text);
+  assert.ok(texts.includes('Long RR 2.00'));
+  // Prices format at the series precision (5 in this fake environment).
+  assert.ok(texts.includes('Target 94.00000 (+4.0000)'));
+  assert.ok(texts.includes('Stop 88.00000 (-2.0000)'));
+
+  assert.equal(primitive.hitTest({ x: 10, y: 100 }, { isTouch: false })?.part, 'p1');
+  assert.equal(primitive.hitTest({ x: 30, y: 60 }, { isTouch: false })?.part, 'p2');
+  assert.equal(primitive.hitTest({ x: 20, y: 110 }, { isTouch: false })?.part, 'body');
+  assert.equal(primitive.hitTest({ x: 200, y: 200 }, { isTouch: false }), null);
+});
+
+test('Short position restore defaults the stop to a 1:1 mirror above the entry', () => {
+  const harness = createFakeChartEnvironment();
+
+  harness.manager.setSerializedDrawings([
+    {
+      hidden: false,
+      id: 'short_plan_saved',
+      kind: 'shortPosition',
+      label: 'Short plan',
+      points: [{ time: 1, price: 94 }, { time: 3, price: 90 }],
+    },
+  ]);
+
+  harness.manager.setActiveTool('shortPosition');
+  const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  primitive.updateAllViews();
+  const drawTarget = createFakeBitmapTarget();
+  primitive.paneViews()[0].renderer().draw(drawTarget.target);
+  const texts = drawTarget.texts.map((entry) => entry.text);
+  assert.ok(texts.includes('Short RR 1.00'));
+  assert.ok(texts.includes('Target 90.00000 (+4.0000)'));
+  assert.ok(texts.includes('Stop 98.00000 (-4.0000)'));
+});
+
 test('Pitchfork creates a three-point pitchfork drawing', () => {
   const harness = createFakeChartEnvironment();
 
@@ -1632,6 +1704,51 @@ test('Elliott Wave creates a six-point numbered impulse polyline', () => {
   assert.equal(primitive.hitTest({ x: 200, y: 60 }, { isTouch: false })?.part, 'p6');
 });
 
+test('Elliott Wave restores custom wave labels and serializes them back to the host', () => {
+  const harness = createFakeChartEnvironment();
+
+  harness.manager.setSerializedDrawings([
+    {
+      hidden: false,
+      id: 'elliott_saved',
+      kind: 'elliottWave',
+      label: 'Elliott saved',
+      points: [
+        { time: 1, price: 90 },
+        { time: 2, price: 94 },
+        { time: 3, price: 91 },
+        { time: 4, price: 96 },
+        { time: 5, price: 93 },
+        { time: 6, price: 98 },
+      ],
+      waves: [
+        { id: 'wave_1', label: '0', visible: false },
+        { id: 'wave_2', label: 'A', visible: true },
+        { id: 'wave_3', label: 'B', visible: true },
+        { id: 'wave_4', label: 'C', visible: true },
+        { id: 'wave_5', label: 'D', visible: true },
+        { id: 'wave_6', label: 'E', visible: true },
+      ],
+    },
+  ]);
+
+  const drawings = harness.latestDrawings();
+  assert.equal(drawings.length, 1);
+  assert.equal(drawings[0].waves.length, 6);
+  assert.equal(drawings[0].waves[0].visible, false);
+  assert.equal(drawings[0].waves[1].label, 'A');
+
+  harness.manager.setActiveTool('elliottWave');
+  const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  primitive.updateAllViews();
+  const drawTarget = createFakeBitmapTarget();
+  primitive.paneViews()[0].renderer().draw(drawTarget.target);
+  const texts = drawTarget.texts.map((entry) => entry.text);
+  assert.ok(texts.includes('E'));
+  assert.equal(texts.includes('0'), false);
+  assert.equal(texts.includes('5'), false);
+});
+
 test('XABCD Harmonic creates a five-point pattern with ratio labels', () => {
   const harness = createFakeChartEnvironment();
 
@@ -1658,6 +1775,49 @@ test('XABCD Harmonic creates a five-point pattern with ratio labels', () => {
   assert.ok(drawTarget.texts.map((entry) => entry.text).includes('D'));
   assert.equal(primitive.hitTest({ x: 10, y: 80 }, { isTouch: false })?.part, 'p1');
   assert.equal(primitive.hitTest({ x: 210, y: 60 }, { isTouch: false })?.part, 'p5');
+});
+
+test('XABCD Harmonic restores ratio targets and renders measured / target labels', () => {
+  const harness = createFakeChartEnvironment();
+
+  harness.manager.setSerializedDrawings([
+    {
+      hidden: false,
+      id: 'xabcd_saved',
+      kind: 'xabcd',
+      label: 'XABCD saved',
+      points: [
+        { time: 1, price: 90 },
+        { time: 2, price: 96 },
+        { time: 3, price: 92 },
+        { time: 4, price: 95 },
+        { time: 5, price: 99 },
+      ],
+      ratios: [
+        { id: 'ratio_ab', target: 0.618, visible: true },
+        { id: 'ratio_bc', target: null, visible: false },
+        { id: 'ratio_cd', target: null, visible: true },
+      ],
+    },
+  ]);
+
+  const drawings = harness.latestDrawings();
+  assert.equal(drawings.length, 1);
+  assert.equal(drawings[0].ratios.length, 3);
+  assert.equal(drawings[0].ratios[0].target, 0.618);
+  assert.equal(drawings[0].ratios[1].visible, false);
+
+  harness.manager.setActiveTool('xabcd');
+  const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  primitive.updateAllViews();
+  const drawTarget = createFakeBitmapTarget();
+  primitive.paneViews()[0].renderer().draw(drawTarget.target);
+  const texts = drawTarget.texts.map((entry) => entry.text);
+  assert.ok(texts.includes('0.667 / 0.618'));
+  assert.ok(texts.includes('1.333'));
+  assert.equal(texts.includes('0.750'), false);
+  assert.ok(texts.includes('X'));
+  assert.ok(texts.includes('D'));
 });
 
 test('Serialized style restores for object-menu drawing tools', () => {

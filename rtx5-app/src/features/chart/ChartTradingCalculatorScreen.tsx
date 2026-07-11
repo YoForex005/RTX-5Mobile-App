@@ -271,14 +271,14 @@ export function ChartTradingCalculatorScreen() {
 function makeStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     screen: {
-      backgroundColor: isDark ? '#121212' : '#F4F5F7',
+      backgroundColor: T.bg,
     },
     header: {
       paddingHorizontal: 16,
       paddingBottom: 12,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB',
-      backgroundColor: isDark ? '#121212' : '#F4F5F7',
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : '#E3E8F0',
+      backgroundColor: T.bg,
     },
     headerRow: {
       flexDirection: 'row',

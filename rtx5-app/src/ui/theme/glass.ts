@@ -158,20 +158,20 @@ export const GDark = {
 
 // ── Elite Enterprise Light Theme ─────────────────────────────────────────
 export const GLight = {
-  bg: '#F2F5F9',          // Elite cool slate canvas that scales with screen brightness
-  bgRoot: '#F2F5F9',
+  bg: '#F2F4F8',          // Soft neutral canvas for light theme screens
+  bgRoot: '#F2F4F8',
   bgSecondary: '#FFFFFF', // Pure White cards
   glass1: '#F2F6FC',      // Ultra-soft recessed tone for pills and inputs
   glass2: '#FFFFFF',      // Pure White cards
   glass3: 'rgba(59, 130, 246, 0.06)', // Soft electric blue pressed state
   inputBg: '#F2F6FC',     // Recessed input background
 
-  border: '#E5E7EB',       // Clean, modern structural border
+  border: '#E3E8F0',       // Clean, modern structural border
   borderSubtle: '#F3F4F6', // Almost invisible dividers
   borderMedium: '#D1D5DB', // Mid-tone generic border
   borderHi: '#9CA3AF',
   borderHover: '#6B7280',
-  borderZinc: '#E5E7EB',
+  borderZinc: '#E3E8F0',
 
   text: '#111827',         // Deep rich black, not pure #000
   textSub: '#4B5563',      // Legible secondary gray

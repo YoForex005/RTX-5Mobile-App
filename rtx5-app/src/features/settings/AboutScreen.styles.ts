@@ -1,12 +1,12 @@
 import { StyleSheet } from 'react-native';
-import { GDark } from '../../ui/theme/glass';
+import { GDark, GLight } from '../../ui/theme/glass';
 
 export const ABOUT_STAR = '#F5B400';
 export const ABOUT_LINK_CHEVRON = '#C7C7CC';
 
 export const makeAboutStyles = (isDark = false) => {
   const palette = {
-    screen: isDark ? GDark.bg : '#FFFFFF',
+    screen: isDark ? GDark.bg : GLight.bg,
     surface: isDark ? GDark.glass2 : '#FFFFFF',
     surfaceAlt: isDark ? GDark.bg : '#F6F8FB',
     pressed: isDark ? GDark.glass3 : '#F4F4F5',

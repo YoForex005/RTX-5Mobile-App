@@ -325,15 +325,19 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
   // Quotes screen relies on for live bid/ask updates — it doesn't need to
   // wait for the rAF/setTimeout-driven Zustand flush.
   bridge.emitSymbolTick(normalizedUpdate.rawSymbol || normalizedUpdate.symbol, tickEvent);
-  // Extend the chart's active candle from the quote feed. This is the default
-  // visible candle-body source for webterminal parity; backend candle snapshots
-  // are gated above until their runtime contract is proven compatible.
+  // In legacy quote-candle mode, extend the chart's active candle from ticks.
+  // The webterminal-parity path uses broker /ws/v2 candle channels instead.
   const tickPriceForCandle = Number.isFinite(normalizedUpdate.bid)
     ? normalizedUpdate.bid
     : Number.isFinite(normalizedUpdate.ask)
       ? normalizedUpdate.ask
       : null;
-  if (tickPriceForCandle !== null && candleExtensionTimestamp !== null) {
+  const useServerCandleStream = shouldRouteBackendCandlePayloads();
+  if (
+    !useServerCandleStream &&
+    tickPriceForCandle !== null &&
+    candleExtensionTimestamp !== null
+  ) {
     try {
       liveCandleStream.extendActiveCandlesFromQuoteTick(normalizedUpdate.symbol, {
         price: tickPriceForCandle,
@@ -345,7 +349,7 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
       // method on its prototype. Skip silently — the chart still receives
       // backend candle snapshots via the dedicated candle WS.
     }
-  } else if (tickPriceForCandle !== null) {
+  } else if (!useServerCandleStream && tickPriceForCandle !== null) {
     bridge.logCandleFeed('tick_candle_extension_skipped_missing_feed_time', {
       symbol: normalizedUpdate.symbol,
       timestampSource: normalizedUpdate.timestampSource,

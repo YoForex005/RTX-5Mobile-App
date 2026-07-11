@@ -23,8 +23,10 @@ import {
   View,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/shallow';
+import { useNextFrameValue } from '../../../hooks/useNextFrameValue';
+import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
 import { Screen } from '../../../ui/components/Screen';
 import { AppHeader } from '../../../ui/components/AppHeader';
 import { FastPressable } from '../../../ui/components/FastPressable';
@@ -59,6 +61,10 @@ const SETTINGS_ROUTE_PREFETCH_DELAY_MS = 0;
 const SETTINGS_REGISTER_SCREEN_PRELOAD_DELAY_MS = 0;
 const SETTINGS_ROUTE_PREVIEW_ROUTE_DELAY_MS = 32;
 const SETTINGS_SCREEN_DATA_DELAY_MS = 8000;
+// Settings is a retained primary tab. Mount its visual tree offscreen after
+// Trade's prewarm window so the first selection is complete, while every
+// account query and focus-only effect below remains gated by isScreenFocused.
+const SETTINGS_BODY_PREWARM_DELAY_MS = 1200;
 const SETTINGS_REGISTER_ROUTE_LATENCY_BUDGET_MS = 50;
 const SETTINGS_SCROLL_PRESS_RETENTION_OFFSET = { top: 8, bottom: 8, left: 18, right: 18 } as const;
 const SETTINGS_READY_ROUTE_PATHS = [
@@ -102,8 +108,8 @@ type SettingsRouteLaunchPreviewState =
 /**
  * Main screen for the Settings tab, providing access to user profile, account management, app preferences, and support links.
  */
-export function SettingsScreen() {
-  const isScreenFocused = useIsFocused();
+const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
+  const routeBodyReady = useDeferredRouteContentReady(SETTINGS_BODY_PREWARM_DELAY_MS);
   const { quoteSymbols, chartDrawings, oneClickAccepted, setOneClickAccepted, isDemoAccount, setThemeMode, accountDetails } = useUserPreferences(
     useShallow((state) => ({
       quoteSymbols: state.quoteSymbols,
@@ -119,7 +125,6 @@ export function SettingsScreen() {
   const brokerId = useUserPreferences((s) => s.brokerId);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const isAccountConnected = hasAuthenticatedAccountSession(isLoggedIn, accountDetails);
-  const sidebarOpen = useUIState((s) => s.sidebarOpen);
   const warmRegisterScreen = useCallback(() => {
     void preloadRegisterScreen().catch(() => undefined);
   }, []);
@@ -159,7 +164,7 @@ export function SettingsScreen() {
 
   // Let the Settings route paint before starting account-card queries.
   const settingsDataActive = useDeferredActiveFlag(
-    isAccountConnected && isScreenFocused && firstPaintReady && !sidebarOpen,
+    isAccountConnected && isScreenFocused && firstPaintReady,
     SETTINGS_SCREEN_DATA_DELAY_MS,
   );
   const { data: brokerConfig } = useBrokerConfig(brokerId, settingsDataActive);
@@ -284,7 +289,7 @@ export function SettingsScreen() {
   }, [isScreenFocused]);
 
   useEffect(() => {
-    if (!isScreenFocused || sidebarOpen) {
+    if (!isScreenFocused) {
       return undefined;
     }
 
@@ -331,18 +336,18 @@ export function SettingsScreen() {
         globalThis.cancelAnimationFrame?.(frameId);
       }
     };
-  }, [isScreenFocused, sidebarOpen]);
+  }, [isScreenFocused]);
 
   useEffect(() => {
-    if (!isScreenFocused || sidebarOpen) {
+    if (!isScreenFocused) {
       return;
     }
 
     warmSettingsRouteModules();
-  }, [isScreenFocused, sidebarOpen]);
+  }, [isScreenFocused]);
 
   useEffect(() => {
-    if (!isScreenFocused || sidebarOpen) {
+    if (!isScreenFocused) {
       return undefined;
     }
 
@@ -377,7 +382,7 @@ export function SettingsScreen() {
         globalThis.cancelAnimationFrame?.(frameId);
       }
     };
-  }, [isScreenFocused, sidebarOpen, warmRegisterScreen]);
+  }, [isScreenFocused, warmRegisterScreen]);
 
   const unlockSettingsRoute = useCallback(() => {
     if (routeUnlockTimerRef.current) {
@@ -654,7 +659,8 @@ export function SettingsScreen() {
         )}
       </View>
 
-      <ScrollView
+      {routeBodyReady ? <>
+        <ScrollView
         keyboardShouldPersistTaps="always"
         canCancelContentTouches={Platform.OS === 'ios'}
         removeClippedSubviews={Platform.OS === 'android'}
@@ -973,8 +979,8 @@ export function SettingsScreen() {
               </FastPressable>
             </View>
         </View>
-      </ScrollView>
-      {routeLaunchPreview?.kind === 'register' ? (
+        </ScrollView>
+        {routeLaunchPreview?.kind === 'register' ? (
         <View style={styles.registerLaunchPreviewLayer} pointerEvents="auto">
           <RegisterHandoffPreview
             onBack={hideRouteLaunchPreview}
@@ -990,7 +996,14 @@ export function SettingsScreen() {
             onBack={hideRouteLaunchPreview}
           />
         </View>
-      ) : null}
+        ) : null}
+      </> : null}
     </Screen>
   );
+});
+
+export function SettingsScreen() {
+  const isScreenFocused = useIsFocused();
+  const deferredScreenFocused = useNextFrameValue(isScreenFocused);
+  return <SettingsScreenInner isScreenFocused={deferredScreenFocused} />;
 }

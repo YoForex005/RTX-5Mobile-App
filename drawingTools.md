@@ -19,3 +19,11 @@ Horizontal Ray / Extended Line as easy visible options
 Price alert from horizontal line / text level
 
 More advanced tools: Gann Fan, Regression Channel, Elliott Wave, Harmonic/XABCD
+
+
+advanced tools : 
+Fibonacci level editor (implemented)
+Elliott Wave editor (implemented)
+XABCD ratio editor (implemented)
+Sticker picker (not implemented)
+Long/Short risk-reward editor (implemented)

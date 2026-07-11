@@ -96,7 +96,7 @@ export function ModifyPositionScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const T = useTheme();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
-  const screenBg = isDark ? SETTINGS_DARK_BACKGROUND : '#FFFFFF';
+  const screenBg = isDark ? SETTINGS_DARK_BACKGROUND : T.bg;
   const SL_COLOR = T.trading.loss;
   const TP_COLOR = T.trading.profit;
   const isScreenFocused = useIsFocused();
@@ -1014,7 +1014,7 @@ export function ModifyPositionScreen() {
 }
 
 const makeStyles = (T: ThemeColors, isDark: boolean) => {
-  const screenBg = isDark ? SETTINGS_DARK_BACKGROUND : '#FFFFFF';
+  const screenBg = isDark ? SETTINGS_DARK_BACKGROUND : T.bg;
   const cardBg = isDark ? SETTINGS_DARK_CARD_BACKGROUND : T.glass2;
   const insetCardBg = isDark ? SETTINGS_DARK_CARD_BACKGROUND : T.glass1;
 

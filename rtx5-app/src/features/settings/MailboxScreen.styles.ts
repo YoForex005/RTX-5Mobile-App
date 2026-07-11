@@ -9,7 +9,7 @@ const DANGER = '#EF4444';
 
 export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
   const C = {
-    screen: isDark ? '#121212' : '#F5F8FC',
+    screen: isDark ? '#121212' : '#F2F4F8',
     text: isDark ? '#F8FAFC' : '#111827',
     textSub: isDark ? '#AAB4C3' : '#667085',
     textMuted: isDark ? '#7F8CA3' : '#8A94A6',

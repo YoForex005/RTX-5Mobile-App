@@ -6,7 +6,7 @@ import { FastPressable as Pressable } from './FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { usePathname, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useMemo, useState, type MutableRefObject } from 'react';
 import {
   Alert, Animated, BackHandler, Easing, Image, Linking, ScrollView, StyleSheet, Text, View,
   Platform
@@ -22,8 +22,17 @@ import { AppLogo } from './AppLogo';
 import { resolveAppDisplayVersion } from '../../config/appDisplayVersion';
 import { getConfiguredSupportEmail } from '../../config/legalLinks';
 import { buildHelpMailto } from '../../features/settings/helpViewModel';
-import { registerSidebarOpenHandler } from './sidebarDrawerController';
-import { warmSidebarRouteModules } from '../../utils/sidebarRouteModuleWarmup';
+import { navigateMountedSidebarTab, registerSidebarOpenHandler } from './sidebarDrawerController';
+import {
+  hideSidebarDestination,
+  resolveSidebarHostDestination,
+  showSidebarDestination,
+  sidebarDestinationController,
+} from './sidebarDestinationHostController';
+import {
+  scheduleFastTabNavigation,
+  showFastTabVisual,
+} from '../navigation/fastTabVisualController';
 
 // ─── Menu Items ──────────────────────────────────────────────────────────────
 type MenuItem = {
@@ -35,13 +44,13 @@ type MenuItem = {
 
 const MENU_ITEMS: MenuItem[] = [
   { label: 'Trade', icon: 'stats-chart', route: '/trade' },
-  { label: 'Journal', icon: 'reader-outline', route: '/settings/journal' },
+  { label: 'Journal', icon: 'reader-outline', route: '/journal' },
   { label: 'Settings', icon: 'settings-outline', route: '/settings' },
-  { label: 'Economic Calendar', icon: 'calendar-outline', route: '/settings/economic-calendar' },
-  { label: 'User Guide', icon: 'book-outline', route: '/settings/user-guide' },
+  { label: 'Economic Calendar', icon: 'calendar-outline', route: '/economic-calendar' },
+  { label: 'User Guide', icon: 'book-outline', route: '/user-guide' },
   { label: 'Support', icon: 'headset-outline', action: 'support-email' },
-  { label: 'Help', icon: 'chatbubble-ellipses-outline', route: '/settings/help' },
-  { label: 'About', icon: 'information-circle-outline', route: '/settings/about' },
+  { label: 'Help', icon: 'chatbubble-ellipses-outline', route: '/help' },
+  { label: 'About', icon: 'information-circle-outline', route: '/about' },
 ];
 
 // ─── Props ───────────────────────────────────────────────────────────────────
@@ -65,7 +74,17 @@ const SIDEBAR_PRIMARY_TAB_ROUTES = new Set<string>([
   '/history',
   '/settings',
 ]);
-let lastSidebarDetailBasePath: string | null = null;
+const SIDEBAR_DETAIL_TAB_ROUTES = new Set<string>([
+  '/journal',
+  '/economic-calendar',
+  '/user-guide',
+  '/help',
+  '/about',
+]);
+const SIDEBAR_MOUNTED_TAB_ROUTES = new Set<string>([
+  ...SIDEBAR_PRIMARY_TAB_ROUTES,
+  ...SIDEBAR_DETAIL_TAB_ROUTES,
+]);
 
 type PrefetchRouter = {
   prefetch?: (href: string) => void;
@@ -79,34 +98,92 @@ function scheduleNextFrame(action: () => void) {
   setTimeout(action, 0);
 }
 
-function scheduleAfterTapVisualFrame(action: () => void) {
-  const runAfterFrame = () => setTimeout(action, 0);
-  if (typeof globalThis.requestAnimationFrame === 'function') {
-    globalThis.requestAnimationFrame(runAfterFrame);
+/**
+ * MT5-style transition sequencing: the destination is swapped in behind the
+ * drawer FIRST, its reveal render gets a full frame to draw, and only then
+ * does the close slide start — so the 90ms motion is pure animation with no
+ * concurrent commit. Starting the close in the same turn as the reveal was
+ * measured dropping the close from 60fps to ~2-3 total frames on-device.
+ */
+function scheduleCloseAfterRevealFrame(action: () => void) {
+  if (typeof globalThis.requestAnimationFrame !== 'function') {
+    setTimeout(action, 32);
     return;
   }
-  setTimeout(action, 0);
+  globalThis.requestAnimationFrame(() => {
+    globalThis.requestAnimationFrame(action);
+  });
 }
 
 function normalizeSidebarPath(path: string) {
   return path.replace(/\/\([^)]*\)/g, '') || '/';
 }
 
+/**
+ * Feeds the current pathname into a ref without re-rendering the drawer.
+ * usePathname re-renders its subscriber on EVERY route change; the drawer only
+ * needs the path at press time, so subscribing here (a null-rendering child)
+ * keeps route changes off the drawer's (and its menu rows') render path.
+ */
+function SidebarPathnameSync({ pathnameRef }: { pathnameRef: MutableRefObject<string> }) {
+  const pathname = usePathname();
+  pathnameRef.current = pathname;
+  return null;
+}
+
 function shouldPushSidebarRoute(route: string) {
   return SIDEBAR_PUSH_ROUTE_PREFIXES.some((prefix) => route.startsWith(prefix));
 }
+
+type SidebarMenuRowProps = {
+  item: MenuItem;
+  onPressItem: (item: MenuItem) => void;
+  ds: ReturnType<typeof makeStyles>;
+  iconColor: string;
+};
+
+// Memoized so drawer-level state flips (interactive, profile data) do not
+// re-reconcile the eight Pressable rows mid-animation.
+const SidebarMenuRow = memo(function SidebarMenuRow({
+  item,
+  onPressItem,
+  ds,
+  iconColor,
+}: SidebarMenuRowProps) {
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        ds.menuItem,
+        pressed && ds.menuItemPressed,
+      ]}
+      onPress={() => onPressItem(item)}
+      activateOnPressIn
+      hitSlop={SIDEBAR_MENU_ITEM_HIT_SLOP}
+      latencyLabel={`sidebar.menu.${item.label}`}
+      unstable_pressDelay={0}
+    >
+      <Ionicons
+        name={item.icon}
+        size={20}
+        color={iconColor}
+        style={ds.menuIcon}
+      />
+      <Text style={ds.menuText}>{item.label}</Text>
+    </Pressable>
+  );
+});
 
 // ─── Component ───────────────────────────────────────────────────────────────
 /**
  * Main global navigation drawer component. It houses the user's active account context, global navigation links (Trade, Quotes, History, Settings), and the theme toggle.
  */
-export function SidebarDrawer() {
+export const SidebarDrawer = memo(function SidebarDrawer() {
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const onClose = useCallback(() => setSidebarOpen(false), [setSidebarOpen]);
   const initialSidebarOpenRef = useRef(useUIState.getState().sidebarOpen);
   const [interactive, setInteractive] = useState(initialSidebarOpenRef.current);
   const router = useRouter();
-  const pathname = usePathname();
+  const pathnameRef = useRef('/');
   const themeMode = useThemeMode();
   const T = useMemo(() => (themeMode === 'light' ? GLight : GDark), [themeMode]);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
@@ -134,8 +211,7 @@ export function SidebarDrawer() {
   const interactiveGenerationRef = useRef(0);
   const navigationLockedRef = useRef(false);
   const navigationUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => warmSidebarRouteModules(), []);
+  const containerRef = useRef<View>(null);
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -198,15 +274,25 @@ export function SidebarDrawer() {
     const generation = interactiveGenerationRef.current + 1;
     interactiveGenerationRef.current = generation;
 
-    scheduleNextFrame(() => {
+    // The native-driver drawer can become visible while the JS thread is busy.
+    // Give it touch ownership in this same event turn so a quick menu-row tap
+    // cannot be dropped while the React accessibility state catches up.
+    containerRef.current?.setNativeProps({ pointerEvents: 'auto' });
+
+    // The interactive re-render waits until the open motion has finished —
+    // committing it one frame into the 110ms slide was measured dropping
+    // 45-99ms of animation frames on-device. Touches already work via the
+    // synchronous setNativeProps above.
+    setTimeout(() => {
       if (interactiveGenerationRef.current === generation && animatedVisibleRef.current) {
         setInteractive(true);
       }
-    });
+    }, DRAWER_OPEN_ANIMATION_MS + 40);
   }, []);
 
   const hideInteractiveNow = useCallback(() => {
     interactiveGenerationRef.current += 1;
+    containerRef.current?.setNativeProps({ pointerEvents: 'none' });
     setInteractive(false);
   }, []);
 
@@ -293,11 +379,9 @@ export function SidebarDrawer() {
   }, []);
 
   const snapClosedForNavigation = useCallback(() => {
-    // Route taps should show the destination immediately. The drawer is below
-    // pushed sidebar routes, so snap it closed before navigation instead of
-    // making the tap wait for the close animation. Keep the global sidebarOpen
-    // flag true until the navigation handoff has painted; flipping it here
-    // wakes paused screen work in the tap frame.
+    // Route taps show the destination immediately. Snap the native-driver
+    // visuals before clearing the global state so no destination can inherit
+    // an open drawer or wait for the close animation.
     animatedVisibleRef.current = false;
     isClosingRef.current = false;
     slideAnim.stopAnimation();
@@ -308,31 +392,34 @@ export function SidebarDrawer() {
   }, [overlayAnim, slideAnim]);
 
   const runSidebarNavigation = useCallback((route: string) => {
-    const currentPath = normalizeSidebarPath(pathname);
+    const currentPath = normalizeSidebarPath(pathnameRef.current);
 
-    if (SIDEBAR_PRIMARY_TAB_ROUTES.has(route) && shouldPushSidebarRoute(currentPath)) {
-      const detailBasePath = lastSidebarDetailBasePath;
-      if (detailBasePath) {
-        lastSidebarDetailBasePath = null;
-        router.back();
-        if (detailBasePath !== route) {
-          scheduleAfterTapVisualFrame(() => router.navigate(route as any));
-        }
-        return;
-      }
-
-      useUIState.getState().setSidebarOpen(false);
+    if (SIDEBAR_MOUNTED_TAB_ROUTES.has(route) && shouldPushSidebarRoute(currentPath)) {
+      // One atomic pop-to action reveals the already-mounted tab route. The
+      // old back-then-next-frame navigate sequence exposed the underlying open
+      // drawer and added a visible extra frame before Trade/Settings appeared.
+      router.dismissTo(route as any);
+      return;
     }
 
-    if (SIDEBAR_PRIMARY_TAB_ROUTES.has(currentPath)) {
-      lastSidebarDetailBasePath = currentPath;
-    }
-
-    if (SIDEBAR_PRIMARY_TAB_ROUTES.has(route)) {
-      lastSidebarDetailBasePath = null;
+    if (SIDEBAR_MOUNTED_TAB_ROUTES.has(route) && navigateMountedSidebarTab(route)) {
+      // Skip Expo Router's root URL reconciliation for routes that already
+      // exist in the mounted tab navigator. This is the same direct navigator
+      // switch used by the bottom bar and keeps the tap frame synchronous.
+      return;
     }
 
     if (SIDEBAR_STACK_ROUTES.has(route) || shouldPushSidebarRoute(route)) {
+      // Detail → detail swaps the top screen instead of stacking another one.
+      // Stacked details stay mounted (a covered live Journal kept re-rendering
+      // 60-360ms slices under the new screen), the stack grew without bound,
+      // and BACK had to walk every visited detail instead of returning to the
+      // source tab.
+      if (shouldPushSidebarRoute(currentPath)) {
+        router.replace(route as any);
+        return;
+      }
+
       // Push detail routes over the (tabs) navigator so it, and the warm chart
       // WebView, stays mounted; BACK is then an instant pop, not a remount.
       router.push(route as any);
@@ -340,7 +427,7 @@ export function SidebarDrawer() {
     }
 
     router.navigate(route as any);
-  }, [pathname, router]);
+  }, [router]);
 
   const navigateSidebarRoute = useCallback((route: string) => {
     if (navigationLockedRef.current) {
@@ -350,7 +437,8 @@ export function SidebarDrawer() {
     navigationLockedRef.current = true;
 
     const targetPath = normalizeSidebarPath(route);
-    const currentPath = normalizeSidebarPath(pathname);
+    const hostedPath = sidebarDestinationController.getSnapshot().activePath;
+    const currentPath = hostedPath ?? normalizeSidebarPath(pathnameRef.current);
     const shouldNavigate = currentPath !== targetPath;
 
     if (!shouldNavigate) {
@@ -360,17 +448,44 @@ export function SidebarDrawer() {
       return;
     }
 
-    snapClosedForNavigation();
+    if (resolveSidebarHostDestination(route)) {
+      showSidebarDestination(route, 'sidebar');
+      scheduleCloseAfterRevealFrame(() => {
+        handleClose(() => {
+          unlockSidebarNavigation();
+        });
+      });
+      return;
+    }
+
+    if (SIDEBAR_PRIMARY_TAB_ROUTES.has(route)) {
+      const visualRevision = showFastTabVisual(route);
+      hideSidebarDestination();
+      scheduleCloseAfterRevealFrame(() => {
+        handleClose(() => {
+          unlockSidebarNavigation();
+        });
+      });
+      if (visualRevision !== null) {
+        scheduleFastTabNavigation(visualRevision, () => {
+          runSidebarNavigation(route);
+        });
+      } else {
+        runSidebarNavigation(route);
+      }
+      return;
+    }
+
+    handleClose(() => {
+      unlockSidebarNavigation();
+    });
     try {
       runSidebarNavigation(route);
-    } finally {
-      scheduleAfterTapVisualFrame(() => {
-        hideInteractiveNow();
-        onClose();
-        unlockSidebarNavigation();
-      });
+    } catch (error) {
+      unlockSidebarNavigation();
+      throw error;
     }
-  }, [handleClose, hideInteractiveNow, onClose, pathname, runSidebarNavigation, snapClosedForNavigation, unlockSidebarNavigation]);
+  }, [handleClose, runSidebarNavigation, unlockSidebarNavigation]);
 
   const openSupportEmail = useCallback(async () => {
     const mailtoUrl = buildHelpMailto({
@@ -419,11 +534,13 @@ export function SidebarDrawer() {
 
   return (
     <View
+      ref={containerRef}
       pointerEvents={interactive ? 'auto' : 'none'}
       importantForAccessibility={interactive ? 'auto' : 'no-hide-descendants'}
       accessibilityElementsHidden={!interactive}
       style={ds.container}
     >
+        <SidebarPathnameSync pathnameRef={pathnameRef} />
         {/* Overlay */}
         <Animated.View
           pointerEvents="box-none"
@@ -520,33 +637,20 @@ export function SidebarDrawer() {
             contentContainerStyle={ds.menuContent}
           >
             {MENU_ITEMS.map((item) => (
-              <Pressable
+              <SidebarMenuRow
                 key={item.label}
-                style={({ pressed }) => [
-                  ds.menuItem,
-                  pressed && ds.menuItemPressed,
-                ]}
-                onPress={() => handleMenuItemPress(item)}
-                activateOnPressIn
-                hitSlop={SIDEBAR_MENU_ITEM_HIT_SLOP}
-                latencyLabel={`sidebar.menu.${item.label}`}
-                unstable_pressDelay={0}
-              >
-                <Ionicons
-                  name={item.icon}
-                  size={20}
-                  color={T.textSub}
-                  style={ds.menuIcon}
-                />
-                <Text style={ds.menuText}>{item.label}</Text>
-              </Pressable>
+                item={item}
+                onPressItem={handleMenuItemPress}
+                ds={ds}
+                iconColor={T.textSub}
+              />
             ))}
           </ScrollView>
 
         </Animated.View>
       </View>
   );
-}
+});
 
 // ─── Dynamic Styles ──────────────────────────────────────────────────────────
 type SidebarThemeSelectorProps = {

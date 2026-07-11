@@ -30,7 +30,7 @@ export function ChartOpenOrderModeScreen() {
     setOpenOrderMode(mode);
   };
 
-  const screenBg = isDark ? T.bgRoot : '#F1F5F9';
+  const screenBg = T.bgRoot;
 
   return (
     <View style={[styles.screen, { backgroundColor: screenBg }]}>

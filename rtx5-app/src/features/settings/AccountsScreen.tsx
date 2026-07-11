@@ -835,6 +835,7 @@ export function AccountsScreen() {
     runImmediateAction('accounts.saved.optionsSheet.open', () =>
       showAccountsActionSheet({
         title,
+        presentation: 'mt5Plain',
         detent: 'auto',
         instantOpen: true,
         actions: [
@@ -895,7 +896,7 @@ export function AccountsScreen() {
   const openOptions = () => {
     runImmediateAction('accounts.optionsSheet.open', () =>
       showAccountsActionSheet({
-        title: t('Settings'),
+        presentation: 'mt5Plain',
         detent: 'auto',
         instantOpen: true,
         actions: [
@@ -1169,7 +1170,11 @@ export function AccountsScreen() {
             return (
               <Pressable
                 key={row.key}
-                style={[styles.secondaryCard, isExpanded && styles.secondaryCardExpanded]}
+                style={[
+                  styles.secondaryCard,
+                  !isExpanded && styles.secondaryCardCollapsed,
+                  isExpanded && styles.secondaryCardExpanded,
+                ]}
                 onPress={() => setExpandedAccountKey(isExpanded ? null : row.key)}
                 onLongPress={() => openOtherAccountOptions(row)}
                 delayLongPress={400}
@@ -1438,6 +1443,7 @@ export function AccountsScreen() {
         title={actionSheet?.title}
         actions={actionSheet?.actions ?? []}
         onClose={hideAccountsActionSheet}
+        presentation={actionSheet?.presentation}
         searchable={actionSheet?.searchable}
         detent={actionSheet?.detent}
         minimumTopInset={actionSheet?.minimumTopInset}
@@ -1771,15 +1777,15 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     marginTop: 8,
     marginBottom: 4,
     backgroundColor: cardBg,
-    borderRadius: 22,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: cardBorder,
+    borderColor: T.border,
     padding: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: isDark ? 0 : 0.04,
-    shadowRadius: 20,
-    elevation: isDark ? 0 : 4,
+    shadowColor: isDark ? '#000000' : '#64748B',
+    shadowOffset: { width: 0, height: isDark ? 4 : 2 },
+    shadowOpacity: isDark ? 0.08 : 0.06,
+    shadowRadius: isDark ? 16 : 8,
+    elevation: isDark ? 4 : 1,
     overflow: 'hidden',
   },
   ribbonRightContest: {
@@ -2090,6 +2096,15 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     shadowRadius: 20,
     elevation: isDark ? 0 : 4,
   },
+  secondaryCardCollapsed: {
+    borderRadius: 16,
+    borderColor: T.border,
+    shadowColor: isDark ? '#000000' : '#64748B',
+    shadowOffset: { width: 0, height: isDark ? 4 : 2 },
+    shadowOpacity: isDark ? 0.08 : 0.06,
+    shadowRadius: isDark ? 16 : 8,
+    elevation: isDark ? 4 : 1,
+  },
   secondaryLeft: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2199,7 +2214,13 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     marginTop: 1,
   },
   secondaryCardExpanded: {
-    borderColor: isDark ? T.borderHi : T.accentGlow,
+    borderRadius: 16,
+    borderColor: T.border,
+    shadowColor: isDark ? '#000000' : '#64748B',
+    shadowOffset: { width: 0, height: isDark ? 4 : 2 },
+    shadowOpacity: isDark ? 0.08 : 0.06,
+    shadowRadius: isDark ? 16 : 8,
+    elevation: isDark ? 4 : 1,
   },
   secondaryTopRow: {
     flexDirection: 'row',

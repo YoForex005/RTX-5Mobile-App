@@ -19,7 +19,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
         overlay: 'rgba(18,18,18,0.76)',
       }
     : {
-        background: '#F5F8FC',
+        background: '#F2F4F8',
         card: '#FFFFFF',
         text: '#111827',
         secondary: '#64748B',

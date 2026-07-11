@@ -86,7 +86,7 @@ export function SettingsRouteLaunchPreview({
 }
 
 const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
-  const background = isDark ? '#121212' : '#F2F4F8';
+  const background = T.bg;
   const surface = isDark ? '#1E1E1E' : '#FFFFFF';
   const border = isDark ? 'rgba(255,255,255,0.10)' : '#DFE7F1';
   const skeleton = isDark ? 'rgba(255,255,255,0.10)' : 'rgba(15,23,42,0.08)';

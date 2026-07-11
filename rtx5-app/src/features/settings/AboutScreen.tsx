@@ -6,10 +6,11 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import * as Application from 'expo-application';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Keyboard,
@@ -34,10 +35,11 @@ import { useUIState } from '../../state/uiState';
 import { AppLogo } from '../../ui/components/AppLogo';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { Screen } from '../../ui/components/Screen';
-import { SidebarDrawer } from '../../ui/components/SidebarDrawer';
+import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../ui/components/sidebarDrawerController';
 import { GDark } from '../../ui/theme/glass';
 import { safeRouterBack } from '../../utils/navigation';
+import { useNextFrameValue } from '../../hooks/useNextFrameValue';
 import {
   ABOUT_LINK_CHEVRON,
   ABOUT_STAR,
@@ -77,7 +79,8 @@ type DeveloperContactMode = 'contact-developer' | 'account-deletion';
 /**
  * Displays information about the app version, copyright, and developer details.
  */
-export function AboutScreen() {
+export const AboutScreenInner = memo(function AboutScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
+  const routeBodyReady = useDeferredRouteContentReady(0, isScreenFocused);
   const router = useRouter();
   const isDark = useIsDarkTheme();
   const styles = useMemo(() => makeAboutStyles(isDark), [isDark]);
@@ -181,7 +184,7 @@ export function AboutScreen() {
           <Text style={styles.buildLabel} numberOfLines={1}>{buildLabel}</Text>
         </View>
 
-        <View style={styles.actions}>
+        {routeBodyReady ? <View style={styles.actions}>
           {ABOUT_ACTIONS.map((action) => (
             <AboutActionRow
               key={action.id}
@@ -191,12 +194,17 @@ export function AboutScreen() {
               chevronColor={actionChevronColor}
             />
           ))}
-        </View>
+        </View> : null}
       </View>
 
-      <SidebarDrawer />
     </Screen>
   );
+});
+
+export function AboutScreen() {
+  const isScreenFocused = useIsFocused();
+  const deferredScreenFocused = useNextFrameValue(isScreenFocused);
+  return <AboutScreenInner isScreenFocused={deferredScreenFocused} />;
 }
 
 export function DeveloperContactRequestScreen({ mode }: { mode: DeveloperContactMode }) {
@@ -787,7 +795,6 @@ function ContactDeveloperScreen({
         </View>
       </KeyboardAvoidingView>
 
-      <SidebarDrawer />
     </Screen>
   );
 }

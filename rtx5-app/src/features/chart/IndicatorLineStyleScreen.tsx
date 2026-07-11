@@ -38,7 +38,7 @@ export function IndicatorLineStyleScreen() {
   );
   const updateLine = useIndicatorEditState((s) => s.updateLine);
 
-  const bgColor = isDark ? '#121212' : '#F4F5F7';
+  const bgColor = T.bg;
   const styles = useMemo(() => makeStyles(bgColor, isDark, T.text), [bgColor, isDark, T.text]);
 
   if (!line || !lineKey) {
@@ -185,7 +185,7 @@ function makeStyles(bgColor: string, isDark: boolean, textColor: string) {
       paddingHorizontal: 16,
       paddingBottom: 12,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB',
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : '#E3E8F0',
       backgroundColor: bgColor,
     },
     headerBackBtn: {

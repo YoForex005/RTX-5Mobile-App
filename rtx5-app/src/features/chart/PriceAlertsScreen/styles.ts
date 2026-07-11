@@ -2,7 +2,7 @@ import { StyleSheet } from 'react-native';
 import type { ThemeColors } from '../../../ui/theme/glass';
 
 export function makePriceAlertsStyles(T: ThemeColors, isDark: boolean) {
-  const screenBg = isDark ? T.bg : '#F1F5F9';
+  const screenBg = T.bg;
   const cardBg = isDark ? T.glass2 : '#FFFFFF';
   const raisedBg = isDark ? T.glass1 : '#F8FAFC';
   const border = isDark ? T.border : '#E2E8F0';

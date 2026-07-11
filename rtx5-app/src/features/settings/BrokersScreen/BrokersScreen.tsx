@@ -495,12 +495,11 @@ function BrokerAvatar({
 const MT5_BLUE = '#0a84ff';
 
 const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
-  const pageBg = isDark ? T.bg : '#F3F6FA';
+  const pageBg = T.bg;
   const surface = isDark ? T.glass2 : '#FFFFFF';
   const softSurface = isDark ? 'rgba(255,255,255,0.045)' : '#F8FAFC';
   const dividerColor = isDark ? T.borderSubtle : 'rgba(15,23,42,0.08)';
   const cardBorder = isDark ? T.border : 'rgba(15,23,42,0.08)';
-  const cardShadowColor = isDark ? '#000000' : '#0F172A';
   return StyleSheet.create({
     page: {
       flex: 1,
@@ -584,12 +583,12 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       borderRadius: 16,
       backgroundColor: surface,
       borderWidth: 1,
-      borderColor: cardBorder,
-      shadowColor: cardShadowColor,
-      shadowOpacity: isDark ? 0.16 : 0.04,
-      shadowRadius: 14,
-      shadowOffset: { width: 0, height: 6 },
-      elevation: isDark ? 2 : 1,
+      borderColor: T.border,
+      shadowColor: isDark ? '#000000' : '#64748B',
+      shadowOffset: { width: 0, height: isDark ? 4 : 2 },
+      shadowOpacity: isDark ? 0.08 : 0.06,
+      shadowRadius: isDark ? 16 : 8,
+      elevation: isDark ? 4 : 1,
     },
     brokerRowPressed: {
       backgroundColor: isDark ? '#1E1E1E' : '#F8FAFC',
@@ -650,10 +649,6 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       height: 36,
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: 18,
-      borderWidth: 1,
-      borderColor: dividerColor,
-      backgroundColor: softSurface,
     },
     emptyState: {
       alignItems: 'center',

@@ -397,6 +397,7 @@ export function BrokerDetailScreen() {
     runImmediateAction('brokerDetail.serverSheet.open', () =>
       showBrokerDetailActionSheet({
         title: t('Choose server'),
+        presentation: 'mt5Plain',
         searchable: true,
         searchPlaceholder: t('Search brokers'),
         detent: 'large',
@@ -993,6 +994,7 @@ export function BrokerDetailScreen() {
         <ActionSheet
           visible={actionSheet !== null}
           title={actionSheet?.title}
+          presentation={actionSheet?.presentation}
           actions={actionSheet?.actions ?? []}
           onClose={hideBrokerDetailActionSheet}
           searchable={actionSheet?.searchable}
@@ -1013,7 +1015,7 @@ const MT5_BLUE = '#0a84ff';
 const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
   // Pure white card surface in light mode; subtle elevated slate in dark mode.
   // Keeps the form area visually distinct from the device chrome on both themes.
-  const pageBg = isDark ? T.bg : '#F3F6FA';
+  const pageBg = T.bg;
   const surface = isDark ? T.glass2 : '#FFFFFF';
   const softSurface = isDark ? 'rgba(255,255,255,0.045)' : '#F8FAFC';
   const dividerColor = isDark ? T.borderSubtle : 'rgba(15,23,42,0.08)';

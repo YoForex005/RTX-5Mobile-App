@@ -45,24 +45,7 @@ export const resolveCandlesWsUrl = (
     return requireBrokerUrl ? '' : DEFAULT_CANDLES_WS_URL;
   }
 
-  return url.replace(/\/ws\/feed(\?.*)?$/, '/ws/v2$1');
-};
-
-export const appendCandleWsBrokerId = (baseUrl: string, brokerId?: string | null): string => {
-  const normalizedBrokerId = String(brokerId ?? '').trim();
-  if (!baseUrl || !normalizedBrokerId) {
-    return baseUrl;
-  }
-
-  const queryStart = baseUrl.indexOf('?');
-  const base = queryStart === -1 ? baseUrl : baseUrl.slice(0, queryStart);
-  const query = queryStart === -1 ? '' : baseUrl.slice(queryStart + 1);
-  const params = query
-    .split('&')
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0 && !entry.toLowerCase().startsWith('broker_id='));
-  params.push(`broker_id=${encodeURIComponent(normalizedBrokerId)}`);
-  return `${base}?${params.join('&')}`;
+  return url;
 };
 
 const CANDLE_WS_TIMEFRAME_BY_CANONICAL = {

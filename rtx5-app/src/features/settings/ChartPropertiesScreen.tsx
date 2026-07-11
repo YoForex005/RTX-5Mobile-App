@@ -619,7 +619,7 @@ export function ChartPropertiesScreen() {
 
 
 function makeStyles(T: ThemeColors, isDark: boolean) {
-  const preferencesBackground = isDark ? SETTINGS_DARK_BACKGROUND : '#F4F5F7';
+  const preferencesBackground = isDark ? SETTINGS_DARK_BACKGROUND : T.bg;
   const preferencesCardBackground = isDark ? SETTINGS_DARK_CARD_BACKGROUND : '#FFFFFF';
   const preferencesSoftCardBackground = isDark ? SETTINGS_DARK_CARD_BACKGROUND : '#F8FAFC';
 
@@ -631,7 +631,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingHorizontal: 16,
       paddingBottom: 12,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB',
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : '#E3E8F0',
       backgroundColor: preferencesBackground,
     },
     headerRow: {

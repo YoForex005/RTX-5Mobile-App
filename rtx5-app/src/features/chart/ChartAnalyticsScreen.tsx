@@ -508,7 +508,6 @@ export function ChartAnalyticsScreen() {
 
 function makeStyles(T: ThemeColors, isDark: boolean) {
   const cardBg = T.glass2;
-  const cardBorder = isDark ? T.border : T.borderSubtle;
 
   return StyleSheet.create({
     screen: {
@@ -553,13 +552,13 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       padding: spacing.md,
       borderRadius: 16,
       borderWidth: 1,
-      borderColor: cardBorder,
+      borderColor: T.border,
       backgroundColor: cardBg,
-      shadowColor: '#000000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: isDark ? 0 : 0.03,
-      shadowRadius: isDark ? 0 : 10,
-      elevation: isDark ? 0 : 4,
+      shadowColor: isDark ? '#000000' : '#64748B',
+      shadowOffset: { width: 0, height: isDark ? 4 : 2 },
+      shadowOpacity: isDark ? 0.08 : 0.06,
+      shadowRadius: isDark ? 16 : 8,
+      elevation: isDark ? 4 : 1,
     },
     cardHeaderRow: {
       flexDirection: 'row',

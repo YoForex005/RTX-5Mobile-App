@@ -3,12 +3,11 @@ import type { ThemeColors } from '../../../ui/theme/glass';
 
 export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
   // Dark theme matches the app palette: #121212 canvas + #1E1E1E cards.
-  const pageBg = isDark ? '#121212' : '#F4F7FB';
+  const pageBg = isDark ? '#121212' : T.bg;
   const panelBg = isDark ? '#1E1E1E' : '#FFFFFF';
   const borderColor = isDark ? 'rgba(255,255,255,0.10)' : 'rgba(15,23,42,0.08)';
   const subtleBorder = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)';
   const mutedPanel = isDark ? '#1E1E1E' : '#F8FAFC';
-  const shadowColor = isDark ? '#000000' : '#334155';
 
   return StyleSheet.create({
     root: {
@@ -60,16 +59,16 @@ export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
     },
 
     heroPanel: {
-      borderRadius: 18,
+      borderRadius: 16,
       borderWidth: 1,
-      borderColor,
+      borderColor: T.border,
       backgroundColor: panelBg,
       overflow: 'hidden',
-      shadowColor,
-      shadowOffset: { width: 0, height: 10 },
-      shadowOpacity: isDark ? 0.22 : 0.07,
-      shadowRadius: 24,
-      elevation: 3,
+      shadowColor: isDark ? '#000000' : '#64748B',
+      shadowOffset: { width: 0, height: isDark ? 4 : 2 },
+      shadowOpacity: isDark ? 0.08 : 0.06,
+      shadowRadius: isDark ? 16 : 8,
+      elevation: isDark ? 4 : 1,
     },
     instrumentRow: {
       minHeight: 88,
@@ -230,14 +229,14 @@ export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
     sectionPanel: {
       borderRadius: 16,
       borderWidth: 1,
-      borderColor,
+      borderColor: T.border,
       backgroundColor: panelBg,
       overflow: 'hidden',
-      shadowColor,
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: isDark ? 0.18 : 0.045,
-      shadowRadius: 18,
-      elevation: 2,
+      shadowColor: isDark ? '#000000' : '#64748B',
+      shadowOffset: { width: 0, height: isDark ? 4 : 2 },
+      shadowOpacity: isDark ? 0.08 : 0.06,
+      shadowRadius: isDark ? 16 : 8,
+      elevation: isDark ? 4 : 1,
     },
     sectionHeader: {
       minHeight: 48,
@@ -363,15 +362,15 @@ export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
     rangePanel: {
       borderRadius: 16,
       borderWidth: 1,
-      borderColor,
+      borderColor: T.border,
       backgroundColor: panelBg,
       paddingBottom: 18,
       overflow: 'hidden',
-      shadowColor,
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: isDark ? 0.18 : 0.045,
-      shadowRadius: 18,
-      elevation: 2,
+      shadowColor: isDark ? '#000000' : '#64748B',
+      shadowOffset: { width: 0, height: isDark ? 4 : 2 },
+      shadowOpacity: isDark ? 0.08 : 0.06,
+      shadowRadius: isDark ? 16 : 8,
+      elevation: isDark ? 4 : 1,
     },
     rangeValueRow: {
       flexDirection: 'row',
@@ -439,15 +438,15 @@ export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
     sentimentPanel: {
       borderRadius: 16,
       borderWidth: 1,
-      borderColor,
+      borderColor: T.border,
       backgroundColor: panelBg,
       paddingBottom: 16,
       overflow: 'hidden',
-      shadowColor,
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: isDark ? 0.18 : 0.045,
-      shadowRadius: 18,
-      elevation: 2,
+      shadowColor: isDark ? '#000000' : '#64748B',
+      shadowOffset: { width: 0, height: isDark ? 4 : 2 },
+      shadowOpacity: isDark ? 0.08 : 0.06,
+      shadowRadius: isDark ? 16 : 8,
+      elevation: isDark ? 4 : 1,
     },
     sentimentBarRow: {
       flexDirection: 'row',

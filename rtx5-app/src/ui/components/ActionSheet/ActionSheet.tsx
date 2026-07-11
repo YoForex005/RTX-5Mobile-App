@@ -13,6 +13,7 @@ import {
   Easing,
   FlatList,
   type GestureResponderEvent,
+  type TextStyle,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -44,6 +45,8 @@ type ActionSheetAction = {
   selected?: boolean;
   muted?: boolean;
   danger?: boolean;
+  textColor?: string;
+  textFontWeight?: TextStyle['fontWeight'];
   disabled?: boolean;
   activateOnPressIn?: boolean;
   onPress?: () => void;
@@ -654,6 +657,8 @@ export function ActionSheet({
                 action.danger
                   ? styles.actionTextDanger
                   : (isMt5PlainPresentation ? styles.actionTextNormalMt5Plain : styles.actionTextNormal),
+                action.textColor && !isVisuallyMuted && { color: action.textColor },
+                action.textFontWeight && !isVisuallyMuted && { fontWeight: action.textFontWeight },
                 isVisuallyMuted && (
                   isMt5PlainPresentation ? styles.actionTextDisabledMt5Plain : styles.actionTextDisabled
                 ),

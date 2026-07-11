@@ -12,7 +12,8 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
  * - Micro-Components: Extracts fast-updating UI (like the live price pill) into memoized blocks isolated from the main layout.
  */
 import { Ionicons } from '@expo/vector-icons';
-import { router, useFocusEffect, usePathname } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
+import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, BackHandler, Dimensions, Keyboard, Platform, ScrollView, Text, TextInput, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
@@ -27,6 +28,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDeferredActiveFlag } from '../../hooks/useDeferredActiveFlag';
 import { useLatchedFlag } from '../../hooks/useLatchedFlag';
+import { useNextFrameValue } from '../../hooks/useNextFrameValue';
 import {
   ChartTapRadialMenu,
   type ChartTapMenuAnchor,
@@ -114,7 +116,7 @@ import { getMarketCloseSeparator, getPeriodSeparators } from './periodSeparators
 import { useShallow } from 'zustand/shallow';
 import { recordUiFeedGap } from '../../dev/uiInteractionDiagnostics';
 import { runImmediateAction } from '../../utils/actionLatency';
-import { scheduleIdleWork } from '../../utils/startupScheduler';
+import { scheduleAfterFirstFrame, scheduleIdleWork } from '../../utils/startupScheduler';
 import { getDevRefreshKey, hashDevRefreshSource } from '../../dev/devRefreshKey';
 import {
   formatTradeVolume,
@@ -224,7 +226,8 @@ const CHART_BRIDGE_DEBUG = false;
 // Match the Quotes screen: every bid/ask tick should reach the live candle immediately.
 const CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS = 0;
 const CHART_SYMBOL_HEADER_HIT_SLOP = { top: 10, bottom: 18, left: 16, right: 48 };
-const CHART_OHLC_NEUTRAL_COLOR = '#FFFFFF';
+const CHART_OHLC_NEUTRAL_DARK_COLOR = '#FFFFFF';
+const CHART_OHLC_NEUTRAL_LIGHT_COLOR = '#0F172A';
 const CHART_OHLC_HIGH_COLOR = '#089981';
 const CHART_OHLC_LOW_COLOR = '#F23645';
 const CHART_SCALE_DISPLAY_ITEMS: Array<{
@@ -372,13 +375,11 @@ const filterChartDrawingRecordsForCurrentChart = (
 const CHART_RUNTIME_ACTIVE_DELAY_MS = 0;
 const CHART_FOCUS_WORK_DELAY_MS = 650;
 const CHART_SURFACE_MOUNT_DELAY_MS = 650;
-const CHART_STARTUP_HISTORY_PREWARM_DELAY_MS = 900;
-// Background pre-warm: the chart tab is prefetched at startup (warmActionRoutes),
-// so this screen can mount before the user's first visit. The WebView's first
-// boot (inline HTML + charting library parse/exec) costs multiple seconds on
-// low-end devices, so it starts this long after screen mount — late enough not
-// to compete with startup work, early enough to finish before a typical first tap.
-const CHART_SURFACE_PREWARM_DELAY_MS = 3000;
+// Background pre-warm: FastTabNavigator mounts the chart before its first visit.
+// Start the expensive WebView immediately after the app's first painted frame;
+// delaying it by seconds makes its multi-second boot overlap a normal first
+// Chart tap. Live REST/WS hooks remain gated by chartRuntimeActive below, so the
+// hidden warm surface does not retain live market subscriptions.
 const CHART_WATCHDOG_INTERVAL_MS = 3000;
 const CHART_INIT_RETRY_MIN_MS = 5000;
 const MT5_LIGHT_GRID_COLOR = 'rgba(0,0,0,0.09)';
@@ -395,20 +396,17 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   // bottom-tab switch and was the dominant tab-switch cost.)
   const isScreenFocused = isChartRouteActive;
   const chartRuntimeActive = useDeferredActiveFlag(isChartRouteActive, CHART_RUNTIME_ACTIVE_DELAY_MS);
-  // Mount-once keep-alive: the first chart visit defers the WebView mount so tab
-  // entry stays fast, but after that the surface must never unmount on tab
-  // switches — rebuilding the WebView reloads the entire chart. Hidden-tab work
-  // is still paused via chartRuntimeActive; only the surface stays alive.
+  // Mount-once keep-alive: a focused cold start has a short fallback delay, but
+  // the eager hidden tab starts the WebView immediately after the first app
+  // frame. The surface then stays mounted; hidden live work is still paused via
+  // chartRuntimeActive.
   const chartSurfaceActivated = useDeferredActiveFlag(isChartRouteActive, CHART_SURFACE_MOUNT_DELAY_MS);
   const [chartSurfacePrewarmed, setChartSurfacePrewarmed] = useState(false);
   useEffect(() => {
     if (typeof __DEV__ !== 'undefined' && __DEV__) {
       console.log('[CHART] screen mounted; surface pre-warm scheduled');
     }
-    return scheduleIdleWork(() => setChartSurfacePrewarmed(true), {
-      delayMs: CHART_SURFACE_PREWARM_DELAY_MS,
-      timeoutMs: 1500,
-    });
+    return scheduleAfterFirstFrame(() => setChartSurfacePrewarmed(true));
   }, []);
   const chartSurfaceReady = useLatchedFlag(chartSurfaceActivated || chartSurfacePrewarmed);
   // Derive login reactively from Zustand so the positions fetch re-triggers
@@ -3484,6 +3482,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   // hold this header row back while bid/ask ticks are moving.
   const chartMetaLiveLastCandle = sanitizedCandles.length > 0 ? sanitizedCandles[sanitizedCandles.length - 1] : null;
   const chartMetaLastCandle = chartMetaLiveLastCandle;
+  const chartMetaNeutralColor = isDark ? CHART_OHLC_NEUTRAL_DARK_COLOR : CHART_OHLC_NEUTRAL_LIGHT_COLOR;
   const chartLatestCandleGap = useMemo(
     () => resolveLatestCandleGap(chartCandles, chartTimeframe),
     [chartCandles, chartTimeframe],
@@ -3496,16 +3495,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
       const items = chartDisplay.showOHLC
         ? [
-          { label: 'O', value: formatChartValue(chartMetaLastCandle.open), color: CHART_OHLC_NEUTRAL_COLOR },
+          { label: 'O', value: formatChartValue(chartMetaLastCandle.open), color: chartMetaNeutralColor },
           { label: 'H', value: formatChartValue(chartMetaLastCandle.high), color: CHART_OHLC_HIGH_COLOR },
           { label: 'L', value: formatChartValue(chartMetaLastCandle.low), color: CHART_OHLC_LOW_COLOR },
-          { label: 'C', value: formatChartValue(chartMetaLastCandle.close), color: CHART_OHLC_NEUTRAL_COLOR },
+          { label: 'C', value: formatChartValue(chartMetaLastCandle.close), color: chartMetaNeutralColor },
         ]
         : [];
 
       return items;
     },
-    [chartDisplay.showOHLC, chartLatestCandleGap, chartMetaLastCandle, formatChartValue],
+    [chartDisplay.showOHLC, chartLatestCandleGap, chartMetaLastCandle, chartMetaNeutralColor, formatChartValue],
   );
   const showChartMetaRow = chartMetaItems.length > 0;
   const showChartVolumePane = chartViewportShowVolumePane;
@@ -3654,9 +3653,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     }
     startupChartPrefetchKeyRef.current = startupPrefetchKey;
 
-    // Warm the saved chart history during app startup. Later tab visits can
-    // reuse the candle cache instead of showing "Loading chart data..." again.
-    return scheduleIdleWork(() => {
+    // Start history after the first app frame, alongside the hidden WebView
+    // warm-up. This is a one-shot REST prefetch into the candle cache; live
+    // candle and quote subscriptions remain gated by chartRuntimeActive.
+    return scheduleAfterFirstFrame(() => {
       void prefetchChartTimeframeHistory(chartSymbol, normalizedTimeframe).catch((error) => {
         if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
           console.warn('[CHART-BRIDGE] startup_history_prefetch_failed', {
@@ -3666,9 +3666,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           });
         }
       });
-    }, {
-      delayMs: CHART_STARTUP_HISTORY_PREWARM_DELAY_MS,
-      timeoutMs: 1500,
     });
   }, [chartSymbol, chartTimeframe, prefetchChartTimeframeHistory]);
 
@@ -3806,6 +3803,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         title: t('Chart Type'),
         detent: 'auto',
         instantOpen: true,
+        presentation: 'mt5Plain',
+        showActionIcons: true,
         actions: chartTypePickerActions,
       });
       scheduleChartActionSheetContextReset();
@@ -6830,11 +6829,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
  * The main entry point and container for the Chart view. Orchestrates the webview-based chart, one-click trading panel, order placement buttons, lot sizing, price scale interactions, and all drawing tools.
  */
 export function ChartScreen() {
-  const pathname = usePathname();
-  const isChartRouteActive =
-    pathname === '/chart' ||
-    pathname.startsWith('/chart/') ||
-    pathname === '/(tabs)/chart' ||
-    pathname.startsWith('/(tabs)/chart/');
-  return <ChartScreenInner isChartRouteActive={isChartRouteActive} />;
+  const isScreenFocused = useIsFocused();
+  const deferredScreenFocused = useNextFrameValue(isScreenFocused);
+  return <ChartScreenInner isChartRouteActive={deferredScreenFocused} />;
 }

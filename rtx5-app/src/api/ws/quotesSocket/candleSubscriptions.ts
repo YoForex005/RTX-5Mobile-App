@@ -6,8 +6,6 @@ import {
 } from '../../../domain/candles/core/candles';
 import type { Timeframe } from '../../../domain/candles/core/candleTypes';
 
-export type CandleFeedSubscriptionMessageType = 'subscribe_candles' | 'unsubscribe_candles';
-
 export type CandleFeedSubscription = {
   key: string;
   symbol: string;
@@ -15,10 +13,11 @@ export type CandleFeedSubscription = {
   bridgeTf: BridgeCandleTimeframe;
 };
 
-export type CandleFeedSubscriptionMessage = {
-  type: CandleFeedSubscriptionMessageType;
-  symbols: string[];
-  tf: BridgeCandleTimeframe;
+export type CandleChannelSubscriptionMessageType = 'subscribe' | 'unsubscribe';
+
+export type CandleChannelSubscriptionMessage = {
+  action: CandleChannelSubscriptionMessageType;
+  channels: string[];
 };
 
 export const createCandleFeedSubscriptionKey = (symbol: string, tf: string): string =>
@@ -43,20 +42,22 @@ export const createCandleFeedSubscription = (
   };
 };
 
-export const buildCandleFeedSubscriptionMessages = (
-  type: CandleFeedSubscriptionMessageType,
+export const createCandleChannel = (subscription: CandleFeedSubscription): string =>
+  `candles.${subscription.symbol}.${subscription.bridgeTf}`;
+
+export const buildCandleChannelSubscriptionMessages = (
+  action: CandleChannelSubscriptionMessageType,
   subscriptions: Iterable<CandleFeedSubscription>,
-): CandleFeedSubscriptionMessage[] => {
+): CandleChannelSubscriptionMessage[] => {
   const byTimeframe = new Map<BridgeCandleTimeframe, Set<string>>();
   for (const subscription of subscriptions) {
     const symbols = byTimeframe.get(subscription.bridgeTf) ?? new Set<string>();
-    symbols.add(subscription.symbol);
+    symbols.add(createCandleChannel(subscription));
     byTimeframe.set(subscription.bridgeTf, symbols);
   }
 
-  return Array.from(byTimeframe.entries()).map(([tf, symbols]) => ({
-    type,
-    symbols: Array.from(symbols),
-    tf,
+  return Array.from(byTimeframe.values()).map((channels) => ({
+    action,
+    channels: Array.from(channels),
   }));
 };

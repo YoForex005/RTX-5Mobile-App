@@ -759,7 +759,7 @@ function getPollIcon(tone: PollTone): keyof typeof Ionicons.glyphMap {
 function getScreenGradient(isDark: boolean): readonly [string, string, string] {
   return isDark
     ? ['#121212', '#121212', '#121212']
-    : ['#F7FAFF', '#EEF5FF', '#EAF0F8'];
+    : ['#F2F4F8', '#F2F4F8', '#F2F4F8'];
 }
 
 function getCardGradient(isDark: boolean): readonly [string, string, string] {

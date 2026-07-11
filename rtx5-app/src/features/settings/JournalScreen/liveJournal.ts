@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDealsQuery } from '../../../query/deals';
 import { usePositionHistoryQuery, usePositionsQuery } from '../../../query/positions';
 import { useJournalState } from '../../../state/journalState';
-import { useUIState } from '../../../state/uiState';
 import { useResolvedTradingLogin } from '../../../state/tradingLogin';
 import {
   deriveClosedPositionsFromDeals,
@@ -57,16 +56,21 @@ function useDeferredJournalQueries(active: boolean, cacheKey: number | undefined
   return active && ready;
 }
 
-export function useJournalTrades() {
+export function useJournalTrades(active = true) {
   const accountLogin = useResolvedTradingLogin();
-  const sidebarOpen = useUIState((state) => state.sidebarOpen);
   const manualEntries = useJournalState((state) => state.manualEntries);
   const pruneExpiredEntries = useJournalState((state) => state.pruneExpiredEntries);
   const [retentionNowMs, setRetentionNowMs] = useState(() => Date.now());
-  const enabled = accountLogin !== undefined && !sidebarOpen;
+  // Drawer visibility must not re-render the full Journal screen. The live
+  // queries are already delayed and focus-scoped by the route lifecycle.
+  const enabled = active && accountLogin !== undefined;
   const queriesActive = useDeferredJournalQueries(enabled, accountLogin);
 
   useEffect(() => {
+    if (!active) {
+      return undefined;
+    }
+
     let midnightTimer: ReturnType<typeof setTimeout> | null = null;
 
     const updateRetentionClock = () => {
@@ -97,7 +101,7 @@ export function useJournalTrades() {
         clearTimeout(midnightTimer);
       }
     };
-  }, [pruneExpiredEntries]);
+  }, [active, pruneExpiredEntries]);
 
   const positionsQuery = usePositionsQuery(accountLogin, {
     enabled: queriesActive,

@@ -22,6 +22,7 @@ import { normalizeTimestampToMs } from '../core/timeframeUtils';
 import { hasLiveQuoteFeedData, useMarketData } from '../../../query/websocket';
 import { hydratePersistedCandleCache } from '../state/persistedCandleCache';
 import { shouldUseServerCandleStream } from '../ws/liveCandlesEnginePolicy';
+import { useUserPreferences } from '../../../state/userPreferences';
 
 // Cache the empty-snapshot reference for useSyncExternalStore. Returning a new
 // `[]` each call would trip React's "cache the snapshot" guard and infinite-loop.
@@ -118,11 +119,13 @@ const hasCommittedHistoryCandles = (candles: readonly CandleParams[]): boolean =
 export function useLiveCandles(symbol: string, timeframe: string, active = true) {
   const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
   const normalizedTimeframe = useMemo(() => normalizeTimeframeStrict(timeframe), [timeframe]);
+  const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
+  const isLiveActive = active && isLoggedIn;
   const useServerCandleStream = shouldUseServerCandleStream();
 
   const subscribe = useCallback(
     (listener: () => void) => {
-      if (!active || !normalizedSymbol || !normalizedTimeframe) {
+      if (!isLiveActive || !normalizedSymbol || !normalizedTimeframe) {
         return () => {};
       }
 
@@ -140,7 +143,7 @@ export function useLiveCandles(symbol: string, timeframe: string, active = true)
         unsubscribeCandleDemand?.();
       };
     },
-    [active, normalizedSymbol, normalizedTimeframe, symbol, useServerCandleStream],
+    [isLiveActive, normalizedSymbol, normalizedTimeframe, symbol, useServerCandleStream],
   );
 
   const getSnapshot = useCallback(() => {
@@ -172,15 +175,15 @@ export function useLiveCandles(symbol: string, timeframe: string, active = true)
   // Eagerly prefetch history on symbol/timeframe change so the engine
   // starts fetching before the full subscribe lifecycle completes.
   useEffect(() => {
-    if (!active || !normalizedSymbol || !normalizedTimeframe) {
+    if (!isLiveActive || !normalizedSymbol || !normalizedTimeframe) {
       return;
     }
 
     void liveCandlesEngine.prefetchHistory(normalizedSymbol, normalizedTimeframe);
-  }, [active, normalizedSymbol, normalizedTimeframe]);
+  }, [isLiveActive, normalizedSymbol, normalizedTimeframe]);
 
   useEffect(() => {
-    if (!active || !normalizedSymbol || !normalizedTimeframe) {
+    if (!isLiveActive || !normalizedSymbol || !normalizedTimeframe) {
       return;
     }
 
@@ -198,7 +201,7 @@ export function useLiveCandles(symbol: string, timeframe: string, active = true)
     return () => {
       cancelled = true;
     };
-  }, [active, normalizedSymbol, normalizedTimeframe]);
+  }, [isLiveActive, normalizedSymbol, normalizedTimeframe]);
 
   const candles = useMemo(() => engineCandles, [engineCandles]);
   const hasHistoryCandles = useMemo(() => hasCommittedHistoryCandles(engineCandles), [engineCandles]);

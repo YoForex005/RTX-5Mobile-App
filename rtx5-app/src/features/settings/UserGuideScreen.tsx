@@ -5,18 +5,20 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import Constants from 'expo-constants';
-import { useCallback, useMemo } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { ScrollView, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsDarkTheme } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
 import { Screen } from '../../ui/components/Screen';
+import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { AppLogo } from '../../ui/components/AppLogo';
-import { SidebarDrawer } from '../../ui/components/SidebarDrawer';
 import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../ui/components/sidebarDrawerController';
 import { makeUserGuideStyles, type UserGuideStyles } from './UserGuideScreen.styles';
+import { useNextFrameValue } from '../../hooks/useNextFrameValue';
 import {
   GUIDE_FOOTER_NOTE,
   GUIDE_MANUAL_INTRO,
@@ -28,12 +30,13 @@ import {
 /**
  * Displays tutorials, documentation, and user guides on how to use the trading platform.
  */
-export function UserGuideScreen() {
+export const UserGuideScreenInner = memo(function UserGuideScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
   const insets = useSafeAreaInsets();
   const isDark = useIsDarkTheme();
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const styles = useMemo(() => makeUserGuideStyles(isDark), [isDark]);
   const summary = useMemo(() => buildGuideSummary(), []);
+  const routeBodyReady = useDeferredRouteContentReady(0, isScreenFocused);
   const visibleSections = GUIDE_MANUAL_SECTIONS;
   const menuIconColor = isDark ? '#F8FAFC' : '#050505';
   const sectionIconColor = isDark ? '#60A5FA' : '#0A6EEB';
@@ -60,7 +63,7 @@ export function UserGuideScreen() {
         <Text style={styles.headerTitle} numberOfLines={1}>User Guide</Text>
       </View>
 
-      <ScrollView
+      {routeBodyReady ? <ScrollView
         keyboardShouldPersistTaps="always"
         canCancelContentTouches={Platform.OS === 'ios'}
         style={styles.scroll}
@@ -93,11 +96,16 @@ export function UserGuideScreen() {
         </View>
 
         <Text style={styles.footerNote}>{GUIDE_FOOTER_NOTE}</Text>
-      </ScrollView>
+      </ScrollView> : <View style={styles.scroll} />}
 
-      <SidebarDrawer />
     </Screen>
   );
+});
+
+export function UserGuideScreen() {
+  const isScreenFocused = useIsFocused();
+  const deferredScreenFocused = useNextFrameValue(isScreenFocused);
+  return <UserGuideScreenInner isScreenFocused={deferredScreenFocused} />;
 }
 
 function AppNameTitle({ appName, styles }: { appName: string; styles: UserGuideStyles }) {

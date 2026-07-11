@@ -92,7 +92,7 @@ export function CloseByScreen() {
   const selectedPair = candidates.find((candidate) => candidate.id === activePairId);
 
   const insets = useSafeAreaInsets();
-  const screenBg = isDark ? SETTINGS_DARK_BACKGROUND : '#F1F5F9';
+  const screenBg = isDark ? SETTINGS_DARK_BACKGROUND : T.bg;
 
   const releaseActionLock = useCallback((delay = 0) => {
     if (actionReleaseTimeoutRef.current) {

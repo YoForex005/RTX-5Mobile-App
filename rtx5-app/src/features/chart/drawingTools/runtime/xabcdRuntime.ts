@@ -6,6 +6,32 @@ export const xabcdEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
   var XABCD_VERTEX_LABELS = ['X', 'A', 'B', 'C', 'D'];
 
   /**
+   * Absolute distance a measured leg ratio may deviate from its target while
+   * still counting as a harmonic match for the label highlight.
+   */
+  var XABCD_RATIO_TOLERANCE = 0.05;
+
+  /**
+   * Resolves the per-leg ratio config (target + visibility) from a record's
+   * persisted ratio entries. Index order: AB/XA, BC/AB, CD/BC.
+   */
+  function normalizeXabcdRatios(ratios) {
+    var normalized = [
+      { target: null, visible: true },
+      { target: null, visible: true },
+      { target: null, visible: true }
+    ];
+    if (!Array.isArray(ratios)) return normalized;
+    for (var i = 0; i < normalized.length; i += 1) {
+      var entry = ratios[i];
+      if (!entry || typeof entry !== 'object') continue;
+      if (entry.visible === false) normalized[i].visible = false;
+      if (isFiniteNumber(entry.target) && entry.target > 0) normalized[i].target = entry.target;
+    }
+    return normalized;
+  }
+
+  /**
    * Normalizes the style configuration for the XABCD Harmonic pattern.
    */
   function normalizeXabcdStyle(style, draft) {
@@ -25,6 +51,7 @@ export const xabcdEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
       labelBackgroundColor: typeof source.labelBackgroundColor === 'string' ? source.labelBackgroundColor : 'rgba(131, 24, 67, 0.92)',
       labelTextColor: typeof source.labelTextColor === 'string' ? source.labelTextColor : '#FCE7F3',
       ratioBackgroundColor: typeof source.ratioBackgroundColor === 'string' ? source.ratioBackgroundColor : 'rgba(17, 24, 39, 0.88)',
+      ratioMatchBackgroundColor: typeof source.ratioMatchBackgroundColor === 'string' ? source.ratioMatchBackgroundColor : 'rgba(6, 95, 70, 0.92)',
       ratioTextColor: typeof source.ratioTextColor === 'string' ? source.ratioTextColor : '#F9A8D4',
       handleFillColor: typeof source.handleFillColor === 'string' ? source.handleFillColor : '#FFFFFF',
       handleRadius: isFiniteNumber(source.handleRadius) ? Math.max(3, Math.min(8, source.handleRadius)) : 4,
@@ -91,7 +118,7 @@ export const xabcdEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
    * Creates the visual primitive object that gets rendered on the chart canvas.
    */
   function createXabcdPrimitive(pointList, record, draft) {
-    function drawXabcdRatioLabel(ctx, midX, midY, text, style, ratioX) {
+    function drawXabcdRatioLabel(ctx, midX, midY, text, style, ratioX, matchesTarget) {
       if (!text) return;
       var fontSize = Math.round(11 * ratioX);
       ctx.font = '600 ' + fontSize + 'px Arial';
@@ -100,7 +127,7 @@ export const xabcdEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
       var boxWidth = textWidth + padding * 2;
       var boxHeight = fontSize + padding * 1.4;
       roundRectPath(ctx, midX - boxWidth / 2, midY - boxHeight / 2, boxWidth, boxHeight, 4 * ratioX);
-      ctx.fillStyle = style.ratioBackgroundColor;
+      ctx.fillStyle = matchesTarget ? style.ratioMatchBackgroundColor : style.ratioBackgroundColor;
       ctx.fill();
       ctx.fillStyle = style.ratioTextColor;
       ctx.fillText(text, midX - textWidth / 2, midY + boxHeight / 2 - padding * 0.9);
@@ -195,12 +222,33 @@ export const xabcdEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
 
         if (complete && style.showRatios) {
           var prices = source._points.map(function (point) { return point ? point.price : null; });
-          var ratioB = xabcdRetracement(prices[0], prices[1], prices[2]);
-          var ratioC = xabcdRetracement(prices[1], prices[2], prices[3]);
-          var ratioD = xabcdRetracement(prices[2], prices[3], prices[4]);
-          drawXabcdRatioLabel(ctx, ((coords[0].x + coords[2].x) / 2) * ratioX, ((coords[0].y + coords[2].y) / 2) * ratioY, formatXabcdRatio(ratioB), style, ratioX);
-          drawXabcdRatioLabel(ctx, ((coords[1].x + coords[3].x) / 2) * ratioX, ((coords[1].y + coords[3].y) / 2) * ratioY, formatXabcdRatio(ratioC), style, ratioX);
-          drawXabcdRatioLabel(ctx, ((coords[2].x + coords[4].x) / 2) * ratioX, ((coords[2].y + coords[4].y) / 2) * ratioY, formatXabcdRatio(ratioD), style, ratioX);
+          var measuredRatios = [
+            xabcdRetracement(prices[0], prices[1], prices[2]),
+            xabcdRetracement(prices[1], prices[2], prices[3]),
+            xabcdRetracement(prices[2], prices[3], prices[4])
+          ];
+          var ratioAnchors = [[0, 2], [1, 3], [2, 4]];
+          measuredRatios.forEach(function (measured, index) {
+            var config = source._options.ratios[index];
+            if (!config || !config.visible) return;
+            var text = formatXabcdRatio(measured);
+            if (!text) return;
+            var matchesTarget = false;
+            if (config.target !== null) {
+              text = text + ' / ' + formatXabcdRatio(config.target);
+              matchesTarget = isFiniteNumber(measured) && Math.abs(measured - config.target) <= XABCD_RATIO_TOLERANCE;
+            }
+            var anchor = ratioAnchors[index];
+            drawXabcdRatioLabel(
+              ctx,
+              ((coords[anchor[0]].x + coords[anchor[1]].x) / 2) * ratioX,
+              ((coords[anchor[0]].y + coords[anchor[1]].y) / 2) * ratioY,
+              text,
+              style,
+              ratioX,
+              matchesTarget
+            );
+          });
         }
 
         var vertexFontSize = Math.round(12 * ratioX);
@@ -284,7 +332,8 @@ export const xabcdEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
         hovered: !!source.hovered,
         selected: !!source.selected,
         visible: source.visible === false || source.hidden === true ? false : true,
-        style: normalizeXabcdStyle(source.style, draft)
+        style: normalizeXabcdStyle(source.style, draft),
+        ratios: normalizeXabcdRatios(source.ratios)
       };
       this._coords = [];
       this._paneViews = [new XabcdPaneView(this)];

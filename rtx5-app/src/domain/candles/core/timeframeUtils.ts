@@ -143,7 +143,7 @@ export const normalizeCandleHistoryTimeframeStrict = (timeframe: unknown): Timef
     : null;
 };
 
-/** Maps app/chart timeframe keys to broker bridge `/ws/feed` candle keys. */
+/** Maps app/chart timeframe keys to broker websocket candle keys. */
 export const toBridgeCandleTf = (timeframe: unknown): BridgeCandleTimeframe | null => {
   const normalizedTimeframe = normalizeTimeframeStrict(timeframe);
   return normalizedTimeframe ? BRIDGE_CANDLE_TF_BY_CANONICAL[normalizedTimeframe] ?? null : null;

@@ -21,24 +21,20 @@ test('live data websocket URLs stay iOS-safe across quote candle account and pri
   assert.match(brokerRoutingSource, /url\.protocol !== 'wss:'/);
   assert.match(brokerRoutingSource, /isRawIpHost\(url\.hostname\)/);
 
-  assert.match(quotesSocketSource, /normalizeConfiguredWsUrl\(process\.env\.EXPO_PUBLIC_QUOTES_WS_URL, ''\)/);
-  assert.doesNotMatch(quotesSocketSource, /return process\.env\.EXPO_PUBLIC_QUOTES_WS_URL/);
+  assert.match(quotesSocketSource, /brokerApi\.getWebSocketUrl\(\)/);
+  assert.doesNotMatch(quotesSocketSource, /EXPO_PUBLIC_QUOTES_WS_URL|DEFAULT_QUOTES_WS_URL|appendFeedAuthToWsUrl/);
   assert.match(
     quotesSocketSource,
-    /if \(!state\.isLoggedIn\) \{[\s\S]*return this\.resolveLoggedOutSocketUrl\(\);[\s\S]*\}/,
+    /Market data requires a logged-in broker session\. Skipping public feed fallback/,
   );
 
   assert.match(candlesProtocolSource, /normalizeConfiguredWsUrl\(configuredUrl, brokerUrl\)/);
   assert.doesNotMatch(candlesProtocolSource, /const url = \(configuredUrl \|\|/);
   assert.match(
     candlesSocketSource,
-    /if \(!state\.isLoggedIn\) \{[\s\S]*return resolveCandlesWsUrl\(undefined\);[\s\S]*\}[\s\S]*return resolveCandlesWsUrl\(undefined, state\.brokerServerUrl, \{ requireBrokerUrl: true \}\)/,
+    /brokerApi\.getWebSocketUrl\(\)/,
   );
-  assert.match(
-    candlesSocketSource,
-    /appendCandleWsBrokerId\(this\.url, brokerId\)/,
-  );
-  assert.doesNotMatch(candlesSocketSource, /getStoredAccessToken|appendCandleWsToken|EXPO_PUBLIC_CANDLES_WS_REQUIRES_TOKEN/);
+  assert.doesNotMatch(candlesSocketSource, /appendCandleWsBrokerId|getStoredAccessToken|appendCandleWsToken|EXPO_PUBLIC_CANDLES_WS_REQUIRES_TOKEN|EXPO_PUBLIC_CANDLES_WS_URL/);
 
   assert.match(accountSocketSource, /normalizeConfiguredWsUrl\([\s\S]*process\.env\.EXPO_PUBLIC_ACCOUNT_WS_URL/);
   assert.doesNotMatch(accountSocketSource, /process\.env\.EXPO_PUBLIC_ACCOUNT_WS_URL \|\|/);

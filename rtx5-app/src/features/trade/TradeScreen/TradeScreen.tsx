@@ -34,6 +34,8 @@ import { getTradingErrorOriginLabel } from '../../../api/tradingErrors';
 import { prefetchOrderTicketData } from '../../../utils/navigationPrefetch';
 import { runImmediateAction } from '../../../utils/actionLatency';
 import { useDeferredActiveFlag } from '../../../hooks/useDeferredActiveFlag';
+import { useNextFrameValue } from '../../../hooks/useNextFrameValue';
+import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
 import { TradeSummaryHeader } from './SummaryHeader';
 import { makeTradeScreenStyles } from './styles';
 
@@ -42,6 +44,11 @@ import { makeTradeScreenStyles } from './styles';
 const TRADE_INITIAL_POSITION_RENDER_COUNT = 5;
 const TRADE_POSITION_RENDER_BATCH_SIZE = 5;
 const TRADE_POSITION_VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 10 };
+const TRADE_BULK_ACTION_ICON_LIGHT = '#4F535C';
+const TRADE_BULK_ACTION_ICON_DARK = '#EEF1F5';
+const TRADE_POSITION_CLOSE_ACTION_LIGHT = '#000000';
+const TRADE_POSITION_CLOSE_ACTION_DARK = '#EEF1F5';
+const TRADE_POSITION_CLOSE_ACTION_FONT_WEIGHT = '400';
 // Live WS quote subscriptions start as soon as Trade is focused, MT5-style.
 // The heavier backend ledger refresh still waits for first paint below.
 // MT5 shows cached rows immediately, then keeps the live trade ledger current.
@@ -49,6 +56,10 @@ const TRADE_POSITION_VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 10 };
 // focused fallback poll for new/closed positions when websocket events lag.
 const TRADE_SCREEN_FETCH_DELAY_MS = 0;
 const TRADE_SCREEN_REFRESH_INTERVAL_MS = 3000;
+// This retained tab mounts at startup. Hydrate only its visual body offscreen,
+// after the launch frame, so the first Trade selection never pays the large
+// FlatList mount cost. Live quotes and ledger work remain focus-gated below.
+const TRADE_BODY_PREWARM_DELAY_MS = 600;
 
 function areStringSetsEqual(left: Set<string>, right: Set<string>) {
   if (left.size !== right.size) {
@@ -67,17 +78,18 @@ function areStringSetsEqual(left: Set<string>, right: Set<string>) {
 /**
  * Main screen for the Trade tab, displaying the user's active open positions, pending orders, and real-time equity/margin summary.
  */
-export function TradeScreen() {
-  const isScreenFocused = useIsFocused();
+const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
+  const routeBodyReady = useDeferredRouteContentReady(TRADE_BODY_PREWARM_DELAY_MS);
   const [viewablePositionIds, setViewablePositionIds] = useState<Set<string>>(() => new Set());
   const T = useTheme();
   const { t } = useTranslation();
   const isDark = useIsDarkTheme();
   const s = useMemo(() => makeTradeScreenStyles(T, isDark), [T, isDark]);
+  const bulkActionIconColor = isDark ? TRADE_BULK_ACTION_ICON_DARK : TRADE_BULK_ACTION_ICON_LIGHT;
+  const positionCloseActionColor = isDark ? TRADE_POSITION_CLOSE_ACTION_DARK : TRADE_POSITION_CLOSE_ACTION_LIGHT;
 
   const setChartSymbol = useUserPreferences((s) => s.setChartSymbol);
   const showTradeActionSheet = useUIState((st) => st.showTradeActionSheet);
-  const sidebarOpen = useUIState((st) => st.sidebarOpen);
 
   const { positions, refreshPositions, hydrateCachedPositions, lastFetchLogin, hydratedLogin, lastError } = usePositionsState(
     useShallow((state) => ({
@@ -141,8 +153,12 @@ export function TradeScreen() {
 
   // Live quotes should not wait behind the REST ledger work. The rows need the
   // websocket bid/ask stream as soon as the Trade tab is focused.
-  const tradeLiveActive = isScreenFocused && !sidebarOpen;
-  const tradeFetchActive = useDeferredActiveFlag(isScreenFocused && firstPaintReady && !sidebarOpen, TRADE_SCREEN_FETCH_DELAY_MS);
+  // Keep the heavy Trade tree independent from drawer visibility. Subscribing
+  // this screen to sidebarOpen made every menu tap re-render all position rows
+  // before navigation could paint. Native-driver drawer motion does not need to
+  // pause the already-focused quote stream or its deferred ledger refresh.
+  const tradeLiveActive = isScreenFocused;
+  const tradeFetchActive = useDeferredActiveFlag(isScreenFocused && firstPaintReady, TRADE_SCREEN_FETCH_DELAY_MS);
 
   // Fetch only after the route has painted once so sidebar navigation is visual
   // first, then keep a short MT5-style fallback poll while Trade remains open.
@@ -218,27 +234,23 @@ export function TradeScreen() {
   const bulkActionSheetConfig = useMemo<Parameters<typeof showTradeActionSheet>[0]>(() => {
     const actions: Parameters<typeof showTradeActionSheet>[0]['actions'] = [
       {
-        icon: <Ionicons name="close-circle-outline" size={20} color={T.trading.sell.primary} />,
+        icon: <Ionicons name="close-circle-outline" size={20} color={bulkActionIconColor} />,
         label: t('Close All Positions'),
-        danger: true,
         onPress: () => navigateToBulkMode('all'),
       },
       {
-        icon: <Ionicons name="trending-up-outline" size={20} color={T.trading.sell.primary} />,
+        icon: <Ionicons name="trending-up-outline" size={20} color={bulkActionIconColor} />,
         label: t('Close Profitable Positions'),
-        danger: true,
         onPress: () => navigateToBulkMode('profitable'),
       },
       {
-        icon: <Ionicons name="trending-down-outline" size={20} color={T.trading.sell.primary} />,
+        icon: <Ionicons name="trending-down-outline" size={20} color={bulkActionIconColor} />,
         label: t('Close Losing Positions'),
-        danger: true,
         onPress: () => navigateToBulkMode('losing'),
       },
       {
-        icon: <Ionicons name="arrow-up-circle-outline" size={20} color={T.trading.sell.primary} />,
+        icon: <Ionicons name="arrow-up-circle-outline" size={20} color={bulkActionIconColor} />,
         label: t('Close Buy Positions'),
-        danger: true,
         onPress: () => navigateToBulkMode('buy'),
       },
     ];
@@ -250,7 +262,7 @@ export function TradeScreen() {
       instantOpen: true,
       actions,
     };
-  }, [T.trading.sell.primary, navigateToBulkMode, showTradeActionSheet, t]);
+  }, [bulkActionIconColor, navigateToBulkMode, showTradeActionSheet, t]);
 
   const showBulkSheet = useCallback(() => {
     runImmediateAction('trade.bulkSheet.open', () => showTradeActionSheet(bulkActionSheetConfig));
@@ -265,15 +277,17 @@ export function TradeScreen() {
         instantOpen: true,
         actions: [
           {
-            icon: <Ionicons name="close-circle-outline" size={20} color={T.trading.sell.primary} />,
+            icon: <Ionicons name="close-circle-outline" size={20} color={positionCloseActionColor} />,
             label: t('Close position'),
-            danger: true,
+            textColor: positionCloseActionColor,
+            textFontWeight: TRADE_POSITION_CLOSE_ACTION_FONT_WEIGHT,
             onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/close-position', params: { positionId: item.id } }); },
           },
           {
-            icon: <Ionicons name="git-compare-outline" size={20} color={T.trading.sell.primary} />,
+            icon: <Ionicons name="git-compare-outline" size={20} color={positionCloseActionColor} />,
             label: t('Close By'),
-            danger: true,
+            textColor: positionCloseActionColor,
+            textFontWeight: TRADE_POSITION_CLOSE_ACTION_FONT_WEIGHT,
             onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/close-by', params: { positionId: item.id } }); },
           },
           {
@@ -294,7 +308,7 @@ export function TradeScreen() {
         ],
       }),
     );
-  }, [T.textMuted, T.trading.sell.primary, primePositionSnapshot, resolvedLogin, setChartSymbol, showTradeActionSheet, t]);
+  }, [T.textMuted, positionCloseActionColor, primePositionSnapshot, resolvedLogin, setChartSymbol, showTradeActionSheet, t]);
 
   const renderPositionRow = useCallback(({ item, index }: { item: PositionItem; index: number }) => {
     // Keep the first visible batch live immediately; below-fold rows only start
@@ -319,7 +333,8 @@ export function TradeScreen() {
   return (
     <Screen noBottomInset style={s.screen}>
       <AppHeader title={t('Trade')} noBorder />
-      <TradeSummaryHeader
+      {routeBodyReady ? <>
+        <TradeSummaryHeader
         positions={renderablePositions}
         hydratedLogin={hydratedLogin}
         resolvedLogin={resolvedLogin}
@@ -329,8 +344,8 @@ export function TradeScreen() {
         totalVolume={totalVolume}
         onBulkPress={showBulkSheet}
         active={tradeLiveActive}
-      />
-      <FlatList
+        />
+        <FlatList
         keyboardShouldPersistTaps="always"
         canCancelContentTouches={Platform.OS === 'ios'}
         style={s.list}
@@ -367,7 +382,14 @@ export function TradeScreen() {
             {/* Top Exposures */}
           </>
         ) : null}
-      />
+        />
+      </> : null}
     </Screen>
   );
+});
+
+export function TradeScreen() {
+  const isScreenFocused = useIsFocused();
+  const deferredScreenFocused = useNextFrameValue(isScreenFocused);
+  return <TradeScreenInner isScreenFocused={deferredScreenFocused} />;
 }

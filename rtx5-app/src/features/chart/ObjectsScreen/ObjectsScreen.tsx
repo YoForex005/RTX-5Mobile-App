@@ -47,6 +47,17 @@ import {
   type DrawingStylePatch,
 } from './drawingStyleEditor';
 import {
+  ELLIOTT_WAVE_PRESETS,
+  applyElliottWavePatch,
+  applyElliottWavePreset,
+  describeElliottWavePivot,
+  drawingSupportsElliottWaveEditor,
+  getActiveElliottWavePresetId,
+  getElliottWaveEditorWaves,
+  resetElliottWaves,
+  type ElliottWavePresetId,
+} from './elliottWaveEditor';
+import {
   addFibLevel,
   applyFibLevelPatch,
   drawingSupportsFibLevelEditor,
@@ -57,8 +68,31 @@ import {
   removeFibLevel,
   resetFibLevels,
 } from './fibLevelEditor';
+import {
+  applyPositionPlanPatch,
+  drawingSupportsPositionPlanEditor,
+  formatPositionPlanNumber,
+  formatPositionPlanRiskReward,
+  getPositionPlanEditorValues,
+  parsePositionPlanNumber,
+  parsePositionPlanRiskPercent,
+  resetPositionPlan,
+} from './positionPlanEditor';
 import { ActionRow, ToggleRow } from './rows';
 import { makeObjectsScreenStyles, type ObjectsScreenStyles } from './styles';
+import {
+  XABCD_PRESETS,
+  XABCD_RATIO_LEGS,
+  applyXabcdRatioPatch,
+  applyXabcdRatioPreset,
+  drawingSupportsXabcdRatioEditor,
+  formatXabcdTargetValue,
+  getActiveXabcdPresetId,
+  getXabcdRatioEditorRatios,
+  parseXabcdTargetValue,
+  resetXabcdRatios,
+  type XabcdPresetId,
+} from './xabcdRatioEditor';
 
 const STYLE_OPACITY_STEP = 0.1;
 
@@ -172,6 +206,18 @@ export function ObjectsScreen() {
   const [selectedFibLevelId, setSelectedFibLevelId] = useState<string | null>(null);
   const [fibLevelValueDraft, setFibLevelValueDraft] = useState('');
   const [fibLevelLabelDraft, setFibLevelLabelDraft] = useState('');
+  const [elliottEditorDrawingId, setElliottEditorDrawingId] = useState<string | null>(null);
+  const [selectedElliottWaveId, setSelectedElliottWaveId] = useState<string | null>(null);
+  const [elliottWaveLabelDraft, setElliottWaveLabelDraft] = useState('');
+  const [xabcdEditorDrawingId, setXabcdEditorDrawingId] = useState<string | null>(null);
+  const [selectedXabcdRatioId, setSelectedXabcdRatioId] = useState<string | null>(null);
+  const [xabcdTargetDraft, setXabcdTargetDraft] = useState('');
+  const [positionEditorDrawingId, setPositionEditorDrawingId] = useState<string | null>(null);
+  const [positionEntryDraft, setPositionEntryDraft] = useState('');
+  const [positionTargetDraft, setPositionTargetDraft] = useState('');
+  const [positionStopDraft, setPositionStopDraft] = useState('');
+  const [positionAccountDraft, setPositionAccountDraft] = useState('');
+  const [positionRiskPercentDraft, setPositionRiskPercentDraft] = useState('');
   const [renameDrawingId, setRenameDrawingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
 
@@ -227,6 +273,52 @@ export function ObjectsScreen() {
   const selectedFibLevel = useMemo(
     () => fibEditorLevels.find((level) => level.id === selectedFibLevelId) ?? fibEditorLevels[0] ?? null,
     [fibEditorLevels, selectedFibLevelId],
+  );
+  const elliottEditorDrawing = useMemo(
+    () => chartDrawings.find((drawing) =>
+      drawing.id === elliottEditorDrawingId && drawingSupportsElliottWaveEditor(drawing.kind),
+    ) ?? null,
+    [chartDrawings, elliottEditorDrawingId],
+  );
+  const elliottEditorWaves = useMemo(
+    () => getElliottWaveEditorWaves(elliottEditorDrawing),
+    [elliottEditorDrawing],
+  );
+  const selectedElliottWave = useMemo(
+    () => elliottEditorWaves.find((wave) => wave.id === selectedElliottWaveId) ?? elliottEditorWaves[0] ?? null,
+    [elliottEditorWaves, selectedElliottWaveId],
+  );
+  const activeElliottPresetId = useMemo(
+    () => getActiveElliottWavePresetId(elliottEditorWaves),
+    [elliottEditorWaves],
+  );
+  const xabcdEditorDrawing = useMemo(
+    () => chartDrawings.find((drawing) =>
+      drawing.id === xabcdEditorDrawingId && drawingSupportsXabcdRatioEditor(drawing.kind),
+    ) ?? null,
+    [chartDrawings, xabcdEditorDrawingId],
+  );
+  const xabcdEditorRatios = useMemo(
+    () => getXabcdRatioEditorRatios(xabcdEditorDrawing),
+    [xabcdEditorDrawing],
+  );
+  const selectedXabcdRatio = useMemo(
+    () => xabcdEditorRatios.find((ratio) => ratio.id === selectedXabcdRatioId) ?? xabcdEditorRatios[0] ?? null,
+    [selectedXabcdRatioId, xabcdEditorRatios],
+  );
+  const activeXabcdPresetId = useMemo(
+    () => getActiveXabcdPresetId(xabcdEditorRatios),
+    [xabcdEditorRatios],
+  );
+  const positionEditorDrawing = useMemo(
+    () => chartDrawings.find((drawing) =>
+      drawing.id === positionEditorDrawingId && drawingSupportsPositionPlanEditor(drawing.kind),
+    ) ?? null,
+    [chartDrawings, positionEditorDrawingId],
+  );
+  const positionPlanValues = useMemo(
+    () => getPositionPlanEditorValues(positionEditorDrawing),
+    [positionEditorDrawing],
   );
   const renameDrawing = useMemo(
     () => chartDrawings.find((drawing) => drawing.id === renameDrawingId) ?? null,
@@ -287,6 +379,81 @@ export function ObjectsScreen() {
   }, [selectedFibLevel]);
 
   useEffect(() => {
+    if (elliottEditorDrawingId && !elliottEditorDrawing) {
+      setElliottEditorDrawingId(null);
+      setSelectedElliottWaveId(null);
+      setElliottWaveLabelDraft('');
+    }
+  }, [elliottEditorDrawing, elliottEditorDrawingId]);
+
+  useEffect(() => {
+    if (!elliottEditorDrawing) {
+      return;
+    }
+    if (!selectedElliottWave && elliottEditorWaves[0]) {
+      setSelectedElliottWaveId(elliottEditorWaves[0].id);
+      return;
+    }
+    if (selectedElliottWave && selectedElliottWave.id !== selectedElliottWaveId) {
+      setSelectedElliottWaveId(selectedElliottWave.id);
+    }
+  }, [elliottEditorDrawing, elliottEditorWaves, selectedElliottWave, selectedElliottWaveId]);
+
+  useEffect(() => {
+    setElliottWaveLabelDraft(selectedElliottWave ? selectedElliottWave.label : '');
+  }, [selectedElliottWave]);
+
+  useEffect(() => {
+    if (xabcdEditorDrawingId && !xabcdEditorDrawing) {
+      setXabcdEditorDrawingId(null);
+      setSelectedXabcdRatioId(null);
+      setXabcdTargetDraft('');
+    }
+  }, [xabcdEditorDrawing, xabcdEditorDrawingId]);
+
+  useEffect(() => {
+    if (!xabcdEditorDrawing) {
+      return;
+    }
+    if (!selectedXabcdRatio && xabcdEditorRatios[0]) {
+      setSelectedXabcdRatioId(xabcdEditorRatios[0].id);
+      return;
+    }
+    if (selectedXabcdRatio && selectedXabcdRatio.id !== selectedXabcdRatioId) {
+      setSelectedXabcdRatioId(selectedXabcdRatio.id);
+    }
+  }, [selectedXabcdRatio, selectedXabcdRatioId, xabcdEditorDrawing, xabcdEditorRatios]);
+
+  useEffect(() => {
+    setXabcdTargetDraft(selectedXabcdRatio ? formatXabcdTargetValue(selectedXabcdRatio.target) : '');
+  }, [selectedXabcdRatio]);
+
+  useEffect(() => {
+    if (positionEditorDrawingId && !positionEditorDrawing) {
+      setPositionEditorDrawingId(null);
+    }
+  }, [positionEditorDrawing, positionEditorDrawingId]);
+
+  useEffect(() => {
+    if (!positionPlanValues) {
+      setPositionEntryDraft('');
+      setPositionTargetDraft('');
+      setPositionStopDraft('');
+      setPositionAccountDraft('');
+      setPositionRiskPercentDraft('');
+      return;
+    }
+
+    setPositionEntryDraft(formatPositionPlanNumber(positionPlanValues.entryPrice));
+    setPositionTargetDraft(formatPositionPlanNumber(positionPlanValues.targetPrice));
+    setPositionStopDraft(positionPlanValues.stopIsCustom ? formatPositionPlanNumber(positionPlanValues.stopPrice) : '');
+    setPositionAccountDraft(formatPositionPlanNumber(positionPlanValues.accountSize, 2));
+    setPositionRiskPercentDraft(positionPlanValues.accountSize !== null || positionPlanValues.riskPercent !== 1
+      ? formatPositionPlanNumber(positionPlanValues.riskPercent, 2)
+      : '');
+  }, [positionPlanValues]);
+
+  useEffect(() => {
     if (renameDrawingId && !renameDrawing) {
       setRenameDrawingId(null);
       setRenameDraft('');
@@ -309,6 +476,22 @@ export function ObjectsScreen() {
     setSelectedFibLevelId(null);
     setFibLevelValueDraft('');
     setFibLevelLabelDraft('');
+  }, []);
+
+  const handleCloseElliottWaveEditor = useCallback(() => {
+    setElliottEditorDrawingId(null);
+    setSelectedElliottWaveId(null);
+    setElliottWaveLabelDraft('');
+  }, []);
+
+  const handleCloseXabcdRatioEditor = useCallback(() => {
+    setXabcdEditorDrawingId(null);
+    setSelectedXabcdRatioId(null);
+    setXabcdTargetDraft('');
+  }, []);
+
+  const handleClosePositionPlanEditor = useCallback(() => {
+    setPositionEditorDrawingId(null);
   }, []);
 
   const handleCloseRenameDialog = useCallback(() => {
@@ -438,6 +621,9 @@ export function ObjectsScreen() {
 
     setSelectedDrawingId(null);
     setFibEditorDrawingId(null);
+    setElliottEditorDrawingId(null);
+    setXabcdEditorDrawingId(null);
+    setPositionEditorDrawingId(null);
     setStyleEditorDrawingId(drawing.id);
   }, []);
 
@@ -448,7 +634,49 @@ export function ObjectsScreen() {
 
     setSelectedDrawingId(null);
     setStyleEditorDrawingId(null);
+    setElliottEditorDrawingId(null);
+    setXabcdEditorDrawingId(null);
+    setPositionEditorDrawingId(null);
     setFibEditorDrawingId(drawing.id);
+  }, []);
+
+  const handleOpenElliottWaveEditor = useCallback((drawing: DisplayDrawing) => {
+    if (!drawing.kind || !drawingSupportsElliottWaveEditor(drawing.kind)) {
+      return;
+    }
+
+    setSelectedDrawingId(null);
+    setStyleEditorDrawingId(null);
+    setFibEditorDrawingId(null);
+    setXabcdEditorDrawingId(null);
+    setPositionEditorDrawingId(null);
+    setElliottEditorDrawingId(drawing.id);
+  }, []);
+
+  const handleOpenXabcdRatioEditor = useCallback((drawing: DisplayDrawing) => {
+    if (!drawing.kind || !drawingSupportsXabcdRatioEditor(drawing.kind)) {
+      return;
+    }
+
+    setSelectedDrawingId(null);
+    setStyleEditorDrawingId(null);
+    setFibEditorDrawingId(null);
+    setElliottEditorDrawingId(null);
+    setPositionEditorDrawingId(null);
+    setXabcdEditorDrawingId(drawing.id);
+  }, []);
+
+  const handleOpenPositionPlanEditor = useCallback((drawing: DisplayDrawing) => {
+    if (!drawing.kind || !drawingSupportsPositionPlanEditor(drawing.kind)) {
+      return;
+    }
+
+    setSelectedDrawingId(null);
+    setStyleEditorDrawingId(null);
+    setFibEditorDrawingId(null);
+    setElliottEditorDrawingId(null);
+    setXabcdEditorDrawingId(null);
+    setPositionEditorDrawingId(drawing.id);
   }, []);
 
   const handleOpenPriceAlertFromDrawing = useCallback(() => {
@@ -588,6 +816,216 @@ export function ObjectsScreen() {
     handleUpdateFibLevel(selectedFibLevel.id, { label: nextLabel });
   }, [fibLevelLabelDraft, handleUpdateFibLevel, selectedFibLevel]);
 
+  const handleUpdateElliottWave = useCallback((waveId: string, patch: Parameters<typeof applyElliottWavePatch>[2]) => {
+    if (!elliottEditorDrawing) {
+      return;
+    }
+
+    const nextDrawings = chartDrawings.map((record) =>
+      record.id === elliottEditorDrawing.id
+        ? applyElliottWavePatch(record, waveId, patch)
+        : record,
+    );
+    setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
+  }, [chartDrawings, chartSymbol, elliottEditorDrawing, setChartDrawingRecordsForSymbol]);
+
+  const handleApplyElliottWavePreset = useCallback((presetId: ElliottWavePresetId) => {
+    if (!elliottEditorDrawing) {
+      return;
+    }
+
+    const nextDrawings = chartDrawings.map((record) =>
+      record.id === elliottEditorDrawing.id
+        ? applyElliottWavePreset(record, presetId)
+        : record,
+    );
+    setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
+  }, [chartDrawings, chartSymbol, elliottEditorDrawing, setChartDrawingRecordsForSymbol]);
+
+  const handleResetElliottWaves = useCallback(() => {
+    if (!elliottEditorDrawing) {
+      return;
+    }
+
+    const nextDrawings = chartDrawings.map((record) =>
+      record.id === elliottEditorDrawing.id
+        ? resetElliottWaves(record)
+        : record,
+    );
+    setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
+  }, [chartDrawings, chartSymbol, elliottEditorDrawing, setChartDrawingRecordsForSymbol]);
+
+  const handleCommitElliottWaveLabel = useCallback(() => {
+    if (!selectedElliottWave) {
+      return;
+    }
+
+    handleUpdateElliottWave(selectedElliottWave.id, { label: elliottWaveLabelDraft });
+  }, [elliottWaveLabelDraft, handleUpdateElliottWave, selectedElliottWave]);
+
+  const handleUpdateXabcdRatio = useCallback((ratioId: string, patch: Parameters<typeof applyXabcdRatioPatch>[2]) => {
+    if (!xabcdEditorDrawing) {
+      return;
+    }
+
+    const nextDrawings = chartDrawings.map((record) =>
+      record.id === xabcdEditorDrawing.id
+        ? applyXabcdRatioPatch(record, ratioId, patch)
+        : record,
+    );
+    setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
+  }, [chartDrawings, chartSymbol, setChartDrawingRecordsForSymbol, xabcdEditorDrawing]);
+
+  const handleApplyXabcdPreset = useCallback((presetId: XabcdPresetId) => {
+    if (!xabcdEditorDrawing) {
+      return;
+    }
+
+    const nextDrawings = chartDrawings.map((record) =>
+      record.id === xabcdEditorDrawing.id
+        ? applyXabcdRatioPreset(record, presetId)
+        : record,
+    );
+    setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
+  }, [chartDrawings, chartSymbol, setChartDrawingRecordsForSymbol, xabcdEditorDrawing]);
+
+  const handleResetXabcdRatios = useCallback(() => {
+    if (!xabcdEditorDrawing) {
+      return;
+    }
+
+    const nextDrawings = chartDrawings.map((record) =>
+      record.id === xabcdEditorDrawing.id
+        ? resetXabcdRatios(record)
+        : record,
+    );
+    setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
+  }, [chartDrawings, chartSymbol, setChartDrawingRecordsForSymbol, xabcdEditorDrawing]);
+
+  const handleCommitXabcdTarget = useCallback(() => {
+    if (!selectedXabcdRatio) {
+      return;
+    }
+
+    if (xabcdTargetDraft.trim().length === 0) {
+      handleUpdateXabcdRatio(selectedXabcdRatio.id, { target: null });
+      return;
+    }
+
+    const nextTarget = parseXabcdTargetValue(xabcdTargetDraft);
+    if (nextTarget === null) {
+      setXabcdTargetDraft(formatXabcdTargetValue(selectedXabcdRatio.target));
+      return;
+    }
+    handleUpdateXabcdRatio(selectedXabcdRatio.id, { target: nextTarget });
+  }, [handleUpdateXabcdRatio, selectedXabcdRatio, xabcdTargetDraft]);
+
+  const handleUpdatePositionPlan = useCallback((patch: Parameters<typeof applyPositionPlanPatch>[1]) => {
+    if (!positionEditorDrawing) {
+      return;
+    }
+
+    const nextDrawings = chartDrawings.map((record) =>
+      record.id === positionEditorDrawing.id
+        ? applyPositionPlanPatch(record, patch)
+        : record,
+    );
+    setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
+  }, [chartDrawings, chartSymbol, positionEditorDrawing, setChartDrawingRecordsForSymbol]);
+
+  const handleResetPositionPlan = useCallback(() => {
+    if (!positionEditorDrawing) {
+      return;
+    }
+
+    const nextDrawings = chartDrawings.map((record) =>
+      record.id === positionEditorDrawing.id
+        ? resetPositionPlan(record)
+        : record,
+    );
+    setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
+  }, [chartDrawings, chartSymbol, positionEditorDrawing, setChartDrawingRecordsForSymbol]);
+
+  const handleCommitPositionEntry = useCallback(() => {
+    if (!positionPlanValues) {
+      return;
+    }
+
+    const nextEntry = parsePositionPlanNumber(positionEntryDraft);
+    if (nextEntry === null) {
+      setPositionEntryDraft(formatPositionPlanNumber(positionPlanValues.entryPrice));
+      return;
+    }
+    handleUpdatePositionPlan({ entryPrice: nextEntry });
+  }, [handleUpdatePositionPlan, positionEntryDraft, positionPlanValues]);
+
+  const handleCommitPositionTarget = useCallback(() => {
+    if (!positionPlanValues) {
+      return;
+    }
+
+    const nextTarget = parsePositionPlanNumber(positionTargetDraft);
+    if (nextTarget === null) {
+      setPositionTargetDraft(formatPositionPlanNumber(positionPlanValues.targetPrice));
+      return;
+    }
+    handleUpdatePositionPlan({ targetPrice: nextTarget });
+  }, [handleUpdatePositionPlan, positionPlanValues, positionTargetDraft]);
+
+  const handleCommitPositionStop = useCallback(() => {
+    if (!positionPlanValues) {
+      return;
+    }
+
+    if (positionStopDraft.trim().length === 0) {
+      handleUpdatePositionPlan({ stopPrice: null });
+      return;
+    }
+
+    const nextStop = parsePositionPlanNumber(positionStopDraft);
+    if (nextStop === null) {
+      setPositionStopDraft(positionPlanValues.stopIsCustom ? formatPositionPlanNumber(positionPlanValues.stopPrice) : '');
+      return;
+    }
+    handleUpdatePositionPlan({ stopPrice: nextStop });
+  }, [handleUpdatePositionPlan, positionPlanValues, positionStopDraft]);
+
+  const handleCommitPositionAccount = useCallback(() => {
+    if (!positionPlanValues) {
+      return;
+    }
+
+    if (positionAccountDraft.trim().length === 0) {
+      handleUpdatePositionPlan({ accountSize: null });
+      return;
+    }
+
+    const nextAccount = parsePositionPlanNumber(positionAccountDraft);
+    if (nextAccount === null) {
+      setPositionAccountDraft(formatPositionPlanNumber(positionPlanValues.accountSize, 2));
+      return;
+    }
+    handleUpdatePositionPlan({ accountSize: nextAccount });
+  }, [handleUpdatePositionPlan, positionAccountDraft, positionPlanValues]);
+
+  const handleCommitPositionRiskPercent = useCallback(() => {
+    if (!positionPlanValues) {
+      return;
+    }
+
+    if (positionRiskPercentDraft.trim().length === 0) {
+      handleUpdatePositionPlan({ riskPercent: null });
+      return;
+    }
+
+    const nextRiskPercent = parsePositionPlanRiskPercent(positionRiskPercentDraft);
+    if (nextRiskPercent === null) {
+      setPositionRiskPercentDraft(formatPositionPlanNumber(positionPlanValues.riskPercent, 2));
+      return;
+    }
+    handleUpdatePositionPlan({ riskPercent: nextRiskPercent });
+  }, [handleUpdatePositionPlan, positionPlanValues, positionRiskPercentDraft]);
+
   const addObjectActions = useMemo(
     () =>
       ADD_OBJECT_TOOLS.map((tool) => {
@@ -623,6 +1061,27 @@ export function ObjectsScreen() {
       actions.push({
         label: 'Edit Fibonacci levels',
         onPress: () => handleOpenFibLevelEditor(selectedDrawing),
+      });
+    }
+
+    if (selectedDrawing.kind && drawingSupportsElliottWaveEditor(selectedDrawing.kind)) {
+      actions.push({
+        label: 'Edit Elliott waves',
+        onPress: () => handleOpenElliottWaveEditor(selectedDrawing),
+      });
+    }
+
+    if (selectedDrawing.kind && drawingSupportsXabcdRatioEditor(selectedDrawing.kind)) {
+      actions.push({
+        label: 'Edit XABCD ratios',
+        onPress: () => handleOpenXabcdRatioEditor(selectedDrawing),
+      });
+    }
+
+    if (selectedDrawing.kind && drawingSupportsPositionPlanEditor(selectedDrawing.kind)) {
+      actions.push({
+        label: 'Edit risk / reward',
+        onPress: () => handleOpenPositionPlanEditor(selectedDrawing),
       });
     }
 
@@ -667,8 +1126,11 @@ export function ObjectsScreen() {
     return actions;
   }, [
     handleCloneDrawing,
+    handleOpenElliottWaveEditor,
     handleOpenFibLevelEditor,
+    handleOpenPositionPlanEditor,
     handleOpenRenameDialog,
+    handleOpenXabcdRatioEditor,
     handleOpenPriceAlertFromDrawing,
     handleOpenStyleEditor,
     handleRemoveDrawing,
@@ -681,7 +1143,24 @@ export function ObjectsScreen() {
 
   const styleEditorOpen = Boolean(styleEditorDrawing && styleEditorValues);
   const fibLevelEditorOpen = Boolean(fibEditorDrawing);
-  const editorOpen = styleEditorOpen || fibLevelEditorOpen;
+  const elliottWaveEditorOpen = Boolean(elliottEditorDrawing);
+  const xabcdRatioEditorOpen = Boolean(xabcdEditorDrawing);
+  const positionPlanEditorOpen = Boolean(positionEditorDrawing && positionPlanValues);
+  const editorOpen = styleEditorOpen || fibLevelEditorOpen || elliottWaveEditorOpen || xabcdRatioEditorOpen || positionPlanEditorOpen;
+  const closeOpenEditor = fibLevelEditorOpen
+    ? handleCloseFibLevelEditor
+    : (elliottWaveEditorOpen
+      ? handleCloseElliottWaveEditor
+      : (xabcdRatioEditorOpen
+        ? handleCloseXabcdRatioEditor
+        : (positionPlanEditorOpen ? handleClosePositionPlanEditor : handleCloseStyleEditor)));
+  const editorHeaderTitle = fibLevelEditorOpen
+    ? 'Fib levels'
+    : (elliottWaveEditorOpen
+      ? 'Elliott waves'
+      : (xabcdRatioEditorOpen
+        ? 'XABCD ratios'
+        : (positionPlanEditorOpen ? 'Risk / reward' : 'Style')));
   const renameLabelPreview = renameDrawing
     ? sanitizeDrawingObjectLabel(renameDraft, renameDrawing.label)
     : '';
@@ -694,22 +1173,18 @@ export function ObjectsScreen() {
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 18) + 10 }]}>
         <View style={styles.headerRow}>
           <Pressable
-            onPress={
-              fibLevelEditorOpen
-                ? handleCloseFibLevelEditor
-                : (styleEditorOpen ? handleCloseStyleEditor : () => safeRouterBack(router, '/(tabs)/chart'))
-            }
+            onPress={editorOpen ? closeOpenEditor : () => safeRouterBack(router, '/(tabs)/chart')}
             hitSlop={16}
             style={styles.headerButton}
           >
             <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
           </Pressable>
           <Text style={styles.headerTitle} numberOfLines={1}>
-            {fibLevelEditorOpen ? 'Fib levels' : (styleEditorOpen ? 'Style' : 'Objects')}
+            {editorOpen ? editorHeaderTitle : 'Objects'}
           </Text>
           {editorOpen ? (
             <Pressable
-              onPress={fibLevelEditorOpen ? handleCloseFibLevelEditor : handleCloseStyleEditor}
+              onPress={closeOpenEditor}
               activateOnPressIn
               activateOnTouchStart
               unstable_pressDelay={0}
@@ -732,7 +1207,7 @@ export function ObjectsScreen() {
           )}
         </View>
         <Text style={styles.headerSubtitle} numberOfLines={1}>
-          {fibEditorDrawing?.label ?? styleEditorDrawing?.label ?? `${chartSymbol.replace(/\//g, '')} chart objects`}
+          {fibEditorDrawing?.label ?? elliottEditorDrawing?.label ?? xabcdEditorDrawing?.label ?? positionEditorDrawing?.label ?? styleEditorDrawing?.label ?? `${chartSymbol.replace(/\//g, '')} chart objects`}
         </Text>
       </View>
 
@@ -919,6 +1394,322 @@ export function ObjectsScreen() {
                 </View>
               </>
             ) : null}
+          </>
+        ) : elliottEditorDrawing ? (
+          <>
+            <Text style={styles.sectionLabel}>Wave pattern</Text>
+            <View style={styles.panel}>
+              {ELLIOTT_WAVE_PRESETS.map((preset, index) => {
+                const active = activeElliottPresetId === preset.id;
+                return (
+                  <React.Fragment key={preset.id}>
+                    <Pressable
+                      style={[styles.fibLevelRow, active && styles.fibLevelRowSelected]}
+                      onPress={() => handleApplyElliottWavePreset(preset.id)}
+                    >
+                      <View style={styles.rowLeft}>
+                        <View style={styles.rowCopy}>
+                          <Text style={styles.rowTitle} numberOfLines={1}>{preset.label}</Text>
+                          <Text style={styles.rowSubtitle} numberOfLines={1}>{preset.description}</Text>
+                        </View>
+                      </View>
+                      {active ? <Ionicons name="checkmark-circle" size={18} color="#2563EB" /> : null}
+                    </Pressable>
+                    {index < ELLIOTT_WAVE_PRESETS.length - 1 ? <View style={styles.panelDivider} /> : null}
+                  </React.Fragment>
+                );
+              })}
+            </View>
+
+            <Text style={styles.sectionLabel}>Waves</Text>
+            <View style={styles.panel}>
+              {elliottEditorWaves.map((wave, index) => {
+                const selected = selectedElliottWave?.id === wave.id;
+                return (
+                  <React.Fragment key={wave.id}>
+                    <Pressable
+                      style={[styles.fibLevelRow, selected && styles.fibLevelRowSelected]}
+                      onPress={() => setSelectedElliottWaveId(wave.id)}
+                    >
+                      <View style={styles.rowLeft}>
+                        <View style={styles.rowCopy}>
+                          <Text style={styles.rowTitle} numberOfLines={1}>{wave.label || 'No label'}</Text>
+                          <Text style={styles.rowSubtitle} numberOfLines={1}>{describeElliottWavePivot(index)}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.fibLevelRight}>
+                        {selected ? <Ionicons name="checkmark-circle" size={18} color="#2563EB" /> : null}
+                        <Switch
+                          value={wave.visible}
+                          onValueChange={(visible) => handleUpdateElliottWave(wave.id, { visible })}
+                          trackColor={{ false: isDark ? '#1E1E1E' : '#CBD5E1', true: '#3B82F6' }}
+                          thumbColor="#FFFFFF"
+                        />
+                      </View>
+                    </Pressable>
+                    {index < elliottEditorWaves.length - 1 ? <View style={styles.panelDivider} /> : null}
+                  </React.Fragment>
+                );
+              })}
+            </View>
+
+            <View style={[styles.panel, styles.fibActionPanel]}>
+              <Pressable style={styles.fibActionButton} onPress={handleResetElliottWaves}>
+                <Ionicons name="refresh-outline" size={18} color="#2563EB" />
+                <Text style={styles.fibActionText}>Reset</Text>
+              </Pressable>
+            </View>
+
+            {selectedElliottWave ? (
+              <>
+                <Text style={styles.sectionLabel}>Selected wave</Text>
+                <View style={styles.panel}>
+                  <View style={styles.fibInputRow}>
+                    <Text style={styles.styleControlLabel}>Label</Text>
+                    <TextInput
+                      value={elliottWaveLabelDraft}
+                      onChangeText={setElliottWaveLabelDraft}
+                      onBlur={handleCommitElliottWaveLabel}
+                      onSubmitEditing={handleCommitElliottWaveLabel}
+                      selectTextOnFocus
+                      maxLength={12}
+                      placeholder="No label"
+                      style={styles.fibTextInput}
+                    />
+                  </View>
+                </View>
+              </>
+            ) : null}
+          </>
+        ) : xabcdEditorDrawing ? (
+          <>
+            <Text style={styles.sectionLabel}>Harmonic pattern</Text>
+            <View style={styles.panel}>
+              {XABCD_PRESETS.map((preset, index) => {
+                const active = activeXabcdPresetId === preset.id;
+                return (
+                  <React.Fragment key={preset.id}>
+                    <Pressable
+                      style={[styles.fibLevelRow, active && styles.fibLevelRowSelected]}
+                      onPress={() => handleApplyXabcdPreset(preset.id)}
+                    >
+                      <View style={styles.rowLeft}>
+                        <View style={styles.rowCopy}>
+                          <Text style={styles.rowTitle} numberOfLines={1}>{preset.label}</Text>
+                          <Text style={styles.rowSubtitle} numberOfLines={1}>{preset.description}</Text>
+                        </View>
+                      </View>
+                      {active ? <Ionicons name="checkmark-circle" size={18} color="#2563EB" /> : null}
+                    </Pressable>
+                    {index < XABCD_PRESETS.length - 1 ? <View style={styles.panelDivider} /> : null}
+                  </React.Fragment>
+                );
+              })}
+            </View>
+
+            <Text style={styles.sectionLabel}>Leg ratios</Text>
+            <View style={styles.panel}>
+              {xabcdEditorRatios.map((ratio, index) => {
+                const leg = XABCD_RATIO_LEGS[index];
+                const selected = selectedXabcdRatio?.id === ratio.id;
+                const targetText = ratio.target !== null
+                  ? `Target ${formatXabcdTargetValue(ratio.target)}`
+                  : 'No target';
+                return (
+                  <React.Fragment key={ratio.id}>
+                    <Pressable
+                      style={[styles.fibLevelRow, selected && styles.fibLevelRowSelected]}
+                      onPress={() => setSelectedXabcdRatioId(ratio.id)}
+                    >
+                      <View style={styles.rowLeft}>
+                        <View style={styles.rowCopy}>
+                          <Text style={styles.rowTitle} numberOfLines={1}>{leg?.title ?? ratio.id}</Text>
+                          <Text style={styles.rowSubtitle} numberOfLines={1}>
+                            {leg?.description} | {targetText}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={styles.fibLevelRight}>
+                        {selected ? <Ionicons name="checkmark-circle" size={18} color="#2563EB" /> : null}
+                        <Switch
+                          value={ratio.visible}
+                          onValueChange={(visible) => handleUpdateXabcdRatio(ratio.id, { visible })}
+                          trackColor={{ false: isDark ? '#1E1E1E' : '#CBD5E1', true: '#3B82F6' }}
+                          thumbColor="#FFFFFF"
+                        />
+                      </View>
+                    </Pressable>
+                    {index < xabcdEditorRatios.length - 1 ? <View style={styles.panelDivider} /> : null}
+                  </React.Fragment>
+                );
+              })}
+            </View>
+
+            <View style={[styles.panel, styles.fibActionPanel]}>
+              <Pressable style={styles.fibActionButton} onPress={handleResetXabcdRatios}>
+                <Ionicons name="refresh-outline" size={18} color="#2563EB" />
+                <Text style={styles.fibActionText}>Reset</Text>
+              </Pressable>
+            </View>
+
+            {selectedXabcdRatio ? (
+              <>
+                <Text style={styles.sectionLabel}>Selected leg</Text>
+                <View style={styles.panel}>
+                  <View style={styles.fibInputRow}>
+                    <Text style={styles.styleControlLabel}>Target</Text>
+                    <TextInput
+                      value={xabcdTargetDraft}
+                      onChangeText={setXabcdTargetDraft}
+                      onBlur={handleCommitXabcdTarget}
+                      onSubmitEditing={handleCommitXabcdTarget}
+                      keyboardType="decimal-pad"
+                      selectTextOnFocus
+                      placeholder="No target"
+                      style={styles.fibTextInput}
+                    />
+                  </View>
+                </View>
+                <Text style={styles.sectionLabel}>
+                  Chart shows measured / target; the label turns green when they match within 0.05
+                </Text>
+              </>
+            ) : null}
+          </>
+        ) : positionEditorDrawing && positionPlanValues ? (
+          <>
+            <Text style={styles.sectionLabel}>Plan summary</Text>
+            <View style={styles.panel}>
+              <View style={styles.fibInputRow}>
+                <Text style={styles.styleControlLabel}>Direction</Text>
+                <Text style={styles.rowTitle}>
+                  {positionPlanValues.direction === 'short' ? 'Short' : 'Long'}
+                </Text>
+              </View>
+              <View style={styles.panelDivider} />
+              <View style={styles.fibInputRow}>
+                <Text style={styles.styleControlLabel}>Risk : reward</Text>
+                <Text style={styles.rowTitle}>{formatPositionPlanRiskReward(positionPlanValues.riskReward)}</Text>
+              </View>
+              <View style={styles.panelDivider} />
+              <View style={styles.fibInputRow}>
+                <Text style={styles.styleControlLabel}>Reward / unit</Text>
+                <Text style={styles.rowTitle}>{formatPositionPlanNumber(positionPlanValues.rewardPerUnit) || '0'}</Text>
+              </View>
+              <View style={styles.panelDivider} />
+              <View style={styles.fibInputRow}>
+                <Text style={styles.styleControlLabel}>Risk / unit</Text>
+                <Text style={styles.rowTitle}>{formatPositionPlanNumber(positionPlanValues.riskPerUnit) || '0'}</Text>
+              </View>
+              {positionPlanValues.accountSize !== null ? (
+                <>
+                  <View style={styles.panelDivider} />
+                  <View style={styles.fibInputRow}>
+                    <Text style={styles.styleControlLabel}>Risk amount</Text>
+                    <Text style={styles.rowTitle}>{formatPositionPlanNumber(positionPlanValues.riskAmount, 2)}</Text>
+                  </View>
+                  <View style={styles.panelDivider} />
+                  <View style={styles.fibInputRow}>
+                    <Text style={styles.styleControlLabel}>Reward amount</Text>
+                    <Text style={styles.rowTitle}>
+                      {formatPositionPlanNumber(positionPlanValues.rewardAmount, 2) || '—'}
+                    </Text>
+                  </View>
+                  <View style={styles.panelDivider} />
+                  <View style={styles.fibInputRow}>
+                    <Text style={styles.styleControlLabel}>Position size</Text>
+                    <Text style={styles.rowTitle}>
+                      {formatPositionPlanNumber(positionPlanValues.quantity, 2) || '—'}
+                    </Text>
+                  </View>
+                </>
+              ) : null}
+            </View>
+
+            <Text style={styles.sectionLabel}>Price levels</Text>
+            <View style={styles.panel}>
+              <View style={styles.fibInputRow}>
+                <Text style={styles.styleControlLabel}>Entry</Text>
+                <TextInput
+                  value={positionEntryDraft}
+                  onChangeText={setPositionEntryDraft}
+                  onBlur={handleCommitPositionEntry}
+                  onSubmitEditing={handleCommitPositionEntry}
+                  keyboardType="decimal-pad"
+                  selectTextOnFocus
+                  style={styles.fibTextInput}
+                />
+              </View>
+              <View style={styles.panelDivider} />
+              <View style={styles.fibInputRow}>
+                <Text style={styles.styleControlLabel}>Take profit</Text>
+                <TextInput
+                  value={positionTargetDraft}
+                  onChangeText={setPositionTargetDraft}
+                  onBlur={handleCommitPositionTarget}
+                  onSubmitEditing={handleCommitPositionTarget}
+                  keyboardType="decimal-pad"
+                  selectTextOnFocus
+                  style={styles.fibTextInput}
+                />
+              </View>
+              <View style={styles.panelDivider} />
+              <View style={styles.fibInputRow}>
+                <Text style={styles.styleControlLabel}>Stop loss</Text>
+                <TextInput
+                  value={positionStopDraft}
+                  onChangeText={setPositionStopDraft}
+                  onBlur={handleCommitPositionStop}
+                  onSubmitEditing={handleCommitPositionStop}
+                  keyboardType="decimal-pad"
+                  selectTextOnFocus
+                  placeholder={`${formatPositionPlanNumber(positionPlanValues.stopPrice)} (1:1)`}
+                  style={styles.fibTextInput}
+                />
+              </View>
+            </View>
+
+            <Text style={styles.sectionLabel}>Position sizing</Text>
+            <View style={styles.panel}>
+              <View style={styles.fibInputRow}>
+                <Text style={styles.styleControlLabel}>Account size</Text>
+                <TextInput
+                  value={positionAccountDraft}
+                  onChangeText={setPositionAccountDraft}
+                  onBlur={handleCommitPositionAccount}
+                  onSubmitEditing={handleCommitPositionAccount}
+                  keyboardType="decimal-pad"
+                  selectTextOnFocus
+                  placeholder="Optional"
+                  style={styles.fibTextInput}
+                />
+              </View>
+              <View style={styles.panelDivider} />
+              <View style={styles.fibInputRow}>
+                <Text style={styles.styleControlLabel}>Risk %</Text>
+                <TextInput
+                  value={positionRiskPercentDraft}
+                  onChangeText={setPositionRiskPercentDraft}
+                  onBlur={handleCommitPositionRiskPercent}
+                  onSubmitEditing={handleCommitPositionRiskPercent}
+                  keyboardType="decimal-pad"
+                  selectTextOnFocus
+                  placeholder="1"
+                  style={styles.fibTextInput}
+                />
+              </View>
+            </View>
+
+            <View style={[styles.panel, styles.fibActionPanel]}>
+              <Pressable style={styles.fibActionButton} onPress={handleResetPositionPlan}>
+                <Ionicons name="refresh-outline" size={18} color="#2563EB" />
+                <Text style={styles.fibActionText}>Reset plan</Text>
+              </Pressable>
+            </View>
+
+            <Text style={styles.sectionLabel}>
+              Entry and take profit move the drawing on the chart; stop loss defaults to a 1:1 mirror until set
+            </Text>
           </>
         ) : styleEditorDrawing && styleEditorValues ? (
           <>
@@ -1154,6 +1945,8 @@ export function ObjectsScreen() {
         title="Add object"
         detent="auto"
         instantOpen
+        presentation="mt5Plain"
+        showActionIcons
         actions={addObjectActions}
       />
 
@@ -1163,6 +1956,8 @@ export function ObjectsScreen() {
         title={selectedDrawing?.label ?? 'Object'}
         detent="adaptive"
         instantOpen
+        presentation="mt5Plain"
+        showActionIcons
         actions={selectedDrawingActions}
       />
 

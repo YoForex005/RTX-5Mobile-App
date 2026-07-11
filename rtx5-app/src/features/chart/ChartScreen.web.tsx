@@ -110,7 +110,8 @@ import {
   CHART_TIME_SCALE_FIX_RIGHT_EDGE,
 } from './ChartScreen.constants';
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
-const CHART_OHLC_NEUTRAL_COLOR = '#FFFFFF';
+const CHART_OHLC_NEUTRAL_DARK_COLOR = '#FFFFFF';
+const CHART_OHLC_NEUTRAL_LIGHT_COLOR = '#0F172A';
 const CHART_OHLC_HIGH_COLOR = '#089981';
 const CHART_OHLC_LOW_COLOR = '#F23645';
 
@@ -807,17 +808,18 @@ export function ChartScreen() {
     () => calculateMarketSentiment(chartSentimentQuote, chartDailyRangeCandle),
     [chartDailyRangeCandle, chartSentimentQuote],
   );
+  const chartMetaNeutralColor = isDark ? CHART_OHLC_NEUTRAL_DARK_COLOR : CHART_OHLC_NEUTRAL_LIGHT_COLOR;
   const chartMetaItems = useMemo(
     () =>
       chartMetaLastCandle
         ? [
-          { label: 'O', value: formatChartValue(chartMetaLastCandle.open), color: CHART_OHLC_NEUTRAL_COLOR },
+          { label: 'O', value: formatChartValue(chartMetaLastCandle.open), color: chartMetaNeutralColor },
           { label: 'H', value: formatChartValue(chartMetaLastCandle.high), color: CHART_OHLC_HIGH_COLOR },
           { label: 'L', value: formatChartValue(chartMetaLastCandle.low), color: CHART_OHLC_LOW_COLOR },
-          { label: 'C', value: formatChartValue(chartMetaLastCandle.close), color: CHART_OHLC_NEUTRAL_COLOR },
+          { label: 'C', value: formatChartValue(chartMetaLastCandle.close), color: chartMetaNeutralColor },
         ]
         : [],
-    [chartMetaLastCandle, formatChartValue],
+    [chartMetaLastCandle, chartMetaNeutralColor, formatChartValue],
   );
   const showChartMetaRow = chartDisplay.showOHLC && chartMetaItems.length > 0;
   const { data: closedPositions = [], refetch: refetchClosedPositions } = usePositionHistoryQuery(accountLogin, {
@@ -1787,6 +1789,7 @@ export function ChartScreen() {
         title='Chart Type'
         detent="auto"
         instantOpen
+        presentation="mt5Plain"
         actions={[
           { label: 'Candlestick', onPress: () => setChartVisualType('candles') },
           { label: 'Hollow Candles', onPress: () => setChartVisualType('hollow') },

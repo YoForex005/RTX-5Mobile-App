@@ -126,6 +126,24 @@ test('accounts screen uses broker branding and opens long-press delete for other
   assert.doesNotMatch(source, /Only this device is changed/);
 });
 
+test('expanded other account cards reuse the live account card shell', () => {
+  const source = readSource('src/features/settings/AccountsScreen.tsx');
+  const expandedStart = source.indexOf('secondaryCardExpanded: {');
+  const expandedEnd = source.indexOf('secondaryTopRow:', expandedStart);
+  const expandedStyle = source.slice(expandedStart, expandedEnd);
+
+  assert.notEqual(expandedStart, -1);
+  assert.notEqual(expandedEnd, -1);
+  assert.match(expandedStyle, /borderRadius: 16/);
+  assert.match(expandedStyle, /borderColor: T\.border/);
+  assert.match(expandedStyle, /shadowColor: isDark \? '#000000' : '#64748B'/);
+  assert.match(expandedStyle, /shadowOffset: \{ width: 0, height: isDark \? 4 : 2 \}/);
+  assert.match(expandedStyle, /shadowOpacity: isDark \? 0\.08 : 0\.06/);
+  assert.match(expandedStyle, /shadowRadius: isDark \? 16 : 8/);
+  assert.match(expandedStyle, /elevation: isDark \? 4 : 1/);
+  assert.doesNotMatch(expandedStyle, /T\.accentGlow|T\.borderHi/);
+});
+
 test('accounts screen backfill normalizes optional metadata before saved-account upsert', () => {
   const source = readSource('src/features/settings/AccountsScreen.tsx');
   const effectStart = source.indexOf('React.useEffect(() => {');

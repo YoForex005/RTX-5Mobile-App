@@ -1837,7 +1837,7 @@ function getSupportCardGradient(isDark: boolean): readonly [string, string] {
 }
 
 function getScreenGradient(isDark: boolean): readonly [string, string, string] {
-  return isDark ? ['#121212', '#121212', '#121212'] : ['#F5F8FC', '#F5F8FC', '#EEF4FF'];
+  return isDark ? ['#121212', '#121212', '#121212'] : ['#F2F4F8', '#F2F4F8', '#F2F4F8'];
 }
 
 function formatShortTime(value: string): string {

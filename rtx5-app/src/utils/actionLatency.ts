@@ -36,6 +36,9 @@ export function scheduleActionLatencyCheck(
     if (elapsedMs > STALE_ACTION_LATENCY_SAMPLE_MS) {
       return;
     }
+    if (label.startsWith('sidebar.menu.')) {
+      console.info(`[ActionTiming] ${label} first frame ${Math.round(elapsedMs)}ms`);
+    }
     if (elapsedMs > budgetMs) {
       console.warn(
         `[Action] ${label} first frame took ${Math.round(elapsedMs)}ms; budget is ${budgetMs}ms.`,

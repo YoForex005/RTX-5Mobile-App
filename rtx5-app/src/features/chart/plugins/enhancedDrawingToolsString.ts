@@ -430,13 +430,34 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       return [];
     }
 
-    function extendLineSegment(x1, y1, x2, y2, width, height, mode) {
+    function resolveDegenerateOrientation(a, b) {
+      if (!a || !b) return null;
+      if (isFiniteNumber(a.price) && isFiniteNumber(b.price) && a.price === b.price) return 'horizontal';
+      if (a.time !== undefined && b.time !== undefined && a.time === b.time) return 'vertical';
+      return null;
+    }
+
+    function extendLineSegment(x1, y1, x2, y2, width, height, mode, degenerateOrientation) {
       var start = { x: x1, y: y1 };
       var end = { x: x2, y: y2 };
       var dx = x2 - x1;
       var dy = y2 - y1;
       var extendMode = mode || 'none';
-      if (extendMode === 'none' || (!isFiniteNumber(dx)) || (!isFiniteNumber(dy)) || (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001)) {
+      if (extendMode === 'none' || (!isFiniteNumber(dx)) || (!isFiniteNumber(dy))) {
+        return { start: start, end: end };
+      }
+      if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) {
+        // Both anchors landed on the same pixel (level tools encode their
+        // direction as a +1s / +1 price offset which can be sub-pixel on a
+        // real time scale). Fall back to the logical orientation so the
+        // level still extends instead of collapsing to a dot.
+        if (degenerateOrientation === 'horizontal') {
+          if (extendMode === 'left' || extendMode === 'both') start = { x: 0, y: y1 };
+          if (extendMode === 'right' || extendMode === 'both') end = { x: width, y: y1 };
+        } else if (degenerateOrientation === 'vertical') {
+          if (extendMode === 'left' || extendMode === 'both') start = { x: x1, y: 0 };
+          if (extendMode === 'right' || extendMode === 'both') end = { x: x1, y: height };
+        }
         return { start: start, end: end };
       }
 
@@ -491,7 +512,16 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         var lineColor = source._options.selected
           ? source._options.selectedColor
           : (source._options.hovered ? source._options.hoverColor : source._options.color);
-        var extended = extendLineSegment(x1, y1, x2, y2, bitmapWidth, bitmapHeight, source._options.extendMode);
+        var extended = extendLineSegment(
+          x1,
+          y1,
+          x2,
+          y2,
+          bitmapWidth,
+          bitmapHeight,
+          source._options.extendMode,
+          resolveDegenerateOrientation(source._p1, source._p2)
+        );
         var dash = resolveLineStyleDash(source._options.lineStyle, horizontalRatio);
         ctx.save();
         ctx.globalAlpha = source._options.opacity;
@@ -518,18 +548,21 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
           ctx.fill();
           ctx.stroke();
         }
-        if (source._options.label) {
+        var labelText = source._options.labelIsPrice && source.series
+          ? formatCrosshairPrice(source.series, source._p1.price)
+          : source._options.label;
+        if (labelText) {
           var fontSize = Math.round(source._options.fontSize * horizontalRatio);
           ctx.font = '600 ' + fontSize + 'px Arial';
           var padding = 6 * horizontalRatio;
-          var textWidth = ctx.measureText(source._options.label).width;
+          var textWidth = ctx.measureText(labelText).width;
           var lx = x2 + padding;
           var ly = y2 - (source._options.fontSize + padding * 0.35);
           roundRectPath(ctx, lx - padding * 0.65, ly - padding * 0.85, textWidth + padding * 1.3, source._options.fontSize + padding * 1.2, 6 * horizontalRatio);
           ctx.fillStyle = source._options.labelBackgroundColor;
           ctx.fill();
           ctx.fillStyle = source._options.labelTextColor;
-          ctx.fillText(source._options.label, lx, ly + source._options.fontSize * 0.65);
+          ctx.fillText(labelText, lx, ly + source._options.fontSize * 0.65);
         }
         ctx.restore();
       });
@@ -542,14 +575,24 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
     LinePaneView.prototype.update = function () {
       var series = this._source.series;
-      this._points.p1 = {
-        x: resolveCoordinateFromTime(this._source.chart, series, this._source._p1.time),
-        y: series.priceToCoordinate(this._source._p1.price)
-      };
-      this._points.p2 = {
-        x: resolveCoordinateFromTime(this._source.chart, series, this._source._p2.time),
-        y: series.priceToCoordinate(this._source._p2.price)
-      };
+      var a = this._source._p1;
+      var b = this._source._p2;
+      var p1x = resolveCoordinateFromTime(this._source.chart, series, a.time);
+      var p2x;
+      var isHorizontalLevelPair =
+        isFiniteNumber(a.price) && isFiniteNumber(b.price) && a.price === b.price &&
+        isFiniteNumber(a.time) && isFiniteNumber(b.time) && Math.abs(b.time - a.time) <= 1;
+      if (isHorizontalLevelPair || (isFiniteNumber(a.time) && a.time === b.time)) {
+        // Level tools encode their direction as a synthetic +1s (or same-time)
+        // helper point. That time is never bar-aligned, and time scales resolve
+        // it inconsistently (null, interpolated, or a bogus 0) — pin it to the
+        // anchor and let extendLineSegment's orientation fallback extend it.
+        p2x = p1x;
+      } else {
+        p2x = resolveCoordinateFromTime(this._source.chart, series, b.time);
+      }
+      this._points.p1 = { x: p1x, y: series.priceToCoordinate(a.price) };
+      this._points.p2 = { x: p2x, y: series.priceToCoordinate(b.price) };
     };
 
     LinePaneView.prototype.renderer = function () {
@@ -667,7 +710,8 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         geometry.p2.y,
         hitWidth,
         hitHeight,
-        extendMode
+        extendMode,
+        resolveDegenerateOrientation(this._p1, this._p2)
       );
       return this._distanceToSegment(point, extended.start, extended.end);
     };
@@ -3208,11 +3252,18 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     }
 
     this._bindTouchBridge();
-    var drawingMode = this._isDrawingToolActive();
+    // An in-progress drag-edit of an existing drawing owns the gesture just
+    // like drawing-tool creation does — the chart must not pan beneath it.
+    var drawingMode = this._isDrawingToolActive() || !!this._lineEditState;
 
-    if (this._chartHost) {
+    if (this._chartHost && !this._lineEditState) {
+      // Never rewrite touch-action while a drag-edit gesture is live: the
+      // browser cancels the active pointer stream when the value flips,
+      // which aborts the edit. Crosshair mode needs 'none' as well — with
+      // 'manipulation' the WebView claims drawing drag-edits as a native
+      // gesture and fires pointercancel mid-drag.
       try {
-        var lockedTouchMode = drawingMode;
+        var lockedTouchMode = drawingMode || this._activeTool === 'crosshair';
         this._chartHost.style.touchAction = lockedTouchMode ? 'none' : 'manipulation';
         this._chartHost.style.userSelect = lockedTouchMode ? 'none' : '';
         this._chartHost.style.webkitUserSelect = lockedTouchMode ? 'none' : '';
@@ -3282,10 +3333,10 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
 
   AdvancedDrawingToolsManager.prototype._isRecordPresentationVisible = function (record) {
-    if (!record || !record.visible || this._hidden) return false;
-    if (!this._activeTool || this._activeTool === 'none') return false;
-    if (this._activeTool === 'crosshair') return true;
-    return record.kind === this._activeTool;
+    // TradingView parity: completed drawings stay visible no matter which
+    // tool is armed (or none at all). Only the explicit hide-all toggle and
+    // the per-record visible flag control presentation.
+    return !!(record && record.visible && !this._hidden);
   };
 
   AdvancedDrawingToolsManager.prototype._applyRecordPresentationVisibility = function (record) {
@@ -3498,6 +3549,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     if (hit.record.primitive && typeof hit.record.primitive.beginEdit === 'function') {
       hit.record.primitive.beginEdit(hit.part, editPoint);
     }
+    this._applyChartInteractionMode();
     return true;
   };
 
@@ -3621,6 +3673,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     }
     this._lineEditState = null;
     this._lineEditPendingPoints = null;
+    if (state) {
+      this._applyChartInteractionMode();
+    }
     if (!state) return;
     var record = this._findRecordById(state.recordId);
     if (!record) return;
@@ -3700,6 +3755,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       levelType: typeof record.levelType === 'string' ? record.levelType : undefined,
       followLastPrice: !!record.followLastPrice,
       levels: Array.isArray(record.levels) ? cloneSerializable(record.levels, []) : undefined,
+      waves: Array.isArray(record.waves) ? cloneSerializable(record.waves, []) : undefined,
+      ratios: Array.isArray(record.ratios) ? cloneSerializable(record.ratios, []) : undefined,
+      position: record.position && typeof record.position === 'object' ? cloneSerializable(record.position, undefined) : undefined,
       extendMode: typeof record.extendMode === 'string' ? record.extendMode : undefined,
       zoneType: typeof record.zoneType === 'string' ? record.zoneType : undefined,
       extendUntil: typeof record.extendUntil === 'string' ? record.extendUntil : undefined,
@@ -3743,6 +3801,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       levelType: record.levelType,
       followLastPrice: !!record.followLastPrice,
       levels: Array.isArray(record.levels) ? cloneSerializable(record.levels, []) : undefined,
+      waves: Array.isArray(record.waves) ? cloneSerializable(record.waves, []) : undefined,
+      ratios: Array.isArray(record.ratios) ? cloneSerializable(record.ratios, []) : undefined,
+      position: record.position && typeof record.position === 'object' ? cloneSerializable(record.position, undefined) : undefined,
       extendMode: record.extendMode,
       zoneType: record.zoneType,
       extendUntil: record.extendUntil,
@@ -3903,6 +3964,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       levelType: serializedData && typeof serializedData.levelType === 'string' ? serializedData.levelType : undefined,
       followLastPrice: !!(serializedData && serializedData.followLastPrice),
       levels: serializedData && Array.isArray(serializedData.levels) ? cloneSerializable(serializedData.levels, []) : undefined,
+      waves: serializedData && Array.isArray(serializedData.waves) ? cloneSerializable(serializedData.waves, []) : undefined,
+      ratios: serializedData && Array.isArray(serializedData.ratios) ? cloneSerializable(serializedData.ratios, []) : undefined,
+      position: serializedData && serializedData.position && typeof serializedData.position === 'object' ? cloneSerializable(serializedData.position, undefined) : undefined,
       extendMode: serializedData && typeof serializedData.extendMode === 'string' ? serializedData.extendMode : undefined,
       zoneType: serializedData && typeof serializedData.zoneType === 'string' ? serializedData.zoneType : undefined,
       extendUntil: serializedData && typeof serializedData.extendUntil === 'string' ? serializedData.extendUntil : undefined,

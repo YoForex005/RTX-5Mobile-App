@@ -20,6 +20,18 @@ test('trade bulk launcher opens through the shared Quotes-style action sheet pat
   assert.match(source, /showActionIcons: true/);
   assert.match(source, /detent: 'auto'/);
   assert.match(source, /instantOpen: true/);
+  assert.match(source, /const TRADE_BULK_ACTION_ICON_LIGHT = '#4F535C'/);
+  assert.match(source, /const TRADE_BULK_ACTION_ICON_DARK = '#EEF1F5'/);
+  assert.match(source, /const bulkActionIconColor = isDark \? TRADE_BULK_ACTION_ICON_DARK : TRADE_BULK_ACTION_ICON_LIGHT/);
+  const bulkConfigStart = source.indexOf('const bulkActionSheetConfig = useMemo');
+  const bulkConfigEnd = source.indexOf('const showBulkSheet = useCallback', bulkConfigStart);
+  const bulkConfigSource = source.slice(bulkConfigStart, bulkConfigEnd);
+
+  assert.notEqual(bulkConfigStart, -1);
+  assert.notEqual(bulkConfigEnd, -1);
+  assert.doesNotMatch(bulkConfigSource, /danger: true/);
+  assert.match(bulkConfigSource, /color=\{bulkActionIconColor\}/);
+  assert.doesNotMatch(bulkConfigSource, /color=\{T\.trading\.sell\.primary\}/);
   assert.match(source, /label: t\('Close All Positions'\)/);
   assert.match(source, /label: t\('Close Profitable Positions'\)/);
   assert.match(source, /label: t\('Close Losing Positions'\)/);
