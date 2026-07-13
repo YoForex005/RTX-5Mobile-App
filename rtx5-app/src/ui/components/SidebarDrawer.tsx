@@ -22,6 +22,7 @@ import { AppLogo } from './AppLogo';
 import { resolveAppDisplayVersion } from '../../config/appDisplayVersion';
 import { getConfiguredSupportEmail } from '../../config/legalLinks';
 import { buildHelpMailto } from '../../features/settings/helpViewModel';
+import { useTranslation } from '../../i18n/useTranslation';
 import { navigateMountedSidebarTab, registerSidebarOpenHandler } from './sidebarDrawerController';
 import {
   hideSidebarDestination,
@@ -137,6 +138,8 @@ function shouldPushSidebarRoute(route: string) {
 
 type SidebarMenuRowProps = {
   item: MenuItem;
+  /** Localized label for display; latency metrics keep the stable English item.label. */
+  displayLabel: string;
   onPressItem: (item: MenuItem) => void;
   ds: ReturnType<typeof makeStyles>;
   iconColor: string;
@@ -146,6 +149,7 @@ type SidebarMenuRowProps = {
 // re-reconcile the eight Pressable rows mid-animation.
 const SidebarMenuRow = memo(function SidebarMenuRow({
   item,
+  displayLabel,
   onPressItem,
   ds,
   iconColor,
@@ -168,7 +172,7 @@ const SidebarMenuRow = memo(function SidebarMenuRow({
         color={iconColor}
         style={ds.menuIcon}
       />
-      <Text style={ds.menuText}>{item.label}</Text>
+      <Text style={ds.menuText}>{displayLabel}</Text>
     </Pressable>
   );
 });
@@ -186,6 +190,7 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
   const pathnameRef = useRef('/');
   const themeMode = useThemeMode();
   const T = useMemo(() => (themeMode === 'light' ? GLight : GDark), [themeMode]);
+  const { t } = useTranslation();
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const brokerId = useUserPreferences((s) => s.brokerId);
@@ -640,6 +645,7 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
               <SidebarMenuRow
                 key={item.label}
                 item={item}
+                displayLabel={t(item.label)}
                 onPressItem={handleMenuItemPress}
                 ds={ds}
                 iconColor={T.textSub}

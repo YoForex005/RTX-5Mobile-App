@@ -40,6 +40,7 @@ import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '..
 import { GDark } from '../../ui/theme/glass';
 import { safeRouterBack } from '../../utils/navigation';
 import { useNextFrameValue } from '../../hooks/useNextFrameValue';
+import { useTranslation } from '../../i18n/useTranslation';
 import {
   ABOUT_LINK_CHEVRON,
   ABOUT_STAR,
@@ -83,6 +84,7 @@ export const AboutScreenInner = memo(function AboutScreenInner({ isScreenFocused
   const routeBodyReady = useDeferredRouteContentReady(0, isScreenFocused);
   const router = useRouter();
   const isDark = useIsDarkTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => makeAboutStyles(isDark), [isDark]);
   const insets = useSafeAreaInsets();
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
@@ -108,7 +110,7 @@ export const AboutScreenInner = memo(function AboutScreenInner({ isScreenFocused
     try {
       await Linking.openURL(url);
     } catch {
-      Alert.alert(failureTitle, 'No installed app can open this link on the current device.');
+      Alert.alert(failureTitle, t('No installed app can open this link on the current device.'));
     }
   };
 
@@ -125,7 +127,7 @@ export const AboutScreenInner = memo(function AboutScreenInner({ isScreenFocused
       try {
         await Linking.openURL(target.fallbackUrl);
       } catch {
-        Alert.alert(`Open ${target.storeLabel}`, 'The store listing could not be opened on this device.');
+        Alert.alert(`Open ${target.storeLabel}`, t('The store listing could not be opened on this device.'));
       }
     }
   };
@@ -133,7 +135,7 @@ export const AboutScreenInner = memo(function AboutScreenInner({ isScreenFocused
   const handleOpenPrivacyPolicy = () => {
     const privacyPolicyUrl = resolveLegalUrl(undefined, getConfiguredPrivacyPolicyUrl());
     if (privacyPolicyUrl) {
-      void openExternalUrl(privacyPolicyUrl, 'Open Privacy Policy');
+      void openExternalUrl(privacyPolicyUrl, t('Open Privacy Policy'));
       return;
     }
 
@@ -174,7 +176,7 @@ export const AboutScreenInner = memo(function AboutScreenInner({ isScreenFocused
         >
           <Ionicons name="menu" size={32} color={menuIconColor} />
         </FastPressable>
-        <Text style={styles.headerTitle} numberOfLines={1}>About</Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>{t('About')}</Text>
       </View>
 
       <View style={styles.content}>
@@ -210,6 +212,7 @@ export function AboutScreen() {
 export function DeveloperContactRequestScreen({ mode }: { mode: DeveloperContactMode }) {
   const router = useRouter();
   const isDark = useIsDarkTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => makeAboutStyles(isDark), [isDark]);
   const insets = useSafeAreaInsets();
   const appName = Constants.expoConfig?.name ?? 'RTX5';
@@ -263,14 +266,14 @@ export function DeveloperContactRequestScreen({ mode }: { mode: DeveloperContact
     try {
       await Linking.openURL(url);
     } catch {
-      Alert.alert(failureTitle, 'No installed app can open this link on the current device.');
+      Alert.alert(failureTitle, t('No installed app can open this link on the current device.'));
     }
   };
 
   const handleOpenPrivacyPolicy = () => {
     const privacyPolicyUrl = resolveLegalUrl(undefined, getConfiguredPrivacyPolicyUrl());
     if (privacyPolicyUrl) {
-      void openExternalUrl(privacyPolicyUrl, 'Open Privacy Policy');
+      void openExternalUrl(privacyPolicyUrl, t('Open Privacy Policy'));
       return;
     }
 
@@ -279,7 +282,7 @@ export function DeveloperContactRequestScreen({ mode }: { mode: DeveloperContact
 
   const handleSendDeveloperMessage = () => {
     if (!isValidDeveloperContactEmail(contactEmail)) {
-      Alert.alert('Contact Developer', 'Please enter a valid email address before sending.');
+      Alert.alert(t('Contact Developer'), t('Please enter a valid email address before sending.'));
       return;
     }
 
@@ -296,7 +299,7 @@ export function DeveloperContactRequestScreen({ mode }: { mode: DeveloperContact
       developerEmail: getConfiguredDeveloperEmail(),
     });
 
-    void openExternalUrl(mailtoUrl, isAccountDeletion ? 'Request Account Deletion' : 'Contact Developer');
+    void openExternalUrl(mailtoUrl, isAccountDeletion ? t('Request Account Deletion') : t('Contact Developer'));
   };
 
   return (
@@ -304,17 +307,17 @@ export function DeveloperContactRequestScreen({ mode }: { mode: DeveloperContact
       appName={appName}
       appVersion={appVersion}
       appBuildVersion={appBuildVersion}
-      screenTitle={isAccountDeletion ? 'Request Account Deletion' : 'Contact Developer'}
-      heroTitle={isAccountDeletion ? `${appName} account deletion` : `${appName} support`}
+      screenTitle={isAccountDeletion ? t('Request Account Deletion') : t('Contact Developer')}
+      heroTitle={isAccountDeletion ? `${appName} ${t('account deletion')}` : `${appName} ${t('support')}`}
       heroText={
         isAccountDeletion
-          ? 'Send a dedicated request to delete your app account and related personal data.'
-          : 'Send a structured request to the developer team. Include the area, title, and details so the issue can be reviewed clearly.'
+          ? t('Send a dedicated request to delete your app account and related personal data.')
+          : t('Send a structured request to the developer team. Include the area, title, and details so the issue can be reviewed clearly.')
       }
       detailsPlaceholder={
         isAccountDeletion
-          ? 'Add any extra account deletion details here'
-          : 'Describe your problem in detail here'
+          ? t('Add any extra account deletion details here')
+          : t('Describe your problem in detail here')
       }
       categoryLocked={isAccountDeletion}
       name={contactName}
@@ -378,6 +381,7 @@ function AboutActionRow({
   styles: AboutStyles;
   chevronColor: string;
 }) {
+  const { t } = useTranslation();
   const isRating = action.id === 'rate-experience';
 
   return (
@@ -388,7 +392,7 @@ function AboutActionRow({
       accessibilityRole="button"
       accessibilityLabel={action.title}
     >
-      <Text style={styles.actionLabel} numberOfLines={1}>{action.title}</Text>
+      <Text style={styles.actionLabel} numberOfLines={1}>{t(action.title)}</Text>
       {isRating ? (
         <View style={styles.stars} pointerEvents="none">
           {RATING_STARS.map((star) => (
@@ -467,6 +471,7 @@ function ContactDeveloperScreen({
   sendAccessibilityLabel?: string;
   styles: AboutStyles;
 }) {
+  const { t } = useTranslation();
   const iconColor = isDark ? GDark.text : '#050505';
   const supportIconColor = isDark ? GDark.textMuted : '#64748B';
   const placeholderColor = isDark ? GDark.textFaint : '#9CA3AF';
@@ -486,7 +491,7 @@ function ContactDeveloperScreen({
   const isEmailValid = isValidDeveloperContactEmail(email);
   const emailError =
     trimmedEmail.length > 0 && !isEmailValid
-      ? 'Enter a valid email address.'
+      ? t('Enter a valid email address.')
       : undefined;
   const canSend =
     name.trim().length > 0 &&
@@ -495,12 +500,12 @@ function ContactDeveloperScreen({
     title.trim().length > 0 &&
     message.trim().length > 0 &&
     consentAccepted;
-  const resolvedScreenTitle = screenTitle ?? 'Contact Developer';
-  const resolvedHeroTitle = heroTitle ?? `${appName} support`;
+  const resolvedScreenTitle = screenTitle ?? t('Contact Developer');
+  const resolvedHeroTitle = heroTitle ?? `${appName} ${t('support')}`;
   const resolvedHeroText =
     heroText ??
-    'Send a structured request to the developer team. Include the area, title, and details so the issue can be reviewed clearly.';
-  const resolvedDetailsPlaceholder = detailsPlaceholder ?? 'Describe your problem in detail here';
+    t('Send a structured request to the developer team. Include the area, title, and details so the issue can be reviewed clearly.');
+  const resolvedDetailsPlaceholder = detailsPlaceholder ?? t('Describe your problem in detail here');
   const resolvedSendAccessibilityLabel = sendAccessibilityLabel ?? 'Send developer support request';
 
   const scrollDetailsFromLayout = useCallback((animated = true) => {
@@ -648,7 +653,7 @@ function ContactDeveloperScreen({
                   {resolvedHeroText}
                 </Text>
                 <Text style={styles.contactHeroMeta} numberOfLines={1}>
-                  App version {appVersion}
+                  {t('App version')} {appVersion}
                 </Text>
               </View>
             </View>
@@ -678,7 +683,7 @@ function ContactDeveloperScreen({
             />
 
             <View style={styles.formField}>
-              <Text style={styles.formFieldLabel}>Category</Text>
+              <Text style={styles.formFieldLabel}>{t('Category')}</Text>
               <FastPressable
                 onPress={categoryLocked ? undefined : onOpenCategorySheet}
                 activateOnPressIn
@@ -694,10 +699,10 @@ function ContactDeveloperScreen({
               >
                 <View style={styles.categorySelectCopy}>
                   <Text style={styles.categorySelectValue} numberOfLines={1}>
-                    {selectedCategory?.label ?? 'Select Category'}
+                    {selectedCategory ? t(selectedCategory.label) : t('Select Category')}
                   </Text>
                   <Text style={styles.categorySelectHint} numberOfLines={1}>
-                    {selectedCategory?.subtitle ?? 'Choose the closest request type'}
+                    {selectedCategory ? t(selectedCategory.subtitle) : t('Choose the closest request type')}
                   </Text>
                 </View>
                 <Ionicons
@@ -730,7 +735,7 @@ function ContactDeveloperScreen({
             />
 
             <View ref={detailsFieldRef} style={styles.formField} onLayout={handleDetailsLayout}>
-              <Text style={styles.formFieldLabel}>Details</Text>
+              <Text style={styles.formFieldLabel}>{t('Details')}</Text>
               <TextInput
                 value={message}
                 onChangeText={onChangeMessage}
@@ -748,7 +753,7 @@ function ContactDeveloperScreen({
 
             <View style={styles.consentBlock}>
               <Text style={styles.consentText}>
-                I agree to the processing of my personal data by RTX5 for request handling purposes.
+                {t('I agree to the processing of my personal data by RTX5 for request handling purposes.')}
               </Text>
               <FastPressable
                 onPress={onToggleConsent}
@@ -764,14 +769,14 @@ function ContactDeveloperScreen({
             </View>
 
             <View style={styles.privacyRow}>
-              <Text style={styles.privacyText}>Please have a look at our </Text>
+              <Text style={styles.privacyText}>{t('Please have a look at our')}{' '}</Text>
               <FastPressable
                 onPress={onOpenPrivacyPolicy}
                 latencyLabel="about.contact.privacy"
                 accessibilityRole="link"
                 accessibilityLabel="Privacy Policy"
               >
-                <Text style={styles.privacyLink}>Privacy Policy</Text>
+                <Text style={styles.privacyLink}>{t('Privacy Policy')}</Text>
               </FastPressable>
             </View>
           </ScrollView>
@@ -779,7 +784,7 @@ function ContactDeveloperScreen({
 
         <View style={[styles.contactPageFooter, { paddingBottom: Math.max(insetsBottom, 8) + 6 }]}>
           <Text style={styles.contactDisclaimer}>
-            RTX5 is a software application and does not provide any financial, investment, brokerage or trading services.
+            {t('RTX5 is a software application and does not provide any financial, investment, brokerage or trading services.')}
           </Text>
           <FastPressable
             onPress={canSend ? onSend : undefined}
@@ -790,7 +795,7 @@ function ContactDeveloperScreen({
             accessibilityLabel={resolvedSendAccessibilityLabel}
             accessibilityState={{ disabled: !canSend }}
           >
-            <Text style={[styles.contactSendText, canSend && styles.contactSendTextEnabled]}>SEND</Text>
+            <Text style={[styles.contactSendText, canSend && styles.contactSendTextEnabled]}>{t('SEND')}</Text>
           </FastPressable>
         </View>
       </KeyboardAvoidingView>
@@ -822,17 +827,18 @@ function LineTextInput({
   error?: string;
   styles: AboutStyles;
 }) {
+  const { t } = useTranslation();
   const hasError = Boolean(error);
 
   return (
     <View style={styles.formField}>
-      <Text style={styles.formFieldLabel}>{label}</Text>
+      <Text style={styles.formFieldLabel}>{t(label)}</Text>
       <View style={[styles.textFieldCard, hasError && styles.textFieldCardError]}>
         <Ionicons name={icon} size={18} color={iconColor} style={styles.textFieldIcon} />
         <TextInput
           value={value}
           onChangeText={onChangeText}
-          placeholder={placeholder}
+          placeholder={t(placeholder)}
           placeholderTextColor={placeholderColor}
           keyboardType={keyboardType}
           autoCapitalize={keyboardType === 'email-address' ? 'none' : 'sentences'}
@@ -894,6 +900,8 @@ function CategoryDropdownRow({
   checkColor: string;
   styles: AboutStyles;
 }) {
+  const { t } = useTranslation();
+
   return (
     <FastPressable
       onPress={onPress}
@@ -904,7 +912,7 @@ function CategoryDropdownRow({
       accessibilityState={{ selected }}
     >
       <Text style={[styles.inlineCategoryText, selected && styles.inlineCategoryTextSelected]} numberOfLines={1}>
-        {label}
+        {t(label)}
       </Text>
       {selected ? <Ionicons name="checkmark-circle" size={18} color={checkColor} /> : null}
     </FastPressable>

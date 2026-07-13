@@ -167,7 +167,10 @@ const makeTimeframePickerStyles = ({
   overlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 80,
-    elevation: 80,
+    // No `elevation` here: on Android, elevation on a translucent fullscreen
+    // view makes HWUI cast real spot/ambient shadows that show through the
+    // dim as a large gray rectangle over the chart. Sibling order + zIndex
+    // already keep this overlay on top.
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,

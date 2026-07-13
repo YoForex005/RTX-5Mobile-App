@@ -35,6 +35,7 @@ import { findPositionById } from './tradeFlow';
 import { CRITICAL_TRADE_ACTION_MAX_LATENCY_MS, runImmediateAction } from '../../utils/actionLatency';
 import { fmt } from '../../utils/format';
 import { safeRouterBack } from '../../utils/navigation';
+import { useTranslation } from '../../i18n/useTranslation';
 import { resolveModifyPositionMarkerYPositions } from './modifyPositionChartLayout';
 import {
   classifyTradingError,
@@ -92,6 +93,7 @@ function formatModifyPrice(val: number, decimals: number) {
 export function ModifyPositionScreen() {
   const { positionId } = useLocalSearchParams<{ positionId?: string }>();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const T = useTheme();
@@ -303,7 +305,7 @@ export function ModifyPositionScreen() {
 
     if (!symbolOptions.length) {
       return [{
-        label: marketSymbolsFetching ? 'Loading symbols...' : 'No symbols available',
+        label: marketSymbolsFetching ? t('Loading symbols...') : t('No symbols available'),
         disabled: true,
       }];
     }
@@ -315,8 +317,8 @@ export function ModifyPositionScreen() {
         return {
           label: candidate,
           subtitle: isViewing
-            ? `Viewing - ${resolveChartSymbolFullName(candidate)}`
-            : `${resolveChartSymbolFullName(candidate)} - No open position`,
+            ? `${t('Viewing')} - ${resolveChartSymbolFullName(candidate)}`
+            : `${resolveChartSymbolFullName(candidate)} - ${t('No open position')}`,
           onPress: () => handlePickViewSymbol(candidate),
         };
       }
@@ -327,12 +329,12 @@ export function ModifyPositionScreen() {
       return {
         label: candidate,
         subtitle: currentIndex >= 0 && symbolPositions.length === 1
-          ? `Selected - ${targetLabel}`
+          ? `${t('Selected')} - ${targetLabel}`
           : targetLabel,
         onPress: () => handlePickPosition(String(target.id)),
       };
     });
-  }, [handlePickPosition, handlePickViewSymbol, marketSymbols, marketSymbolsFetching, position?.id, position?.symbol, positions, symbolsMatch, viewSymbol]);
+  }, [handlePickPosition, handlePickViewSymbol, marketSymbols, marketSymbolsFetching, position?.id, position?.symbol, positions, symbolsMatch, t, viewSymbol]);
 
   // A viewed-symbol switch changes the price scale; drop the old symbol's
   // tick trail so the chart never mixes scales.
@@ -356,17 +358,20 @@ export function ModifyPositionScreen() {
   const validateStopTargets = (): string | null => {
     if (!position || !(closingMarketPrice > 0)) return null;
     const priceLabel = closingMarketPrice.toFixed(decimals);
-    const minDistanceLabel = `${MIN_STOP_DISTANCE_POINTS} points`;
+    const stopMessage = (key: string) =>
+      t(key)
+        .replace('{points}', String(MIN_STOP_DISTANCE_POINTS))
+        .replace('{price}', priceLabel);
     const isBuySide = position.side === 'buy';
     if (stopLoss !== null) {
       const slLimit = isBuySide
         ? closingMarketPrice - minStopDistance
         : closingMarketPrice + minStopDistance;
       if (isBuySide && stopLoss > slLimit) {
-        return `Stop Loss must be at least ${minDistanceLabel} below the current Bid (${priceLabel}) for a buy position.`;
+        return stopMessage('Stop Loss must be at least {points} points below the current Bid ({price}) for a buy position.');
       }
       if (!isBuySide && stopLoss < slLimit) {
-        return `Stop Loss must be at least ${minDistanceLabel} above the current Ask (${priceLabel}) for a sell position.`;
+        return stopMessage('Stop Loss must be at least {points} points above the current Ask ({price}) for a sell position.');
       }
     }
     if (takeProfit !== null) {
@@ -374,10 +379,10 @@ export function ModifyPositionScreen() {
         ? closingMarketPrice + minStopDistance
         : closingMarketPrice - minStopDistance;
       if (isBuySide && takeProfit < tpLimit) {
-        return `Take Profit must be at least ${minDistanceLabel} above the current Bid (${priceLabel}) for a buy position.`;
+        return stopMessage('Take Profit must be at least {points} points above the current Bid ({price}) for a buy position.');
       }
       if (!isBuySide && takeProfit > tpLimit) {
-        return `Take Profit must be at least ${minDistanceLabel} below the current Ask (${priceLabel}) for a sell position.`;
+        return stopMessage('Take Profit must be at least {points} points below the current Ask ({price}) for a sell position.');
       }
     }
     return null;
@@ -451,8 +456,8 @@ export function ModifyPositionScreen() {
       setSubmitMessage(
         formatTradingErrorFeedback(
           createFrontendTradingError(
-            'Authentication Error',
-            'The app does not have a valid local trading session. Log in again before modifying the position.',
+            t('Authentication Error'),
+            t('The app does not have a valid local trading session. Log in again before modifying the position.'),
           ),
         ),
       );
@@ -464,7 +469,7 @@ export function ModifyPositionScreen() {
     if (stopValidationError) {
       setSubmitMessage(
         formatTradingErrorFeedback(
-          createFrontendTradingError('Invalid Stop Levels', stopValidationError),
+          createFrontendTradingError(t('Invalid Stop Levels'), stopValidationError),
         ),
       );
       return;
@@ -490,8 +495,8 @@ export function ModifyPositionScreen() {
         setSubmitMessage(
           formatTradingErrorFeedback(
             createFrontendTradingError(
-              'SL/TP Not Applied',
-              'The backend accepted the modify request but did not confirm the requested Stop Loss or Take Profit values. Please refresh positions and try again.',
+              t('SL/TP Not Applied'),
+              t('The backend accepted the modify request but did not confirm the requested Stop Loss or Take Profit values. Please refresh positions and try again.'),
             ),
           ),
         );
@@ -550,13 +555,13 @@ export function ModifyPositionScreen() {
               hitSlop={20}
               style={styles.backBtn}
               accessibilityRole="button"
-              accessibilityLabel="Go back"
+              accessibilityLabel={t('Go back')}
             >
               <Ionicons name="arrow-back" size={24} color={T.text} />
             </Pressable>
             <View style={styles.headerTitleWrap} pointerEvents="none">
               <Text style={styles.headerActionLabel} numberOfLines={1} adjustsFontSizeToFit>
-                MODIFY POSITION
+                {t('Modify position').toUpperCase()}
               </Text>
             </View>
             <View style={styles.backBtn} />
@@ -564,7 +569,7 @@ export function ModifyPositionScreen() {
         </View>
         <View style={styles.loaderWrap}>
           <ActivityIndicator color={T.accent} />
-          <Text style={[styles.loaderText, { color: T.textMuted }]}>Loading position...</Text>
+          <Text style={[styles.loaderText, { color: T.textMuted }]}>{t('Loading position...')}</Text>
         </View>
       </View>
     );
@@ -656,14 +661,14 @@ export function ModifyPositionScreen() {
             hitSlop={20}
             style={styles.backBtn}
             accessibilityRole="button"
-            accessibilityLabel="Go back"
+            accessibilityLabel={t('Go back')}
           >
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
 
           <View style={styles.headerTitleWrap} pointerEvents="none">
             <Text style={styles.headerActionLabel} numberOfLines={1} adjustsFontSizeToFit>
-              MODIFY POSITION
+              {t('Modify position').toUpperCase()}
             </Text>
             <Text style={styles.headerTicketLabel} numberOfLines={1}>
               #{position.id}
@@ -676,7 +681,7 @@ export function ModifyPositionScreen() {
             hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
             unstable_pressDelay={0}
             accessibilityRole="button"
-            accessibilityLabel="Select Symbol"
+            accessibilityLabel={t('Select Symbol')}
           >
             <Ionicons name="logo-usd" size={20} color={T.accent} />
           </Pressable>
@@ -688,7 +693,7 @@ export function ModifyPositionScreen() {
           </Text>
           <Text style={styles.headerVol}>{position.volume.toFixed(2)}</Text>
           <Text style={styles.headerSymbol}>{position.symbol.replace(/\//g, '')}</Text>
-          <Text style={styles.headerAt}>at</Text>
+          <Text style={styles.headerAt}>{t('at')}</Text>
           <Text style={styles.headerPrice}>{position.openPrice.toFixed(positionHeaderDecimals)}</Text>
         </View>
       </View>
@@ -719,7 +724,7 @@ export function ModifyPositionScreen() {
           <View style={[styles.viewSymbolBanner, { borderColor: T.border }]}>
             <Ionicons name="eye-outline" size={14} color={T.accent} />
             <Text style={[styles.viewSymbolBannerText, { color: T.text }]}>
-              {viewSymbol} — live view. No open position on this symbol.
+              {viewSymbol} — {t('live view. No open position on this symbol.')}
             </Text>
           </View>
         )}
@@ -727,14 +732,14 @@ export function ModifyPositionScreen() {
         {/* Big Prices */}
         <View style={styles.priceHero}>
           <View style={styles.priceCard}>
-            <Text style={styles.priceLabel}>BID</Text>
+            <Text style={styles.priceLabel}>{t('BID')}</Text>
             <Text style={[styles.priceNormal, { color: isBuy ? T.trading.sell.primary : T.trading.buy.primary }]}>
               {bidFmt.main}<Text style={styles.priceHuge}>{bidFmt.huge}</Text>
             </Text>
           </View>
           <View style={styles.priceCardDivider} />
           <View style={styles.priceCard}>
-            <Text style={styles.priceLabel}>ASK</Text>
+            <Text style={styles.priceLabel}>{t('ASK')}</Text>
             <Text style={[styles.priceNormal, { color: isBuy ? T.trading.buy.primary : T.trading.sell.primary }]}>
               {askFmt.main}<Text style={styles.priceHuge}>{askFmt.huge}</Text>
             </Text>
@@ -829,7 +834,7 @@ export function ModifyPositionScreen() {
                       <Text style={[styles.stepperPriceHuge, { color }]}>{parts.huge}</Text>
                     </Text>
                   ) : (
-                    <Text style={styles.stepperPriceEmpty}>Not set</Text>
+                    <Text style={styles.stepperPriceEmpty}>{t('Not set')}</Text>
                   )}
                   <TextInput
                     style={styles.stepperHiddenInput}
@@ -864,13 +869,13 @@ export function ModifyPositionScreen() {
 
               {/* Footer: pip distance + $ impact */}
               <View style={styles.stepperFootRow}>
-                <Text style={styles.stepperFootLabel}>Distance</Text>
+                <Text style={styles.stepperFootLabel}>{t('Distance')}</Text>
                 <Text style={[styles.stepperFootValue, impact && { color: T.text }]}>
-                  {impact ? `${impact.pips} pts` : '—'}
+                  {impact ? `${impact.pips} ${t('pts')}` : '—'}
                 </Text>
               </View>
               <View style={styles.stepperFootRow}>
-                <Text style={styles.stepperFootLabel}>Est. {kind === 'sl' ? 'Loss' : 'Profit'}</Text>
+                <Text style={styles.stepperFootLabel}>{kind === 'sl' ? t('Est. Loss') : t('Est. Profit')}</Text>
                 <Text style={[styles.stepperFootValue, impact && { color }]}>
                   {impact ? `${impact.sign}$${impact.usd.toFixed(2)}` : '—'}
                 </Text>
@@ -880,8 +885,8 @@ export function ModifyPositionScreen() {
 
           return (
             <View style={styles.stepperRow}>
-              {renderCard('sl', SL_COLOR, 'Stop Loss', slParts, slImpact, handleStepSl, handleSlChange, () => setStopLoss(null), stopLoss)}
-              {renderCard('tp', TP_COLOR, 'Take Profit', tpParts, tpImpact, handleStepTp, handleTpChange, () => setTakeProfit(null), takeProfit)}
+              {renderCard('sl', SL_COLOR, t('Stop Loss'), slParts, slImpact, handleStepSl, handleSlChange, () => setStopLoss(null), stopLoss)}
+              {renderCard('tp', TP_COLOR, t('Take Profit'), tpParts, tpImpact, handleStepTp, handleTpChange, () => setTakeProfit(null), takeProfit)}
             </View>
           );
         })()}
@@ -957,7 +962,7 @@ export function ModifyPositionScreen() {
           <View style={styles.disclaimerBox}>
             <Ionicons name="information-circle-outline" size={16} color={T.textMuted} style={styles.disclaimerIcon} />
             <Text style={styles.disclaimer}>
-              SL/TP must be at least {MIN_STOP_DISTANCE_POINTS} points away from the market price. Orders are executed by the broker.
+              {t('SL/TP must be at least {points} points away from the market price. Orders are executed by the broker.').replace('{points}', String(MIN_STOP_DISTANCE_POINTS))}
             </Text>
           </View>
 
@@ -965,7 +970,7 @@ export function ModifyPositionScreen() {
             <Text style={styles.validationText}>{submitMessage}</Text>
           )}
           {!submitMessage && !positionsApi && (
-            <Text style={styles.validationText}>No connection</Text>
+            <Text style={styles.validationText}>{t('No connection')}</Text>
           )}
 
           <Pressable
@@ -985,7 +990,7 @@ export function ModifyPositionScreen() {
             {isSubmitting ? (
               <ActivityIndicator color="#FFF" />
             ) : (
-              <Text style={styles.modifyText}>MODIFY POSITION</Text>
+              <Text style={styles.modifyText}>{t('Modify position').toUpperCase()}</Text>
             )}
           </Pressable>
         </View>
@@ -996,10 +1001,10 @@ export function ModifyPositionScreen() {
       <ActionSheet
         visible={positionPickerOpen}
         onClose={() => setPositionPickerOpen(false)}
-        title="Select Symbol"
+        title={t('Select Symbol')}
         searchable
         compactText
-        searchPlaceholder="Search symbols..."
+        searchPlaceholder={t('Search symbols...')}
         detent="large"
         instantOpen
         runActionAfterClose={false}

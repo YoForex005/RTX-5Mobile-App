@@ -24,8 +24,12 @@ import { useInstrumentMeta } from '../../query/instruments';
 import { useMarketSymbols } from '../../query/market';
 import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 import { fmt } from '../../utils/format';
-import { safeRouterBack } from '../../utils/navigation';
+import {
+  safeRouterBack,
+  scheduleBackNavigationAfterVisualFrame,
+} from '../../utils/navigation';
 import { useLiveTick } from '../../domain/candles/hooks/useLiveCandles';
+import { useLiveQuoteSnapshot } from '../quotes/useLiveQuotes';
 import { normalizeSymbol } from '../../domain/symbols';
 import { assertTradeSide, normalizeTradeSide, TRADE_SIDE, type TradeSide } from '../../domain/tradeSide';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
@@ -35,6 +39,8 @@ import { ActionSheet } from '../../ui/components/ActionSheet';
 import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import { CRITICAL_TRADE_ACTION_MAX_LATENCY_MS, runImmediateAction } from '../../utils/actionLatency';
 import { useTranslation } from '../../i18n/useTranslation';
+import { OrderTicketLaunchShell } from './OrderTicketLaunchShell';
+import { hideOrderTicketLaunch } from './orderTicketLaunchController';
 import {
   formatTradeVolume,
   incrementTradeVolume,
@@ -77,7 +83,7 @@ type OrderTicketTradeAction = {
 
 const ORDER_TICKET_TRADE_CONFIRMATION_VISIBLE_MS = 5000;
 const ORDER_TICKET_TRADE_CONFIRMATION_MAX_ITEMS = 3;
-const ORDER_TICKET_FULL_CONTENT_DELAY_MS = 48;
+const ORDER_TICKET_FULL_CONTENT_DELAY_MS = 0;
 const ORDER_TICKET_DATA_READY_DELAY_MS = 180;
 const ORDER_TICKET_HEAVY_CONTENT_DELAY_MS = 240;
 const ORDER_TICKET_FALLBACK_LEVERAGE = 100;
@@ -101,7 +107,23 @@ type OrderTicketTradeConfirmation = {
  * Main Order Ticket screen for placing new trades. Orchestrates order type tabs (Market, Limit, Stop), lot size, and SL/TP fields.
  */
 export function OrderTicketScreen() {
-  const contentReady = useDeferredRouteContentReady(ORDER_TICKET_FULL_CONTENT_DELAY_MS);
+  const isScreenFocused = useIsFocused();
+  const contentReady = useDeferredRouteContentReady(ORDER_TICKET_FULL_CONTENT_DELAY_MS, isScreenFocused);
+  const wasFocusedRef = useRef(false);
+
+  useEffect(() => {
+    if (isScreenFocused) {
+      wasFocusedRef.current = true;
+      return;
+    }
+
+    // A warmed route can mount once while still unfocused. Only dismiss the
+    // optimistic shell after a real focused -> blurred transition.
+    if (wasFocusedRef.current) {
+      wasFocusedRef.current = false;
+      hideOrderTicketLaunch();
+    }
+  }, [isScreenFocused]);
 
   if (!contentReady) {
     return <OrderTicketInitialShell />;
@@ -116,110 +138,28 @@ export function OrderTicketScreen() {
 function OrderTicketInitialShell() {
   const { symbol: routeSymbol } = useLocalSearchParams<{ symbol?: string }>();
   const symbol = normalizeSymbol(routeSymbol || 'EURUSD');
-  const insets = useSafeAreaInsets();
   const router = useRouter();
-  const themeMode = useUserPreferences((s) => s.themeMode);
-  const T = useTheme();
-  const { t } = useTranslation();
-  const isDark = themeMode === 'dark';
-  const styles = makeStyles(T, isDark);
-  const SELL_C = T.trading.sell.primary;
-  const BUY_C = T.trading.buy.primary;
-  const SELL_BG = isDark ? 'rgba(255,59,48,0.08)' : 'rgba(220,38,38,0.06)';
-  const BUY_BG = isDark ? 'rgba(52,125,255,0.14)' : 'rgba(37,99,235,0.08)';
+  const backNavigationStartedRef = useRef(false);
+
+  const handleBack = useCallback(() => {
+    if (backNavigationStartedRef.current) {
+      return;
+    }
+    backNavigationStartedRef.current = true;
+    hideOrderTicketLaunch();
+    scheduleBackNavigationAfterVisualFrame(() => {
+      safeRouterBack(router, '/(tabs)/trade');
+    });
+  }, [router]);
 
   return (
-    <View style={[styles.root, { paddingBottom: insets.bottom }]}>
+    <>
       <Stack.Screen options={{ headerShown: false }} />
-
-      <View style={[styles.header, { paddingTop: insets.top + 6, zIndex: 10 }]}>
-        <FastPressable
-          onPress={() => safeRouterBack(router, '/(tabs)/trade')}
-          latencyLabel="orderTicket.shell.back"
-          hitSlop={{ top: 24, bottom: 24, left: 24, right: 24 }}
-          style={styles.backBtn}
-        >
-          <Ionicons name="arrow-back" size={24} color={T.text} />
-        </FastPressable>
-        <View style={styles.hCenter}>
-          <Text style={styles.hSymbol}>{symbol?.replace(/\//g, '')}</Text>
-        </View>
-        <View style={styles.symbolPickerBtn}>
-          <Ionicons name="logo-usd" size={20} color={T.accent} />
-        </View>
-      </View>
-
-      <View style={styles.pricePanel}>
-        <View style={[styles.priceHalf, { backgroundColor: SELL_BG }]}>
-          <Text style={[styles.priceTag, { color: SELL_C }]}>SELL</Text>
-          <Text style={styles.priceMain}>--</Text>
-          <Text style={styles.priceLabel}>BID</Text>
-        </View>
-        <View style={styles.spreadCenter}>
-          <Ionicons name="swap-horizontal" size={11} color={T.textSub} />
-          <Text style={styles.spreadVal}>0</Text>
-          <Text style={styles.spreadUnit}>pts</Text>
-        </View>
-        <View style={[styles.priceHalf, { backgroundColor: BUY_BG }]}>
-          <Text style={[styles.priceTag, { color: BUY_C }]}>BUY</Text>
-          <Text style={styles.priceMain}>--</Text>
-          <Text style={styles.priceLabel}>ASK</Text>
-        </View>
-      </View>
-
-      <View style={styles.shellBody}>
-        <Text style={styles.sectionTitle}>ORDER TYPE</Text>
-        <View style={styles.shellOrderTypeRow}>
-          <View style={[styles.orderTypeTab, styles.orderTypeTabActive, { borderColor: BUY_C }]}>
-            <Text style={[styles.orderTypeTabText, styles.orderTypeTabTextActive]}>
-              Market Execution
-            </Text>
-          </View>
-          <View style={styles.orderTypeTab}>
-            <Text style={styles.orderTypeTabText}>Buy Limit</Text>
-          </View>
-          <View style={styles.orderTypeTab}>
-            <Text style={styles.orderTypeTabText}>Sell Limit</Text>
-          </View>
-        </View>
-        <View style={styles.volSection}>
-          <Text style={styles.rowLabel}>Volume</Text>
-          <View style={styles.volStepper}>
-            <View style={styles.volBtn}>
-              <Ionicons name="remove" size={18} color={T.textSub} />
-            </View>
-            <View style={styles.volCenter}>
-              <Text style={styles.volNum}>0.02</Text>
-            </View>
-            <View style={styles.volBtn}>
-              <Ionicons name="add" size={18} color={T.textSub} />
-            </View>
-          </View>
-        </View>
-        <View style={styles.quickRow}>
-          {[0.01, 0.05, 0.10, 0.50, 1.00].map((value) => (
-            <View key={value} style={styles.quickPill}>
-              <Text style={styles.quickTxt}>{value.toFixed(2)}</Text>
-            </View>
-          ))}
-        </View>
-        <View style={styles.hairline} />
-        <View style={styles.sltpRow}>
-          <View style={styles.sltpGroup}>
-            <Text style={styles.sltpAction}>-</Text>
-            <Text style={styles.sltpLabel}>SL</Text>
-            <Text style={styles.sltpAction}>+</Text>
-          </View>
-          <View style={styles.sltpGroup}>
-            <Text style={styles.sltpAction}>-</Text>
-            <Text style={styles.sltpLabel}>TP</Text>
-            <Text style={styles.sltpAction}>+</Text>
-          </View>
-        </View>
-        <InfoRow label={t('Fill Policy')} value={t('Immediate or Cancel')} styles={styles} />
-        <View style={styles.hairline} />
-      </View>
-    </View>
+      <OrderTicketLaunchShell
+        symbol={symbol}
+        onBack={handleBack}
+      />
+    </>
   );
 }
 
@@ -247,6 +187,7 @@ function OrderTicketInteractiveContent() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const isScreenFocused = useIsFocused();
+  const backNavigationStartedRef = useRef(false);
   const [symbolPickerOpen, setSymbolPickerOpen] = useState(false);
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const tradeVolume = useUserPreferences((s) => s.tradeVolume);
@@ -262,6 +203,23 @@ function OrderTicketInteractiveContent() {
   const heavyContentReady = useDeferredRouteContentReady(ORDER_TICKET_HEAVY_CONTENT_DELAY_MS);
   const routeQueriesActive = isScreenFocused && routeDataReady;
   const { data: marketSymbols = [], isFetching: marketSymbolsFetching } = useMarketSymbols(routeQueriesActive || symbolPickerOpen);
+
+  useEffect(() => {
+    if (isScreenFocused) {
+      backNavigationStartedRef.current = false;
+    }
+  }, [isScreenFocused]);
+
+  const handleOrderTicketBack = useCallback(() => {
+    if (backNavigationStartedRef.current) {
+      return;
+    }
+    backNavigationStartedRef.current = true;
+    hideOrderTicketLaunch();
+    scheduleBackNavigationAfterVisualFrame(() => {
+      safeRouterBack(router, '/(tabs)/trade');
+    });
+  }, [router]);
 
   useEffect(() => {
     if (routeSymbolRef.current === routeInitialSymbol) {
@@ -422,12 +380,18 @@ function OrderTicketInteractiveContent() {
   // Live WebSocket pricing drives the BID/ASK buttons and every price preview.
   const latestTick = useLiveTick(symbol, undefined, routeQueriesActive);
   const latestClose = latestTick?.close || 0;
+  // Seed from the shared watchlist snapshot — the price the user was just
+  // looking at on the Quotes screen — so BID/ASK render real values in the
+  // first frame instead of "--" while this route's own subscription warms up.
+  const seedQuote = useLiveQuoteSnapshot(symbol, isScreenFocused);
+  const seedBid = typeof seedQuote?.bid === 'number' && seedQuote.bid > 0 ? seedQuote.bid : 0;
+  const seedAsk = typeof seedQuote?.ask === 'number' && seedQuote.ask > 0 ? seedQuote.ask : 0;
   // Some tick payloads only include close price, so create a conservative ASK
   // fallback until true bid/ask data arrives.
-  const syntheticAsk = latestClose + (symbol.includes('XAU') ? 0.30 : symbol.includes('BTC') ? 25 : 0.00015);
+  const syntheticAskOffset = symbol.includes('XAU') ? 0.30 : symbol.includes('BTC') ? 25 : 0.00015;
 
-  const BID = (latestTick as any)?.bid || latestClose;
-  const ASK = (latestTick as any)?.ask || syntheticAsk;
+  const BID = (latestTick as any)?.bid || latestClose || seedBid;
+  const ASK = (latestTick as any)?.ask || seedAsk || (BID > 0 ? BID + syntheticAskOffset : 0);
   const tickTimestamp =
     (latestTick as any)?.timestamp
     ?? (latestTick as any)?.time
@@ -1052,8 +1016,12 @@ function OrderTicketInteractiveContent() {
       {/* Compact header: back button, current symbol, and symbol picker. */}
       <View style={[styles.header, { paddingTop: insets.top + 6, zIndex: 10 }]}>
         <FastPressable
-          onPress={() => safeRouterBack(router, '/(tabs)/trade')}
+          onPress={handleOrderTicketBack}
+          activateOnPressIn
+          activateOnTouchStart
           latencyLabel="orderTicket.back"
+          latencyBudgetMs={50}
+          unstable_pressDelay={0}
           hitSlop={{ top: 24, bottom: 24, left: 24, right: 24 }}
           style={styles.backBtn}
         >

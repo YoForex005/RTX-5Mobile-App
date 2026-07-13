@@ -1,0 +1,196 @@
+/**
+ * Controls the short handoff from New Order to the full ticket:
+ * prepare the symbol, show a lightweight ticket, then open the real route.
+ */
+import { normalizeSymbol } from '../../domain/symbols';
+
+export type OrderTicketLaunchSnapshot = Readonly<{
+  visible: boolean;
+  symbol: string;
+  navigationStarted: boolean;
+  /** Changes on every launch so delayed work from an older tap can be ignored. */
+  revision: number;
+}>;
+
+export type OrderTicketLaunchVisualApplier = (visible: boolean) => void;
+
+export type OrderTicketLaunchController = Readonly<{
+  getSnapshot: () => OrderTicketLaunchSnapshot;
+  subscribe: (listener: () => void) => () => void;
+  prepare: (symbol: string) => void;
+  show: (symbol: string) => number;
+  hide: (revision?: number) => boolean;
+  isVisible: () => boolean;
+  startNavigation: (revision: number) => boolean;
+  registerVisualApplier: (applier: OrderTicketLaunchVisualApplier) => () => void;
+}>;
+
+const ORDER_TICKET_LAUNCH_FALLBACK_MS = 5_000;
+
+const createSnapshot = (
+  visible: boolean,
+  symbol: string,
+  navigationStarted: boolean,
+  revision: number,
+): OrderTicketLaunchSnapshot => Object.freeze({
+  visible,
+  symbol: normalizeSymbol(symbol || 'EURUSD'),
+  navigationStarted,
+  revision,
+});
+
+export function createOrderTicketLaunchController(
+  initialSymbol = 'EURUSD',
+): OrderTicketLaunchController {
+  const listeners = new Set<() => void>();
+  let visualApplier: OrderTicketLaunchVisualApplier | null = null;
+  let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  let snapshot = createSnapshot(false, initialSymbol, false, 0);
+
+  const clearFallbackTimer = () => {
+    if (fallbackTimer) {
+      clearTimeout(fallbackTimer);
+      fallbackTimer = null;
+    }
+  };
+
+  const publish = (nextSnapshot: OrderTicketLaunchSnapshot) => {
+    snapshot = nextSnapshot;
+    listeners.forEach((listener) => listener());
+  };
+
+  const hideCurrent = () => {
+    if (!snapshot.visible) {
+      return false;
+    }
+
+    clearFallbackTimer();
+    visualApplier?.(false);
+    publish(createSnapshot(false, snapshot.symbol, false, snapshot.revision + 1));
+    return true;
+  };
+
+  return Object.freeze({
+    getSnapshot: () => snapshot,
+
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+
+    prepare: (symbol: string) => {
+      // Remember the tapped symbol while the options sheet is still visible.
+      const normalizedSymbol = normalizeSymbol(symbol || 'EURUSD');
+      if (snapshot.symbol === normalizedSymbol && !snapshot.visible) {
+        return;
+      }
+
+      clearFallbackTimer();
+      if (snapshot.visible) {
+        visualApplier?.(false);
+      }
+      publish(createSnapshot(false, normalizedSymbol, false, snapshot.revision + 1));
+    },
+
+    show: (symbol: string) => {
+      clearFallbackTimer();
+      const revision = snapshot.revision + 1;
+      const normalizedSymbol = normalizeSymbol(symbol || snapshot.symbol || 'EURUSD');
+
+      // Show the ready ticket first; the real route starts after it has painted.
+      visualApplier?.(true);
+      publish(createSnapshot(true, normalizedSymbol, false, revision));
+
+      // Safety: hide the preview if the full ticket never finishes opening.
+      fallbackTimer = setTimeout(() => {
+        fallbackTimer = null;
+        if (snapshot.visible && snapshot.revision === revision) {
+          visualApplier?.(false);
+          publish(createSnapshot(false, snapshot.symbol, false, revision + 1));
+        }
+      }, ORDER_TICKET_LAUNCH_FALLBACK_MS);
+
+      return revision;
+    },
+
+    hide: (revision?: number) => {
+      if (revision !== undefined && snapshot.revision !== revision) {
+        return false;
+      }
+      return hideCurrent();
+    },
+
+    isVisible: () => snapshot.visible,
+
+    startNavigation: (revision: number) => {
+      if (!snapshot.visible || snapshot.revision !== revision) {
+        return false;
+      }
+
+      publish(createSnapshot(true, snapshot.symbol, true, revision));
+      return true;
+    },
+
+    registerVisualApplier: (applier) => {
+      visualApplier = applier;
+      applier(snapshot.visible);
+      return () => {
+        if (visualApplier === applier) {
+          visualApplier = null;
+        }
+      };
+    },
+  });
+}
+
+type OrderTicketLaunchControllerGlobal = typeof globalThis & {
+  __rtx5OrderTicketLaunchController?: OrderTicketLaunchController;
+};
+
+const controllerGlobal = globalThis as OrderTicketLaunchControllerGlobal;
+const existingController = controllerGlobal.__rtx5OrderTicketLaunchController;
+
+export const orderTicketLaunchController =
+  existingController
+    && typeof existingController.prepare === 'function'
+    && typeof existingController.startNavigation === 'function'
+    && typeof existingController.registerVisualApplier === 'function'
+    ? existingController
+    : createOrderTicketLaunchController();
+
+controllerGlobal.__rtx5OrderTicketLaunchController = orderTicketLaunchController;
+
+export function prepareOrderTicketLaunch(symbol: string) {
+  orderTicketLaunchController.prepare(symbol);
+}
+
+export function showOrderTicketLaunch(symbol: string) {
+  return orderTicketLaunchController.show(symbol);
+}
+
+export function hideOrderTicketLaunch(revision?: number) {
+  return orderTicketLaunchController.hide(revision);
+}
+
+export function scheduleOrderTicketLaunchNavigation(
+  revision: number,
+  action: () => void,
+) {
+  const runIfCurrent = () => {
+    if (orderTicketLaunchController.startNavigation(revision)) {
+      action();
+    }
+  };
+
+  if (typeof globalThis.requestAnimationFrame !== 'function') {
+    setTimeout(runIfCurrent, 32);
+    return;
+  }
+
+  // Give the preview two paint frames before loading the real route.
+  globalThis.requestAnimationFrame(() => {
+    globalThis.requestAnimationFrame(() => {
+      setTimeout(runIfCurrent, 0);
+    });
+  });
+}

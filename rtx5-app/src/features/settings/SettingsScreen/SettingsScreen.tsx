@@ -19,7 +19,6 @@ import {
   Switch,
   Text,
   TextInput,
-  type GestureResponderEvent,
   View,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -48,18 +47,19 @@ import { accountWsService } from '../../../api/ws/accountSocket';
 import { candlesWsService } from '../../../domain/candles/ws/candlesSocket';
 import { buildHelpMailto } from '../helpViewModel';
 import { hasAuthenticatedAccountSession } from '../accountConnectionStatus';
-import { RegisterHandoffPreview } from '../RegisterHandoffPreview';
-import { SettingsRouteLaunchPreview } from '../SettingsRouteLaunchPreview';
 import { SettingRow } from './SettingRow';
 import { makeSettingsStyles } from './styles';
 import { useDeferredActiveFlag } from '../../../hooks/useDeferredActiveFlag';
 import { preloadRegisterScreen } from '../registerScreenPreload';
 import { warmSettingsRouteModules } from '../../../utils/settingsRouteWarmup';
+import {
+  showSidebarDestination,
+  type SidebarHostDestination,
+} from '../../../ui/components/sidebarDestinationHostController';
 
 const SETTINGS_ROUTE_LOCK_MS = 1800;
 const SETTINGS_ROUTE_PREFETCH_DELAY_MS = 0;
 const SETTINGS_REGISTER_SCREEN_PRELOAD_DELAY_MS = 0;
-const SETTINGS_ROUTE_PREVIEW_ROUTE_DELAY_MS = 32;
 const SETTINGS_SCREEN_DATA_DELAY_MS = 8000;
 // Settings is a retained primary tab. Mount its visual tree offscreen after
 // Trade's prewarm window so the first selection is complete, while every
@@ -86,6 +86,13 @@ const scheduleSettingsRouteAfterVisualFrame = (action: () => void) => {
 };
 
 type SettingsReadyRoute = (typeof SETTINGS_READY_ROUTE_PATHS)[number];
+const SETTINGS_HOSTED_ROUTE_DESTINATIONS: Partial<Record<SettingsReadyRoute, SidebarHostDestination>> = {
+  '/settings/accounts': 'accounts',
+  '/settings/economic-calendar': 'economic-calendar',
+  '/settings/journal': 'journal',
+  '/settings/help': 'help',
+  '/settings/interface': 'interface',
+};
 type PrefetchRouter = {
   prefetch?: (href: string) => void;
 };
@@ -96,20 +103,16 @@ type SearchableSettingsItem = {
   routePath?: SettingsReadyRoute;
   action?: 'support-email';
 };
-type SettingsRouteLaunchPreviewState =
-  | { kind: 'register' }
-  | {
-      kind: 'settings';
-      title: string;
-      subtitle?: string;
-      icon: keyof typeof Ionicons.glyphMap;
-    };
-
 /**
  * Main screen for the Settings tab, providing access to user profile, account management, app preferences, and support links.
  */
 const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
-  const routeBodyReady = useDeferredRouteContentReady(SETTINGS_BODY_PREWARM_DELAY_MS);
+  // Prewarm offscreen, but never make a user who selects Settings wait for the
+  // idle window. Focus cancels that timer and reveals the body after the hook's
+  // two paint frames.
+  const routeBodyReady = useDeferredRouteContentReady(
+    isScreenFocused ? 0 : SETTINGS_BODY_PREWARM_DELAY_MS,
+  );
   const { quoteSymbols, chartDrawings, oneClickAccepted, setOneClickAccepted, isDemoAccount, setThemeMode, accountDetails } = useUserPreferences(
     useShallow((state) => ({
       quoteSymbols: state.quoteSymbols,
@@ -218,12 +221,8 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
   const logout = useUserPreferences((s) => s.logout);
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [routeLaunchPreview, setRouteLaunchPreview] = useState<SettingsRouteLaunchPreviewState | null>(null);
   const routeLockRef = useRef(false);
   const routeUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const routeLaunchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const routeLaunchFrameRef = useRef<number | null>(null);
-  const routeLaunchCancelledRef = useRef(false);
 
   /**
    * Callback triggered when the user requests to sign out of their current active account.
@@ -263,14 +262,6 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
         clearTimeout(routeUnlockTimerRef.current);
         routeUnlockTimerRef.current = null;
       }
-      if (routeLaunchTimerRef.current) {
-        clearTimeout(routeLaunchTimerRef.current);
-        routeLaunchTimerRef.current = null;
-      }
-      if (routeLaunchFrameRef.current !== null) {
-        globalThis.cancelAnimationFrame?.(routeLaunchFrameRef.current);
-        routeLaunchFrameRef.current = null;
-      }
     };
   }, [setSearchActive]);
 
@@ -280,8 +271,6 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
     }
 
     routeLockRef.current = false;
-    routeLaunchCancelledRef.current = false;
-    setRouteLaunchPreview(null);
     if (routeUnlockTimerRef.current) {
       clearTimeout(routeUnlockTimerRef.current);
       routeUnlockTimerRef.current = null;
@@ -394,99 +383,6 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
     }, SETTINGS_ROUTE_LOCK_MS);
   }, []);
 
-  const clearRouteLaunchNavigation = useCallback(() => {
-    if (routeLaunchTimerRef.current) {
-      clearTimeout(routeLaunchTimerRef.current);
-      routeLaunchTimerRef.current = null;
-    }
-    if (routeLaunchFrameRef.current !== null) {
-      globalThis.cancelAnimationFrame?.(routeLaunchFrameRef.current);
-      routeLaunchFrameRef.current = null;
-    }
-  }, []);
-
-  const scheduleRouteAfterPreviewPaint = useCallback((action: () => void) => {
-    clearRouteLaunchNavigation();
-
-    const runAfterPreviewPaint = () => {
-      routeLaunchFrameRef.current = null;
-      routeLaunchTimerRef.current = setTimeout(() => {
-        routeLaunchTimerRef.current = null;
-        action();
-      }, SETTINGS_ROUTE_PREVIEW_ROUTE_DELAY_MS);
-    };
-
-    if (typeof globalThis.requestAnimationFrame === 'function') {
-      routeLaunchFrameRef.current = globalThis.requestAnimationFrame(runAfterPreviewPaint);
-      return;
-    }
-
-    routeLaunchTimerRef.current = setTimeout(() => {
-      routeLaunchTimerRef.current = null;
-      action();
-    }, SETTINGS_ROUTE_PREVIEW_ROUTE_DELAY_MS);
-  }, [clearRouteLaunchNavigation]);
-
-  const resolveSettingsRouteLaunchPreview = useCallback((routePath: SettingsReadyRoute): SettingsRouteLaunchPreviewState => {
-    switch (routePath) {
-      case '/register-entry':
-      case '/register':
-        return { kind: 'register' };
-      case '/settings/accounts':
-        return {
-          kind: 'settings',
-          title: 'Accounts',
-          subtitle: 'Manage trading accounts',
-          icon: 'server-outline',
-        };
-      case '/settings/economic-calendar':
-        return {
-          kind: 'settings',
-          title: 'Economic Calender',
-          subtitle: 'Market updates',
-          icon: 'calendar-outline',
-        };
-      case '/settings/interface':
-        return {
-          kind: 'settings',
-          title: 'Language Preference',
-          subtitle: currentLanguageNative,
-          icon: 'browsers-outline',
-        };
-      case '/settings/journal':
-        return {
-          kind: 'settings',
-          title: 'Journal',
-          subtitle: 'Activity log',
-          icon: 'reader-outline',
-        };
-      case '/settings/help':
-        return {
-          kind: 'settings',
-          title: 'Help',
-          subtitle: 'FAQ',
-          icon: 'information-circle-outline',
-        };
-    }
-
-    return {
-      kind: 'settings',
-      title: 'Settings',
-      icon: 'settings-outline',
-    };
-  }, [currentLanguageNative]);
-
-  const showRouteLaunchPreview = useCallback((routePath: SettingsReadyRoute) => {
-    routeLaunchCancelledRef.current = false;
-    setRouteLaunchPreview(resolveSettingsRouteLaunchPreview(routePath));
-    if (routePath === '/register-entry' || routePath === '/register') {
-      scheduleRegisterScreenWarmupAfterTouch();
-      return;
-    }
-
-    warmSettingsRouteModules();
-  }, [resolveSettingsRouteLaunchPreview, scheduleRegisterScreenWarmupAfterTouch]);
-
   const prepareReadySettingsRoute = useCallback((routePath: SettingsReadyRoute) => {
     if (routePath === '/register-entry' || routePath === '/register') {
       scheduleRegisterScreenWarmupAfterTouch();
@@ -496,41 +392,30 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
     warmSettingsRouteModules();
   }, [scheduleRegisterScreenWarmupAfterTouch]);
 
-  const hideRouteLaunchPreview = useCallback((event?: GestureResponderEvent) => {
-    event?.preventDefault();
-    event?.stopPropagation();
-    routeLaunchCancelledRef.current = true;
-    clearRouteLaunchNavigation();
-    routeLockRef.current = false;
-    setRouteLaunchPreview(null);
-  }, [clearRouteLaunchNavigation]);
-
   const openReadySettingsRoute = useCallback((routePath: SettingsReadyRoute) => {
     if (routeLockRef.current) {
       return;
     }
 
     routeLockRef.current = true;
+    const hostedDestination = SETTINGS_HOSTED_ROUTE_DESTINATIONS[routePath];
+    if (hostedDestination && showSidebarDestination(hostedDestination, 'settings')) {
+      // A hosted page does not blur Settings, so release this local guard now.
+      routeLockRef.current = false;
+      return;
+    }
+
     const isRegisterRoute = routePath === '/register-entry' || routePath === '/register';
-    showRouteLaunchPreview(routePath);
+    prepareReadySettingsRoute(routePath);
     // Push (never replace): keep the (tabs) navigator — and the pre-warmed chart
     // WebView — mounted underneath, so BACK is an instant pop instead of a full
     // tab re-mount (which froze the screen ~1.8s).
-    const pushRoute = () => {
-      if (routeLaunchCancelledRef.current) {
-        routeLockRef.current = false;
-        return;
-      }
-
-      router.push(routePath as any);
-      if (isRegisterRoute) {
-        warmRegisterScreen();
-      }
-      unlockSettingsRoute();
-    };
-
-    scheduleRouteAfterPreviewPaint(pushRoute);
-  }, [scheduleRouteAfterPreviewPaint, showRouteLaunchPreview, unlockSettingsRoute, warmRegisterScreen]);
+    router.push(routePath as any);
+    if (isRegisterRoute) {
+      warmRegisterScreen();
+    }
+    unlockSettingsRoute();
+  }, [prepareReadySettingsRoute, unlockSettingsRoute, warmRegisterScreen]);
 
   const enableSearch = () => {
     setIsSearching(true);
@@ -749,10 +634,6 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
                     <Text style={[styles.accEmail, themeMode === 'light' && { color: 'rgba(255,255,255,0.9)' }]} ellipsizeMode="tail" numberOfLines={1}>
                       {displayEmail}
                     </Text>
-                    <View style={styles.connectedPill}>
-                      <View style={styles.greenDot} />
-                      <Text style={styles.connectedText}>{t('Connected')}</Text>
-                    </View>
                   </View>
 
                   <Text
@@ -782,7 +663,6 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
                       <Text style={[styles.accServer, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]} numberOfLines={1}>
                         #{accountDetails?.id || '---'}
                       </Text>
-                      <View style={styles.accServerDot} />
                       <Text style={[styles.accServer, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]} numberOfLines={1}>
                         {accountDetails?.server || t('Server')}
                       </Text>
@@ -980,23 +860,6 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
             </View>
         </View>
         </ScrollView>
-        {routeLaunchPreview?.kind === 'register' ? (
-        <View style={styles.registerLaunchPreviewLayer} pointerEvents="auto">
-          <RegisterHandoffPreview
-            onBack={hideRouteLaunchPreview}
-            backLatencyLabel="settings.register.preview.back"
-          />
-        </View>
-      ) : routeLaunchPreview?.kind === 'settings' ? (
-        <View style={styles.registerLaunchPreviewLayer} pointerEvents="auto">
-          <SettingsRouteLaunchPreview
-            title={routeLaunchPreview.title}
-            subtitle={routeLaunchPreview.subtitle}
-            icon={routeLaunchPreview.icon}
-            onBack={hideRouteLaunchPreview}
-          />
-        </View>
-        ) : null}
       </> : null}
     </Screen>
   );

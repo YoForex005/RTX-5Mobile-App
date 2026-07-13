@@ -54,6 +54,14 @@ test('settings account card only shows connected status when an authenticated lo
 
   assert.match(source, /import \{ hasAuthenticatedAccountSession \} from '\.\.\/accountConnectionStatus'/);
   assert.match(source, /const isAccountConnected = hasAuthenticatedAccountSession\(isLoggedIn, accountDetails\)/);
-  assert.match(source, /\{isAccountConnected \? \([\s\S]*style=\{styles\.connectedPill\}[\s\S]*style=\{styles\.greenDot\}[\s\S]*style=\{styles\.connectedText\}[\s\S]*t\('Connected'\)[\s\S]*\) : null\}/);
+  const accountCardStart = source.indexOf('{isAccountConnected ? (');
+  const accountCardEnd = source.indexOf('<View style={styles.metricsRow}', accountCardStart);
+  const accountCard = source.slice(accountCardStart, accountCardEnd);
+  assert.notEqual(accountCardStart, -1);
+  // The green "connected" pill was removed from the card design; connection is
+  // communicated by the card rendering only for authenticated sessions.
+  assert.match(accountCard, /\{displayEmail\}/);
+  assert.doesNotMatch(accountCard, /styles\.connectedPill|styles\.greenDot/);
+  assert.doesNotMatch(accountCard, /styles\.connectedText|<Text[^>]*>\{t\('Connected'\)\}<\/Text>/);
   assert.doesNotMatch(source, /t\('Not connected'\)/);
 });

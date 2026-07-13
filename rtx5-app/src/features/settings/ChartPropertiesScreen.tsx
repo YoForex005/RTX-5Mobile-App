@@ -8,6 +8,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ColorPicker, { HueSlider, Panel1, Preview, colorKit } from 'reanimated-color-picker';
 import { Screen } from '../../ui/components/Screen';
+import { useTranslation } from '../../i18n/useTranslation';
 import { safeRouterBack } from '../../utils/navigation';
 import { useLiveCandles } from '../../domain/candles/hooks/useLiveCandles';
 import { useLiveSymbolQuote } from '../../query/websocket';
@@ -108,6 +109,7 @@ export function ChartPropertiesScreen() {
   const { width } = useWindowDimensions();
   const isCompact = width < 390;
   const isScreenFocused = useIsFocused();
+  const { t } = useTranslation();
 
 
 
@@ -198,11 +200,11 @@ export function ChartPropertiesScreen() {
   const liveSpreadPoints = calculateQuoteSpreadPoints(liveQuote?.bid, liveQuote?.ask, liveQuote?.digits);
   const snapshot = [
     {
-      label: priceSource === 'bid' ? 'Bid' : 'Ask',
+      label: priceSource === 'bid' ? t('Bid') : t('Ask'),
       value: formatQuote(priceSource === 'bid' ? liveQuote?.bid : liveQuote?.ask, liveQuote?.digits),
     },
     {
-      label: 'Spread',
+      label: t('Spread'),
       value: Number.isFinite(liveSpreadPoints)
         ? Number(liveSpreadPoints).toFixed(1)
         : Number.isFinite(liveQuote?.spread)
@@ -252,9 +254,9 @@ export function ChartPropertiesScreen() {
       ]
     : [];
   const previewFooterItems = [
-    `Scheme: ${SCHEME_OPTIONS.find((option) => option.key === chartColorScheme)?.label ?? 'Custom'}`,
-    `Source: ${priceSource === 'bid' ? 'Bid price' : 'Ask price'}`,
-    `Candles: ${candles.length}`,
+    `${t('Scheme')}: ${t(SCHEME_OPTIONS.find((option) => option.key === chartColorScheme)?.label ?? 'Custom')}`,
+    `${t('Source')}: ${priceSource === 'bid' ? t('Bid price') : t('Ask price')}`,
+    `${t('Candles')}: ${candles.length}`,
   ];
   const previewDisplay = useMemo(
     () => ({
@@ -346,7 +348,7 @@ export function ChartPropertiesScreen() {
             <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">
-            <Text style={styles.headerTitle} numberOfLines={1}>Chart Schema & Colors</Text>
+            <Text style={styles.headerTitle} numberOfLines={1}>{t('Chart Schema & Colors')}</Text>
           </View>
           <View style={styles.headerBackBtn} />
         </View>
@@ -358,12 +360,12 @@ export function ChartPropertiesScreen() {
         <View style={styles.previewCard}>
           <View style={styles.previewHeader}>
             <View>
-              <Text style={styles.previewTitle}>Live chart preview</Text>
-              <Text style={styles.previewSub}>Chart colors with live updates.</Text>
+              <Text style={styles.previewTitle}>{t('Live chart preview')}</Text>
+              <Text style={styles.previewSub}>{t('Chart colors with live updates.')}</Text>
             </View>
             <View style={styles.liveBadge}>
               <View style={styles.liveDot} />
-              <Text style={styles.liveBadgeText}>LIVE</Text>
+              <Text style={styles.liveBadgeText}>{t('Live')}</Text>
             </View>
           </View>
 
@@ -423,7 +425,7 @@ export function ChartPropertiesScreen() {
         <View style={styles.panel}>
           <View style={styles.panelBody}>
               {/* ── Scheme presets — 2×2 visual grid ─────────────────────── */}
-              <Text style={styles.colorGroupTitle}>SCHEME</Text>
+              <Text style={styles.colorGroupTitle}>{t('SCHEME')}</Text>
               <View style={styles.schemeGrid}>
                 {SCHEME_OPTIONS.map((option) => {
                   const isActive = option.key === chartColorScheme;
@@ -467,7 +469,7 @@ export function ChartPropertiesScreen() {
                       {/* Label below the preview */}
                       <View style={styles.schemeTileFoot}>
                         <Text style={[styles.schemeTileLabel, isActive && styles.schemeTileLabelActive]} numberOfLines={1}>
-                          {option.label}
+                          {t(option.label)}
                         </Text>
                       </View>
                     </Pressable>
@@ -478,7 +480,7 @@ export function ChartPropertiesScreen() {
               {/* ── Grouped color fields ─────────────────────────────────── */}
               {COLOR_GROUPS.map((group) => (
                 <View key={group.title} style={styles.colorGroup}>
-                  <Text style={styles.colorGroupTitle}>{group.title}</Text>
+                  <Text style={styles.colorGroupTitle}>{t(group.title)}</Text>
                   <View style={styles.colorGroupCard}>
                     {group.fields.map((item, index) => (
                       <View key={item.key}>
@@ -500,8 +502,8 @@ export function ChartPropertiesScreen() {
                             {isTransparent(resolvedChartColors[item.key]) && <View style={styles.transparentSlash} />}
                           </View>
                           <View style={styles.colorRowProText}>
-                            <Text style={styles.colorRowProLabel}>{item.label}</Text>
-                            {item.hint ? <Text style={styles.colorRowProHint}>{item.hint}</Text> : null}
+                            <Text style={styles.colorRowProLabel}>{t(item.label)}</Text>
+                            {item.hint ? <Text style={styles.colorRowProHint}>{t(item.hint)}</Text> : null}
                           </View>
                           <Text style={styles.colorRowProHex}>{resolvedChartColors[item.key]}</Text>
                           <Ionicons name="chevron-forward" size={14} color={isDark ? '#64748B' : '#94A3B8'} />
@@ -534,7 +536,7 @@ export function ChartPropertiesScreen() {
                   setSchemeModalOpen(false);
                 }}
               >
-                <Text style={[styles.modalRowText, option.key === chartColorScheme && styles.modalRowTextActive]}>{option.label}</Text>
+                <Text style={[styles.modalRowText, option.key === chartColorScheme && styles.modalRowTextActive]}>{t(option.label)}</Text>
                 {option.key === chartColorScheme && <Ionicons name="checkmark" size={16} color={T.trading.buy.primary} />}
               </Pressable>
             ))}
@@ -556,7 +558,7 @@ export function ChartPropertiesScreen() {
             <ScrollView
               keyboardShouldPersistTaps="always"
               canCancelContentTouches={Platform.OS === 'ios'} showsVerticalScrollIndicator={false}>
-              <Text style={styles.sheetTitle}>{COLOR_GROUPS.flatMap((g) => g.fields).find((item) => item.key === activeColorKey)?.label ?? 'Color'}</Text>
+              <Text style={styles.sheetTitle}>{t(COLOR_GROUPS.flatMap((g) => g.fields).find((item) => item.key === activeColorKey)?.label ?? 'Color')}</Text>
 
                 {/* Keep drag gestures on Reanimated's UI thread; commit to JS/Zustand only after release for smooth Android hue sliding. */}
                 <ColorPicker
@@ -606,7 +608,7 @@ export function ChartPropertiesScreen() {
                 </View>
 
                 <Pressable style={styles.doneButton} onPress={() => applyDraftColor(draftColor)}>
-                  <Text style={styles.doneButtonText}>Done</Text>
+                  <Text style={styles.doneButtonText}>{t('Done')}</Text>
                 </Pressable>
             </ScrollView>
           </View>

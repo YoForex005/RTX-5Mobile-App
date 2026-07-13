@@ -108,14 +108,6 @@ export const makeSettingsStyles = (T: ThemeColors, themeMode: 'light' | 'dark') 
     fontSize: 13, fontWeight: '600', letterSpacing: 0.3,
   },
 
-  connectedPill: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: themeMode === 'dark' ? 'rgba(48,209,88,0.16)' : 'rgba(16,185,129,0.15)',
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, flexShrink: 0,
-  },
-  greenDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: themeMode === 'dark' ? '#30D158' : '#10B981', marginRight: 6 },
-  connectedText: { color: themeMode === 'dark' ? '#30D158' : '#10B981', fontSize: 12, fontWeight: '600' },
-
   accName: { color: themeMode === 'light' ? '#FFF' : SETTINGS_DARK_PRIMARY_TEXT, fontSize: 24, fontWeight: '700', letterSpacing: 0, marginBottom: 6 },
   accBalance: { color: themeMode === 'dark' ? SETTINGS_DARK_ACCENT : '#3b82f6', fontSize: 24, fontWeight: '700', fontVariant: ['tabular-nums'], letterSpacing: 0 },
   accCurrency: { fontSize: 24, fontWeight: '600', color: themeMode === 'dark' ? SETTINGS_DARK_ACCENT : '#3b82f6' },
@@ -125,8 +117,7 @@ export const makeSettingsStyles = (T: ThemeColors, themeMode: 'light' | 'dark') 
   accDetailsWrap: { marginBottom: 16 },
   accCompany: { color: themeMode === 'light' ? 'rgba(255,255,255,0.9)' : SETTINGS_DARK_SECONDARY_TEXT, fontSize: 16, fontWeight: '600', marginBottom: 4 },
   accServer: { color: themeMode === 'dark' ? SETTINGS_DARK_MUTED_TEXT : T.textMuted, fontSize: 12, fontWeight: '500', letterSpacing: 0.1 },
-  accServerRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 2 },
-  accServerDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: themeMode === 'light' ? 'rgba(255,255,255,0.6)' : SETTINGS_DARK_MUTED_TEXT, marginLeft: 14, marginRight: 2 },
+  accServerRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 2, gap: 12 },
 
   chipRow: { flexDirection: 'row', gap: 8 },
   chip: { flexDirection: 'row', alignItems: 'center', backgroundColor: themeMode === 'dark' ? SETTINGS_DARK_ICON_BOX_BACKGROUND : 'rgba(255,255,255,0.05)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, gap: 5, borderWidth: 1, borderColor: themeMode === 'dark' ? SETTINGS_DARK_BORDER : 'rgba(255,255,255,0.1)' },
@@ -191,12 +182,6 @@ export const makeSettingsStyles = (T: ThemeColors, themeMode: 'light' | 'dark') 
     backgroundColor: T.trading.buy.primary, borderRadius: 75, opacity: 0.05,
   },
   logoutContainer: { marginTop: 24, marginBottom: 24, paddingHorizontal: 16 },
-  registerLaunchPreviewLayer: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 100,
-    elevation: 100,
-    backgroundColor: settingsBackground,
-  },
   });
 };
 

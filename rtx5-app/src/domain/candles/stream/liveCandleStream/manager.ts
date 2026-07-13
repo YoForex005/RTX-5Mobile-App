@@ -197,7 +197,11 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
    */
   public hydrateFromCache(symbol: string, timeframe: string, candles: CandleParams[]): void {
     const entry = this.entries.get(this.getKey(symbol, timeframe));
-    if (!entry || candles.length === 0 || entry.requestId > 0) {
+    // A fresh REST request increments requestId synchronously, while the exact
+    // symbol/timeframe disk cache resolves asynchronously. Allow that trusted
+    // bootstrap to paint only while no history has committed yet. Whichever
+    // REST result wins later remains authoritative and replaces this baseline.
+    if (!entry || candles.length === 0 || entry.historyCandles.length > 0) {
       return;
     }
 
@@ -207,7 +211,8 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     }
 
     entry.historyCandles = safeCandles;
-    entry.liveCandleMap = new Map();
+    // Preserve any live ticks that arrived while AsyncStorage was resolving;
+    // commit() safely layers this exact-key cached history beneath them.
     entry.renderHistoryLimit = INITIAL_HISTORY_LIMIT;
     entry.historyPaginationCursorTime = null;
 
@@ -461,7 +466,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     } else {
       void hydratePersistedCandleCache(symbol, timeframe).then((persisted) => {
         const live = this.entries.get(key);
-        if (!live || live.requestId > 0 || persisted.length === 0) {
+        if (!live || live.historyCandles.length > 0 || persisted.length === 0) {
           return;
         }
         this.hydrateFromCache(symbol, timeframe, persisted as CandleParams[]);

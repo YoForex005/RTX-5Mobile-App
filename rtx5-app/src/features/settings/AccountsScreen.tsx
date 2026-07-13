@@ -80,10 +80,16 @@ import {
   isDemoTradingAccount,
 } from '../../domain/accountType';
 import type { TradingAccount } from '../../api/accounts';
-import type { BrokerServer } from '../../api/broker';
-import { normalizeBrokerServerUrl, resolveBrokerServiceBaseUrl } from '../../api/brokerRouting';
+import { checkBrokerServerHealth, type BrokerServer } from '../../api/broker';
+import {
+  isBrokerServiceBaseUrl,
+  normalizeBrokerServerUrl,
+  resolveBrokerServiceBaseUrl,
+} from '../../api/brokerRouting';
 import { hasAuthenticatedAccountSession } from './accountConnectionStatus';
 import { safeRouterBack } from '../../utils/navigation';
+import { hideSidebarDestination } from '../../ui/components/sidebarDestinationHostController';
+import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 
 const ACCOUNTS_SCREEN_DIAGNOSTICS_ENABLED =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_ACCOUNTS_SCREEN === 'true';
@@ -113,6 +119,22 @@ const ACCOUNT_SWITCH_STALE_QUERY_KEYS: ReadonlyArray<readonly unknown[]> = [
   ['transactions'],
 ];
 const ACCOUNTS_SCREEN_DATA_DELAY_MS = 650;
+// The sidebar host keeps this screen mounted from boot. Prewarm its visual
+// body and run the account queries once while it is still hidden, so the
+// first "Manage accounts" open shows real content instead of loading UI.
+const ACCOUNTS_BODY_PREWARM_DELAY_MS = 2500;
+const ACCOUNTS_DATA_PREWARM_DELAY_MS = 4000;
+const ACCOUNTS_DATA_PREWARM_WINDOW_MS = 10000;
+const ACCOUNT_SWITCH_BROKER_WARM_TTL_MS = 30_000;
+
+const schedulePostAccountSwitchWork = (work: () => void) => {
+  const runAfterFrame = () => setTimeout(work, 0);
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(runAfterFrame);
+    return;
+  }
+  setTimeout(work, 0);
+};
 
 const normalizeSwitchLogin = (login: string) => {
   const numeric = Number(login);
@@ -328,10 +350,20 @@ const areSavedAccountSnapshotsEqual = (
 
 /**
  * Allows the user to manage their trading accounts, switch between them, and add new ones.
+ * Route entry point — the body lives in AccountsScreenInner so the sidebar
+ * destination host can retain the same view with an externally driven focus flag.
  */
 export function AccountsScreen() {
-  const router = useRouter();
   const isScreenFocused = useIsFocused();
+  return <AccountsScreenInner isScreenFocused={isScreenFocused} />;
+}
+
+export const AccountsScreenInner = React.memo(function AccountsScreenInner({
+  isScreenFocused,
+}: {
+  isScreenFocused: boolean;
+}) {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const showAccountsActionSheet = useUIState((s) => s.showAccountsActionSheet);
@@ -341,7 +373,6 @@ export function AccountsScreen() {
   const isDemoAccount = useUserPreferences((s) => s.isDemoAccount);
   const userLogin = useUserPreferences((s) => s.login);
   const userLogout = useUserPreferences((s) => s.logout);
-  const setIsDemoAccountFlag = useUserPreferences((s) => s.setIsDemoAccount);
   const savedAccounts = useSavedAccounts((s) => s.accounts);
   const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
   const removeSavedAccount = useSavedAccounts((s) => s.removeAccount);
@@ -350,6 +381,12 @@ export function AccountsScreen() {
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
   const [firstPaintReady, setFirstPaintReady] = React.useState(false);
+  // Hosted by the sidebar destination host, this view stays mounted while
+  // hidden. The body mounts offscreen after the boot prewarm delay (or
+  // immediately on focus), so the first open reveals a fully built screen.
+  const hostBodyReady = useDeferredRouteContentReady(
+    isScreenFocused ? 0 : ACCOUNTS_BODY_PREWARM_DELAY_MS,
+  );
 
   React.useEffect(() => {
     let cancelled = false;
@@ -380,10 +417,29 @@ export function AccountsScreen() {
 
   // ── GET /accounts — live trading accounts for the authenticated user ──
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
-  const screenDataActive = useDeferredActiveFlag(
+  const focusDataActive = useDeferredActiveFlag(
     isLoggedIn && isScreenFocused && firstPaintReady,
     ACCOUNTS_SCREEN_DATA_DELAY_MS,
   );
+  // Bounded boot prewarm: fill the react-query caches once while hidden so
+  // the first open paints real account data. After the window closes, focus
+  // is the only thing that can activate these queries again.
+  const [dataPrewarmWindowActive, setDataPrewarmWindowActive] = React.useState(false);
+  React.useEffect(() => {
+    const startTimer = setTimeout(
+      () => setDataPrewarmWindowActive(true),
+      ACCOUNTS_DATA_PREWARM_DELAY_MS,
+    );
+    const stopTimer = setTimeout(
+      () => setDataPrewarmWindowActive(false),
+      ACCOUNTS_DATA_PREWARM_DELAY_MS + ACCOUNTS_DATA_PREWARM_WINDOW_MS,
+    );
+    return () => {
+      clearTimeout(startTimer);
+      clearTimeout(stopTimer);
+    };
+  }, []);
+  const screenDataActive = focusDataActive || (isLoggedIn && dataPrewarmWindowActive);
   const { data: accounts } = useAccounts(screenDataActive);
 
   // ── GET /broker/config — broker name and server name ──
@@ -662,13 +718,29 @@ export function AccountsScreen() {
   const { data: mt5Status } = useMt5Status(screenDataActive);
 
   /**
+   * Leaves the screen: when hosted by the sidebar destination host, hiding the
+   * host reveals the retained tab underneath instantly; as a pushed route it
+   * pops back to the Settings tab.
+   */
+  const closeAccountsScreen = React.useCallback(() => {
+    if (hideSidebarDestination()) {
+      return;
+    }
+    safeRouterBack(router, '/(tabs)/settings');
+  }, [router]);
+
+  /**
    * Navigates the user to the Brokers screen to search for and connect a new trading account.
    */
   const handleConnectAccount = () => {
+    // Hosted instance: drop the overlay first so the pushed route is visible.
+    hideSidebarDestination();
     router.push('/settings/brokers');
   };
 
   const [connectingKey, setConnectingKey] = React.useState<string | null>(null);
+  const accountSwitchInFlightRef = React.useRef(false);
+  const warmedSwitchBrokerAtRef = React.useRef(new Map<string, number>());
   const [expandedAccountKey, setExpandedAccountKey] = React.useState<string | null>(null);
   const [passwordSheetVisible, setPasswordSheetVisible] = React.useState(false);
   const [passwordType, setPasswordType] = React.useState<'master' | 'investor'>('master');
@@ -694,11 +766,37 @@ export function AccountsScreen() {
   );
   const setTradeNotificationsEnabled = useTradeNotifications((s) => s.setEnabled);
 
+  const warmSavedAccountBroker = React.useCallback((row: OtherAccountRow) => {
+    if (!isScreenFocused || !row.hasSavedCredentials) {
+      return;
+    }
+
+    const normalizedServerUrl = normalizeBrokerServerUrl(row.serverUrl);
+    if (!isBrokerServiceBaseUrl(normalizedServerUrl)) {
+      return;
+    }
+
+    const now = Date.now();
+    const lastWarmAt = warmedSwitchBrokerAtRef.current.get(normalizedServerUrl) ?? 0;
+    if (now - lastWarmAt < ACCOUNT_SWITCH_BROKER_WARM_TTL_MS) {
+      return;
+    }
+
+    warmedSwitchBrokerAtRef.current.set(normalizedServerUrl, now);
+    void checkBrokerServerHealth(normalizedServerUrl).catch(() => {
+      // A failed warm-up must never block switching, and it remains retryable.
+      if (warmedSwitchBrokerAtRef.current.get(normalizedServerUrl) === now) {
+        warmedSwitchBrokerAtRef.current.delete(normalizedServerUrl);
+      }
+    });
+  }, [isScreenFocused]);
+
   /**
    * Logs the user into the selected saved account.
    */
   const handleConnectSavedAccount = async (row: OtherAccountRow) => {
-    if (connectingKey) return;
+    if (accountSwitchInFlightRef.current) return;
+    accountSwitchInFlightRef.current = true;
     setConnectingKey(row.key);
     recordAccountJournalEvent(`account switch requested for broker ${row.brokerId}`, {
       accountLogin: row.login,
@@ -713,6 +811,7 @@ export function AccountsScreen() {
           t('Password not saved'),
           t('Sign in to this account once so it can be reconnected with one tap next time.'),
         );
+        hideSidebarDestination();
         router.push('/login');
         return;
       }
@@ -731,6 +830,7 @@ export function AccountsScreen() {
           t('Password not saved'),
           t('Sign in to this account once so it can be reconnected with one tap next time.'),
         );
+        hideSidebarDestination();
         router.push('/login');
         return;
       }
@@ -757,47 +857,55 @@ export function AccountsScreen() {
           expires_at: result.expiresAtIso,
         },
         result.brokerId,
-        { serverUrl: result.serverUrl || row.serverUrl, logoUrl: result.logoUrl || row.logoUrl },
+        {
+          serverUrl: result.serverUrl || row.serverUrl,
+          logoUrl: result.logoUrl || row.logoUrl,
+          isDemoAccount: result.accountType === 'demo',
+        },
       );
-      setIsDemoAccountFlag(result.accountType === 'demo');
       useLiveAccountState.getState().resetMetrics();
       usePositionsState.getState().clearPositions();
       removeAccountScopedQueries(queryClient);
-      upsertSavedAccount({
-        login: result.accountLogin,
-        name: result.accountName || row.name,
-        brokerId: result.brokerId,
-        server: result.serverName || row.server,
-        serverUrl: result.serverUrl || row.serverUrl,
-        logoUrl: result.logoUrl || row.logoUrl,
-        accountType: result.accountType,
-        lastUsedAt: Date.now(),
-        hasCredentials: true,
-      });
-
-      void Promise.all([
-        persistSelectedBrokerSession({
-          brokerId: result.brokerId,
-          serverUrl: result.serverUrl || row.serverUrl,
-          logoUrl: result.logoUrl || row.logoUrl,
-        }),
-        persistAuthSessionTokens({
-          accessToken: result.accessToken,
-          refreshToken: result.refreshToken,
-          expiresAt: result.expiresAtIso,
-          feedToken: result.feedToken,
-        }),
-      ]).catch((err) => {
-        console.warn('[Accounts] Failed to persist switched account session', err);
-      });
-      void bootstrapApp({ accountLogin: result.accountLogin }).catch((err) => {
-        console.warn('[Accounts] Failed to bootstrap switched account', err);
-      });
 
       setSuccessMessage(t('Account switched successfully'));
       recordAccountJournalEvent(`account switched successfully on ${result.brokerId}`, {
         level: 'success',
         accountLogin: result.accountLogin,
+      });
+
+      // Let the new active-account state and success feedback paint before
+      // persistence and dashboard hydration fan out in the background.
+      schedulePostAccountSwitchWork(() => {
+        upsertSavedAccount({
+          login: result.accountLogin,
+          name: result.accountName || row.name,
+          brokerId: result.brokerId,
+          server: result.serverName || row.server,
+          serverUrl: result.serverUrl || row.serverUrl,
+          logoUrl: result.logoUrl || row.logoUrl,
+          accountType: result.accountType,
+          lastUsedAt: Date.now(),
+          hasCredentials: true,
+        });
+
+        void Promise.all([
+          persistSelectedBrokerSession({
+            brokerId: result.brokerId,
+            serverUrl: result.serverUrl || row.serverUrl,
+            logoUrl: result.logoUrl || row.logoUrl,
+          }),
+          persistAuthSessionTokens({
+            accessToken: result.accessToken,
+            refreshToken: result.refreshToken,
+            expiresAt: result.expiresAtIso,
+            feedToken: result.feedToken,
+          }),
+        ]).catch((err) => {
+          console.warn('[Accounts] Failed to persist switched account session', err);
+        });
+        void bootstrapApp({ accountLogin: result.accountLogin }).catch((err) => {
+          console.warn('[Accounts] Failed to bootstrap switched account', err);
+        });
       });
     } catch (error: any) {
       if (isMissingSavedAccountSwitchError(error)) {
@@ -819,6 +927,7 @@ export function AccountsScreen() {
       });
       Alert.alert(t('Switch failed'), error?.message || t('Unable to switch account.'));
     } finally {
+      accountSwitchInFlightRef.current = false;
       setConnectingKey(null);
     }
   };
@@ -890,7 +999,7 @@ export function AccountsScreen() {
     // Delete must NOT redirect to /login (that's the logout flow). Go back
     // to the settings tab so the user sees the app in a logged-out state
     // without their old credentials pre-filled anywhere.
-    safeRouterBack(router, '/(tabs)/settings');
+    closeAccountsScreen();
   };
 
   const openOptions = () => {
@@ -930,7 +1039,7 @@ export function AccountsScreen() {
           <FastPressable
             style={styles.iconBtn}
             hitSlop={15}
-            onPress={() => safeRouterBack(router, '/(tabs)/settings')}
+            onPress={closeAccountsScreen}
             activateOnPressIn
             activateOnTouchStart
             latencyLabel="accounts.back"
@@ -974,6 +1083,7 @@ export function AccountsScreen() {
           </View>
         </View>
 
+        {hostBodyReady ? (
         <FlatList
           keyboardShouldPersistTaps="always"
           canCancelContentTouches={Platform.OS === 'ios'}
@@ -1152,6 +1262,7 @@ export function AccountsScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={t('Switch to this account')}
                 style={[styles.connectButton, isSwitching && styles.connectButtonBusy]}
+                onPressIn={() => warmSavedAccountBroker(row)}
                 onPress={() => handleConnectSavedAccount(row)}
                 disabled={isSwitching || !!connectingKey}
                 hitSlop={6}
@@ -1175,7 +1286,12 @@ export function AccountsScreen() {
                   !isExpanded && styles.secondaryCardCollapsed,
                   isExpanded && styles.secondaryCardExpanded,
                 ]}
-                onPress={() => setExpandedAccountKey(isExpanded ? null : row.key)}
+                onPress={() => {
+                  if (!isExpanded) {
+                    warmSavedAccountBroker(row);
+                  }
+                  setExpandedAccountKey(isExpanded ? null : row.key);
+                }}
                 onLongPress={() => openOtherAccountOptions(row)}
                 delayLongPress={400}
               >
@@ -1293,6 +1409,7 @@ export function AccountsScreen() {
             );
           }}
         />
+        ) : null}
       </View>
 
       {passwordSheetVisible && (
@@ -1452,7 +1569,7 @@ export function AccountsScreen() {
       />
     </Screen>
   );
-}
+});
 
 /**
  * Renders a circular avatar displaying the broker's logo, falling back to a generic icon if the image fails to load.

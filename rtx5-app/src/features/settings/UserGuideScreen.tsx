@@ -19,6 +19,7 @@ import { AppLogo } from '../../ui/components/AppLogo';
 import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../ui/components/sidebarDrawerController';
 import { makeUserGuideStyles, type UserGuideStyles } from './UserGuideScreen.styles';
 import { useNextFrameValue } from '../../hooks/useNextFrameValue';
+import { useTranslation } from '../../i18n/useTranslation';
 import {
   GUIDE_FOOTER_NOTE,
   GUIDE_MANUAL_INTRO,
@@ -33,6 +34,7 @@ import {
 export const UserGuideScreenInner = memo(function UserGuideScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
   const insets = useSafeAreaInsets();
   const isDark = useIsDarkTheme();
+  const { t } = useTranslation();
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const styles = useMemo(() => makeUserGuideStyles(isDark), [isDark]);
   const summary = useMemo(() => buildGuideSummary(), []);
@@ -60,7 +62,7 @@ export const UserGuideScreenInner = memo(function UserGuideScreenInner({ isScree
         >
           <Ionicons name="menu" size={32} color={menuIconColor} />
         </FastPressable>
-        <Text style={styles.headerTitle} numberOfLines={1}>User Guide</Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>{t('User Guide')}</Text>
       </View>
 
       {routeBodyReady ? <ScrollView
@@ -73,13 +75,13 @@ export const UserGuideScreenInner = memo(function UserGuideScreenInner({ isScree
         <View style={styles.hero}>
           <AppLogo style={styles.logo} />
           <AppNameTitle appName={appName} styles={styles} />
-          <Text style={styles.heroSubtitle}>{GUIDE_MANUAL_INTRO.subtitle}</Text>
+          <Text style={styles.heroSubtitle}>{t(GUIDE_MANUAL_INTRO.subtitle)}</Text>
           <Text style={styles.introText}>{GUIDE_MANUAL_INTRO.body}</Text>
 
           <View style={styles.summaryRow}>
-            <SummaryCard value={summary.sectionCount} label="Sections" styles={styles} />
-            <SummaryCard value={summary.bulletCount} label="Guide points" styles={styles} />
-            <SummaryCard value={summary.localStateLabel} label="Preferences" styles={styles} />
+            <SummaryCard value={summary.sectionCount} label={t('Sections')} styles={styles} />
+            <SummaryCard value={summary.bulletCount} label={t('Guide points')} styles={styles} />
+            <SummaryCard value={t(summary.localStateLabel)} label={t('Preferences')} styles={styles} />
           </View>
         </View>
 
@@ -152,6 +154,8 @@ function GuideSectionRow({
   styles: UserGuideStyles;
   iconColor: string;
 }) {
+  const { t } = useTranslation();
+
   return (
     <View style={styles.sectionRow}>
       <View style={styles.indexRail}>
@@ -166,7 +170,7 @@ function GuideSectionRow({
           <View style={styles.sectionIcon}>
             <Ionicons name={section.icon} size={18} color={iconColor} />
           </View>
-          <Text style={styles.sectionTitle} numberOfLines={2}>{section.title}</Text>
+          <Text style={styles.sectionTitle} numberOfLines={2}>{t(section.title)}</Text>
         </View>
         <Text style={styles.sectionSummary}>{section.summary}</Text>
         {section.bullets.map((bullet) => (

@@ -290,7 +290,7 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(chartSettingsSource, /title="One Click panel at the bottom"[\s\S]*enabled=\{chartOneClickPanelAtBottom\}[\s\S]*onValueChange=\{setChartOneClickPanelAtBottom\}/);
   assert.match(chartSettingsSource, /CHART_SETTINGS_DISPLAY_ITEMS\.map\(\(item\) =>[\s\S]*title=\{item\.label\}[\s\S]*enabled=\{getChartDisplaySettingEnabled\(item\.key\)\}[\s\S]*onValueChange=\{\(value\) => handleToggleChartDisplaySetting\(item\.key, value\)\}/);
   assert.match(chartSettingsSource, /handleToggleChartDisplaySetting[\s\S]*setChartDisplaySetting\(key, value\)[\s\S]*setChartShowOnChartItem\(linkedShowOnChartKey, value\)/);
-  assert.match(chartSettingsSource, />SHOW ON CHART<[\s\S]*label="Price Alerts"[\s\S]*router\.push\('\/chart\/alerts'\)/);
+  assert.match(chartSettingsSource, />\{t\('SHOW ON CHART'\)\}<[\s\S]*label="Price Alerts"[\s\S]*router\.push\('\/chart\/alerts'\)/);
   assert.doesNotMatch(chartSettingsSource, /label="Order of menu items"|>NAVIGATION<|\/chart\/menu-order/);
   assert.match(chartMenuOrderSource, /export function ChartMenuOrderScreen/);
   assert.match(chartMenuOrderSource, /safeRouterBack\(router, '\/\(tabs\)\/chart'\)/);

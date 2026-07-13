@@ -6,12 +6,15 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
  * persisted to userPreferences and applied immediately app-wide via the
  * useTranslation hook.
  */
-import React, { useMemo } from 'react';
+import React, { memo, useCallback, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
+import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
+import { hideSidebarDestination } from '../../ui/components/sidebarDestinationHostController';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -21,19 +24,45 @@ import { safeRouterBack } from '../../utils/navigation';
 
 /**
  * Allows the user to customize the application's UI, such as theme (light/dark) and language.
+ * Route entry point — the body lives in InterfaceScreenInner so the sidebar
+ * destination host can retain the same view with an externally driven focus flag.
  */
 export function InterfaceScreen() {
+  const isScreenFocused = useIsFocused();
+  return <InterfaceScreenInner isScreenFocused={isScreenFocused} />;
+}
+
+export const InterfaceScreenInner = memo(function InterfaceScreenInner({
+  isScreenFocused,
+}: {
+  isScreenFocused: boolean;
+}) {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const { t, language, setLanguage } = useTranslation();
   const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
+  // Hosted by the sidebar destination host, this view stays mounted while
+  // hidden. Keep only the header until the first focus, then latch the body.
+  const hostBodyReady = useDeferredRouteContentReady(0, isScreenFocused);
+
+  /**
+   * Leaves the screen: when hosted by the sidebar destination host, hiding the
+   * host reveals the retained Settings tab underneath instantly; as a pushed
+   * route it pops back to the Settings tab.
+   */
+  const closeInterfaceScreen = useCallback(() => {
+    if (hideSidebarDestination()) {
+      return;
+    }
+    safeRouterBack(router, '/(tabs)/settings');
+  }, []);
 
   return (
     <Screen style={isDark ? { backgroundColor: '#121212' } : undefined}>
       <View style={styles.header}>
         <Pressable
-          onPress={() => safeRouterBack(router, '/(tabs)/settings')}
+          onPress={closeInterfaceScreen}
           activateOnPressIn
           activateOnTouchStart
           latencyLabel="interface.back"
@@ -50,7 +79,7 @@ export function InterfaceScreen() {
 
       <Text style={styles.sectionLabel}>{t('Select language')}</Text>
 
-      <FlatList
+      {hostBodyReady ? <FlatList
         keyboardShouldPersistTaps="always"
         data={SUPPORTED_LANGUAGES}
         extraData={language}
@@ -77,10 +106,10 @@ export function InterfaceScreen() {
           );
         }}
         ItemSeparatorComponent={() => <View style={styles.divider} />}
-      />
+      /> : <View style={{ flex: 1 }} />}
     </Screen>
   );
-}
+});
 
 function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
   return StyleSheet.create({

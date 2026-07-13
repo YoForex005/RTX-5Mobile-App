@@ -54,9 +54,9 @@ test('settings screens gate connected account UI behind authenticated session st
   assert.notEqual(settingsCardStart, -1);
   assert.match(settingsCardBlock, /latencyLabel="settings\.accounts\.open"/);
   assert.match(settingsCardBlock, /styles\.accountCard/);
-  assert.match(settingsCardBlock, /styles\.connectedPill/);
-  assert.match(settingsCardBlock, /styles\.greenDot/);
-  assert.match(settingsCardBlock, /t\('Connected'\)/);
+  assert.doesNotMatch(settingsCardBlock, /styles\.connectedPill|styles\.greenDot|styles\.accServerDot/);
+  assert.doesNotMatch(settingsCardBlock, /accessibilityLabel=\{t\('Connected'\)\}/);
+  assert.doesNotMatch(settingsCardBlock, /styles\.connectedText|<Text[^>]*>\{t\('Connected'\)\}<\/Text>/);
   assert.match(settingsCardBlock, /\) : null\}/);
 
   const accountsBadgeStart = accountsSource.indexOf('{hasConnectedAccount ? (');

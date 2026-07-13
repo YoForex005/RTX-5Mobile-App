@@ -284,6 +284,7 @@ export default function RegisterScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showInvestorPassword, setShowInvestorPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const registerSubmitInFlightRef = React.useRef(false);
   const scrollViewRef = React.useRef<React.ElementRef<typeof ScrollView> | null>(null);
   const fieldYPositionsRef = React.useRef<Partial<Record<RegisterFieldKey, number>>>({});
   const fieldFocusTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -411,6 +412,10 @@ export default function RegisterScreen() {
   }, [termsConditionsUrl, t]);
 
   const handleRegister = async () => {
+    if (registerSubmitInFlightRef.current) {
+      return;
+    }
+
     if (isPreparingDemoAccount) {
       recordAccountJournalEvent('demo account registration blocked: setup still loading', { level: 'error' });
       Alert.alert(
@@ -482,6 +487,7 @@ export default function RegisterScreen() {
       return;
     }
 
+    registerSubmitInFlightRef.current = true;
     setIsLoading(true);
     recordAccountJournalEvent('demo account registration requested');
     try {
@@ -638,6 +644,7 @@ export default function RegisterScreen() {
       });
       Alert.alert(t('Registration Failed'), error.message || t('Unable to register account.'));
     } finally {
+      registerSubmitInFlightRef.current = false;
       setIsLoading(false);
     }
   };

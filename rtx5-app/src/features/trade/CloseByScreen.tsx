@@ -22,6 +22,7 @@ import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { fmt } from '../../utils/format';
 import { safeRouterBack } from '../../utils/navigation';
+import { useTranslation } from '../../i18n/useTranslation';
 import { findPositionById, positionPairCandidates } from './tradeFlow';
 import { resolveLivePositionPrice } from './livePositionMetrics';
 import {
@@ -48,6 +49,7 @@ export function CloseByScreen() {
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const T = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const positions = usePositionsState((s) => s.positions);
@@ -124,8 +126,8 @@ export function CloseByScreen() {
       setCloseError(
         formatTradingErrorFeedback(
           createFrontendTradingError(
-            'Authentication Error',
-            'The app does not have a valid local trading session. Log in again before using Close By.',
+            t('Authentication Error'),
+            t('The app does not have a valid local trading session. Log in again before using Close By.'),
           ),
         ),
       );
@@ -177,7 +179,7 @@ export function CloseByScreen() {
         setIsClosing(false);
         releaseActionLock();
       });
-  }, [accountDetails?.credentials?.accessToken, isClosing, releaseActionLock, resolvedLogin, selectedPair, sourcePosition]);
+  }, [accountDetails?.credentials?.accessToken, isClosing, releaseActionLock, resolvedLogin, selectedPair, sourcePosition, t]);
 
   if (!sourcePosition) return (
     <View style={{ flex: 1, backgroundColor: screenBg }}>
@@ -186,7 +188,7 @@ export function CloseByScreen() {
         <Pressable onPress={() => safeRouterBack(router, '/(tabs)/trade')} hitSlop={16} style={styles.headerBtn}>
           <Ionicons name="arrow-back" size={26} color={T.text} />
         </Pressable>
-        <Text style={[styles.headerTitleText, { color: T.text }]}>Close By</Text>
+        <Text style={[styles.headerTitleText, { color: T.text }]}>{t('Close By')}</Text>
         <View style={styles.headerBtn} />
       </View>
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
@@ -202,7 +204,7 @@ export function CloseByScreen() {
         <Pressable onPress={() => safeRouterBack(router, '/(tabs)/trade')} hitSlop={16} style={styles.headerBtn}>
           <Ionicons name="arrow-back" size={26} color={T.text} />
         </Pressable>
-        <Text style={[styles.headerTitleText, { color: T.text }]}>Close By</Text>
+        <Text style={[styles.headerTitleText, { color: T.text }]}>{t('Close By')}</Text>
         <View style={styles.headerBtn} />
       </View>
       <ScrollView
@@ -216,11 +218,11 @@ export function CloseByScreen() {
         keyboardShouldPersistTaps="always"
       >
         <View style={styles.header}>
-          <Text style={styles.subTitle}>Select a matching position to pair-close.</Text>
+          <Text style={styles.subTitle}>{t('Select a matching position to pair-close.')}</Text>
         </View>
 
         <View style={styles.referenceCard}>
-          <Text style={styles.referenceTitle}>SOURCE POSITION</Text>
+          <Text style={styles.referenceTitle}>{t('Source Position').toUpperCase()}</Text>
           <View style={styles.separator} />
           <View style={styles.pairTopRow}>
             <Text style={styles.pairSymbol}>{sourcePosition.symbol.replace(/\//g, '')}</Text>
@@ -268,14 +270,14 @@ export function CloseByScreen() {
             </Pressable>
           ))}
           {candidates.length === 0 ? (
-            <Text style={styles.emptyText}>No matching positions available for close-by.</Text>
+            <Text style={styles.emptyText}>{t('No matching positions available for close-by.')}</Text>
           ) : null}
         </View>
 
         {closeError || submitted ? (
           <View style={closeError ? styles.error : styles.success}>
             <Text style={closeError ? styles.errorText : styles.successText}>
-              {closeError ? closeError : 'Close-by request completed successfully.'}
+              {closeError ? closeError : t('Close-by request completed successfully.')}
             </Text>
           </View>
         ) : null}
@@ -293,7 +295,7 @@ export function CloseByScreen() {
           {isClosing ? (
             <ActivityIndicator color="#FFF" />
           ) : (
-            <Text style={styles.submitText}>Send Close By Request</Text>
+            <Text style={styles.submitText}>{t('Send Close By Request')}</Text>
           )}
         </Pressable>
       </ScrollView>

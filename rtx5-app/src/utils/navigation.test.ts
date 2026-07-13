@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
-import { safeRouterBack } from './navigation';
+import {
+  safeRouterBack,
+  scheduleBackNavigationAfterVisualFrame,
+} from './navigation';
 
 const collectSourceFiles = (dir: string): string[] => {
   const absoluteDir = resolve(process.cwd(), dir);
@@ -50,4 +53,36 @@ test('feature screens do not dispatch router.back directly', () => {
     .filter((file) => readFileSync(resolve(process.cwd(), file), 'utf8').includes('router.back()'));
 
   assert.deepEqual(offenders, []);
+});
+
+test('back navigation work starts only after the touch frame can paint', async () => {
+  const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'requestAnimationFrame');
+  let frameCallback: (() => void) | null = null;
+  Object.defineProperty(globalThis, 'requestAnimationFrame', {
+    configurable: true,
+    value: (callback: () => void) => {
+      frameCallback = callback;
+      return 1;
+    },
+  });
+
+  try {
+    let calls = 0;
+    scheduleBackNavigationAfterVisualFrame(() => {
+      calls += 1;
+    });
+    assert.equal(calls, 0);
+    const runFrame = frameCallback as (() => void) | null;
+    assert.ok(runFrame);
+    runFrame();
+    assert.equal(calls, 0);
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 5));
+    assert.equal(calls, 1);
+  } finally {
+    if (originalDescriptor) {
+      Object.defineProperty(globalThis, 'requestAnimationFrame', originalDescriptor);
+    } else {
+      delete (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+    }
+  }
 });

@@ -16,7 +16,7 @@ import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useIsDarkTheme } from '../../state/themeMode';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { changePasswordAPI } from '../../api/auth';
 
 const MAX_PASSWORD_LENGTH = 15;
@@ -66,6 +66,7 @@ export function ChangePasswordSheet({ loginId, type, onClose, onSuccess }: Props
   const canSubmit = allRequirementsMet && oldPasswordValue.length > 0;
 
   const [isPending, setIsPending] = useState(false);
+  const passwordChangeInFlightRef = useRef(false);
   const T = useTheme();
   const isDark = useIsDarkTheme();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
@@ -74,6 +75,11 @@ export function ChangePasswordSheet({ loginId, type, onClose, onSuccess }: Props
   const insets = useSafeAreaInsets();
 
   const onSubmit = async (data: PasswordFormValues) => {
+    if (passwordChangeInFlightRef.current) {
+      return;
+    }
+
+    passwordChangeInFlightRef.current = true;
     setIsPending(true);
     try {
       await changePasswordAPI({
@@ -87,6 +93,7 @@ export function ChangePasswordSheet({ loginId, type, onClose, onSuccess }: Props
         message: err.message || 'Failed to change password',
       });
     } finally {
+      passwordChangeInFlightRef.current = false;
       setIsPending(false);
     }
   };

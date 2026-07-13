@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, ScrollView, Share, StyleSheet, Text, View, Platform } from 'react-native';
 import { quotes, type QuoteItem } from '../../../dev/mock/tradingData';
 import { useMarketData } from '../../../query/websocket';
@@ -20,12 +20,23 @@ import { fmt } from '../../../utils/format';
 import { calculateMarketSentiment } from '../../../domain/marketSentiment';
 import { normalizeSymbol } from '../../../domain/symbols';
 import { classifyTradingError, createFrontendTradingError } from '../../../api/tradingErrors';
-import { safeRouterBack } from '../../../utils/navigation';
+import {
+  safeRouterBack,
+  scheduleBackNavigationAfterVisualFrame,
+} from '../../../utils/navigation';
 import { CRITICAL_TRADE_ACTION_MAX_LATENCY_MS } from '../../../utils/actionLatency';
 import { prefetchOrderTicketData } from '../../../utils/navigationPrefetch';
+import { useTranslation } from '../../../i18n/useTranslation';
 import { dCol, getMeta, normalizeTradingSessions, sgn } from './instrumentMeta';
 import { MetricPill, MomentumBar, RangeBar, Row, Section } from './SubComponents';
 import { makeSymbolDetailsStyles } from './styles';
+import { QuoteInfoLaunchShell } from '../QuoteInfoLaunchShell';
+import {
+  completeQuoteInfoLaunch,
+  hideQuoteInfoLaunch,
+  markQuoteInfoLaunchCovered,
+} from '../quoteInfoLaunchController';
+import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
 
 const formatDetailNumber = (value: number | null | undefined) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -53,16 +64,68 @@ const formatSwapValue = (value: number | null | undefined) => {
 };
 
 export function SymbolDetailsScreen() {
-  return <SymbolDetailsInteractiveContent />;
+  const isScreenFocused = useIsFocused();
+  const contentReady = useDeferredRouteContentReady(0, isScreenFocused);
+  const { symbol: routeSymbol = 'BTCUSD' } = useLocalSearchParams<{ symbol?: string }>();
+  const symbol = useMemo(() => normalizeSymbol(routeSymbol), [routeSymbol]);
+  const wasFocusedRef = useRef(false);
+  const backNavigationStartedRef = useRef(false);
+
+  useEffect(() => {
+    if (isScreenFocused) {
+      wasFocusedRef.current = true;
+      backNavigationStartedRef.current = false;
+      // Keep the optimistic layer visible until this route has produced its
+      // own painted body. Focus can arrive before the native stack surface is
+      // actually visible; hiding here caused a one-frame Quotes flash.
+      if (contentReady) {
+        markQuoteInfoLaunchCovered('properties');
+      }
+      return;
+    }
+
+    if (wasFocusedRef.current) {
+      wasFocusedRef.current = false;
+      completeQuoteInfoLaunch('properties');
+    }
+  }, [contentReady, isScreenFocused]);
+
+  const handleBack = useCallback(() => {
+    if (backNavigationStartedRef.current) {
+      return;
+    }
+    backNavigationStartedRef.current = true;
+    hideQuoteInfoLaunch();
+    scheduleBackNavigationAfterVisualFrame(() => {
+      safeRouterBack(router, '/(tabs)/quotes');
+    });
+  }, []);
+
+  if (!contentReady) {
+    return (
+      <QuoteInfoLaunchShell
+        destination="properties"
+        symbol={symbol}
+        onBack={handleBack}
+        backLatencyLabel="quoteInfo.properties.initial.back"
+      />
+    );
+  }
+
+  return <SymbolDetailsInteractiveContent onBack={handleBack} />;
 }
 
-function SymbolDetailsInteractiveContent() {
+function SymbolDetailsInteractiveContent({ onBack }: { onBack: () => void }) {
+  const { t } = useTranslation();
   const { symbol: routeSymbol = 'BTCUSD' } = useLocalSearchParams<{ symbol?: string }>();
   const symbol = useMemo(() => normalizeSymbol(routeSymbol), [routeSymbol]);
   const setChartSymbol = useUserPreferences((s) => s.setChartSymbol);
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
   const { mutate: placeOrder, isPending } = usePlaceOrderMutation();
   const [activeSide, setActiveSide] = useState<'buy' | 'sell' | null>(null);
+  const tradeTapLockRef = useRef(false);
+  const tradeTapLockReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeSideResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [alertOn, setAlertOn] = useState(false);
   const isScreenFocused = useIsFocused();
   const resolvedLogin = useResolvedTradingLogin();
@@ -169,6 +232,17 @@ function SymbolDetailsInteractiveContent() {
   const isUp = q.changePct >= 0;
   const isMarketOpen = q.tradeAllowed !== false;
 
+  useEffect(() => () => {
+    if (tradeTapLockReleaseTimerRef.current) {
+      clearTimeout(tradeTapLockReleaseTimerRef.current);
+      tradeTapLockReleaseTimerRef.current = null;
+    }
+    if (activeSideResetTimerRef.current) {
+      clearTimeout(activeSideResetTimerRef.current);
+      activeSideResetTimerRef.current = null;
+    }
+  }, []);
+
   const handleShare = async () => {
     try {
       const displayName = symbol.replace(/m$/i, '').replace(/\//g, '');
@@ -195,16 +269,47 @@ function SymbolDetailsInteractiveContent() {
   };
 
   const handleTrade = (side: 'buy' | 'sell') => {
+    if (tradeTapLockRef.current || isPending) {
+      return;
+    }
+
+    tradeTapLockRef.current = true;
+    const releaseTradeTapLock = () => {
+      if (tradeTapLockReleaseTimerRef.current) {
+        clearTimeout(tradeTapLockReleaseTimerRef.current);
+        tradeTapLockReleaseTimerRef.current = null;
+      }
+      tradeTapLockRef.current = false;
+    };
+    const releaseTradeTapLockAfter = (delayMs: number) => {
+      if (tradeTapLockReleaseTimerRef.current) {
+        clearTimeout(tradeTapLockReleaseTimerRef.current);
+      }
+      tradeTapLockReleaseTimerRef.current = setTimeout(() => {
+        tradeTapLockReleaseTimerRef.current = null;
+        tradeTapLockRef.current = false;
+      }, delayMs);
+    };
+
+    if (activeSideResetTimerRef.current) {
+      clearTimeout(activeSideResetTimerRef.current);
+      activeSideResetTimerRef.current = null;
+    }
     setActiveSide(side);
-    setTimeout(() => setActiveSide(null), 800);
+    activeSideResetTimerRef.current = setTimeout(() => {
+      setActiveSide((currentSide) => (currentSide === side ? null : currentSide));
+      activeSideResetTimerRef.current = null;
+    }, 800);
+
     if (oneClickAccepted) {
       const tradingLogin = resolveTradingLogin();
       if (!tradingLogin) {
         const feedback = createFrontendTradingError(
-          'Account Error',
-          'The app could not resolve the active trading account from local state. Select an account and try again.',
+          t('Account Error'),
+          t('The app could not resolve the active trading account from local state. Select an account and try again.'),
         );
         Alert.alert(feedback.title, feedback.message);
+        releaseTradeTapLock();
         return;
       }
 
@@ -223,17 +328,19 @@ function SymbolDetailsInteractiveContent() {
         },
         {
           onSuccess: () => {
-            Alert.alert('Order Executed', 'Your order was successfully transmitted.');
+            Alert.alert(t('Order Executed'), t('Your order was successfully transmitted.'));
           },
           onError: (err: any) => {
             const feedback = classifyTradingError(err, { action: 'place-order' });
             Alert.alert(feedback.title, feedback.message);
-          }
+          },
+          onSettled: releaseTradeTapLock,
         }
       );
     } else {
       prefetchOrderTicketData(resolveTradingLoginString(), symbol);
       router.push({ pathname: '/trade/order-ticket', params: { symbol, side } });
+      releaseTradeTapLockAfter(800);
     }
   };
 
@@ -245,11 +352,20 @@ function SymbolDetailsInteractiveContent() {
         borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
       }}>
         <View style={{ height: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10 }}>
-          <Pressable onPress={() => safeRouterBack(router, '/(tabs)/quotes')} hitSlop={15} style={{ width: 42, alignItems: 'flex-start', padding: 4 }}>
+          <Pressable
+            onPress={onBack}
+            activateOnPressIn
+            activateOnTouchStart
+            latencyLabel="quoteInfo.properties.back"
+            latencyBudgetMs={50}
+            unstable_pressDelay={0}
+            hitSlop={15}
+            style={{ width: 42, alignItems: 'flex-start', padding: 4 }}
+          >
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
           <Text style={{ flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '600', color: T.text }}>
-            Quote Details
+            {t('Quote Details')}
           </Text>
           <View style={{ width: 42 }} />
         </View>
@@ -292,7 +408,7 @@ function SymbolDetailsInteractiveContent() {
                 <Ionicons name={isUp ? 'caret-up' : 'caret-down'} size={14} color={col} />
                 <Text style={[s.hero.changeTxt, { color: col }]}>{sgn(q.changePct)}{(q.changePct || 0).toFixed(2)}%</Text>
               </View>
-              <Text style={s.glassHero.ptsTxt}>{pts} pts today</Text>
+              <Text style={s.glassHero.ptsTxt}>{pts} {t('pts today')}</Text>
             </View>
           </View>
 
@@ -301,7 +417,7 @@ function SymbolDetailsInteractiveContent() {
             {isDark && <LinearGradient colors={['rgba(0,0,0,0.6)', 'rgba(0,0,0,0.2)']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFillObject} />}
             <View style={s.ticker.spreadBadge}>
               <Text style={s.ticker.spreadVal}>{parseFloat(Number(q.spread || 0).toFixed(2)).toString()}</Text>
-              <Text style={s.ticker.spreadLbl}>SPREAD</Text>
+              <Text style={s.ticker.spreadLbl}>{t('Spread').toUpperCase()}</Text>
             </View>
 
             <View style={[s.ticker.inner]}>
@@ -314,7 +430,7 @@ function SymbolDetailsInteractiveContent() {
               >
                 <LinearGradient colors={[isDark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.02)', 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFillObject} />
                 <View style={s.ticker.sideHeader}>
-                  <Text style={[s.ticker.sideLabel, { color: T.down }]}>SELL</Text>
+                  <Text style={[s.ticker.sideLabel, { color: T.down }]}>{t('SELL')}</Text>
                   <View style={s.ticker.arrowWrap}>
                     <Ionicons name="caret-down" size={10} color={T.down} style={{ marginTop: 1 }} />
                   </View>
@@ -329,7 +445,7 @@ function SymbolDetailsInteractiveContent() {
                 <View style={s.ticker.dividerLine} />
                 <View style={s.ticker.pipBadge}>
                   <Text style={s.ticker.pipVal}>{spp}</Text>
-                  <Text style={s.ticker.pipUnit}>PIP</Text>
+                  <Text style={s.ticker.pipUnit}>{t('PIP')}</Text>
                 </View>
               </View>
 
@@ -342,7 +458,7 @@ function SymbolDetailsInteractiveContent() {
               >
                 <LinearGradient colors={[isDark ? 'rgba(34,197,94,0.08)' : 'rgba(34,197,94,0.02)', 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFillObject} />
                 <View style={s.ticker.sideHeader}>
-                  <Text style={[s.ticker.sideLabel, { color: T.up }]}>BUY</Text>
+                  <Text style={[s.ticker.sideLabel, { color: T.up }]}>{t('BUY')}</Text>
                   <View style={s.ticker.arrowWrap}>
                     <Ionicons name="caret-up" size={10} color={T.up} style={{ marginTop: -1 }} />
                   </View>
@@ -361,31 +477,31 @@ function SymbolDetailsInteractiveContent() {
                   { marginRight: 2, backgroundColor: isMarketOpen ? T.up : T.textMuted, shadowColor: isMarketOpen ? T.up : 'transparent' }
                 ]} />
                 <Text style={[s.ticker.infoTxt, { fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.4, color: T.textSub }]}>
-                  {isMarketOpen ? 'Live Market Data' : 'Market Closed'}
+                  {isMarketOpen ? t('Live Market Data') : t('Market Closed')}
                 </Text>
               </View>
             </View>
           </View>
 
           <View style={s.glassHero.metricsRow}>
-            <MetricPill label="MID" value={fmt.price(mid, d)} icon="analytics-outline" />
-            <MetricPill label="OPEN" value={fmt.price(dynOpen, d)} icon="time-outline" />
-            <MetricPill label="PREV" value={fmt.price(q.close ?? q.ask, d)} icon="calendar-outline" />
-            <MetricPill label="VOL" value={dynVol.toLocaleString()} icon="bar-chart-outline" />
+            <MetricPill label={t('Mid').toUpperCase()} value={fmt.price(mid, d)} icon="analytics-outline" />
+            <MetricPill label={t('Open').toUpperCase()} value={fmt.price(dynOpen, d)} icon="time-outline" />
+            <MetricPill label={t('PREV')} value={fmt.price(q.close ?? q.ask, d)} icon="calendar-outline" />
+            <MetricPill label={t('Vol').toUpperCase()} value={dynVol.toLocaleString()} icon="bar-chart-outline" />
           </View>
 
           <View style={s.glassHero.rangeCard}>
             <View style={s.glassHero.rangeTop}>
               <View>
-                <Text style={s.glassHero.rangeLbl}>LOW</Text>
+                <Text style={s.glassHero.rangeLbl}>{t('LOW')}</Text>
                 <Text style={s.glassHero.rangeVal}>{fmt.price(dynLow !== Infinity ? dynLow : q.bid, d)}</Text>
               </View>
               <View style={{ alignItems: 'center' }}>
-                <Text style={s.glassHero.rangeLbl}>DAY RANGE</Text>
+                <Text style={s.glassHero.rangeLbl}>{t('Day Range').toUpperCase()}</Text>
                 <Text style={[s.glassHero.rangeVal, { color: col }]}>{(rPct || 0).toFixed(2)}%</Text>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
-                <Text style={s.glassHero.rangeLbl}>HIGH</Text>
+                <Text style={s.glassHero.rangeLbl}>{t('HIGH')}</Text>
                 <Text style={s.glassHero.rangeVal}>{fmt.price(dynHigh, d)}</Text>
               </View>
             </View>
@@ -401,53 +517,53 @@ function SymbolDetailsInteractiveContent() {
           <Pressable style={({ pressed }) => [s.act.btn, s.act.buyBtn, pressed && { opacity: 0.85 }]} onPress={() => { prefetchOrderTicketData(resolveTradingLoginString(), symbol); router.push({ pathname: '/trade/order-ticket', params: { symbol } }); }}>
             <LinearGradient colors={['#2563EB', '#1D4ED8']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFillObject} />
             <Ionicons name="flash" size={15} color="#fff" />
-            <Text style={s.act.buyTxt}>Trade Now</Text>
+            <Text style={s.act.buyTxt}>{t('Trade Now')}</Text>
           </Pressable>
           <Pressable style={({ pressed }) => [s.act.btn, s.act.chartBtn, pressed && { opacity: 0.85 }]} onPress={() => { setChartSymbol(symbol); router.push('/(tabs)/chart'); }}>
             <Ionicons name="stats-chart-outline" size={15} color={isDark ? "#94A3B8" : T.textSub} />
-            <Text style={s.act.chartTxt}>Full Chart</Text>
+            <Text style={s.act.chartTxt}>{t('Full Chart')}</Text>
           </Pressable>
         </View>
 
-        <Section title="Contract Specification" icon="reader-outline">
-          <Row label="Contract Size" value={q.contractSize >= 1000 ? `${((q.contractSize || 0) / 1000).toFixed(0)}K units` : String(q.contractSize)} />
-          <Row label="Min Volume" value={String(q.minVolume ?? '0.01') + ' lot'} />
-          <Row label="Max Volume" value={String(q.maxVolume ?? '500') + ' lots'} />
-          <Row label="Lot Step" value={String(q.stepVolume ?? '0.01')} />
-          <Row label="Point" value={formatDetailNumber(point)} />
-          <Row label="Tick Size" value={String(q.tickSize ?? pip)} />
-          <Row label="Tick Value" value={'$' + (ctk || 0).toFixed(2)} last />
+        <Section title={t('Contract Specification')} icon="reader-outline">
+          <Row label={t('Contract Size')} value={q.contractSize >= 1000 ? `${((q.contractSize || 0) / 1000).toFixed(0)}K ${t('units')}` : String(q.contractSize)} />
+          <Row label={t('Min Volume')} value={String(q.minVolume ?? '0.01') + ' ' + t('lot')} />
+          <Row label={t('Max Volume')} value={String(q.maxVolume ?? '500') + ' ' + t('lots')} />
+          <Row label={t('Lot Step')} value={String(q.stepVolume ?? '0.01')} />
+          <Row label={t('Point')} value={formatDetailNumber(point)} />
+          <Row label={t('Tick Size')} value={String(q.tickSize ?? pip)} />
+          <Row label={t('Tick Value')} value={'$' + (ctk || 0).toFixed(2)} last />
         </Section>
 
-        <Section title="Pricing & Fees" icon="pricetags-outline">
-          <Row label="Digits" value={String(d)} />
-          <Row label="Spread Mode" value={meta.spreadMode} />
-          <Row label="Current Spread" value={`${parseFloat(Number(q.spread || 0).toFixed(2)).toString()} (${spp} pips)`} />
-          <Row label="Stops Level" value={meta.stopsLevel} />
-          <Row label="Margin Initial" value={(q.marginInitial ?? 0).toFixed(2) + '%'} />
-          <Row label="Margin Maintenance" value={(q.marginMaintenance ?? 0).toFixed(2) + '%'} />
-          <Row label="Leverage" value={leverageText} />
-          <Row label="Swap Long" value={formatSwapValue(swapLong)} accent={swapLong !== undefined ? (swapLong < 0 ? T.down : T.up) : undefined} />
-          <Row label="Swap Short" value={formatSwapValue(swapShort)} accent={swapShort !== undefined ? (swapShort > 0 ? T.up : T.down) : undefined} last />
+        <Section title={t('Pricing & Fees')} icon="pricetags-outline">
+          <Row label={t('Digits')} value={String(d)} />
+          <Row label={t('Spread Mode')} value={t(meta.spreadMode)} />
+          <Row label={t('Current Spread')} value={`${parseFloat(Number(q.spread || 0).toFixed(2)).toString()} (${spp} ${t('pips')})`} />
+          <Row label={t('Stops Level')} value={meta.stopsLevel} />
+          <Row label={t('Margin Initial')} value={(q.marginInitial ?? 0).toFixed(2) + '%'} />
+          <Row label={t('Margin Maintenance')} value={(q.marginMaintenance ?? 0).toFixed(2) + '%'} />
+          <Row label={t('Leverage')} value={leverageText} />
+          <Row label={t('Swap Long')} value={formatSwapValue(swapLong)} accent={swapLong !== undefined ? (swapLong < 0 ? T.down : T.up) : undefined} />
+          <Row label={t('Swap Short')} value={formatSwapValue(swapShort)} accent={swapShort !== undefined ? (swapShort > 0 ? T.up : T.down) : undefined} last />
         </Section>
 
-        <Section title="Instrument Profile" icon="briefcase-outline">
-          <Row label="Category" value={meta.category} />
-          <Row label="Sector" value={meta.sector} />
-          <Row label="Calculation" value={meta.calculation} />
-          <Row label="Chart Mode" value={meta.chartMode} />
-          <Row label="Base Currency" value={q.baseCurrency ?? symbol.slice(0, 3)} />
-          <Row label="Profit Currency" value={q.profitCurrency ?? 'USD'} last />
+        <Section title={t('Instrument Profile')} icon="briefcase-outline">
+          <Row label={t('Category')} value={t(meta.category)} />
+          <Row label={t('Sector')} value={t(meta.sector)} />
+          <Row label={t('Calculation')} value={t(meta.calculation)} />
+          <Row label={t('Chart Mode')} value={t(meta.chartMode)} />
+          <Row label={t('Base Currency')} value={q.baseCurrency ?? symbol.slice(0, 3)} />
+          <Row label={t('Profit Currency')} value={q.profitCurrency ?? 'USD'} last />
         </Section>
 
-        <Section title="Trading Sessions" icon="time-outline">
+        <Section title={t('Trading Sessions')} icon="time-outline">
           {meta.sessions.map(([day, hours], i) => {
             const isActive = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day);
             return (
               <View key={day} style={[s.rw.row, i === meta.sessions.length - 1 && { borderBottomWidth: 0 }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <View style={[s.ses.dot, isActive && s.ses.dotActive]} />
-                  <Text style={s.rw.key}>{day}</Text>
+                  <Text style={s.rw.key}>{t(day)}</Text>
                 </View>
                 <Text style={s.rw.val}>{hours}</Text>
               </View>

@@ -11,7 +11,7 @@ import { FastPressable as Pressable } from '../../../ui/components/FastPressable
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
-import React, { useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { ScrollView, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -20,13 +20,24 @@ import { useMarketData } from '../../../query/websocket';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useTheme } from '../../../ui/theme/useTheme';
 import { fmt } from '../../../utils/format';
-import { safeRouterBack } from '../../../utils/navigation';
+import {
+  safeRouterBack,
+  scheduleBackNavigationAfterVisualFrame,
+} from '../../../utils/navigation';
 import { normalizeSymbol } from '../../../domain/symbols';
 import { useInstrumentMeta } from '../../../query/instruments';
 import { useLatestDailyCandle } from '../../../domain/candles/query/candles';
 import { calculateMarketSentiment } from '../../../domain/marketSentiment';
+import { useTranslation } from '../../../i18n/useTranslation';
 import { getMeta } from '../SymbolDetailsScreen/instrumentMeta';
 import { makeMarketStatisticsStyles } from './styles';
+import { QuoteInfoLaunchShell } from '../QuoteInfoLaunchShell';
+import {
+  completeQuoteInfoLaunch,
+  hideQuoteInfoLaunch,
+  markQuoteInfoLaunchCovered,
+} from '../quoteInfoLaunchController';
+import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
 
 type StatDirection = 'up' | 'down' | 'neutral';
 
@@ -79,11 +90,59 @@ const resolveDirection = (current: number, previous?: number): StatDirection => 
 };
 
 export function MarketStatisticsScreen() {
-  return <MarketStatisticsInteractiveContent />;
+  const isScreenFocused = useIsFocused();
+  const contentReady = useDeferredRouteContentReady(0, isScreenFocused);
+  const { symbol: routeSymbol = 'EURUSD' } = useLocalSearchParams<{ symbol?: string }>();
+  const symbol = useMemo(() => normalizeSymbol(routeSymbol), [routeSymbol]);
+  const router = useRouter();
+  const wasFocusedRef = useRef(false);
+  const backNavigationStartedRef = useRef(false);
+
+  useEffect(() => {
+    if (isScreenFocused) {
+      wasFocusedRef.current = true;
+      backNavigationStartedRef.current = false;
+      // Native-stack focus can precede its first visible frame. Retain the
+      // exact optimistic layer until the real body is ready to cover it.
+      if (contentReady) {
+        markQuoteInfoLaunchCovered('market-statistics');
+      }
+      return;
+    }
+
+    if (wasFocusedRef.current) {
+      wasFocusedRef.current = false;
+      completeQuoteInfoLaunch('market-statistics');
+    }
+  }, [contentReady, isScreenFocused]);
+
+  const handleBack = useCallback(() => {
+    if (backNavigationStartedRef.current) {
+      return;
+    }
+    backNavigationStartedRef.current = true;
+    hideQuoteInfoLaunch();
+    scheduleBackNavigationAfterVisualFrame(() => {
+      safeRouterBack(router, '/(tabs)/quotes');
+    });
+  }, [router]);
+
+  if (!contentReady) {
+    return (
+      <QuoteInfoLaunchShell
+        destination="market-statistics"
+        symbol={symbol}
+        onBack={handleBack}
+        backLatencyLabel="quoteInfo.marketStatistics.initial.back"
+      />
+    );
+  }
+
+  return <MarketStatisticsInteractiveContent onBack={handleBack} />;
 }
 
-function MarketStatisticsInteractiveContent() {
-  const router = useRouter();
+function MarketStatisticsInteractiveContent({ onBack }: { onBack: () => void }) {
+  const { t } = useTranslation();
   const { symbol: routeSymbol = 'EURUSD' } = useLocalSearchParams<{ symbol?: string }>();
   const symbol = useMemo(() => normalizeSymbol(routeSymbol), [routeSymbol]);
 
@@ -141,18 +200,18 @@ function MarketStatisticsInteractiveContent() {
   const rangePositionPct = clampPercent(sentiment.rangePositionPct);
   const rangePct = bidLow > 0 && bidHigh > bidLow ? ((bidHigh - bidLow) / bidLow) * 100 : 0;
   const latestTickAt = pickLatestTimestamp(q);
-  const marketStatusLabel = q.tradeAllowed === false ? 'Closed' : 'Open';
+  const marketStatusLabel = q.tradeAllowed === false ? t('Closed') : t('Open');
   const marketStatusColor = q.tradeAllowed === false ? T.down : T.up;
   const localMeta = useMemo(() => getMeta(symbol), [symbol]);
   const instrumentName = remoteMeta?.name ?? localMeta.name;
   const instrumentCategory = remoteMeta?.category ?? localMeta.category;
   const instrumentSector = remoteMeta?.sector ?? localMeta.sector;
-  const instrumentDescriptor = [instrumentCategory, instrumentSector].filter(Boolean).join(' / ');
+  const instrumentDescriptor = [instrumentCategory, instrumentSector].filter(Boolean).map((part) => t(part)).join(' / ');
   const bidDirection = resolveDirection(q.bid, q.prevBid);
   const askDirection = resolveDirection(q.ask, q.prevAsk);
   const changeAccent = isUp ? T.up : T.down;
   const signedChange = `${isUp ? '+' : ''}${(q.changePct || 0).toFixed(2)}%`;
-  const signedPoints = `${pointsChange >= 0 ? '+' : ''}${pointsChange.toFixed(0)} pts`;
+  const signedPoints = `${pointsChange >= 0 ? '+' : ''}${pointsChange.toFixed(0)} ${t('pts')}`;
 
   const rows: StatRow[] = useMemo(() => [
     { label: 'Bid high', value: fmt.price(bidHigh, priceDigits), direction: 'up' },
@@ -162,7 +221,7 @@ function MarketStatisticsInteractiveContent() {
     { label: 'Open price', value: fmt.price(openPrice, priceDigits), direction: 'neutral' },
     { label: 'Close price', value: fmt.price(closePrice, priceDigits), direction: closePrice >= openPrice ? 'up' : 'down' },
     { label: 'Mid price', value: fmt.price(midPrice, priceDigits), direction: 'neutral' },
-    { label: 'Day range', value: `${rangePct.toFixed(2)}%`, direction: 'neutral' },
+    { label: 'Day Range', value: `${rangePct.toFixed(2)}%`, direction: 'neutral' },
   ], [askHigh, askLow, bidHigh, bidLow, closePrice, midPrice, openPrice, priceDigits, rangePct]);
 
   const overviewTiles: MetricTile[] = useMemo(() => [
@@ -215,11 +274,20 @@ function MarketStatisticsInteractiveContent() {
     <View style={styles.root}>
       <View style={[styles.headerContainer, { paddingTop: insets.top }]}>
         <View style={styles.headerRow}>
-          <Pressable onPress={() => safeRouterBack(router, '/(tabs)/quotes')} hitSlop={15} style={styles.backButton}>
+          <Pressable
+            onPress={onBack}
+            activateOnPressIn
+            activateOnTouchStart
+            latencyLabel="quoteInfo.marketStatistics.back"
+            latencyBudgetMs={50}
+            unstable_pressDelay={0}
+            hitSlop={15}
+            style={styles.backButton}
+          >
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
           <View style={styles.headerCenter}>
-            <Text style={styles.headerTitle} numberOfLines={1}>Market Statistics</Text>
+            <Text style={styles.headerTitle} numberOfLines={1}>{t('Market Statistics')}</Text>
           </View>
           <View style={styles.headerRightSpacer} />
         </View>
@@ -251,7 +319,7 @@ function MarketStatisticsInteractiveContent() {
           <View style={styles.quoteBand}>
             <View style={styles.quoteSide}>
               <View style={styles.quoteLabelRow}>
-                <Text style={[styles.quoteLabel, { color: T.down }]}>BID</Text>
+                <Text style={[styles.quoteLabel, { color: T.down }]}>{t('BID')}</Text>
                 {bidDirection !== 'neutral' && (
                   <Ionicons name={bidDirection === 'up' ? 'caret-up' : 'caret-down'} size={11} color={bidColor} />
                 )}
@@ -260,10 +328,10 @@ function MarketStatisticsInteractiveContent() {
                 {fmt.price(q.bid, priceDigits)}
               </Text>
               <View style={styles.quoteMetaRow}>
-                <Text style={styles.quoteMetaLabel}>Low</Text>
+                <Text style={styles.quoteMetaLabel}>{t('Low')}</Text>
                 <Text style={styles.quoteMetaValue}>{fmt.price(bidLow, priceDigits)}</Text>
                 <Text style={styles.quoteMetaDivider}>/</Text>
-                <Text style={styles.quoteMetaLabel}>High</Text>
+                <Text style={styles.quoteMetaLabel}>{t('High')}</Text>
                 <Text style={styles.quoteMetaValue}>{fmt.price(bidHigh, priceDigits)}</Text>
               </View>
             </View>
@@ -272,7 +340,7 @@ function MarketStatisticsInteractiveContent() {
 
             <View style={styles.quoteSide}>
               <View style={styles.quoteLabelRow}>
-                <Text style={[styles.quoteLabel, { color: T.up }]}>ASK</Text>
+                <Text style={[styles.quoteLabel, { color: T.up }]}>{t('ASK')}</Text>
                 {askDirection !== 'neutral' && (
                   <Ionicons name={askDirection === 'up' ? 'caret-up' : 'caret-down'} size={11} color={askColor} />
                 )}
@@ -281,10 +349,10 @@ function MarketStatisticsInteractiveContent() {
                 {fmt.price(q.ask, priceDigits)}
               </Text>
               <View style={styles.quoteMetaRow}>
-                <Text style={styles.quoteMetaLabel}>Low</Text>
+                <Text style={styles.quoteMetaLabel}>{t('Low')}</Text>
                 <Text style={styles.quoteMetaValue}>{fmt.price(askLow, priceDigits)}</Text>
                 <Text style={styles.quoteMetaDivider}>/</Text>
-                <Text style={styles.quoteMetaLabel}>High</Text>
+                <Text style={styles.quoteMetaLabel}>{t('High')}</Text>
                 <Text style={styles.quoteMetaValue}>{fmt.price(askHigh, priceDigits)}</Text>
               </View>
             </View>
@@ -292,17 +360,17 @@ function MarketStatisticsInteractiveContent() {
 
           <View style={styles.changeStrip}>
             <View style={styles.changeItem}>
-              <Text style={styles.changeLabel} numberOfLines={1}>Net Change</Text>
+              <Text style={styles.changeLabel} numberOfLines={1}>{t('Net Change')}</Text>
               <Text style={[styles.changeValue, { color: changeAccent }]} numberOfLines={1} adjustsFontSizeToFit>{signedChange}</Text>
             </View>
             <View style={styles.changeDivider} />
             <View style={styles.changeItem}>
-              <Text style={styles.changeLabel} numberOfLines={1}>Points</Text>
+              <Text style={styles.changeLabel} numberOfLines={1}>{t('Points')}</Text>
               <Text style={[styles.changeValue, { color: pointsChange >= 0 ? T.up : T.down }]} numberOfLines={1} adjustsFontSizeToFit>{signedPoints}</Text>
             </View>
             <View style={styles.changeDivider} />
             <View style={styles.changeItem}>
-              <Text style={styles.changeLabel} numberOfLines={1}>Range Position</Text>
+              <Text style={styles.changeLabel} numberOfLines={1}>{t('Range Position')}</Text>
               <Text style={styles.changeValue} numberOfLines={1} adjustsFontSizeToFit>{rangePositionPct.toFixed(0)}%</Text>
             </View>
           </View>
@@ -314,15 +382,15 @@ function MarketStatisticsInteractiveContent() {
               <View style={styles.sectionIconBox}>
                 <Ionicons name="pulse-outline" size={15} color={T.trading.buy.primary} />
               </View>
-              <Text style={styles.sectionTitle}>Session Statistics</Text>
+              <Text style={styles.sectionTitle}>{t('Session Statistics')}</Text>
             </View>
-            <Text style={styles.sectionMeta}>Realtime</Text>
+            <Text style={styles.sectionMeta}>{t('Realtime')}</Text>
           </View>
           {rows.map((row, index) => (
             <View key={row.label} style={[styles.statRow, index < rows.length - 1 && styles.statRowBorder]}>
               <View style={styles.statLeft}>
                 <View style={[styles.rowMarker, { backgroundColor: markerColor(row.direction) }]} />
-                <Text style={styles.statLabel}>{row.label}</Text>
+                <Text style={styles.statLabel}>{t(row.label)}</Text>
               </View>
               <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>
                 {row.value}
@@ -337,7 +405,7 @@ function MarketStatisticsInteractiveContent() {
               <View style={styles.sectionIconBox}>
                 <Ionicons name="grid-outline" size={15} color={T.trading.buy.primary} />
               </View>
-              <Text style={styles.sectionTitle}>Market Overview</Text>
+              <Text style={styles.sectionTitle}>{t('Market Overview')}</Text>
             </View>
             <Text style={styles.sectionMeta}>{marketStatusLabel}</Text>
           </View>
@@ -353,7 +421,7 @@ function MarketStatisticsInteractiveContent() {
               >
                 <View style={styles.overviewLabelRow}>
                   <Ionicons name={tile.icon} size={13} color={tile.accent ?? T.textMuted} />
-                  <Text style={styles.overviewLabel}>{tile.label}</Text>
+                  <Text style={styles.overviewLabel}>{t(tile.label)}</Text>
                 </View>
                 <Text
                   style={[styles.overviewValue, tile.accent ? { color: tile.accent } : null]}
@@ -373,21 +441,21 @@ function MarketStatisticsInteractiveContent() {
               <View style={styles.sectionIconBox}>
                 <Ionicons name="resize-outline" size={15} color={T.trading.buy.primary} />
               </View>
-              <Text style={styles.sectionTitle}>Day Range</Text>
+              <Text style={styles.sectionTitle}>{t('Day Range')}</Text>
             </View>
             <Text style={styles.sectionMeta}>{rangePct.toFixed(2)}%</Text>
           </View>
           <View style={styles.rangeValueRow}>
             <View style={styles.rangeValueBlock}>
-              <Text style={styles.rangeLabelSmall}>LOW</Text>
+              <Text style={styles.rangeLabelSmall}>{t('LOW')}</Text>
               <Text style={styles.rangeLabelValue}>{fmt.price(bidLow, priceDigits)}</Text>
             </View>
             <View style={[styles.rangeValueBlock, styles.rangeValueBlockCenter]}>
-              <Text style={styles.rangeLabelSmall}>CURRENT</Text>
+              <Text style={styles.rangeLabelSmall}>{t('CURRENT')}</Text>
               <Text style={[styles.rangeLabelValue, { color: changeAccent }]}>{fmt.price(q.bid, priceDigits)}</Text>
             </View>
             <View style={[styles.rangeValueBlock, styles.rangeValueBlockRight]}>
-              <Text style={styles.rangeLabelSmall}>HIGH</Text>
+              <Text style={styles.rangeLabelSmall}>{t('HIGH')}</Text>
               <Text style={styles.rangeLabelValue}>{fmt.price(bidHigh, priceDigits)}</Text>
             </View>
           </View>
@@ -419,9 +487,9 @@ function MarketStatisticsInteractiveContent() {
               <View style={styles.sectionIconBox}>
                 <Ionicons name="people-outline" size={15} color={T.trading.buy.primary} />
               </View>
-              <Text style={styles.sectionTitle}>Market Sentiment</Text>
+              <Text style={styles.sectionTitle}>{t('Market Sentiment')}</Text>
             </View>
-            <Text style={styles.sectionMeta}>Range model</Text>
+            <Text style={styles.sectionMeta}>{t('Range model')}</Text>
           </View>
           <View style={styles.sentimentBarRow}>
             <Text style={[styles.sentimentPct, { color: T.up }]}>
@@ -436,8 +504,8 @@ function MarketStatisticsInteractiveContent() {
             </Text>
           </View>
           <View style={styles.sentimentLabels}>
-            <Text style={[styles.sentimentLabel, { color: T.up }]}>BUYERS</Text>
-            <Text style={[styles.sentimentLabel, { color: T.down }]}>SELLERS</Text>
+            <Text style={[styles.sentimentLabel, { color: T.up }]}>{t('BUYERS')}</Text>
+            <Text style={[styles.sentimentLabel, { color: T.down }]}>{t('SELLERS')}</Text>
           </View>
         </View>
       </ScrollView>

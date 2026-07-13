@@ -46,13 +46,15 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.match(tapConfigSource, /presentation: 'mt5Plain'/);
   assert.match(tapConfigSource, /detent: 'auto'/);
   assert.match(tapConfigSource, /instantOpen: true/);
-  assert.match(tapConfigSource, /runActionAfterClose: true/);
+  // Route actions commit only a light preview (or the fast-tab flip), so they
+  // run in the press frame instead of waiting behind the close animation.
+  assert.match(tapConfigSource, /runActionAfterClose: false/);
   assert.match(longPressConfigSource, /quoteSymbols\.forEach\(\(sym\) => \{/);
   assert.match(longPressConfigSource, /title: fmt\.symbol\(sym\)/);
   assert.match(longPressConfigSource, /presentation: 'mt5Plain'/);
   assert.match(longPressConfigSource, /detent: 'auto'/);
   assert.match(longPressConfigSource, /instantOpen: true/);
-  assert.match(longPressConfigSource, /runActionAfterClose: true/);
+  assert.match(longPressConfigSource, /runActionAfterClose: false/);
   assert.doesNotMatch(source, /const hideQuotesActionSheet = useUIState\(\(s\) => s\.hideQuotesActionSheet\)/);
   assert.match(source, /type QuoteSheetOptionOptions = \{[\s\S]*routeChange\?: boolean;[\s\S]*\}/);
   assert.match(source, /const \[quoteSheetRouteActionPending, setQuoteSheetRouteActionPending\] = useState\(false\)/);
@@ -69,13 +71,14 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.match(source, /const pauseQuoteSheetFeed = useCallback\(\(durationMs = QUOTE_SHEET_OPEN_FEED_PAUSE_MS\) => \{/);
   assert.match(source, /quotesWsService\.deferReconnectForInteraction\?\.\(durationMs\)/);
   assert.match(source, /const releaseQuoteSheetFeedPause = useCallback\(\(\) => \{/);
+  assert.match(source, /quotesWsService\.resumeReconnectAfterInteraction\?\.\(\)/);
+  assert.match(source, /if \(isScreenFocused\) \{[\s\S]*releaseQuoteSheetFeedPause\(\);[\s\S]*setQuoteSheetRouteActionPending\(false\);/);
   assert.doesNotMatch(source, /quotesActionSheetOpen|quoteSheetTouchPending|quoteSheetInteractionBusy|quoteVisibleFeedActive/);
-  assert.match(source, /function scheduleQuoteSheetOptionAction\(action: \(\) => void, deferUntilNextFrame = false\) \{/);
-  assert.match(source, /deferUntilNextFrame && typeof globalThis\.requestAnimationFrame === 'function'/);
-  assert.match(source, /globalThis\.requestAnimationFrame\(\(\) => \{[\s\S]*globalThis\.requestAnimationFrame\(\(\) => \{[\s\S]*setTimeout\(action, 0\)/);
+  assert.doesNotMatch(source, /scheduleQuoteSheetOptionAction/);
+  assert.doesNotMatch(source, /requestAnimationFrame\([\s\S]*requestAnimationFrame\([\s\S]*setTimeout\(action, 0\)/);
   assert.match(
     source,
-    /const runQuoteSheetOption = useCallback\(\(action: \(\) => void, options\?: QuoteSheetOptionOptions\) => \{[\s\S]*options\?\.routeChange === true[\s\S]*pauseQuoteSheetFeed\(routeChange \? QUOTE_SHEET_ROUTE_FEED_PAUSE_MS : QUOTE_SHEET_OPTION_FEED_PAUSE_MS\);[\s\S]*React\.startTransition\(\(\) => \{[\s\S]*setQuoteSheetRouteActionPending\(true\);[\s\S]*\}\);[\s\S]*scheduleQuoteSheetOptionAction\(action, routeChange\);/,
+    /const runQuoteSheetOption = useCallback\(\(action: \(\) => void, options\?: QuoteSheetOptionOptions\) => \{[\s\S]*options\?\.routeChange === true[\s\S]*pauseQuoteSheetFeed\(routeChange \? QUOTE_SHEET_ROUTE_FEED_PAUSE_MS : QUOTE_SHEET_OPTION_FEED_PAUSE_MS\);[\s\S]*if \(routeChange\) \{[\s\S]*action\(\);[\s\S]*React\.startTransition\(\(\) => \{[\s\S]*setQuoteSheetRouteActionPending\(true\);[\s\S]*return;[\s\S]*action\(\);/,
   );
   assert.match(tapConfigSource, /label: t\('New Order'\),[\s\S]*activateOnPressIn: true/);
   assert.match(tapConfigSource, /label: t\('Chart'\),[\s\S]*activateOnPressIn: true/);
@@ -88,37 +91,58 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.match(tapConfigSource, /label: t\('Simple view mode'\),[\s\S]*selected: quoteViewMode === 'table'[\s\S]*label: t\('Advanced view mode'\),[\s\S]*selected: quoteViewMode === 'list'/);
   assert.match(longPressConfigSource, /label: t\('Properties'\), activateOnPressIn: true, onPress: \(\) => goDetail\(sym\)/);
   assert.match(longPressConfigSource, /label: t\('Hide'\),[\s\S]*danger: true/);
-  assert.match(tapConfigSource, /runQuoteSheetOption\(\(\) => \{[\s\S]*router\.push\(\{ pathname: '\/trade\/order-ticket'/);
-  assert.match(tapConfigSource, /runQuoteSheetOption\(\(\) => \{[\s\S]*router\.push\('\/\(tabs\)\/chart'\)/);
-  assert.match(tapConfigSource, /runQuoteSheetOption\(\(\) => \{[\s\S]*router\.push\(\{ pathname: '\/quotes\/market-statistics'/);
-  assert.match(tapConfigSource, /router\.push\(\{ pathname: '\/trade\/order-ticket'[\s\S]*\}, \{ routeChange: true \}/);
-  assert.match(tapConfigSource, /router\.push\('\/\(tabs\)\/chart'\);[\s\S]*\}, \{ routeChange: true \}/);
-  assert.match(tapConfigSource, /router\.push\(\{ pathname: '\/quotes\/market-statistics'[\s\S]*\}, \{ routeChange: true \}/);
+  assert.match(tapConfigSource, /label: t\('New Order'\),[\s\S]*onPress: \(\) => openOrderTicketForSymbol\(sym\)/);
+  // The Chart option rides the same optimistic fast-tab flip as a bottom-bar
+  // tap instead of paying a router.push commit inside the sheet action.
+  assert.match(tapConfigSource, /label: t\('Chart'\),[\s\S]*onPress: \(\) => openChartTabForSymbol\(sym\)/);
+  assert.match(tapConfigSource, /label: t\('Market Statistics'\),[\s\S]*onPress: \(\) => openMarketStatisticsForSymbol\(sym\)/);
   assert.match(
     source,
-    /const handleSymbolTap = useCallback[\s\S]*quoteTapActionSheetConfigs\.get\(sym\)[\s\S]*runImmediateAction\('quotes\.symbolSheet\.tap\.open'[\s\S]*pauseQuoteSheetFeed\(\);[\s\S]*showQuotesActionSheet\(config\)/,
+    /const openQuoteInfoForSymbol = useCallback\([\s\S]*showQuoteInfoLaunch\(destination, sym\);[\s\S]*scheduleQuoteInfoLaunchNavigation\(launchRevision, \(\) => \{[\s\S]*pathname: '\/quotes\/details'[\s\S]*pathname: '\/quotes\/market-statistics'[\s\S]*hideQuoteInfoLaunch\(launchRevision\)[\s\S]*\}, \{ routeChange: true \}\);/,
   );
   assert.match(
     source,
-    /const handleSymbolLongPress = useCallback[\s\S]*quoteLongPressActionSheetConfigs\.get\(sym\)[\s\S]*runImmediateAction\('quotes\.symbolSheet\.longPress\.open'[\s\S]*pauseQuoteSheetFeed\(\);[\s\S]*showQuotesActionSheet\(config\)/,
+    /const openOrderTicketForSymbol = useCallback\(\(sym: string\) => \{[\s\S]*runQuoteSheetOption\(\(\) => \{[\s\S]*const launchRevision = showOrderTicketLaunch\(sym\);[\s\S]*scheduleOrderTicketLaunchNavigation\(launchRevision, \(\) => \{[\s\S]*router\.push\(\{ pathname: '\/trade\/order-ticket', params: \{ symbol: sym \} \}\);[\s\S]*\}, \{ routeChange: true \}\);/,
+  );
+  assert.match(
+    source,
+    /const openChartTabForSymbol = useCallback\(\(sym: string\) => \{[\s\S]*const chartTimeframe = prepareChartSymbol\(sym\);[\s\S]*const visualRevision = showFastTabVisual\('chart'\);[\s\S]*liveCandlesEngine\.prefetchHistory\(sym, chartTimeframe\);[\s\S]*scheduleFastTabNavigation\(visualRevision, \(\) => \{[\s\S]*navigateMountedSidebarTab\('\/chart'\)[\s\S]*router\.push\('\/\(tabs\)\/chart'\);[\s\S]*TAB_BAR_NAVIGATION_SETTLE_DELAY_MS\);[\s\S]*\}, \{ routeChange: true \}\);/,
+  );
+  assert.match(
+    source,
+    /const handleSymbolTap = useCallback[\s\S]*quoteTapActionSheetConfigs\.get\(sym\)[\s\S]*runImmediateAction\('quotes\.symbolSheet\.tap\.open'[\s\S]*pauseQuoteSheetFeed\(\);[\s\S]*prepareOrderTicketLaunch\(sym\);[\s\S]*prepareQuoteInfoLaunch\(sym\);[\s\S]*showQuotesActionSheet\(config\);[\s\S]*prepareSymbolDestinationsAfterSheetPaint\(sym\)/,
+  );
+  assert.match(
+    source,
+    /const prepareSymbolDestinationsAfterSheetPaint = useCallback\(\(sym: string\) => \{[\s\S]*const chartTimeframe = prepareChartSymbol\(sym\);[\s\S]*liveCandlesEngine\.prefetchHistory\(sym, chartTimeframe\);[\s\S]*prefetchOrderTicketData\(resolveTradingLoginString\(\), sym\);[\s\S]*prefetchQuoteDetails\(sym\);[\s\S]*pathname: '\/trade\/order-ticket'[\s\S]*pathname: '\/quotes\/details'[\s\S]*pathname: '\/quotes\/market-statistics'[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*setTimeout\(prepareDestinations, 0\)/,
+  );
+  assert.match(
+    source,
+    /const prepareChartSymbol = \(symbol: string\) => \{[\s\S]*useUserPreferences\.getState\(\)[\s\S]*preferences\.chartSymbol !== symbol[\s\S]*preferences\.setChartSymbol\(symbol\)[\s\S]*return preferences\.chartTimeframe/,
+  );
+  assert.match(
+    source,
+    /const handleSymbolLongPress = useCallback[\s\S]*quoteLongPressActionSheetConfigs\.get\(sym\)[\s\S]*runImmediateAction\('quotes\.symbolSheet\.longPress\.open'[\s\S]*pauseQuoteSheetFeed\(\);[\s\S]*prepareQuoteInfoLaunch\(sym\);[\s\S]*showQuotesActionSheet\(config\);[\s\S]*prepareSymbolDestinationsAfterSheetPaint\(sym\)/,
   );
   assert.match(source, /onLongPress=\{\(\) => handleSymbolLongPress\(sym\)\}/);
 });
 
-test('quote details opens the complete screen without a temporary shell', () => {
+test('quote details paints an exact shell before mounting its focused heavy body', () => {
   const source = readSymbolDetailsSource();
 
-  assert.match(source, /export function SymbolDetailsScreen\(\) \{[\s\S]*return <SymbolDetailsInteractiveContent \/>;[\s\S]*\}/);
-  assert.doesNotMatch(source, /SymbolDetailsInitialShell/);
-  assert.doesNotMatch(source, /useDeferredRouteContentReady/);
+  assert.match(source, /export function SymbolDetailsScreen\(\) \{[\s\S]*useDeferredRouteContentReady\(0, isScreenFocused\)[\s\S]*if \(!contentReady\) \{[\s\S]*<QuoteInfoLaunchShell[\s\S]*destination="properties"[\s\S]*return <SymbolDetailsInteractiveContent onBack=\{handleBack\} \/>/);
+  assert.match(source, /markQuoteInfoLaunchCovered\('properties'\)/);
+  assert.match(source, /completeQuoteInfoLaunch\('properties'\)/);
+  assert.match(source, /backNavigationStartedRef\.current = true;[\s\S]*hideQuoteInfoLaunch\(\);[\s\S]*scheduleBackNavigationAfterVisualFrame\(\(\) => \{[\s\S]*safeRouterBack\(router, '\/\(tabs\)\/quotes'\)/);
+  assert.match(source, /onPress=\{onBack\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart[\s\S]*latencyLabel="quoteInfo\.properties\.back"[\s\S]*latencyBudgetMs=\{50\}/);
   assert.doesNotMatch(source, /SYMBOL_DETAILS_FULL_CONTENT_DELAY_MS/);
 });
 
 test('quote details specification shows point and account leverage', () => {
   const source = readSymbolDetailsSource();
-  const contractSpecStart = source.indexOf('<Section title="Contract Specification"');
-  const pricingFeesStart = source.indexOf('<Section title="Pricing & Fees"');
-  const instrumentProfileStart = source.indexOf('<Section title="Instrument Profile"');
+  const contractSpecStart = source.indexOf("<Section title={t('Contract Specification')}");
+  const pricingFeesStart = source.indexOf("<Section title={t('Pricing & Fees')}");
+  const instrumentProfileStart = source.indexOf("<Section title={t('Instrument Profile')}");
   assert.notEqual(contractSpecStart, -1, 'contract specification section must exist');
   assert.notEqual(pricingFeesStart, -1, 'pricing and fees section must exist');
   assert.notEqual(instrumentProfileStart, -1, 'instrument profile section must exist');
@@ -133,15 +157,15 @@ test('quote details specification shows point and account leverage', () => {
   assert.match(source, /const point = remoteMeta\?\.point \?\? q\.point \?\? q\.tickSize \?\? pip/);
   assert.match(source, /const resolvedLeverage = accountSummary\?\.leverage && accountSummary\.leverage > 0[\s\S]*\? accountSummary\.leverage[\s\S]*: undefined/);
   assert.match(source, /const leverageText = resolvedLeverage && resolvedLeverage > 0[\s\S]*\? `1:\$\{formatDetailNumber\(resolvedLeverage\)\}`[\s\S]*: '--'/);
-  assert.match(contractSpec, /<Row label="Point" value=\{formatDetailNumber\(point\)\} \/>/);
-  assert.match(pricingFees, /<Row label="Leverage" value=\{leverageText\} \/>/);
+  assert.match(contractSpec, /<Row label=\{t\('Point'\)\} value=\{formatDetailNumber\(point\)\} \/>/);
+  assert.match(pricingFees, /<Row label=\{t\('Leverage'\)\} value=\{leverageText\} \/>/);
   assert.doesNotMatch(pricingFees, /onPress|ActionSheet|Select/);
 });
 
 test('quote details keeps real swap values visible', () => {
   const source = readSymbolDetailsSource();
-  const pricingFeesStart = source.indexOf('<Section title="Pricing & Fees"');
-  const instrumentProfileStart = source.indexOf('<Section title="Instrument Profile"');
+  const pricingFeesStart = source.indexOf("<Section title={t('Pricing & Fees')}");
+  const instrumentProfileStart = source.indexOf("<Section title={t('Instrument Profile')}");
   assert.notEqual(pricingFeesStart, -1, 'pricing and fees section must exist');
   assert.notEqual(instrumentProfileStart, -1, 'instrument profile section must exist');
 
@@ -152,17 +176,19 @@ test('quote details keeps real swap values visible', () => {
   assert.match(source, /base\.swapShort = resolveDetailNumber\(remoteMeta\?\.swapShort, base\.swapShort, mock\.swapShort\) \?\? base\.swapShort/);
   assert.match(source, /const swapLong = resolveDetailNumber\(remoteMeta\?\.swapLong, q\.swapLong\)/);
   assert.match(source, /const swapShort = resolveDetailNumber\(remoteMeta\?\.swapShort, q\.swapShort\)/);
-  assert.match(pricingFees, /<Row label="Swap Long" value=\{formatSwapValue\(swapLong\)\}/);
-  assert.match(pricingFees, /<Row label="Swap Short" value=\{formatSwapValue\(swapShort\)\}/);
+  assert.match(pricingFees, /<Row label=\{t\('Swap Long'\)\} value=\{formatSwapValue\(swapLong\)\}/);
+  assert.match(pricingFees, /<Row label=\{t\('Swap Short'\)\} value=\{formatSwapValue\(swapShort\)\}/);
   assert.doesNotMatch(pricingFees, /\(q\.swapLong \?\? 0\)\.toFixed\(2\)/);
   assert.doesNotMatch(pricingFees, /\(q\.swapShort \?\? 0\)\.toFixed\(2\)/);
 });
 
-test('market statistics opens the complete screen without a temporary shell', () => {
+test('market statistics paints an exact shell before mounting its focused heavy body', () => {
   const source = readMarketStatisticsSource();
 
-  assert.match(source, /export function MarketStatisticsScreen\(\) \{[\s\S]*return <MarketStatisticsInteractiveContent \/>;[\s\S]*\}/);
-  assert.doesNotMatch(source, /MarketStatisticsInitialShell/);
-  assert.doesNotMatch(source, /useDeferredRouteContentReady/);
+  assert.match(source, /export function MarketStatisticsScreen\(\) \{[\s\S]*useDeferredRouteContentReady\(0, isScreenFocused\)[\s\S]*if \(!contentReady\) \{[\s\S]*<QuoteInfoLaunchShell[\s\S]*destination="market-statistics"[\s\S]*return <MarketStatisticsInteractiveContent onBack=\{handleBack\} \/>/);
+  assert.match(source, /markQuoteInfoLaunchCovered\('market-statistics'\)/);
+  assert.match(source, /completeQuoteInfoLaunch\('market-statistics'\)/);
+  assert.match(source, /backNavigationStartedRef\.current = true;[\s\S]*hideQuoteInfoLaunch\(\);[\s\S]*scheduleBackNavigationAfterVisualFrame\(\(\) => \{[\s\S]*safeRouterBack\(router, '\/\(tabs\)\/quotes'\)/);
+  assert.match(source, /onPress=\{onBack\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart[\s\S]*latencyLabel="quoteInfo\.marketStatistics\.back"[\s\S]*latencyBudgetMs=\{50\}/);
   assert.doesNotMatch(source, /MARKET_STATISTICS_FULL_CONTENT_DELAY_MS/);
 });

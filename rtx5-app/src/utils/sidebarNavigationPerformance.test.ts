@@ -138,7 +138,7 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
   assert.match(hostControllerSource, /export const SIDEBAR_HOST_DESTINATIONS = \[[\s\S]*'journal',[\s\S]*'economic-calendar',[\s\S]*'user-guide',[\s\S]*'help',[\s\S]*'about'/);
   assert.match(hostControllerSource, /export function showSidebarDestination\([\s\S]*return sidebarDestinationController\.show\(destinationOrPath, source\)/);
   assert.match(fastTabVisualSource, /export function showFastTabVisual\(pathOrName: string\)/);
-  assert.match(fastTabVisualSource, /export function scheduleFastTabNavigation\(revision: number, action: \(\) => void\)/);
+  assert.match(fastTabVisualSource, /export function scheduleFastTabNavigation\(\s*revision: number,\s*action: \(\) => void,\s*settleDelayMs: number = FAST_TAB_NAVIGATION_SETTLE_DELAY_MS,\s*\)/);
   assert.match(source, /import \{ navigateMountedSidebarTab, registerSidebarOpenHandler \} from '\.\/sidebarDrawerController'/);
   assert.match(source, /useEffect\(\(\) => registerSidebarOpenHandler\(\(\) => \{[\s\S]*startOpenAnimation\(\);[\s\S]*showInteractiveAfterVisualFrame\(\);/);
   assert.match(source, /useUIState\.subscribe\(\(state, previousState\) => \{/);
@@ -265,7 +265,7 @@ test('settings sidebar route defers account-card queries until after route paint
   assert.match(source, /import \{ useDeferredActiveFlag \} from '..\/..\/..\/hooks\/useDeferredActiveFlag'/);
   assert.match(source, /const SETTINGS_SCREEN_DATA_DELAY_MS = 8000/);
   assert.match(source, /const SETTINGS_BODY_PREWARM_DELAY_MS = 1200/);
-  assert.match(source, /const routeBodyReady = useDeferredRouteContentReady\(SETTINGS_BODY_PREWARM_DELAY_MS\)/);
+  assert.match(source, /const routeBodyReady = useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : SETTINGS_BODY_PREWARM_DELAY_MS,\s*\)/);
   assert.match(source, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
   assert.match(source, /requestAnimationFrame\(markReady\)/);
   assert.doesNotMatch(source, /sidebarOpen = useUIState/);
@@ -484,6 +484,7 @@ test('sidebar hosts detail destinations directly and shares the fast primary-tab
   // heavy focus/query commit lands after the drawer close motion finishes.
   assert.match(destinationControllerSource, /const FOCUS_NOTIFY_SETTLE_DELAY_MS = 110/);
   assert.match(destinationControllerSource, /globalThis\.requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(notifyIfCurrent, FOCUS_NOTIFY_SETTLE_DELAY_MS\);/);
+  assert.match(destinationControllerSource, /if \(source === 'settings'\) \{\s*notifyIfCurrent\(\);\s*return;/);
   assert.match(destinationControllerSource, /show: \(destinationOrPath, source = 'programmatic'\) => \{/);
   assert.match(destinationControllerSource, /export function showSidebarDestination\([\s\S]*sidebarDestinationController\.show\(destinationOrPath, source\)/);
   assert.doesNotMatch(destinationControllerSource, /useRouter|router\.(?:navigate|push|replace|dismissTo)/);
@@ -501,12 +502,18 @@ test('sidebar hosts detail destinations directly and shares the fast primary-tab
   assert.match(destinationHostSource, /'user-guide': createActiveAwareSidebarDestinationAdapter\(UserGuideScreenInner\)/);
   assert.match(destinationHostSource, /help: createActiveAwareSidebarDestinationAdapter\(HelpScreenInner\)/);
   assert.match(destinationHostSource, /about: createActiveAwareSidebarDestinationAdapter\(AboutScreenInner\)/);
+  // "Manage accounts" must stay a hosted destination: as a pushed route the
+  // navigation commit was measured blocking the tap turn ~1.2s on-device.
+  assert.match(destinationHostSource, /import \{ AccountsScreenInner \} from/);
+  assert.match(destinationHostSource, /accounts: createActiveAwareSidebarDestinationAdapter\(AccountsScreenInner\)/);
+  assert.match(destinationControllerSource, /accounts: '\/settings\/accounts'/);
   const activeAwareDestinationViews = [
     ['src/features/settings/JournalScreen/JournalScreen.tsx', 'JournalScreenInner'],
     ['src/features/settings/EconomicCalendarScreen/EconomicCalendarScreen.tsx', 'EconomicCalendarScreenInner'],
     ['src/features/settings/UserGuideScreen.tsx', 'UserGuideScreenInner'],
     ['src/features/settings/HelpScreen.tsx', 'HelpScreenInner'],
     ['src/features/settings/AboutScreen.tsx', 'AboutScreenInner'],
+    ['src/features/settings/AccountsScreen.tsx', 'AccountsScreenInner'],
   ] as const;
   for (const [file, innerName] of activeAwareDestinationViews) {
     assert.match(
@@ -522,7 +529,7 @@ test('sidebar hosts detail destinations directly and shares the fast primary-tab
   // leaving the old page visible after the drawer closed.
   assert.match(destinationHostSource, /useSyncExternalStore\(\s*controller\.subscribeVisual,\s*controller\.getSnapshot,\s*controller\.getSnapshot/);
   assert.match(destinationControllerSource, /subscribeVisual: \(listener: \(\) => void\) => \{/);
-  assert.match(destinationControllerSource, /visualListeners\.forEach\(\(listener\) => listener\(\)\);\s*notifyAfterFirstVisualFrame\(nextSnapshot\.revision\);/);
+  assert.match(destinationControllerSource, /visualListeners\.forEach\(\(listener\) => listener\(\)\);\s*notifyAfterFirstVisualFrame\(nextSnapshot\.revision, nextSnapshot\.source\);/);
   assert.match(destinationHostSource, /visualActive \? styles\.destinationVisible : styles\.destinationHidden/);
   assert.match(destinationHostSource, /pointerEvents=\{visualActive \? 'auto' : 'none'\}/);
   assert.doesNotMatch(destinationHostSource, /from 'react-native-reanimated'/);
@@ -534,7 +541,7 @@ test('sidebar hosts detail destinations directly and shares the fast primary-tab
   assert.match(fastTabNavigatorSource, /export const FastTabs = Object\.assign/);
   assert.match(fastTabNavigatorSource, /const SceneLayer = memo/);
   assert.match(fastTabVisualSource, /export function showFastTabVisual\(pathOrName: string\)/);
-  assert.match(fastTabVisualSource, /export function scheduleFastTabNavigation\(revision: number, action: \(\) => void\)/);
+  assert.match(fastTabVisualSource, /export function scheduleFastTabNavigation\(\s*revision: number,\s*action: \(\) => void,\s*settleDelayMs: number = FAST_TAB_NAVIGATION_SETTLE_DELAY_MS,\s*\)/);
   assert.match(deferredMountSource, /requestAnimationFrame/);
   assert.match(deferredMountSource, /export function DeferredRouteModule/);
   assert.match(deferredMountSource, /const ROUTE_MODULE_LOAD_DELAY_MS = 0/);
@@ -556,11 +563,20 @@ test('sidebar hosts detail destinations directly and shares the fast primary-tab
   assert.match(journalRouteSource, /return <JournalScreen \/>/);
   assert.doesNotMatch(journalRouteSource, /DeferredRouteModule|JournalRouteFallback|loadJournalScreenRoute/);
   assert.match(accountsRouteSource, /DeferredRouteModule/);
-  assert.match(accountsRouteSource, /cacheKey="settings\/accounts"/);
+  // The route and the startup warmup must share the SAME cache key + loader
+  // (accountsScreenPreload.ts) so the warmed module is the one the route
+  // mounts synchronously — a literal key here could silently drift.
+  assert.match(accountsRouteSource, /cacheKey=\{ACCOUNTS_ROUTE_MODULE_CACHE_KEY\}/);
+  assert.match(accountsRouteSource, /load=\{loadAccountsScreenRoute\}/);
+  assert.match(accountsRouteSource, /from '\.\.\/\.\.\/src\/features\/settings\/accountsScreenPreload'/);
   assert.match(accountsRouteSource, /mountDelayMs=\{SETTINGS_ROUTE_MOUNT_DELAY_MS\}/);
   assert.match(accountsRouteSource, /SettingsRouteLaunchPreview/);
   assert.match(actionWarmupSource, /ACTION_DEFERRED_MODULE_WARMUPS/);
   assert.match(actionWarmupSource, /preloadDeferredRouteModule\(module\.cacheKey, module\.load\)/);
+  // "Manage accounts" (sidebar) and the Settings row both land on
+  // /settings/accounts; its heavy module must be in the startup idle warmup
+  // so the first open mounts the real screen instead of the launch preview.
+  assert.match(actionWarmupSource, /\{ cacheKey: ACCOUNTS_ROUTE_MODULE_CACHE_KEY, load: loadAccountsScreenRoute \}/);
   for (const file of immediateSidebarRouteFiles) {
     const routeSource = readSource(file);
     assert.doesNotMatch(routeSource, /DeferredRouteModule|SettingsRouteLaunchPreview|SETTINGS_ROUTE_MOUNT_DELAY_MS|const load[A-Za-z0-9]+ScreenRoute = \(\) => import\('/);

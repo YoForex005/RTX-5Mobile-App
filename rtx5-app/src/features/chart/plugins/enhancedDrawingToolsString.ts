@@ -3283,7 +3283,11 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
               mouseWheel: true,
               pressedMouseMove: true,
               horzTouchDrag: true,
-              vertTouchDrag: true
+              // RTX5's own gesture handler owns chart-body vertical panning
+              // (and enforces the Auto-scale toggle); lightweight-charts'
+              // native vertical touch drag must stay off or it pans the pane
+              // through the parallel touch-event stream with stale axis labels.
+              vertTouchDrag: false
             },
         handleScale: drawingMode
           ? {

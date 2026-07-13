@@ -25,7 +25,7 @@ test('journal screen renders persisted MT5-style terminal rows', () => {
   assert.match(source, /styles\.terminalLogSource/);
   assert.match(source, /styles\.terminalLogMessage/);
   assert.match(source, /Terminal Log/);
-  assert.match(source, /No real journal events recorded for \$\{selectedDateLabel\}\./);
+  assert.match(source, /\$\{t\('No real journal events recorded for'\)\} \$\{selectedDateLabel\}\./);
   assert.doesNotMatch(source, /buildHistoryJournalRows/);
   assert.doesNotMatch(source, /historyRows/);
   assert.doesNotMatch(source, /history-open-log/);

@@ -13,6 +13,7 @@ import { ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useTranslation } from '../../i18n/useTranslation';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { safeRouterBack } from '../../utils/navigation';
@@ -79,6 +80,7 @@ const INDICATOR_SECTIONS: IndicatorSection[] = [
 ];
 
 export function IndicatorsScreen() {
+  const { t } = useTranslation();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
@@ -96,7 +98,7 @@ export function IndicatorsScreen() {
         <Pressable onPress={() => safeRouterBack(router, '/(tabs)/chart')} hitSlop={16} style={s.headerBackBtn}>
           <Ionicons name="arrow-back" size={24} color={T.text} />
         </Pressable>
-        <Text style={s.headerTitle} numberOfLines={1}>Indicators</Text>
+        <Text style={s.headerTitle} numberOfLines={1}>{t('Indicators')}</Text>
       </View>
 
       <ScrollView
@@ -108,7 +110,7 @@ export function IndicatorsScreen() {
         {INDICATOR_SECTIONS.map((section) => (
           <View key={section.title} style={s.section}>
             <View style={s.sectionHeaderRow}>
-              <Text style={s.sectionTitle}>{section.title.toUpperCase()}</Text>
+              <Text style={s.sectionTitle}>{t(section.title).toUpperCase()}</Text>
             </View>
             <View style={s.sectionDivider} />
             {section.items.map((item, idx) => (
@@ -121,7 +123,7 @@ export function IndicatorsScreen() {
                   pressed && s.itemRowPressed,
                 ]}
               >
-                <Text style={s.itemText}>{item}</Text>
+                <Text style={s.itemText}>{t(item)}</Text>
               </Pressable>
             ))}
           </View>

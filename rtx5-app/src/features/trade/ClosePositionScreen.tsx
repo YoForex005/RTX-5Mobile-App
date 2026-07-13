@@ -23,6 +23,7 @@ import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { fmt } from '../../utils/format';
 import { safeRouterBack } from '../../utils/navigation';
+import { useTranslation } from '../../i18n/useTranslation';
 import { CRITICAL_TRADE_ACTION_MAX_LATENCY_MS } from '../../utils/actionLatency';
 import { findPositionById, symbolDisplayName } from './tradeFlow';
 import { resolveLivePositionPrice } from './livePositionMetrics';
@@ -65,6 +66,7 @@ export function ClosePositionScreen() {
   const actionLockRef = useRef(false);
   const actionReleaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const T = useTheme();
+  const { t } = useTranslation();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
@@ -143,8 +145,8 @@ export function ClosePositionScreen() {
       setCloseError(
         formatTradingErrorFeedback(
           createFrontendTradingError(
-            'Position Error',
-            'The position ticket is still loading. Return to Trade and select the position again.',
+            t('Position Error'),
+            t('The position ticket is still loading. Return to Trade and select the position again.'),
           ),
         ),
       );
@@ -157,8 +159,8 @@ export function ClosePositionScreen() {
       setCloseError(
         formatTradingErrorFeedback(
           createFrontendTradingError(
-            'Authentication Error',
-            'The app does not have a valid local trading session. Log in again before closing a position.',
+            t('Authentication Error'),
+            t('The app does not have a valid local trading session. Log in again before closing a position.'),
           ),
         ),
       );
@@ -206,7 +208,7 @@ export function ClosePositionScreen() {
         setIsClosing(false);
         releaseActionLock();
       });
-  }, [isClosing, position, releaseActionLock, resolvedLogin]);
+  }, [isClosing, position, releaseActionLock, resolvedLogin, t]);
 
   /**
    * Navigates the user to the 'Close By' screen, allowing them to close this position by merging it with an opposite open position.
@@ -233,7 +235,7 @@ export function ClosePositionScreen() {
         <Pressable onPress={() => safeRouterBack(router, '/(tabs)/trade')} hitSlop={16} style={styles.headerBtn}>
           <Ionicons name="arrow-back" size={26} color={T.text} />
         </Pressable>
-        <Text style={[styles.headerTitle, { color: T.text }]}>Close Position</Text>
+        <Text style={[styles.headerTitle, { color: T.text }]}>{t('Close position')}</Text>
         <View style={styles.headerBtn} />
       </View>
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
@@ -249,7 +251,7 @@ export function ClosePositionScreen() {
         <Pressable onPress={() => safeRouterBack(router, '/(tabs)/trade')} hitSlop={16} style={styles.headerBtn}>
           <Ionicons name="arrow-back" size={26} color={T.text} />
         </Pressable>
-        <Text style={[styles.headerTitle, { color: T.text }]}>Close Position</Text>
+        <Text style={[styles.headerTitle, { color: T.text }]}>{t('Close position')}</Text>
         <View style={styles.headerBtn} />
       </View>
       <ScrollView
@@ -263,7 +265,7 @@ export function ClosePositionScreen() {
         keyboardShouldPersistTaps="always"
       >
         <View style={styles.header}>
-          <Text style={styles.subTitle}>Review and confirm closing order</Text>
+          <Text style={styles.subTitle}>{t('Review and confirm closing order')}</Text>
         </View>
 
         <View style={styles.card}>
@@ -280,11 +282,11 @@ export function ClosePositionScreen() {
           <View style={styles.separator} />
 
           <View style={styles.metrics}>
-            <Metric label='Open Price' value={fmt.price(position.openPrice)} />
-            <Metric label='Current Price' value={fmt.price(getLivePrice(position))} />
+            <Metric label={t('Open Price')} value={fmt.price(position.openPrice)} />
+            <Metric label={t('Current Price')} value={fmt.price(getLivePrice(position))} />
             <View style={styles.metricSpacer} />
-            <Metric label='Real-time P/L' value={fmt.pnl(position.pnl)} negative={position.pnl < 0} positive={position.pnl > 0} isHighlighted />
-            <Metric label='Order Ticket' value={`#${position.id}`} isSecondary />
+            <Metric label={t('Real-time P/L')} value={fmt.pnl(position.pnl)} negative={position.pnl < 0} positive={position.pnl > 0} isHighlighted />
+            <Metric label={t('Order Ticket')} value={`#${position.id}`} isSecondary />
           </View>
         </View>
 
@@ -295,7 +297,7 @@ export function ClosePositionScreen() {
                 {closeError}
               </Text>
             ) : (
-              <Text style={[styles.statusText, styles.statusTextSuccess]}>Close order submitted. Position closed successfully.</Text>
+              <Text style={[styles.statusText, styles.statusTextSuccess]}>{t('Close order submitted. Position closed successfully.')}</Text>
             )}
           </View>
         ) : null}
@@ -313,7 +315,7 @@ export function ClosePositionScreen() {
             {isClosing ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
-              <Text style={styles.closeButtonText}>Close Position</Text>
+              <Text style={styles.closeButtonText}>{t('Close position')}</Text>
             )}
           </Pressable>
 
@@ -323,7 +325,7 @@ export function ClosePositionScreen() {
             onPressIn={handleOpenCloseBy}
             unstable_pressDelay={0}
           >
-            <Text style={styles.closeByButtonText}>Close By</Text>
+            <Text style={styles.closeByButtonText}>{t('Close By')}</Text>
           </Pressable>
         </View>
       </ScrollView>

@@ -205,6 +205,23 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     }
   }
 
+  public resumeReconnectAfterInteraction(): void {
+    this.reconnectDeferredUntil = 0;
+
+    if (
+      this.isConnected
+      || this.ws?.readyState === WebSocket.OPEN
+      || this.ws?.readyState === WebSocket.CONNECTING
+      || !this.shouldReconnect
+      || !this.hasActiveDemand()
+    ) {
+      return;
+    }
+
+    this.clearReconnectTimer();
+    this.connect();
+  }
+
   private getInteractionReconnectDelay(now = Date.now()): number {
     return Math.max(0, this.reconnectDeferredUntil - now);
   }

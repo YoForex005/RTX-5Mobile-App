@@ -3422,7 +3422,8 @@ export const CH_HTML = `
           activeTradeLineDrag ||
           verticalPricePanGestureActive ||
           activeHorizontalScrollGesture ||
-          isManualVerticalPanRangePreserved()
+          isManualVerticalPanRangePreserved() ||
+          isManualVerticalPanRangeLocked()
         ) {
           return;
         }
@@ -3484,7 +3485,14 @@ export const CH_HTML = `
       }
 
       function resetVisiblePriceScaleForFreshSeries(reason) {
-        beginFreshSeriesVerticalCenter();
+        // A fresh series renders exactly where autoscale fits the recent bars
+        // (the last candle — and therefore the live price — is always in
+        // view). The old beginFreshSeriesVerticalCenter() re-applied an
+        // explicit padded range one frame AFTER the correct autoscale paint,
+        // which visibly squashed and shifted the chart on every return to the
+        // Chart tab before a later refresh restored autoscale. Keeping the
+        // mode inactive turns every scheduled recenter into a safe no-op.
+        clearFreshSeriesVerticalCenterState();
         clearManualPriceScaleState();
         enableRightPriceAutoScale();
         scheduleOverlayPriceScaleLock(true);
@@ -3556,12 +3564,14 @@ export const CH_HTML = `
       }
 
       function shouldResetManualVerticalPanForHealth(reason) {
+        // Overlay updates fire on every live tick, so they must not count as
+        // a reset trigger — otherwise a user-owned vertical pan is destroyed
+        // ~1s after finger-up on any live symbol. Only genuine series
+        // replacement / recovery may drop the manual range.
         return (
           reason === 'update_data_replace_series' ||
           reason === 'recover_data' ||
-          reason === 'recover_surface' ||
-          reason === 'overlay_update' ||
-          reason === 'overlay_resync'
+          reason === 'recover_surface'
         );
       }
 

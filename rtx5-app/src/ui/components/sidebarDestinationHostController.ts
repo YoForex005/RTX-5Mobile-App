@@ -4,6 +4,8 @@ export const SIDEBAR_HOST_DESTINATIONS = [
   'user-guide',
   'help',
   'about',
+  'accounts',
+  'interface',
 ] as const;
 
 export type SidebarHostDestination = (typeof SIDEBAR_HOST_DESTINATIONS)[number];
@@ -13,10 +15,13 @@ export type SidebarHostDestinationPath =
   | '/economic-calendar'
   | '/user-guide'
   | '/help'
-  | '/about';
+  | '/about'
+  | '/settings/accounts'
+  | '/settings/interface';
 
 export type SidebarDestinationActivationSource =
   | 'sidebar'
+  | 'settings'
   | 'deep-link'
   | 'route-sync'
   | 'programmatic';
@@ -57,6 +62,13 @@ const DESTINATION_PATHS: Readonly<Record<SidebarHostDestination, SidebarHostDest
   'user-guide': '/user-guide',
   help: '/help',
   about: '/about',
+  // "Manage accounts" — same public path as the routed Settings-tab entry, so
+  // the sidebar resolves it to the retained host instead of a navigation
+  // commit (measured blocking the tap turn 1.2s on-device).
+  accounts: '/settings/accounts',
+  // "Language Preference" — Settings-row-only destination (not in the drawer);
+  // shares the routed path so deep links and the pushed fallback keep working.
+  interface: '/settings/interface',
 };
 
 const DESTINATIONS_BY_PATH = new Map<SidebarHostDestinationPath, SidebarHostDestination>(
@@ -131,12 +143,22 @@ export function createSidebarDestinationController(
     })
     : CLOSED_SNAPSHOT;
 
-  const notifyAfterFirstVisualFrame = (revision: number) => {
+  const notifyAfterFirstVisualFrame = (
+    revision: number,
+    source: SidebarDestinationActivationSource | null,
+  ) => {
     const notifyIfCurrent = () => {
       if (notificationRevision === revision) {
         listeners.forEach((listener) => listener());
       }
     };
+
+    // Settings rows have no drawer animation to protect. Publish focus now so
+    // the hosted screen's own two-frame body gate is the only first-open wait.
+    if (source === 'settings') {
+      notifyIfCurrent();
+      return;
+    }
 
     // Node/test environments have no frame clock and retain the controller's
     // synchronous observable contract. On-device, the retained native layer
@@ -162,7 +184,7 @@ export function createSidebarDestinationController(
     // this same JavaScript turn — the Reanimated applier alone was observed
     // lagging >1s behind a congested JS loop on-device.
     visualListeners.forEach((listener) => listener());
-    notifyAfterFirstVisualFrame(nextSnapshot.revision);
+    notifyAfterFirstVisualFrame(nextSnapshot.revision, nextSnapshot.source);
   };
 
   return Object.freeze({

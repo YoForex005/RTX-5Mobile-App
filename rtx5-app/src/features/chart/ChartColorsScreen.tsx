@@ -13,6 +13,7 @@ import { ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { Screen } from '../../ui/components/Screen';
 import { useTheme } from '../../ui/theme/useTheme';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useTranslation } from '../../i18n/useTranslation';
 import { ThemeColors } from '../../ui/theme/glass';
 import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
 import type { ChartColorsConfig } from '../../state/userPreferences';
@@ -49,6 +50,7 @@ const SECTIONS: { title: string; items: ColorRow[] }[] = [
 ];
 
 export function ChartColorsScreen() {
+  const { t } = useTranslation();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const chartColors = useUserPreferences((s) => s.chartColors);
@@ -64,6 +66,9 @@ export function ChartColorsScreen() {
     '#EC4899', '#14B8A6', '#1E293B', '#F8FAFC', '#FFFFFF', '#000000',
     'transparent'
   ];
+
+  const resolveHexLabel = (value: string | undefined) =>
+    value && value !== 'transparent' ? value.toUpperCase() : t('Transparent').toUpperCase();
 
   const handleSelectColor = (color: string) => {
     if (activeKey) {
@@ -81,7 +86,7 @@ export function ChartColorsScreen() {
         {SECTIONS.map((section, sIdx) => (
           <View key={section.title} style={{ marginTop: sIdx === 0 ? 8 : 24 }}>
             <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionHeader}>{section.title}</Text>
+              <Text style={styles.sectionHeader}>{t(section.title)}</Text>
             </View>
             <View style={[styles.sectionCard, styles.cardShadow]}>
               {section.items.map((item, idx) => (
@@ -94,12 +99,12 @@ export function ChartColorsScreen() {
                   >
                     {/* Left: Label */}
                     <View style={styles.rowLeft}>
-                      <Text style={styles.rowLabel}>{item.label}</Text>
+                      <Text style={styles.rowLabel}>{t(item.label)}</Text>
                     </View>
 
                     {/* Right: Hex Code & Color Swatch */}
                     <View style={styles.rowRight}>
-                      <Text style={styles.hexText}>{chartColors[item.keyId]?.toUpperCase() || 'TRANSPARENT'}</Text>
+                      <Text style={styles.hexText}>{resolveHexLabel(chartColors[item.keyId])}</Text>
                       <View style={styles.colorSwatchWrap}>
                         <View style={[styles.colorSwatch, { backgroundColor: chartColors[item.keyId] }]} />
                         <View style={styles.colorSwatchHighlight} />
@@ -127,7 +132,7 @@ export function ChartColorsScreen() {
       >
         <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }} onPress={() => setActiveKey(null)}>
           <Pressable style={{ backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 48 }} onPress={(e) => e.stopPropagation()}>
-            <Text style={{ fontSize: 16, fontWeight: '600', color: isDark ? '#FFFFFF' : '#000000', marginBottom: 16, textAlign: 'center' }}>Select Color</Text>
+            <Text style={{ fontSize: 16, fontWeight: '600', color: isDark ? '#FFFFFF' : '#000000', marginBottom: 16, textAlign: 'center' }}>{t('Select Color')}</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center' }}>
               {PRESET_COLORS.map(c => (
                 <Pressable

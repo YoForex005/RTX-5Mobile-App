@@ -280,6 +280,14 @@ test('trade buy/sell success feedback uses the shared popup without device vibra
 test('action destination routes are warmed in non-blocking batches', () => {
   const warmupSource = readSource('src/utils/actionRouteWarmup.ts');
   const tabsSource = readSource('app/(tabs)/_layout.tsx');
+  const rootSource = readSource('app/_layout.tsx');
+  const orderTicketRouteSource = readSource('app/trade/order-ticket.tsx');
+  const orderTicketLaunchHostSource = readSource('src/features/trade/OrderTicketLaunchHost.tsx');
+  const orderTicketLaunchShellSource = readSource('src/features/trade/OrderTicketLaunchShell.tsx');
+  const detailsRouteSource = readSource('app/quotes/details.tsx');
+  const statisticsRouteSource = readSource('app/quotes/market-statistics.tsx');
+  const quoteInfoLaunchHostSource = readSource('src/features/quotes/QuoteInfoLaunchHost.tsx');
+  const quoteInfoLaunchShellSource = readSource('src/features/quotes/QuoteInfoLaunchShell.tsx');
 
   assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_BATCH_SIZE = 8/);
   assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_BATCH_DELAY_MS = 16/);
@@ -290,6 +298,8 @@ test('action destination routes are warmed in non-blocking batches', () => {
   assert.match(warmupSource, /preloadDeferredRouteModule\(module\.cacheKey, module\.load\)/);
   assert.match(warmupSource, /requestAnimationFrame/);
   assert.match(warmupSource, /\/quotes/);
+  assert.match(warmupSource, /\/quotes\/details/);
+  assert.match(warmupSource, /\/quotes\/market-statistics/);
   assert.match(warmupSource, /\/chart/);
   assert.match(warmupSource, /\/trade/);
   assert.match(warmupSource, /\/history/);
@@ -303,8 +313,64 @@ test('action destination routes are warmed in non-blocking batches', () => {
   assert.match(warmupSource, /\/chart\/objects/);
   assert.match(tabsSource, /import \{ warmActionRoutes \} from '..\/..\/src\/utils\/actionRouteWarmup'/);
   assert.match(tabsSource, /useEffect\(\(\) => warmActionRoutes\(router\), \[router\]\)/);
+  assert.match(tabsSource, /import \{ OrderTicketLaunchHost \} from/);
+  assert.match(tabsSource, /import \{ QuoteInfoLaunchHost \} from/);
+  assert.match(tabsSource, /<SidebarDestinationHost \/>[\s\S]*<OrderTicketLaunchHost \/>[\s\S]*<QuoteInfoLaunchHost \/>[\s\S]*<GlobalActionSheetHost \/>/);
   assert.match(tabsSource, /lazy: false/);
   assert.doesNotMatch(tabsSource, /lazy: true/);
+  assert.match(rootSource, /<Stack\.Screen name='trade\/order-ticket' options=\{\{ headerShown: false, animation: 'none' \}\}/);
+  assert.match(rootSource, /<Stack\.Screen name='quotes\/details' options=\{\{ headerShown: false, animation: 'none' \}\}/);
+  assert.match(rootSource, /<Stack\.Screen name='quotes\/market-statistics' options=\{\{ headerShown: false, animation: 'none' \}\}/);
+  assert.match(orderTicketRouteSource, /cacheKey=\{ORDER_TICKET_ROUTE_MODULE_CACHE_KEY\}/);
+  assert.match(orderTicketRouteSource, /fallback=\{\([\s\S]*<OrderTicketLaunchShell/);
+  assert.doesNotMatch(orderTicketRouteSource, /SettingsRouteLaunchPreview/);
+  assert.doesNotMatch(orderTicketRouteSource, /mountDelayMs|ROUTE_MOUNT_DELAY_MS/);
+  assert.match(orderTicketLaunchHostSource, /executeOnUIRuntimeSync/);
+  assert.match(orderTicketLaunchHostSource, /registerVisualApplier\([\s\S]*writeOrderTicketLaunchVisibilityNow/);
+  assert.match(orderTicketLaunchHostSource, /<OrderTicketLaunchShell[\s\S]*symbol=\{snapshot\.symbol\}/);
+  assert.match(orderTicketLaunchShellSource, /testID="order-ticket-launch-shell"/);
+  assert.match(detailsRouteSource, /cacheKey=\{SYMBOL_DETAILS_ROUTE_MODULE_CACHE_KEY\}/);
+  assert.match(detailsRouteSource, /fallback=\{\([\s\S]*<QuoteInfoLaunchShell[\s\S]*destination="properties"/);
+  assert.doesNotMatch(detailsRouteSource, /SettingsRouteLaunchPreview|mountDelayMs|ROUTE_MOUNT_DELAY_MS/);
+  assert.match(statisticsRouteSource, /cacheKey=\{MARKET_STATISTICS_ROUTE_MODULE_CACHE_KEY\}/);
+  assert.match(statisticsRouteSource, /fallback=\{\([\s\S]*<QuoteInfoLaunchShell[\s\S]*destination="market-statistics"/);
+  assert.doesNotMatch(statisticsRouteSource, /SettingsRouteLaunchPreview|mountDelayMs|ROUTE_MOUNT_DELAY_MS/);
+  assert.match(quoteInfoLaunchHostSource, /executeOnUIRuntimeSync/);
+  assert.match(quoteInfoLaunchHostSource, /destination === 'properties'[\s\S]*destination === 'market-statistics'/);
+  assert.match(quoteInfoLaunchHostSource, /registerVisualApplier\([\s\S]*writeQuoteInfoLaunchDestinationNow/);
+  assert.match(quoteInfoLaunchHostSource, /destination="properties"[\s\S]*destination="market-statistics"/);
+  assert.match(quoteInfoLaunchHostSource, /testID="quote-info-launch-animated-host"/);
+  assert.match(quoteInfoLaunchHostSource, /testID="quote-info-launch-react-host"/);
+  assert.match(quoteInfoLaunchHostSource, /testID="quote-info-launch-react-properties"[\s\S]*testID="quote-info-launch-react-market-statistics"/);
+  const reactQuoteInfoHostStart = quoteInfoLaunchHostSource.indexOf('testID="quote-info-launch-react-host"');
+  assert.notEqual(reactQuoteInfoHostStart, -1);
+  assert.doesNotMatch(
+    quoteInfoLaunchHostSource.slice(reactQuoteInfoHostStart),
+    /<Animated\.View|hostAnimatedStyle|animatedProps=/,
+  );
+  assert.match(quoteInfoLaunchHostSource, /hostAnimatedStyle = useAnimatedStyle\([\s\S]*elevation: visible \? 32 : 0/);
+  assert.match(quoteInfoLaunchHostSource, /reactHostHidden: \{[\s\S]*elevation: 0,[\s\S]*opacity: 0,[\s\S]*zIndex: 0/);
+  assert.match(quoteInfoLaunchHostSource, /reactHostVisible: \{[\s\S]*elevation: 33,[\s\S]*opacity: 1,[\s\S]*zIndex: 33/);
+  assert.match(quoteInfoLaunchHostSource, /reactLayerHidden: \{[\s\S]*opacity: 0[\s\S]*reactLayerVisible: \{[\s\S]*opacity: 1/);
+  assert.match(quoteInfoLaunchShellSource, /testID=\{'quote-info-launch-shell-' \+ destination\}/);
+  assert.match(quoteInfoLaunchShellSource, /activateOnPressIn[\s\S]*activateOnTouchStart[\s\S]*latencyBudgetMs=\{50\}/);
+  assert.match(quoteInfoLaunchShellSource, /function PropertiesLaunchViewport/);
+  assert.match(quoteInfoLaunchShellSource, /makeSymbolDetailsStyles/);
+  assert.match(quoteInfoLaunchShellSource, /s\.glassHero\.container/);
+  assert.match(quoteInfoLaunchShellSource, /s\.glassHero\.header/);
+  assert.match(quoteInfoLaunchShellSource, /s\.glassHero\.priceRow/);
+  assert.match(quoteInfoLaunchShellSource, /s\.ticker\.container/);
+  assert.match(quoteInfoLaunchShellSource, /s\.ticker\.spreadBadge/);
+  assert.match(quoteInfoLaunchShellSource, /s\.ticker\.inner/);
+  assert.match(quoteInfoLaunchShellSource, /s\.glassHero\.metricsRow/);
+  assert.match(quoteInfoLaunchShellSource, /s\.glassHero\.rangeCard/);
+  assert.match(quoteInfoLaunchShellSource, /s\.mom\.container/);
+  assert.match(quoteInfoLaunchShellSource, /s\.act\.row/);
+  assert.match(quoteInfoLaunchShellSource, /s\.sec\.card/);
+  assert.doesNotMatch(
+    quoteInfoLaunchShellSource,
+    /useMarketData|useInstrumentMeta|useLatestDailyCandle|useQuery/,
+  );
 });
 
 test('global action sheet actions avoid selecting rows while scrolling', () => {
@@ -579,8 +645,7 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   assert.doesNotMatch(settingsSource, /SETTINGS_LOWER_CONTENT_DELAY_MS|lowerSettingsReady/);
   assert.match(settingsSource, /import \{ useDeferredRouteContentReady \} from/);
   assert.match(settingsSource, /const SETTINGS_BODY_PREWARM_DELAY_MS = 1200/);
-  assert.match(settingsSource, /const routeBodyReady = useDeferredRouteContentReady\(SETTINGS_BODY_PREWARM_DELAY_MS\)/);
-  assert.doesNotMatch(settingsSource, /useDeferredRouteContentReady\([^)]*, isScreenFocused\)/);
+  assert.match(settingsSource, /const routeBodyReady = useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : SETTINGS_BODY_PREWARM_DELAY_MS,\s*\)/);
   assert.match(settingsSource, /\{routeBodyReady \? <>/);
   assert.match(settingsSource, /const SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/register-entry'[\s\S]*'\/register'[\s\S]*'\/settings\/economic-calendar'[\s\S]*'\/settings\/journal'[\s\S]*'\/settings\/help'[\s\S]*\] as const/);
   assert.doesNotMatch(settingsSource, /SettingsRegisterOpeningShell|registerOpeningShellVisible|SETTINGS_REGISTER_ROUTE_HANDOFF_DELAY_MS/);
@@ -602,32 +667,26 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   assert.match(settingsSource, /onPress=\{\(\) => openReadySettingsRoute\('\/settings\/accounts'\)\}[\s\S]*unstable_pressDelay=\{0\}[\s\S]*latencyLabel="settings\.accounts\.open"/);
   assert.match(settingsSource, /const SETTINGS_REGISTER_ROUTE_LATENCY_BUDGET_MS = 50/);
   assert.match(settingsSource, /const SETTINGS_REGISTER_SCREEN_PRELOAD_DELAY_MS = 0/);
-  assert.match(settingsSource, /const SETTINGS_ROUTE_PREVIEW_ROUTE_DELAY_MS = 32/);
+  assert.doesNotMatch(settingsSource, /SETTINGS_ROUTE_PREVIEW_ROUTE_DELAY_MS|scheduleRouteAfterPreviewPaint/);
   assert.match(settingsSource, /const SETTINGS_ROUTE_LOCK_MS = 1800/);
   assert.match(settingsSource, /const SETTINGS_ROUTE_PREFETCH_DELAY_MS = 0/);
   assert.match(settingsSource, /const scheduleSettingsRouteAfterVisualFrame = \(action: \(\) => void\) => \{[\s\S]*requestAnimationFrame\(runAfterFrame\)[\s\S]*setTimeout\(action, 0\)/);
   assert.match(settingsSource, /const warmRegisterScreen = useCallback\(\(\) => \{[\s\S]*void preloadRegisterScreen\(\)\.catch\(\(\) => undefined\);[\s\S]*\}, \[\]\)/);
   assert.match(settingsSource, /const scheduleRegisterScreenWarmupAfterTouch = useCallback\(\(\) => \{[\s\S]*scheduleSettingsRouteAfterVisualFrame\(warmRegisterScreen\);[\s\S]*\}, \[warmRegisterScreen\]\)/);
   assert.match(settingsSource, /preloadRegisterScreen/);
-  assert.match(settingsSource, /import \{ RegisterHandoffPreview \} from '\.\.\/RegisterHandoffPreview'/);
-  assert.match(settingsSource, /import \{ SettingsRouteLaunchPreview \} from '\.\.\/SettingsRouteLaunchPreview'/);
+  assert.doesNotMatch(settingsSource, /RegisterHandoffPreview|SettingsRouteLaunchPreview/);
   assert.match(settingsSource, /import \{ warmSettingsRouteModules \} from '\.\.\/\.\.\/\.\.\/utils\/settingsRouteWarmup'/);
-  assert.match(settingsSource, /const \[routeLaunchPreview, setRouteLaunchPreview\] = useState<SettingsRouteLaunchPreviewState \| null>\(null\)/);
-  assert.match(settingsSource, /const scheduleRouteAfterPreviewPaint = useCallback\(\(action: \(\) => void\) => \{[\s\S]*SETTINGS_ROUTE_PREVIEW_ROUTE_DELAY_MS/);
-  assert.match(settingsSource, /const resolveSettingsRouteLaunchPreview = useCallback\(\(routePath: SettingsReadyRoute\): SettingsRouteLaunchPreviewState => \{/);
-  assert.match(settingsSource, /const showRouteLaunchPreview = useCallback\(\(routePath: SettingsReadyRoute\) => \{[\s\S]*setRouteLaunchPreview\(resolveSettingsRouteLaunchPreview\(routePath\)\);[\s\S]*warmSettingsRouteModules\(\);/);
+  assert.match(settingsSource, /showSidebarDestination,[\s\S]*type SidebarHostDestination/);
+  assert.match(settingsSource, /const SETTINGS_HOSTED_ROUTE_DESTINATIONS:[\s\S]*'\/settings\/accounts': 'accounts'[\s\S]*'\/settings\/economic-calendar': 'economic-calendar'[\s\S]*'\/settings\/journal': 'journal'[\s\S]*'\/settings\/help': 'help'[\s\S]*'\/settings\/interface': 'interface'/);
+  assert.doesNotMatch(settingsSource, /routeLaunchPreview|showRouteLaunchPreview|resolveSettingsRouteLaunchPreview/);
   assert.match(settingsSource, /const prepareReadySettingsRoute = useCallback\(\(routePath: SettingsReadyRoute\) => \{[\s\S]*warmSettingsRouteModules\(\);[\s\S]*\}, \[scheduleRegisterScreenWarmupAfterTouch\]\)/);
-  assert.match(settingsSource, /const hideRouteLaunchPreview = useCallback\(\(event\?: GestureResponderEvent\) => \{[\s\S]*clearRouteLaunchNavigation\(\);[\s\S]*routeLockRef\.current = false;[\s\S]*setRouteLaunchPreview\(null\);/);
   assert.match(settingsSource, /if \(!isScreenFocused\) \{[\s\S]*return;[\s\S]*\}[\s\S]*routeLockRef\.current = false;[\s\S]*clearTimeout\(routeUnlockTimerRef\.current\)/);
   assert.match(settingsSource, /const isRegisterRoute = routePath === '\/register-entry' \|\| routePath === '\/register'/);
-  assert.match(settingsSource, /showRouteLaunchPreview\(routePath\)/);
-  assert.doesNotMatch(settingsSource, /routeLockRef\.current = true;[\s\S]*warmRegisterScreen\(\);[\s\S]*scheduleSettingsRouteAfterVisualFrame/);
-  assert.match(settingsSource, /const pushRoute = \(\) => \{[\s\S]*router\.push\(routePath as any\);[\s\S]*if \(isRegisterRoute\) \{[\s\S]*warmRegisterScreen\(\);[\s\S]*\}[\s\S]*unlockSettingsRoute\(\);[\s\S]*\};/);
-  assert.match(settingsSource, /scheduleRouteAfterPreviewPaint\(pushRoute\)/);
+  assert.match(settingsSource, /const hostedDestination = SETTINGS_HOSTED_ROUTE_DESTINATIONS\[routePath\];[\s\S]*showSidebarDestination\(hostedDestination, 'settings'\)[\s\S]*routeLockRef\.current = false;[\s\S]*return;/);
+  assert.match(settingsSource, /prepareReadySettingsRoute\(routePath\);[\s\S]*router\.push\(routePath as any\);[\s\S]*if \(isRegisterRoute\) \{[\s\S]*warmRegisterScreen\(\);[\s\S]*\}[\s\S]*unlockSettingsRoute\(\);/);
   assert.match(settingsSource, /onPress=\{\(\) => openReadySettingsRoute\('\/register-entry'\)\}[\s\S]*onPressIn=\{\(\) => prepareReadySettingsRoute\('\/register-entry'\)\}[\s\S]*unstable_pressDelay=\{0\}[\s\S]*latencyLabel="settings\.register\.open"[\s\S]*latencyBudgetMs=\{SETTINGS_REGISTER_ROUTE_LATENCY_BUDGET_MS\}/);
   assert.doesNotMatch(settingsSource, /onTouchStart=\{\(\) => showRouteLaunchPreview\('\/(?:settings\/accounts|register-entry|settings\/economic-calendar|settings\/interface|settings\/journal|settings\/help)'\)\}/);
-  assert.match(settingsSource, /\{routeLaunchPreview\?\.kind === 'register' \? \([\s\S]*<RegisterHandoffPreview[\s\S]*backLatencyLabel="settings\.register\.preview\.back"/);
-  assert.match(settingsSource, /routeLaunchPreview\?\.kind === 'settings' \? \([\s\S]*<SettingsRouteLaunchPreview/);
+  assert.doesNotMatch(settingsSource, /registerLaunchPreviewLayer|settings\.register\.preview\.back/);
   assert.doesNotMatch(settingsSource, /subscribeRegisterScreenReady|<Modal/);
   assert.doesNotMatch(settingsSource, /if \(routePath === '\/register-entry'\)[\s\S]*return;/);
   assert.doesNotMatch(settingsSource, /if \(routePath === '\/register'\)[\s\S]*return;/);
@@ -781,8 +840,14 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
 
 test('trade ticket execution actions use the immediate fast press path', () => {
   const source = readSource('src/features/trade/OrderTicketScreen.tsx');
+  const launchShellSource = readSource('src/features/trade/OrderTicketLaunchShell.tsx');
 
   assert.match(source, /latencyLabel="orderTicket\.back"/);
+  assert.match(source, /const handleOrderTicketBack = useCallback\(\(\) => \{[\s\S]*backNavigationStartedRef\.current = true;[\s\S]*hideOrderTicketLaunch\(\);[\s\S]*scheduleBackNavigationAfterVisualFrame\(\(\) => \{[\s\S]*safeRouterBack\(router, '\/\(tabs\)\/trade'\)/);
+  assert.match(source, /onPress=\{handleOrderTicketBack\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart[\s\S]*latencyLabel="orderTicket\.back"[\s\S]*latencyBudgetMs=\{50\}[\s\S]*unstable_pressDelay=\{0\}/);
+  assert.match(source, /const wasFocusedRef = useRef\(false\);[\s\S]*if \(isScreenFocused\) \{[\s\S]*wasFocusedRef\.current = true;[\s\S]*if \(wasFocusedRef\.current\) \{[\s\S]*hideOrderTicketLaunch\(\)/);
+  assert.match(launchShellSource, /backLatencyLabel = 'orderTicket\.shell\.back'/);
+  assert.match(launchShellSource, /onPress=\{onBack\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart[\s\S]*latencyLabel=\{backLatencyLabel\}[\s\S]*latencyBudgetMs=\{50\}[\s\S]*unstable_pressDelay=\{0\}/);
   assert.match(source, /latencyLabel="orderTicket\.symbol\.open"/);
   assert.match(source, /visible=\{symbolPickerOpen\}/);
   assert.match(source, /latencyLabel=\{`orderTicket\.pricePanel\.\$\{sellTradeAction\.side\}`\}/);
@@ -794,7 +859,8 @@ test('trade ticket execution actions use the immediate fast press path', () => {
   assert.match(source, /latencyLabel="orderTicket\.sl\.decrement"/);
   assert.match(source, /latencyLabel="orderTicket\.tp\.increment"/);
   assert.match(source, /import \{ useDeferredRouteContentReady \} from '\.\.\/\.\.\/ui\/components\/DeferredRouteMount'/);
-  assert.match(source, /const ORDER_TICKET_FULL_CONTENT_DELAY_MS = 48/);
+  assert.match(source, /const ORDER_TICKET_FULL_CONTENT_DELAY_MS = 0/);
+  assert.match(source, /export function OrderTicketScreen\(\) \{[\s\S]*const isScreenFocused = useIsFocused\(\);[\s\S]*useDeferredRouteContentReady\(ORDER_TICKET_FULL_CONTENT_DELAY_MS, isScreenFocused\)/);
   assert.match(source, /const ORDER_TICKET_DATA_READY_DELAY_MS = 180/);
   assert.match(source, /const ORDER_TICKET_HEAVY_CONTENT_DELAY_MS = 240/);
   assert.match(source, /const routeDataReady = useDeferredRouteContentReady\(ORDER_TICKET_DATA_READY_DELAY_MS\)/);
@@ -822,7 +888,7 @@ test('close position actions use the immediate trade path', () => {
 
   assert.match(rootSource, /<Stack\.Screen name='quotes\/details' options=\{\{ headerShown: false, animation: 'none' \}\}/);
   assert.match(rootSource, /<Stack\.Screen name='quotes\/market-statistics' options=\{\{ headerShown: false, animation: 'none' \}\}/);
-  assert.match(rootSource, /<Stack\.Screen name='trade\/order-ticket' options=\{\{ title: t\('Trade'\), animation: 'none' \}\}/);
+  assert.match(rootSource, /<Stack\.Screen name='trade\/order-ticket' options=\{\{ headerShown: false, animation: 'none' \}\}/);
   assert.match(rootSource, /<Stack\.Screen name='trade\/close-position' options=\{\{ headerShown: false, animation: 'none' \}\}/);
   assert.match(overlaySource, /import \{ CRITICAL_TRADE_ACTION_MAX_LATENCY_MS \} from '\.\.\/\.\.\/\.\.\/utils\/actionLatency'/);
   assert.match(overlaySource, /onPress=\{onClose\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="tradeRow\.closePosition\.submit"[\s\S]*latencyBudgetMs=\{CRITICAL_TRADE_ACTION_MAX_LATENCY_MS\}/);

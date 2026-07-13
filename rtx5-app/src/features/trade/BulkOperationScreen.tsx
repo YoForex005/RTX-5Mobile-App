@@ -18,6 +18,7 @@ import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { fmt } from '../../utils/format';
 import { safeRouterBack } from '../../utils/navigation';
+import { useTranslation } from '../../i18n/useTranslation';
 import { bulkModeLabel, filterPositionsForBulk } from './tradeFlow';
 
 export function BulkOperationScreen() {
@@ -28,8 +29,20 @@ export function BulkOperationScreen() {
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
+  const { t } = useTranslation();
   const positions = usePositionsState((s) => s.positions);
-  const title = bulkModeLabel(mode);
+  // Translate the bulk-mode label at the render layer: fixed labels resolve
+  // directly from the dictionary; symbol-specific labels ("Close BTCUSD
+  // Positions") go through the '{symbol}' template key instead.
+  const title = useMemo(() => {
+    const rawTitle = bulkModeLabel(mode);
+    const translated = t(rawTitle);
+    if (translated !== rawTitle) return translated;
+    const symbolTitle = /^Close (.+) Positions$/.exec(rawTitle);
+    return symbolTitle
+      ? t('Close {symbol} Positions').replace('{symbol}', symbolTitle[1])
+      : translated;
+  }, [mode, t]);
   const affectedPositions = useMemo(
     () => filterPositionsForBulk(positions, mode),
     [positions, mode]
@@ -84,10 +97,10 @@ export function BulkOperationScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.summaryCard}>
-          <Row label='Affected Positions' value={String(affectedPositions.length)} isDark={isDark} T={T} />
-          <Row border label='Total Exposure P/L' value={fmt.pnl(totalPnl)} danger={totalPnl < 0} positive={totalPnl > 0} isDark={isDark} T={T} />
-          <Row border label='Active Exposures' value={String(activeExposures.length)} isDark={isDark} T={T} />
-          <Row border label='Net Exposure (USD)' value={fmt.pnl(totalNetExposure)} danger={totalNetExposure < 0} positive={totalNetExposure > 0} isDark={isDark} T={T} />
+          <Row label={t('Affected Positions')} value={String(affectedPositions.length)} isDark={isDark} T={T} />
+          <Row border label={t('Total Exposure P/L')} value={fmt.pnl(totalPnl)} danger={totalPnl < 0} positive={totalPnl > 0} isDark={isDark} T={T} />
+          <Row border label={t('Active Exposures')} value={String(activeExposures.length)} isDark={isDark} T={T} />
+          <Row border label={t('Net Exposure (USD)')} value={fmt.pnl(totalNetExposure)} danger={totalNetExposure < 0} positive={totalNetExposure > 0} isDark={isDark} T={T} />
         </View>
 
         <View style={styles.previewCard}>
@@ -114,13 +127,13 @@ export function BulkOperationScreen() {
             </View>
           ))}
           {affectedPositions.length === 0 ? (
-            <Text style={styles.emptyText}>No positions match this operation.</Text>
+            <Text style={styles.emptyText}>{t('No positions match this operation.')}</Text>
           ) : null}
         </View>
 
         {submitted ? (
           <View style={styles.success}>
-            <Text style={styles.successText}>Bulk operation simulated and queued for backend execution.</Text>
+            <Text style={styles.successText}>{t('Bulk operation simulated and queued for backend execution.')}</Text>
           </View>
         ) : null}
 
@@ -129,7 +142,7 @@ export function BulkOperationScreen() {
           onPress={() => setSubmitted(true)}
           disabled={affectedPositions.length === 0}
         >
-          <Text style={styles.executeText}>Execute Bulk Operation</Text>
+          <Text style={styles.executeText}>{t('Execute Bulk Operation')}</Text>
         </Pressable>
       </ScrollView>
     </View>

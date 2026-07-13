@@ -12,11 +12,13 @@ import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useTranslation } from '../../i18n/useTranslation';
 import { useTheme } from '../../ui/theme/useTheme';
 import { safeRouterBack } from '../../utils/navigation';
 
 export function ChartPriceSourceScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
@@ -42,7 +44,7 @@ export function ChartPriceSourceScreen() {
           <Ionicons name="arrow-back" size={22} color={T.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: T.text }]} numberOfLines={1}>
-          Price source
+          {t('Price source')}
         </Text>
         <View style={styles.headerBtn} />
       </View>
@@ -52,14 +54,14 @@ export function ChartPriceSourceScreen() {
         canCancelContentTouches={Platform.OS === 'ios'} style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
         <View style={styles.card}>
           <Pressable style={styles.row} onPress={() => handleSelect('bid')}>
-            <Text style={styles.rowLabel}>Bid price</Text>
+            <Text style={styles.rowLabel}>{t('Bid price')}</Text>
             {priceSource === 'bid' && (
               <Ionicons name="checkmark" size={24} color={T.trading.buy.primary} />
             )}
           </Pressable>
           <View style={styles.separator} />
           <Pressable style={styles.row} onPress={() => handleSelect('ask')}>
-            <Text style={styles.rowLabel}>Ask price</Text>
+            <Text style={styles.rowLabel}>{t('Ask price')}</Text>
             {priceSource === 'ask' && (
               <Ionicons name="checkmark" size={24} color={T.trading.buy.primary} />
             )}

@@ -2,8 +2,10 @@ import type { ComponentType } from 'react';
 import { memo, useEffect, useSyncExternalStore } from 'react';
 import { BackHandler, StyleSheet, View } from 'react-native';
 import { AboutScreenInner } from '../../features/settings/AboutScreen';
+import { AccountsScreenInner } from '../../features/settings/AccountsScreen';
 import { EconomicCalendarScreenInner } from '../../features/settings/EconomicCalendarScreen/EconomicCalendarScreen';
 import { HelpScreenInner } from '../../features/settings/HelpScreen';
+import { InterfaceScreenInner } from '../../features/settings/InterfaceScreen';
 import { JournalScreenInner } from '../../features/settings/JournalScreen/JournalScreen';
 import { UserGuideScreenInner } from '../../features/settings/UserGuideScreen';
 import {
@@ -66,6 +68,8 @@ export const SIDEBAR_DESTINATION_COMPATIBILITY_REGISTRY: SidebarDestinationRegis
   'user-guide': createActiveAwareSidebarDestinationAdapter(UserGuideScreenInner),
   help: createActiveAwareSidebarDestinationAdapter(HelpScreenInner),
   about: createActiveAwareSidebarDestinationAdapter(AboutScreenInner),
+  accounts: createActiveAwareSidebarDestinationAdapter(AccountsScreenInner),
+  interface: createActiveAwareSidebarDestinationAdapter(InterfaceScreenInner),
 });
 
 export type SidebarDestinationHostProps = Readonly<{

@@ -133,7 +133,7 @@ function InnerLayout() {
           <Stack.Screen name='(tabs)' options={{ headerShown: false }} />
           <Stack.Screen name='quotes/details' options={{ headerShown: false, animation: 'none' }} />
           <Stack.Screen name='quotes/market-statistics' options={{ headerShown: false, animation: 'none' }} />
-          <Stack.Screen name='trade/order-ticket' options={{ title: t('Trade'), animation: 'none' }} />
+          <Stack.Screen name='trade/order-ticket' options={{ headerShown: false, animation: 'none' }} />
           <Stack.Screen name='trade/one-click-terms' options={{ title: t('One Click Trading') }} />
           <Stack.Screen name='trade/close-position' options={{ headerShown: false, animation: 'none' }} />
           <Stack.Screen name='trade/close-by' options={{ headerShown: false }} />

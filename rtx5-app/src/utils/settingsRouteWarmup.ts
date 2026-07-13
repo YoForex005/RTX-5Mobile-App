@@ -1,5 +1,9 @@
 import { JOURNAL_ROUTE_CACHE_KEY, loadJournalScreenRoute } from '../features/settings/JournalScreen/deferredRoute';
 import { preloadRegisterScreen } from '../features/settings/registerScreenPreload';
+import {
+  ACCOUNTS_ROUTE_MODULE_CACHE_KEY,
+  loadAccountsScreenRoute,
+} from '../features/settings/accountsScreenPreload';
 import { preloadDeferredRouteModule } from '../ui/components/DeferredRouteMount';
 import { scheduleIdleWork } from './startupScheduler';
 
@@ -9,7 +13,7 @@ const SETTINGS_ROUTE_MODULE_WARMUP_INITIAL_TIMEOUT_MS = 350;
 const SETTINGS_ROUTE_MODULE_WARMUP_BATCH_TIMEOUT_MS = 500;
 
 const SETTINGS_ROUTE_MODULE_LOADERS = [
-  { key: 'settings/accounts', load: () => import('../features/settings/AccountsScreen').then((module) => module.AccountsScreen) },
+  { key: ACCOUNTS_ROUTE_MODULE_CACHE_KEY, load: loadAccountsScreenRoute },
   { key: 'settings/economic-calendar', load: () => import('../features/settings/EconomicCalendarScreen').then((module) => module.EconomicCalendarScreen) },
   { key: 'settings/interface', load: () => import('../features/settings/InterfaceScreen').then((module) => module.InterfaceScreen) },
   { key: JOURNAL_ROUTE_CACHE_KEY, load: loadJournalScreenRoute },

@@ -601,10 +601,18 @@ test('overlay bridge: trade overlays stay out of price-scale autoscale', () => {
     /var candleSpan = getPriceRangeSpan\(candleDataRange\)[\s\S]*scaleSpan > candleSpan \* PRICE_SCALE_CANDLE_COMPRESSION_SPAN_MULTIPLE[\s\S]*candleScaleTooWide/,
     'price-scale health recovery must reset a wide axis when candle bodies are visibly compressed by far XAUUSD levels',
   );
+  const manualPanResetBody = source.match(
+    /function shouldResetManualVerticalPanForHealth\(reason\) \{[\s\S]*?\n      \}/,
+  )?.[0] ?? '';
   assertSourceContains(
-    source,
-    /function shouldResetManualVerticalPanForHealth\(reason\)[\s\S]*reason === 'overlay_update'[\s\S]*reason === 'overlay_resync'/,
-    'overlay health recovery must be allowed to clear stale locked ranges from far trade preview levels',
+    manualPanResetBody,
+    /reason === 'update_data_replace_series'[\s\S]*reason === 'recover_data'[\s\S]*reason === 'recover_surface'/,
+    'series replacement and surface recovery may clear a manual vertical pan range',
+  );
+  assert.doesNotMatch(
+    manualPanResetBody,
+    /overlay_update|overlay_resync/,
+    'live overlay updates must NOT clear a user-owned vertical pan range (they fire on every tick and would snap the pan back ~1s after finger-up)',
   );
   assertSourceContains(
     setOverlayBody,
@@ -613,8 +621,8 @@ test('overlay bridge: trade overlays stay out of price-scale autoscale', () => {
   );
   assertSourceContains(
     source,
-    /function recoverOverlayVisibleCandleScale\(reason\)[\s\S]*resolveVisibleCandleDataPriceRange\(\)[\s\S]*expandPriceRangeForMarketPriceBadges\(candleRange\)[\s\S]*setRecoveredRightPriceRange\(visibleRange\)/,
-    'overlay scale recovery must derive the visible range from backend candles without including trade overlays',
+    /function recoverOverlayVisibleCandleScale\(reason\)[\s\S]*isManualVerticalPanRangePreserved\(\) \|\|[\s\S]*isManualVerticalPanRangeLocked\(\)[\s\S]*resolveVisibleCandleDataPriceRange\(\)[\s\S]*expandPriceRangeForMarketPriceBadges\(candleRange\)[\s\S]*setRecoveredRightPriceRange\(visibleRange\)/,
+    'overlay scale recovery must respect a user-owned vertical pan lock and derive the visible range from backend candles without including trade overlays',
   );
   assertSourceContains(
     source,

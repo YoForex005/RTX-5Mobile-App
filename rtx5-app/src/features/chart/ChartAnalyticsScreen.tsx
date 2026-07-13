@@ -17,6 +17,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 import { Screen } from '../../ui/components/Screen';
+import { useTranslation } from '../../i18n/useTranslation';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 import { spacing } from '../../ui/theme/index';
@@ -30,12 +31,12 @@ const PERF_LABELS = ['Hour', 'Today', 'Week', 'Month', 'Year'] as const;
 const PERF_CANDLE_COUNTS: Record<string, number> = { Hour: 60, Today: 1440, Week: 10080, Month: 43200, Year: 525600 };
 
 const HMR_PERIODS = [
-  { time: '23:25 - 23 Mar, 03:35', desc: 'Max Leverage 1:200 | ECB Cipollone Speech | Fed Chair...' },
-  { time: '23 Mar, 17:00 - 18:01', desc: 'Max Leverage 1:200 | Chicago Fed National Activity Index' },
-  { time: '23 Mar, 17:45 - 18:01', desc: 'Max Leverage 1:200 | Chicago Fed National Activity Index' },
-  { time: '24 Mar, 09:00 - 10:01', desc: 'Max Leverage 1:200 | German Manufacturing PMI' },
-  { time: '24 Mar, 14:30 - 15:01', desc: 'Max Leverage 1:200 | US Durable Goods Orders' },
-  { time: '25 Mar, 12:00 - 13:01', desc: 'Max Leverage 1:200 | UK CPI YoY' },
+  { time: '23:25 – 23 Mar, 03:35', leverage: '1:200', events: 'ECB Cipollone Speech · Fed Chair Remarks' },
+  { time: '23 Mar, 17:00 – 18:01', leverage: '1:200', events: 'Chicago Fed National Activity Index' },
+  { time: '23 Mar, 17:45 – 18:01', leverage: '1:200', events: 'Chicago Fed National Activity Index' },
+  { time: '24 Mar, 09:00 – 10:01', leverage: '1:200', events: 'German Manufacturing PMI' },
+  { time: '24 Mar, 14:30 – 15:01', leverage: '1:200', events: 'US Durable Goods Orders' },
+  { time: '25 Mar, 12:00 – 13:01', leverage: '1:200', events: 'UK CPI YoY' },
 ];
 
 const HMR_PREVIEW_COUNT = 3;
@@ -121,6 +122,7 @@ export function ChartAnalyticsScreen() {
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const isScreenFocused = useIsFocused();
+  const { t } = useTranslation();
 
   const currentSymbol = symbol || 'EUR/USD';
   const chartTimeframe = useUserPreferences((s) => s.chartTimeframe);
@@ -152,14 +154,14 @@ export function ChartAnalyticsScreen() {
   const performanceData = useMemo(() => {
     const current = rangeData.current || livePrice;
     if (!current || candles.length === 0) {
-      return PERF_LABELS.map((label, i) => ({ label, change: 0, isDown: false, active: i === 0 }));
+      return PERF_LABELS.map((label) => ({ label, change: 0, isDown: false }));
     }
-    return PERF_LABELS.map((label, i) => {
+    return PERF_LABELS.map((label) => {
       const lookback = Math.min(PERF_CANDLE_COUNTS[label], candles.length);
       const pastCandle = candles[Math.max(0, candles.length - lookback)];
       const pastPrice = pastCandle?.close || current;
       const change = pastPrice !== 0 ? ((current - pastPrice) / pastPrice) * 100 : 0;
-      return { label, change: Math.round(change * 100) / 100, isDown: change < 0, active: i === 0 };
+      return { label, change: Math.round(change * 100) / 100, isDown: change < 0 };
     });
   }, [candles, rangeData.current, livePrice]);
 
@@ -170,7 +172,6 @@ export function ChartAnalyticsScreen() {
 
   const isSignalActive = true; // Set to false to test the EXPIRED gray dot indicator
   const [newsExpanded, setNewsExpanded] = useState(false);
-  const [activePerf, setActivePerf] = useState(0);
 
   const toggleSection = (setter: React.Dispatch<React.SetStateAction<boolean>>) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -189,7 +190,7 @@ export function ChartAnalyticsScreen() {
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">
             <Text style={styles.headerTitle} numberOfLines={1}>
-              Analytics · {currentSymbol}
+              {t('Analytics')} · {currentSymbol}
             </Text>
           </View>
           <View style={styles.headerBackBtn} />
@@ -201,18 +202,21 @@ export function ChartAnalyticsScreen() {
 
         {/* Performance Block — Dynamic from candle data */}
         <View style={styles.card}>
-          <Text style={styles.cardHeader}>Performance Snapshot</Text>
+          <Text style={styles.cardHeader}>{t('Performance Snapshot')}</Text>
           <View style={styles.perfBlock}>
             {performanceData.map((item, i) => (
-              <Pressable key={i} style={[styles.perfItem, activePerf === i && styles.perfItemActive]} onPress={() => setActivePerf(i)}>
-                <Text style={[styles.perfLabel, activePerf === i && styles.perfLabelActive]}>{item.label}</Text>
-                <View style={styles.perfChangeRow}>
-                  <Ionicons name={item.isDown ? 'arrow-down' : 'arrow-up'} size={10} color={item.isDown ? T.trading.sell.primary : T.trading.buy.primary} />
-                  <Text style={item.isDown ? styles.perfValRed : styles.perfValBlue}>
-                    {Math.abs(item.change).toFixed(2)}%
-                  </Text>
+              <React.Fragment key={item.label}>
+                {i !== 0 && <View style={styles.perfDivider} />}
+                <View style={styles.perfItem}>
+                  <Text style={styles.perfLabel}>{t(item.label)}</Text>
+                  <View style={styles.perfChangeRow}>
+                    <Ionicons name={item.isDown ? 'arrow-down' : 'arrow-up'} size={10} color={item.isDown ? T.trading.sell.primary : T.trading.buy.primary} />
+                    <Text style={item.isDown ? styles.perfValRed : styles.perfValBlue}>
+                      {Math.abs(item.change).toFixed(2)}%
+                    </Text>
+                  </View>
                 </View>
-              </Pressable>
+              </React.Fragment>
             ))}
           </View>
         </View>
@@ -226,20 +230,15 @@ export function ChartAnalyticsScreen() {
           const changePct = rangeData.open > 0 ? (change / rangeData.open) * 100 : 0;
           const isUp = change >= 0;
           const accentColor = isUp ? T.trading.buy.primary : T.trading.sell.primary;
-          const pipMultiplier = decimals === 3 ? 1000 : 100000;
-          const rangePts = (range * pipMultiplier).toFixed(0);
           const volatilityPct = current > 0 ? (range / current) * 100 : 0;
 
-          // Split-decimal hero price (last 2 digits emphasized)
           const priceStr = current.toFixed(decimals);
-          const priceMain = priceStr.slice(0, -2);
-          const priceHuge = priceStr.slice(-2);
 
           const formatSigned = (n: number, fixed: number, suffix = '') =>
             `${n >= 0 ? '+' : ''}${n.toFixed(fixed)}${suffix}`;
 
           // Where to render the position indicator zone label
-          const zoneLabel = positionPct >= 66 ? 'UPPER' : positionPct >= 33 ? 'MID' : 'LOWER';
+          const zoneLabel = positionPct >= 66 ? t('Upper') : positionPct >= 33 ? t('Mid') : t('Lower');
           const zoneColor = positionPct >= 66
             ? T.trading.buy.primary
             : positionPct >= 33
@@ -249,18 +248,17 @@ export function ChartAnalyticsScreen() {
           return (
             <View style={styles.card}>
               <View style={styles.rangeHeaderRow}>
-                <Text style={styles.cardHeader}>Daily Range</Text>
+                <Text style={styles.cardHeader}>{t('Daily Range')}</Text>
                 <View style={styles.rangeLivePill}>
                   <View style={styles.rangeLiveDot} />
-                  <Text style={styles.rangeLiveText}>LIVE</Text>
+                  <Text style={styles.rangeLiveText}>{t('Live')}</Text>
                 </View>
               </View>
 
               {/* Hero: split-decimal price + signed change pill */}
               <View style={styles.rangeHeroRow}>
                 <Text style={styles.rangeHeroPrice} numberOfLines={1} adjustsFontSizeToFit>
-                  {priceMain}
-                  <Text style={[styles.rangeHeroPriceHuge, { color: accentColor }]}>{priceHuge}</Text>
+                  {priceStr}
                 </Text>
                 <View style={[styles.rangeChangePill, { backgroundColor: isUp ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)', borderColor: isUp ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)' }]}>
                   <Ionicons name={isUp ? 'caret-up' : 'caret-down'} size={11} color={accentColor} />
@@ -272,7 +270,7 @@ export function ChartAnalyticsScreen() {
 
               {/* Position-in-range row */}
               <View style={styles.rangePositionRow}>
-                <Text style={styles.rangePositionLabel}>POSITION IN RANGE</Text>
+                <Text style={styles.rangePositionLabel}>{t('Position in range')}</Text>
                 <View style={styles.rangePositionRight}>
                   <Text style={[styles.rangePositionZone, { color: zoneColor }]}>{zoneLabel}</Text>
                   <Text style={styles.rangePositionPct}>{positionPct.toFixed(0)}%</Text>
@@ -283,10 +281,6 @@ export function ChartAnalyticsScreen() {
               <View style={styles.rangeBarSection}>
                 <View style={styles.rangeBarOuter}>
                   <View style={styles.rangeBarTrack}>
-                    <View style={[styles.rangeTick, { left: '25%' }]} />
-                    <View style={[styles.rangeTick, { left: '50%' }]} />
-                    <View style={[styles.rangeTick, { left: '75%' }]} />
-
                     <View style={[styles.rangeBarFill, { width: `${positionPct}%`, backgroundColor: accentColor }]} />
 
                     <View style={[
@@ -304,11 +298,11 @@ export function ChartAnalyticsScreen() {
                 {/* Low / High labels */}
                 <View style={styles.rangeEndpointsRow}>
                   <View style={styles.rangeEndpointCol}>
-                    <Text style={styles.rangeEndpointLabel}>LOW</Text>
+                    <Text style={styles.rangeEndpointLabel}>{t('Low')}</Text>
                     <Text style={styles.rangeEndpointValue}>{rangeData.low.toFixed(decimals)}</Text>
                   </View>
                   <View style={[styles.rangeEndpointCol, { alignItems: 'flex-end' }]}>
-                    <Text style={styles.rangeEndpointLabel}>HIGH</Text>
+                    <Text style={styles.rangeEndpointLabel}>{t('High')}</Text>
                     <Text style={styles.rangeEndpointValue}>{rangeData.high.toFixed(decimals)}</Text>
                   </View>
                 </View>
@@ -317,22 +311,22 @@ export function ChartAnalyticsScreen() {
               {/* Premium stats grid: Open / Range / Volatility / Change */}
               <View style={styles.rangeStatsRow}>
                 <View style={styles.rangeStatItem}>
-                  <Text style={styles.rangeStatLabel}>Open</Text>
+                  <Text style={styles.rangeStatLabel}>{t('Open')}</Text>
                   <Text style={styles.rangeStatValue}>{rangeData.open.toFixed(decimals)}</Text>
                 </View>
                 <View style={styles.rangeStatDivider} />
                 <View style={styles.rangeStatItem}>
-                  <Text style={styles.rangeStatLabel}>Range</Text>
-                  <Text style={styles.rangeStatValue}>{rangePts} pts</Text>
+                  <Text style={styles.rangeStatLabel}>{t('Range')}</Text>
+                  <Text style={styles.rangeStatValue}>{range.toFixed(decimals)}</Text>
                 </View>
                 <View style={styles.rangeStatDivider} />
                 <View style={styles.rangeStatItem}>
-                  <Text style={styles.rangeStatLabel}>Volatility</Text>
+                  <Text style={styles.rangeStatLabel}>{t('Volatility')}</Text>
                   <Text style={styles.rangeStatValue}>{volatilityPct.toFixed(2)}%</Text>
                 </View>
                 <View style={styles.rangeStatDivider} />
                 <View style={styles.rangeStatItem}>
-                  <Text style={styles.rangeStatLabel}>Change</Text>
+                  <Text style={styles.rangeStatLabel}>{t('Change')}</Text>
                   <Text style={[styles.rangeStatValue, { color: accentColor }]}>{formatSigned(change, decimals)}</Text>
                 </View>
               </View>
@@ -343,7 +337,7 @@ export function ChartAnalyticsScreen() {
         {/* HMR List */}
         <View style={styles.card}>
           <View style={styles.cardHeaderRow}>
-            <Text style={styles.cardHeader}>Upcoming HMR Periods</Text>
+            <Text style={styles.cardHeader}>{t('Upcoming HMR Periods')}</Text>
             <Ionicons name="information-circle-outline" size={20} color={T.textMuted} />
           </View>
           <View style={styles.listContainer}>
@@ -351,17 +345,22 @@ export function ChartAnalyticsScreen() {
               <React.Fragment key={i}>
                 <View style={[styles.listItem, i !== 0 && styles.divider]}>
                   <View style={styles.listTexts}>
-                    <Text style={styles.listTime}>{item.time}</Text>
-                    <Text style={styles.listDesc} numberOfLines={1}>{item.desc}</Text>
+                    <View style={styles.listTimeRow}>
+                      <Text style={styles.listTime}>{item.time}</Text>
+                      <View style={styles.leverageChip}>
+                        <Text style={styles.leverageChipText}>{item.leverage}</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.listDesc} numberOfLines={1}>{item.events}</Text>
                   </View>
-                  <Ionicons name="notifications-outline" size={20} color={T.textMuted} />
+                  <Ionicons name="notifications-outline" size={18} color={T.textMuted} />
                 </View>
               </React.Fragment>
             ))}
             {HMR_PERIODS.length > HMR_PREVIEW_COUNT && (
               <Pressable style={styles.linkBtn} onPress={() => toggleSection(setHmrExpanded)}>
                 <View style={styles.linkRow}>
-                  <Text style={styles.linkText}>{hmrExpanded ? 'Show Less' : 'View All Periods'}</Text>
+                  <Text style={styles.linkText}>{hmrExpanded ? t('Show Less') : t('View All Periods')}</Text>
                   <Ionicons name={hmrExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={T.trading.buy.hover} />
                 </View>
               </Pressable>
@@ -371,20 +370,20 @@ export function ChartAnalyticsScreen() {
 
         {/* Signals */}
         <View style={styles.card}>
-          <Text style={styles.cardHeader}>Trading Signals</Text>
+          <Text style={styles.cardHeader}>{t('Trading Signals')}</Text>
           <View style={styles.signalsContainer}>
             <View style={styles.signalHeroRow}>
               <View style={styles.signalOrb}>
                 <Ionicons name="trending-up" size={24} color={T.trading.buy.primary} />
               </View>
               <View style={styles.signalHeroTexts}>
-                <Text style={styles.signalPrimaryAction}>BUY OPPORTUNITY</Text>
-                <Text style={styles.signalSubAction}>{currentSymbol} • Intraday</Text>
+                <Text style={styles.signalPrimaryAction}>{t('Buy Opportunity')}</Text>
+                <Text style={styles.signalSubAction}>{currentSymbol} • {t('Intraday')}</Text>
               </View>
-              <View style={styles.signalBadge}>
+              <View style={[styles.signalBadge, isSignalActive && styles.signalBadgeActive]}>
                 <View style={isSignalActive ? styles.signalActiveDot : styles.signalInactiveDot} />
-                <Text style={[styles.signalBadgeText, !isSignalActive && { color: T.textMuted }]}>
-                  {isSignalActive ? 'ACTIVE' : 'EXPIRED'}
+                <Text style={[styles.signalBadgeText, isSignalActive ? styles.signalBadgeTextActive : { color: T.textMuted }]}>
+                  {isSignalActive ? t('Active') : t('Expired')}
                 </Text>
               </View>
             </View>
@@ -396,17 +395,17 @@ export function ChartAnalyticsScreen() {
 
             <View style={styles.signalMetricsGrid}>
               <View style={styles.signalMetricCol}>
-                <Text style={styles.signalMetricLabel}>ENTRY</Text>
+                <Text style={styles.signalMetricLabel}>{t('Entry')}</Text>
                 <Text style={[styles.signalMetricVal, { color: T.text }]}>1.1550</Text>
               </View>
               <View style={styles.signalMetricDiv} />
               <View style={styles.signalMetricCol}>
-                <Text style={styles.signalMetricLabel}>TARGET</Text>
+                <Text style={styles.signalMetricLabel}>{t('Target')}</Text>
                 <Text style={[styles.signalMetricVal, { color: T.trading.buy.primary }]}>1.1680</Text>
               </View>
               <View style={styles.signalMetricDiv} />
               <View style={styles.signalMetricCol}>
-                <Text style={styles.signalMetricLabel}>STOP LOSS</Text>
+                <Text style={styles.signalMetricLabel}>{t('Stop Loss')}</Text>
                 <Text style={[styles.signalMetricVal, { color: T.trading.sell.primary }]}>1.1490</Text>
               </View>
             </View>
@@ -414,11 +413,11 @@ export function ChartAnalyticsScreen() {
             <View style={styles.signalSecondaryMetrics}>
               <View style={styles.signalSecBadge}>
                 <Ionicons name="pie-chart" size={12} color={T.textMuted} />
-                <Text style={styles.signalSecText}>Risk/Reward 1:2.4</Text>
+                <Text style={styles.signalSecText}>{t('Risk/Reward')} 1:2.4</Text>
               </View>
               <View style={styles.signalSecBadge}>
                 <Ionicons name="shield-checkmark" size={12} color={T.textMuted} />
-                <Text style={styles.signalSecText}>Med-High Conviction</Text>
+                <Text style={styles.signalSecText}>{t('Med-High Conviction')}</Text>
               </View>
             </View>
           </View>
@@ -426,7 +425,7 @@ export function ChartAnalyticsScreen() {
 
         {/* Events */}
         <View style={styles.card}>
-          <Text style={styles.cardHeader}>Upcoming Events</Text>
+          <Text style={styles.cardHeader}>{t('Upcoming Events')}</Text>
           <View style={styles.listContainer}>
             {(eventsExpanded ? UPCOMING_EVENTS : UPCOMING_EVENTS.slice(0, EVENTS_PREVIEW_COUNT)).map((item, i) => (
               <React.Fragment key={i}>
@@ -443,17 +442,13 @@ export function ChartAnalyticsScreen() {
                         return (
                           <View style={[styles.impactPill, { backgroundColor: cfg.bg }]}>
                             <View style={[styles.impactDot, { backgroundColor: cfg.color }]} />
-                            <Text style={[styles.impactPillText, { color: cfg.color }]}>{cfg.text}</Text>
+                            <Text style={[styles.impactPillText, { color: cfg.color }]}>{t(cfg.text)}</Text>
                           </View>
                         );
                       })()}
                     </View>
                     <View style={styles.eventMetaRow}>
-                      <Text style={styles.eventCode}>
-                        {item.countryCode}
-                        <Text style={{ color: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)', fontWeight: '400' }}>  |  </Text>
-                        <Text style={styles.eventTime}>{item.time}</Text>
-                      </Text>
+                      <Text style={styles.eventMeta}>{item.countryCode}  ·  {item.time}</Text>
                     </View>
                   </View>
                 </View>
@@ -462,7 +457,7 @@ export function ChartAnalyticsScreen() {
             {UPCOMING_EVENTS.length > EVENTS_PREVIEW_COUNT && (
               <Pressable style={styles.linkBtn} onPress={() => toggleSection(setEventsExpanded)}>
                 <View style={styles.linkRow}>
-                  <Text style={styles.linkText}>{eventsExpanded ? 'Show Less' : 'Economic Calendar'}</Text>
+                  <Text style={styles.linkText}>{eventsExpanded ? t('Show Less') : t('Economic Calendar')}</Text>
                   <Ionicons name={eventsExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={T.trading.buy.hover} />
                 </View>
               </Pressable>
@@ -472,7 +467,7 @@ export function ChartAnalyticsScreen() {
 
         {/* News */}
         <View style={[styles.card, { marginBottom: 40 }]}>
-          <Text style={styles.cardHeader}>Latest News</Text>
+          <Text style={styles.cardHeader}>{t('Latest News')}</Text>
           <View style={styles.listContainer}>
             {(newsExpanded ? LATEST_NEWS : LATEST_NEWS.slice(0, NEWS_PREVIEW_COUNT)).map((item, i) => (
               <React.Fragment key={i}>
@@ -484,6 +479,7 @@ export function ChartAnalyticsScreen() {
                       <Text style={styles.newsPair}>{item.pair}</Text>
                       <Ionicons name={item.change >= 0 ? 'arrow-up' : 'arrow-down'} size={10} color={item.change >= 0 ? T.trading.buy.primary : T.trading.sell.primary} />
                       <Text style={[styles.newsChange, item.change >= 0 && { color: T.trading.buy.primary }]}>{Math.abs(item.change).toFixed(2)}%</Text>
+                      <View style={styles.newsMetaSpacer} />
                       <Text style={styles.newsTime}>{item.time}</Text>
                     </View>
                   </View>
@@ -493,7 +489,7 @@ export function ChartAnalyticsScreen() {
             {LATEST_NEWS.length > NEWS_PREVIEW_COUNT && (
               <Pressable style={styles.linkBtn} onPress={() => toggleSection(setNewsExpanded)}>
                 <View style={styles.linkRow}>
-                  <Text style={styles.linkText}>{newsExpanded ? 'Show Less' : 'More Updates'}</Text>
+                  <Text style={styles.linkText}>{newsExpanded ? t('Show Less') : t('More Updates')}</Text>
                   <Ionicons name={newsExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={T.trading.buy.hover} />
                 </View>
               </Pressable>
@@ -567,42 +563,34 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       marginBottom: spacing.md,
     },
     cardHeader: {
-      color: T.text,
-      fontSize: 18,
-      fontWeight: '600',
-      letterSpacing: 0,
-      marginBottom: spacing.md,
+      color: T.textMuted,
+      fontSize: 12,
+      fontWeight: '700',
+      letterSpacing: 0.9,
+      textTransform: 'uppercase',
+      marginBottom: 14,
     },
     perfBlock: {
       flexDirection: 'row',
-      backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : T.glass1,
-      borderRadius: 12,
-      padding: 4,
-      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: 2,
     },
     perfItem: {
       flex: 1,
       alignItems: 'center',
-      paddingVertical: 10,
-      borderRadius: 8,
     },
-    perfItemActive: {
-      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : T.glass2,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.05,
-      shadowRadius: 4,
-      elevation: 2,
+    perfDivider: {
+      width: 1,
+      height: 26,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
     },
     perfLabel: {
-      color: T.textSub,
-      fontSize: 12,
-      fontWeight: '500',
-      marginBottom: 6,
-    },
-    perfLabelActive: {
-      color: T.text,
+      color: T.textMuted,
+      fontSize: 11,
       fontWeight: '600',
+      letterSpacing: 0.4,
+      textTransform: 'uppercase',
+      marginBottom: 6,
     },
     perfChangeRow: {
       flexDirection: 'row',
@@ -611,14 +599,14 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     perfValRed: {
       color: T.trading.sell.primary,
-      fontSize: 13,
-      fontWeight: '600',
+      fontSize: 14,
+      fontWeight: '700',
       fontVariant: ['tabular-nums'],
     },
     perfValBlue: {
       color: T.trading.buy.primary,
-      fontSize: 13,
-      fontWeight: '600',
+      fontSize: 14,
+      fontWeight: '700',
       fontVariant: ['tabular-nums'],
     },
 
@@ -651,6 +639,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 11,
       fontWeight: '600',
       letterSpacing: 0.4,
+      textTransform: 'uppercase',
     },
     // Hero row
     rangeHeroRow: {
@@ -661,16 +650,11 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     rangeHeroPrice: {
       color: T.text,
-      fontSize: 28,
-      fontWeight: '700',
-      fontVariant: ['tabular-nums'],
-      letterSpacing: 0,
-      flex: 1,
-    },
-    rangeHeroPriceHuge: {
       fontSize: 30,
       fontWeight: '700',
       fontVariant: ['tabular-nums'],
+      letterSpacing: -0.3,
+      flex: 1,
     },
     rangeChangePill: {
       flexDirection: 'row',
@@ -711,6 +695,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 11,
       fontWeight: '600',
       letterSpacing: 0.4,
+      textTransform: 'uppercase',
     },
     rangePositionPct: {
       color: T.text,
@@ -728,43 +713,34 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingVertical: 12,
     },
     rangeBarTrack: {
-      height: 8,
-      borderRadius: 4,
-      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
       position: 'relative',
       justifyContent: 'center',
-    },
-    rangeTick: {
-      position: 'absolute',
-      width: 2,
-      height: 8,
-      borderRadius: 1,
-      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-      marginLeft: -1,
-      zIndex: 1,
     },
     rangeBarFill: {
       position: 'absolute',
       top: 0,
       bottom: 0,
       left: 0,
-      borderRadius: 4,
+      borderRadius: 3,
       zIndex: 2,
     },
     rangeBarThumb: {
       position: 'absolute',
       top: '50%',
-      width: 20,
-      height: 20,
-      borderRadius: 10,
-      borderWidth: 4,
-      marginLeft: -10,
-      marginTop: -10,
+      width: 14,
+      height: 14,
+      borderRadius: 7,
+      borderWidth: 3,
+      marginLeft: -7,
+      marginTop: -7,
       zIndex: 3,
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.3,
-      shadowRadius: 4,
-      elevation: 4,
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.18,
+      shadowRadius: 3,
+      elevation: 2,
     },
     rangeEndpointsRow: {
       flexDirection: 'row',
@@ -779,6 +755,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 11,
       fontWeight: '500',
       letterSpacing: 0.4,
+      textTransform: 'uppercase',
       marginBottom: 2,
     },
     rangeEndpointValue: {
@@ -827,18 +804,36 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      paddingVertical: 14,
+      paddingVertical: 13,
     },
     listTexts: {
       flex: 1,
       paddingRight: 16,
     },
+    listTimeRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 4,
+    },
     listTime: {
       color: T.text,
-      fontSize: 15,
+      fontSize: 14,
       fontWeight: '600',
       fontVariant: ['tabular-nums'],
-      marginBottom: 6,
+    },
+    leverageChip: {
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 5,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+    },
+    leverageChipText: {
+      color: T.textMuted,
+      fontSize: 10,
+      fontWeight: '700',
+      letterSpacing: 0.3,
+      fontVariant: ['tabular-nums'],
     },
     listDesc: {
       color: T.textSub,
@@ -857,9 +852,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     linkText: {
       color: T.trading.buy.hover,
-      fontSize: 14,
+      fontSize: 13,
       fontWeight: '600',
-      letterSpacing: 0.3,
+      letterSpacing: 0.4,
       textTransform: 'uppercase',
     },
     linkRow: {
@@ -890,6 +885,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 11,
       fontWeight: '500',
       letterSpacing: 0.4,
+      textTransform: 'uppercase',
       marginBottom: 4,
     },
     signalMetricVal: {
@@ -955,13 +951,17 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     signalBadge: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 4,
+      gap: 5,
       backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
       paddingHorizontal: 8,
       paddingVertical: 4,
-      borderRadius: 6,
+      borderRadius: 999,
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+    },
+    signalBadgeActive: {
+      backgroundColor: isDark ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)',
+      borderColor: isDark ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.15)',
     },
     signalActiveDot: {
       width: 6,
@@ -987,6 +987,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       textTransform: 'uppercase',
       letterSpacing: 0.4,
     },
+    signalBadgeTextActive: {
+      color: '#22C55E',
+    },
     signalBody: {
       marginBottom: 4,
     },
@@ -1003,7 +1006,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     eventItem: {
       flexDirection: 'row',
-      paddingVertical: 16,
+      paddingVertical: 13,
     },
     flagIcon: {
       width: 28,
@@ -1019,13 +1022,13 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     eventTitleRow: {
       flexDirection: 'row',
-      alignItems: 'flex-start',
+      alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: 8,
+      marginBottom: 5,
     },
     eventTitle: {
       color: T.text,
-      fontSize: 16,
+      fontSize: 15,
       fontWeight: '600',
       flex: 1,
       marginRight: 8,
@@ -1034,11 +1037,10 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
     },
-    eventCode: {
-      color: T.textSub,
-      fontSize: 13,
-      fontWeight: '600',
-      marginRight: 10,
+    eventMeta: {
+      color: T.textMuted,
+      fontSize: 12.5,
+      fontWeight: '500',
     },
     impactPill: {
       flexDirection: 'row',
@@ -1058,21 +1060,16 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontWeight: '600',
       letterSpacing: 0.4,
     },
-    eventTime: {
-      color: T.textMuted,
-      fontSize: 13,
-      fontWeight: '600',
-    },
     newsItem: {
       flexDirection: 'row',
-      paddingVertical: 16,
+      paddingVertical: 13,
       alignItems: 'center',
     },
     newsImage: {
-      width: 56,
-      height: 56,
-      borderRadius: 12,
-      marginRight: 16,
+      width: 52,
+      height: 52,
+      borderRadius: 10,
+      marginRight: 12,
       backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : T.glass1,
     },
     newsTexts: {
@@ -1082,13 +1079,16 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       color: T.text,
       fontSize: 14,
       fontWeight: '600',
-      lineHeight: 20,
-      marginBottom: 8,
+      lineHeight: 19,
+      marginBottom: 6,
     },
     newsMetaRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 6,
+    },
+    newsMetaSpacer: {
+      flex: 1,
     },
     newsPair: {
       color: T.textSub,

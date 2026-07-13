@@ -15,6 +15,7 @@ import { Screen } from '../../ui/components/Screen';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { safeRouterBack } from '../../utils/navigation';
 import { useUserPreferences, type ChartDisplaySettings } from '../../state/userPreferences';
+import { useTranslation } from '../../i18n/useTranslation';
 import { useUIState, type PendingChartCommand } from '../../state/uiState';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useTheme } from '../../ui/theme/useTheme';
@@ -85,6 +86,7 @@ const shouldNavigateFromChartSettingsSwipe = (dx: number, dy: number, vx: number
  * Screen where users can toggle various chart visual preferences (OHLC, grid, trade levels, volumes) and configure chart behaviors.
  */
 export function ChartSettingsScreen() {
+  const { t } = useTranslation();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
@@ -193,7 +195,7 @@ export function ChartSettingsScreen() {
               <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
             </FastPressable>
             <View style={styles.headerTitleWrap} pointerEvents="none">
-              <Text style={styles.headerTitle} numberOfLines={1}>Chart Preferences</Text>
+              <Text style={styles.headerTitle} numberOfLines={1}>{t('Chart Preferences')}</Text>
             </View>
             <View style={styles.headerBackBtn} />
           </View>
@@ -206,7 +208,7 @@ export function ChartSettingsScreen() {
 
         <View style={styles.sectionHeader}>
           <Ionicons name="build-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
-          <Text style={styles.sectionTitle}>CHART CONFIGURATION</Text>
+          <Text style={styles.sectionTitle}>{t('CHART CONFIGURATION')}</Text>
         </View>
         <View style={styles.card}>
           <NavRow
@@ -225,14 +227,14 @@ export function ChartSettingsScreen() {
           <View style={styles.separator} />
           <NavRow
             label="Price source"
-            value={priceSource === 'bid' ? 'Bid prices' : 'Ask prices'}
+            value={priceSource === 'bid' ? t('Bid prices') : t('Ask prices')}
             onPress={() => router.push('/chart/price-source')}
             styles={styles}
           />
           <View style={styles.separator} />
           <NavRow
             label="Open order mode"
-            value={openOrderMode}
+            value={t(openOrderMode)}
             onPress={() => router.push('/chart/open-order-mode')}
             styles={styles}
           />
@@ -240,7 +242,7 @@ export function ChartSettingsScreen() {
 
         <View style={styles.sectionHeader}>
           <Ionicons name="resize-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
-          <Text style={styles.sectionTitle}>CHART SCALE</Text>
+          <Text style={styles.sectionTitle}>{t('CHART SCALE')}</Text>
         </View>
         <View style={styles.card}>
           <ActionPreferenceRow
@@ -288,7 +290,7 @@ export function ChartSettingsScreen() {
 
         <View style={styles.sectionHeader}>
           <Ionicons name="swap-horizontal-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
-          <Text style={styles.sectionTitle}>TRADING</Text>
+          <Text style={styles.sectionTitle}>{t('TRADING')}</Text>
         </View>
         <View style={styles.card}>
           <PreferenceToggleRow
@@ -305,7 +307,7 @@ export function ChartSettingsScreen() {
 
         <View style={styles.sectionHeader}>
           <Ionicons name="funnel-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
-          <Text style={styles.sectionTitle}>SHOW ON CHART</Text>
+          <Text style={styles.sectionTitle}>{t('SHOW ON CHART')}</Text>
         </View>
         <View style={styles.card}>
           {CHART_SETTINGS_DISPLAY_ITEMS.map((item) => (
@@ -339,7 +341,7 @@ export function ChartSettingsScreen() {
 
         <View style={styles.sectionHeader}>
           <Ionicons name="notifications-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
-          <Text style={styles.sectionTitle}>ALERTS</Text>
+          <Text style={styles.sectionTitle}>{t('ALERTS')}</Text>
         </View>
         <View style={styles.card}>
           <NavRow
@@ -352,7 +354,7 @@ export function ChartSettingsScreen() {
         <View style={styles.noteRow}>
           <Ionicons name="information-circle-outline" size={13} color={isDark ? '#475569' : '#94A3B8'} />
           <Text style={styles.preferencesNote}>
-            Chart preferences are applied to all trading accounts
+            {t('Chart preferences are applied to all trading accounts')}
           </Text>
         </View>
         </ScrollView>
@@ -377,6 +379,7 @@ function ToggleRow({
   onValueChange: (value: boolean) => void;
   styles: ReturnType<typeof makeStyles>;
 }) {
+  const { t } = useTranslation();
   const iconName = SHOW_ON_CHART_ICONS[item.key];
   const accentColor = isDark ? '#60A5FA' : '#2563EB';
 
@@ -391,8 +394,8 @@ function ToggleRow({
           <Ionicons name={iconName} size={17} color={isDark ? '#94A3B8' : '#64748B'} />
         </View>
         <View style={styles.preferenceToggleText}>
-          <Text style={styles.toggleLabel} numberOfLines={2}>{item.label}</Text>
-          <Text style={styles.toggleDescription} numberOfLines={2}>{item.description}</Text>
+          <Text style={styles.toggleLabel} numberOfLines={2}>{t(item.label)}</Text>
+          <Text style={styles.toggleDescription} numberOfLines={2}>{t(item.description)}</Text>
         </View>
       </View>
       <Switch
@@ -430,6 +433,7 @@ function PreferenceToggleRow({
   styles: ReturnType<typeof makeStyles>;
   latencyLabel: string;
 }) {
+  const { t } = useTranslation();
   const accentColor = isDark ? '#60A5FA' : '#2563EB';
 
   return (
@@ -443,8 +447,8 @@ function PreferenceToggleRow({
           <Ionicons name={iconName} size={17} color={isDark ? '#94A3B8' : '#64748B'} />
         </View>
         <View style={styles.preferenceToggleText}>
-          <Text style={styles.preferenceToggleTitle} numberOfLines={2}>{title}</Text>
-          <Text style={styles.toggleDescription} numberOfLines={2}>{description}</Text>
+          <Text style={styles.preferenceToggleTitle} numberOfLines={2}>{t(title)}</Text>
+          <Text style={styles.toggleDescription} numberOfLines={2}>{t(description)}</Text>
         </View>
       </View>
       <Switch
@@ -480,6 +484,7 @@ function ActionPreferenceRow({
   isDark: boolean;
   latencyLabel: string;
 }) {
+  const { t } = useTranslation();
   return (
     <FastPressable
       style={({ pressed }) => [styles.preferenceToggleRow, pressed && styles.rowPressed]}
@@ -491,8 +496,8 @@ function ActionPreferenceRow({
           <Ionicons name={iconName} size={17} color={isDark ? '#94A3B8' : '#64748B'} />
         </View>
         <View style={styles.preferenceToggleText}>
-          <Text style={styles.preferenceToggleTitle} numberOfLines={2}>{title}</Text>
-          <Text style={styles.toggleDescription} numberOfLines={2}>{description}</Text>
+          <Text style={styles.preferenceToggleTitle} numberOfLines={2}>{t(title)}</Text>
+          <Text style={styles.toggleDescription} numberOfLines={2}>{t(description)}</Text>
         </View>
       </View>
       <Ionicons name="chevron-forward" size={16} color={isDark ? '#64748B' : '#94A3B8'} />
@@ -514,13 +519,14 @@ function NavRow({
   onPress: () => void;
   styles: ReturnType<typeof makeStyles>;
 }) {
+  const { t } = useTranslation();
   return (
     <FastPressable
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       onPress={onPress}
       latencyLabel={`chartSettings.nav.${label}`}
     >
-      <Text style={styles.rowLabel}>{label}</Text>
+      <Text style={styles.rowLabel}>{t(label)}</Text>
       <View style={styles.navRight}>
         {value !== '' && <Text style={styles.navValue}>{value}</Text>}
         <Ionicons name="chevron-forward" size={16} color="#64748B" />

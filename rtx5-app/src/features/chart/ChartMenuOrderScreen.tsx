@@ -9,9 +9,11 @@ import { Screen } from '../../ui/components/Screen';
 import { safeRouterBack } from '../../utils/navigation';
 import { useTheme } from '../../ui/theme/useTheme';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useTranslation } from '../../i18n/useTranslation';
 import { ThemeColors } from '../../ui/theme/glass';
 
 export function ChartMenuOrderScreen() {
+  const { t } = useTranslation();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
@@ -26,7 +28,7 @@ export function ChartMenuOrderScreen() {
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">
             <Text style={styles.headerTitle} numberOfLines={1} adjustsFontSizeToFit>
-              Order of menu items
+              {t('Order of menu items')}
             </Text>
           </View>
           <View style={styles.headerBackBtn} />

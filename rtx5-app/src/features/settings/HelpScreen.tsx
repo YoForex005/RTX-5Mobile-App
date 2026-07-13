@@ -17,6 +17,7 @@ import { Screen } from '../../ui/components/Screen';
 import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../ui/components/sidebarDrawerController';
 import { useTheme } from '../../ui/theme/useTheme';
 import { useNextFrameValue } from '../../hooks/useNextFrameValue';
+import { useTranslation } from '../../i18n/useTranslation';
 import { makeHelpStyles, type HelpStyles } from './HelpScreen.styles';
 import {
   HELP_CATEGORY_FILTERS,
@@ -34,6 +35,7 @@ export const HelpScreenInner = memo(function HelpScreenInner({ isScreenFocused }
   const insets = useSafeAreaInsets();
   const isDark = useIsDarkTheme();
   const T = useTheme();
+  const { t } = useTranslation();
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const styles = useMemo(() => makeHelpStyles(T, isDark), [T, isDark]);
   const [selectedCategory, setSelectedCategory] = useState<HelpFaqCategory>('All');
@@ -99,7 +101,7 @@ export const HelpScreenInner = memo(function HelpScreenInner({ isScreenFocused }
         >
           <Ionicons name="menu" size={32} color={menuIconColor} />
         </FastPressable>
-        <Text style={styles.headerTitle} numberOfLines={1}>Help</Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>{t('Help')}</Text>
       </View>
 
       {routeBodyReady ? <ScrollView
@@ -115,17 +117,17 @@ export const HelpScreenInner = memo(function HelpScreenInner({ isScreenFocused }
               <Ionicons name="help-buoy-outline" size={20} color={accentColor} />
             </View>
             <View style={styles.summaryTitleWrap}>
-              <Text style={styles.summaryLabel}>{HELP_HEADER.label}</Text>
-              <Text style={styles.summaryTitle}>{HELP_HEADER.title}</Text>
+              <Text style={styles.summaryLabel}>{t(HELP_HEADER.label)}</Text>
+              <Text style={styles.summaryTitle}>{t(HELP_HEADER.title)}</Text>
             </View>
           </View>
-          <Text style={styles.summaryBody}>{HELP_HEADER.body}</Text>
+          <Text style={styles.summaryBody}>{t(HELP_HEADER.body)}</Text>
           <View style={styles.searchBox}>
             <Ionicons name="search" size={16} color={accentColor} />
             <TextInput
               value={faqQuery}
               onChangeText={handleChangeQuery}
-              placeholder="Search FAQ"
+              placeholder={t('Search FAQ')}
               placeholderTextColor={isDark ? T.textMuted : '#98A2B3'}
               style={styles.searchInput}
               autoCapitalize="none"
@@ -165,7 +167,7 @@ export const HelpScreenInner = memo(function HelpScreenInner({ isScreenFocused }
                 accessibilityRole="button"
               >
                 <Text style={[styles.filterChipText, selected && styles.filterChipTextActive]}>
-                  {category}
+                  {t(category)}
                 </Text>
                 <Text style={[styles.filterChipCount, selected && styles.filterChipCountActive]}>
                   {categoryCounts[category]}
@@ -178,10 +180,10 @@ export const HelpScreenInner = memo(function HelpScreenInner({ isScreenFocused }
         <View style={styles.listHeader}>
           <View style={styles.listHeaderCopy}>
             <Text style={styles.listEyebrow}>
-              {selectedCategory === 'All' ? 'FAQ Library' : `${selectedCategory} FAQ`}
+              {selectedCategory === 'All' ? t('FAQ Library') : `${t(selectedCategory)} ${t('FAQ')}`}
             </Text>
             <Text style={styles.listTitle}>
-              {normalizedQuery ? 'Search results' : 'Frequently asked questions'}
+              {normalizedQuery ? t('Search results') : t('Frequently asked questions')}
             </Text>
           </View>
           <View style={styles.resultPill}>
@@ -206,8 +208,8 @@ export const HelpScreenInner = memo(function HelpScreenInner({ isScreenFocused }
               <View style={styles.emptyIcon}>
                 <Ionicons name="search-outline" size={22} color={accentColor} />
               </View>
-              <Text style={styles.emptyTitle}>No FAQ found</Text>
-              <Text style={styles.emptyBody}>Change the keyword or topic filter.</Text>
+              <Text style={styles.emptyTitle}>{t('No FAQ found')}</Text>
+              <Text style={styles.emptyBody}>{t('Change the keyword or topic filter.')}</Text>
             </View>
           )}
         </View>
@@ -239,6 +241,8 @@ function FaqRow({
   iconColor: string;
   onToggle: () => void;
 }) {
+  const { t } = useTranslation();
+
   return (
     <FastPressable
       style={[styles.faqRow, expanded && styles.faqRowExpanded]}
@@ -252,7 +256,7 @@ function FaqRow({
           <Ionicons name={item.icon} size={18} color={iconColor} />
         </View>
         <View style={styles.faqQuestionContent}>
-          <Text style={styles.faqCategory}>{item.category}</Text>
+          <Text style={styles.faqCategory}>{t(item.category)}</Text>
           <Text style={styles.faqQuestion}>{item.question}</Text>
         </View>
         <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color={iconColor} />

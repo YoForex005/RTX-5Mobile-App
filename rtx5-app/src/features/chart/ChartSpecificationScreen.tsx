@@ -16,6 +16,7 @@ import { Screen } from '../../ui/components/Screen';
 import { useInstrumentMeta } from '../../query/instruments';
 import { useMarketStatus } from '../../query/marketStatus';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useTranslation } from '../../i18n/useTranslation';
 import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 import { safeRouterBack } from '../../utils/navigation';
 import { resolveTradeVolumeBounds } from '../../utils/tradeVolume';
@@ -61,6 +62,7 @@ function fmtCountdown(totalSecs: number): string {
 
 export function ChartSpecificationScreen() {
   const { symbol } = useLocalSearchParams<{ symbol: string }>();
+  const { t } = useTranslation();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
@@ -123,7 +125,7 @@ export function ChartSpecificationScreen() {
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">
             <Text style={styles.headerTitle} numberOfLines={1} adjustsFontSizeToFit>
-              Specification · {currentSymbol}
+              {t('Specification')} · {currentSymbol}
             </Text>
           </View>
           <View style={styles.headerBackBtn} />
@@ -135,7 +137,7 @@ export function ChartSpecificationScreen() {
         canCancelContentTouches={Platform.OS === 'ios'} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
         {/* Trading Hours Section */}
-        <Text style={styles.sectionHeader}>TRADING HOURS</Text>
+        <Text style={styles.sectionHeader}>{t('TRADING HOURS')}</Text>
         <Pressable
           style={({ pressed }) => [styles.tradingHoursCard, pressed && styles.cardPressed]}
           onPress={() => setShowTradingHoursModal(true)}
@@ -146,22 +148,22 @@ export function ChartSpecificationScreen() {
           <View style={styles.tradingHoursTextCol}>
             <View style={styles.tradingHoursTitleRow}>
               <View style={[styles.marketStatusDot, !isOpen && styles.marketStatusDotClosed]} />
-              <Text style={styles.tradingHoursTitle}>{statusLabel}</Text>
+              <Text style={styles.tradingHoursTitle}>{t(statusLabel)}</Text>
             </View>
             <Text style={styles.tradingHoursSub}>
-              {isOpen ? 'Closes in ' : 'Opens in '}{countdown}
+              {isOpen ? `${t('Closes in')} ` : `${t('Opens in')} `}{countdown}
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={isDark ? '#64748B' : '#94A3B8'} />
         </Pressable>
 
         {/* Info Section */}
-        <Text style={[styles.sectionHeader, { marginTop: 24 }]}>INFO</Text>
+        <Text style={[styles.sectionHeader, { marginTop: 24 }]}>{t('INFO')}</Text>
         <View style={styles.infoCard}>
           {infoRows.map((item, index) => (
             <View key={item.label}>
               <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>{item.label}</Text>
+                <Text style={styles.infoLabel}>{t(item.label)}</Text>
                 <Text style={styles.infoValue}>{item.value}</Text>
               </View>
               {index < infoRows.length - 1 && <View style={styles.infoSeparator} />}

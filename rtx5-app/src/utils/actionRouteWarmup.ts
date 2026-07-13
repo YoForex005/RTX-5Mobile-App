@@ -1,4 +1,18 @@
 import { JOURNAL_ROUTE_CACHE_KEY, loadJournalScreenRoute } from '../features/settings/JournalScreen/deferredRoute';
+import {
+  ACCOUNTS_ROUTE_MODULE_CACHE_KEY,
+  loadAccountsScreenRoute,
+} from '../features/settings/accountsScreenPreload';
+import {
+  MARKET_STATISTICS_ROUTE_MODULE_CACHE_KEY,
+  SYMBOL_DETAILS_ROUTE_MODULE_CACHE_KEY,
+  loadMarketStatisticsScreenRoute,
+  loadSymbolDetailsScreenRoute,
+} from '../features/quotes/quotesRoutePreloads';
+import {
+  ORDER_TICKET_ROUTE_MODULE_CACHE_KEY,
+  loadOrderTicketScreenRoute,
+} from '../features/trade/orderTicketScreenPreload';
 import { preloadDeferredRouteModule } from '../ui/components/DeferredRouteMount';
 import { scheduleIdleWork } from './startupScheduler';
 
@@ -9,6 +23,8 @@ const ACTION_DEFERRED_MODULE_WARMUP_DELAY_MS = 180;
 
 export const ACTION_ROUTE_WARMUP_PATHS = [
   '/quotes',
+  '/quotes/details',
+  '/quotes/market-statistics',
   '/chart',
   '/trade',
   '/history',
@@ -44,6 +60,18 @@ export const ACTION_ROUTE_WARMUP_PATHS = [
 
 const ACTION_DEFERRED_MODULE_WARMUPS = [
   { cacheKey: JOURNAL_ROUTE_CACHE_KEY, load: loadJournalScreenRoute },
+  // /settings/accounts hides its heavy screen behind DeferredRouteModule; the
+  // route wrapper above is prefetched but without this module warmup the
+  // first "Manage accounts" tap stares at the launch preview while the
+  // AccountsScreen module evaluates.
+  { cacheKey: ACCOUNTS_ROUTE_MODULE_CACHE_KEY, load: loadAccountsScreenRoute },
+  // Quotes symbol action-sheet destinations hide their heavy screens behind
+  // DeferredRouteModule so the sheet tap commits only a light launch preview;
+  // warm their modules so the preview lasts about one frame instead of a
+  // first-visit module evaluation.
+  { cacheKey: ORDER_TICKET_ROUTE_MODULE_CACHE_KEY, load: loadOrderTicketScreenRoute },
+  { cacheKey: SYMBOL_DETAILS_ROUTE_MODULE_CACHE_KEY, load: loadSymbolDetailsScreenRoute },
+  { cacheKey: MARKET_STATISTICS_ROUTE_MODULE_CACHE_KEY, load: loadMarketStatisticsScreenRoute },
 ] as const;
 
 type PrefetchRouter = {

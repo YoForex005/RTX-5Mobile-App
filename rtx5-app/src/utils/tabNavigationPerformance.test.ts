@@ -32,7 +32,7 @@ test('bottom tab press paints optimistically on press-in and delays real navigat
   assert.match(source, /recentTabPresses\.set\(latencyLabel, startedAtMs\)/);
   assert.match(source, /useUIState\.getState\(\)\.hideActionSheet\(\)/);
   assert.match(source, /const visualRevision = showFastTabVisual\(latencyLabel\)/);
-  assert.match(source, /if \(visualRevision !== null\) \{\s*scheduleFastTabNavigation\(visualRevision, \(\) => onPress\?\.\(event\)\);\s*\} else \{\s*onPress\?\.\(event\)/);
+  assert.match(source, /if \(visualRevision !== null\) \{[\s\S]*?scheduleFastTabNavigation\(visualRevision, \(\) => onPress\?\.\(event\), TAB_BAR_NAVIGATION_SETTLE_DELAY_MS\);\s*\} else \{\s*onPress\?\.\(event\)/);
   assert.match(source, /scheduleTabSwitchBudgetCheck\(latencyLabel, startedAtMs, getNow\(\)\)/);
   assert.match(source, /onTouchStart=\{handleTouchStart\}/);
   assert.match(source, /onPressIn=\{handlePressIn\}/);
@@ -40,13 +40,16 @@ test('bottom tab press paints optimistically on press-in and delays real navigat
   assert.match(source, /onPressOut=\{handlePressOut\}/);
   assert.match(source, /unstable_pressDelay=\{0\}/);
   assert.match(source, /if \(handledOnPressInRef\.current\) \{\s*handledOnPressInRef\.current = false;\s*return;/);
-  assert.match(visualControllerSource, /export function scheduleFastTabNavigation\(revision: number, action: \(\) => void\)/);
+  assert.match(visualControllerSource, /export function scheduleFastTabNavigation\(\s*revision: number,\s*action: \(\) => void,\s*settleDelayMs: number = FAST_TAB_NAVIGATION_SETTLE_DELAY_MS,\s*\)/);
   assert.match(visualControllerSource, /fastTabVisualController\.getSnapshot\(\)\.revision === revision/);
   assert.match(visualControllerSource, /setTimeout\(runIfCurrent, 32\)/);
-  // The real navigation commit waits for the motion to settle so it cannot
-  // drop frames of the 90-110ms drawer/tab animation (device-measured jank).
+  // The real navigation commit behind a DRAWER close waits for the motion to
+  // settle so it cannot drop frames of the 90-110ms animation (device-measured
+  // jank). Bottom-bar taps have no motion to protect and commit right after
+  // the two optimistic swap frames.
   assert.match(visualControllerSource, /const FAST_TAB_NAVIGATION_SETTLE_DELAY_MS = 110/);
-  assert.match(visualControllerSource, /globalThis\.requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(runIfCurrent, FAST_TAB_NAVIGATION_SETTLE_DELAY_MS\);/);
+  assert.match(visualControllerSource, /export const TAB_BAR_NAVIGATION_SETTLE_DELAY_MS = 0/);
+  assert.match(visualControllerSource, /globalThis\.requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(runIfCurrent, settleDelayMs\);/);
 });
 
 test('tab layout declares only the five primary cached scenes', () => {
@@ -61,6 +64,7 @@ test('tab layout declares only the five primary cached scenes', () => {
   assert.match(source, /import \{ FastTabs as Tabs \} from '\.\.\/\.\.\/src\/ui\/navigation\/FastTabNavigator'/);
   assert.match(source, /<SidebarDestinationHost \/>/);
   assert.match(source, /detachInactiveScreens=\{false\}/);
+  assert.match(source, /<Tabs[\s\S]*backBehavior='firstRoute'[\s\S]*detachInactiveScreens=\{false\}/);
   assert.match(source, /lazy: false/);
   assert.doesNotMatch(source, /<Tabs\.Screen name='(?:journal|economic-calendar|user-guide|help|about)'/);
 });
@@ -76,7 +80,7 @@ test('retained Trade and Settings bodies prewarm without activating hidden work'
   assert.doesNotMatch(tradeSource, /useDeferredRouteContentReady\([^)]*, isScreenFocused\)/);
 
   assert.match(settingsSource, /const SETTINGS_BODY_PREWARM_DELAY_MS = 1200/);
-  assert.match(settingsSource, /const routeBodyReady = useDeferredRouteContentReady\(SETTINGS_BODY_PREWARM_DELAY_MS\)/);
+  assert.match(settingsSource, /const routeBodyReady = useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : SETTINGS_BODY_PREWARM_DELAY_MS,\s*\)/);
   assert.match(settingsSource, /isAccountConnected && isScreenFocused && firstPaintReady/);
   assert.doesNotMatch(settingsSource, /useDeferredRouteContentReady\([^)]*, isScreenFocused\)/);
 });
@@ -108,7 +112,7 @@ test('fast tab scenes remain cached in plain absolute view layers', () => {
   assert.doesNotMatch(source, /<BottomTabView|<MaybeScreen|activityState=/);
 });
 
-test('fast tab visual layers switch on the Reanimated shared route index', () => {
+test('tab bar and retained scenes share one deterministic visible route', () => {
   const navigatorSource = readSource('src/ui/navigation/FastTabNavigator.tsx');
   const controllerSource = readSource('src/ui/navigation/fastTabVisualController.ts');
 
@@ -120,17 +124,32 @@ test('fast tab visual layers switch on the Reanimated shared route index', () =>
   // JS event loop, leaving the old tab on screen after the drawer closed.
   assert.match(controllerSource, /function writeFastTabVisualIndexNow\(index: number\) \{\s*try \{\s*executeOnUIRuntimeSync\(/);
   assert.match(controllerSource, /writeFastTabVisualIndexNow\(FAST_TAB_ROUTE_INDEX\[routeName\]\)/);
+  assert.match(controllerSource, /setActualRouteName: \(routeName: FastTabRouteName\) => \{[\s\S]*writeFastTabVisualIndexNow\(FAST_TAB_ROUTE_INDEX\[routeName\]\);[\s\S]*if \(snapshot\.routeName !== null\) \{[\s\S]*publish\(null, snapshot\.revision\)/);
   assert.match(controllerSource, /fastTabVisualIndex\.value = index;\s*\}\s*\}/);
-  assert.match(navigatorSource, /const routeIndex = getFastTabRouteIndex\(routeName\)/);
-  assert.match(navigatorSource, /const animatedStyle = useAnimatedStyle\(\(\) => \{\s*const visible = fastTabVisualIndex\.value === routeIndex;[\s\S]*opacity: visible \? 1 : 0,[\s\S]*zIndex: visible \? 1 : 0/);
-  assert.match(navigatorSource, /const animatedProps = useAnimatedProps<ViewProps>\(\(\) => \(\{\s*pointerEvents: fastTabVisualIndex\.value === routeIndex \? 'auto' : 'none'/);
-  // Dual-engine scene swap: the React-committed visualFocused style must sit
-  // AFTER animatedStyle (zIndex 2) so whichever engine lands first shows the
-  // scene; each engine alone was observed lagging >1s on a congested boot.
-  assert.match(navigatorSource, /<Animated\.View[\s\S]*animatedProps=\{animatedProps\}[\s\S]*style=\{\[styles\.sceneLayer, animatedStyle, visualFocused && styles\.sceneLayerVisualFocused\]\}/);
+  assert.match(controllerSource, /existingController\.version === FAST_TAB_VISUAL_CONTROLLER_VERSION/);
+  assert.equal(
+    (navigatorSource.match(/useFastTabVisualSnapshot\(\)/g) ?? []).length,
+    1,
+    'the tab bar and scenes must consume the same parent visual snapshot',
+  );
+  const tabBarHostSource = navigatorSource.slice(
+    navigatorSource.indexOf('const FastTabBarHost'),
+    navigatorSource.indexOf('export function FastTabView'),
+  );
+  const sceneLayerSource = navigatorSource.slice(
+    navigatorSource.indexOf('const SceneLayer'),
+    navigatorSource.indexOf('function resolveInsets'),
+  );
+  assert.doesNotMatch(tabBarHostSource, /useFastTabVisualSnapshot/);
+  assert.match(navigatorSource, /const visibleRouteName = visibleState\.routes\[visibleState\.index\]\?\.name\s*\?\? focusedRoute\.name/);
+  assert.match(navigatorSource, /<FastTabBarHost\s*state=\{visibleState\}/);
+  assert.match(navigatorSource, /visualFocused=\{route\.name === visibleRouteName\}/);
+  assert.match(sceneLayerSource, /<View[\s\S]*visualFocused \? styles\.sceneLayerVisible : styles\.sceneLayerHidden/);
+  assert.doesNotMatch(sceneLayerSource, /Animated\.View|useAnimatedStyle|useAnimatedProps|animatedStyle|animatedProps/);
   assert.match(navigatorSource, /pointerEvents=\{visualFocused \? 'auto' : 'none'\}/);
-  assert.match(navigatorSource, /sceneLayerVisualFocused: \{\s*opacity: 1,\s*zIndex: 2,\s*\}/);
-  assert.match(navigatorSource, /visualFocused=\{pendingVisualRouteName === null\s*\? navigationFocused\s*: pendingVisualRouteName === route\.name\}/);
+  assert.match(navigatorSource, /sceneLayerVisible: \{\s*opacity: 1,\s*zIndex: 1,\s*\}/);
+  assert.match(navigatorSource, /sceneLayerHidden: \{\s*opacity: 0,\s*zIndex: 0,\s*\}/);
+  assert.doesNotMatch(navigatorSource, /fastTabVisualIndex|getFastTabRouteIndex|from 'react-native-reanimated'/);
   assert.match(navigatorSource, /\|\| previous\.visualFocused !== next\.visualFocused/);
 });
 
@@ -140,8 +159,8 @@ test('bottom tab bar follows the optimistic visual route before navigation commi
   assert.match(source, /const visualSnapshot = useFastTabVisualSnapshot\(\)/);
   assert.match(source, /const visualRouteIndex = visualSnapshot\.routeName === null[\s\S]*state\.routes\.findIndex\(\(route\) => route\.name === visualSnapshot\.routeName\)/);
   assert.match(source, /const visibleState = visualRouteIndex >= 0 && visualRouteIndex !== state\.index\s*\? \{ \.\.\.state, index: visualRouteIndex \}\s*: state/);
-  assert.match(source, /tabBar\(\{\s*state: visibleState,[\s\S]*descriptors,[\s\S]*navigation,/);
-  assert.match(source, /if \(navigationFocused && snapshot\.routeName === routeName\) \{\s*confirmFastTabVisual\(snapshot\.revision\)/);
+  assert.match(source, /<FastTabBarHost\s*state=\{visibleState\}/);
+  assert.match(source, /visualFocused=\{route\.name === visibleRouteName\}/);
 });
 
 test('bottom tab navigation has a strict one-frame latency budget', () => {

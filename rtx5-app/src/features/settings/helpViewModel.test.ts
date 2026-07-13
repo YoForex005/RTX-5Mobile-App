@@ -78,7 +78,7 @@ test('help screen and route are wired as a real settings destination', () => {
   assert.match(screenSource, /HELP_CATEGORY_FILTERS/);
   assert.match(screenSource, /getHelpCategoryCounts/);
   assert.match(screenSource, /selectHelpFaqItems/);
-  assert.match(screenSource, /placeholder="Search FAQ"/);
+  assert.match(screenSource, /placeholder=\{t\('Search FAQ'\)\}/);
   assert.match(screenSource, /latencyLabel="help\.search\.clear"/);
   assert.match(screenSource, /categoryCounts\[category\]/);
   assert.match(screenSource, /expandedFaqId/);

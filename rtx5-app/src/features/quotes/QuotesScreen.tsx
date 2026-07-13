@@ -42,6 +42,26 @@ import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
 import { prefetchQuoteDetails } from '../../utils/navigationPrefetch';
 import { prefetchOrderTicketData } from '../../utils/navigationPrefetch';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
+import { liveCandlesEngine } from '../../api/ws/liveCandlesEngine';
+import {
+  hideOrderTicketLaunch,
+  prepareOrderTicketLaunch,
+  scheduleOrderTicketLaunchNavigation,
+  showOrderTicketLaunch,
+} from '../trade/orderTicketLaunchController';
+import {
+  hideQuoteInfoLaunch,
+  prepareQuoteInfoLaunch,
+  scheduleQuoteInfoLaunchNavigation,
+  showQuoteInfoLaunch,
+  type QuoteInfoLaunchDestination,
+} from './quoteInfoLaunchController';
+import { navigateMountedSidebarTab } from '../../ui/components/sidebarDrawerController';
+import {
+  scheduleFastTabNavigation,
+  showFastTabVisual,
+  TAB_BAR_NAVIGATION_SETTLE_DELAY_MS,
+} from '../../ui/navigation/fastTabVisualController';
 import { runImmediateAction } from '../../utils/actionLatency';
 import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
 import { useNextFrameValue } from '../../hooks/useNextFrameValue';
@@ -101,18 +121,14 @@ const volumeLabel = (volume?: number) => {
   return volume.toLocaleString('en-US');
 };
 
-function scheduleQuoteSheetOptionAction(action: () => void, deferUntilNextFrame = false) {
-  if (deferUntilNextFrame && typeof globalThis.requestAnimationFrame === 'function') {
-    globalThis.requestAnimationFrame(() => {
-      globalThis.requestAnimationFrame(() => {
-        setTimeout(action, 0);
-      });
-    });
-    return;
+/** Selects the symbol that Chart should show and returns its saved timeframe. */
+const prepareChartSymbol = (symbol: string) => {
+  const preferences = useUserPreferences.getState();
+  if (preferences.chartSymbol !== symbol) {
+    preferences.setChartSymbol(symbol);
   }
-
-  setTimeout(action, 0);
-}
+  return preferences.chartTimeframe;
+};
 
 const gmtClock = (d: Date) =>
   d.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'UTC' });
@@ -1669,7 +1685,6 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
   const addQuoteSymbol = useUserPreferences((st) => st.addQuoteSymbol);
   const removeQuoteSymbol = useUserPreferences((st) => st.removeQuoteSymbol);
   const setQuoteSymbols = useUserPreferences((st) => st.setQuoteSymbols);
-  const setChartSymbol = useUserPreferences((st) => st.setChartSymbol);
 
   const showQuotesActionSheet = useUIState((s) => s.showQuotesActionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
@@ -1689,6 +1704,10 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
   const { mutate: serverAdd } = useAddToWatchlistMutation();
   const { mutate: serverRemove } = useRemoveWatchlistMutation();
   const { mutate: serverReplace } = useReplaceWatchlistMutation();
+  const watchlistReplaceInFlightRef = useRef(false);
+  const pendingWatchlistReplaceRef = useRef<string[] | null>(null);
+  const quoteWatchlistLoggedInRef = useRef(isLoggedIn);
+  quoteWatchlistLoggedInRef.current = isLoggedIn;
   const syncServerAdd = useCallback((symbol: string) => {
     if (isLoggedIn) {
       serverAdd(symbol);
@@ -1700,10 +1719,39 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     }
   }, [isLoggedIn, serverRemove]);
   const syncServerReplace = useCallback((symbols: string[]) => {
-    if (isLoggedIn) {
-      serverReplace(symbols);
+    if (!quoteWatchlistLoggedInRef.current) {
+      pendingWatchlistReplaceRef.current = null;
+      return;
     }
-  }, [isLoggedIn, serverReplace]);
+
+    const startReplace = (nextSymbols: string[]) => {
+      if (!quoteWatchlistLoggedInRef.current) {
+        watchlistReplaceInFlightRef.current = false;
+        pendingWatchlistReplaceRef.current = null;
+        return;
+      }
+
+      watchlistReplaceInFlightRef.current = true;
+      serverReplace(nextSymbols, {
+        onSettled: () => {
+          const pendingSymbols = pendingWatchlistReplaceRef.current;
+          pendingWatchlistReplaceRef.current = null;
+          if (pendingSymbols) {
+            startReplace(pendingSymbols);
+            return;
+          }
+          watchlistReplaceInFlightRef.current = false;
+        },
+      });
+    };
+
+    if (watchlistReplaceInFlightRef.current) {
+      pendingWatchlistReplaceRef.current = symbols;
+      return;
+    }
+
+    startReplace(symbols);
+  }, [serverReplace]);
 
   const hasSetInitialSymbols = useUserPreferences((st) => st.hasSetInitialSymbols);
   const setHasSetInitialSymbols = useUserPreferences((st) => st.setHasSetInitialSymbols);
@@ -1857,6 +1905,8 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     restFallbackActive: quoteRestFallbackActive,
   });
 
+  // Pause quote re-renders and reconnect work while the sheet opens. The live
+  // socket stays subscribed, so no market data is lost.
   const pauseQuoteSheetFeed = useCallback((durationMs = QUOTE_SHEET_OPEN_FEED_PAUSE_MS) => {
     quotesWsService.deferReconnectForInteraction?.(durationMs);
     const release = pauseLiveQuoteSnapshotNotifications(durationMs);
@@ -1867,6 +1917,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
   const releaseQuoteSheetFeedPause = useCallback(() => {
     quoteSheetFeedPauseReleaseRef.current?.();
     quoteSheetFeedPauseReleaseRef.current = null;
+    quotesWsService.resumeReconnectAfterInteraction?.();
   }, []);
 
   const toggleEditMode = () => {
@@ -1929,8 +1980,11 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
   const preloadQuotesActionSheet = useUIState((s) => s.preloadQuotesActionSheet);
 
   useEffect(() => {
+    if (isScreenFocused) {
+      releaseQuoteSheetFeedPause();
+    }
     setQuoteSheetRouteActionPending(false);
-  }, [isScreenFocused]);
+  }, [isScreenFocused, releaseQuoteSheetFeedPause]);
 
   useEffect(() => {
     if (!quoteSheetRouteActionPending) {
@@ -1950,22 +2004,91 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
 
   const runQuoteSheetOption = useCallback((action: () => void, options?: QuoteSheetOptionOptions) => {
     const routeChange = options?.routeChange === true;
+    // Briefly reduce quote-row work so it cannot compete with the option tap.
     pauseQuoteSheetFeed(routeChange ? QUOTE_SHEET_ROUTE_FEED_PAUSE_MS : QUOTE_SHEET_OPTION_FEED_PAUSE_MS);
     if (routeChange) {
+      // Open the selected screen now. The small sheet-state update is allowed
+      // to finish in the background and must not delay navigation.
+      action();
       React.startTransition(() => {
         setQuoteSheetRouteActionPending(true);
       });
+      return;
     }
-    scheduleQuoteSheetOptionAction(action, routeChange);
+    // Non-route options also run on touch-down, without waiting for the sheet
+    // close animation.
+    action();
   }, [pauseQuoteSheetFeed]);
 
-  const goDetail = useCallback((sym: string) => {
+  /**
+   * Properties and Market Statistics use the same fast opening flow:
+   * show the matching ready screen, then open the real route behind it.
+   */
+  const openQuoteInfoForSymbol = useCallback((
+    destination: QuoteInfoLaunchDestination,
+    sym: string,
+  ) => {
     runQuoteSheetOption(() => {
-      prefetchQuoteDetails(sym);
-      setChartSymbol(sym);
-      router.push({ pathname: '/quotes/details', params: { symbol: sym } });
+      const launchRevision = showQuoteInfoLaunch(destination, sym);
+      scheduleQuoteInfoLaunchNavigation(launchRevision, () => {
+        try {
+          if (destination === 'properties') {
+            router.push({ pathname: '/quotes/details', params: { symbol: sym } });
+          } else {
+            router.push({ pathname: '/quotes/market-statistics', params: { symbol: sym } });
+          }
+        } catch {
+          hideQuoteInfoLaunch(launchRevision);
+        }
+      });
     }, { routeChange: true });
-  }, [router, runQuoteSheetOption, setChartSymbol]);
+  }, [router, runQuoteSheetOption]);
+
+  const goDetail = useCallback((sym: string) => {
+    openQuoteInfoForSymbol('properties', sym);
+  }, [openQuoteInfoForSymbol]);
+
+  const openMarketStatisticsForSymbol = useCallback((sym: string) => {
+    openQuoteInfoForSymbol('market-statistics', sym);
+  }, [openQuoteInfoForSymbol]);
+
+  const openChartTabForSymbol = useCallback((sym: string) => {
+    runQuoteSheetOption(() => {
+      // Make sure Chart knows which symbol to show, even when the user taps
+      // before the background preparation below has finished.
+      const chartTimeframe = prepareChartSymbol(sym);
+      // Show the already-mounted Chart screen immediately.
+      const visualRevision = showFastTabVisual('chart');
+      // Start loading this symbol's candles at the same time. If loading already
+      // started when the sheet opened, this safely reuses that same request.
+      void liveCandlesEngine.prefetchHistory(sym, chartTimeframe);
+      if (visualRevision !== null) {
+        // After Chart has painted, make the real tab route match it.
+        scheduleFastTabNavigation(visualRevision, () => {
+          if (!navigateMountedSidebarTab('/chart')) {
+            router.push('/(tabs)/chart');
+          }
+        }, TAB_BAR_NAVIGATION_SETTLE_DELAY_MS);
+      } else {
+        router.push('/(tabs)/chart');
+      }
+    }, { routeChange: true });
+  }, [router, runQuoteSheetOption]);
+
+  const openOrderTicketForSymbol = useCallback((sym: string) => {
+    runQuoteSheetOption(() => {
+      // Show a ready, ticket-shaped screen immediately.
+      const launchRevision = showOrderTicketLaunch(sym);
+      // Open the fully interactive ticket after the ready screen has painted.
+      scheduleOrderTicketLaunchNavigation(launchRevision, () => {
+        try {
+          router.push({ pathname: '/trade/order-ticket', params: { symbol: sym } });
+        } catch {
+          hideOrderTicketLaunch(launchRevision);
+        }
+      });
+    }, { routeChange: true });
+  }, [router, runQuoteSheetOption]);
 
   const quoteTapActionSheetConfigs = useMemo(() => {
     const configs = new Map<string, Parameters<typeof showQuotesActionSheet>[0]>();
@@ -1977,45 +2100,33 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
         presentation: 'mt5Plain',
         detent: 'auto',
         instantOpen: true,
-        runActionAfterClose: true,
+        // Each screen starts on touch-down, so no option waits for the sheet to
+        // finish closing before it becomes visible.
+        runActionAfterClose: false,
         actions: [
-          // Navigates the user to the Order Ticket screen to place a new trade for this symbol.
+          // Opens a new trade ticket for this symbol.
           {
             label: t('New Order'),
             activateOnPressIn: true,
-            onPress: () => {
-              runQuoteSheetOption(() => {
-                prefetchOrderTicketData(resolveTradingLoginString(), sym);
-                router.push({ pathname: '/trade/order-ticket', params: { symbol: sym } });
-              }, { routeChange: true });
-            },
+            onPress: () => openOrderTicketForSymbol(sym),
           },
-          // Switches to the Chart tab and loads this specific symbol's chart data.
+          // Switches to the ready Chart tab and shows this symbol.
           {
             label: t('Chart'),
             activateOnPressIn: true,
-            onPress: () => {
-              runQuoteSheetOption(() => {
-                setChartSymbol(sym);
-                router.push('/(tabs)/chart');
-              }, { routeChange: true });
-            },
+            onPress: () => openChartTabForSymbol(sym),
           },
-          // Opens the Contract Specification screen showing trading conditions (spreads, swaps, sessions) for this symbol.
+          // Opens this symbol's price details and contract settings.
           {
             label: t('Properties'),
             activateOnPressIn: true,
             onPress: () => goDetail(sym),
           },
-          // Opens a detailed real-time market depth / statistics screen for this symbol.
+          // Opens live spread, price-change, high/low, and session statistics.
           {
             label: t('Market Statistics'),
             activateOnPressIn: true,
-            onPress: () => {
-              runQuoteSheetOption(() => {
-                router.push({ pathname: '/quotes/market-statistics', params: { symbol: sym } });
-              }, { routeChange: true });
-            },
+            onPress: () => openMarketStatisticsForSymbol(sym),
           },
           // Both view modes are listed; the currently-active one is shown
           // disabled (via `selected`) and you tap the other to switch.
@@ -2047,7 +2158,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     });
 
     return configs;
-  }, [goDetail, quoteSymbols, quoteViewMode, router, runQuoteSheetOption, setChartSymbol, setQuoteViewMode, showQuotesActionSheet, t]);
+  }, [goDetail, openChartTabForSymbol, openMarketStatisticsForSymbol, openOrderTicketForSymbol, quoteSymbols, quoteViewMode, runQuoteSheetOption, setQuoteViewMode, showQuotesActionSheet, t]);
 
   const quoteLongPressActionSheetConfigs = useMemo(() => {
     const configs = new Map<string, Parameters<typeof showQuotesActionSheet>[0]>();
@@ -2058,18 +2169,15 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
         presentation: 'mt5Plain',
         detent: 'auto',
         instantOpen: true,
-        runActionAfterClose: true,
+        // Long-press options also open on touch-down without waiting for the
+        // sheet close animation.
+        runActionAfterClose: false,
         actions: [
           // Switches to the Chart tab and loads this specific symbol's chart data.
           {
             label: t('Chart'),
             activateOnPressIn: true,
-            onPress: () => {
-              runQuoteSheetOption(() => {
-                setChartSymbol(sym);
-                router.push('/(tabs)/chart');
-              }, { routeChange: true });
-            },
+            onPress: () => openChartTabForSymbol(sym),
           },
           { label: t('Properties'), activateOnPressIn: true, onPress: () => goDetail(sym) },
           {
@@ -2088,7 +2196,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     });
 
     return configs;
-  }, [goDetail, quoteSymbols, removeQuoteSymbol, router, runQuoteSheetOption, setChartSymbol, showQuotesActionSheet, syncServerRemove, t]);
+  }, [goDetail, openChartTabForSymbol, quoteSymbols, removeQuoteSymbol, runQuoteSheetOption, showQuotesActionSheet, syncServerRemove, t]);
 
   useEffect(() => {
     const firstSym = quoteSymbols[0];
@@ -2100,19 +2208,59 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     }
   }, [quoteSymbols, quoteTapActionSheetConfigs, preloadQuotesActionSheet]);
 
+  const prepareSymbolDestinationsAfterSheetPaint = useCallback((sym: string) => {
+    const prepareDestinations = () => {
+      // The sheet is already visible. Start loading Chart data now so a later
+      // Chart option tap has less work left to do.
+      const chartTimeframe = prepareChartSymbol(sym);
+      void liveCandlesEngine.prefetchHistory(sym, chartTimeframe);
+
+      // Prepare the data and route files used by New Order, Properties, and
+      // Market Statistics while the user is choosing an option.
+      prefetchOrderTicketData(resolveTradingLoginString(), sym);
+      prefetchQuoteDetails(sym);
+      const routePrefetches = [
+        { pathname: '/trade/order-ticket' as const, params: { symbol: sym } },
+        { pathname: '/quotes/details' as const, params: { symbol: sym } },
+        { pathname: '/quotes/market-statistics' as const, params: { symbol: sym } },
+      ];
+      for (const href of routePrefetches) {
+        try {
+          router.prefetch(href);
+        } catch {
+          // Prefetching is only a speed-up; the option still works without it.
+        }
+      }
+    };
+
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      globalThis.requestAnimationFrame(() => {
+        setTimeout(prepareDestinations, 0);
+      });
+      return;
+    }
+
+    setTimeout(prepareDestinations, 16);
+  }, [router]);
+
   /**
-   * Callback triggered when a user taps on a symbol row, typically opening the order/trade panel or chart for that instrument.
+   * Opens the symbol options immediately, then prepares their screens while
+   * the user is deciding which option to tap.
    */
   const handleSymbolTap = useCallback((sym: string) => {
     if (showAddModal) return;
     const config = quoteTapActionSheetConfigs.get(sym);
     if (config) {
       runImmediateAction('quotes.symbolSheet.tap.open', () => {
+        // Prepare the lightweight first screens before an option can be tapped.
         pauseQuoteSheetFeed();
+        prepareOrderTicketLaunch(sym);
+        prepareQuoteInfoLaunch(sym);
         showQuotesActionSheet(config);
+        prepareSymbolDestinationsAfterSheetPaint(sym);
       });
     }
-  }, [pauseQuoteSheetFeed, quoteTapActionSheetConfigs, showQuotesActionSheet, showAddModal]);
+  }, [pauseQuoteSheetFeed, prepareSymbolDestinationsAfterSheetPaint, quoteTapActionSheetConfigs, showQuotesActionSheet, showAddModal]);
 
   /**
    * Callback triggered when a user long-presses on a symbol row, typically opening a context menu with options like 'Chart', 'Details', or 'Remove'.
@@ -2123,10 +2271,12 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     if (config) {
       runImmediateAction('quotes.symbolSheet.longPress.open', () => {
         pauseQuoteSheetFeed();
+        prepareQuoteInfoLaunch(sym);
         showQuotesActionSheet(config);
+        prepareSymbolDestinationsAfterSheetPaint(sym);
       });
     }
-  }, [pauseQuoteSheetFeed, quoteLongPressActionSheetConfigs, showQuotesActionSheet, showAddModal]);
+  }, [pauseQuoteSheetFeed, prepareSymbolDestinationsAfterSheetPaint, quoteLongPressActionSheetConfigs, showQuotesActionSheet, showAddModal]);
 
   /**
    * Handles user input in the symbol search bar, updating the filtered list of available instruments.

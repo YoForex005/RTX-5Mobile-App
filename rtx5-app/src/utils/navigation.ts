@@ -18,3 +18,17 @@ export function safeRouterBack(router: BackRouter, fallbackHref: any = '/') {
 
   router.replace(fallbackHref);
 }
+
+/**
+ * Lets the touch-down frame paint before a potentially expensive Expo Router
+ * stack pop. The native screen stays stable for that one frame, then Back runs
+ * outside the press event instead of blocking its visual acknowledgement.
+ */
+export function scheduleBackNavigationAfterVisualFrame(action: () => void) {
+  const runAfterFrame = () => setTimeout(action, 0);
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(runAfterFrame);
+    return;
+  }
+  setTimeout(action, 0);
+}

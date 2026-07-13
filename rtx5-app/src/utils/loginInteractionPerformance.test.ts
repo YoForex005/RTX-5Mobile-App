@@ -42,6 +42,24 @@ test('login submit uses the shared stable fast press path', () => {
   assert.doesNotMatch(source, /loginBtnPressed: \{[\s\S]*transform:/);
 });
 
+test('login screen pre-warms the broker connection before submit', () => {
+  const source = readSource('app/login.tsx');
+
+  // The submit POST must not pay DNS + TCP + TLS on a cold socket: once the
+  // target broker server is known (saved credentials, dev prefill, or picker
+  // selection) the screen probes /health on the same host so the connection
+  // pool keeps a hot socket for /auth/login.
+  assert.match(source, /const warmedBrokerServerUrlRef = useRef\(''\)/);
+  assert.match(
+    source,
+    /if \(!isBrokerServiceBaseUrl\(serverUrl\) \|\| warmedBrokerServerUrlRef\.current === serverUrl\) \{[\s\S]*?\}\s*warmedBrokerServerUrlRef\.current = serverUrl;\s*void probeBrokerHealth\(serverUrl\);/,
+  );
+  assert.match(
+    source,
+    /warmedBrokerServerUrlRef\.current = normalizeBrokerServerUrl\(option\.serverUrl\);\s*void probeBrokerHealth\(option\.serverUrl\);/,
+  );
+});
+
 test('login screen exposes register account navigation to the demo registration screen', () => {
   const source = readSource('app/login.tsx');
 

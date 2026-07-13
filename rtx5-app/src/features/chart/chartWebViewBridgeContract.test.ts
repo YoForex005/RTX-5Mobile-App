@@ -141,6 +141,20 @@ test('live candle stream: startup prefetch seeds first chart render before REST 
     /const memoryCachedCandles = candleMemoryCache\.get\(symbol, timeframe\)[\s\S]*this\.hydrateFromCache\(symbol, timeframe, memoryCachedCandles as CandleParams\[\]\)[\s\S]*runLoadHistory\(this, entry, INITIAL_HISTORY_LIMIT\)/,
     'new chart subscriptions must synchronously paint memory-prefetched candles before starting the REST refresh',
   );
+  assertSourceContains(
+    liveCandleStreamManagerSource,
+    /public hydrateFromCache\(symbol: string, timeframe: string, candles: CandleParams\[\]\): void[\s\S]*entry\.historyCandles\.length > 0[\s\S]*entry\.historyCandles = safeCandles;[\s\S]*Preserve any live ticks[\s\S]*this\.commit\(entry\)/,
+    'exact-key persisted candles may paint during the initial REST request without discarding live ticks',
+  );
+  const hydrateFromCacheStart = liveCandleStreamManagerSource.indexOf('public hydrateFromCache');
+  const hydrateFromCacheEnd = liveCandleStreamManagerSource.indexOf('/**', hydrateFromCacheStart + 3);
+  const hydrateFromCacheSource = liveCandleStreamManagerSource.slice(hydrateFromCacheStart, hydrateFromCacheEnd);
+  assert.doesNotMatch(hydrateFromCacheSource, /entry\.requestId|entry\.liveCandleMap\s*=\s*new Map/);
+  assertSourceContains(
+    liveCandleStreamManagerSource,
+    /hydratePersistedCandleCache\(symbol, timeframe\)\.then\(\(persisted\) => \{[\s\S]*live\.historyCandles\.length > 0[\s\S]*this\.hydrateFromCache\(symbol, timeframe, persisted as CandleParams\[\]\)/,
+    'async persisted hydration must be rejected only after authoritative history has already committed',
+  );
 });
 
 test('webview bridge: symbol switches reject stale drawing bridge updates', () => {
@@ -785,13 +799,23 @@ test('native chart status overlays do not block symbol recovery controls', () =>
   );
   assertSourceContains(
     source,
-    /const shouldShowChartLoadingOverlay = !hasPaintedChartOnce && \(!chartSurfaceReady \|\| isLoading\)/,
-    'startup loading overlay must stay visible until the first real candle paint',
+    /const hasPaintedCurrentChartContext =[\s\S]*hasPaintedChartOnce && lastPaintedChartDataContextSig === chartDataContextSig[\s\S]*const shouldShowChartLoadingOverlay =[\s\S]*!hasPaintedCurrentChartContext &&[\s\S]*!hasChartDataError &&[\s\S]*\(!chartSurfaceReady \|\| isLoading \|\| candlesAvailable\)/,
+    'loading overlay must cover a cold symbol/timeframe until that exact context paints',
+  );
+  assertSourceContains(
+    source,
+    /if \(renderableCandles\.length === 0\) \{[\s\S]*if \(contextChanged\) \{[\s\S]*updateChartData\(\[\]\)/,
+    'a cold context must clear old-symbol candles behind its loading overlay',
+  );
+  assert.equal(
+    (source.match(/setLastPaintedChartDataContextSig\(chartDataContextSig\)/g) ?? []).length,
+    3,
+    'all three successful non-empty paint paths must acknowledge the exact chart context',
   );
   assertSourceContains(
     source,
     /\{shouldShowChartLoadingOverlay && \(\s*<View pointerEvents="none" style=\{styles\.chartOverlay\}>/,
-    'loading overlay must not reappear over the retained chart after normal tab navigation',
+    'the context-scoped loading overlay must remain non-blocking',
   );
   assertSourceContains(
     source,

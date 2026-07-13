@@ -22,6 +22,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../../ui/theme/useTheme';
 import { useUserPreferences } from '../../../state/userPreferences';
+import { useTranslation } from '../../../i18n/useTranslation';
 import {
   useAlertsQuery,
   useCreateAlertMutation,
@@ -67,6 +68,7 @@ const normalizeRouteMessage = (value: string | string[] | undefined) =>
 
 export function PriceAlertsScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const routeParams = useLocalSearchParams<PriceAlertRouteParams>();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
@@ -103,7 +105,7 @@ export function PriceAlertsScreen() {
   const { data: alerts = [], isLoading, refetch, isRefetching } = useAlertsQuery({
     enabled: isScreenFocused,
   });
-  const { mutate: deleteAlert, isPending: isDeleting } = useDeleteAlertMutation();
+  const { mutate: deleteAlert } = useDeleteAlertMutation();
 
   // ── Create form state ────────────────────────────────────────────────────
   const [symbol, setSymbol] = useState(routePrefillSymbol || chartSymbol || '');
@@ -112,6 +114,9 @@ export function PriceAlertsScreen() {
   const [message, setMessage] = useState(routePrefillMessage);
   const [formError, setFormError] = useState('');
   const [appliedRoutePrefillKey, setAppliedRoutePrefillKey] = useState(routePrefillKey);
+  const createAlertInFlightRef = React.useRef(false);
+  const deletingAlertIdsRef = React.useRef<Set<number>>(new Set());
+  const [deletingAlertIds, setDeletingAlertIds] = useState<Set<number>>(() => new Set());
 
   const { mutate: createAlert, isPending: isCreating } = useCreateAlertMutation();
 
@@ -142,6 +147,10 @@ export function PriceAlertsScreen() {
   ]);
 
   const handleCreate = () => {
+    if (createAlertInFlightRef.current || isCreating) {
+      return;
+    }
+
     const trimmedSymbol = symbol.trim().toUpperCase();
     const parsedPrice = parseFloat(price);
 
@@ -151,6 +160,7 @@ export function PriceAlertsScreen() {
       return;
     }
     setFormError('');
+    createAlertInFlightRef.current = true;
 
     createAlert(
       {
@@ -168,8 +178,31 @@ export function PriceAlertsScreen() {
         onError: () => {
           setFormError('Failed to create alert. Please try again.');
         },
+        onSettled: () => {
+          createAlertInFlightRef.current = false;
+        },
       },
     );
+  };
+
+  const handleDelete = (id: number) => {
+    if (deletingAlertIdsRef.current.has(id)) {
+      return;
+    }
+
+    const nextDeletingIds = new Set(deletingAlertIdsRef.current);
+    nextDeletingIds.add(id);
+    deletingAlertIdsRef.current = nextDeletingIds;
+    setDeletingAlertIds(nextDeletingIds);
+
+    deleteAlert(id, {
+      onSettled: () => {
+        const next = new Set(deletingAlertIdsRef.current);
+        next.delete(id);
+        deletingAlertIdsRef.current = next;
+        setDeletingAlertIds(next);
+      },
+    });
   };
 
   // Sort: active (not triggered) first, then triggered
@@ -193,7 +226,7 @@ export function PriceAlertsScreen() {
           <Ionicons name="arrow-back" size={22} color={T.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: T.text }]} numberOfLines={1}>
-          Price Alerts
+          {t('Price Alerts')}
         </Text>
         <View style={styles.headerBtn} />
       </View>
@@ -222,17 +255,17 @@ export function PriceAlertsScreen() {
           {/* ── Create Alert Form ── */}
           <View style={styles.sectionHeader}>
             <Ionicons name="add-circle-outline" size={14} color={sectionIconColor} />
-            <Text style={styles.sectionTitle}>NEW ALERT</Text>
+            <Text style={styles.sectionTitle}>{t('NEW ALERT')}</Text>
           </View>
           <View style={styles.card}>
             {/* Symbol */}
             <View style={styles.fieldRow}>
-              <Text style={[styles.fieldLabel, { color: T.textMuted }]}>Symbol</Text>
+              <Text style={[styles.fieldLabel, { color: T.textMuted }]}>{t('Symbol')}</Text>
               <TextInput
                 style={[styles.fieldInput, { color: T.text }]}
                 value={symbol}
                 onChangeText={(v) => setSymbol(v.toUpperCase())}
-                placeholder="e.g. EURUSD"
+                placeholder={t('e.g. EURUSD')}
                 placeholderTextColor={placeholderColor}
                 autoCapitalize="characters"
                 returnKeyType="next"
@@ -242,7 +275,7 @@ export function PriceAlertsScreen() {
 
             {/* Condition toggle */}
             <View style={styles.fieldRow}>
-              <Text style={[styles.fieldLabel, { color: T.textMuted }]}>Condition</Text>
+              <Text style={[styles.fieldLabel, { color: T.textMuted }]}>{t('Condition')}</Text>
               <View style={styles.conditionToggle}>
                 {(['above', 'below'] as AlertCondition[]).map((c) => (
                   <Pressable
@@ -260,7 +293,7 @@ export function PriceAlertsScreen() {
                       styles.conditionPillText,
                       { color: condition === c ? '#FFFFFF' : T.textMuted },
                     ]}>
-                      {c === 'above' ? '▲ Above' : '▼ Below'}
+                      {c === 'above' ? `▲ ${t('Above')}` : `▼ ${t('Below')}`}
                     </Text>
                   </Pressable>
                 ))}
@@ -270,7 +303,7 @@ export function PriceAlertsScreen() {
 
             {/* Price */}
             <View style={styles.fieldRow}>
-              <Text style={[styles.fieldLabel, { color: T.textMuted }]}>Price</Text>
+              <Text style={[styles.fieldLabel, { color: T.textMuted }]}>{t('Price')}</Text>
               <TextInput
                 style={[styles.fieldInput, { color: T.text }]}
                 value={price}
@@ -285,12 +318,12 @@ export function PriceAlertsScreen() {
 
             {/* Message (optional) */}
             <View style={styles.fieldRow}>
-              <Text style={[styles.fieldLabel, { color: T.textMuted }]}>Note</Text>
+              <Text style={[styles.fieldLabel, { color: T.textMuted }]}>{t('Note')}</Text>
               <TextInput
                 style={[styles.fieldInput, { color: T.text }]}
                 value={message}
                 onChangeText={setMessage}
-                placeholder="Optional notification note"
+                placeholder={t('Optional notification note')}
                 placeholderTextColor={placeholderColor}
                 returnKeyType="done"
               />
@@ -300,7 +333,7 @@ export function PriceAlertsScreen() {
             {!!formError && (
               <View style={styles.errorRow}>
                 <Ionicons name="warning-outline" size={14} color={T.down} />
-                <Text style={[styles.errorText, { color: T.down }]}>{formError}</Text>
+                <Text style={[styles.errorText, { color: T.down }]}>{t(formError)}</Text>
               </View>
             )}
 
@@ -312,7 +345,7 @@ export function PriceAlertsScreen() {
             >
               {isCreating
                 ? <ActivityIndicator size="small" color="#FFFFFF" />
-                : <Text style={styles.createBtnText}>Set Alert</Text>
+                : <Text style={styles.createBtnText}>{t('Set Alert')}</Text>
               }
             </Pressable>
           </View>
@@ -321,7 +354,7 @@ export function PriceAlertsScreen() {
           <View style={styles.sectionHeader}>
             <Ionicons name="notifications-outline" size={14} color={sectionIconColor} />
             <Text style={styles.sectionTitle}>
-              MY ALERTS{alerts.length > 0 ? ` (${alerts.length})` : ''}
+              {t('MY ALERTS')}{alerts.length > 0 ? ` (${alerts.length})` : ''}
             </Text>
           </View>
 
@@ -330,9 +363,9 @@ export function PriceAlertsScreen() {
           ) : sorted.length === 0 ? (
             <View style={styles.emptyCard}>
               <Ionicons name="notifications-off-outline" size={36} color={isDark ? T.textDimmed : '#CBD5E1'} />
-              <Text style={[styles.emptyText, { color: T.textMuted }]}>No alerts set</Text>
+              <Text style={[styles.emptyText, { color: T.textMuted }]}>{t('No alerts set')}</Text>
               <Text style={[styles.emptySubText, { color: isDark ? T.textMuted : '#94A3B8' }]}>
-                Create an alert above to get notified{'\n'}when a price level is reached
+                {t('Create an alert above to get notified when a price level is reached')}
               </Text>
             </View>
           ) : (
@@ -341,8 +374,8 @@ export function PriceAlertsScreen() {
                 <AlertRow
                   key={alert.id}
                   alert={alert}
-                  onDelete={() => deleteAlert(alert.id)}
-                  isDeleting={isDeleting}
+                  onDelete={() => handleDelete(alert.id)}
+                  isDeleting={deletingAlertIds.has(alert.id)}
                   isLast={idx === sorted.length - 1}
                   T={T}
                   isDark={isDark}

@@ -29,6 +29,7 @@ import { useTheme } from '../../../ui/theme/useTheme';
 import { useJournalTrades } from './liveJournal';
 import { makeJournalStyles } from './styles';
 import { useNextFrameValue } from '../../../hooks/useNextFrameValue';
+import { useTranslation } from '../../../i18n/useTranslation';
 
 type JournalFilter = 'All' | 'Trades' | 'Accounts' | 'Actions' | 'Errors' | 'Notes';
 
@@ -94,17 +95,17 @@ const formatTerminalTime = (value: string) => {
   return `${time}.${String(date.getMilliseconds()).padStart(3, '0')}`;
 };
 
-const formatDateHeading = (value: string) => {
+const formatDateHeading = (value: string, t: (key: string) => string) => {
   const date = parseDate(value);
   const label = date.toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
   if (isToday(date)) {
-    return `Today, ${label}`;
+    return `${t('Today')}, ${label}`;
   }
 
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
   if (isSameDay(date, yesterday)) {
-    return `Yesterday, ${label}`;
+    return `${t('Yesterday')}, ${label}`;
   }
 
   return date.toLocaleDateString(undefined, {
@@ -114,17 +115,17 @@ const formatDateHeading = (value: string) => {
   });
 };
 
-const formatSelectedDateLabel = (dateString: string) => {
+const formatSelectedDateLabel = (dateString: string, t: (key: string) => string) => {
   const date = parseCalendarDateString(dateString);
   const label = date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
   if (isToday(date)) {
-    return `Today, ${label}`;
+    return `${t('Today')}, ${label}`;
   }
 
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
   if (isSameDay(date, yesterday)) {
-    return `Yesterday, ${label}`;
+    return `${t('Yesterday')}, ${label}`;
   }
 
   return date.toLocaleDateString(undefined, {
@@ -176,10 +177,10 @@ const mergeJournalRows = (
     });
 };
 
-const groupJournalRowsByDate = (items: JournalLogRow[]): JournalLogSection[] => {
+const groupJournalRowsByDate = (items: JournalLogRow[], t: (key: string) => string): JournalLogSection[] => {
   const groups: JournalLogSection[] = [];
   for (const item of items) {
-    const heading = formatDateHeading(item.timestamp);
+    const heading = formatDateHeading(item.timestamp, t);
     const existing = groups.find((group) => group.heading === heading);
     if (existing) {
       existing.data.push(item);
@@ -196,6 +197,7 @@ const groupJournalRowsByDate = (items: JournalLogRow[]): JournalLogSection[] => 
 export const JournalScreenInner = React.memo(function JournalScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
   const routeBodyReady = useDeferredRouteContentReady(0, isScreenFocused);
   const T = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => makeJournalStyles(T), [T]);
   const actionColor = T.trading.buy.primary;
   const insets = useSafeAreaInsets();
@@ -220,7 +222,7 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
   }, [isScreenFocused, pruneTerminalEntries]);
 
   const selectedDate = useMemo(() => parseCalendarDateString(selectedDateIso), [selectedDateIso]);
-  const selectedDateLabel = useMemo(() => formatSelectedDateLabel(selectedDateIso), [selectedDateIso]);
+  const selectedDateLabel = useMemo(() => formatSelectedDateLabel(selectedDateIso, t), [selectedDateIso, t]);
 
   const selectedDateClosedTrades = useMemo(
     () => trades.filter((trade) => isSameDay(parseDate(trade.date), selectedDate) && trade.result && trade.result !== 'Open'),
@@ -245,7 +247,7 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
       : journalRows.filter((item) => item.filter === filter),
     [filter, journalRows],
   );
-  const groups = useMemo(() => groupJournalRowsByDate(filteredRows), [filteredRows]);
+  const groups = useMemo(() => groupJournalRowsByDate(filteredRows, t), [filteredRows, t]);
   const filterCounts = useMemo<Record<JournalFilter, number>>(() => ({
     All: journalRows.length,
     Trades: journalRows.filter((item) => item.filter === 'Trades').length,
@@ -274,11 +276,11 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
   );
   const latestActivityAt = journalRows[journalRows.length - 1]?.timestamp;
   const lastSyncLabel = latestActivityAt
-    ? `Last entry ${formatTerminalTime(latestActivityAt)}`
-    : `${retainedDateCount} day${retainedDateCount === 1 ? '' : 's'} stored`;
+    ? `${t('Last entry')} ${formatTerminalTime(latestActivityAt)}`
+    : `${retainedDateCount} ${retainedDateCount === 1 ? t('day stored') : t('days stored')}`;
   const emptyMessage = isError
-    ? 'Could not refresh account journal.'
-    : `No real journal events recorded for ${selectedDateLabel}.`;
+    ? t('Could not refresh account journal.')
+    : `${t('No real journal events recorded for')} ${selectedDateLabel}.`;
 
   useEffect(() => {
     if (selectedDateIso > todayDateIso) {
@@ -396,8 +398,8 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
           <Ionicons name="menu" size={24} color={T.text} />
         </Pressable>
         <View style={styles.headerTitleWrap}>
-          <Text style={styles.headerTitle}>Journal</Text>
-          <Text style={styles.headerSub}>{selectedDateLabel} | {accountLogin ? 'Live' : 'Local log'}</Text>
+          <Text style={styles.headerTitle}>{t('Journal')}</Text>
+          <Text style={styles.headerSub}>{selectedDateLabel} | {accountLogin ? t('Live') : t('Local log')}</Text>
         </View>
         <View style={styles.headerActions}>
           <Pressable
@@ -456,30 +458,30 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
             <View style={styles.summaryCard}>
               <View style={styles.summaryHeader}>
                 <View>
-                  <Text style={styles.summaryTitle}>Session Summary</Text>
+                  <Text style={styles.summaryTitle}>{t('Session Summary')}</Text>
                   <Text style={styles.summarySub}>{selectedDateLabel} | {lastSyncLabel}</Text>
                 </View>
                 <View style={styles.summaryStatus}>
                   <Ionicons name="reader-outline" size={14} color={actionColor} />
-                  <Text style={styles.summaryStatusText}>MT5 Log</Text>
+                  <Text style={styles.summaryStatusText}>{t('MT5 Log')}</Text>
                 </View>
               </View>
 
               <View style={styles.summaryMetrics}>
                 <View style={styles.summaryItem}>
-                  <Text style={styles.summaryLabel}>Logs</Text>
+                  <Text style={styles.summaryLabel}>{t('Logs')}</Text>
                   <Text style={styles.summaryValue}>{selectedDateLogCount}</Text>
                 </View>
                 <View style={styles.summaryDivider} />
                 <View style={styles.summaryItem}>
-                  <Text style={styles.summaryLabel}>Net P/L</Text>
+                  <Text style={styles.summaryLabel}>{t('Net P/L')}</Text>
                   <Text style={[styles.summaryValue, selectedDatePnl < 0 ? styles.lossText : styles.profitText]}>
                     {formatMoney(selectedDatePnl)}
                   </Text>
                 </View>
                 <View style={styles.summaryDivider} />
                 <View style={styles.summaryItem}>
-                  <Text style={styles.summaryLabel}>Win/Loss</Text>
+                  <Text style={styles.summaryLabel}>{t('Win/Loss')}</Text>
                   <Text style={styles.summaryValue}>{selectedDateWins}W / {selectedDateLosses}L</Text>
                 </View>
               </View>
@@ -487,8 +489,8 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
 
             <View style={styles.activityToolbar}>
               <View>
-                <Text style={styles.activityToolbarTitle}>Terminal Log</Text>
-                <Text style={styles.activityToolbarSub}>{filteredRows.length} entries | {selectedDateLabel}</Text>
+                <Text style={styles.activityToolbarTitle}>{t('Terminal Log')}</Text>
+                <Text style={styles.activityToolbarSub}>{filteredRows.length} {t('entries')} | {selectedDateLabel}</Text>
               </View>
               <Pressable
                 style={styles.toolbarNoteButton}
@@ -496,7 +498,7 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
                 latencyLabel="journal.toolbarNote"
               >
                 <Ionicons name="create-outline" size={15} color={actionColor} />
-                <Text style={styles.toolbarNoteText}>Note</Text>
+                <Text style={styles.toolbarNoteText}>{t('Note')}</Text>
               </Pressable>
             </View>
 
@@ -515,7 +517,7 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
                     onPress={() => setFilter(item)}
                     latencyLabel={`journal.filter.${item}`}
                   >
-                    <Text style={[styles.filterText, active && styles.filterTextActive]}>{item}</Text>
+                    <Text style={[styles.filterText, active && styles.filterTextActive]}>{t(item)}</Text>
                     <Text style={[styles.filterCount, active && styles.filterTextActive]}>{filterCounts[item]}</Text>
                   </Pressable>
                 );
@@ -529,7 +531,7 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
               <Ionicons name="reader-outline" size={22} color={T.textMuted} />
             </View>
             <Text style={styles.emptyTitle}>{emptyMessage}</Text>
-            <Text style={styles.emptySub}>Use the calendar above to view retained Journal rows by date, then refresh for the latest account activity.</Text>
+            <Text style={styles.emptySub}>{t('Use the calendar above to view retained Journal rows by date, then refresh for the latest account activity.')}</Text>
           </View>
         )}
         ListFooterComponent={(
@@ -539,7 +541,7 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
             latencyLabel="journal.addNote"
           >
             <Ionicons name="add-circle-outline" size={18} color={actionColor} />
-            <Text style={styles.addNoteText}>Add Note</Text>
+            <Text style={styles.addNoteText}>{t('Add Note')}</Text>
           </Pressable>
         )}
       /> : <View style={styles.container} />}
@@ -549,7 +551,7 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsNoteOpen(false)} latencyLabel="journal.noteOverlay" />
           <View style={[styles.noteSheet, { paddingBottom: insets.bottom + 12 }]}>
             <View style={styles.noteHeader}>
-              <Text style={styles.noteTitle}>Add Note</Text>
+              <Text style={styles.noteTitle}>{t('Add Note')}</Text>
               <Pressable onPress={() => setIsNoteOpen(false)} style={styles.noteClose} latencyLabel="journal.noteClose">
                 <Ionicons name="close" size={20} color={T.text} />
               </Pressable>
@@ -557,7 +559,7 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
             <TextInput
               value={noteText}
               onChangeText={setNoteText}
-              placeholder="Write a short trading note..."
+              placeholder={t('Write a short trading note...')}
               placeholderTextColor={T.textMuted}
               multiline
               textAlignVertical="top"
@@ -569,7 +571,7 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
               disabled={!noteText.trim()}
               latencyLabel="journal.noteSave"
             >
-              <Text style={styles.saveNoteText}>Save Note</Text>
+              <Text style={styles.saveNoteText}>{t('Save Note')}</Text>
             </Pressable>
           </View>
         </View>
@@ -584,7 +586,7 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
           />
           <View style={styles.calendarContainer}>
             <View style={styles.calendarHeader}>
-              <Text style={styles.calendarTitle}>Select Date</Text>
+              <Text style={styles.calendarTitle}>{t('Select Date')}</Text>
               <Pressable
                 style={styles.calendarClose}
                 onPress={() => setIsCalendarOpen(false)}
@@ -622,7 +624,7 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
               }}
               latencyLabel="journal.calendarToday"
             >
-              <Text style={styles.calendarTodayText}>Today</Text>
+              <Text style={styles.calendarTodayText}>{t('Today')}</Text>
             </Pressable>
           </View>
         </View>

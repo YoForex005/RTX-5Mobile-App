@@ -35,6 +35,7 @@ import {
 import { CountryBadge, PulseDot } from './subComponents';
 import { makeEconomicCalendarStyles } from './styles';
 import { useNextFrameValue } from '../../../hooks/useNextFrameValue';
+import { useTranslation } from '../../../i18n/useTranslation';
 
 const ECON_CALENDAR_IDLE_PREWARM_DELAY_MS = 6000;
 
@@ -48,6 +49,7 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
   const styles = useMemo(() => makeEconomicCalendarStyles(T, isDark), [T, isDark]);
   const insets = useSafeAreaInsets();
   const hideActionSheet = useUIState((state) => state.hideActionSheet);
+  const { t } = useTranslation();
   const initialEvents = useMemo(() => getInitialEconomicCalendarData(), []);
 
   const [activeTab, setActiveTab] = useState('Today');
@@ -167,7 +169,7 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: config.color + '15', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20 }}>
                 <PulseDot color={config.color} size={5} />
-                <Text style={{ marginLeft: 6, color: config.color, fontSize: 10, fontWeight: '600', letterSpacing: 0.5 }}>{config.label.toUpperCase()}</Text>
+                <Text style={{ marginLeft: 6, color: config.color, fontSize: 10, fontWeight: '600', letterSpacing: 0.5 }}>{t(config.label).toUpperCase()}</Text>
               </View>
             </View>
 
@@ -181,20 +183,20 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
 
           <View style={{ flexDirection: 'row', backgroundColor: isDark ? T.glass2 : '#F1F5F9', borderRadius: 12, borderWidth: 1, borderColor: isDark ? T.border : 'rgba(0,0,0,0.05)', marginTop: 8 }}>
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 6, borderRightWidth: 1, borderRightColor: isDark ? T.borderSubtle : 'rgba(0,0,0,0.05)' }}>
-              <Text style={{ color: hasActual ? config.color : (isDark ? T.textDimmed : '#94A3B8'), fontSize: 10, fontWeight: '600', letterSpacing: 0.8, marginBottom: 4 }}>ACTUAL</Text>
+              <Text style={{ color: hasActual ? config.color : (isDark ? T.textDimmed : '#94A3B8'), fontSize: 10, fontWeight: '600', letterSpacing: 0.8, marginBottom: 4 }}>{t('Actual').toUpperCase()}</Text>
               <Text style={{ fontSize: 22, fontWeight: '600', color: hasActual ? config.color : (isDark ? T.textDimmed : '#94A3B8'), fontVariant: ['tabular-nums'] }}>
                 {hasActual ? event.actual : '—'}
               </Text>
             </View>
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 6, borderRightWidth: 1, borderRightColor: isDark ? T.borderSubtle : 'rgba(0,0,0,0.05)' }}>
-              <Text style={{ color: isDark ? T.textMuted : '#94A3B8', fontSize: 10, fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 }}>FORECAST</Text>
+              <Text style={{ color: isDark ? T.textMuted : '#94A3B8', fontSize: 10, fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 }}>{t('Forecast').toUpperCase()}</Text>
               <Text style={{ color: isDark ? T.text : '#0F172A', fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{event.forecast || '—'}</Text>
               {forecastDiff ? (
                 <Text style={{ color: forecastDiff.color, fontSize: 10, fontWeight: '600', marginTop: 4 }}>vs: {forecastDiff.text} {forecastDiff.symbol}</Text>
               ) : <View style={{ height: 16 }} />}
             </View>
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 6 }}>
-              <Text style={{ color: isDark ? T.textMuted : '#94A3B8', fontSize: 10, fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 }}>PREVIOUS</Text>
+              <Text style={{ color: isDark ? T.textMuted : '#94A3B8', fontSize: 10, fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 }}>{t('Previous').toUpperCase()}</Text>
               <Text style={{ color: isDark ? T.text : '#0F172A', fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{event.previous || '—'}</Text>
               {previousDiff ? (
                 <Text style={{ color: previousDiff.color, fontSize: 10, fontWeight: '600', marginTop: 4 }}>vs: {previousDiff.text} {previousDiff.symbol}</Text>
@@ -228,7 +230,7 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
             {event.isAllDay ? (
               <View style={styles.allDayPill}>
                 <Ionicons name="calendar" size={10} color="#8B5CF6" />
-                <Text style={styles.allDayText}>ALL DAY</Text>
+                <Text style={styles.allDayText}>{t('All Day').toUpperCase()}</Text>
               </View>
             ) : (
               <Text style={styles.timeText}>{event.time}</Text>
@@ -252,17 +254,17 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
               {hasActual ? (
                 <>
                   <Text style={[styles.previewActual, { color: config.color }]}>{event.actual}</Text>
-                  <Text style={styles.previewLabel}>Actual</Text>
+                  <Text style={styles.previewLabel}>{t('Actual')}</Text>
                 </>
               ) : event.forecast && event.forecast !== '—' ? (
                 <>
                   <Text style={styles.previewForecast}>{event.forecast}</Text>
-                  <Text style={styles.previewLabel}>Forecast</Text>
+                  <Text style={styles.previewLabel}>{t('Forecast')}</Text>
                 </>
               ) : (
                 <>
                   <Ionicons name="time-outline" size={14} color={isDark ? T.textDimmed : '#94A3B8'} />
-                  <Text style={styles.previewLabel}>Pending</Text>
+                  <Text style={styles.previewLabel}>{t('Pending')}</Text>
                 </>
               )}
             </View>
@@ -270,7 +272,7 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
         </View>
       </Pressable>
     );
-  }, [expandedEventId, styles, isDark, T]);
+  }, [expandedEventId, styles, isDark, T, t]);
 
   return (
     <Screen style={styles.screen}>
@@ -294,7 +296,7 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
             <Ionicons name="menu" size={28} color={T.text} />
           </Pressable>
           <Text style={{ flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '600', color: T.text }}>
-            Economic Calender
+            {t('Economic Calender')}
           </Text>
           <View style={{ width: 46 }} />
         </View>
@@ -307,8 +309,8 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
                 <Ionicons name="calendar-outline" size={30} color={isDark ? T.accent : '#4F46E5'} />
               </View>
               <View style={{ flex: 1, marginLeft: 6 }}>
-                <Text style={styles.heroTitle}>Economic Calender</Text>
-                <Text style={styles.heroSub}>Market events calendar</Text>
+                <Text style={styles.heroTitle}>{t('Economic Calender')}</Text>
+                <Text style={styles.heroSub}>{t('Market events calendar')}</Text>
               </View>
               <Pressable style={styles.filterBtn} onPress={() => setFilterModalOpen(true)}>
                 <Ionicons name="options-outline" size={16} color={isDark ? T.accent : '#4F46E5'} />
@@ -327,7 +329,7 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
                         style={[StyleSheet.absoluteFillObject, { borderRadius: 10 }]}
                       />
                     )}
-                    <Text style={[styles.segmentText, isActive && styles.segmentTextActive]}>{tab}</Text>
+                    <Text style={[styles.segmentText, isActive && styles.segmentTextActive]}>{t(tab)}</Text>
                   </Pressable>
                 );
               })}
@@ -355,7 +357,7 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
                 return (
                   <Pressable key={cur} style={[styles.chipBtn, isActive && styles.chipBtnActive]} onPress={() => setSelectedCurrency(cur)}>
                     <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
-                      {cur === 'All' ? '● All' : cur}
+                      {cur === 'All' ? `● ${t('All')}` : cur}
                     </Text>
                   </Pressable>
                 );
@@ -374,10 +376,10 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
             <View style={styles.emptyIcon}>
               <Ionicons name="cloud-offline-outline" size={32} color={isDark ? '#EF4444' : '#DC2626'} />
             </View>
-            <Text style={styles.emptyTitle}>Unable to load events</Text>
-            <Text style={styles.emptySub}>Check your internet connection and try again</Text>
+            <Text style={styles.emptyTitle}>{t('Unable to load events')}</Text>
+            <Text style={styles.emptySub}>{t('Check your internet connection and try again')}</Text>
             <Pressable style={[styles.emptyResetBtn, { backgroundColor: isDark ? T.glass3 : 'rgba(79,70,229,0.1)' }]} onPress={loadData}>
-              <Text style={styles.emptyResetText}>Retry</Text>
+              <Text style={styles.emptyResetText}>{t('Retry')}</Text>
             </Pressable>
           </View>
         ) : sections.length === 0 ? (
@@ -385,10 +387,10 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
             <View style={styles.emptyIcon}>
               <Ionicons name="search" size={32} color={isDark ? T.textMuted : '#CBD5E1'} />
             </View>
-            <Text style={styles.emptyTitle}>No events found</Text>
-            <Text style={styles.emptySub}>Try adjusting your filters or date range</Text>
+            <Text style={styles.emptyTitle}>{t('No events found')}</Text>
+            <Text style={styles.emptySub}>{t('Try adjusting your filters or date range')}</Text>
             <Pressable style={styles.emptyResetBtn} onPress={() => { setSelectedCurrency('All'); setSelectedImpacts(new Set(['high', 'medium', 'low', 'holiday'])); }}>
-              <Text style={styles.emptyResetText}>Reset All Filters</Text>
+              <Text style={styles.emptyResetText}>{t('Reset All Filters')}</Text>
             </Pressable>
           </View>
         ) : (
@@ -402,7 +404,7 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
                   </View>
                 </View>
                 <View style={styles.dayHeaderBadge}>
-                  <Text style={styles.dayHeaderBadgeText}>{section.events.length} events</Text>
+                  <Text style={styles.dayHeaderBadgeText}>{section.events.length} {t('events')}</Text>
                 </View>
               </View>
 
@@ -421,11 +423,11 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
           <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
             <View style={styles.modalHeader}>
               <View style={styles.modalHandle} />
-              <Text style={styles.modalTitle}>Event Filters</Text>
-              <Text style={styles.modalSub}>Customize which events appear</Text>
+              <Text style={styles.modalTitle}>{t('Event Filters')}</Text>
+              <Text style={styles.modalSub}>{t('Customize which events appear')}</Text>
             </View>
 
-            <Text style={styles.modalGroupTitle}>IMPACT LEVEL</Text>
+            <Text style={styles.modalGroupTitle}>{t('IMPACT LEVEL')}</Text>
             <View style={styles.modalImpactRow}>
               {IMPACT_FILTERS.map((impact) => {
                 const config = IMPACT_CONFIG[impact];
@@ -437,16 +439,16 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
                         <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: isActive ? config.color : isDark ? T.textMuted : '#CBD5E1' }} />
                       </View>
                     </View>
-                    <Text style={[styles.modalImpactLabel, isActive && { color: config.color }]}>{config.label}</Text>
+                    <Text style={[styles.modalImpactLabel, isActive && { color: config.color }]}>{t(config.label)}</Text>
                   </Pressable>
                 );
               })}
             </View>
 
-            <Text style={styles.modalGroupTitle}>OTHER</Text>
+            <Text style={styles.modalGroupTitle}>{t('OTHER')}</Text>
             <Pressable style={[styles.modalToggleRow, selectedImpacts.has('holiday') && styles.modalToggleRowActive]} onPress={() => toggleImpact('holiday')}>
               <Ionicons name="calendar" size={16} color="#8B5CF6" />
-              <Text style={styles.modalToggleLabel}>Show Bank Holidays</Text>
+              <Text style={styles.modalToggleLabel}>{t('Show Bank Holidays')}</Text>
               <View style={[styles.modalToggle, selectedImpacts.has('holiday') && styles.modalToggleOn]}>
                 <View style={[styles.modalToggleThumb, selectedImpacts.has('holiday') && styles.modalToggleThumbOn]} />
               </View>
@@ -458,7 +460,7 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                 style={[StyleSheet.absoluteFillObject, { borderRadius: 14 }]}
               />
-              <Text style={styles.modalDoneBtnText}>Apply Filters</Text>
+              <Text style={styles.modalDoneBtnText}>{t('Apply Filters')}</Text>
             </Pressable>
           </Pressable>
         </Pressable>

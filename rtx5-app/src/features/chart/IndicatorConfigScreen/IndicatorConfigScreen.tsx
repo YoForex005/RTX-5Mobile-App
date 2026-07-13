@@ -13,6 +13,7 @@ import { Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../../ui/components/Screen';
 import { useUserPreferences } from '../../../state/userPreferences';
+import { useTranslation } from '../../../i18n/useTranslation';
 import { useTheme } from '../../../ui/theme/useTheme';
 import { safeRouterBack } from '../../../utils/navigation';
 import { useIndicatorEditState } from '../indicatorEditState';
@@ -22,6 +23,7 @@ import { makeIndicatorConfigStyles } from './styles';
 
 export function IndicatorConfigScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { t } = useTranslation();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
@@ -48,7 +50,7 @@ export function IndicatorConfigScreen() {
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">
-            <Text style={styles.headerTitle}>Unknown</Text>
+            <Text style={styles.headerTitle}>{t('Unknown')}</Text>
           </View>
           <View style={styles.headerBackBtn} />
         </View>

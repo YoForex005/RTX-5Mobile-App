@@ -19,10 +19,13 @@ import {
 } from '../../src/ui/components/sidebarDrawerController';
 import { SidebarDestinationHost } from '../../src/ui/components/SidebarDestinationHost';
 import { hideSidebarDestination } from '../../src/ui/components/sidebarDestinationHostController';
+import { OrderTicketLaunchHost } from '../../src/features/trade/OrderTicketLaunchHost';
+import { QuoteInfoLaunchHost } from '../../src/features/quotes/QuoteInfoLaunchHost';
 import { FastTabs as Tabs } from '../../src/ui/navigation/FastTabNavigator';
 import {
   scheduleFastTabNavigation,
   showFastTabVisual,
+  TAB_BAR_NAVIGATION_SETTLE_DELAY_MS,
 } from '../../src/ui/navigation/fastTabVisualController';
 
 const icons = {
@@ -77,7 +80,8 @@ function scheduleTabSwitchBudgetCheck(label: string, startedAtMs: number, naviga
 }
 
 /**
- * A highly optimized, custom button wrapper for the bottom menubar tabs. Uses immediate touch events (onPressIn) to ensure instant tab switching with zero delay.
+ * Handles a bottom-menu tap as soon as the finger goes down.
+ * It shows the selected screen first, then updates the real navigation route.
  */
 const FastTabBarButton = memo(function FastTabBarButton({
   latencyLabel = 'bottom tab',
@@ -98,10 +102,13 @@ const FastTabBarButton = memo(function FastTabBarButton({
     }
     recentTabPresses.set(latencyLabel, startedAtMs);
     useUIState.getState().hideActionSheet();
+    // Step 1: show the already-mounted screen immediately.
     const visualRevision = showFastTabVisual(latencyLabel);
     (event as TabPressEvent & { persist?: () => void }).persist?.();
     if (visualRevision !== null) {
-      scheduleFastTabNavigation(visualRevision, () => onPress?.(event));
+      // A bottom-menu tap has no drawer animation to wait for.
+      // Step 2: after that screen paints, make the real route match it.
+      scheduleFastTabNavigation(visualRevision, () => onPress?.(event), TAB_BAR_NAVIGATION_SETTLE_DELAY_MS);
     } else {
       onPress?.(event);
     }
@@ -116,6 +123,7 @@ const FastTabBarButton = memo(function FastTabBarButton({
   const handlePressIn = useCallback((event: TabPressInEvent) => {
     pressStartedAtRef.current = pressStartedAtRef.current ?? getNow();
     onPressIn?.(event);
+    // Start the tab change on touch-down instead of waiting for finger release.
     if (onPress && !handledOnPressInRef.current) {
       handledOnPressInRef.current = true;
       runTabPress(event as TabPressEvent);
@@ -311,9 +319,10 @@ const TabsLayoutInner = memo(function TabsLayoutInner({
     <View style={styles.root}>
       <Tabs
         layout={renderTabsLayout}
-        // The custom navigator keeps the five real primary scenes in plain,
-        // cached absolute views. It does not use native detach/freeze/thaw, so
-        // sidebar and bottom-bar switches share the same constant-size commit.
+        // Back returns secondary tabs to Quotes without rebuilding the screens.
+        backBehavior='firstRoute'
+        // Keep all five main screens mounted, so taps and Back reuse them
+        // instead of waiting for a screen to be created again.
         detachInactiveScreens={false}
         screenOptions={({ route }) => ({
           headerShown: false,
@@ -374,6 +383,9 @@ const TabsLayoutInner = memo(function TabsLayoutInner({
       </Tabs>
 
       <SidebarDestinationHost />
+      {/* Keep these previews mounted so the selected symbol option can appear immediately. */}
+      <OrderTicketLaunchHost />
+      <QuoteInfoLaunchHost />
 
       {/* Hamburger menu button is now inside AppHeader for consistent alignment */}
 

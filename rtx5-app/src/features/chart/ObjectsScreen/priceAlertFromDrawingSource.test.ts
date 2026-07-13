@@ -14,7 +14,7 @@ test('objects screen opens price alerts prefilled from price-level drawings', ()
   assert.match(actionsSource, /PRICE_ALERT_DRAWING_KINDS[\s\S]*'horizontalLine'[\s\S]*'horizontalRay'[\s\S]*'textLevel'/);
   assert.match(actionsSource, /export function getDrawingObjectPriceAlertDraft/);
   assert.match(objectsSource, /getDrawingObjectPriceAlertDraft\(selectedDrawingRecord, chartSymbol\)/);
-  assert.match(objectsSource, /label:\s*'Create price alert'/);
+  assert.match(objectsSource, /label:\s*t\('Create price alert'\)/);
   assert.match(objectsSource, /pathname:\s*'\/chart\/alerts'/);
   assert.match(objectsSource, /price:\s*selectedDrawingPriceAlertDraft\.price/);
   assert.match(objectsSource, /symbol:\s*selectedDrawingPriceAlertDraft\.symbol/);

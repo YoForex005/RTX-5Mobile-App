@@ -3425,12 +3425,17 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   ]);
 
   const chartType = chartVisualType;
+  const chartDataContextSig = useMemo(
+    () => `${chartSymbol}-${normalizeTimeframe(chartTimeframe)}`,
+    [chartSymbol, chartTimeframe],
+  );
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [activeDateRange, setActiveDateRange] = useState<ChartTimeRange>('auto');
   const [customDateValue, setCustomDateValue] = useState<Date | null>(null);
   const [webViewReady, setWebViewReady] = useState(false);
   const [chartCanvasReady, setChartCanvasReady] = useState(false);
   const [hasPaintedChartOnce, setHasPaintedChartOnce] = useState(false);
+  const [lastPaintedChartDataContextSig, setLastPaintedChartDataContextSig] = useState('');
   const requestChartDrawingSyncForObjects = useCallback(() => {
     if (!webViewRef.current || !webViewReady || !chartCanvasReady) {
       return false;
@@ -4384,9 +4389,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     (!chartCanvasReady || !candlesAvailable || chartDataLoading) &&
     (shouldShowImmediateHistoryLoading || loadingDelayPassed) &&
     !loadingFallback;
-  // After the first confirmed WebView paint, keep tab returns visually stable.
-  // Recovery can still run underneath, but the startup loader stays one-time.
-  const shouldShowChartLoadingOverlay = !hasPaintedChartOnce && (!chartSurfaceReady || isLoading);
+  // Keep same-context tab returns visually stable, but cover a cold
+  // symbol/timeframe switch until that exact series is painted. A lifetime-only
+  // flag exposed the empty WebView grid for the whole REST request after the
+  // first chart had ever rendered.
+  const hasPaintedCurrentChartContext =
+    hasPaintedChartOnce && lastPaintedChartDataContextSig === chartDataContextSig;
+  const shouldShowChartLoadingOverlay =
+    !hasPaintedCurrentChartContext &&
+    !hasChartDataError &&
+    (!chartSurfaceReady || isLoading || candlesAvailable);
   const isError = hasChartDataError;
   const isNoMarketData = sanitizedCandles.length === 0 && !isLoading && !isError && loadingFallback;
 
@@ -4675,10 +4687,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       }-${chartDisplay.showGrid ? 'grid' : 'nogrid'}-${chartGridColor}-${chartAxisBorderColor}-${chartColorsSignature}`,
     [chartType, chartColorsSignature, showChartVolumePane, chartDisplay.showGrid, chartGridColor, chartAxisBorderColor],
   );
-  const chartDataContextSig = useMemo(
-    () => `${chartSymbol}-${normalizeTimeframe(chartTimeframe)}`,
-    [chartSymbol, chartTimeframe],
-  );
   useEffect(() => {
     const lastCandle = sanitizedCandles[sanitizedCandles.length - 1];
     if (!lastCandle) {
@@ -4870,6 +4878,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       // candle history is still loading.  Treat first paint as the first real
       // candle batch, not the empty chart shell.
       setHasPaintedChartOnce(true);
+      setLastPaintedChartDataContextSig(chartDataContextSig);
     }
   }, [sanitizedCandles, chartCanvasReady, chartReadyEpoch, chartType, buildMappedData, chartDataContextSig, chartSymbol, chartTimeframe]);
 
@@ -5755,6 +5764,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                               if (getChartSnapshotSignature(pendingInitSnapshotRef.current) === getChartSnapshotSignature(readySnapshot)) {
                                 renderedSeriesSnapshotRef.current = readySnapshot;
                                 setHasPaintedChartOnce(true);
+                                setLastPaintedChartDataContextSig(chartDataContextSig);
                               } else {
                                 const mapped = buildMappedData(readyCandles);
                                 webViewRef.current.injectJavaScript(`
@@ -5763,6 +5773,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                             `);
                                 renderedSeriesSnapshotRef.current = readySnapshot;
                                 setHasPaintedChartOnce(true);
+                                setLastPaintedChartDataContextSig(chartDataContextSig);
                               }
                             }
                           } catch (_) { }

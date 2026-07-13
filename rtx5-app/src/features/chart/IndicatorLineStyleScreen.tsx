@@ -12,6 +12,7 @@ import { ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useTranslation } from '../../i18n/useTranslation';
 import { useTheme } from '../../ui/theme/useTheme';
 import { safeRouterBack } from '../../utils/navigation';
 import {
@@ -29,6 +30,7 @@ const WIDTHS = [1, 2, 3, 4, 5];
 
 export function IndicatorLineStyleScreen() {
   const { lineKey } = useLocalSearchParams<{ lineKey: string }>();
+  const { t } = useTranslation();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
@@ -49,7 +51,7 @@ export function IndicatorLineStyleScreen() {
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">
-            <Text style={styles.headerTitle}>Line</Text>
+            <Text style={styles.headerTitle}>{t('Line')}</Text>
           </View>
           <View style={styles.headerBackBtn} />
         </View>
@@ -64,7 +66,7 @@ export function IndicatorLineStyleScreen() {
           <Ionicons name="arrow-back" size={24} color={T.text} />
         </Pressable>
         <View style={styles.headerTitleWrap} pointerEvents="none">
-          <Text style={styles.headerTitle} numberOfLines={1}>{line.name}</Text>
+          <Text style={styles.headerTitle} numberOfLines={1}>{t(line.name)}</Text>
         </View>
         <View style={styles.headerBackBtn} />
       </View>
@@ -72,7 +74,7 @@ export function IndicatorLineStyleScreen() {
       <ScrollView
         keyboardShouldPersistTaps="always"
         canCancelContentTouches={Platform.OS === 'ios'} contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-        <SectionHeader title="Preview" isDark={isDark} />
+        <SectionHeader title={t('Preview')} isDark={isDark} />
         <Card isDark={isDark}>
           <View style={styles.previewRow}>
             <LinePreview
@@ -84,7 +86,7 @@ export function IndicatorLineStyleScreen() {
           </View>
         </Card>
 
-        <SectionHeader title="Color" isDark={isDark} />
+        <SectionHeader title={t('Color')} isDark={isDark} />
         <Card isDark={isDark}>
           <View style={styles.colorGrid}>
             {MT5_COLOR_PALETTE.map((c) => {
@@ -112,12 +114,12 @@ export function IndicatorLineStyleScreen() {
           </View>
         </Card>
 
-        <SectionHeader title="Style" isDark={isDark} />
+        <SectionHeader title={t('Style')} isDark={isDark} />
         <Card isDark={isDark}>
           {LINE_STYLE_OPTIONS.map((opt, idx) => (
             <View key={opt.value}>
               <Row
-                label={opt.label}
+                label={t(opt.label)}
                 rightNode={
                   <>
                     <LinePreview color={line.color} style={opt.value as LineStyle} width={line.width} />
@@ -136,7 +138,7 @@ export function IndicatorLineStyleScreen() {
           ))}
         </Card>
 
-        <SectionHeader title="Width" isDark={isDark} />
+        <SectionHeader title={t('Width')} isDark={isDark} />
         <Card isDark={isDark}>
           {WIDTHS.map((w, idx) => (
             <View key={w}>

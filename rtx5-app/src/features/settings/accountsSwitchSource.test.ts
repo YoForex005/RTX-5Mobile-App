@@ -18,6 +18,11 @@ test('saved account switch promotes the selected account and refreshes account-s
   assert.match(source, /const removeAccountScopedQueries = \(queryClient: QueryClient\) => \{/);
   assert.match(source, /queryClient\.removeQueries\(\{ queryKey \}\)/);
   assert.match(source, /queryClient\.invalidateQueries\(\{ queryKey \}\)/);
+  assert.match(source, /const accountSwitchInFlightRef = React\.useRef\(false\)/);
+  assert.match(source, /const warmSavedAccountBroker = React\.useCallback/);
+  assert.match(source, /checkBrokerServerHealth\(normalizedServerUrl\)\.catch/);
+  assert.match(source, /if \(!isExpanded\) \{[\s\S]*warmSavedAccountBroker\(row\);[\s\S]*setExpandedAccountKey/);
+  assert.match(source, /onPressIn=\{\(\) => warmSavedAccountBroker\(row\)\}/);
 
   const switchStart = source.indexOf('const handleConnectSavedAccount = async (row: OtherAccountRow) => {');
   const switchEnd = source.indexOf('const handleRemoveSavedAccount = (row: OtherAccountRow) => {', switchStart);
@@ -29,15 +34,20 @@ test('saved account switch promotes the selected account and refreshes account-s
   assert.match(switchBody, /const result = await signInWithCredentials\(\{/);
   assert.match(switchBody, /normalizeSwitchLogin\(result\.accountLogin\) !== normalizeSwitchLogin\(row\.login\)/);
   assert.match(switchBody, /throw new Error\(ACCOUNT_SWITCH_ACCOUNT_MISSING_MESSAGE\)/);
+  assert.match(switchBody, /if \(accountSwitchInFlightRef\.current\) return;/);
+  assert.match(switchBody, /accountSwitchInFlightRef\.current = true/);
   assert.match(switchBody, /userLogin\(/);
-  assert.match(switchBody, /setIsDemoAccountFlag\(result\.accountType === 'demo'\)/);
+  assert.match(switchBody, /isDemoAccount: result\.accountType === 'demo'/);
+  assert.doesNotMatch(switchBody, /setIsDemoAccountFlag/);
   assert.match(switchBody, /useLiveAccountState\.getState\(\)\.resetMetrics\(\)/);
   assert.match(switchBody, /usePositionsState\.getState\(\)\.clearPositions\(\)/);
   assert.match(switchBody, /removeAccountScopedQueries\(queryClient\)/);
+  assert.match(switchBody, /setSuccessMessage\(t\('Account switched successfully'\)\)/);
+  assert.match(switchBody, /schedulePostAccountSwitchWork\(\(\) => \{[\s\S]*upsertSavedAccount\(\{/);
   assert.match(switchBody, /persistSelectedBrokerSession\(\{/);
   assert.match(switchBody, /persistAuthSessionTokens\(\{/);
   assert.match(switchBody, /bootstrapApp\(\{ accountLogin: result\.accountLogin \}\)/);
-  assert.match(switchBody, /setSuccessMessage\(t\('Account switched successfully'\)\)/);
+  assert.match(switchBody, /finally \{[\s\S]*accountSwitchInFlightRef\.current = false;[\s\S]*setConnectingKey\(null\)/);
 });
 
 test('saved account switch removes stale entries when the broker reports a missing account', () => {
@@ -82,7 +92,8 @@ test('accounts screen uses broker branding and opens long-press delete for other
   assert.match(source, /addBrokerLogoLookup\(byBrokerName, broker\.broker_name, logoUrl\)/);
   assert.match(source, /addBrokerLogoLookup\(byServerName, broker\.server, logoUrl\)/);
   assert.match(source, /const findBrokerLogoLookup = \(/);
-  assert.match(source, /const screenDataActive = useDeferredActiveFlag\([\s\S]*isLoggedIn && isScreenFocused && firstPaintReady[\s\S]*ACCOUNTS_SCREEN_DATA_DELAY_MS/);
+  assert.match(source, /const focusDataActive = useDeferredActiveFlag\([\s\S]*isLoggedIn && isScreenFocused && firstPaintReady[\s\S]*ACCOUNTS_SCREEN_DATA_DELAY_MS/);
+  assert.match(source, /const screenDataActive = focusDataActive \|\| \(isLoggedIn && dataPrewarmWindowActive\)/);
   assert.match(source, /const \{ data: brokerServers \} = useBrokerServers\(screenDataActive\)/);
   assert.match(source, /const brokerLogoIndex = useMemo\(\(\) => buildBrokerLogoIndex\(brokerServers\), \[brokerServers\]\)/);
   assert.match(source, /const activeBrokerLogoUrl = resolveAccountBrokerLogoUrl\([\s\S]*brokerLogoIndex,[\s\S]*brokerId,[\s\S]*serverUrl: brokerServerUrl,[\s\S]*brokerName: brokerConfig\?\.broker_name,[\s\S]*serverName: brokerConfig\?\.server_name,[\s\S]*brokerLogoUrl,[\s\S]*brokerConfig\?\.logo_url,[\s\S]*\)/);

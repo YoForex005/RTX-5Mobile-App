@@ -46,6 +46,7 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(serviceSource, /const QUOTE_WS_INTERACTION_RECONNECT_DEFER_MS = 2_500/);
   assert.match(serviceSource, /private reconnectDeferredUntil = 0/);
   assert.match(serviceSource, /public deferReconnectForInteraction\(durationMs = QUOTE_WS_INTERACTION_RECONNECT_DEFER_MS\): void \{/);
+  assert.match(serviceSource, /public resumeReconnectAfterInteraction\(\): void \{[\s\S]*this\.reconnectDeferredUntil = 0;[\s\S]*this\.clearReconnectTimer\(\);[\s\S]*this\.connect\(\);/);
   assert.match(serviceSource, /private getInteractionReconnectDelay\(now = Date\.now\(\)\): number \{/);
   assert.match(serviceSource, /const deferredMs = this\.getInteractionReconnectDelay\(\);[\s\S]*this\.scheduleReconnect\(deferredMs\);[\s\S]*return;/);
   assert.match(serviceSource, /const resolvedDelayMs = Math\.max\(delayMs, this\.getInteractionReconnectDelay\(\)\)/);
@@ -178,6 +179,7 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(quotesScreenSource, /const quoteRestFallbackActive = quoteCatalogActive && isLoggedIn/);
   assert.match(quotesScreenSource, /pauseLiveQuoteSnapshotNotifications/);
   assert.match(quotesScreenSource, /quotesWsService\.deferReconnectForInteraction\?\.\(durationMs\)/);
+  assert.match(quotesScreenSource, /quotesWsService\.resumeReconnectAfterInteraction\?\.\(\)/);
   assert.match(quotesScreenSource, /pauseQuoteSheetFeed\(routeChange \? QUOTE_SHEET_ROUTE_FEED_PAUSE_MS : QUOTE_SHEET_OPTION_FEED_PAUSE_MS\)/);
   assert.match(quotesScreenSource, /onPressIn=\{\(\) => pauseQuoteSheetFeed\(\)\}/);
   assert.match(quotesScreenSource, /liveUpdatesActive=\{quoteStickyFeedActive\}/);

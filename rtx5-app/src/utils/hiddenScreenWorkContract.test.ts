@@ -119,7 +119,8 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.match(chartSource, /useLiveCandles\(chartSymbol, chartTimeframe, chartDataActive\)/);
   assert.match(chartSource, /const refreshShowOnChartSources = useCallback\(\(\) => \{[\s\S]*if \(!chartRuntimeActive\) \{[\s\S]*return;[\s\S]*\}/);
   assert.match(chartSource, /scheduleIdleWork\([\s\S]*refreshShowOnChartSources\(\);[\s\S]*requestChartViewportRecovery\(3\);[\s\S]*delayMs: CHART_FOCUS_WORK_DELAY_MS/);
-  assert.match(chartSource, /const shouldShowChartLoadingOverlay = !hasPaintedChartOnce && \(!chartSurfaceReady \|\| isLoading\)/);
+  assert.match(chartSource, /const hasPaintedCurrentChartContext =[\s\S]*lastPaintedChartDataContextSig === chartDataContextSig/);
+  assert.match(chartSource, /const shouldShowChartLoadingOverlay =[\s\S]*!hasPaintedCurrentChartContext &&[\s\S]*!hasChartDataError &&[\s\S]*\(!chartSurfaceReady \|\| isLoading \|\| candlesAvailable\)/);
   assert.match(chartSource, /\{shouldShowChartLoadingOverlay && \(/);
   assert.match(chartSource, /\{chartSurfaceReady \? \(\s*<WebView/);
   assert.match(chartSource, /<LiveQuotePairHeader[\s\S]*bid=\{chartBid\}[\s\S]*ask=\{chartAsk\}/);
@@ -148,7 +149,13 @@ test('settings, trade, and history screens pause work when another screen is foc
   assert.match(accountsSource, /const isScreenFocused = useIsFocused\(\)/);
   assert.match(accountsSource, /const ACCOUNTS_SCREEN_DATA_DELAY_MS = 650/);
   assert.match(accountsSource, /const \[firstPaintReady, setFirstPaintReady\] = React\.useState\(false\)/);
-  assert.match(accountsSource, /const screenDataActive = useDeferredActiveFlag\(\s*isLoggedIn && isScreenFocused && firstPaintReady,\s*ACCOUNTS_SCREEN_DATA_DELAY_MS,\s*\)/);
+  assert.match(accountsSource, /const focusDataActive = useDeferredActiveFlag\(\s*isLoggedIn && isScreenFocused && firstPaintReady,\s*ACCOUNTS_SCREEN_DATA_DELAY_MS,\s*\)/);
+  // A BOUNDED boot prewarm window may fill the caches once while hidden so the
+  // first open shows real content; it must switch itself off so focus remains
+  // the only long-lived activator of these queries.
+  assert.match(accountsSource, /const ACCOUNTS_DATA_PREWARM_WINDOW_MS = 10000/);
+  assert.match(accountsSource, /setDataPrewarmWindowActive\(false\),?\s*\)?,?\s*ACCOUNTS_DATA_PREWARM_DELAY_MS \+ ACCOUNTS_DATA_PREWARM_WINDOW_MS/);
+  assert.match(accountsSource, /const screenDataActive = focusDataActive \|\| \(isLoggedIn && dataPrewarmWindowActive\)/);
   assert.match(accountsSource, /useAccounts\(screenDataActive\)/);
   assert.match(accountsSource, /useBrokerConfig\(brokerId, screenDataActive\)/);
   assert.match(accountsSource, /useAccountDetails\(activeLogin, screenDataActive && !!activeLogin\)/);
@@ -161,7 +168,7 @@ test('settings, trade, and history screens pause work when another screen is foc
   assert.match(settingsSource, /export function SettingsScreen\(\) \{\s*const isScreenFocused = useIsFocused\(\);\s*const deferredScreenFocused = useNextFrameValue\(isScreenFocused\);\s*return <SettingsScreenInner isScreenFocused=\{deferredScreenFocused\} \/>;\s*\}/);
   assert.match(settingsSource, /const SETTINGS_SCREEN_DATA_DELAY_MS = 8000/);
   assert.match(settingsSource, /const SETTINGS_BODY_PREWARM_DELAY_MS = 1200/);
-  assert.match(settingsSource, /const routeBodyReady = useDeferredRouteContentReady\(SETTINGS_BODY_PREWARM_DELAY_MS\)/);
+  assert.match(settingsSource, /const routeBodyReady = useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : SETTINGS_BODY_PREWARM_DELAY_MS,\s*\)/);
   assert.doesNotMatch(settingsSource, /useDeferredRouteContentReady\([^)]*, isScreenFocused\)/);
   assert.match(settingsSource, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
   assert.doesNotMatch(settingsSource, /sidebarOpen = useUIState/);

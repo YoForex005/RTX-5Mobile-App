@@ -1,0 +1,792 @@
+﻿--------- beginning of main
+07-13 15:36:40.473 D/MediaProvider( 4374): CrossUser not enabled.
+07-13 15:36:40.507 I/MediaCodec( 2811): (0xb400007da8aad040) init name(OMX.qcom.video.encoder.avc)
+07-13 15:36:40.514 I/OMXClient( 2811): IOmx service obtained
+07-13 15:36:40.537 I/OMXMaster( 1483): makeComponentInstance(OMX.qcom.video.encoder.avc) in android.hardwar process
+07-13 15:36:40.588 I/FuseDaemon( 4374): Background young concurrent copying GC freed 40019(2491KB) AllocSpace objects, 9(448KB) LOS objects, 46% free, 3449KB/6440KB, paused 474us total 131.598ms
+07-13 15:36:40.588 W/FuseDaemon( 4374): Reducing the number of considered missed Gc histogram windows from 223 to 100
+07-13 15:36:40.632 I/GmscoreIpa(15809): Starting mediastore instant index [CONTEXT service_id=255 ]
+07-13 15:36:40.771 I/android.hardware.media.omx@1.0-service( 1483): vendor/qcom/proprietary/adsprpc/src/rpcmem_android.c:159: rpcmem_init_internal: opened ION device fd 7, configured heap IDs: system (0x2000000), contig (0x400000), secure (0x200), secure flags (0x80080000)
+07-13 15:36:40.771 I/android.hardware.media.omx@1.0-service( 1483): vendor/qcom/proprietary/adsprpc/src/fastrpc_apps_user.c:2957: fastrpc_apps_user_init done
+07-13 15:36:40.775 D/PlatformConfig( 1483): getInstance: Enter
+07-13 15:36:40.775 D/PlatformConfig( 1483): getInt32: Returning default
+07-13 15:36:40.775 D/PlatformConfig( 1483): getInstance: Enter
+07-13 15:36:40.775 D/PlatformConfig( 1483): getInt32 Config name: vidc_no_vpss value: 1
+07-13 15:36:40.776 D/PlatformConfig( 1483): getInstance: Enter
+07-13 15:36:40.776 D/PlatformConfig( 1483): getInt32 Config name: vidc_enc_log_in value: 0
+07-13 15:36:40.776 D/PlatformConfig( 1483): getInstance: Enter
+07-13 15:36:40.776 D/PlatformConfig( 1483): getInt32 Config name: vidc_enc_log_out value: 0
+07-13 15:36:40.776 D/PlatformConfig( 1483): getInstance: Enter
+07-13 15:36:40.776 D/PlatformConfig( 1483): getInt32 Config name: vidc_enc_csc_custom_matrix value: 0
+07-13 15:36:40.776 D/PlatformConfig( 1483): getInstance: Enter
+07-13 15:36:40.776 D/PlatformConfig( 1483): getInt32: Returning default
+07-13 15:36:40.776 D/PlatformConfig( 1483): getInstance: Enter
+07-13 15:36:40.776 D/PlatformConfig( 1483): getInt32 Config name: vidc_disable_hdr value: 3
+07-13 15:36:40.776 D/PlatformConfig( 1483): getInstance: Enter
+07-13 15:36:40.776 D/PlatformConfig( 1483): getInt32: Returning default
+07-13 15:36:40.776 D/PlatformConfig( 1483): getInstance: Enter
+07-13 15:36:40.776 D/PlatformConfig( 1483): getInt32: Returning default
+07-13 15:36:40.776 D/PlatformConfig( 1483): getInstance: Enter
+07-13 15:36:40.776 D/PlatformConfig( 1483): getInt32 Config name: vidc_enc_quality_boost_enable value: 1
+07-13 15:36:40.782 I/OMX-VENC( 1483): Component_init : OMX.qcom.video.encoder.avc : return = 0x0
+07-13 15:36:40.786 I/MediaCodec( 2811): (0xb400007da8aad040) Component Allocated (OMX.qcom.video.encoder.avc)
+07-13 15:36:40.794 I/MediaCodec( 2811): (0xb400007da8aad040) configure surface(0x0) crypto(0x0) flags(1)
+07-13 15:36:40.794 D/MediaCodec( 2811): (0xb400007da8aad040) configure format: AMessage(what = 0x00000000) = {
+07-13 15:36:40.794 D/MediaCodec( 2811):       int32_t width = 720
+07-13 15:36:40.794 D/MediaCodec( 2811):       int32_t height = 1640
+07-13 15:36:40.794 D/MediaCodec( 2811):       string mime = "video/avc"
+07-13 15:36:40.794 D/MediaCodec( 2811):       int32_t color-format = 2130708361
+07-13 15:36:40.794 D/MediaCodec( 2811):       int32_t bitrate = 6000000
+07-13 15:36:40.794 D/MediaCodec( 2811):       float frame-rate = 60.000004
+07-13 15:36:40.794 D/MediaCodec( 2811):       int32_t i-frame-interval = 10
+07-13 15:36:40.794 D/MediaCodec( 2811):       int32_t max-bframes = 0
+07-13 15:36:40.794 D/MediaCodec( 2811):     }
+07-13 15:36:40.796 I/OMX-VENC( 1483): WARN: Enable/Disable allocate-native-handle allowed only in secure session
+07-13 15:36:40.796 E/OMXNodeInstance( 1483): setParameter(0xebdc0014:qcom.encoder.avc, OMX.google.android.index.allocateNativeHandle(0x7f00005d): Input:0 en=0) ERROR: UnsupportedSetting(0x80001019)
+07-13 15:36:40.796 I/OMX-VENC( 1483): WARN: Enable/Disable allocate-native-handle allowed only in secure session
+07-13 15:36:40.796 E/OMXNodeInstance( 1483): setParameter(0xebdc0014:qcom.encoder.avc, OMX.google.android.index.allocateNativeHandle(0x7f00005d): Output:1 en=0) ERROR: UnsupportedSetting(0x80001019)
+07-13 15:36:40.796 I/OMX-VENC( 1483): WARN: set_parameter: metamode is valid for input port only
+07-13 15:36:40.796 W/OMXNodeInstance( 1483): [0xebdc0014:qcom.encoder.avc] component does not support metadata mode; using fallback
+07-13 15:36:40.796 I/ExtendedACodec( 2811): setupVideoEncoder()
+07-13 15:36:40.796 I/ACodec  ( 2811): [OMX.qcom.video.encoder.avc] setupVideoEncoder mime(video/avc) colorFormat(7f000789)
+07-13 15:36:40.797 W/OMXUtils( 2811): do not know color format 0x7fa30c04 = 2141391876
+07-13 15:36:40.798 W/OMXUtils( 2811): do not know color format 0x7fa30c00 = 2141391872
+07-13 15:36:40.799 W/OMXUtils( 2811): do not know color format 0x7f000789 = 2130708361
+07-13 15:36:40.799 I/ACodec  ( 2811): width height(720x1640) stride(720) sliceHeight(1640)
+07-13 15:36:40.799 I/OMX-VENC: venc_dev( 1483): WARN: Unsupported eColorFormat 0x7f000789
+07-13 15:36:40.800 I/ACodec  ( 2811): bitrate(6000000) framerate(60.000004) compressionFormat(7)
+07-13 15:36:40.801 I/OMX-VENC: venc_dev( 1483): v4l2 profile : 1 flags : 131095 
+07-13 15:36:40.801 I/OMX-VENC: venc_dev( 1483): v4l2 profile : 0 flags : 131095 
+07-13 15:36:40.801 I/OMX-VENC: venc_dev( 1483): v4l2 profile : 2 flags : 131095 
+07-13 15:36:40.801 I/OMX-VENC: venc_dev( 1483): v4l2 profile : 17 flags : 131095 
+07-13 15:36:40.802 I/OMX-VENC: venc_dev( 1483): v4l2 profile : 4 flags : 131095 
+07-13 15:36:40.802 I/ACodec  ( 2811): setupAVCEncoderParameters with [profile: High] [level: Level1]
+07-13 15:36:40.803 I/ACodec  ( 2811): [OMX.qcom.video.encoder.avc] cannot encode HDR static metadata. Ignoring.
+07-13 15:36:40.803 I/ACodec  ( 2811): setupVideoEncoder succeeded
+07-13 15:36:40.803 I/ExtendedACodec( 2811): [OMX.qcom.video.encoder.avc] configure, AMessage : AMessage(what = 'conf', target = 1) = {
+07-13 15:36:40.803 I/ExtendedACodec( 2811):   int32_t width = 720
+07-13 15:36:40.803 I/ExtendedACodec( 2811):   int32_t height = 1640
+07-13 15:36:40.803 I/ExtendedACodec( 2811):   string mime = "video/avc"
+07-13 15:36:40.803 I/ExtendedACodec( 2811):   int32_t color-format = 2130708361
+07-13 15:36:40.803 I/ExtendedACodec( 2811):   int32_t bitrate = 6000000
+07-13 15:36:40.803 I/ExtendedACodec( 2811):   float frame-rate = 60.000004
+07-13 15:36:40.803 I/ExtendedACodec( 2811):   int32_t i-frame-interval = 10
+07-13 15:36:40.803 I/ExtendedACodec( 2811):   int32_t max-bframes = 0
+07-13 15:36:40.803 I/ExtendedACodec( 2811):   int32_t flags = 1
+07-13 15:36:40.803 I/ExtendedACodec( 2811):   int32_t encoder = 1
+07-13 15:36:40.803 I/ExtendedACodec( 2811): }
+07-13 15:36:40.804 W/OMXUtils( 2811): do not know color format 0x7f000789 = 2130708361
+07-13 15:36:40.804 E/OMX-VENC( 1483): ERROR: unsupported index 1870659589
+07-13 15:36:40.804 E/OMXNodeInstance( 1483): getConfig(0xebdc0014:qcom.encoder.avc, ConfigLatency(0x6f800005)) ERROR: UnsupportedIndex(0x8000101a)
+07-13 15:36:40.823 E/OMXNodeInstance( 1483): getConfig(0xebdc0014:qcom.encoder.avc, ??(0x7f000062)) ERROR: UnsupportedSetting(0x80001019)
+07-13 15:36:40.827 I/OMX-VENC: venc_dev( 1483): venc_get_consumer_usage 0x0
+07-13 15:36:40.828 D/GraphicBufferSource( 1483): setting dataspace: 0x104, acquired=0
+07-13 15:36:40.828 I/OMX-VENC: venc_dev( 1483): venc_get_consumer_usage 0x0
+07-13 15:36:40.828 D/GraphicBufferSource( 1483): requesting color aspects (R:2(Limited), P:1(BT709_5), M:1(BT709_5), T:3(SMPTE170M))
+07-13 15:36:40.829 I/MediaCodec( 2811): (0xb400007da8aad040) start
+07-13 15:36:40.910 I/MediaCodec( 2811): (0xb400007da8aad040) kWhatStartCompleted
+07-13 15:36:40.910 W/ResourceManagerService( 1469): Ignoring request to add new resource entry with value <= 0
+07-13 15:36:40.938 W/H2BGraphicBufferProducer( 1244): getConsumerUsage is not fully supported
+07-13 15:36:40.953 I/libdisplayconfigqti( 1195): Register client name: ScreenRecorder1244 device client: 0xb4000070298b9bd0
+07-13 15:36:40.975 D/GraphicBufferSource( 1483): got buffer with new dataSpace #104
+07-13 15:36:40.975 I/OMX-VENC( 1483): get_config (dataspace changed): ColorSpace: Recommend 601 for RGBA8888
+07-13 15:36:40.975 D/OMXNodeInstance( 1483): Codec resolved it to (R:2(??), P:3(??), M:3(??), T:3(??)) err=0(NO_ERROR)
+07-13 15:36:40.975 E/OMXNodeInstance( 1483): setConfig(0xebdc0014:qcom.encoder.avc, ??(0x7f000062)) ERROR: UnsupportedSetting(0x80001019)
+07-13 15:36:40.976 I/MediaProvider( 4374): Deleted 0 0 0 1 0 0 0 items on external_primary due to com.android.shell
+07-13 15:36:40.978 D/ACodec  ( 2811): dataspace changed to 0x10c10000 (R:2(Limited), P:3(BT601_6_625), M:3(BT601_6), T:3(SMPTE170M)) (R:2(Limited), S:2(BT601_625), T:3(SMPTE_170M))
+07-13 15:36:41.005 W/C2DColorConvert( 1483): calcYSize: Format not supported , 6
+07-13 15:36:41.036 D/WM-SystemJobScheduler( 4374): Scheduling work ID 58b89806-875a-44d1-bf53-b582cd8238d1Job ID 13295
+07-13 15:36:41.082 D/MediaProvider( 4374): CrossUser not enabled.
+07-13 15:36:41.103 D/MPEG4Writer( 2811): PreAllocation disabled. fallocate : Operation not supported on transport endpoint, 95
+07-13 15:36:41.106 D/MPEG4Writer( 2811): fpathconf _PC_FILESIZEBITS:64
+07-13 15:36:41.106 D/MPEG4Writer( 2811): File size limit set to 4503599627370495 bytes implicitly
+07-13 15:36:41.107 D/MPEG4Writer( 2811): MP4WtrCtrlHlpLooper Started
+07-13 15:36:41.107 I/MPEG4Writer( 2811): limits: 4503599627370495/0 bytes/us, bit rate: -1 bps and the estimated moov size 3322 bytes
+07-13 15:36:41.107 D/MPEG4Writer( 2811): kWhatNoIOErrorSoFar
+07-13 15:36:41.114 I/MPEG4Writer( 2811): setStartTimestampUs: 958724867155
+07-13 15:36:41.114 I/MPEG4Writer( 2811): Earliest track starting time: 958724867155
+07-13 15:36:41.182 W/app_process( 2825): type=1400 audit(0.0:163288): avc: denied { read } for name="u:object_r:device_config_runtime_native_boot_prop:s0" dev="tmpfs" ino=14888 scontext=u:r:shell:s0 tcontext=u:object_r:device_config_runtime_native_boot_prop:s0 tclass=file permissive=0
+07-13 15:36:41.182 W/app_process( 2825): type=1400 audit(0.0:163289): avc: denied { read } for name="u:object_r:device_config_runtime_native_boot_prop:s0" dev="tmpfs" ino=14888 scontext=u:r:shell:s0 tcontext=u:object_r:device_config_runtime_native_boot_prop:s0 tclass=file permissive=0
+07-13 15:36:41.182 D/AndroidRuntime( 2825): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+07-13 15:36:41.185 I/chatty  ( 2825): uid=1000(system) sh identical 1 line
+07-13 15:36:41.185 W/app_process( 2825): type=1400 audit(0.0:163291): avc: denied { read } for name="u:object_r:device_config_runtime_native_boot_prop:s0" dev="tmpfs" ino=14888 scontext=u:r:shell:s0 tcontext=u:object_r:device_config_runtime_native_boot_prop:s0 tclass=file permissive=0
+07-13 15:36:41.188 E/libc    ( 2825): Access denied finding property "persist.device_config.runtime_native_boot.profilebootclasspath"
+07-13 15:36:41.188 E/libc    ( 2825): Access denied finding property "persist.device_config.runtime_native_boot.enable_apex_image"
+07-13 15:36:41.188 I/AndroidRuntime( 2825): Using default boot image
+07-13 15:36:41.188 E/libc    ( 2825): Access denied finding property "persist.device_config.runtime_native_boot.disable_lock_profiling"
+07-13 15:36:41.188 I/AndroidRuntime( 2825): Leaving lock profiling enabled
+07-13 15:36:41.188 E/libc    ( 2825): Access denied finding property "persist.device_config.runtime_native_boot.enable_generational_cc"
+07-13 15:36:41.360 D/app_process( 2825): Time zone APEX ICU file found: /apex/com.android.tzdata/etc/icu/icu_tzdata.dat
+07-13 15:36:41.360 D/app_process( 2825): I18n APEX ICU file found: /apex/com.android.i18n/etc/icu/icudt66l.dat
+07-13 15:36:41.381 I/app_process( 2825): The ClassLoaderContext is a special shared library.
+07-13 15:36:41.417 W/app_process( 2825): JNI RegisterNativeMethods: attempt to register 0 native methods for android.media.AudioAttributes
+07-13 15:36:41.433 D/AndroidRuntime( 2825): Calling main entry com.android.commands.input.Input
+07-13 15:36:41.474 I/QTI PowerHAL( 1178): Power setBoost: 0, duration: 0
+07-13 15:36:41.488 I/QTI PowerHAL( 1178): Power setBoost: 0, duration: 0
+07-13 15:36:41.579 D/AndroidRuntime( 2825): Shutting down VM
+07-13 15:36:41.626 W/ReactNativeJS(  622): [Action] fastPress first frame took 47ms; budget is 20ms.
+07-13 15:36:41.703 W/ReactNativeJS(  622): [Action] quotes.symbolSheet.tap.open first frame took 76ms; budget is 20ms.
+07-13 15:36:41.704 W/ReactNativeJS(  622): [Action] fastPress first frame took 77ms; budget is 20ms.
+07-13 15:36:42.280 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 10.71, bitrate 560822
+07-13 15:36:42.521 D/WM-DelayedWorkTracker( 4374): Scheduling work 58b89806-875a-44d1-bf53-b582cd8238d1
+07-13 15:36:42.522 D/WM-GreedyScheduler( 4374): Starting tracking for 58b89806-875a-44d1-bf53-b582cd8238d1
+07-13 15:36:42.525 D/WM-ConstraintTracker( 4374): BatteryNotLowTracker: initial state = true
+07-13 15:36:42.525 D/WM-BrdcstRcvrCnstrntTrc( 4374): BatteryNotLowTracker: registering receiver
+07-13 15:36:42.529 D/WM-GreedyScheduler( 4374): Constraints met: Scheduling work ID WorkGenerationalId(workSpecId=58b89806-875a-44d1-bf53-b582cd8238d1, generation=0)
+07-13 15:36:42.536 D/WM-Processor( 4374): Processor: processing WorkGenerationalId(workSpecId=58b89806-875a-44d1-bf53-b582cd8238d1, generation=0)
+07-13 15:36:42.562 D/WM-WorkerWrapper( 4374): Starting work for com.android.providers.media.photopicker.sync.ProactiveSyncWorker
+07-13 15:36:42.562 I/PSyncWorker( 4374): Starting proactive picker sync from sync source: 1
+07-13 15:36:42.562 I/PickerSyncTracker( 4374): Created new sync future java.util.concurrent.CompletableFuture@67cc514[Not completed, 1 dependents]. Future map: {58b89806-875a-44d1-bf53-b582cd8238d1=java.util.concurrent.CompletableFuture@67cc514[Not completed, 1 dependents]}
+07-13 15:36:42.563 D/PickerSyncController( 4374): syncAllMediaFromProvider() LOCAL, auth=com.android.providers.media.photopicker, retry=true
+07-13 15:36:42.563 D/PickerSyncController( 4374): getSyncRequestParams() LOCAL, auth=com.android.providers.media.photopicker
+07-13 15:36:42.589 D/PickerSyncController( 4374):    Latest ID/Gen=58ab2dd5ffe181ad:external_primary/1227314
+07-13 15:36:42.589 D/PickerSyncController( 4374):    Cached ID/Gen=58ab2dd5ffe181ad:external_primary/1227303
+07-13 15:36:42.589 D/PickerSyncController( 4374):    RESULT=SyncRequestParams{type=MEDIA_INCREMENTAL, gen=1227303, latest=Bundle[{last_media_sync_generation=1227314, media_collection_id=58ab2dd5ffe181ad:external_primary}], pageSize=1000}
+07-13 15:36:42.589 I/PickerSyncController( 4374): Executing SyncAdd. isLocal: true. authority: com.android.providers.media.photopicker
+07-13 15:36:42.589 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:36:42.589 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-4]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:36:42.589 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:36:42.590 D/ExternalDbFacade( 4374): Token received for queryMedia = null
+07-13 15:36:42.606 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:36:42.606 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-4]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:36:42.607 D/PickerSyncController( 4374): Clearing next page token for key: local_provider:media_add:resume
+07-13 15:36:42.607 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:36:42.607 D/PickerNotificationSender( 4374): Sending a notification for media update
+07-13 15:36:42.608 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Favorites
+07-13 15:36:42.608 D/PickerNotificationSender( 4374): Sending a notification for album media update Favorites
+07-13 15:36:42.609 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Videos
+07-13 15:36:42.609 D/PickerNotificationSender( 4374): Sending a notification for album media update Videos
+07-13 15:36:42.610 I/PickerSyncController( 4374): Paged sync successful. QueryArgs: Bundle[{android.provider.extra.SYNC_GENERATION=1227303, android.provider.extra.PAGE_SIZE=1000}] Total Rows: 0
+07-13 15:36:42.611 I/PickerSyncController( 4374): Executing SyncRemove. isLocal: true. authority: com.android.providers.media.photopicker
+07-13 15:36:42.611 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:36:42.611 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-4]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:36:42.611 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:36:42.647 D/WM-SystemJobService( 4374): onStartJob for WorkGenerationalId(workSpecId=58b89806-875a-44d1-bf53-b582cd8238d1, generation=0)
+07-13 15:36:42.652 D/WM-Processor( 4374): Work WorkGenerationalId(workSpecId=58b89806-875a-44d1-bf53-b582cd8238d1, generation=0) is already enqueued for processing
+07-13 15:36:42.668 E/PickerDbFacade( 4374): Could not get first date taken millis for media id: 1000192548
+07-13 15:36:42.670 W/PickerDbFacade( 4374): Unable to promote cloud media with localId: 1000192548
+07-13 15:36:42.675 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:36:42.675 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-4]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:36:42.675 D/PickerSyncController( 4374): Clearing next page token for key: local_provider:media_remove:resume
+07-13 15:36:42.675 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:36:42.675 D/PickerNotificationSender( 4374): Sending a notification for media update
+07-13 15:36:42.677 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Favorites
+07-13 15:36:42.677 D/PickerNotificationSender( 4374): Sending a notification for album media update Favorites
+07-13 15:36:42.678 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Videos
+07-13 15:36:42.678 D/PickerNotificationSender( 4374): Sending a notification for album media update Videos
+07-13 15:36:42.679 I/PickerSyncController( 4374): Paged sync successful. QueryArgs: Bundle[{android.provider.extra.SYNC_GENERATION=1227303, android.provider.extra.PAGE_SIZE=1000}] Total Rows: 0
+07-13 15:36:42.679 I/PickerSyncTracker( 4374): Marked sync future complete for work id: 58b89806-875a-44d1-bf53-b582cd8238d1. Future map: {}
+07-13 15:36:42.679 I/PSyncWorker( 4374): Completed picker proactive sync complete from local provider.
+07-13 15:36:42.682 I/WM-WorkerWrapper( 4374): Worker result SUCCESS for Work [ id=58b89806-875a-44d1-bf53-b582cd8238d1, tags={ com.android.providers.media.photopicker.sync.ProactiveSyncWorker } ]
+07-13 15:36:42.694 D/WM-Processor( 4374): Processor 58b89806-875a-44d1-bf53-b582cd8238d1 executed; reschedule = false
+07-13 15:36:42.694 D/WM-GreedyScheduler( 4374): Stopping tracking for WorkGenerationalId(workSpecId=58b89806-875a-44d1-bf53-b582cd8238d1, generation=0)
+07-13 15:36:42.694 D/WM-SystemJobService( 4374): 58b89806-875a-44d1-bf53-b582cd8238d1 executed on JobScheduler
+07-13 15:36:42.797 D/WM-GreedyScheduler( 4374): Cancelling work ID 58b89806-875a-44d1-bf53-b582cd8238d1
+07-13 15:36:42.803 D/WM-BrdcstRcvrCnstrntTrc( 4374): BatteryNotLowTracker: unregistering receiver
+07-13 15:36:42.974 I/system_server( 1936): Background young concurrent copying GC freed 673555(22MB) AllocSpace objects, 18(616KB) LOS objects, 30% free, 50MB/72MB, paused 440us total 297.309ms
+--------- beginning of system
+07-13 15:36:42.979 W/Looper  ( 1936): Slow dispatch took 182ms main h=com.android.server.job.JobSchedulerService$JobHandler c=null m=3
+07-13 15:36:43.405 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 2.67, bitrate 90592
+07-13 15:36:44.177 D/MediaProvider( 4374): CrossUser not enabled.
+07-13 15:36:44.196 E/expo-screen-capture(  622): Could not listen for screenshots, do not have READ_EXTERNAL_STORAGE permission.
+07-13 15:36:44.406 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 2.00, bitrate 86100
+07-13 15:36:44.526 I/cmd     ( 2852): oneway function results will be dropped but finished with status OK and parcel size 4
+07-13 15:36:44.532 I/MediaProvider( 4374): Begin Intent { act=android.intent.action.MEDIA_SCANNER_SCAN_FILE dat=file:///sdcard/rtx5_symbol_sheet.png flg=0x1400010 cmp=com.google.android.providers.media.module/com.android.providers.media.MediaService }
+07-13 15:36:44.578 I/MediaProvider( 4374): End Intent { act=android.intent.action.MEDIA_SCANNER_SCAN_FILE dat=file:///sdcard/rtx5_symbol_sheet.png flg=0x1400010 cmp=com.google.android.providers.media.module/com.android.providers.media.MediaService }
+07-13 15:36:44.579 E/expo-screen-capture(  622): Could not listen for screenshots, do not have READ_EXTERNAL_STORAGE permission.
+07-13 15:36:44.626 D/WM-SystemJobScheduler( 4374): Scheduling work ID 88e59ddd-ea56-4add-ac4e-28ac7a430946Job ID 13296
+07-13 15:36:44.681 W/Looper  ( 1936): Slow dispatch took 101ms main h=com.android.server.job.JobSchedulerService$JobHandler c=null m=3
+07-13 15:36:45.425 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 0.98, bitrate 38581
+07-13 15:36:45.802 D/BatteryService( 1936): uevent={POWER_SUPPLY_DP_DM=0, POWER_SUPPLY_VOLTAGE_QNOVO=-22, POWER_SUPPLY_VOLTAGE_NOW=4230824, POWER_SUPPLY_SW_JEITA_ENABLED=0, POWER_SUPPLY_FORCE_RECHARGE=0, POWER_SUPPLY_CHARGE_CONTROL_LIMIT_MAX=8, POWER_SUPPLY_RECHARGE_SOC=99, POWER_SUPPLY_HEALTH=Good, POWER_SUPPLY_TECHNOLOGY=Li-ion, POWER_SUPPLY_CHARGER_TEMP_MAX=160, POWER_SUPPLY_CHARGE_FULL_DESIGN=6174000, POWER_SUPPLY_FCC_STEPPER_ENABLE=0, SEQNUM=150705, POWER_SUPPLY_INPUT_CURRENT_LIMITED=1, POWER_SUPPLY_CHARGE_CONTROL_LIMIT=0, POWER_SUPPLY_STATUS=Charging, POWER_SUPPLY_CYCLE_COUNT=62, POWER_SUPPLY_BATTERY_CHARGING_ENABLED=1, POWER_SUPPLY_CURRENT_MAX=4000000, POWER_SUPPLY_CHARGE_TERM_CURRENT=-102, POWER_SUPPLY_CAPACITY=82, DEVPATH=/devices/platform/soc/1c40000.qcom,spmi/spmi-0/spmi0-02/1c40000.qcom,spmi:qcom,pmi632@2:qcom,qpnp-smb5/power_supply/battery, POWER_SUPPLY_CHARGE_DONE=0, POWER_SUPPLY_CHARGE_TYPE=Fast, POWER_SUPPLY_CHARGER_TEMP=321, POWER_SUPPLY_CHARGE_RATE=Normal, POWER_SUPPLY_CURRENT_QNOVO=-22, POWER_SUPPLY_CURRENT_NOW=348816, POWER_SUPPLY_SYSTEM_TEMP_LEVEL=0, POWER_SUPPLY_PRESENT=1, POWER_SUPPLY_PARALLEL_DISABLE=0, POWER_SUPPLY_CHARGE_FULL=5869000, POWER_SUPPLY_TIME_TO_FULL_NOW=13728, POWER_SUPPLY_CONSTANT_CHARGE_CURRENT=4000000, SUBSYSTEM=power_supply, POWER_SUPPLY_SET_SHIP_MODE=0, POWER_SUPPLY_TEMP=293, ACTION=change, POWER_SUPPLY_RERUN_AICL=0, POWER_SUPPLY_AGE=95, POWER_SUPPLY_NAME=battery, POWER_SUPPLY_VOLTAGE_MAX=-22, POWER_SUPPLY_CONSTANT_CHARGE_CURRENT_MAX=4000000, POWER_SUPPLY_CHARGE_COUNTER=4519130, POWER_SUPPLY_STEP_CHARGING_ENABLED=0, POWER_SUPPLY_NUM_SYSTEM_TEMP_LEVELS=8, POWER_SUPPLY_DIE_HEALTH=Cool, POWER_SUPPLY_INPUT_SUSPEND=0}
+07-13 15:36:45.848 D/DeviceStatisticsService( 3152): chargerType=2 batteryLevel=82 totalBatteryCapacity=5511100
+07-13 15:36:46.095 D/WM-DelayedWorkTracker( 4374): Scheduling work 88e59ddd-ea56-4add-ac4e-28ac7a430946
+07-13 15:36:46.095 D/WM-GreedyScheduler( 4374): Starting tracking for 88e59ddd-ea56-4add-ac4e-28ac7a430946
+07-13 15:36:46.098 D/WM-ConstraintTracker( 4374): BatteryNotLowTracker: initial state = true
+07-13 15:36:46.099 D/WM-BrdcstRcvrCnstrntTrc( 4374): BatteryNotLowTracker: registering receiver
+07-13 15:36:46.101 D/WM-GreedyScheduler( 4374): Constraints met: Scheduling work ID WorkGenerationalId(workSpecId=88e59ddd-ea56-4add-ac4e-28ac7a430946, generation=0)
+07-13 15:36:46.108 D/WM-Processor( 4374): Processor: processing WorkGenerationalId(workSpecId=88e59ddd-ea56-4add-ac4e-28ac7a430946, generation=0)
+07-13 15:36:46.136 D/WM-WorkerWrapper( 4374): Starting work for com.android.providers.media.photopicker.sync.ProactiveSyncWorker
+07-13 15:36:46.137 I/PSyncWorker( 4374): Starting proactive picker sync from sync source: 1
+07-13 15:36:46.137 I/PickerSyncTracker( 4374): Created new sync future java.util.concurrent.CompletableFuture@b14b9f1[Not completed, 1 dependents]. Future map: {88e59ddd-ea56-4add-ac4e-28ac7a430946=java.util.concurrent.CompletableFuture@b14b9f1[Not completed, 1 dependents]}
+07-13 15:36:46.137 D/PickerSyncController( 4374): syncAllMediaFromProvider() LOCAL, auth=com.android.providers.media.photopicker, retry=true
+07-13 15:36:46.137 D/PickerSyncController( 4374): getSyncRequestParams() LOCAL, auth=com.android.providers.media.photopicker
+07-13 15:36:46.162 D/PickerSyncController( 4374):    Latest ID/Gen=58ab2dd5ffe181ad:external_primary/1227320
+07-13 15:36:46.162 D/PickerSyncController( 4374):    Cached ID/Gen=58ab2dd5ffe181ad:external_primary/1227314
+07-13 15:36:46.162 D/PickerSyncController( 4374):    RESULT=SyncRequestParams{type=MEDIA_INCREMENTAL, gen=1227314, latest=Bundle[{last_media_sync_generation=1227320, media_collection_id=58ab2dd5ffe181ad:external_primary}], pageSize=1000}
+07-13 15:36:46.162 I/PickerSyncController( 4374): Executing SyncAdd. isLocal: true. authority: com.android.providers.media.photopicker
+07-13 15:36:46.162 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:36:46.162 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-5]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:36:46.163 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:36:46.163 D/ExternalDbFacade( 4374): Token received for queryMedia = null
+07-13 15:36:46.185 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:36:46.185 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-5]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:36:46.185 D/PickerSyncController( 4374): Saving next page token: 1783937204000|1000192549 for key: local_provider:media_add:resume
+07-13 15:36:46.185 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:36:46.187 D/PickerNotificationSender( 4374): Sending a notification for media update
+07-13 15:36:46.189 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Favorites
+07-13 15:36:46.189 D/PickerNotificationSender( 4374): Sending a notification for album media update Favorites
+07-13 15:36:46.190 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Videos
+07-13 15:36:46.190 D/PickerNotificationSender( 4374): Sending a notification for album media update Videos
+07-13 15:36:46.192 D/ExternalDbFacade( 4374): Token received for queryMedia = 1783937204000|1000192549
+07-13 15:36:46.208 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:36:46.208 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-5]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:36:46.208 D/PickerSyncController( 4374): Clearing next page token for key: local_provider:media_add:resume
+07-13 15:36:46.208 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:36:46.208 D/PickerNotificationSender( 4374): Sending a notification for media update
+07-13 15:36:46.210 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Favorites
+07-13 15:36:46.210 D/PickerNotificationSender( 4374): Sending a notification for album media update Favorites
+07-13 15:36:46.211 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Videos
+07-13 15:36:46.211 D/PickerNotificationSender( 4374): Sending a notification for album media update Videos
+07-13 15:36:46.212 I/PickerSyncController( 4374): Paged sync successful. QueryArgs: Bundle[{android.provider.extra.PAGE_TOKEN=1783937204000|1000192549, android.provider.extra.SYNC_GENERATION=1227314, android.provider.extra.PAGE_SIZE=1000}] Total Rows: 1
+07-13 15:36:46.212 I/PickerSyncController( 4374): Executing SyncRemove. isLocal: true. authority: com.android.providers.media.photopicker
+07-13 15:36:46.212 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:36:46.212 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-5]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:36:46.212 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:36:46.217 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:36:46.217 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-5]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:36:46.217 D/PickerSyncController( 4374): Clearing next page token for key: local_provider:media_remove:resume
+07-13 15:36:46.217 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:36:46.217 D/PickerNotificationSender( 4374): Sending a notification for media update
+07-13 15:36:46.219 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Favorites
+07-13 15:36:46.219 D/PickerNotificationSender( 4374): Sending a notification for album media update Favorites
+07-13 15:36:46.220 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Videos
+07-13 15:36:46.220 D/PickerNotificationSender( 4374): Sending a notification for album media update Videos
+07-13 15:36:46.221 I/PickerSyncController( 4374): Paged sync successful. QueryArgs: Bundle[{android.provider.extra.PAGE_TOKEN=1783937204000|1000192549, android.provider.extra.SYNC_GENERATION=1227314, android.provider.extra.PAGE_SIZE=1000}] Total Rows: 0
+07-13 15:36:46.221 I/PickerSyncTracker( 4374): Marked sync future complete for work id: 88e59ddd-ea56-4add-ac4e-28ac7a430946. Future map: {}
+07-13 15:36:46.221 I/PSyncWorker( 4374): Completed picker proactive sync complete from local provider.
+07-13 15:36:46.225 I/WM-WorkerWrapper( 4374): Worker result SUCCESS for Work [ id=88e59ddd-ea56-4add-ac4e-28ac7a430946, tags={ com.android.providers.media.photopicker.sync.ProactiveSyncWorker } ]
+07-13 15:36:46.231 D/WM-Processor( 4374): Processor 88e59ddd-ea56-4add-ac4e-28ac7a430946 executed; reschedule = false
+07-13 15:36:46.231 D/WM-GreedyScheduler( 4374): Stopping tracking for WorkGenerationalId(workSpecId=88e59ddd-ea56-4add-ac4e-28ac7a430946, generation=0)
+07-13 15:36:46.262 D/WM-GreedyScheduler( 4374): Cancelling work ID 88e59ddd-ea56-4add-ac4e-28ac7a430946
+07-13 15:36:46.271 D/WM-BrdcstRcvrCnstrntTrc( 4374): BatteryNotLowTracker: unregistering receiver
+07-13 15:36:46.759 D/DeviceStatisticsService( 3152): chargerType=2 batteryLevel=82 totalBatteryCapacity=5511100
+07-13 15:36:46.863 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 4.17, bitrate 202137
+07-13 15:36:48.399 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 2.60, bitrate 174986
+07-13 15:36:48.495 W/ThreadPoolForeg(15809): type=1400 audit(0.0:163292): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=30713 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+07-13 15:36:49.499 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 2.73, bitrate 85293
+07-13 15:36:50.574 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 1.86, bitrate 29069
+07-13 15:36:50.589 I/NetworkScheduler.Stats(16889): (REDACTED) Task %s/%s started execution. cause:%s exec_start_elapsed_seconds: %s
+07-13 15:36:50.610 I/NetworkScheduler.Stats(16889): (REDACTED) Task %s/%s finished executing. cause:%s result: %s elapsed_millis: %s uptime_millis: %s exec_start_elapsed_seconds: %s
+07-13 15:36:52.446 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 1.60, bitrate 26735
+07-13 15:36:53.503 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 1.89, bitrate 39352
+07-13 15:36:53.962 D/BatteryService( 1936): uevent={POWER_SUPPLY_DP_DM=0, POWER_SUPPLY_VOLTAGE_QNOVO=-22, POWER_SUPPLY_VOLTAGE_NOW=4224985, POWER_SUPPLY_SW_JEITA_ENABLED=0, POWER_SUPPLY_FORCE_RECHARGE=0, POWER_SUPPLY_CHARGE_CONTROL_LIMIT_MAX=8, POWER_SUPPLY_RECHARGE_SOC=99, POWER_SUPPLY_HEALTH=Good, POWER_SUPPLY_TECHNOLOGY=Li-ion, POWER_SUPPLY_CHARGER_TEMP_MAX=160, POWER_SUPPLY_CHARGE_FULL_DESIGN=6174000, POWER_SUPPLY_FCC_STEPPER_ENABLE=0, SEQNUM=150707, POWER_SUPPLY_INPUT_CURRENT_LIMITED=1, POWER_SUPPLY_CHARGE_CONTROL_LIMIT=0, POWER_SUPPLY_STATUS=Charging, POWER_SUPPLY_CYCLE_COUNT=62, POWER_SUPPLY_BATTERY_CHARGING_ENABLED=1, POWER_SUPPLY_CURRENT_MAX=4000000, POWER_SUPPLY_CHARGE_TERM_CURRENT=-102, POWER_SUPPLY_CAPACITY=82, DEVPATH=/devices/platform/soc/1c40000.qcom,spmi/spmi-0/spmi0-02/1c40000.qcom,spmi:qcom,pmi632@2:qcom,qpnp-smb5/power_supply/battery, POWER_SUPPLY_CHARGE_DONE=0, POWER_SUPPLY_CHARGE_TYPE=Fast, POWER_SUPPLY_CHARGER_TEMP=320, POWER_SUPPLY_CHARGE_RATE=Normal, POWER_SUPPLY_CURRENT_QNOVO=-22, POWER_SUPPLY_CURRENT_NOW=267486, POWER_SUPPLY_SYSTEM_TEMP_LEVEL=0, POWER_SUPPLY_PRESENT=1, POWER_SUPPLY_PARALLEL_DISABLE=0, POWER_SUPPLY_CHARGE_FULL=5869000, POWER_SUPPLY_TIME_TO_FULL_NOW=13727, POWER_SUPPLY_CONSTANT_CHARGE_CURRENT=4000000, SUBSYSTEM=power_supply, POWER_SUPPLY_SET_SHIP_MODE=0, POWER_SUPPLY_TEMP=293, ACTION=change, POWER_SUPPLY_RERUN_AICL=0, POWER_SUPPLY_AGE=95, POWER_SUPPLY_NAME=battery, POWER_SUPPLY_VOLTAGE_MAX=-22, POWER_SUPPLY_CONSTANT_CHARGE_CURRENT_MAX=4000000, POWER_SUPPLY_CHARGE_COUNTER=4519130, POWER_SUPPLY_STEP_CHARGING_ENABLED=0, POWER_SUPPLY_NUM_SYSTEM_TEMP_LEVELS=8, POWER_SUPPLY_DIE_HEALTH=Cool, POWER_SUPPLY_INPUT_SUSPEND=0}
+07-13 15:36:54.021 D/DeviceStatisticsService( 3152): chargerType=2 batteryLevel=82 totalBatteryCapacity=5511100
+07-13 15:36:54.592 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 4.59, bitrate 96120
+07-13 15:36:55.671 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 1.85, bitrate 42362
+07-13 15:36:56.260 W/Looper  ( 1936): Slow dispatch took 102ms main h=com.android.server.job.JobSchedulerService$JobHandler c=null m=1
+07-13 15:36:57.079 W/ReactNativeJS(  622): '[Quotes WS] Broker market socket unavailable (connection error before open). Retrying broker /ws/v2 socket.', { socketUrl: 'wss://services.growtradingacademy.com/ws/v2?token=***' }
+07-13 15:36:57.082 I/ReactNativeJS(  622): [Quotes WS] Reconnecting in 5000ms (8/20)
+07-13 15:36:57.098 I/st.exp.exponen(  622): Background concurrent copying GC freed 807427(23MB) AllocSpace objects, 68(1360KB) LOS objects, 39% free, 36MB/60MB, paused 129us total 290.605ms
+07-13 15:36:57.611 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 1.55, bitrate 29150
+07-13 15:36:57.857 D/BatteryService( 1936): uevent={POWER_SUPPLY_DP_DM=0, POWER_SUPPLY_VOLTAGE_QNOVO=-22, POWER_SUPPLY_VOLTAGE_NOW=4216032, POWER_SUPPLY_SW_JEITA_ENABLED=0, POWER_SUPPLY_FORCE_RECHARGE=0, POWER_SUPPLY_CHARGE_CONTROL_LIMIT_MAX=8, POWER_SUPPLY_RECHARGE_SOC=99, POWER_SUPPLY_HEALTH=Good, POWER_SUPPLY_TECHNOLOGY=Li-ion, POWER_SUPPLY_CHARGER_TEMP_MAX=160, POWER_SUPPLY_CHARGE_FULL_DESIGN=6174000, POWER_SUPPLY_FCC_STEPPER_ENABLE=0, SEQNUM=150708, POWER_SUPPLY_INPUT_CURRENT_LIMITED=1, POWER_SUPPLY_CHARGE_CONTROL_LIMIT=0, POWER_SUPPLY_STATUS=Charging, POWER_SUPPLY_CYCLE_COUNT=62, POWER_SUPPLY_BATTERY_CHARGING_ENABLED=1, POWER_SUPPLY_CURRENT_MAX=4000000, POWER_SUPPLY_CHARGE_TERM_CURRENT=-102, POWER_SUPPLY_CAPACITY=82, DEVPATH=/devices/platform/soc/1c40000.qcom,spmi/spmi-0/spmi0-02/1c40000.qcom,spmi:qcom,pmi632@2:qcom,qpnp-smb5/power_supply/battery, POWER_SUPPLY_CHARGE_DONE=0, POWER_SUPPLY_CHARGE_TYPE=Fast, POWER_SUPPLY_CHARGER_TEMP=320, POWER_SUPPLY_CHARGE_RATE=Normal, POWER_SUPPLY_CURRENT_QNOVO=-22, POWER_SUPPLY_CURRENT_NOW=206298, POWER_SUPPLY_SYSTEM_TEMP_LEVEL=0, POWER_SUPPLY_PRESENT=1, POWER_SUPPLY_PARALLEL_DISABLE=0, POWER_SUPPLY_CHARGE_FULL=5869000, POWER_SUPPLY_TIME_TO_FULL_NOW=13727, POWER_SUPPLY_CONSTANT_CHARGE_CURRENT=4000000, SUBSYSTEM=power_supply, POWER_SUPPLY_SET_SHIP_MODE=0, POWER_SUPPLY_TEMP=293, ACTION=change, POWER_SUPPLY_RERUN_AICL=0, POWER_SUPPLY_AGE=95, POWER_SUPPLY_NAME=battery, POWER_SUPPLY_VOLTAGE_MAX=-22, POWER_SUPPLY_CONSTANT_CHARGE_CURRENT_MAX=4000000, POWER_SUPPLY_CHARGE_COUNTER=4519130, POWER_SUPPLY_STEP_CHARGING_ENABLED=0, POWER_SUPPLY_NUM_SYSTEM_TEMP_LEVELS=8, POWER_SUPPLY_DIE_HEALTH=Cool, POWER_SUPPLY_INPUT_SUSPEND=0}
+07-13 15:36:57.907 D/DeviceStatisticsService( 3152): chargerType=2 batteryLevel=82 totalBatteryCapacity=5511100
+07-13 15:36:58.488 W/app_process( 2869): type=1400 audit(0.0:163293): avc: denied { read } for name="u:object_r:device_config_runtime_native_boot_prop:s0" dev="tmpfs" ino=14888 scontext=u:r:shell:s0 tcontext=u:object_r:device_config_runtime_native_boot_prop:s0 tclass=file permissive=0
+07-13 15:36:58.488 W/app_process( 2869): type=1400 audit(0.0:163294): avc: denied { read } for name="u:object_r:device_config_runtime_native_boot_prop:s0" dev="tmpfs" ino=14888 scontext=u:r:shell:s0 tcontext=u:object_r:device_config_runtime_native_boot_prop:s0 tclass=file permissive=0
+07-13 15:36:58.488 I/chatty  ( 2869): uid=1000(system) app_process identical 1 line
+07-13 15:36:58.488 W/app_process( 2869): type=1400 audit(0.0:163296): avc: denied { read } for name="u:object_r:device_config_runtime_native_boot_prop:s0" dev="tmpfs" ino=14888 scontext=u:r:shell:s0 tcontext=u:object_r:device_config_runtime_native_boot_prop:s0 tclass=file permissive=0
+07-13 15:36:58.490 D/AndroidRuntime( 2869): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+07-13 15:36:58.494 E/libc    ( 2869): Access denied finding property "persist.device_config.runtime_native_boot.profilebootclasspath"
+07-13 15:36:58.494 E/libc    ( 2869): Access denied finding property "persist.device_config.runtime_native_boot.enable_apex_image"
+07-13 15:36:58.494 I/AndroidRuntime( 2869): Using default boot image
+07-13 15:36:58.494 E/libc    ( 2869): Access denied finding property "persist.device_config.runtime_native_boot.disable_lock_profiling"
+07-13 15:36:58.494 I/AndroidRuntime( 2869): Leaving lock profiling enabled
+07-13 15:36:58.494 E/libc    ( 2869): Access denied finding property "persist.device_config.runtime_native_boot.enable_generational_cc"
+07-13 15:36:58.624 D/app_process( 2869): Time zone APEX ICU file found: /apex/com.android.tzdata/etc/icu/icu_tzdata.dat
+07-13 15:36:58.624 D/app_process( 2869): I18n APEX ICU file found: /apex/com.android.i18n/etc/icu/icudt66l.dat
+07-13 15:36:58.626 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 4.93, bitrate 104240
+07-13 15:36:58.636 I/app_process( 2869): The ClassLoaderContext is a special shared library.
+07-13 15:36:58.664 W/app_process( 2869): JNI RegisterNativeMethods: attempt to register 0 native methods for android.media.AudioAttributes
+07-13 15:36:58.671 D/AndroidRuntime( 2869): Calling main entry com.android.commands.input.Input
+07-13 15:36:58.680 I/QTI PowerHAL( 1178): Power setBoost: 0, duration: 0
+07-13 15:36:58.685 I/QTI PowerHAL( 1178): Power setBoost: 0, duration: 0
+07-13 15:36:58.691 D/AndroidRuntime( 2869): Shutting down VM
+07-13 15:36:59.072 W/[RNScreens](  622): backTitleFontFamily prop is not available on Android
+07-13 15:36:59.072 W/[RNScreens](  622): disableBackButtonMenu prop is not available on Android
+07-13 15:36:59.072 W/[RNScreens](  622): backTitleVisible prop is not available on Android
+07-13 15:36:59.072 W/[RNScreens](  622): largeTitleHideShadow prop is not available on Android
+07-13 15:36:59.072 W/[RNScreens](  622): largeTitleFontWeight prop is not available on Android
+07-13 15:36:59.072 W/[RNScreens](  622): largeTitleFontFamily prop is not available on Android
+07-13 15:36:59.590 D/MediaProvider( 4374): CrossUser not enabled.
+07-13 15:36:59.604 E/expo-screen-capture(  622): Could not listen for screenshots, do not have READ_EXTERNAL_STORAGE permission.
+07-13 15:36:59.628 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 7.98, bitrate 2673835
+07-13 15:36:59.897 I/cmd     ( 2898): oneway function results will be dropped but finished with status OK and parcel size 4
+07-13 15:36:59.900 I/MediaProvider( 4374): Begin Intent { act=android.intent.action.MEDIA_SCANNER_SCAN_FILE dat=file:///sdcard/rtx5_order_120ms.png flg=0x1400010 cmp=com.google.android.providers.media.module/com.android.providers.media.MediaService }
+07-13 15:36:59.935 E/expo-screen-capture(  622): Could not listen for screenshots, do not have READ_EXTERNAL_STORAGE permission.
+07-13 15:36:59.936 I/MediaProvider( 4374): End Intent { act=android.intent.action.MEDIA_SCANNER_SCAN_FILE dat=file:///sdcard/rtx5_order_120ms.png flg=0x1400010 cmp=com.google.android.providers.media.module/com.android.providers.media.MediaService }
+07-13 15:36:59.972 D/WM-SystemJobScheduler( 4374): Scheduling work ID 765a043d-a046-497e-83b7-3ec770afd71bJob ID 13297
+07-13 15:37:00.170 W/ReactNativeJS(  622): [Action] actionSheet.New Order first frame took 1481ms; budget is 20ms.
+07-13 15:37:00.631 D/MediaProvider( 4374): CrossUser not enabled.
+07-13 15:37:00.649 E/expo-screen-capture(  622): Could not listen for screenshots, do not have READ_EXTERNAL_STORAGE permission.
+07-13 15:37:00.712 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 7.38, bitrate 186314
+07-13 15:37:00.946 I/cmd     ( 2911): oneway function results will be dropped but finished with status OK and parcel size 4
+07-13 15:37:00.952 I/MediaProvider( 4374): Begin Intent { act=android.intent.action.MEDIA_SCANNER_SCAN_FILE dat=file:///sdcard/rtx5_order_500ms.png flg=0x1400010 cmp=com.google.android.providers.media.module/com.android.providers.media.MediaService }
+07-13 15:37:00.984 E/expo-screen-capture(  622): Could not listen for screenshots, do not have READ_EXTERNAL_STORAGE permission.
+07-13 15:37:00.984 I/MediaProvider( 4374): End Intent { act=android.intent.action.MEDIA_SCANNER_SCAN_FILE dat=file:///sdcard/rtx5_order_500ms.png flg=0x1400010 cmp=com.google.android.providers.media.module/com.android.providers.media.MediaService }
+07-13 15:37:01.442 D/WM-DelayedWorkTracker( 4374): Scheduling work 765a043d-a046-497e-83b7-3ec770afd71b
+07-13 15:37:01.442 D/WM-GreedyScheduler( 4374): Starting tracking for 765a043d-a046-497e-83b7-3ec770afd71b
+07-13 15:37:01.445 D/WM-ConstraintTracker( 4374): BatteryNotLowTracker: initial state = true
+07-13 15:37:01.445 D/WM-BrdcstRcvrCnstrntTrc( 4374): BatteryNotLowTracker: registering receiver
+07-13 15:37:01.447 D/WM-GreedyScheduler( 4374): Constraints met: Scheduling work ID WorkGenerationalId(workSpecId=765a043d-a046-497e-83b7-3ec770afd71b, generation=0)
+07-13 15:37:01.452 D/WM-Processor( 4374): Processor: processing WorkGenerationalId(workSpecId=765a043d-a046-497e-83b7-3ec770afd71b, generation=0)
+07-13 15:37:01.470 D/WM-WorkerWrapper( 4374): Starting work for com.android.providers.media.photopicker.sync.ProactiveSyncWorker
+07-13 15:37:01.471 I/PSyncWorker( 4374): Starting proactive picker sync from sync source: 1
+07-13 15:37:01.471 I/PickerSyncTracker( 4374): Created new sync future java.util.concurrent.CompletableFuture@4620147[Not completed, 1 dependents]. Future map: {765a043d-a046-497e-83b7-3ec770afd71b=java.util.concurrent.CompletableFuture@4620147[Not completed, 1 dependents]}
+07-13 15:37:01.471 D/PickerSyncController( 4374): syncAllMediaFromProvider() LOCAL, auth=com.android.providers.media.photopicker, retry=true
+07-13 15:37:01.471 D/PickerSyncController( 4374): getSyncRequestParams() LOCAL, auth=com.android.providers.media.photopicker
+07-13 15:37:01.487 D/PickerSyncController( 4374):    Latest ID/Gen=58ab2dd5ffe181ad:external_primary/1227332
+07-13 15:37:01.487 D/PickerSyncController( 4374):    Cached ID/Gen=58ab2dd5ffe181ad:external_primary/1227320
+07-13 15:37:01.487 D/PickerSyncController( 4374):    RESULT=SyncRequestParams{type=MEDIA_INCREMENTAL, gen=1227320, latest=Bundle[{last_media_sync_generation=1227332, media_collection_id=58ab2dd5ffe181ad:external_primary}], pageSize=1000}
+07-13 15:37:01.487 I/PickerSyncController( 4374): Executing SyncAdd. isLocal: true. authority: com.android.providers.media.photopicker
+07-13 15:37:01.487 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:37:01.487 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-6]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:01.487 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:01.487 D/ExternalDbFacade( 4374): Token received for queryMedia = null
+07-13 15:37:01.503 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:37:01.503 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-6]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:01.503 D/PickerSyncController( 4374): Saving next page token: 1783937219000|1000192550 for key: local_provider:media_add:resume
+07-13 15:37:01.503 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:01.504 D/PickerNotificationSender( 4374): Sending a notification for media update
+07-13 15:37:01.505 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Favorites
+07-13 15:37:01.505 D/PickerNotificationSender( 4374): Sending a notification for album media update Favorites
+07-13 15:37:01.507 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Videos
+07-13 15:37:01.507 D/PickerNotificationSender( 4374): Sending a notification for album media update Videos
+07-13 15:37:01.509 D/ExternalDbFacade( 4374): Token received for queryMedia = 1783937219000|1000192550
+07-13 15:37:01.536 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:37:01.536 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-6]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:01.537 D/PickerSyncController( 4374): Clearing next page token for key: local_provider:media_add:resume
+07-13 15:37:01.537 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:01.537 D/PickerNotificationSender( 4374): Sending a notification for media update
+07-13 15:37:01.538 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Favorites
+07-13 15:37:01.538 D/PickerNotificationSender( 4374): Sending a notification for album media update Favorites
+07-13 15:37:01.539 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Videos
+07-13 15:37:01.539 D/PickerNotificationSender( 4374): Sending a notification for album media update Videos
+07-13 15:37:01.541 I/PickerSyncController( 4374): Paged sync successful. QueryArgs: Bundle[{android.provider.extra.PAGE_TOKEN=1783937219000|1000192550, android.provider.extra.SYNC_GENERATION=1227320, android.provider.extra.PAGE_SIZE=1000}] Total Rows: 2
+07-13 15:37:01.541 I/PickerSyncController( 4374): Executing SyncRemove. isLocal: true. authority: com.android.providers.media.photopicker
+07-13 15:37:01.541 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:37:01.541 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-6]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:01.541 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:01.547 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:37:01.547 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-6]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:01.547 D/PickerSyncController( 4374): Clearing next page token for key: local_provider:media_remove:resume
+07-13 15:37:01.547 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:01.547 D/PickerNotificationSender( 4374): Sending a notification for media update
+07-13 15:37:01.548 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Favorites
+07-13 15:37:01.548 D/PickerNotificationSender( 4374): Sending a notification for album media update Favorites
+07-13 15:37:01.549 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Videos
+07-13 15:37:01.549 D/PickerNotificationSender( 4374): Sending a notification for album media update Videos
+07-13 15:37:01.550 I/PickerSyncController( 4374): Paged sync successful. QueryArgs: Bundle[{android.provider.extra.PAGE_TOKEN=1783937219000|1000192550, android.provider.extra.SYNC_GENERATION=1227320, android.provider.extra.PAGE_SIZE=1000}] Total Rows: 0
+07-13 15:37:01.551 I/PickerSyncTracker( 4374): Marked sync future complete for work id: 765a043d-a046-497e-83b7-3ec770afd71b. Future map: {}
+07-13 15:37:01.551 I/PSyncWorker( 4374): Completed picker proactive sync complete from local provider.
+07-13 15:37:01.554 I/WM-WorkerWrapper( 4374): Worker result SUCCESS for Work [ id=765a043d-a046-497e-83b7-3ec770afd71b, tags={ com.android.providers.media.photopicker.sync.ProactiveSyncWorker } ]
+07-13 15:37:01.560 D/WM-Processor( 4374): Processor 765a043d-a046-497e-83b7-3ec770afd71b executed; reschedule = false
+07-13 15:37:01.562 D/WM-GreedyScheduler( 4374): Stopping tracking for WorkGenerationalId(workSpecId=765a043d-a046-497e-83b7-3ec770afd71b, generation=0)
+07-13 15:37:01.570 D/WM-GreedyScheduler( 4374): Cancelling work ID 765a043d-a046-497e-83b7-3ec770afd71b
+07-13 15:37:01.576 D/WM-BrdcstRcvrCnstrntTrc( 4374): BatteryNotLowTracker: unregistering receiver
+07-13 15:37:01.838 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 2.66, bitrate 292982
+07-13 15:37:02.131 D/BatteryService( 1936): uevent={POWER_SUPPLY_DP_DM=0, POWER_SUPPLY_VOLTAGE_QNOVO=-22, POWER_SUPPLY_VOLTAGE_NOW=4194621, POWER_SUPPLY_SW_JEITA_ENABLED=0, POWER_SUPPLY_FORCE_RECHARGE=0, POWER_SUPPLY_CHARGE_CONTROL_LIMIT_MAX=8, POWER_SUPPLY_RECHARGE_SOC=99, POWER_SUPPLY_HEALTH=Good, POWER_SUPPLY_TECHNOLOGY=Li-ion, POWER_SUPPLY_CHARGER_TEMP_MAX=160, POWER_SUPPLY_CHARGE_FULL_DESIGN=6174000, POWER_SUPPLY_FCC_STEPPER_ENABLE=0, SEQNUM=150709, POWER_SUPPLY_INPUT_CURRENT_LIMITED=1, POWER_SUPPLY_CHARGE_CONTROL_LIMIT=0, POWER_SUPPLY_STATUS=Charging, POWER_SUPPLY_CYCLE_COUNT=62, POWER_SUPPLY_BATTERY_CHARGING_ENABLED=1, POWER_SUPPLY_CURRENT_MAX=4000000, POWER_SUPPLY_CHARGE_TERM_CURRENT=-102, POWER_SUPPLY_CAPACITY=82, DEVPATH=/devices/platform/soc/1c40000.qcom,spmi/spmi-0/spmi0-02/1c40000.qcom,spmi:qcom,pmi632@2:qcom,qpnp-smb5/power_supply/battery, POWER_SUPPLY_CHARGE_DONE=0, POWER_SUPPLY_CHARGE_TYPE=Fast, POWER_SUPPLY_CHARGER_TEMP=321, POWER_SUPPLY_CHARGE_RATE=Normal, POWER_SUPPLY_CURRENT_QNOVO=-22, POWER_SUPPLY_CURRENT_NOW=47760, POWER_SUPPLY_SYSTEM_TEMP_LEVEL=0, POWER_SUPPLY_PRESENT=1, POWER_SUPPLY_PARALLEL_DISABLE=0, POWER_SUPPLY_CHARGE_FULL=5869000, POWER_SUPPLY_TIME_TO_FULL_NOW=13727, POWER_SUPPLY_CONSTANT_CHARGE_CURRENT=4000000, SUBSYSTEM=power_supply, POWER_SUPPLY_SET_SHIP_MODE=0, POWER_SUPPLY_TEMP=293, ACTION=change, POWER_SUPPLY_RERUN_AICL=0, POWER_SUPPLY_AGE=95, POWER_SUPPLY_NAME=battery, POWER_SUPPLY_VOLTAGE_MAX=-22, POWER_SUPPLY_CONSTANT_CHARGE_CURRENT_MAX=4000000, POWER_SUPPLY_CHARGE_COUNTER=4519130, POWER_SUPPLY_STEP_CHARGING_ENABLED=0, POWER_SUPPLY_NUM_SYSTEM_TEMP_LEVELS=8, POWER_SUPPLY_DIE_HEALTH=Cool, POWER_SUPPLY_INPUT_SUSPEND=0}
+07-13 15:37:02.166 D/DeviceStatisticsService( 3152): chargerType=2 batteryLevel=82 totalBatteryCapacity=5511100
+07-13 15:37:02.198 D/MediaProvider( 4374): CrossUser not enabled.
+07-13 15:37:02.220 E/expo-screen-capture(  622): Could not listen for screenshots, do not have READ_EXTERNAL_STORAGE permission.
+07-13 15:37:02.499 I/cmd     ( 2928): oneway function results will be dropped but finished with status OK and parcel size 4
+07-13 15:37:02.500 I/MediaProvider( 4374): Begin Intent { act=android.intent.action.MEDIA_SCANNER_SCAN_FILE dat=file:///sdcard/rtx5_order_1500ms.png flg=0x1400010 cmp=com.google.android.providers.media.module/com.android.providers.media.MediaService }
+07-13 15:37:02.526 E/expo-screen-capture(  622): Could not listen for screenshots, do not have READ_EXTERNAL_STORAGE permission.
+07-13 15:37:02.528 I/MediaProvider( 4374): End Intent { act=android.intent.action.MEDIA_SCANNER_SCAN_FILE dat=file:///sdcard/rtx5_order_1500ms.png flg=0x1400010 cmp=com.google.android.providers.media.module/com.android.providers.media.MediaService }
+07-13 15:37:02.555 D/WM-SystemJobScheduler( 4374): Scheduling work ID 3b7cd0a4-1e7a-480b-9c0c-afd5ef0071efJob ID 13298
+07-13 15:37:02.877 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 6.74, bitrate 159798
+07-13 15:37:04.036 D/WM-DelayedWorkTracker( 4374): Scheduling work 3b7cd0a4-1e7a-480b-9c0c-afd5ef0071ef
+07-13 15:37:04.036 D/WM-GreedyScheduler( 4374): Starting tracking for 3b7cd0a4-1e7a-480b-9c0c-afd5ef0071ef
+07-13 15:37:04.039 D/WM-ConstraintTracker( 4374): BatteryNotLowTracker: initial state = true
+07-13 15:37:04.040 D/WM-BrdcstRcvrCnstrntTrc( 4374): BatteryNotLowTracker: registering receiver
+07-13 15:37:04.042 D/WM-GreedyScheduler( 4374): Constraints met: Scheduling work ID WorkGenerationalId(workSpecId=3b7cd0a4-1e7a-480b-9c0c-afd5ef0071ef, generation=0)
+07-13 15:37:04.049 D/WM-Processor( 4374): Processor: processing WorkGenerationalId(workSpecId=3b7cd0a4-1e7a-480b-9c0c-afd5ef0071ef, generation=0)
+07-13 15:37:04.062 D/WM-WorkerWrapper( 4374): Starting work for com.android.providers.media.photopicker.sync.ProactiveSyncWorker
+07-13 15:37:04.063 I/PSyncWorker( 4374): Starting proactive picker sync from sync source: 1
+07-13 15:37:04.063 I/PickerSyncTracker( 4374): Created new sync future java.util.concurrent.CompletableFuture@9d1535b[Not completed, 1 dependents]. Future map: {3b7cd0a4-1e7a-480b-9c0c-afd5ef0071ef=java.util.concurrent.CompletableFuture@9d1535b[Not completed, 1 dependents]}
+07-13 15:37:04.063 D/PickerSyncController( 4374): syncAllMediaFromProvider() LOCAL, auth=com.android.providers.media.photopicker, retry=true
+07-13 15:37:04.064 D/PickerSyncController( 4374): getSyncRequestParams() LOCAL, auth=com.android.providers.media.photopicker
+07-13 15:37:04.080 D/PickerSyncController( 4374):    Latest ID/Gen=58ab2dd5ffe181ad:external_primary/1227340
+07-13 15:37:04.080 D/PickerSyncController( 4374):    Cached ID/Gen=58ab2dd5ffe181ad:external_primary/1227332
+07-13 15:37:04.080 D/PickerSyncController( 4374):    RESULT=SyncRequestParams{type=MEDIA_INCREMENTAL, gen=1227332, latest=Bundle[{last_media_sync_generation=1227340, media_collection_id=58ab2dd5ffe181ad:external_primary}], pageSize=1000}
+07-13 15:37:04.080 I/PickerSyncController( 4374): Executing SyncAdd. isLocal: true. authority: com.android.providers.media.photopicker
+07-13 15:37:04.080 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:37:04.080 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-7]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:04.080 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:04.080 D/ExternalDbFacade( 4374): Token received for queryMedia = null
+07-13 15:37:04.116 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:37:04.116 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-7]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:04.116 D/PickerSyncController( 4374): Saving next page token: 1783937222000|1000192552 for key: local_provider:media_add:resume
+07-13 15:37:04.116 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:04.117 D/PickerNotificationSender( 4374): Sending a notification for media update
+07-13 15:37:04.132 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Favorites
+07-13 15:37:04.132 D/PickerNotificationSender( 4374): Sending a notification for album media update Favorites
+07-13 15:37:04.135 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Videos
+07-13 15:37:04.135 D/PickerNotificationSender( 4374): Sending a notification for album media update Videos
+07-13 15:37:04.136 D/ExternalDbFacade( 4374): Token received for queryMedia = 1783937222000|1000192552
+07-13 15:37:04.150 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:37:04.150 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-7]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:04.150 D/PickerSyncController( 4374): Clearing next page token for key: local_provider:media_add:resume
+07-13 15:37:04.150 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:04.150 D/PickerNotificationSender( 4374): Sending a notification for media update
+07-13 15:37:04.152 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Favorites
+07-13 15:37:04.152 D/PickerNotificationSender( 4374): Sending a notification for album media update Favorites
+07-13 15:37:04.153 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Videos
+07-13 15:37:04.153 D/PickerNotificationSender( 4374): Sending a notification for album media update Videos
+07-13 15:37:04.154 I/PickerSyncController( 4374): Paged sync successful. QueryArgs: Bundle[{android.provider.extra.PAGE_TOKEN=1783937222000|1000192552, android.provider.extra.SYNC_GENERATION=1227332, android.provider.extra.PAGE_SIZE=1000}] Total Rows: 1
+07-13 15:37:04.155 I/PickerSyncController( 4374): Executing SyncRemove. isLocal: true. authority: com.android.providers.media.photopicker
+07-13 15:37:04.155 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:37:04.155 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-7]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:04.155 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:04.160 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:37:04.160 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-7]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:04.160 D/PickerSyncController( 4374): Clearing next page token for key: local_provider:media_remove:resume
+07-13 15:37:04.160 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:04.160 D/PickerNotificationSender( 4374): Sending a notification for media update
+07-13 15:37:04.162 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Favorites
+07-13 15:37:04.162 D/PickerNotificationSender( 4374): Sending a notification for album media update Favorites
+07-13 15:37:04.163 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Videos
+07-13 15:37:04.163 D/PickerNotificationSender( 4374): Sending a notification for album media update Videos
+07-13 15:37:04.164 I/PickerSyncController( 4374): Paged sync successful. QueryArgs: Bundle[{android.provider.extra.PAGE_TOKEN=1783937222000|1000192552, android.provider.extra.SYNC_GENERATION=1227332, android.provider.extra.PAGE_SIZE=1000}] Total Rows: 0
+07-13 15:37:04.165 I/PickerSyncTracker( 4374): Marked sync future complete for work id: 3b7cd0a4-1e7a-480b-9c0c-afd5ef0071ef. Future map: {}
+07-13 15:37:04.165 I/PSyncWorker( 4374): Completed picker proactive sync complete from local provider.
+07-13 15:37:04.169 I/WM-WorkerWrapper( 4374): Worker result SUCCESS for Work [ id=3b7cd0a4-1e7a-480b-9c0c-afd5ef0071ef, tags={ com.android.providers.media.photopicker.sync.ProactiveSyncWorker } ]
+07-13 15:37:04.173 D/WM-Processor( 4374): Processor 3b7cd0a4-1e7a-480b-9c0c-afd5ef0071ef executed; reschedule = false
+07-13 15:37:04.173 D/WM-GreedyScheduler( 4374): Stopping tracking for WorkGenerationalId(workSpecId=3b7cd0a4-1e7a-480b-9c0c-afd5ef0071ef, generation=0)
+07-13 15:37:04.178 D/WM-GreedyScheduler( 4374): Cancelling work ID 3b7cd0a4-1e7a-480b-9c0c-afd5ef0071ef
+07-13 15:37:04.183 D/WM-BrdcstRcvrCnstrntTrc( 4374): BatteryNotLowTracker: unregistering receiver
+07-13 15:37:04.208 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 0.75, bitrate 4037
+07-13 15:37:04.352 W/ThreadPoolForeg(16889): type=1400 audit(0.0:163297): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=30713 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+07-13 15:37:04.577 W/ReactNativeJS(  622): '[Quotes WS] Broker market socket unavailable (connection error before open). Retrying broker /ws/v2 socket.', { socketUrl: 'wss://services.growtradingacademy.com/ws/v2?token=***' }
+07-13 15:37:04.578 I/ReactNativeJS(  622): [Quotes WS] Reconnecting in 750ms (1/20)
+07-13 15:37:05.444 D/MediaProvider( 4374): CrossUser not enabled.
+07-13 15:37:05.458 E/expo-screen-capture(  622): Could not listen for screenshots, do not have READ_EXTERNAL_STORAGE permission.
+07-13 15:37:05.772 I/cmd     ( 2942): oneway function results will be dropped but finished with status OK and parcel size 4
+07-13 15:37:05.779 I/MediaProvider( 4374): Begin Intent { act=android.intent.action.MEDIA_SCANNER_SCAN_FILE dat=file:///sdcard/rtx5_order_4000ms.png flg=0x1400010 cmp=com.google.android.providers.media.module/com.android.providers.media.MediaService }
+07-13 15:37:05.810 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 2.50, bitrate 281261
+07-13 15:37:05.810 E/expo-screen-capture(  622): Could not listen for screenshots, do not have READ_EXTERNAL_STORAGE permission.
+07-13 15:37:05.811 I/MediaProvider( 4374): End Intent { act=android.intent.action.MEDIA_SCANNER_SCAN_FILE dat=file:///sdcard/rtx5_order_4000ms.png flg=0x1400010 cmp=com.google.android.providers.media.module/com.android.providers.media.MediaService }
+07-13 15:37:05.844 D/WM-SystemJobScheduler( 4374): Scheduling work ID a0a6b7b8-244b-4609-a710-9a9351d01532Job ID 13299
+07-13 15:37:05.954 W/ReactNativeJS(  622): '[Quotes WS] Broker market socket unavailable (connection error before open). Retrying broker /ws/v2 socket.', { socketUrl: 'wss://services.growtradingacademy.com/ws/v2?token=***' }
+07-13 15:37:05.974 I/ReactNativeJS(  622): [Quotes WS] Reconnecting in 1125ms (2/20)
+07-13 15:37:06.911 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 3.63, bitrate 291313
+07-13 15:37:07.318 D/WM-DelayedWorkTracker( 4374): Scheduling work a0a6b7b8-244b-4609-a710-9a9351d01532
+07-13 15:37:07.318 D/WM-GreedyScheduler( 4374): Starting tracking for a0a6b7b8-244b-4609-a710-9a9351d01532
+07-13 15:37:07.320 D/WM-ConstraintTracker( 4374): BatteryNotLowTracker: initial state = true
+07-13 15:37:07.320 D/WM-BrdcstRcvrCnstrntTrc( 4374): BatteryNotLowTracker: registering receiver
+07-13 15:37:07.321 D/WM-GreedyScheduler( 4374): Constraints met: Scheduling work ID WorkGenerationalId(workSpecId=a0a6b7b8-244b-4609-a710-9a9351d01532, generation=0)
+07-13 15:37:07.325 D/WM-Processor( 4374): Processor: processing WorkGenerationalId(workSpecId=a0a6b7b8-244b-4609-a710-9a9351d01532, generation=0)
+07-13 15:37:07.331 D/WM-WorkerWrapper( 4374): Starting work for com.android.providers.media.photopicker.sync.ProactiveSyncWorker
+07-13 15:37:07.332 I/PSyncWorker( 4374): Starting proactive picker sync from sync source: 1
+07-13 15:37:07.332 I/PickerSyncTracker( 4374): Created new sync future java.util.concurrent.CompletableFuture@d7fc92f[Not completed, 1 dependents]. Future map: {a0a6b7b8-244b-4609-a710-9a9351d01532=java.util.concurrent.CompletableFuture@d7fc92f[Not completed, 1 dependents]}
+07-13 15:37:07.332 D/PickerSyncController( 4374): syncAllMediaFromProvider() LOCAL, auth=com.android.providers.media.photopicker, retry=true
+07-13 15:37:07.332 D/PickerSyncController( 4374): getSyncRequestParams() LOCAL, auth=com.android.providers.media.photopicker
+07-13 15:37:07.349 D/PickerSyncController( 4374):    Latest ID/Gen=58ab2dd5ffe181ad:external_primary/1227348
+07-13 15:37:07.349 D/PickerSyncController( 4374):    Cached ID/Gen=58ab2dd5ffe181ad:external_primary/1227340
+07-13 15:37:07.349 D/PickerSyncController( 4374):    RESULT=SyncRequestParams{type=MEDIA_INCREMENTAL, gen=1227340, latest=Bundle[{last_media_sync_generation=1227348, media_collection_id=58ab2dd5ffe181ad:external_primary}], pageSize=1000}
+07-13 15:37:07.350 I/PickerSyncController( 4374): Executing SyncAdd. isLocal: true. authority: com.android.providers.media.photopicker
+07-13 15:37:07.350 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:37:07.350 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-8]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:07.350 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:07.350 D/ExternalDbFacade( 4374): Token received for queryMedia = null
+07-13 15:37:07.366 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:37:07.367 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-8]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:07.367 D/PickerSyncController( 4374): Saving next page token: 1783937225000|1000192553 for key: local_provider:media_add:resume
+07-13 15:37:07.367 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:07.368 D/PickerNotificationSender( 4374): Sending a notification for media update
+07-13 15:37:07.370 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Favorites
+07-13 15:37:07.370 D/PickerNotificationSender( 4374): Sending a notification for album media update Favorites
+07-13 15:37:07.371 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Videos
+07-13 15:37:07.371 D/PickerNotificationSender( 4374): Sending a notification for album media update Videos
+07-13 15:37:07.374 D/ExternalDbFacade( 4374): Token received for queryMedia = 1783937225000|1000192553
+07-13 15:37:07.386 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:37:07.386 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-8]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:07.386 D/PickerSyncController( 4374): Clearing next page token for key: local_provider:media_add:resume
+07-13 15:37:07.386 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:07.386 D/PickerNotificationSender( 4374): Sending a notification for media update
+07-13 15:37:07.387 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Favorites
+07-13 15:37:07.387 D/PickerNotificationSender( 4374): Sending a notification for album media update Favorites
+07-13 15:37:07.388 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Videos
+07-13 15:37:07.388 D/PickerNotificationSender( 4374): Sending a notification for album media update Videos
+07-13 15:37:07.389 I/PickerSyncController( 4374): Paged sync successful. QueryArgs: Bundle[{android.provider.extra.PAGE_TOKEN=1783937225000|1000192553, android.provider.extra.SYNC_GENERATION=1227340, android.provider.extra.PAGE_SIZE=1000}] Total Rows: 1
+07-13 15:37:07.389 I/PickerSyncController( 4374): Executing SyncRemove. isLocal: true. authority: com.android.providers.media.photopicker
+07-13 15:37:07.389 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:37:07.389 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-8]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:07.389 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:07.395 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:37:07.395 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-8]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:07.395 D/PickerSyncController( 4374): Clearing next page token for key: local_provider:media_remove:resume
+07-13 15:37:07.395 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:07.395 D/PickerNotificationSender( 4374): Sending a notification for media update
+07-13 15:37:07.396 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Favorites
+07-13 15:37:07.396 D/PickerNotificationSender( 4374): Sending a notification for album media update Favorites
+07-13 15:37:07.397 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Videos
+07-13 15:37:07.397 D/PickerNotificationSender( 4374): Sending a notification for album media update Videos
+07-13 15:37:07.398 I/PickerSyncController( 4374): Paged sync successful. QueryArgs: Bundle[{android.provider.extra.PAGE_TOKEN=1783937225000|1000192553, android.provider.extra.SYNC_GENERATION=1227340, android.provider.extra.PAGE_SIZE=1000}] Total Rows: 0
+07-13 15:37:07.398 I/PickerSyncTracker( 4374): Marked sync future complete for work id: a0a6b7b8-244b-4609-a710-9a9351d01532. Future map: {}
+07-13 15:37:07.398 I/PSyncWorker( 4374): Completed picker proactive sync complete from local provider.
+07-13 15:37:07.401 I/WM-WorkerWrapper( 4374): Worker result SUCCESS for Work [ id=a0a6b7b8-244b-4609-a710-9a9351d01532, tags={ com.android.providers.media.photopicker.sync.ProactiveSyncWorker } ]
+07-13 15:37:07.404 D/WM-Processor( 4374): Processor a0a6b7b8-244b-4609-a710-9a9351d01532 executed; reschedule = false
+07-13 15:37:07.405 D/WM-GreedyScheduler( 4374): Stopping tracking for WorkGenerationalId(workSpecId=a0a6b7b8-244b-4609-a710-9a9351d01532, generation=0)
+07-13 15:37:07.421 D/WM-GreedyScheduler( 4374): Cancelling work ID a0a6b7b8-244b-4609-a710-9a9351d01532
+07-13 15:37:07.426 D/WM-BrdcstRcvrCnstrntTrc( 4374): BatteryNotLowTracker: unregistering receiver
+07-13 15:37:07.473 W/ReactNativeJS(  622): '[Quotes WS] Broker market socket unavailable (connection error before open). Retrying broker /ws/v2 socket.', { socketUrl: 'wss://services.growtradingacademy.com/ws/v2?token=***' }
+07-13 15:37:07.476 I/ReactNativeJS(  622): [Quotes WS] Reconnecting in 1688ms (3/20)
+07-13 15:37:07.679 I/system_server( 1936): Background concurrent copying GC freed 894027(26MB) AllocSpace objects, 6(120KB) LOS objects, 33% free, 48MB/72MB, paused 148us total 320.038ms
+07-13 15:37:08.330 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 4.23, bitrate 282004
+07-13 15:37:09.378 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 3.82, bitrate 233425
+07-13 15:37:09.668 W/ReactNativeJS(  622): '[Quotes WS] Broker market socket unavailable (connection error before open). Retrying broker /ws/v2 socket.', { socketUrl: 'wss://services.growtradingacademy.com/ws/v2?token=***' }
+07-13 15:37:09.669 I/ReactNativeJS(  622): [Quotes WS] Reconnecting in 2531ms (4/20)
+07-13 15:37:10.309 D/BatteryService( 1936): uevent={POWER_SUPPLY_DP_DM=0, POWER_SUPPLY_VOLTAGE_QNOVO=-22, POWER_SUPPLY_VOLTAGE_NOW=4215448, POWER_SUPPLY_SW_JEITA_ENABLED=0, POWER_SUPPLY_FORCE_RECHARGE=0, POWER_SUPPLY_CHARGE_CONTROL_LIMIT_MAX=8, POWER_SUPPLY_RECHARGE_SOC=99, POWER_SUPPLY_HEALTH=Good, POWER_SUPPLY_TECHNOLOGY=Li-ion, POWER_SUPPLY_CHARGER_TEMP_MAX=160, POWER_SUPPLY_CHARGE_FULL_DESIGN=6174000, POWER_SUPPLY_FCC_STEPPER_ENABLE=0, SEQNUM=150711, POWER_SUPPLY_INPUT_CURRENT_LIMITED=1, POWER_SUPPLY_CHARGE_CONTROL_LIMIT=0, POWER_SUPPLY_STATUS=Charging, POWER_SUPPLY_CYCLE_COUNT=62, POWER_SUPPLY_BATTERY_CHARGING_ENABLED=1, POWER_SUPPLY_CURRENT_MAX=4000000, POWER_SUPPLY_CHARGE_TERM_CURRENT=-102, POWER_SUPPLY_CAPACITY=82, DEVPATH=/devices/platform/soc/1c40000.qcom,spmi/spmi-0/spmi0-02/1c40000.qcom,spmi:qcom,pmi632@2:qcom,qpnp-smb5/power_supply/battery, POWER_SUPPLY_CHARGE_DONE=0, POWER_SUPPLY_CHARGE_TYPE=Fast, POWER_SUPPLY_CHARGER_TEMP=325, POWER_SUPPLY_CHARGE_RATE=Normal, POWER_SUPPLY_CURRENT_QNOVO=-22, POWER_SUPPLY_CURRENT_NOW=264282, POWER_SUPPLY_SYSTEM_TEMP_LEVEL=0, POWER_SUPPLY_PRESENT=1, POWER_SUPPLY_PARALLEL_DISABLE=0, POWER_SUPPLY_CHARGE_FULL=5869000, POWER_SUPPLY_TIME_TO_FULL_NOW=13726, POWER_SUPPLY_CONSTANT_CHARGE_CURRENT=4000000, SUBSYSTEM=power_supply, POWER_SUPPLY_SET_SHIP_MODE=0, POWER_SUPPLY_TEMP=293, ACTION=change, POWER_SUPPLY_RERUN_AICL=0, POWER_SUPPLY_AGE=95, POWER_SUPPLY_NAME=battery, POWER_SUPPLY_VOLTAGE_MAX=-22, POWER_SUPPLY_CONSTANT_CHARGE_CURRENT_MAX=4000000, POWER_SUPPLY_CHARGE_COUNTER=4519130, POWER_SUPPLY_STEP_CHARGING_ENABLED=0, POWER_SUPPLY_NUM_SYSTEM_TEMP_LEVELS=8, POWER_SUPPLY_DIE_HEALTH=Cool, POWER_SUPPLY_INPUT_SUSPEND=0}
+07-13 15:37:10.362 D/DeviceStatisticsService( 3152): chargerType=2 batteryLevel=82 totalBatteryCapacity=5511100
+07-13 15:37:10.437 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 5.67, bitrate 348186
+07-13 15:37:10.546 I/NetworkScheduler.Stats(16889): (REDACTED) Task %s/%s started execution. cause:%s exec_start_elapsed_seconds: %s
+07-13 15:37:10.554 I/NetworkScheduler.Stats(16889): (REDACTED) Task %s/%s finished executing. cause:%s result: %s elapsed_millis: %s uptime_millis: %s exec_start_elapsed_seconds: %s
+07-13 15:37:11.503 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 5.63, bitrate 386013
+07-13 15:37:12.144 I/PlayCommon(32047): [68125] Preparing logs for uploading
+07-13 15:37:12.211 I/PlayCommon(32047): [68125] Connecting to server for timestamp: https://play.googleapis.com/play/log/timestamp
+07-13 15:37:12.283 E/PlayCommon(32047): [68125] Failed to connect to server for server timestamp: java.net.UnknownHostException: Unable to resolve host "play.googleapis.com": No address associated with hostname
+07-13 15:37:12.291 I/PlayCommon(32047): [68125] Connecting to server: https://play.googleapis.com/play/log?format=raw&proto_v2=true
+07-13 15:37:12.296 E/PlayCommon(32047): [68125] Failed to connect to server for log upload.
+07-13 15:37:12.541 W/ReactNativeJS(  622): '[Quotes WS] Broker market socket unavailable (connection error before open). Retrying broker /ws/v2 socket.', { socketUrl: 'wss://services.growtradingacademy.com/ws/v2?token=***' }
+07-13 15:37:12.543 I/ReactNativeJS(  622): [Quotes WS] Reconnecting in 3797ms (5/20)
+07-13 15:37:12.579 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 4.65, bitrate 360113
+07-13 15:37:13.629 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 4.76, bitrate 284053
+07-13 15:37:14.637 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 3.97, bitrate 273234
+07-13 15:37:14.680 I/st.exp.exponen(  622): Background young concurrent copying GC freed 709163(20MB) AllocSpace objects, 2(44KB) LOS objects, 34% free, 39MB/60MB, paused 392us total 125.451ms
+07-13 15:37:15.662 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 3.90, bitrate 294956
+07-13 15:37:16.735 W/ReactNativeJS(  622): '[Quotes WS] Broker market socket unavailable (connection error before open). Retrying broker /ws/v2 socket.', { socketUrl: 'wss://services.growtradingacademy.com/ws/v2?token=***' }
+07-13 15:37:16.736 I/ReactNativeJS(  622): [Quotes WS] Reconnecting in 5000ms (6/20)
+07-13 15:37:16.791 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 3.54, bitrate 311128
+07-13 15:37:17.889 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 3.64, bitrate 307123
+07-13 15:37:18.466 D/BatteryService( 1936): uevent={POWER_SUPPLY_DP_DM=0, POWER_SUPPLY_VOLTAGE_QNOVO=-22, POWER_SUPPLY_VOLTAGE_NOW=4232576, POWER_SUPPLY_SW_JEITA_ENABLED=0, POWER_SUPPLY_FORCE_RECHARGE=0, POWER_SUPPLY_CHARGE_CONTROL_LIMIT_MAX=8, POWER_SUPPLY_RECHARGE_SOC=99, POWER_SUPPLY_HEALTH=Good, POWER_SUPPLY_TECHNOLOGY=Li-ion, POWER_SUPPLY_CHARGER_TEMP_MAX=160, POWER_SUPPLY_CHARGE_FULL_DESIGN=6174000, POWER_SUPPLY_FCC_STEPPER_ENABLE=0, SEQNUM=150712, POWER_SUPPLY_INPUT_CURRENT_LIMITED=1, POWER_SUPPLY_CHARGE_CONTROL_LIMIT=0, POWER_SUPPLY_STATUS=Charging, POWER_SUPPLY_CYCLE_COUNT=62, POWER_SUPPLY_BATTERY_CHARGING_ENABLED=1, POWER_SUPPLY_CURRENT_MAX=4000000, POWER_SUPPLY_CHARGE_TERM_CURRENT=-102, POWER_SUPPLY_CAPACITY=82, DEVPATH=/devices/platform/soc/1c40000.qcom,spmi/spmi-0/spmi0-02/1c40000.qcom,spmi:qcom,pmi632@2:qcom,qpnp-smb5/power_supply/battery, POWER_SUPPLY_CHARGE_DONE=0, POWER_SUPPLY_CHARGE_TYPE=Fast, POWER_SUPPLY_CHARGER_TEMP=324, POWER_SUPPLY_CHARGE_RATE=Normal, POWER_SUPPLY_CURRENT_QNOVO=-22, POWER_SUPPLY_CURRENT_NOW=334778, POWER_SUPPLY_SYSTEM_TEMP_LEVEL=0, POWER_SUPPLY_PRESENT=1, POWER_SUPPLY_PARALLEL_DISABLE=0, POWER_SUPPLY_CHARGE_FULL=5869000, POWER_SUPPLY_TIME_TO_FULL_NOW=13725, POWER_SUPPLY_CONSTANT_CHARGE_CURRENT=4000000, SUBSYSTEM=power_supply, POWER_SUPPLY_SET_SHIP_MODE=0, POWER_SUPPLY_TEMP=293, ACTION=change, POWER_SUPPLY_RERUN_AICL=0, POWER_SUPPLY_AGE=95, POWER_SUPPLY_NAME=battery, POWER_SUPPLY_VOLTAGE_MAX=-22, POWER_SUPPLY_CONSTANT_CHARGE_CURRENT_MAX=4000000, POWER_SUPPLY_CHARGE_COUNTER=4519130, POWER_SUPPLY_STEP_CHARGING_ENABLED=0, POWER_SUPPLY_NUM_SYSTEM_TEMP_LEVELS=8, POWER_SUPPLY_DIE_HEALTH=Cool, POWER_SUPPLY_INPUT_SUSPEND=0}
+07-13 15:37:18.508 W/ThreadPoolForeg(15809): type=1400 audit(0.0:163298): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=30713 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+07-13 15:37:18.515 D/DeviceStatisticsService( 3152): chargerType=2 batteryLevel=82 totalBatteryCapacity=5511100
+07-13 15:37:19.008 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 3.57, bitrate 289954
+07-13 15:37:19.338 I/AlarmManager(16889): setExactAndAllowWhileIdle [name: GCM_HB_ALARM type: 2 triggerAtMillis: 960513222]
+07-13 15:37:19.463 I/AlarmManager(16889): setExactAndAllowWhileIdle [name: FcmRetry type: 2 triggerAtMillis: 958883354]
+07-13 15:37:19.515 D/CompatibilityChangeReporter( 1936): Compat change id reported: 135634846; UID 10250; state: DISABLED
+07-13 15:37:19.516 D/CompatibilityChangeReporter( 1936): Compat change id reported: 135754954; UID 10250; state: ENABLED
+07-13 15:37:19.517 D/CompatibilityChangeReporter( 1936): Compat change id reported: 143937733; UID 10250; state: ENABLED
+07-13 15:37:19.540 D/Zygote  (  998): Forked child process 3002
+07-13 15:37:19.543 I/ActivityManager( 1936): Start proc 3002:com.google.android.apps.photos/u0a250 for broadcast {com.google.android.apps.photos/com.google.android.libraries.notifications.platform.entrypoints.push.PushReceiver}
+07-13 15:37:19.599 E/oid.apps.photo( 3002): Not starting debugger since process cannot load the jdwp agent.
+07-13 15:37:19.692 I/oid.apps.photo( 3002): The ClassLoaderContext is a special shared library.
+07-13 15:37:19.880 W/oid.apps.photo( 3002): JIT profile information will not be recorded: profile file does not exist.
+07-13 15:37:19.880 I/chatty  ( 3002): uid=10250(com.google.android.apps.photos) identical 1 line
+07-13 15:37:19.880 W/oid.apps.photo( 3002): JIT profile information will not be recorded: profile file does not exist.
+07-13 15:37:19.934 D/NetworkSecurityConfig( 3002): Using Network Security Config from resource photos_enablecertificatetransparency_network_security_config debugBuild: false
+07-13 15:37:19.938 D/NetworkSecurityConfig( 3002): Using Network Security Config from resource photos_enablecertificatetransparency_network_security_config debugBuild: false
+07-13 15:37:20.068 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 4.72, bitrate 414672
+07-13 15:37:20.543 I/TetheringManager( 3002): registerTetheringEventCallback:com.google.android.apps.photos
+07-13 15:37:20.547 D/ConnectivityService( 1936): requestNetwork for uid/pid:10250/3002 NetworkRequest [ TRACK_DEFAULT id=15346, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ]
+07-13 15:37:20.548 D/ConnectivityService( 1936): NetReassign [15346 : null → 128]
+07-13 15:37:20.549 D/Ethernet( 1936): got request NetworkRequest [ TRACK_DEFAULT id=15346, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:20.549 D/UntrustedWifiNetworkFactory( 1936): got request NetworkRequest [ TRACK_DEFAULT id=15346, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:20.549 D/RestrictedWifiNetworkFactory( 1936): got request NetworkRequest [ TRACK_DEFAULT id=15346, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:20.550 D/WifiNetworkFactory( 1936): got request NetworkRequest [ TRACK_DEFAULT id=15346, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:20.550 D/MultiInternetWifiNetworkFactory( 1936): got request NetworkRequest [ TRACK_DEFAULT id=15346, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:20.550 D/OemPaidWifiNetworkFactory( 1936): got request NetworkRequest [ TRACK_DEFAULT id=15346, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:20.551 D/PhoneSwitcherNetworkRequstListener( 3172): got request NetworkRequest [ TRACK_DEFAULT id=15346, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:20.627 I/GmscoreIpa(15809): Starting mediastore instant index [CONTEXT service_id=255 ]
+07-13 15:37:20.867 D/CompatibilityChangeReporter( 1936): Compat change id reported: 135634846; UID 10166; state: DISABLED
+07-13 15:37:20.867 D/CompatibilityChangeReporter( 1936): Compat change id reported: 135754954; UID 10166; state: ENABLED
+07-13 15:37:20.868 D/CompatibilityChangeReporter( 1936): Compat change id reported: 143937733; UID 10166; state: ENABLED
+07-13 15:37:20.872 W/oid.apps.photo( 3002): ClassLoaderContext classpath size mismatch. expected=15, found=0 (DLC[];PCL[base.apk*277105629:base.apk!classes2.dex*335249529:base.apk!classes3.dex*4048372207:base.apk!classes4.dex*2628546944:base.apk!classes5.dex*4004953716:base.apk!classes6.dex*4142950192:base.apk!classes7.dex*1480665361:base.apk!classes8.dex*3214359331:base.apk!classes9.dex*3851344717:base.apk!classes10.dex*3591388638:base.apk!classes11.dex*45759978:base.apk!classes12.dex*2924202242:base.apk!classes13.dex*3351592179:base.apk!classes14.dex*1138475516:base.apk!classes15.dex*1931570971]{PCL[/system/framework/org.apache.http.legacy.jar*1522375157]#PCL[/apex/com.android.extservices/javalib/android.ext.adservices.jar*1727077579]#PCL[/system/framework/com.android.location.provider.jar*1664931834]#PCL[/system/framework/com.android.media.remotedisplay.jar*1573936315]#PCL[/apex/com.android.extservices/javalib/android.ext.adservices.jar*1727077579]} | DLC[];PCL[])
+07-13 15:37:20.879 D/Zygote  (  998): Forked child process 3094
+07-13 15:37:20.881 I/ActivityManager( 1936): Start proc 3094:com.motorola.camera3/u0a166 for content provider {com.motorola.camera3/com.motorola.camera.provider.photos.PhotosProvider}
+07-13 15:37:20.894 W/System  ( 3002): ClassLoader referenced unknown path: 
+07-13 15:37:20.905 E/otorola.camera( 3094): Not starting debugger since process cannot load the jdwp agent.
+07-13 15:37:20.946 I/otorola.camera( 3094): The ClassLoaderContext is a special shared library.
+07-13 15:37:20.966 W/otorola.camera( 3094): ClassLoaderContext classpath size mismatch. expected=6, found=0 (PCL[/system/framework/com.android.location.provider.jar*1664931834:/system/framework/services.jar*1967620738:/system/framework/services.jar!classes2.dex*2416309408:/system/framework/ethernet-service.jar*2555549550:/system/framework/moto-telephony.jar*193976260:/system/framework/moto-core_services.jar*2037086273] | PCL[])
+07-13 15:37:21.042 W/oid.apps.photo( 3002): ClassLoaderContext classpath size mismatch. expected=15, found=8 (DLC[];PCL[base.apk*277105629:base.apk!classes2.dex*335249529:base.apk!classes3.dex*4048372207:base.apk!classes4.dex*2628546944:base.apk!classes5.dex*4004953716:base.apk!classes6.dex*4142950192:base.apk!classes7.dex*1480665361:base.apk!classes8.dex*3214359331:base.apk!classes9.dex*3851344717:base.apk!classes10.dex*3591388638:base.apk!classes11.dex*45759978:base.apk!classes12.dex*2924202242:base.apk!classes13.dex*3351592179:base.apk!classes14.dex*1138475516:base.apk!classes15.dex*1931570971]{PCL[/system/framework/org.apache.http.legacy.jar*1522375157]#PCL[/apex/com.android.extservices/javalib/android.ext.adservices.jar*1727077579]#PCL[/system/framework/com.android.location.provider.jar*1664931834]#PCL[/system/framework/com.android.media.remotedisplay.jar*1573936315]#PCL[/apex/com.android.extservices/javalib/android.ext.adservices.jar*1727077579]} | DLC[];PCL[/data/app/~~5ZgbPibxnVo-oNgnygJWuA==/com.google.android.apps.photos-3g9FlWD-yEYxM8Dfw3x_7w==/base.apk*3200444438:/data/app/~~5ZgbPibxnVo-oNgnygJWuA==/com.google.android.apps.photos-3g9FlWD-yEYxM8Dfw3x_7w==/base.apk!classes2.dex*1886240881:/data/app/~~5ZgbPibxnVo-oNgnygJWuA==/com.google.android.apps.photos-3g9FlWD-yEYxM8Dfw3x_7w==/base.apk!classes3.dex*2571831774:/data/app/~~5ZgbPibxnVo-oNgnygJWuA==/com.google.android.apps.photos-3g9FlWD-yEYxM8Dfw3x_7w==/base.apk!classes4.dex*3941244042:/data/app/~~5ZgbPibxnVo-oNgnygJWuA==/com.google.android.apps.photos-3g9FlWD-yEYxM8Dfw3x_7w==/base.apk!classes5.dex*2770296710:/data/app/~~5ZgbPibxnVo-oNgnygJWuA==/com.google.android.apps.photos-3g9FlWD-yEYxM8Dfw3x_7w==/base.apk!classes6.dex*145926078:/data/app/~~5ZgbPibxnVo-oNgnygJWuA==/com.google.android.apps.photos-3g9FlWD-yEYxM8Dfw3x_7w==/base.apk!classes7.dex*3021509802:/data/app/~~5ZgbPibxnVo-oNgnygJWuA==/com.google.android.apps.photos-3g9FlWD-yEYxM8Dfw3x_7w==/base.apk!classes8.dex*2126853488]{PCL[/system/framework/org.apache.http.legacy.jar*1522375157]})
+07-13 15:37:21.054 W/otorola.camera( 3094): JIT profile information will not be recorded: profile file does not exist.
+07-13 15:37:21.054 I/chatty  ( 3094): uid=10166(com.motorola.camera3) identical 1 line
+07-13 15:37:21.054 W/otorola.camera( 3094): JIT profile information will not be recorded: profile file does not exist.
+07-13 15:37:21.058 W/oid.apps.photo( 3002): Found duplicate classes, falling back to extracting from APK : /data/app/~~JHc_NmthXlTCJn4sSCf_Uw==/com.google.android.gms-G9HoGX6wGavMUvF4qkql-A==/split_CronetDynamite_installtime.apk
+07-13 15:37:21.058 W/oid.apps.photo( 3002): NOTE: This wastes RAM and hurts startup performance.
+07-13 15:37:21.058 W/oid.apps.photo( 3002): Found duplicated class when checking oat files: 'Landroid/app/AppComponentFactory;' in /data/app/~~JHc_NmthXlTCJn4sSCf_Uw==/com.google.android.gms-G9HoGX6wGavMUvF4qkql-A==/split_CronetDynamite_installtime.apk!classes2.dex and /data/app/~~5ZgbPibxnVo-oNgnygJWuA==/com.google.android.apps.photos-3g9FlWD-yEYxM8Dfw3x_7w==/base.apk!classes3.dex
+07-13 15:37:21.094 D/NetworkSecurityConfig( 3094): No Network Security Config specified, using platform default
+07-13 15:37:21.095 D/NetworkSecurityConfig( 3094): No Network Security Config specified, using platform default
+07-13 15:37:21.118 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 3.81, bitrate 279397
+07-13 15:37:21.212 D/BoundBrokerSvc(16889): onRebind: Intent { act=com.google.android.gms.common.telemetry.service.START dat=chimera-action: cmp=com.google.android.gms/.chimera.PersistentApiService }
+07-13 15:37:21.229 D/CompatibilityChangeReporter( 3002): Compat change id reported: 150939131; UID 10250; state: ENABLED
+07-13 15:37:21.267 W/linker  ( 3002): Warning: "/data/app/~~JHc_NmthXlTCJn4sSCf_Uw==/com.google.android.gms-G9HoGX6wGavMUvF4qkql-A==/split_CronetDynamite_installtime.apk!/lib/arm64-v8a/libcronet.148.0.7778.60.so" unused DT entry: unknown processor-specific (type 0x70000001 arg 0x0) (ignoring)
+07-13 15:37:21.329 I/cn_HttpFlagsLoader( 3002): HTTP flags log line (Impl): Using live production flag values from Google
+07-13 15:37:21.343 D/ConnectivityService( 1936): requestNetwork for uid/pid:10250/3002 NetworkRequest [ TRACK_DEFAULT id=15347, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ]
+07-13 15:37:21.344 D/ConnectivityService( 1936): NetReassign [15347 : null → 128]
+07-13 15:37:21.344 D/Ethernet( 1936): got request NetworkRequest [ TRACK_DEFAULT id=15347, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:21.345 D/UntrustedWifiNetworkFactory( 1936): got request NetworkRequest [ TRACK_DEFAULT id=15347, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:21.345 D/RestrictedWifiNetworkFactory( 1936): got request NetworkRequest [ TRACK_DEFAULT id=15347, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:21.345 D/WifiNetworkFactory( 1936): got request NetworkRequest [ TRACK_DEFAULT id=15347, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:21.346 D/MultiInternetWifiNetworkFactory( 1936): got request NetworkRequest [ TRACK_DEFAULT id=15347, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:21.346 D/OemPaidWifiNetworkFactory( 1936): got request NetworkRequest [ TRACK_DEFAULT id=15347, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:21.346 D/PhoneSwitcherNetworkRequstListener( 3172): got request NetworkRequest [ TRACK_DEFAULT id=15347, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:21.350 I/cn_CronetLibraryLoader( 3002): Cronet version: 148.0.7778.60, arch: aarch64
+07-13 15:37:21.353 D/ConnectivityService( 1936): NetReassign [no changes]
+07-13 15:37:21.386 W/chromium( 3002): [0713/153721.384033:WARNING:net/dns/dns_config_service_android.cc:69] Failed to read DnsConfig.
+07-13 15:37:21.446 W/chromium( 3002): [0713/153721.446238:WARNING:net/dns/dns_config_service_android.cc:69] Failed to read DnsConfig.
+07-13 15:37:21.712 I/ActivityManager( 1936): Killing 32196:com.google.process.gapps/u0a189 (adj 985): empty #17
+07-13 15:37:21.740 I/Zygote  (  998): Process 32196 exited due to signal 9 (Killed)
+07-13 15:37:21.748 I/libprocessgroup( 1936): Successfully killed process cgroup uid 10189 pid 32196 in 35ms
+07-13 15:37:21.765 I/AdrenoGLES-0( 3002): QUALCOMM build                   : 704ecd9a2b, Ib3f3e69395
+07-13 15:37:21.765 I/AdrenoGLES-0( 3002): Build Date                       : 12/29/20
+07-13 15:37:21.765 I/AdrenoGLES-0( 3002): OpenGL ES Shader Compiler Version: EV031.32.02.06
+07-13 15:37:21.765 I/AdrenoGLES-0( 3002): Local Branch                     : 
+07-13 15:37:21.765 I/AdrenoGLES-0( 3002): Remote Branch                    : 
+07-13 15:37:21.765 I/AdrenoGLES-0( 3002): Remote Branch                    : 
+07-13 15:37:21.765 I/AdrenoGLES-0( 3002): Reconstruct Branch               : 
+07-13 15:37:21.765 I/AdrenoGLES-0( 3002): Build Config                     : S P 10.0.7 AArch64
+07-13 15:37:21.765 I/AdrenoGLES-0( 3002): Driver Path                      : /vendor/lib64/egl/libGLESv2_adreno.so
+07-13 15:37:21.812 D/ConnectivityService( 1936): requestNetwork for uid/pid:10250/3002 NetworkRequest [ TRACK_DEFAULT id=15349, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ]
+07-13 15:37:21.812 D/ConnectivityService( 1936): NetReassign [15349 : null → 128]
+07-13 15:37:21.813 D/UntrustedWifiNetworkFactory( 1936): got request NetworkRequest [ TRACK_DEFAULT id=15349, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:21.813 D/RestrictedWifiNetworkFactory( 1936): got request NetworkRequest [ TRACK_DEFAULT id=15349, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:21.813 D/WifiNetworkFactory( 1936): got request NetworkRequest [ TRACK_DEFAULT id=15349, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:21.813 D/Ethernet( 1936): got request NetworkRequest [ TRACK_DEFAULT id=15349, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:21.814 D/MultiInternetWifiNetworkFactory( 1936): got request NetworkRequest [ TRACK_DEFAULT id=15349, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:21.815 D/OemPaidWifiNetworkFactory( 1936): got request NetworkRequest [ TRACK_DEFAULT id=15349, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:21.815 D/PhoneSwitcherNetworkRequstListener( 3172): got request NetworkRequest [ TRACK_DEFAULT id=15349, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10250 AdministratorUids: [] RequestorUid: 10250 RequestorPackageName: com.google.android.apps.photos] ] with score 50 and providerId 3
+07-13 15:37:21.845 I/AdrenoGLES-0( 3002): PFP: 0x016ee190, ME: 0x00000000
+07-13 15:37:22.014 W/DisplayIdentification( 1244): Invalid EDID: falling back to serial number due to missing display name.
+07-13 15:37:22.015 W/DisplayIdentification( 1244): Invalid EDID: falling back to ASCII text due to missing serial number.
+07-13 15:37:22.166 W/ReactNativeJS(  622): '[Quotes WS] Broker market socket unavailable (connection error before open). Retrying broker /ws/v2 socket.', { socketUrl: 'wss://services.growtradingacademy.com/ws/v2?token=***' }
+07-13 15:37:22.167 I/ReactNativeJS(  622): [Quotes WS] Reconnecting in 5000ms (7/20)
+07-13 15:37:22.229 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 4.50, bitrate 291600
+07-13 15:37:23.729 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 4.00, bitrate 397244
+07-13 15:37:24.924 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 5.02, bitrate 475939
+07-13 15:37:25.985 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 3.77, bitrate 323859
+07-13 15:37:26.244 D/BoundBrokerSvc(16889): onUnbind: Intent { act=com.google.android.gms.common.telemetry.service.START dat=chimera-action: cmp=com.google.android.gms/.chimera.PersistentApiService }
+07-13 15:37:26.641 D/BatteryService( 1936): uevent={POWER_SUPPLY_DP_DM=0, POWER_SUPPLY_VOLTAGE_QNOVO=-22, POWER_SUPPLY_VOLTAGE_NOW=4224596, POWER_SUPPLY_SW_JEITA_ENABLED=0, POWER_SUPPLY_FORCE_RECHARGE=0, POWER_SUPPLY_CHARGE_CONTROL_LIMIT_MAX=8, POWER_SUPPLY_RECHARGE_SOC=99, POWER_SUPPLY_HEALTH=Good, POWER_SUPPLY_TECHNOLOGY=Li-ion, POWER_SUPPLY_CHARGER_TEMP_MAX=160, POWER_SUPPLY_CHARGE_FULL_DESIGN=6174000, POWER_SUPPLY_FCC_STEPPER_ENABLE=0, SEQNUM=150713, POWER_SUPPLY_INPUT_CURRENT_LIMITED=1, POWER_SUPPLY_CHARGE_CONTROL_LIMIT=0, POWER_SUPPLY_STATUS=Charging, POWER_SUPPLY_CYCLE_COUNT=62, POWER_SUPPLY_BATTERY_CHARGING_ENABLED=1, POWER_SUPPLY_CURRENT_MAX=4000000, POWER_SUPPLY_CHARGE_TERM_CURRENT=-102, POWER_SUPPLY_CAPACITY=82, DEVPATH=/devices/platform/soc/1c40000.qcom,spmi/spmi-0/spmi0-02/1c40000.qcom,spmi:qcom,pmi632@2:qcom,qpnp-smb5/power_supply/battery, POWER_SUPPLY_CHARGE_DONE=0, POWER_SUPPLY_CHARGE_TYPE=Fast, POWER_SUPPLY_CHARGER_TEMP=324, POWER_SUPPLY_CHARGE_RATE=Normal, POWER_SUPPLY_CURRENT_QNOVO=-22, POWER_SUPPLY_CURRENT_NOW=261688, POWER_SUPPLY_SYSTEM_TEMP_LEVEL=0, POWER_SUPPLY_PRESENT=1, POWER_SUPPLY_PARALLEL_DISABLE=0, POWER_SUPPLY_CHARGE_FULL=5869000, POWER_SUPPLY_TIME_TO_FULL_NOW=13724, POWER_SUPPLY_CONSTANT_CHARGE_CURRENT=4000000, SUBSYSTEM=power_supply, POWER_SUPPLY_SET_SHIP_MODE=0, POWER_SUPPLY_TEMP=293, ACTION=change, POWER_SUPPLY_RERUN_AICL=0, POWER_SUPPLY_AGE=95, POWER_SUPPLY_NAME=battery, POWER_SUPPLY_VOLTAGE_MAX=-22, POWER_SUPPLY_CONSTANT_CHARGE_CURRENT_MAX=4000000, POWER_SUPPLY_CHARGE_COUNTER=4519130, POWER_SUPPLY_STEP_CHARGING_ENABLED=0, POWER_SUPPLY_NUM_SYSTEM_TEMP_LEVELS=8, POWER_SUPPLY_DIE_HEALTH=Cool, POWER_SUPPLY_INPUT_SUSPEND=0}
+07-13 15:37:26.697 D/DeviceStatisticsService( 3152): chargerType=2 batteryLevel=82 totalBatteryCapacity=5511100
+07-13 15:37:27.242 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 5.57, bitrate 410198
+07-13 15:37:27.450 I/st.exp.exponen(  622): NativeAlloc concurrent copying GC freed 639741(19MB) AllocSpace objects, 56(1120KB) LOS objects, 39% free, 37MB/61MB, paused 137us total 308.138ms
+07-13 15:37:27.577 W/ReactNativeJS(  622): '[Quotes WS] Broker market socket unavailable (connection error before open). Retrying broker /ws/v2 socket.', { socketUrl: 'wss://services.growtradingacademy.com/ws/v2?token=***' }
+07-13 15:37:27.578 I/ReactNativeJS(  622): [Quotes WS] Reconnecting in 5000ms (8/20)
+07-13 15:37:27.650 I/ActivityManager( 1936): Killing 31898:android.process.media/u0a124 (adj 975): empty #17
+07-13 15:37:27.677 I/Zygote  (  998): Process 31898 exited due to signal 9 (Killed)
+07-13 15:37:27.684 I/libprocessgroup( 1936): Successfully killed process cgroup uid 10124 pid 31898 in 32ms
+07-13 15:37:28.323 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 4.63, bitrate 481003
+07-13 15:37:29.528 D/BoundBrokerSvc(16889): onRebind: Intent { act=com.google.android.gms.libs.gmscorelogger.service.START dat=chimera-action: cmp=com.google.android.gms/.chimera.PersistentDirectBootAwareApiService }
+07-13 15:37:29.610 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 3.89, bitrate 268246
+07-13 15:37:30.856 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 3.21, bitrate 296599
+07-13 15:37:31.878 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 3.91, bitrate 391522
+07-13 15:37:32.935 W/ReactNativeJS(  622): '[Quotes WS] Broker market socket unavailable (connection error before open). Retrying broker /ws/v2 socket.', { socketUrl: 'wss://services.growtradingacademy.com/ws/v2?token=***' }
+07-13 15:37:32.936 I/ReactNativeJS(  622): [Quotes WS] Reconnecting in 5000ms (9/20)
+07-13 15:37:33.009 I/OMX-VENC: venc_dev( 1483): stats: avg. fps 3.54, bitrate 315449
+07-13 15:37:33.797 I/MPEG4Writer( 2811): setStartTimestampUs: 958724867155
+07-13 15:37:33.798 V/MediaWriter( 2811): Track event err/info msg:101, trackId:1, type:1000,val:-1011
+07-13 15:37:33.798 I/MPEG4Writer( 2811): Received total/0-length (204/0) buffers and encoded 204 frames. - Video
+07-13 15:37:33.799 D/MPEG4Writer( 2811): reset()
+07-13 15:37:33.799 V/MediaWriter( 2811): Track event err/info msg:101, trackId:2, type:1000,val:-1011
+07-13 15:37:33.799 W/MPEG4Writer( 2811): 0-duration samples found: 1
+07-13 15:37:33.799 I/MPEG4Writer( 2811): Received total/0-length (1/0) buffers and encoded 1 frames. - Metadata
+07-13 15:37:33.799 D/MPEG4Writer( 2811): Video track stopping. Stop source
+07-13 15:37:33.799 D/MPEG4Writer( 2811): Video track source stopping
+07-13 15:37:33.799 D/MPEG4Writer( 2811): Video track source stopped
+07-13 15:37:33.800 D/MPEG4Writer( 2811): Video track stopped. Status:0. Stop source
+07-13 15:37:33.800 D/MPEG4Writer( 2811): Metadata track stopping. Stop source
+07-13 15:37:33.800 D/MPEG4Writer( 2811): Metadata track source stopping
+07-13 15:37:33.800 D/MPEG4Writer( 2811): Metadata track source stopped
+07-13 15:37:33.800 D/MPEG4Writer( 2811): Metadata track stopped. Status:0. Stop source
+07-13 15:37:33.800 D/MPEG4Writer( 2811): Duration from tracks range is [0, 52879858] us
+07-13 15:37:33.800 D/MPEG4Writer( 2811): 0 chunks are written in the last batch
+07-13 15:37:33.800 D/MPEG4Writer( 2811): WriterThread stopped. Status:0
+07-13 15:37:33.807 I/MPEG4Writer( 2811): Adjust the moov start time from 958724867155 us -> 958724867155 us
+07-13 15:37:33.809 I/MPEG4Writer( 2811): The mp4 file will not be streamable.
+07-13 15:37:33.809 I/MPEG4Writer( 2811): MOOV atom was written to the file
+07-13 15:37:33.809 D/MPEG4Writer( 2811): release()
+07-13 15:37:33.816 W/GraphicBufferSource( 1483): released unpopulated slots: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63]
+07-13 15:37:33.825 D/MPEG4Writer( 2811): MP4WtrCtrlHlpLooper stopped
+07-13 15:37:33.825 D/MPEG4Writer( 2811): Top 5 write durations(microseconds): #1:306 #2:324 #3:384 #4:465 #5:6527
+07-13 15:37:33.825 I/MediaCodec( 2811): (0xb400007da8aad040) stop
+07-13 15:37:33.855 I/MediaCodec( 2811): (0xb400007da8aad040) release
+07-13 15:37:33.856 E/OMX-VENC: venc_dev( 1483): async_venc_message_thread interrupted to be exited
+07-13 15:37:33.859 I/OMX-VENC( 1483): Component Deinit
+07-13 15:37:33.884 I/android.hardware.media.omx@1.0-service( 1483): vendor/qcom/proprietary/adsprpc/src/rpcmem_android.c:192: rpcmem_deinit_internal: closed ION fd 7
+07-13 15:37:33.884 I/android.hardware.media.omx@1.0-service( 1483): vendor/qcom/proprietary/adsprpc/src/fastrpc_apps_user.c:2898: fastrpc_apps_user_deinit done
+07-13 15:37:33.959 I/MediaProvider( 4374): Begin Intent { act=android.intent.action.MEDIA_SCANNER_SCAN_FILE dat=file:///sdcard/rtx5_symbol_new_order.mp4 flg=0x1400010 cmp=com.google.android.providers.media.module/com.android.providers.media.MediaService }
+07-13 15:37:33.964 D/ScreenRecord( 2811): success
+07-13 15:37:33.970 I/BpBinder( 2811): onLastStrongRef automatically unlinking death recipients: <uncached descriptor>
+07-13 15:37:33.974 I/BpBinder( 2811): onLastStrongRef automatically unlinking death recipients: <uncached descriptor>
+07-13 15:37:33.976 I/hw-BpHwBinder( 2811): onLastStrongRef automatically unlinking death recipients
+07-13 15:37:33.983 I/PlayerServiceFileSource( 1469): StagefrightMetadataRetriever::setDataSource(FD URL suppressed)
+07-13 15:37:34.032 E/Utils   ( 1465): did not find width and/or height
+07-13 15:37:34.038 E/Utils   ( 1465): did not find width and/or height
+07-13 15:37:34.051 I/PlayerServiceFileSource( 1469): StagefrightMetadataRetriever::setDataSource(FD URL suppressed)
+07-13 15:37:34.069 E/Utils   ( 1465): did not find width and/or height
+07-13 15:37:34.071 E/Utils   ( 1465): did not find width and/or height
+07-13 15:37:34.113 I/MediaProvider( 4374): End Intent { act=android.intent.action.MEDIA_SCANNER_SCAN_FILE dat=file:///sdcard/rtx5_symbol_new_order.mp4 flg=0x1400010 cmp=com.google.android.providers.media.module/com.android.providers.media.MediaService }
+07-13 15:37:34.144 D/WM-SystemJobScheduler( 4374): Scheduling work ID d2a8f370-d5e8-417b-a6e1-1de360e43d83Job ID 13300
+07-13 15:37:34.202 I/NetworkScheduler.Stats(16889): (REDACTED) Task %s/%s started execution. cause:%s exec_start_elapsed_seconds: %s
+07-13 15:37:34.210 I/NetworkScheduler.Stats(16889): (REDACTED) Task %s/%s finished executing. cause:%s result: %s elapsed_millis: %s uptime_millis: %s exec_start_elapsed_seconds: %s
+07-13 15:37:34.355 W/ThreadPoolForeg(16889): type=1400 audit(0.0:163299): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=30713 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+07-13 15:37:34.718 W/Choreographer(  622): Frame time is 0.087407 ms in the future!  Check that graphics HAL is generating vsync timestamps using the correct timebase.
+07-13 15:37:34.806 D/BatteryService( 1936): uevent={POWER_SUPPLY_DP_DM=0, POWER_SUPPLY_VOLTAGE_QNOVO=-22, POWER_SUPPLY_VOLTAGE_NOW=4189172, POWER_SUPPLY_SW_JEITA_ENABLED=0, POWER_SUPPLY_FORCE_RECHARGE=0, POWER_SUPPLY_CHARGE_CONTROL_LIMIT_MAX=8, POWER_SUPPLY_RECHARGE_SOC=99, POWER_SUPPLY_HEALTH=Good, POWER_SUPPLY_TECHNOLOGY=Li-ion, POWER_SUPPLY_CHARGER_TEMP_MAX=160, POWER_SUPPLY_CHARGE_FULL_DESIGN=6174000, POWER_SUPPLY_FCC_STEPPER_ENABLE=0, SEQNUM=150715, POWER_SUPPLY_INPUT_CURRENT_LIMITED=1, POWER_SUPPLY_CHARGE_CONTROL_LIMIT=0, POWER_SUPPLY_STATUS=Charging, POWER_SUPPLY_CYCLE_COUNT=62, POWER_SUPPLY_BATTERY_CHARGING_ENABLED=1, POWER_SUPPLY_CURRENT_MAX=4000000, POWER_SUPPLY_CHARGE_TERM_CURRENT=-102, POWER_SUPPLY_CAPACITY=82, DEVPATH=/devices/platform/soc/1c40000.qcom,spmi/spmi-0/spmi0-02/1c40000.qcom,spmi:qcom,pmi632@2:qcom,qpnp-smb5/power_supply/battery, POWER_SUPPLY_CHARGE_DONE=0, POWER_SUPPLY_CHARGE_TYPE=Fast, POWER_SUPPLY_CHARGER_TEMP=324, POWER_SUPPLY_CHARGE_RATE=Normal, POWER_SUPPLY_CURRENT_QNOVO=-22, POWER_SUPPLY_CURRENT_NOW=-49133, POWER_SUPPLY_SYSTEM_TEMP_LEVEL=0, POWER_SUPPLY_PRESENT=1, POWER_SUPPLY_PARALLEL_DISABLE=0, POWER_SUPPLY_CHARGE_FULL=5869000, POWER_SUPPLY_TIME_TO_FULL_NOW=13723, POWER_SUPPLY_CONSTANT_CHARGE_CURRENT=4000000, SUBSYSTEM=power_supply, POWER_SUPPLY_SET_SHIP_MODE=0, POWER_SUPPLY_TEMP=293, ACTION=change, POWER_SUPPLY_RERUN_AICL=0, POWER_SUPPLY_AGE=95, POWER_SUPPLY_NAME=battery, POWER_SUPPLY_VOLTAGE_MAX=-22, POWER_SUPPLY_CONSTANT_CHARGE_CURRENT_MAX=4000000, POWER_SUPPLY_CHARGE_COUNTER=4519130, POWER_SUPPLY_STEP_CHARGING_ENABLED=0, POWER_SUPPLY_NUM_SYSTEM_TEMP_LEVELS=8, POWER_SUPPLY_DIE_HEALTH=Cool, POWER_SUPPLY_INPUT_SUSPEND=0}
+07-13 15:37:34.857 D/DeviceStatisticsService( 3152): chargerType=2 batteryLevel=82 totalBatteryCapacity=5511100
+07-13 15:37:35.620 D/WM-DelayedWorkTracker( 4374): Scheduling work d2a8f370-d5e8-417b-a6e1-1de360e43d83
+07-13 15:37:35.621 D/WM-GreedyScheduler( 4374): Starting tracking for d2a8f370-d5e8-417b-a6e1-1de360e43d83
+07-13 15:37:35.624 D/WM-ConstraintTracker( 4374): BatteryNotLowTracker: initial state = true
+07-13 15:37:35.625 D/WM-BrdcstRcvrCnstrntTrc( 4374): BatteryNotLowTracker: registering receiver
+07-13 15:37:35.628 D/WM-GreedyScheduler( 4374): Constraints met: Scheduling work ID WorkGenerationalId(workSpecId=d2a8f370-d5e8-417b-a6e1-1de360e43d83, generation=0)
+07-13 15:37:35.642 D/WM-Processor( 4374): Processor: processing WorkGenerationalId(workSpecId=d2a8f370-d5e8-417b-a6e1-1de360e43d83, generation=0)
+07-13 15:37:35.660 D/WM-WorkerWrapper( 4374): Starting work for com.android.providers.media.photopicker.sync.ProactiveSyncWorker
+07-13 15:37:35.661 I/PSyncWorker( 4374): Starting proactive picker sync from sync source: 1
+07-13 15:37:35.662 I/PickerSyncTracker( 4374): Created new sync future java.util.concurrent.CompletableFuture@168a272[Not completed, 1 dependents]. Future map: {d2a8f370-d5e8-417b-a6e1-1de360e43d83=java.util.concurrent.CompletableFuture@168a272[Not completed, 1 dependents]}
+07-13 15:37:35.662 D/PickerSyncController( 4374): syncAllMediaFromProvider() LOCAL, auth=com.android.providers.media.photopicker, retry=true
+07-13 15:37:35.662 D/PickerSyncController( 4374): getSyncRequestParams() LOCAL, auth=com.android.providers.media.photopicker
+07-13 15:37:35.690 D/PickerSyncController( 4374):    Latest ID/Gen=58ab2dd5ffe181ad:external_primary/1227355
+07-13 15:37:35.690 D/PickerSyncController( 4374):    Cached ID/Gen=58ab2dd5ffe181ad:external_primary/1227348
+07-13 15:37:35.690 D/PickerSyncController( 4374):    RESULT=SyncRequestParams{type=MEDIA_INCREMENTAL, gen=1227348, latest=Bundle[{last_media_sync_generation=1227355, media_collection_id=58ab2dd5ffe181ad:external_primary}], pageSize=1000}
+07-13 15:37:35.690 I/PickerSyncController( 4374): Executing SyncAdd. isLocal: true. authority: com.android.providers.media.photopicker
+07-13 15:37:35.690 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:37:35.690 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-9]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:35.690 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:35.690 D/ExternalDbFacade( 4374): Token received for queryMedia = null
+07-13 15:37:35.716 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:37:35.716 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-9]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:35.716 D/PickerSyncController( 4374): Saving next page token: 1783937253000|1000192548 for key: local_provider:media_add:resume
+07-13 15:37:35.716 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:35.718 D/PickerNotificationSender( 4374): Sending a notification for media update
+07-13 15:37:35.718 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Favorites
+07-13 15:37:35.718 D/PickerNotificationSender( 4374): Sending a notification for album media update Favorites
+07-13 15:37:35.722 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Videos
+07-13 15:37:35.722 D/PickerNotificationSender( 4374): Sending a notification for album media update Videos
+07-13 15:37:35.723 D/ExternalDbFacade( 4374): Token received for queryMedia = 1783937253000|1000192548
+07-13 15:37:35.734 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:37:35.735 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-9]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:35.735 D/PickerSyncController( 4374): Clearing next page token for key: local_provider:media_add:resume
+07-13 15:37:35.735 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:35.735 D/PickerNotificationSender( 4374): Sending a notification for media update
+07-13 15:37:35.736 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Favorites
+07-13 15:37:35.736 D/PickerNotificationSender( 4374): Sending a notification for album media update Favorites
+07-13 15:37:35.736 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Videos
+07-13 15:37:35.736 D/PickerNotificationSender( 4374): Sending a notification for album media update Videos
+07-13 15:37:35.737 I/PickerSyncController( 4374): Paged sync successful. QueryArgs: Bundle[{android.provider.extra.PAGE_TOKEN=1783937253000|1000192548, android.provider.extra.SYNC_GENERATION=1227348, android.provider.extra.PAGE_SIZE=1000}] Total Rows: 1
+07-13 15:37:35.737 I/PickerSyncController( 4374): Executing SyncRemove. isLocal: true. authority: com.android.providers.media.photopicker
+07-13 15:37:35.737 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:37:35.737 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-9]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:35.737 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:35.750 D/PickerSyncLockManager( 4374): Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+07-13 15:37:35.750 D/CloseableReentrantLock( 4374): Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Locked by thread pool-2-thread-9]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:35.750 D/PickerSyncController( 4374): Clearing next page token for key: local_provider:media_remove:resume
+07-13 15:37:35.750 D/CloseableReentrantLock( 4374): Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@5d09e6a[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+07-13 15:37:35.750 D/PickerNotificationSender( 4374): Sending a notification for media update
+07-13 15:37:35.751 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Favorites
+07-13 15:37:35.751 D/PickerNotificationSender( 4374): Sending a notification for album media update Favorites
+07-13 15:37:35.752 D/PickerNotificationSender( 4374): Sending a notification for merged album media update Videos
+07-13 15:37:35.752 D/PickerNotificationSender( 4374): Sending a notification for album media update Videos
+07-13 15:37:35.753 I/PickerSyncController( 4374): Paged sync successful. QueryArgs: Bundle[{android.provider.extra.PAGE_TOKEN=1783937253000|1000192548, android.provider.extra.SYNC_GENERATION=1227348, android.provider.extra.PAGE_SIZE=1000}] Total Rows: 0
+07-13 15:37:35.753 I/PickerSyncTracker( 4374): Marked sync future complete for work id: d2a8f370-d5e8-417b-a6e1-1de360e43d83. Future map: {}
+07-13 15:37:35.753 I/PSyncWorker( 4374): Completed picker proactive sync complete from local provider.
+07-13 15:37:35.756 I/WM-WorkerWrapper( 4374): Worker result SUCCESS for Work [ id=d2a8f370-d5e8-417b-a6e1-1de360e43d83, tags={ com.android.providers.media.photopicker.sync.ProactiveSyncWorker } ]
+07-13 15:37:35.762 D/WM-Processor( 4374): Processor d2a8f370-d5e8-417b-a6e1-1de360e43d83 executed; reschedule = false
+07-13 15:37:35.762 D/WM-GreedyScheduler( 4374): Stopping tracking for WorkGenerationalId(workSpecId=d2a8f370-d5e8-417b-a6e1-1de360e43d83, generation=0)
+07-13 15:37:35.766 D/WM-SystemJobService( 4374): onStartJob for WorkGenerationalId(workSpecId=d2a8f370-d5e8-417b-a6e1-1de360e43d83, generation=0)
+07-13 15:37:35.768 D/WM-SystemJobService( 4374): onStopJob for WorkGenerationalId(workSpecId=d2a8f370-d5e8-417b-a6e1-1de360e43d83, generation=0)
+07-13 15:37:35.769 D/WM-GreedyScheduler( 4374): Cancelling work ID d2a8f370-d5e8-417b-a6e1-1de360e43d83
+07-13 15:37:35.780 D/WM-BrdcstRcvrCnstrntTrc( 4374): BatteryNotLowTracker: unregistering receiver
+07-13 15:37:35.790 D/WM-Processor( 4374): Processor: processing WorkGenerationalId(workSpecId=d2a8f370-d5e8-417b-a6e1-1de360e43d83, generation=0)
+07-13 15:37:35.797 D/WM-Processor( 4374): WorkerWrapper interrupted for d2a8f370-d5e8-417b-a6e1-1de360e43d83
+07-13 15:37:35.797 D/WM-StopWorkRunnable( 4374): StopWorkRunnable for d2a8f370-d5e8-417b-a6e1-1de360e43d83; Processor.stopWork = true
+07-13 15:37:35.802 D/WM-WorkerWrapper( 4374): Status for d2a8f370-d5e8-417b-a6e1-1de360e43d83 is SUCCEEDED ; not doing any work
+07-13 15:37:35.803 D/WM-Processor( 4374): Processor d2a8f370-d5e8-417b-a6e1-1de360e43d83 executed; reschedule = false
+07-13 15:37:35.854 D/WM-GreedyScheduler( 4374): Cancelling work ID d2a8f370-d5e8-417b-a6e1-1de360e43d83

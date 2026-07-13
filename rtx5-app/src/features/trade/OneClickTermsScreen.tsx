@@ -13,27 +13,27 @@ import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useMemo } from 'react';
+import { useTranslation } from '../../i18n/useTranslation';
 
 export function OneClickTermsScreen() {
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
   const setOneClickAccepted = useUserPreferences((s) => s.setOneClickAccepted);
   const T = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => makeStyles(T), [T]);
 
   return (
     <Screen scroll>
-      <Text style={styles.title}>One Click Trading</Text>
+      <Text style={styles.title}>{t('One Click Trading')}</Text>
       <View style={styles.card}>
         <Text style={styles.text}>
-          You are about to activate One Click Trading mode. By clicking Accept the terms below,
-          you acknowledge and agree to bound order submission behavior.
+          {t('You are about to activate One Click Trading mode. By clicking Accept the terms below, you acknowledge and agree to bound order submission behavior.')}
         </Text>
         <Text style={styles.text}>
-          There will be no subsequent confirmation prompt for one-click order actions once activated.
+          {t('There will be no subsequent confirmation prompt for one-click order actions once activated.')}
         </Text>
         <Text style={styles.text}>
-          You agree to accept all risks associated with one-click trading mode, including errors or
-          omissions in submitting orders.
+          {t('You agree to accept all risks associated with one-click trading mode, including errors or omissions in submitting orders.')}
         </Text>
       </View>
       <View style={styles.row}>
@@ -44,10 +44,10 @@ export function OneClickTermsScreen() {
           thumbColor={oneClickAccepted ? '#3b82f6' : '#f4f3f4'}
           {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: oneClickAccepted ? '#3b82f6' : '#f4f3f4' } as any)}
         />
-        <Text style={styles.accept}>I Accept these Terms and Conditions</Text>
+        <Text style={styles.accept}>{t('I Accept these Terms and Conditions')}</Text>
       </View>
       <Pressable style={[styles.button, !oneClickAccepted && styles.buttonDisabled]} onPress={() => setOneClickAccepted(true)}>
-        <Text style={styles.buttonText}>ACCEPT</Text>
+        <Text style={styles.buttonText}>{t('Accept').toUpperCase()}</Text>
       </Pressable>
     </Screen>
   );

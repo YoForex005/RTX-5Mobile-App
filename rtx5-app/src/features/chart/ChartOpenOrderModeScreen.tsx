@@ -12,12 +12,14 @@ import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useTranslation } from '../../i18n/useTranslation';
 import type { ThemeColors } from '../../ui/theme/glass';
 import { useTheme } from '../../ui/theme/useTheme';
 import { safeRouterBack } from '../../utils/navigation';
 
 export function ChartOpenOrderModeScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
@@ -43,7 +45,7 @@ export function ChartOpenOrderModeScreen() {
           <Ionicons name="arrow-back" size={22} color={T.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: T.text }]} numberOfLines={1}>
-          Open order mode
+          {t('Open order mode')}
         </Text>
         <View style={styles.headerBtn} />
       </View>
@@ -53,7 +55,7 @@ export function ChartOpenOrderModeScreen() {
         canCancelContentTouches={Platform.OS === 'ios'} style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
         <View style={styles.card}>
           <Pressable style={styles.row} onPress={() => handleSelect('Regular')}>
-            <Text style={styles.rowLabel}>Regular</Text>
+            <Text style={styles.rowLabel}>{t('Regular')}</Text>
             {openOrderMode === 'Regular' && (
               <Ionicons name="checkmark" size={24} color={T.accent} />
             )}
@@ -61,7 +63,7 @@ export function ChartOpenOrderModeScreen() {
           <View style={styles.separator} />
 
           <Pressable style={styles.row} onPress={() => handleSelect('Risk calculator')}>
-            <Text style={styles.rowLabel}>Risk calculator</Text>
+            <Text style={styles.rowLabel}>{t('Risk calculator')}</Text>
             {openOrderMode === 'Risk calculator' && (
               <Ionicons name="checkmark" size={24} color={T.accent} />
             )}
@@ -69,7 +71,7 @@ export function ChartOpenOrderModeScreen() {
           <View style={styles.separator} />
 
           <Pressable style={styles.row} onPress={() => handleSelect('One-click')}>
-            <Text style={styles.rowLabel}>One-click</Text>
+            <Text style={styles.rowLabel}>{t('One-click')}</Text>
             {openOrderMode === 'One-click' && (
               <Ionicons name="checkmark" size={24} color={T.accent} />
             )}

@@ -52,25 +52,15 @@ import {
   View,
   useWindowDimensions,
   type StyleProp,
-  type ViewProps,
   type ViewStyle,
 } from 'react-native';
-import Animated, {
-  useAnimatedProps,
-  useAnimatedStyle,
-} from 'react-native-reanimated';
 import {
   SafeAreaInsetsContext,
   type EdgeInsets,
 } from 'react-native-safe-area-context';
 import {
-  confirmFastTabVisual,
-  fastTabVisualController,
-  fastTabVisualIndex,
-  getFastTabRouteIndex,
   setFastTabActualRoute,
   useFastTabVisualSnapshot,
-  type FastTabRouteName,
 } from './fastTabVisualController';
 
 type DescriptorMap = BottomTabBarProps['descriptors'];
@@ -89,20 +79,15 @@ type SceneLayerProps = {
   descriptor: DescriptorMap[string];
   navigationFocused: boolean;
   /**
-   * React-committed visibility. The Reanimated shared-value flip and this
-   * plain-style flag drive the same swap through two independent engines;
-   * whichever lands first shows the scene. On-device, each engine was
-   * observed lagging >1s behind a congested fresh-boot JS loop while the
-   * other stayed instant — neither alone is reliable enough.
+   * True for the one screen and menu item that should be visible now.
    */
   visualFocused: boolean;
-  routeName: FastTabRouteName;
   layout: { width: number; height: number };
   tabBarHeight: number;
   tabBarPosition: BottomTabNavigationOptions['tabBarPosition'];
 };
 
-type SceneContentProps = Omit<SceneLayerProps, 'routeName' | 'visualFocused'>;
+type SceneContentProps = Omit<SceneLayerProps, 'visualFocused'>;
 
 const renderDefaultTabBar = (props: BottomTabBarProps) => (
   <BottomTabBar {...props} />
@@ -121,9 +106,7 @@ const renderDefaultHeader = ({
 );
 
 /**
- * An inactive scene ignores descriptor churn caused solely by another tab
- * becoming focused. Route identity still participates in the comparison so
- * nested navigation and parameter updates cannot become stale.
+ * Keeps an inactive screen unchanged unless its own route or options change.
  */
 const SceneContent = memo(function SceneContent({
   descriptor,
@@ -171,41 +154,20 @@ const SceneLayer = memo(function SceneLayer({
   descriptor,
   navigationFocused,
   visualFocused,
-  routeName,
   layout,
   tabBarHeight,
   tabBarPosition,
 }: SceneLayerProps) {
-  const routeIndex = getFastTabRouteIndex(routeName);
-  const animatedStyle = useAnimatedStyle(() => {
-    const visible = fastTabVisualIndex.value === routeIndex;
-    return {
-      opacity: visible ? 1 : 0,
-      zIndex: visible ? 1 : 0,
-    };
-  }, [routeIndex]);
-  const animatedProps = useAnimatedProps<ViewProps>(() => ({
-    pointerEvents: fastTabVisualIndex.value === routeIndex ? 'auto' : 'none',
-  }), [routeIndex]);
-
-  useEffect(() => {
-    const snapshot = fastTabVisualController.getSnapshot();
-    if (navigationFocused && snapshot.routeName === routeName) {
-      confirmFastTabVisual(snapshot.revision);
-    }
-  }, [navigationFocused, routeName]);
-
+  // Only the chosen screen can be seen or touched. The other main screens stay
+  // mounted in the background so the next menu tap does not rebuild them.
   return (
-    <Animated.View
-      animatedProps={animatedProps}
-      accessibilityElementsHidden={!navigationFocused}
-      importantForAccessibility={navigationFocused ? 'auto' : 'no-hide-descendants'}
-      // The plain visualFocused style sits AFTER animatedStyle so the
-      // React-committed swap wins immediately (zIndex 2 beats the stale
-      // layer's animated zIndex 1) even while the shared-value flush is
-      // still queued behind a busy JS loop. Both engines converge on the
-      // same final state.
-      style={[styles.sceneLayer, animatedStyle, visualFocused && styles.sceneLayerVisualFocused]}
+    <View
+      accessibilityElementsHidden={!visualFocused}
+      importantForAccessibility={visualFocused ? 'auto' : 'no-hide-descendants'}
+      style={[
+        styles.sceneLayer,
+        visualFocused ? styles.sceneLayerVisible : styles.sceneLayerHidden,
+      ]}
       pointerEvents={visualFocused ? 'auto' : 'none'}
     >
       <SceneContent
@@ -215,13 +177,12 @@ const SceneLayer = memo(function SceneLayer({
         tabBarHeight={tabBarHeight}
         tabBarPosition={tabBarPosition}
       />
-    </Animated.View>
+    </View>
   );
 }, (previous, next) => {
   if (
     previous.navigationFocused !== next.navigationFocused
     || previous.visualFocused !== next.visualFocused
-    || previous.routeName !== next.routeName
   ) {
     return false;
   }
@@ -276,20 +237,12 @@ const FastTabBarHost = memo(function FastTabBarHost({
   tabBar,
   setTabBarHeight,
 }: FastTabBarHostProps) {
-  const visualSnapshot = useFastTabVisualSnapshot();
-  const visualRouteIndex = visualSnapshot.routeName === null
-    ? -1
-    : state.routes.findIndex((route) => route.name === visualSnapshot.routeName);
-  const visibleState = visualRouteIndex >= 0 && visualRouteIndex !== state.index
-    ? { ...state, index: visualRouteIndex }
-    : state;
-
   return (
     <SafeAreaInsetsContext.Consumer>
       {(inheritedInsets) => (
         <BottomTabBarHeightCallbackContext.Provider value={setTabBarHeight}>
           {tabBar({
-            state: visibleState,
+            state,
             descriptors,
             navigation,
             insets: resolveInsets(safeAreaInsets, inheritedInsets),
@@ -301,12 +254,8 @@ const FastTabBarHost = memo(function FastTabBarHost({
 });
 
 /**
- * A plain-View tab scene host. It deliberately does not use BottomTabView or
- * react-native-screens, so a focus change is an opacity/pointer-state update
- * instead of a native screen detach/attach or freeze/thaw cycle.
- * `detachInactiveScreens` remains accepted for drop-in API compatibility but
- * is intentionally ignored because retaining loaded scenes is this view's
- * performance and state-preservation contract.
+ * Keeps each main screen mounted and switches which one is visible.
+ * Tab changes and Back therefore reuse the screen and its current state.
  */
 export function FastTabView({
   state,
@@ -317,11 +266,17 @@ export function FastTabView({
 }: FastTabViewProps) {
   const focusedRoute = state.routes[state.index];
   const focusedRouteKey = focusedRoute.key;
-  // Pending optimistic route from a tab/sidebar tap. While set, it decides
-  // which scene layer is visible through plain React styles, independently of
-  // the Reanimated shared-value flip (see SceneLayerProps.visualFocused).
+  // During a tap, use one temporary choice for both the visible screen and the
+  // selected menu item. This keeps the menu and page on the same tab.
   const visualSnapshot = useFastTabVisualSnapshot();
-  const pendingVisualRouteName = visualSnapshot.routeName;
+  const visualRouteIndex = visualSnapshot.routeName === null
+    ? -1
+    : state.routes.findIndex((route) => route.name === visualSnapshot.routeName);
+  const visibleState = visualRouteIndex >= 0 && visualRouteIndex !== state.index
+    ? { ...state, index: visualRouteIndex }
+    : state;
+  const visibleRouteName = visibleState.routes[visibleState.index]?.name
+    ?? focusedRoute.name;
   const previousFocusedRouteKeyRef = useRef(focusedRouteKey);
   const loadedRouteKeysRef = useRef(new Set<string>([focusedRouteKey]));
   const { width, height } = useWindowDimensions();
@@ -331,11 +286,12 @@ export function FastTabView({
   );
 
   useLayoutEffect(() => {
+    // Navigation has now caught up with the tap. Make the real route the source
+    // of truth so normal navigation and Android Back show the correct screen.
     setFastTabActualRoute(focusedRoute.name);
   }, [focusedRoute.name]);
 
-  // The current route and explicitly preloaded routes enter the permanent
-  // mounted-scene cache before this render is committed.
+  // Once a main screen has loaded, keep it mounted for later taps and Back.
   loadedRouteKeysRef.current.add(focusedRouteKey);
   for (const routeKey of state.preloadedRouteKeys) {
     loadedRouteKeysRef.current.add(routeKey);
@@ -375,7 +331,7 @@ export function FastTabView({
 
   const tabBarElement = (
     <FastTabBarHost
-      state={state}
+      state={visibleState}
       descriptors={descriptors}
       navigation={navigation}
       safeAreaInsets={safeAreaInsets}
@@ -411,10 +367,7 @@ export function FastTabView({
               key={route.key}
               descriptor={descriptor}
               navigationFocused={navigationFocused}
-              visualFocused={pendingVisualRouteName === null
-                ? navigationFocused
-                : pendingVisualRouteName === route.name}
-              routeName={route.name as FastTabRouteName}
+              visualFocused={route.name === visibleRouteName}
               layout={layout}
               tabBarHeight={tabBarHeight}
               tabBarPosition={tabBarPosition}
@@ -638,8 +591,12 @@ const styles = StyleSheet.create({
   sceneLayer: {
     ...StyleSheet.absoluteFillObject,
   },
-  sceneLayerVisualFocused: {
+  sceneLayerVisible: {
     opacity: 1,
-    zIndex: 2,
+    zIndex: 1,
+  },
+  sceneLayerHidden: {
+    opacity: 0,
+    zIndex: 0,
   },
 });

@@ -12,8 +12,40 @@ test('sidebar host resolver accepts stable names and Expo Router paths', () => {
   assert.equal(resolveSidebarHostDestination('/(tabs)/economic-calendar'), 'economic-calendar');
   assert.equal(resolveSidebarHostDestination('/(tabs)/user-guide/?from=drawer#top'), 'user-guide');
   assert.equal(resolveSidebarHostDestination('/help/index'), 'help');
+  assert.equal(resolveSidebarHostDestination('/settings/accounts'), 'accounts');
+  assert.equal(resolveSidebarHostDestination('/settings/interface'), 'interface');
   assert.equal(resolveSidebarHostDestination('/settings'), null);
   assert.equal(resolveSidebarHostDestination('/trade'), null);
+});
+
+test('Settings-hosted destinations publish focus immediately without a drawer settle wait', () => {
+  const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'requestAnimationFrame');
+  let scheduledFrames = 0;
+  Object.defineProperty(globalThis, 'requestAnimationFrame', {
+    configurable: true,
+    value: () => {
+      scheduledFrames += 1;
+      return scheduledFrames;
+    },
+  });
+
+  try {
+    const controller = createSidebarDestinationController();
+    const focusEvents: string[] = [];
+    controller.subscribe(() => {
+      focusEvents.push(controller.getSnapshot().activeDestination ?? 'closed');
+    });
+
+    assert.equal(controller.show('accounts', 'settings'), true);
+    assert.deepEqual(focusEvents, ['accounts']);
+    assert.equal(scheduledFrames, 0);
+  } finally {
+    if (originalDescriptor) {
+      Object.defineProperty(globalThis, 'requestAnimationFrame', originalDescriptor);
+    } else {
+      delete (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+    }
+  }
 });
 
 test('path normalization removes route groups and suffixes without fuzzy matching', () => {

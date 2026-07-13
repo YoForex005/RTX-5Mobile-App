@@ -11,6 +11,7 @@ import { KeyboardAvoidingView, Modal, Platform, ScrollView, Switch, Text, TextIn
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/shallow';
 import { ActionSheet } from '../../../ui/components/ActionSheet';
+import { useTranslation } from '../../../i18n/useTranslation';
 import { Screen } from '../../../ui/components/Screen';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useUIState } from '../../../state/uiState';
@@ -111,6 +112,7 @@ function StyleSegmentedControl<T extends string>({
   onChange: (value: T) => void;
   styles: ObjectsScreenStyles;
 }) {
+  const { t } = useTranslation();
   return (
     <View style={styles.segmentedControl}>
       {options.map((option) => {
@@ -122,7 +124,7 @@ function StyleSegmentedControl<T extends string>({
             onPress={() => onChange(option.value)}
           >
             <Text style={[styles.segmentText, active && styles.segmentTextActive]} numberOfLines={1}>
-              {option.label}
+              {t(option.label)}
             </Text>
           </Pressable>
         );
@@ -193,6 +195,7 @@ export function ObjectsScreen() {
       themeMode: state.themeMode,
     })),
   );
+  const { t } = useTranslation();
   const queueChartDrawingTool = useUIState((state) => state.queueChartDrawingTool);
   const clearPendingChartDrawingTool = useUIState((state) => state.clearPendingChartDrawingTool);
   const T = useTheme();
@@ -231,7 +234,7 @@ export function ObjectsScreen() {
         return {
           id: drawing.id,
           label: drawing.label,
-          description: `${meta.description}${extraText}`,
+          description: `${t(meta.description)}${extraText}`,
           hidden: drawing.hidden,
           locked: Boolean(drawing.locked),
           kind: drawing.kind,
@@ -244,13 +247,13 @@ export function ObjectsScreen() {
     return legacyChartDrawings.map((label) => ({
       id: label,
       label,
-      description: buildLegacyDrawingDescription(label),
+      description: t(buildLegacyDrawingDescription(label)),
       hidden: false,
       locked: false,
       kind: null,
       supportsVisibility: false,
     }));
-  }, [chartDrawings, legacyChartDrawings]);
+  }, [chartDrawings, legacyChartDrawings, t]);
 
   const selectedDrawing = useMemo(
     () => displayDrawings.find((drawing) => drawing.id === selectedDrawingId) ?? null,
@@ -1031,12 +1034,12 @@ export function ObjectsScreen() {
       ADD_OBJECT_TOOLS.map((tool) => {
         const meta = DRAWING_TOOL_META[tool];
         return {
-          label: meta.label,
+          label: t(meta.label),
           icon: <meta.Icon color={meta.accent} />,
           onPress: () => handleSelectTool(tool),
         };
       }),
-    [handleSelectTool],
+    [handleSelectTool, t],
   );
 
   const selectedDrawingActions = useMemo(() => {
@@ -1048,77 +1051,77 @@ export function ObjectsScreen() {
 
     if (selectedDrawing.supportsVisibility) {
       actions.push({
-        label: 'Rename',
+        label: t('Rename'),
         onPress: () => handleOpenRenameDialog(selectedDrawing),
       });
       actions.push({
-        label: selectedDrawing.locked ? 'Unlock object' : 'Lock object',
+        label: selectedDrawing.locked ? t('Unlock object') : t('Lock object'),
         onPress: () => handleToggleDrawingLock(selectedDrawing),
       });
     }
 
     if (selectedDrawing.kind && drawingSupportsFibLevelEditor(selectedDrawing.kind)) {
       actions.push({
-        label: 'Edit Fibonacci levels',
+        label: t('Edit Fibonacci levels'),
         onPress: () => handleOpenFibLevelEditor(selectedDrawing),
       });
     }
 
     if (selectedDrawing.kind && drawingSupportsElliottWaveEditor(selectedDrawing.kind)) {
       actions.push({
-        label: 'Edit Elliott waves',
+        label: t('Edit Elliott waves'),
         onPress: () => handleOpenElliottWaveEditor(selectedDrawing),
       });
     }
 
     if (selectedDrawing.kind && drawingSupportsXabcdRatioEditor(selectedDrawing.kind)) {
       actions.push({
-        label: 'Edit XABCD ratios',
+        label: t('Edit XABCD ratios'),
         onPress: () => handleOpenXabcdRatioEditor(selectedDrawing),
       });
     }
 
     if (selectedDrawing.kind && drawingSupportsPositionPlanEditor(selectedDrawing.kind)) {
       actions.push({
-        label: 'Edit risk / reward',
+        label: t('Edit risk / reward'),
         onPress: () => handleOpenPositionPlanEditor(selectedDrawing),
       });
     }
 
     if (selectedDrawing.kind && drawingSupportsStyleEditor(selectedDrawing.kind)) {
       actions.push({
-        label: 'Edit style',
+        label: t('Edit style'),
         onPress: () => handleOpenStyleEditor(selectedDrawing),
       });
     }
 
     if (selectedDrawingPriceAlertDraft) {
       actions.push({
-        label: 'Create price alert',
+        label: t('Create price alert'),
         onPress: handleOpenPriceAlertFromDrawing,
       });
     }
 
     if (selectedDrawing.supportsVisibility) {
       actions.push({
-        label: 'Duplicate / clone',
+        label: t('Duplicate / clone'),
         onPress: () => handleCloneDrawing(selectedDrawing),
       });
       actions.push({
-        label: selectedDrawing.hidden ? 'Show on chart' : 'Hide on chart',
+        label: selectedDrawing.hidden ? t('Show on chart') : t('Hide on chart'),
         onPress: () => handleToggleDrawingVisibility(selectedDrawing),
       });
     }
 
     if (selectedDrawing.kind && ADD_OBJECT_TOOLS.includes(selectedDrawing.kind)) {
       actions.push({
-        label: `Add another ${DRAWING_TOOL_META[selectedDrawing.kind].label.toLowerCase()}`,
+        label: `${t('Add another')} ${t(DRAWING_TOOL_META[selectedDrawing.kind].label)}`,
         onPress: () => handleSelectTool(selectedDrawing.kind as ChartDrawingKind),
       });
     }
 
     actions.push({
-      label: 'Delete',
+      label: t('Delete'),
       danger: true,
       onPress: () => handleRemoveDrawing(selectedDrawing),
     });
@@ -1139,6 +1142,7 @@ export function ObjectsScreen() {
     handleToggleDrawingVisibility,
     selectedDrawing,
     selectedDrawingPriceAlertDraft,
+    t,
   ]);
 
   const styleEditorOpen = Boolean(styleEditorDrawing && styleEditorValues);
@@ -1155,12 +1159,12 @@ export function ObjectsScreen() {
         ? handleCloseXabcdRatioEditor
         : (positionPlanEditorOpen ? handleClosePositionPlanEditor : handleCloseStyleEditor)));
   const editorHeaderTitle = fibLevelEditorOpen
-    ? 'Fib levels'
+    ? t('Fib levels')
     : (elliottWaveEditorOpen
-      ? 'Elliott waves'
+      ? t('Elliott waves')
       : (xabcdRatioEditorOpen
-        ? 'XABCD ratios'
-        : (positionPlanEditorOpen ? 'Risk / reward' : 'Style')));
+        ? t('XABCD ratios')
+        : (positionPlanEditorOpen ? t('Risk / reward') : t('Style'))));
   const renameLabelPreview = renameDrawing
     ? sanitizeDrawingObjectLabel(renameDraft, renameDrawing.label)
     : '';
@@ -1180,7 +1184,7 @@ export function ObjectsScreen() {
             <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
           </Pressable>
           <Text style={styles.headerTitle} numberOfLines={1}>
-            {editorOpen ? editorHeaderTitle : 'Objects'}
+            {editorOpen ? editorHeaderTitle : t('Objects')}
           </Text>
           {editorOpen ? (
             <Pressable
@@ -1207,7 +1211,7 @@ export function ObjectsScreen() {
           )}
         </View>
         <Text style={styles.headerSubtitle} numberOfLines={1}>
-          {fibEditorDrawing?.label ?? elliottEditorDrawing?.label ?? xabcdEditorDrawing?.label ?? positionEditorDrawing?.label ?? styleEditorDrawing?.label ?? `${chartSymbol.replace(/\//g, '')} chart objects`}
+          {fibEditorDrawing?.label ?? elliottEditorDrawing?.label ?? xabcdEditorDrawing?.label ?? positionEditorDrawing?.label ?? styleEditorDrawing?.label ?? `${chartSymbol.replace(/\//g, '')} ${t('chart objects')}`}
         </Text>
       </View>
 
@@ -1219,7 +1223,7 @@ export function ObjectsScreen() {
       >
         {fibEditorDrawing ? (
           <>
-            <Text style={styles.sectionLabel}>Levels</Text>
+            <Text style={styles.sectionLabel}>{t('Levels')}</Text>
             <View style={styles.panel}>
               {fibEditorLevels.map((level, index) => {
                 const color = level.lineColor ?? level.color ?? '#64748B';
@@ -1258,21 +1262,21 @@ export function ObjectsScreen() {
             <View style={[styles.panel, styles.fibActionPanel]}>
               <Pressable style={styles.fibActionButton} onPress={handleAddFibLevel}>
                 <Ionicons name="add-circle-outline" size={18} color="#2563EB" />
-                <Text style={styles.fibActionText}>Add level</Text>
+                <Text style={styles.fibActionText}>{t('Add level')}</Text>
               </Pressable>
               <View style={styles.fibActionDivider} />
               <Pressable style={styles.fibActionButton} onPress={handleResetFibLevels}>
                 <Ionicons name="refresh-outline" size={18} color="#2563EB" />
-                <Text style={styles.fibActionText}>Reset</Text>
+                <Text style={styles.fibActionText}>{t('Reset')}</Text>
               </Pressable>
             </View>
 
             {selectedFibLevel ? (
               <>
-                <Text style={styles.sectionLabel}>Selected level</Text>
+                <Text style={styles.sectionLabel}>{t('Selected level')}</Text>
                 <View style={styles.panel}>
                   <View style={styles.fibInputRow}>
-                    <Text style={styles.styleControlLabel}>Value</Text>
+                    <Text style={styles.styleControlLabel}>{t('Value')}</Text>
                     <TextInput
                       value={fibLevelValueDraft}
                       onChangeText={setFibLevelValueDraft}
@@ -1285,7 +1289,7 @@ export function ObjectsScreen() {
                   </View>
                   <View style={styles.panelDivider} />
                   <View style={styles.fibInputRow}>
-                    <Text style={styles.styleControlLabel}>Label</Text>
+                    <Text style={styles.styleControlLabel}>{t('Label')}</Text>
                     <TextInput
                       value={fibLevelLabelDraft}
                       onChangeText={setFibLevelLabelDraft}
@@ -1298,7 +1302,7 @@ export function ObjectsScreen() {
                   </View>
                 </View>
 
-                <Text style={styles.sectionLabel}>Color</Text>
+                <Text style={styles.sectionLabel}>{t('Color')}</Text>
                 <View style={[styles.panel, styles.colorSwatchPanel]}>
                   {DRAWING_STYLE_COLOR_SWATCHES.map((color) => {
                     const active = color.toLowerCase() === (selectedFibLevel.lineColor ?? selectedFibLevel.color ?? '').toLowerCase();
@@ -1322,10 +1326,10 @@ export function ObjectsScreen() {
                   })}
                 </View>
 
-                <Text style={styles.sectionLabel}>Stroke</Text>
+                <Text style={styles.sectionLabel}>{t('Stroke')}</Text>
                 <View style={[styles.panel, styles.styleControlsPanel]}>
                   <StyleStepper
-                    label="Width"
+                    label={t('Width')}
                     value={`${Number((selectedFibLevel.lineWidth ?? 1).toFixed(2))}px`}
                     onDecrease={() =>
                       handleUpdateFibLevel(selectedFibLevel.id, { lineWidth: (selectedFibLevel.lineWidth ?? 1) - 1 })
@@ -1337,7 +1341,7 @@ export function ObjectsScreen() {
                   />
                   <View style={styles.panelDivider} />
                   <View style={styles.styleControlBlock}>
-                    <Text style={styles.styleControlLabel}>Pattern</Text>
+                    <Text style={styles.styleControlLabel}>{t('Pattern')}</Text>
                     <StyleSegmentedControl<DrawingStyleLineStyle>
                       options={DRAWING_STYLE_LINE_STYLE_OPTIONS}
                       value={selectedFibLevel.lineStyle ?? 'solid'}
@@ -1347,11 +1351,11 @@ export function ObjectsScreen() {
                   </View>
                 </View>
 
-                <Text style={styles.sectionLabel}>Labels</Text>
+                <Text style={styles.sectionLabel}>{t('Labels')}</Text>
                 <View style={styles.panel}>
                   <ToggleRow
-                    label="Price label"
-                    description="Show price beside this level"
+                    label={t('Price label')}
+                    description={t('Show price beside this level')}
                     value={selectedFibLevel.showPrice !== false}
                     onValueChange={(showPrice) => handleUpdateFibLevel(selectedFibLevel.id, { showPrice })}
                     styles={styles}
@@ -1359,8 +1363,8 @@ export function ObjectsScreen() {
                   />
                   <View style={styles.panelDivider} />
                   <ToggleRow
-                    label="Percent label"
-                    description="Show percent beside this level"
+                    label={t('Percent label')}
+                    description={t('Show percent beside this level')}
                     value={selectedFibLevel.showPercent !== false}
                     onValueChange={(showPercent) => handleUpdateFibLevel(selectedFibLevel.id, { showPercent })}
                     styles={styles}
@@ -1388,7 +1392,7 @@ export function ObjectsScreen() {
                         fibEditorLevels.length <= 1 && styles.fibDeleteTextDisabled,
                       ]}
                     >
-                      Delete selected level
+                      {t('Delete selected level')}
                     </Text>
                   </Pressable>
                 </View>
@@ -1397,7 +1401,7 @@ export function ObjectsScreen() {
           </>
         ) : elliottEditorDrawing ? (
           <>
-            <Text style={styles.sectionLabel}>Wave pattern</Text>
+            <Text style={styles.sectionLabel}>{t('Wave pattern')}</Text>
             <View style={styles.panel}>
               {ELLIOTT_WAVE_PRESETS.map((preset, index) => {
                 const active = activeElliottPresetId === preset.id;
@@ -1409,8 +1413,8 @@ export function ObjectsScreen() {
                     >
                       <View style={styles.rowLeft}>
                         <View style={styles.rowCopy}>
-                          <Text style={styles.rowTitle} numberOfLines={1}>{preset.label}</Text>
-                          <Text style={styles.rowSubtitle} numberOfLines={1}>{preset.description}</Text>
+                          <Text style={styles.rowTitle} numberOfLines={1}>{t(preset.label)}</Text>
+                          <Text style={styles.rowSubtitle} numberOfLines={1}>{t(preset.description)}</Text>
                         </View>
                       </View>
                       {active ? <Ionicons name="checkmark-circle" size={18} color="#2563EB" /> : null}
@@ -1421,7 +1425,7 @@ export function ObjectsScreen() {
               })}
             </View>
 
-            <Text style={styles.sectionLabel}>Waves</Text>
+            <Text style={styles.sectionLabel}>{t('Waves')}</Text>
             <View style={styles.panel}>
               {elliottEditorWaves.map((wave, index) => {
                 const selected = selectedElliottWave?.id === wave.id;
@@ -1433,8 +1437,10 @@ export function ObjectsScreen() {
                     >
                       <View style={styles.rowLeft}>
                         <View style={styles.rowCopy}>
-                          <Text style={styles.rowTitle} numberOfLines={1}>{wave.label || 'No label'}</Text>
-                          <Text style={styles.rowSubtitle} numberOfLines={1}>{describeElliottWavePivot(index)}</Text>
+                          <Text style={styles.rowTitle} numberOfLines={1}>{wave.label || t('No label')}</Text>
+                          <Text style={styles.rowSubtitle} numberOfLines={1}>
+                            {index === 0 ? t('Origin pivot') : t('Wave {index} pivot').replace('{index}', String(index))}
+                          </Text>
                         </View>
                       </View>
                       <View style={styles.fibLevelRight}>
@@ -1456,16 +1462,16 @@ export function ObjectsScreen() {
             <View style={[styles.panel, styles.fibActionPanel]}>
               <Pressable style={styles.fibActionButton} onPress={handleResetElliottWaves}>
                 <Ionicons name="refresh-outline" size={18} color="#2563EB" />
-                <Text style={styles.fibActionText}>Reset</Text>
+                <Text style={styles.fibActionText}>{t('Reset')}</Text>
               </Pressable>
             </View>
 
             {selectedElliottWave ? (
               <>
-                <Text style={styles.sectionLabel}>Selected wave</Text>
+                <Text style={styles.sectionLabel}>{t('Selected wave')}</Text>
                 <View style={styles.panel}>
                   <View style={styles.fibInputRow}>
-                    <Text style={styles.styleControlLabel}>Label</Text>
+                    <Text style={styles.styleControlLabel}>{t('Label')}</Text>
                     <TextInput
                       value={elliottWaveLabelDraft}
                       onChangeText={setElliottWaveLabelDraft}
@@ -1473,7 +1479,7 @@ export function ObjectsScreen() {
                       onSubmitEditing={handleCommitElliottWaveLabel}
                       selectTextOnFocus
                       maxLength={12}
-                      placeholder="No label"
+                      placeholder={t('No label')}
                       style={styles.fibTextInput}
                     />
                   </View>
@@ -1483,7 +1489,7 @@ export function ObjectsScreen() {
           </>
         ) : xabcdEditorDrawing ? (
           <>
-            <Text style={styles.sectionLabel}>Harmonic pattern</Text>
+            <Text style={styles.sectionLabel}>{t('Harmonic pattern')}</Text>
             <View style={styles.panel}>
               {XABCD_PRESETS.map((preset, index) => {
                 const active = activeXabcdPresetId === preset.id;
@@ -1495,7 +1501,7 @@ export function ObjectsScreen() {
                     >
                       <View style={styles.rowLeft}>
                         <View style={styles.rowCopy}>
-                          <Text style={styles.rowTitle} numberOfLines={1}>{preset.label}</Text>
+                          <Text style={styles.rowTitle} numberOfLines={1}>{t(preset.label)}</Text>
                           <Text style={styles.rowSubtitle} numberOfLines={1}>{preset.description}</Text>
                         </View>
                       </View>
@@ -1507,14 +1513,14 @@ export function ObjectsScreen() {
               })}
             </View>
 
-            <Text style={styles.sectionLabel}>Leg ratios</Text>
+            <Text style={styles.sectionLabel}>{t('Leg ratios')}</Text>
             <View style={styles.panel}>
               {xabcdEditorRatios.map((ratio, index) => {
                 const leg = XABCD_RATIO_LEGS[index];
                 const selected = selectedXabcdRatio?.id === ratio.id;
                 const targetText = ratio.target !== null
-                  ? `Target ${formatXabcdTargetValue(ratio.target)}`
-                  : 'No target';
+                  ? `${t('Target')} ${formatXabcdTargetValue(ratio.target)}`
+                  : t('No target');
                 return (
                   <React.Fragment key={ratio.id}>
                     <Pressable
@@ -1525,7 +1531,7 @@ export function ObjectsScreen() {
                         <View style={styles.rowCopy}>
                           <Text style={styles.rowTitle} numberOfLines={1}>{leg?.title ?? ratio.id}</Text>
                           <Text style={styles.rowSubtitle} numberOfLines={1}>
-                            {leg?.description} | {targetText}
+                            {leg ? t(leg.description) : ''} | {targetText}
                           </Text>
                         </View>
                       </View>
@@ -1548,16 +1554,16 @@ export function ObjectsScreen() {
             <View style={[styles.panel, styles.fibActionPanel]}>
               <Pressable style={styles.fibActionButton} onPress={handleResetXabcdRatios}>
                 <Ionicons name="refresh-outline" size={18} color="#2563EB" />
-                <Text style={styles.fibActionText}>Reset</Text>
+                <Text style={styles.fibActionText}>{t('Reset')}</Text>
               </Pressable>
             </View>
 
             {selectedXabcdRatio ? (
               <>
-                <Text style={styles.sectionLabel}>Selected leg</Text>
+                <Text style={styles.sectionLabel}>{t('Selected leg')}</Text>
                 <View style={styles.panel}>
                   <View style={styles.fibInputRow}>
-                    <Text style={styles.styleControlLabel}>Target</Text>
+                    <Text style={styles.styleControlLabel}>{t('Target')}</Text>
                     <TextInput
                       value={xabcdTargetDraft}
                       onChangeText={setXabcdTargetDraft}
@@ -1565,59 +1571,59 @@ export function ObjectsScreen() {
                       onSubmitEditing={handleCommitXabcdTarget}
                       keyboardType="decimal-pad"
                       selectTextOnFocus
-                      placeholder="No target"
+                      placeholder={t('No target')}
                       style={styles.fibTextInput}
                     />
                   </View>
                 </View>
                 <Text style={styles.sectionLabel}>
-                  Chart shows measured / target; the label turns green when they match within 0.05
+                  {t('Chart shows measured / target; the label turns green when they match within 0.05')}
                 </Text>
               </>
             ) : null}
           </>
         ) : positionEditorDrawing && positionPlanValues ? (
           <>
-            <Text style={styles.sectionLabel}>Plan summary</Text>
+            <Text style={styles.sectionLabel}>{t('Plan summary')}</Text>
             <View style={styles.panel}>
               <View style={styles.fibInputRow}>
-                <Text style={styles.styleControlLabel}>Direction</Text>
+                <Text style={styles.styleControlLabel}>{t('Direction')}</Text>
                 <Text style={styles.rowTitle}>
-                  {positionPlanValues.direction === 'short' ? 'Short' : 'Long'}
+                  {positionPlanValues.direction === 'short' ? t('Short') : t('Long')}
                 </Text>
               </View>
               <View style={styles.panelDivider} />
               <View style={styles.fibInputRow}>
-                <Text style={styles.styleControlLabel}>Risk : reward</Text>
+                <Text style={styles.styleControlLabel}>{t('Risk : reward')}</Text>
                 <Text style={styles.rowTitle}>{formatPositionPlanRiskReward(positionPlanValues.riskReward)}</Text>
               </View>
               <View style={styles.panelDivider} />
               <View style={styles.fibInputRow}>
-                <Text style={styles.styleControlLabel}>Reward / unit</Text>
+                <Text style={styles.styleControlLabel}>{t('Reward / unit')}</Text>
                 <Text style={styles.rowTitle}>{formatPositionPlanNumber(positionPlanValues.rewardPerUnit) || '0'}</Text>
               </View>
               <View style={styles.panelDivider} />
               <View style={styles.fibInputRow}>
-                <Text style={styles.styleControlLabel}>Risk / unit</Text>
+                <Text style={styles.styleControlLabel}>{t('Risk / unit')}</Text>
                 <Text style={styles.rowTitle}>{formatPositionPlanNumber(positionPlanValues.riskPerUnit) || '0'}</Text>
               </View>
               {positionPlanValues.accountSize !== null ? (
                 <>
                   <View style={styles.panelDivider} />
                   <View style={styles.fibInputRow}>
-                    <Text style={styles.styleControlLabel}>Risk amount</Text>
+                    <Text style={styles.styleControlLabel}>{t('Risk amount')}</Text>
                     <Text style={styles.rowTitle}>{formatPositionPlanNumber(positionPlanValues.riskAmount, 2)}</Text>
                   </View>
                   <View style={styles.panelDivider} />
                   <View style={styles.fibInputRow}>
-                    <Text style={styles.styleControlLabel}>Reward amount</Text>
+                    <Text style={styles.styleControlLabel}>{t('Reward amount')}</Text>
                     <Text style={styles.rowTitle}>
                       {formatPositionPlanNumber(positionPlanValues.rewardAmount, 2) || '—'}
                     </Text>
                   </View>
                   <View style={styles.panelDivider} />
                   <View style={styles.fibInputRow}>
-                    <Text style={styles.styleControlLabel}>Position size</Text>
+                    <Text style={styles.styleControlLabel}>{t('Position size')}</Text>
                     <Text style={styles.rowTitle}>
                       {formatPositionPlanNumber(positionPlanValues.quantity, 2) || '—'}
                     </Text>
@@ -1626,10 +1632,10 @@ export function ObjectsScreen() {
               ) : null}
             </View>
 
-            <Text style={styles.sectionLabel}>Price levels</Text>
+            <Text style={styles.sectionLabel}>{t('Price levels')}</Text>
             <View style={styles.panel}>
               <View style={styles.fibInputRow}>
-                <Text style={styles.styleControlLabel}>Entry</Text>
+                <Text style={styles.styleControlLabel}>{t('Entry')}</Text>
                 <TextInput
                   value={positionEntryDraft}
                   onChangeText={setPositionEntryDraft}
@@ -1642,7 +1648,7 @@ export function ObjectsScreen() {
               </View>
               <View style={styles.panelDivider} />
               <View style={styles.fibInputRow}>
-                <Text style={styles.styleControlLabel}>Take profit</Text>
+                <Text style={styles.styleControlLabel}>{t('Take Profit')}</Text>
                 <TextInput
                   value={positionTargetDraft}
                   onChangeText={setPositionTargetDraft}
@@ -1655,7 +1661,7 @@ export function ObjectsScreen() {
               </View>
               <View style={styles.panelDivider} />
               <View style={styles.fibInputRow}>
-                <Text style={styles.styleControlLabel}>Stop loss</Text>
+                <Text style={styles.styleControlLabel}>{t('Stop Loss')}</Text>
                 <TextInput
                   value={positionStopDraft}
                   onChangeText={setPositionStopDraft}
@@ -1669,10 +1675,10 @@ export function ObjectsScreen() {
               </View>
             </View>
 
-            <Text style={styles.sectionLabel}>Position sizing</Text>
+            <Text style={styles.sectionLabel}>{t('Position sizing')}</Text>
             <View style={styles.panel}>
               <View style={styles.fibInputRow}>
-                <Text style={styles.styleControlLabel}>Account size</Text>
+                <Text style={styles.styleControlLabel}>{t('Account size')}</Text>
                 <TextInput
                   value={positionAccountDraft}
                   onChangeText={setPositionAccountDraft}
@@ -1680,13 +1686,13 @@ export function ObjectsScreen() {
                   onSubmitEditing={handleCommitPositionAccount}
                   keyboardType="decimal-pad"
                   selectTextOnFocus
-                  placeholder="Optional"
+                  placeholder={t('Optional')}
                   style={styles.fibTextInput}
                 />
               </View>
               <View style={styles.panelDivider} />
               <View style={styles.fibInputRow}>
-                <Text style={styles.styleControlLabel}>Risk %</Text>
+                <Text style={styles.styleControlLabel}>{t('Risk %')}</Text>
                 <TextInput
                   value={positionRiskPercentDraft}
                   onChangeText={setPositionRiskPercentDraft}
@@ -1703,23 +1709,23 @@ export function ObjectsScreen() {
             <View style={[styles.panel, styles.fibActionPanel]}>
               <Pressable style={styles.fibActionButton} onPress={handleResetPositionPlan}>
                 <Ionicons name="refresh-outline" size={18} color="#2563EB" />
-                <Text style={styles.fibActionText}>Reset plan</Text>
+                <Text style={styles.fibActionText}>{t('Reset plan')}</Text>
               </Pressable>
             </View>
 
             <Text style={styles.sectionLabel}>
-              Entry and take profit move the drawing on the chart; stop loss defaults to a 1:1 mirror until set
+              {t('Entry and take profit move the drawing on the chart; stop loss defaults to a 1:1 mirror until set')}
             </Text>
           </>
         ) : styleEditorDrawing && styleEditorValues ? (
           <>
-            <Text style={styles.sectionLabel}>Preview</Text>
+            <Text style={styles.sectionLabel}>{t('Preview')}</Text>
             <View style={[styles.panel, styles.stylePreviewPanel]}>
               <View style={styles.stylePreviewHeader}>
                 <View style={styles.stylePreviewCopy}>
                   <Text style={styles.rowTitle} numberOfLines={1}>{styleEditorDrawing.label}</Text>
                   <Text style={styles.rowSubtitle} numberOfLines={1}>
-                    {DRAWING_TOOL_META[styleEditorDrawing.kind].label}
+                    {t(DRAWING_TOOL_META[styleEditorDrawing.kind].label)}
                   </Text>
                 </View>
                 <View style={[styles.styleColorPill, { backgroundColor: styleEditorValues.color }]} />
@@ -1739,7 +1745,7 @@ export function ObjectsScreen() {
               </View>
             </View>
 
-            <Text style={styles.sectionLabel}>Color</Text>
+            <Text style={styles.sectionLabel}>{t('Color')}</Text>
             <View style={[styles.panel, styles.colorSwatchPanel]}>
               {DRAWING_STYLE_COLOR_SWATCHES.map((color) => {
                 const active = color.toLowerCase() === styleEditorValues.color.toLowerCase();
@@ -1763,10 +1769,10 @@ export function ObjectsScreen() {
               })}
             </View>
 
-            <Text style={styles.sectionLabel}>Stroke</Text>
+            <Text style={styles.sectionLabel}>{t('Stroke')}</Text>
             <View style={[styles.panel, styles.styleControlsPanel]}>
               <StyleStepper
-                label="Width"
+                label={t('Width')}
                 value={`${styleEditorValues.width}px`}
                 onDecrease={() => handleUpdateDrawingStyle({ width: styleEditorValues.width - 1 })}
                 onIncrease={() => handleUpdateDrawingStyle({ width: styleEditorValues.width + 1 })}
@@ -1774,7 +1780,7 @@ export function ObjectsScreen() {
               />
               <View style={styles.panelDivider} />
               <View style={styles.styleControlBlock}>
-                <Text style={styles.styleControlLabel}>Pattern</Text>
+                <Text style={styles.styleControlLabel}>{t('Pattern')}</Text>
                 <StyleSegmentedControl<DrawingStyleLineStyle>
                   options={DRAWING_STYLE_LINE_STYLE_OPTIONS}
                   value={styleEditorValues.lineStyle}
@@ -1784,10 +1790,10 @@ export function ObjectsScreen() {
               </View>
             </View>
 
-            <Text style={styles.sectionLabel}>Opacity</Text>
+            <Text style={styles.sectionLabel}>{t('Opacity')}</Text>
             <View style={styles.panel}>
               <StyleStepper
-                label="Opacity"
+                label={t('Opacity')}
                 value={formatOpacity(styleEditorValues.opacity)}
                 onDecrease={() =>
                   handleUpdateDrawingStyle({ opacity: styleEditorValues.opacity - STYLE_OPACITY_STEP })
@@ -1801,9 +1807,9 @@ export function ObjectsScreen() {
 
             {styleEditorValues.supportsExtendMode ? (
               <>
-                <Text style={styles.sectionLabel}>Extend</Text>
+                <Text style={styles.sectionLabel}>{t('Extend')}</Text>
                 <View style={[styles.panel, styles.styleControlBlock]}>
-                  <Text style={styles.styleControlLabel}>Mode</Text>
+                  <Text style={styles.styleControlLabel}>{t('Mode')}</Text>
                   <StyleSegmentedControl<DrawingStyleExtendMode>
                     options={DRAWING_STYLE_EXTEND_MODE_OPTIONS}
                     value={styleEditorValues.extendMode}
@@ -1816,11 +1822,11 @@ export function ObjectsScreen() {
           </>
         ) : (
           <>
-        <Text style={styles.sectionLabel}>Actions</Text>
+        <Text style={styles.sectionLabel}>{t('Actions')}</Text>
         <View style={styles.panel}>
           <ActionRow
-            label="Add object"
-            description="Trend line, fib zone, highlight and more"
+            label={t('Add object')}
+            description={t('Trend line, fib zone, highlight and more')}
             accent="#2563EB"
             Icon={TvTrendLine}
             onPress={handleOpenAddObjectSheet}
@@ -1829,8 +1835,8 @@ export function ObjectsScreen() {
             isDark={isDark}
           />
           <ActionRow
-            label="Add text"
-            description="Place a text label on the chart"
+            label={t('Add text')}
+            description={t('Place a text label on the chart')}
             accent="#1D4ED8"
             Icon={TvText}
             onPress={() => handleSelectTool('text')}
@@ -1839,8 +1845,8 @@ export function ObjectsScreen() {
             isDark={isDark}
           />
           <ActionRow
-            label="Add text level"
-            description="Mark a horizontal price level"
+            label={t('Add text level')}
+            description={t('Mark a horizontal price level')}
             accent="#2962FF"
             Icon={TvText}
             onPress={() => handleSelectTool('textLevel')}
@@ -1849,11 +1855,11 @@ export function ObjectsScreen() {
           />
         </View>
 
-        <Text style={styles.sectionLabel}>Controls</Text>
+        <Text style={styles.sectionLabel}>{t('Controls')}</Text>
         <View style={styles.panel}>
           <ToggleRow
-            label="Locked all"
-            description="Prevent object edits on the chart"
+            label={t('Locked all')}
+            description={t('Prevent object edits on the chart')}
             value={chartLockAll}
             onValueChange={setChartLockAll}
             styles={styles}
@@ -1861,8 +1867,8 @@ export function ObjectsScreen() {
           />
           <View style={styles.panelDivider} />
           <ToggleRow
-            label="Hidden all"
-            description="Hide every drawing on the chart"
+            label={t('Hidden all')}
+            description={t('Hide every drawing on the chart')}
             value={chartHideAll}
             onValueChange={setChartHideAll}
             styles={styles}
@@ -1871,7 +1877,7 @@ export function ObjectsScreen() {
         </View>
 
         <View style={styles.objectsHeader}>
-          <Text style={styles.sectionLabel}>Main chart</Text>
+          <Text style={styles.sectionLabel}>{t('Main chart')}</Text>
           <View style={styles.countBadge}>
             <Text style={styles.countText}>{displayDrawings.length}</Text>
           </View>
@@ -1880,8 +1886,8 @@ export function ObjectsScreen() {
         {displayDrawings.length === 0 ? (
           <View style={[styles.panel, styles.emptyPanel]}>
             <Ionicons name="layers-outline" size={36} color={isDark ? '#334155' : '#94A3B8'} />
-            <Text style={styles.emptyTitle}>No objects on this chart</Text>
-            <Text style={styles.emptySubtitle}>Use Add object or Add text to place a new chart object.</Text>
+            <Text style={styles.emptyTitle}>{t('No objects on this chart')}</Text>
+            <Text style={styles.emptySubtitle}>{t('Use Add object or Add text to place a new chart object.')}</Text>
           </View>
         ) : (
           <View style={styles.panel}>
@@ -1907,12 +1913,12 @@ export function ObjectsScreen() {
                     <View style={styles.objectRowRight}>
                       {drawing.hidden ? (
                         <View style={styles.hiddenPill}>
-                          <Text style={styles.hiddenPillText}>Hidden</Text>
+                          <Text style={styles.hiddenPillText}>{t('Hidden')}</Text>
                         </View>
                       ) : null}
                       {drawing.locked ? (
                         <View style={styles.lockedPill}>
-                          <Text style={styles.lockedPillText}>Locked</Text>
+                          <Text style={styles.lockedPillText}>{t('Locked')}</Text>
                         </View>
                       ) : null}
                       <Ionicons
@@ -1932,7 +1938,7 @@ export function ObjectsScreen() {
 
         {displayDrawings.length > 0 ? (
           <Text style={styles.footerHint}>
-            Tap an object row for rename, lock, clone, hide, or delete.
+            {t('Tap an object row for rename, lock, clone, hide, or delete.')}
           </Text>
         ) : null}
           </>
@@ -1942,7 +1948,7 @@ export function ObjectsScreen() {
       <ActionSheet
         visible={showAddObjectSheet}
         onClose={() => setShowAddObjectSheet(false)}
-        title="Add object"
+        title={t('Add object')}
         detent="auto"
         instantOpen
         presentation="mt5Plain"
@@ -1953,7 +1959,7 @@ export function ObjectsScreen() {
       <ActionSheet
         visible={Boolean(selectedDrawing)}
         onClose={() => setSelectedDrawingId(null)}
-        title={selectedDrawing?.label ?? 'Object'}
+        title={selectedDrawing?.label ?? t('Object')}
         detent="adaptive"
         instantOpen
         presentation="mt5Plain"
@@ -1974,9 +1980,9 @@ export function ObjectsScreen() {
         >
           <Pressable style={styles.renameModalBackdrop} onPress={handleCloseRenameDialog} />
           <View style={styles.renameModalSheet}>
-            <Text style={styles.renameModalTitle}>Rename object</Text>
+            <Text style={styles.renameModalTitle}>{t('Rename object')}</Text>
             <Text style={styles.renameModalSubtitle} numberOfLines={1}>
-              {renameDrawing?.label ?? 'Chart object'}
+              {renameDrawing?.label ?? t('Chart object')}
             </Text>
             <TextInput
               value={renameDraft}
@@ -1986,13 +1992,13 @@ export function ObjectsScreen() {
               maxLength={64}
               returnKeyType="done"
               onSubmitEditing={handleSubmitRename}
-              placeholder="Object name"
+              placeholder={t('Object name')}
               placeholderTextColor={isDark ? '#64748B' : '#94A3B8'}
               style={styles.renameInput}
             />
             <View style={styles.renameModalActions}>
               <Pressable style={styles.renameModalButton} onPress={handleCloseRenameDialog}>
-                <Text style={styles.renameModalCancelText}>Cancel</Text>
+                <Text style={styles.renameModalCancelText}>{t('Cancel')}</Text>
               </Pressable>
               <Pressable
                 style={[styles.renameModalButton, styles.renameModalSaveButton, renameSaveDisabled && styles.renameModalSaveDisabled]}
@@ -2000,7 +2006,7 @@ export function ObjectsScreen() {
                 disabled={renameSaveDisabled}
               >
                 <Text style={[styles.renameModalSaveText, renameSaveDisabled && styles.renameModalSaveTextDisabled]}>
-                  Save
+                  {t('Save')}
                 </Text>
               </Pressable>
             </View>

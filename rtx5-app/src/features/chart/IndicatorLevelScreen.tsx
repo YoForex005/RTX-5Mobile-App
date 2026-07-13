@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useTranslation } from '../../i18n/useTranslation';
 import { useTheme } from '../../ui/theme/useTheme';
 import { safeRouterBack } from '../../utils/navigation';
 import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
@@ -31,6 +32,7 @@ const WIDTHS = [1, 2, 3, 4, 5];
 
 export function IndicatorLevelScreen() {
   const { levelId } = useLocalSearchParams<{ levelId: string }>();
+  const { t } = useTranslation();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
@@ -52,7 +54,7 @@ export function IndicatorLevelScreen() {
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">
-            <Text style={styles.headerTitle}>Level</Text>
+            <Text style={styles.headerTitle}>{t('Level')}</Text>
           </View>
           <View style={styles.headerBackBtn} />
         </View>
@@ -82,7 +84,7 @@ export function IndicatorLevelScreen() {
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">
-            <Text style={styles.headerTitle}>Level</Text>
+            <Text style={styles.headerTitle}>{t('Level')}</Text>
           </View>
           <Pressable
             onPress={() => {
@@ -99,10 +101,10 @@ export function IndicatorLevelScreen() {
         <ScrollView
           keyboardShouldPersistTaps="always"
           canCancelContentTouches={Platform.OS === 'ios'} contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-          <SectionHeader title="Level" isDark={isDark} />
+          <SectionHeader title={t('Level')} isDark={isDark} />
           <Card isDark={isDark}>
             <Row
-              label="Value"
+              label={t('Value')}
               rightText={String(level.value)}
               onPress={() => setEdit({ field: 'value', value: String(level.value) })}
               T={T}
@@ -110,7 +112,7 @@ export function IndicatorLevelScreen() {
             />
             <Separator isDark={isDark} />
             <Row
-              label="Description"
+              label={t('Description')}
               rightText={level.description || '—'}
               onPress={() => setEdit({ field: 'description', value: level.description })}
               T={T}
@@ -118,7 +120,7 @@ export function IndicatorLevelScreen() {
             />
           </Card>
 
-          <SectionHeader title="Preview" isDark={isDark} />
+          <SectionHeader title={t('Preview')} isDark={isDark} />
           <Card isDark={isDark}>
             <View style={styles.previewRow}>
               <LinePreview
@@ -130,7 +132,7 @@ export function IndicatorLevelScreen() {
             </View>
           </Card>
 
-          <SectionHeader title="Color" isDark={isDark} />
+          <SectionHeader title={t('Color')} isDark={isDark} />
           <Card isDark={isDark}>
             <View style={styles.colorGrid}>
               {MT5_COLOR_PALETTE.map((c) => {
@@ -158,12 +160,12 @@ export function IndicatorLevelScreen() {
             </View>
           </Card>
 
-          <SectionHeader title="Style" isDark={isDark} />
+          <SectionHeader title={t('Style')} isDark={isDark} />
           <Card isDark={isDark}>
             {LINE_STYLE_OPTIONS.map((opt, idx) => (
               <View key={opt.value}>
                 <Row
-                  label={opt.label}
+                  label={t(opt.label)}
                   rightNode={
                     <>
                       <LinePreview color={level.color} style={opt.value as LineStyle} width={level.width} />
@@ -182,7 +184,7 @@ export function IndicatorLevelScreen() {
             ))}
           </Card>
 
-          <SectionHeader title="Width" isDark={isDark} />
+          <SectionHeader title={t('Width')} isDark={isDark} />
           <Card isDark={isDark}>
             {WIDTHS.map((w, idx) => (
               <View key={w}>
@@ -218,7 +220,7 @@ export function IndicatorLevelScreen() {
         <Pressable style={styles.modalBackdrop} onPress={() => setEdit(null)}>
           <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.modalTitle}>
-              {edit?.field === 'value' ? 'Value' : 'Description'}
+              {edit?.field === 'value' ? t('Value') : t('Description')}
             </Text>
             <TextInput
               style={styles.modalInput}
@@ -235,10 +237,10 @@ export function IndicatorLevelScreen() {
             />
             <View style={styles.modalActions}>
               <Pressable style={styles.modalBtn} onPress={() => setEdit(null)}>
-                <Text style={styles.modalBtnText}>Cancel</Text>
+                <Text style={styles.modalBtnText}>{t('Cancel')}</Text>
               </Pressable>
               <Pressable style={[styles.modalBtn, styles.modalBtnPrimary]} onPress={commitEdit}>
-                <Text style={[styles.modalBtnText, styles.modalBtnTextPrimary]}>OK</Text>
+                <Text style={[styles.modalBtnText, styles.modalBtnTextPrimary]}>{t('OK')}</Text>
               </Pressable>
             </View>
           </Pressable>
