@@ -25,3 +25,28 @@ test('broker rows render a plain chevron without a circular shell', () => {
   assert.match(selectBtnStyle, /justifyContent: 'center'/);
   assert.doesNotMatch(selectBtnStyle, /borderRadius|borderWidth|borderColor|backgroundColor/);
 });
+
+test('broker rows resolve real broker logos before falling back to initials', () => {
+  const source = readSource('src/features/settings/BrokersScreen/BrokersScreen.tsx');
+  const directoryRowsSource = readSource(
+    'src/features/settings/BrokersScreen/brokerDirectoryRows.ts',
+  );
+
+  assert.match(source, /buildBrokerDirectoryRows/);
+  assert.match(source, /sortBrokerDirectoryRows/);
+  assert.match(directoryRowsSource, /function normalizeBrokerLogoUrl\(logoUrl\?: string \| null\)/);
+  assert.match(directoryRowsSource, /function resolveBrokerLogoUrl\(broker: BrokerServer\)/);
+  assert.match(directoryRowsSource, /const BROKER_LOGO_KEYS = \[/);
+  assert.match(directoryRowsSource, /'logo_url'/);
+  assert.match(directoryRowsSource, /'image_url'/);
+  assert.match(directoryRowsSource, /'brand_logo_url'/);
+  assert.match(directoryRowsSource, /logoUrl: resolveBrokerLogoUrl\(broker\)/);
+  assert.match(directoryRowsSource, /function buildBrokerDomainLogoUrl\(domain\?: string\)/);
+  assert.match(directoryRowsSource, /https:\/\/www\.google\.com\/s2\/favicons\?domain=/);
+  assert.match(source, /const logoUri = broker\.logoUrl \|\| buildBrokerDomainLogoUrl\(broker\.domain\)/);
+  assert.match(source, /source=\{\{ uri: logoUri, cache: 'force-cache' \}\}[\s\S]*fadeDuration=\{0\}/);
+  assert.match(source, /failed=\{Boolean\(logoFailed\[item\.logoUrl \|\| buildBrokerDomainLogoUrl\(item\.domain\)\]\)\}/);
+  assert.match(directoryRowsSource, /myproptrade: 'myprop\.trade'/);
+  assert.match(directoryRowsSource, /gtabroker: 'growtradingacademy\.com'/);
+  assert.match(directoryRowsSource, /testorrnn: 'orrnn\.com'/);
+});

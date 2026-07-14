@@ -1,11 +1,10 @@
 import { useIsFocused } from '@react-navigation/native';
 import { Stack, router } from 'expo-router';
 import React from 'react';
-import { StyleSheet, type GestureResponderEvent, View } from 'react-native';
+import { BackHandler, StyleSheet, type GestureResponderEvent, View } from 'react-native';
 import { RegisterHandoffPreview } from '../src/features/settings/RegisterHandoffPreview';
 import { subscribeRegisterScreenReady } from '../src/features/settings/registerHandoffState';
 import { getPreloadedRegisterScreen, preloadRegisterScreen } from '../src/features/settings/registerScreenPreload';
-import { safeRouterBack } from '../src/utils/navigation';
 
 type RegisterScreenComponent = React.ComponentType;
 
@@ -144,10 +143,7 @@ export default function RegisterEntryScreen() {
     };
   }, [clearHandoffTimers, isScreenFocused, scheduleRegisterScreenMount]);
 
-  const handleBack = React.useCallback((event: GestureResponderEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-
+  const startBackToSettings = React.useCallback(() => {
     if (backNavigationStartedRef.current) {
       return;
     }
@@ -156,9 +152,27 @@ export default function RegisterEntryScreen() {
     loadCancelledRef.current = true;
     clearHandoffTimers();
     scheduleRegisterEntryBackAfterVisualFrame(() => {
-      safeRouterBack(router, REGISTER_BACK_FALLBACK_HREF);
+      // Always leave account creation at Settings, even when it was opened
+      // through Accounts -> Brokers -> Broker Detail.
+      router.dismissTo(REGISTER_BACK_FALLBACK_HREF);
     });
   }, [clearHandoffTimers]);
+
+  const handleBack = React.useCallback((event: GestureResponderEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    startBackToSettings();
+  }, [startBackToSettings]);
+
+  React.useEffect(() => {
+    if (!isScreenFocused) return undefined;
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      startBackToSettings();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [isScreenFocused, startBackToSettings]);
 
   return (
     <>

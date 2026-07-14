@@ -448,14 +448,14 @@ test('sidebar hosts detail destinations directly and shares the fast primary-tab
   assert.match(rootLayoutSource, /name='settings\/about' options=\{sidebarDetailScreenOptions\}/);
   assert.doesNotMatch(rootLayoutSource, /settings\/mql5-algo-trading|settings\/traders-community/);
   assert.match(rootLayoutSource, /import \{ SidebarDrawer \} from '..\/src\/ui\/components\/SidebarDrawer'/);
-  assert.match(rootLayoutSource, /<\/Stack>\s*<SidebarDrawer \/>/);
+  assert.match(rootLayoutSource, /<\/Stack>[\s\S]*<BrokerDetailLaunchHost \/>[\s\S]*<SidebarDrawer \/>/);
   assert.doesNotMatch(tabsLayoutSource, /import \{ SidebarDrawer \}|<SidebarDrawer \/>/);
   assert.doesNotMatch(tabsLayoutSource, /warmSidebarRouteModules/);
   assert.doesNotMatch(tabsLayoutSource, /SidebarRouteTransitionOverlay/);
   assert.doesNotMatch(tabsLayoutSource, /const sidebarDetailTabPaths = new Set\(\[/);
   assert.doesNotMatch(tabsLayoutSource, /isSidebarDetailTab/);
   assert.match(tabsLayoutSource, /import \{ SidebarDestinationHost \} from '\.\.\/\.\.\/src\/ui\/components\/SidebarDestinationHost'/);
-  assert.match(tabsLayoutSource, /import \{ hideSidebarDestination \} from '\.\.\/\.\.\/src\/ui\/components\/sidebarDestinationHostController'/);
+  assert.match(tabsLayoutSource, /import \{\s*hideSidebarDestination,\s*sidebarDestinationController,\s*\} from '\.\.\/\.\.\/src\/ui\/components\/sidebarDestinationHostController'/);
   assert.match(tabsLayoutSource, /import \{ FastTabs as Tabs \} from '\.\.\/\.\.\/src\/ui\/navigation\/FastTabNavigator'/);
   assert.match(tabsLayoutSource, /import \{[\s\S]*scheduleFastTabNavigation,[\s\S]*showFastTabVisual,[\s\S]*\} from '\.\.\/\.\.\/src\/ui\/navigation\/fastTabVisualController'/);
   assert.match(tabsLayoutSource, /registerSidebarTabNavigationHandler\(\(path: SidebarMountedTabPath\) => \{/);
@@ -475,6 +475,7 @@ test('sidebar hosts detail destinations directly and shares the fast primary-tab
   assert.notEqual(hostMountIndex, -1);
   assert.ok(tabsCloseIndex < hostMountIndex, 'detail host must overlay the retained primary-tab navigator');
   assert.match(tabsLayoutSource, /if \(previousPathRef\.current !== pathname\) \{[\s\S]*hideSidebarDestination\(\);/);
+  assert.match(tabsLayoutSource, /const isReturningFromBrokersToAccounts =[\s\S]*previousPath === '\/settings\/brokers'[\s\S]*hostedDestination\.activeDestination === 'accounts'[\s\S]*hostedDestination\.source === 'route-sync'[\s\S]*if \(!isReturningFromBrokersToAccounts\) \{\s*hideSidebarDestination\(\);/);
   assert.match(destinationControllerSource, /export const SIDEBAR_HOST_DESTINATIONS = \[[\s\S]*'journal',[\s\S]*'economic-calendar',[\s\S]*'user-guide',[\s\S]*'help',[\s\S]*'about'/);
   assert.match(destinationControllerSource, /const listeners = new Set<\(\) => void>\(\)/);
   assert.match(destinationControllerSource, /listeners\.forEach\(\(listener\) => listener\(\)\)/);

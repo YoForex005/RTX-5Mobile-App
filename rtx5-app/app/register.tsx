@@ -370,7 +370,9 @@ export default function RegisterScreen() {
       fieldFocusTimerRef.current = null;
     }
     scheduleRegisterBackAfterVisualFrame(() => {
-      safeRouterBack(router, REGISTER_BACK_FALLBACK_HREF);
+      // Dismiss the whole broker-selection branch instead of returning to the
+      // selected broker screen. Direct Settings launches land there as well.
+      router.dismissTo(REGISTER_BACK_FALLBACK_HREF);
     });
   }, []);
 
@@ -810,7 +812,23 @@ export default function RegisterScreen() {
         `}</style>
       )}
       <View style={styles.bg} onLayout={handleRegisterRootLayout}>
-        {/* ── Header ── */}
+        <View style={styles.headerRow}>
+          <Pressable
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            onPress={handleRegisterBack}
+            activateOnPressIn
+            activateOnTouchStart
+            latencyLabel="register.back"
+            latencyBudgetMs={50}
+            unstable_pressDelay={0}
+            style={styles.headerBackButton}
+          >
+            <Ionicons name="arrow-back" size={22} color={heroBackIconColor} />
+          </Pressable>
+          <Text style={styles.headerTitle} numberOfLines={1}>Demo Account</Text>
+          <View style={styles.headerRightSpacer} />
+        </View>
+
         <KeyboardAvoidingView
           style={styles.container}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -824,36 +842,6 @@ export default function RegisterScreen() {
           >
 
             <View style={styles.formContainer}>
-              <View style={styles.heroSection}>
-                <View style={styles.heroHeader}>
-                  <Pressable
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    onPress={handleRegisterBack}
-                    activateOnPressIn
-                    activateOnTouchStart
-                    latencyLabel="register.back"
-                    latencyBudgetMs={50}
-                    unstable_pressDelay={0}
-                    style={styles.heroBackButton}
-                  >
-                    <Ionicons name="arrow-back" size={24} color={heroBackIconColor} />
-                  </Pressable>
-                  <View style={styles.heroCopy}>
-                    <Text
-                      style={styles.heroTitle}
-                      numberOfLines={2}
-                      adjustsFontSizeToFit
-                      minimumFontScale={0.86}
-                    >
-                      {t('Open Demo Account')}
-                    </Text>
-                    <Text style={styles.heroSubtitle}>
-                      {t('Create a practice account and start trading in minutes.')}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-
               <View style={styles.inputRow} onLayout={handleFieldLayout('firstName')}>
                 <Text style={styles.inputLabel}>{t('First name')}</Text>
                 <View style={styles.inputShell}>
@@ -1325,93 +1313,46 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     container: {
       flex: 1,
     },
-    /* Header */
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: 18,
-      paddingTop: 8,
-      paddingBottom: 14,
+      paddingHorizontal: 20,
+      paddingVertical: 8,
       backgroundColor: pageBg,
       borderBottomWidth: 1,
-      borderBottomColor: border,
+      borderBottomColor: divider,
       zIndex: 10,
       elevation: 0,
     },
-    backBtn: {
+    headerBackButton: {
       width: 40,
       height: 40,
-      borderRadius: 20,
       alignItems: 'center',
       justifyContent: 'center',
-      marginRight: 10,
-      borderWidth: 1,
-      borderColor: border,
-      backgroundColor: surface,
     },
     headerTitle: {
       color: T.text,
       flex: 1,
-      fontSize: 18,
+      fontSize: 17,
+      lineHeight: 22,
       fontWeight: '600',
       letterSpacing: 0,
+      textAlign: 'center',
+      paddingHorizontal: 12,
+    },
+    headerRightSpacer: {
+      width: 40,
+      height: 40,
     },
 
     scrollContent: {
       paddingBottom: REGISTER_KEYBOARD_BOTTOM_PADDING,
-      paddingTop: 18,
+      paddingTop: 16,
     },
 
     formContainer: {
       position: 'relative',
       paddingHorizontal: 24,
-    },
-    heroSection: {
-      position: 'relative',
-      overflow: 'hidden',
-      marginHorizontal: -24,
-      paddingHorizontal: 24,
-      paddingTop: 0,
-      paddingBottom: 14,
-      marginBottom: 2,
-    },
-    heroHeader: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-    },
-    heroCopy: {
-      flex: 1,
-      minWidth: 0,
-      paddingTop: 1,
-    },
-    heroTitle: {
-      color: heroTitleColor,
-      fontSize: 22,
-      lineHeight: 28,
-      fontWeight: '600',
-      letterSpacing: 0,
-      marginBottom: 0,
-    },
-    heroBackButton: {
-      alignSelf: 'flex-start',
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginRight: 12,
-      borderWidth: 1,
-      borderColor: border,
-      backgroundColor: surface,
-    },
-    heroSubtitle: {
-      color: secondaryText,
-      fontSize: 14,
-      lineHeight: 20,
-      fontWeight: '500',
-      marginTop: 5,
-      marginLeft: 0,
-      marginBottom: 0,
     },
     inlineStatus: {
       flexDirection: 'row',

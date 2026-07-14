@@ -43,6 +43,23 @@ export function RegisterHandoffPreview({
 
   return (
     <View style={styles.bg}>
+      <View style={styles.headerRow}>
+        <Pressable
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          onPress={onBack}
+          activateOnPressIn
+          activateOnTouchStart
+          latencyLabel={backLatencyLabel}
+          latencyBudgetMs={50}
+          unstable_pressDelay={0}
+          style={styles.headerBackButton}
+        >
+          <Ionicons name="arrow-back" size={22} color={T.text} />
+        </Pressable>
+        <Text style={styles.headerTitle} numberOfLines={1}>Demo Account</Text>
+        <View style={styles.headerRightSpacer} />
+      </View>
+
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.scrollContent}
@@ -51,36 +68,6 @@ export function RegisterHandoffPreview({
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.formContainer}>
-          <View style={styles.heroSection}>
-            <View style={styles.heroHeader}>
-              <Pressable
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                onPress={onBack}
-                activateOnPressIn
-                activateOnTouchStart
-                latencyLabel={backLatencyLabel}
-                latencyBudgetMs={50}
-                unstable_pressDelay={0}
-                style={styles.heroBackButton}
-              >
-                <Ionicons name="arrow-back" size={24} color={T.text} />
-              </Pressable>
-              <View style={styles.heroCopy}>
-                <Text
-                  style={styles.heroTitle}
-                  numberOfLines={2}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.86}
-                >
-                  {t('Open Demo Account')}
-                </Text>
-                <Text style={styles.heroSubtitle}>
-                  {t('Create a practice account and start trading in minutes.')}
-                </Text>
-              </View>
-            </View>
-          </View>
-
           <PreviewInput
             styles={styles}
             icon="person-outline"
@@ -290,6 +277,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
   const raisedSurface = isDark ? T.glass1 : 'rgba(15,23,42,0.04)';
   const border = isDark ? T.border : '#DFE7F1';
   const divider = isDark ? T.borderSubtle : 'rgba(100,116,139,0.42)';
+  const headerDivider = isDark ? T.borderSubtle : 'rgba(15,23,42,0.07)';
   const heroTitleColor = isDark ? '#FFFFFF' : T.text;
 
   return StyleSheet.create({
@@ -301,53 +289,43 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     container: {
       flex: 1,
     },
+    headerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 20,
+      paddingVertical: 8,
+      backgroundColor: pageBg,
+      borderBottomWidth: 1,
+      borderBottomColor: headerDivider,
+      zIndex: 10,
+      elevation: 0,
+    },
+    headerBackButton: {
+      width: 40,
+      height: 40,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    headerTitle: {
+      color: T.text,
+      flex: 1,
+      fontSize: 17,
+      lineHeight: 22,
+      fontWeight: '600',
+      letterSpacing: 0,
+      textAlign: 'center',
+      paddingHorizontal: 12,
+    },
+    headerRightSpacer: {
+      width: 40,
+      height: 40,
+    },
     scrollContent: {
-      paddingTop: 18,
+      paddingTop: 16,
       paddingBottom: Platform.OS === 'android' ? 220 : 120,
     },
     formContainer: {
       paddingHorizontal: 24,
-    },
-    heroSection: {
-      marginHorizontal: -24,
-      paddingHorizontal: 24,
-      paddingBottom: 14,
-      marginBottom: 2,
-    },
-    heroHeader: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-    },
-    heroBackButton: {
-      alignSelf: 'flex-start',
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginRight: 12,
-      borderWidth: 1,
-      borderColor: border,
-      backgroundColor: surface,
-    },
-    heroCopy: {
-      flex: 1,
-      minWidth: 0,
-      paddingTop: 1,
-    },
-    heroTitle: {
-      color: heroTitleColor,
-      fontSize: 22,
-      lineHeight: 28,
-      fontWeight: '600',
-      letterSpacing: 0,
-    },
-    heroSubtitle: {
-      color: T.textSub,
-      fontSize: 14,
-      lineHeight: 20,
-      fontWeight: '500',
-      marginTop: 5,
     },
     inputRow: {
       marginBottom: 11,

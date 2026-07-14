@@ -288,6 +288,16 @@ test('action destination routes are warmed in non-blocking batches', () => {
   const statisticsRouteSource = readSource('app/quotes/market-statistics.tsx');
   const quoteInfoLaunchHostSource = readSource('src/features/quotes/QuoteInfoLaunchHost.tsx');
   const quoteInfoLaunchShellSource = readSource('src/features/quotes/QuoteInfoLaunchShell.tsx');
+  const brokersRouteSource = readSource('app/settings/brokers.tsx');
+  const brokersLaunchHostSource = readSource('src/features/settings/BrokersLaunchHost.tsx');
+  const brokersLaunchShellSource = readSource('src/features/settings/BrokersLaunchShell.tsx');
+  const brokersLaunchControllerSource = readSource('src/features/settings/brokersLaunchController.ts');
+  const brokersPreloadSource = readSource('src/features/settings/BrokersScreen/brokersScreenPreload.ts');
+  const brokerDetailRouteSource = readSource('app/settings/broker-detail.tsx');
+  const brokerDetailLaunchHostSource = readSource('src/features/settings/BrokerDetailLaunchHost.tsx');
+  const brokerDetailLaunchShellSource = readSource('src/features/settings/BrokerDetailLaunchShell.tsx');
+  const brokerDetailLaunchControllerSource = readSource('src/features/settings/brokerDetailLaunchController.ts');
+  const brokerDetailPreloadSource = readSource('src/features/settings/brokerDetailScreenPreload.ts');
 
   assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_BATCH_SIZE = 8/);
   assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_BATCH_DELAY_MS = 16/);
@@ -308,6 +318,9 @@ test('action destination routes are warmed in non-blocking batches', () => {
   assert.match(warmupSource, /\/settings\/user-guide/);
   assert.match(warmupSource, /\/settings\/help/);
   assert.match(warmupSource, /\/settings\/about/);
+  assert.match(warmupSource, /\/settings\/brokers/);
+  assert.match(warmupSource, /\/settings\/broker-detail/);
+  assert.match(warmupSource, /\/register-entry/);
   assert.match(warmupSource, /\/trade\/order-ticket/);
   assert.match(warmupSource, /\/history\/filter/);
   assert.match(warmupSource, /\/chart\/objects/);
@@ -315,7 +328,8 @@ test('action destination routes are warmed in non-blocking batches', () => {
   assert.match(tabsSource, /useEffect\(\(\) => warmActionRoutes\(router\), \[router\]\)/);
   assert.match(tabsSource, /import \{ OrderTicketLaunchHost \} from/);
   assert.match(tabsSource, /import \{ QuoteInfoLaunchHost \} from/);
-  assert.match(tabsSource, /<SidebarDestinationHost \/>[\s\S]*<OrderTicketLaunchHost \/>[\s\S]*<QuoteInfoLaunchHost \/>[\s\S]*<GlobalActionSheetHost \/>/);
+  assert.match(tabsSource, /import \{ BrokersLaunchHost \} from/);
+  assert.match(tabsSource, /<SidebarDestinationHost \/>[\s\S]*<BrokersLaunchHost \/>[\s\S]*<OrderTicketLaunchHost \/>[\s\S]*<QuoteInfoLaunchHost \/>[\s\S]*<GlobalActionSheetHost \/>/);
   assert.match(tabsSource, /lazy: false/);
   assert.doesNotMatch(tabsSource, /lazy: true/);
   assert.match(rootSource, /<Stack\.Screen name='trade\/order-ticket' options=\{\{ headerShown: false, animation: 'none' \}\}/);
@@ -342,6 +356,63 @@ test('action destination routes are warmed in non-blocking batches', () => {
   assert.match(quoteInfoLaunchHostSource, /testID="quote-info-launch-animated-host"/);
   assert.match(quoteInfoLaunchHostSource, /testID="quote-info-launch-react-host"/);
   assert.match(quoteInfoLaunchHostSource, /testID="quote-info-launch-react-properties"[\s\S]*testID="quote-info-launch-react-market-statistics"/);
+  assert.match(brokersRouteSource, /cacheKey=\{BROKERS_ROUTE_MODULE_CACHE_KEY\}/);
+  assert.match(brokersRouteSource, /load=\{loadBrokersScreenRoute\}/);
+  assert.match(brokersRouteSource, /mountDelayMs=\{0\}/);
+  assert.match(brokersRouteSource, /fallback=\{\([\s\S]*<BrokersLaunchShell/);
+  assert.match(brokersRouteSource, /showSidebarDestination\('accounts', 'route-sync'\);[\s\S]*hideBrokersLaunch\(\);[\s\S]*safeRouterBack\(router, '\/settings\/accounts'\)/);
+  assert.doesNotMatch(brokersRouteSource, /import \{ BrokersScreen \}/);
+  assert.match(brokersPreloadSource, /BROKERS_ROUTE_MODULE_CACHE_KEY = 'settings\/brokers'/);
+  assert.match(brokersPreloadSource, /import\('\.\/BrokersScreen'\)/);
+  assert.match(warmupSource, /\{ cacheKey: BROKERS_ROUTE_MODULE_CACHE_KEY, load: loadBrokersScreenRoute \}/);
+  assert.match(brokersLaunchHostSource, /executeOnUIRuntimeSync/);
+  assert.match(brokersLaunchHostSource, /registerVisualApplier\([\s\S]*writeBrokersLaunchVisibilityNow/);
+  assert.match(brokersLaunchHostSource, /<BrokersLaunchShell[\s\S]*backLatencyLabel="brokers\.launch\.back"/);
+  assert.match(brokersLaunchHostSource, /testID="brokers-launch-host"/);
+  assert.match(brokersLaunchHostSource, /testID="brokers-launch-animated-host"/);
+  assert.match(brokersLaunchHostSource, /testID="brokers-launch-react-host"/);
+  assert.match(brokersLaunchShellSource, /testID="brokers-launch-shell"/);
+  assert.match(brokersLaunchShellSource, /BROKERS_LAUNCH_FALLBACK_ROWS[\s\S]*Achiever Financials LTD[\s\S]*Omega Global Markets/);
+  assert.match(brokersLaunchShellSource, /PUBLIC_BROKER_DIRECTORY_BASE_URL/);
+  assert.match(brokersLaunchShellSource, /useBrokerServers\(true\)/);
+  assert.match(brokersLaunchShellSource, /sortBrokerDirectoryRows\(buildBrokerDirectoryRows\(brokerServers\)\)/);
+  assert.match(brokersLaunchShellSource, /Image\.prefetch\(logoUrl\)/);
+  assert.match(brokersLaunchShellSource, /<Image[\s\S]*source=\{\{ uri: logoUri, cache: 'force-cache' \}\}[\s\S]*fadeDuration=\{0\}/);
+  assert.doesNotMatch(brokersLaunchShellSource, /row\.initials|styles\.avatarText/);
+  assert.doesNotMatch(brokersLaunchShellSource, /SKELETON_ROWS|Skeleton|ActivityIndicator|Loading brokers/);
+  assert.doesNotMatch(brokersLaunchShellSource, /TextInput|FlatList/);
+  assert.match(warmupSource, /prefetchBrokerServers\(\)\.catch\(\(\) => undefined\)/);
+  assert.match(brokersLaunchControllerSource, /requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(runIfCurrent, 0\)/);
+  assert.match(rootSource, /import \{ BrokerDetailLaunchHost \} from/);
+  assert.match(rootSource, /<\/Stack>[\s\S]*<BrokerDetailLaunchHost \/>[\s\S]*<SidebarDrawer \/>/);
+  assert.match(brokerDetailRouteSource, /cacheKey=\{BROKER_DETAIL_ROUTE_MODULE_CACHE_KEY\}/);
+  assert.match(brokerDetailRouteSource, /load=\{loadBrokerDetailScreenRoute\}/);
+  assert.match(brokerDetailRouteSource, /mountDelayMs=\{0\}/);
+  assert.match(brokerDetailRouteSource, /fallback=\{\([\s\S]*<BrokerDetailLaunchShell[\s\S]*selection=\{selection\}/);
+  assert.match(brokerDetailRouteSource, /const handleOpenDemo = useCallback\(\(\) => \{[\s\S]*hideBrokerDetailLaunch\(\);[\s\S]*router\.push\('\/register-entry'\)/);
+  assert.doesNotMatch(brokerDetailRouteSource, /preloadRegisterScreen/);
+  assert.match(brokerDetailRouteSource, /onOpenDemo=\{handleOpenDemo\}/);
+  assert.doesNotMatch(brokerDetailRouteSource, /import \{ BrokerDetailScreen \}/);
+  assert.match(brokerDetailPreloadSource, /BROKER_DETAIL_ROUTE_MODULE_CACHE_KEY = 'settings\/broker-detail'/);
+  assert.match(warmupSource, /\{ cacheKey: BROKER_DETAIL_ROUTE_MODULE_CACHE_KEY, load: loadBrokerDetailScreenRoute \}/);
+  assert.match(brokerDetailLaunchHostSource, /executeOnUIRuntimeSync/);
+  assert.match(brokerDetailLaunchHostSource, /registerVisualApplier\([\s\S]*writeBrokerDetailLaunchVisibilityNow/);
+  assert.match(brokerDetailLaunchHostSource, /testID="broker-detail-launch-animated-host"/);
+  assert.match(brokerDetailLaunchHostSource, /testID="broker-detail-launch-react-host"/);
+  assert.match(brokerDetailLaunchHostSource, /selection=\{snapshot\.selection\}/);
+  assert.match(brokerDetailLaunchHostSource, /const openDemoAccount = useCallback\(\(\) => \{[\s\S]*brokerDetailLaunchController\.hide\(current\.revision\);[\s\S]*router\.push\('\/register-entry'\)/);
+  assert.doesNotMatch(brokerDetailLaunchHostSource, /preloadRegisterScreen/);
+  assert.equal((brokerDetailLaunchHostSource.match(/onOpenDemo=\{openDemoAccount\}/g) ?? []).length, 2);
+  assert.match(brokerDetailLaunchShellSource, /testID="broker-detail-launch-shell"/);
+  assert.match(brokerDetailLaunchShellSource, /selection\.brokerName[\s\S]*selection\.brokerServer/);
+  assert.match(brokerDetailLaunchShellSource, /pointerEvents=\{onOpenDemo \? 'auto' : 'none'\}/);
+  assert.match(brokerDetailLaunchShellSource, /onPress=\{onPress\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel=\{latencyLabel \?\? 'brokerDetail\.launch\.option'\}/);
+  assert.doesNotMatch(
+    brokerDetailLaunchShellSource,
+    /useBrokerServers|TextInput|ActionSheet|useQueryClient|getSecureItemAsync|persistSelectedBrokerSession/,
+  );
+  assert.match(brokerDetailLaunchControllerSource, /BROKER_DETAIL_LAUNCH_FALLBACK_MS = 5_000/);
+  assert.match(brokerDetailLaunchControllerSource, /requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(runIfCurrent, 0\)/);
   const reactQuoteInfoHostStart = quoteInfoLaunchHostSource.indexOf('testID="quote-info-launch-react-host"');
   assert.notEqual(reactQuoteInfoHostStart, -1);
   assert.doesNotMatch(
@@ -618,6 +689,7 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   const accountsSource = readSource('src/features/settings/AccountsScreen.tsx');
   const brokersSource = readSource('src/features/settings/BrokersScreen/BrokersScreen.tsx');
   const brokerDetailSource = readSource('src/features/settings/BrokerDetailScreen.tsx');
+  const tabsSource = readSource('app/(tabs)/_layout.tsx');
   const rootSource = readSource('app/_layout.tsx');
   const accountCardStart = settingsSource.indexOf("onPress={() => openReadySettingsRoute('/settings/accounts')}");
   const metricsRowStart = settingsSource.indexOf('<View style={styles.metricsRow}', accountCardStart);
@@ -708,11 +780,14 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   assert.match(registerEntrySource, /StyleSheet\.absoluteFill[\s\S]*<RegisterHandoffPreview[\s\S]*backLatencyLabel="register\.entry\.back"/);
   assert.match(registerPreviewSource, /onPress=\{onBack\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart[\s\S]*latencyLabel=\{backLatencyLabel\}[\s\S]*latencyBudgetMs=\{50\}/);
   assert.match(registerEntrySource, /const scheduleRegisterEntryBackAfterVisualFrame = \(action: \(\) => void\) => \{[\s\S]*requestAnimationFrame\(runAfterFrame\)[\s\S]*setTimeout\(action, 0\)/);
-  assert.match(registerEntrySource, /clearHandoffTimers\(\);[\s\S]*scheduleRegisterEntryBackAfterVisualFrame\(\(\) => \{[\s\S]*safeRouterBack\(router, REGISTER_BACK_FALLBACK_HREF\);[\s\S]*\}\)/);
-  assert.match(registerEntrySource, /safeRouterBack\(router, REGISTER_BACK_FALLBACK_HREF\)/);
+  assert.match(registerEntrySource, /clearHandoffTimers\(\);[\s\S]*scheduleRegisterEntryBackAfterVisualFrame\(\(\) => \{[\s\S]*router\.dismissTo\(REGISTER_BACK_FALLBACK_HREF\);[\s\S]*\}\)/);
+  assert.match(registerEntrySource, /router\.dismissTo\(REGISTER_BACK_FALLBACK_HREF\)/);
+  assert.match(registerEntrySource, /BackHandler\.addEventListener\('hardwareBackPress',[\s\S]*startBackToSettings\(\);[\s\S]*return true/);
+  assert.doesNotMatch(registerEntrySource, /safeRouterBack\(router, REGISTER_BACK_FALLBACK_HREF\)/);
   assert.doesNotMatch(registerEntrySource, /router\.replace\('\/register'\)|router\.push\('\/register'\)/);
   assert.doesNotMatch(registerEntrySource, /fontSize: 34|width: 68|minHeight: 84|useOrrnnDemoStatus|useOrrnnDemoGroups|useBrokerServers|ActionSheet|TextInput|useDeferredActiveFlag/);
-  assert.match(registerPreviewSource, /<Text[\s\S]*\{t\('Open Demo Account'\)\}[\s\S]*<PasswordPreview[\s\S]*label=\{t\('Master password'\)\}/);
+  assert.match(registerPreviewSource, /<Text style=\{styles\.headerTitle\} numberOfLines=\{1\}>Demo Account<\/Text>[\s\S]*<PasswordPreview[\s\S]*label=\{t\('Master password'\)\}/);
+  assert.doesNotMatch(registerPreviewSource, /heroSection|stats-chart-outline|Open Demo Account/);
   assert.match(registerPreviewSource, /<SelectPreview[\s\S]*label=\{t\('Group'\)\}[\s\S]*value=\{t\('Demo groups unavailable'\)\}/);
   assert.doesNotMatch(registerPreviewSource, /fontSize: 34|width: 68|minHeight: 84|useOrrnnDemoStatus|useOrrnnDemoGroups|useBrokerServers|ActionSheet|TextInput|useDeferredActiveFlag/);
   assert.match(registerHandoffSource, /const registerScreenReadyListeners = new Set<RegisterScreenReadyListener>\(\)/);
@@ -765,25 +840,39 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   assert.match(accountsSource, /marginLeft: 8/);
   assert.match(accountsSource, /runImmediateAction\('accounts\.optionsSheet\.open'[\s\S]*showAccountsActionSheet\(\{[\s\S]*presentation: 'mt5Plain',[\s\S]*detent: 'auto'/);
   assert.match(accountsSource, /latencyLabel="accounts\.back"[\s\S]*unstable_pressDelay=\{0\}/);
-  assert.match(accountsSource, /latencyLabel="accounts\.connect\.open"/);
+  assert.match(accountsSource, /const handleConnectAccount = React\.useCallback\(\(\) => \{[\s\S]*preloadBrokersScreen\(\)[\s\S]*showBrokersLaunch\(\)[\s\S]*scheduleBrokersLaunchNavigation\(launchRevision, \(\) => \{[\s\S]*hideSidebarDestination\(\);[\s\S]*router\.push\('\/settings\/brokers'\)/);
+  assert.match(accountsSource, /onPress=\{handleConnectAccount\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart[\s\S]*latencyLabel="accounts\.connect\.open"[\s\S]*latencyBudgetMs=\{50\}/);
   assert.match(accountsSource, /latencyLabel="accounts\.options\.open"/);
   assert.doesNotMatch(accountsSource, /traceUiInteraction/);
   assert.match(brokersSource, /paddingLeft: 16/);
   assert.match(brokersSource, /gap: 8/);
   assert.match(brokersSource, /latencyLabel="brokers\.back"/);
+  assert.match(brokersSource, /const handleBack = \(\) => \{[\s\S]*showSidebarDestination\('accounts', 'route-sync'\);[\s\S]*hideBrokersLaunch\(\);[\s\S]*safeRouterBack\(routerInstance, '\/settings\/accounts'\)/);
   assert.doesNotMatch(brokersSource, /latencyLabel="brokers\.qr"/);
   assert.doesNotMatch(brokersSource, /qr-code-outline/);
   assert.match(brokersSource, /latencyLabel="brokers\.custom"/);
+  assert.match(brokersSource, /const isScreenFocused = useIsFocused\(\)/);
+  assert.match(brokersSource, /const routePaintReady = useDeferredRouteContentReady\(0, isScreenFocused\)/);
+  assert.match(brokersSource, /useEffect\(\(\) => \{[\s\S]*!routePaintReady[\s\S]*brokerRecords\.length === 0[\s\S]*hideBrokersLaunch\(\);[\s\S]*\}, \[brokerRecords\.length, isScreenFocused, routePaintReady\]\)/);
+  assert.doesNotMatch(brokersSource, /handleScreenLayout|onLayout=\{handleScreenLayout\}/);
+  assert.match(tabsSource, /const isReturningFromBrokersToAccounts =[\s\S]*previousPath === '\/settings\/brokers'[\s\S]*hostedDestination\.activeDestination === 'accounts'[\s\S]*hostedDestination\.source === 'route-sync'/);
   assert.match(brokersSource, /canCancelContentTouches=\{(?:false|Platform\.OS\s*===\s*['"]ios['"])\}/);
   assert.match(brokersSource, /pointerEvents="box-none"/);
   assert.match(brokersSource, /const BROKER_ROW_PRESS_CANCEL_MOVE_PX = 14/);
   assert.match(brokersSource, /type BrokerPressGesture = \{[\s\S]*start: BrokerPressPoint \| null;[\s\S]*handled: boolean;[\s\S]*cancelled: boolean;[\s\S]*\}/);
   assert.match(brokersSource, /const brokerPressGestureRef = useRef<BrokerPressGesture>\(\{[\s\S]*start: null,[\s\S]*handled: false,[\s\S]*cancelled: false,[\s\S]*\}\)/);
   assert.match(brokersSource, /function hasBrokerPressMovedBeyondThreshold\(start: BrokerPressPoint, end: BrokerPressPoint\)[\s\S]*BROKER_ROW_PRESS_CANCEL_MOVE_PX \* BROKER_ROW_PRESS_CANCEL_MOVE_PX/);
-  assert.match(brokersSource, /const recordBrokerRowPressStart = \(event: GestureResponderEvent\) => \{[\s\S]*start: getBrokerPressPoint\(event\),[\s\S]*handled: false,[\s\S]*cancelled: false/);
+  assert.match(brokersSource, /const recordBrokerRowPressStart = \(broker: BrokerRow, event: GestureResponderEvent\) => \{[\s\S]*prepareBrokerDetailLaunch\(toBrokerDetailSelection\(broker\)\);[\s\S]*start: getBrokerPressPoint\(event\),[\s\S]*handled: false,[\s\S]*cancelled: false/);
   assert.match(brokersSource, /const cancelBrokerRowPressForScroll = \(\) => \{[\s\S]*cancelled: true/);
   assert.match(brokersSource, /const recordBrokerRowPressMove = \(event: GestureResponderEvent\) => \{[\s\S]*hasBrokerPressMovedBeyondThreshold\(gesture\.start, current\)[\s\S]*cancelBrokerRowPressForScroll\(\)/);
   assert.match(brokersSource, /const handleBrokerRowPress = \(broker: BrokerRow, event: GestureResponderEvent\) => \{[\s\S]*shouldIgnoreBrokerRowPress\(event\)[\s\S]*handleSelectBroker\(broker\)/);
+  assert.match(brokersSource, /const openBrokerDetail = \(selection: BrokerDetailLaunchSelection\) => \{[\s\S]*showBrokerDetailLaunch\(selection\)[\s\S]*scheduleBrokerDetailLaunchNavigation\(launchRevision, \(\) => \{[\s\S]*routerInstance\.push/);
+  const openBrokerDetailStart = brokersSource.indexOf('const openBrokerDetail =');
+  const recordBrokerPressStart = brokersSource.indexOf('const recordBrokerRowPressStart =', openBrokerDetailStart);
+  assert.doesNotMatch(
+    brokersSource.slice(openBrokerDetailStart, recordBrokerPressStart),
+    /setBrokerConnection|persistSelectedBrokerSession/,
+  );
   assert.match(brokersSource, /onScrollBeginDrag=\{cancelBrokerRowPressForScroll\}/);
   assert.match(brokersSource, /onMomentumScrollBegin=\{cancelBrokerRowPressForScroll\}/);
   const brokerRowsStart = brokersSource.indexOf('renderItem={({ item }) => (');
@@ -791,7 +880,7 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   assert.notEqual(brokerRowsStart, -1);
   assert.notEqual(brokerRowsEnd, -1);
   const brokerRowsSource = brokersSource.slice(brokerRowsStart, brokerRowsEnd);
-  assert.equal((brokerRowsSource.match(/onPressIn=\{recordBrokerRowPressStart\}/g) ?? []).length, 1);
+  assert.equal((brokerRowsSource.match(/onPressIn=\{\(event\) => recordBrokerRowPressStart\(item, event\)\}/g) ?? []).length, 1);
   assert.equal((brokerRowsSource.match(/onTouchMove=\{recordBrokerRowPressMove\}/g) ?? []).length, 1);
   assert.equal((brokerRowsSource.match(/onPress=\{\(event\) => handleBrokerRowPress\(item, event\)\}/g) ?? []).length, 1);
   assert.doesNotMatch(brokerRowsSource, /onPress=\{\(\) => handleSelectBroker\(item\)\}/);
@@ -809,8 +898,18 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   assert.match(brokerDetailSource, new RegExp(`optionIconDemo: \\{[\\s\\S]*backgroundColor: ${accentColorPattern}`));
   assert.match(brokerDetailSource, new RegExp(`optionIconReal: \\{[\\s\\S]*backgroundColor: ${accentColorPattern}`));
   assert.match(brokerDetailSource, new RegExp(`loginBtn: \\{[\\s\\S]*backgroundColor: ${accentColorPattern}[\\s\\S]*shadowColor: ${accentColorPattern}`));
-  assert.match(brokerDetailSource, /import \{ preloadRegisterScreen \} from '\.\/registerScreenPreload'/);
-  assert.match(brokerDetailSource, /void preloadRegisterScreen\(\)\.catch\(\(\) => undefined\);[\s\S]*router\.push\('\/register-entry'\)/);
+  assert.match(brokerDetailSource, /router\.push\('\/register-entry'\)/);
+  assert.doesNotMatch(brokerDetailSource, /preloadRegisterScreen/);
+  const demoNavigationStart = brokerDetailSource.indexOf("const navigateToRegister = (type: 'demo' | 'real')");
+  const serverSelectorStart = brokerDetailSource.indexOf('const openServerSelector =', demoNavigationStart);
+  assert.notEqual(demoNavigationStart, -1);
+  assert.notEqual(serverSelectorStart, -1);
+  assert.doesNotMatch(
+    brokerDetailSource.slice(demoNavigationStart, serverSelectorStart),
+    /persistSelectedBrokerSession|setSecureItemAsync|showRegisterLaunch|scheduleRegisterLaunchNavigation/,
+  );
+  assert.doesNotMatch(brokerDetailSource, /registerLaunchController|prepareRegisterLaunch/);
+  assert.match(brokerDetailSource, /useLayoutEffect\(\(\) => \{[\s\S]*!isScreenFocused \|\| !contentReady[\s\S]*markBrokerDetailLaunchCovered\(\)/);
   assert.doesNotMatch(brokerDetailSource, /pathname: '\/register'/);
   assert.doesNotMatch(brokerDetailSource, /MT5_BLUE_LIGHT/);
   assert.doesNotMatch(brokerDetailSource, /LOGIN_VIOLET/);
@@ -819,12 +918,12 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   assert.match(registerSource, /const styles = React\.useMemo\(\(\) => makeStyles\(T, isDark, insets\.top\), \[T, isDark, insets\.top\]\)/);
   assert.match(registerSource, /const registerBackNavigationStartedRef = React\.useRef\(false\)/);
   assert.match(registerSource, /if \(isScreenFocused\) \{[\s\S]*registerBackNavigationStartedRef\.current = false;[\s\S]*\}, \[isScreenFocused\]\);/);
-  assert.match(registerSource, /const handleRegisterBack = React\.useCallback\(\(event: GestureResponderEvent\) => \{[\s\S]*event\.preventDefault\(\);[\s\S]*event\.stopPropagation\(\);[\s\S]*if \(registerBackNavigationStartedRef\.current\) \{[\s\S]*return;[\s\S]*\}[\s\S]*registerBackNavigationStartedRef\.current = true;[\s\S]*safeRouterBack\(router, REGISTER_BACK_FALLBACK_HREF\);[\s\S]*\}, \[\]\);/);
-  assert.match(registerSource, /registerBackNavigationStartedRef\.current = true;[\s\S]*clearTimeout\(fieldFocusTimerRef\.current\);[\s\S]*scheduleRegisterBackAfterVisualFrame\(\(\) => \{[\s\S]*safeRouterBack\(router, REGISTER_BACK_FALLBACK_HREF\);[\s\S]*\}\)/);
+  assert.match(registerSource, /const handleRegisterBack = React\.useCallback\(\(event: GestureResponderEvent\) => \{[\s\S]*event\.preventDefault\(\);[\s\S]*event\.stopPropagation\(\);[\s\S]*if \(registerBackNavigationStartedRef\.current\) \{[\s\S]*return;[\s\S]*\}[\s\S]*registerBackNavigationStartedRef\.current = true;[\s\S]*router\.dismissTo\(REGISTER_BACK_FALLBACK_HREF\);[\s\S]*\}, \[\]\);/);
+  assert.match(registerSource, /registerBackNavigationStartedRef\.current = true;[\s\S]*clearTimeout\(fieldFocusTimerRef\.current\);[\s\S]*scheduleRegisterBackAfterVisualFrame\(\(\) => \{[\s\S]*router\.dismissTo\(REGISTER_BACK_FALLBACK_HREF\);[\s\S]*\}\)/);
   assert.match(registerSource, /onPress=\{handleRegisterBack\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart[\s\S]*latencyLabel="register\.back"[\s\S]*latencyBudgetMs=\{50\}[\s\S]*unstable_pressDelay=\{0\}/);
   assert.match(rootSource, /const brokerFlowBackground = T\.bg/);
   assert.match(rootSource, /const brokerFlowScreenOptions = \{[\s\S]*headerShown: false,[\s\S]*animation: 'none',[\s\S]*freezeOnBlur: false,[\s\S]*contentStyle: \{ backgroundColor: brokerFlowBackground \},[\s\S]*\} as const;/);
-  assert.match(rootSource, /const registerScreenOptions = \{[\s\S]*headerShown: false,[\s\S]*animation: 'none',[\s\S]*presentation: 'transparentModal',[\s\S]*freezeOnBlur: false,[\s\S]*contentStyle: \{ backgroundColor: brokerFlowBackground \},[\s\S]*\} as const;/);
+  assert.match(rootSource, /const registerScreenOptions = \{[\s\S]*headerShown: false,[\s\S]*animation: 'none',[\s\S]*presentation: 'card',[\s\S]*gestureEnabled: false,[\s\S]*freezeOnBlur: false,[\s\S]*contentStyle: \{ backgroundColor: brokerFlowBackground \},[\s\S]*\} as const;/);
   assert.match(rootSource, /<Stack\.Screen name='register-entry' options=\{registerScreenOptions\}/);
   assert.match(rootSource, /<Stack\.Screen name='register' options=\{registerScreenOptions\}/);
   assert.match(rootSource, /<Stack\.Screen name='settings\/brokers' options=\{brokerFlowScreenOptions\}/);

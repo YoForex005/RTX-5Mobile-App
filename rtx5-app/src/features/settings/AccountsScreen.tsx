@@ -90,6 +90,11 @@ import { hasAuthenticatedAccountSession } from './accountConnectionStatus';
 import { safeRouterBack } from '../../utils/navigation';
 import { hideSidebarDestination } from '../../ui/components/sidebarDestinationHostController';
 import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
+import {
+  scheduleBrokersLaunchNavigation,
+  showBrokersLaunch,
+} from './brokersLaunchController';
+import { preloadBrokersScreen } from './BrokersScreen/brokersScreenPreload';
 
 const ACCOUNTS_SCREEN_DIAGNOSTICS_ENABLED =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_ACCOUNTS_SCREEN === 'true';
@@ -732,11 +737,17 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
   /**
    * Navigates the user to the Brokers screen to search for and connect a new trading account.
    */
-  const handleConnectAccount = () => {
-    // Hosted instance: drop the overlay first so the pushed route is visible.
-    hideSidebarDestination();
-    router.push('/settings/brokers');
-  };
+  const handleConnectAccount = React.useCallback(() => {
+    // Reveal the already-mounted Brokers shell before route construction. The
+    // Accounts host stays underneath until that shell has painted, preventing
+    // the Settings screen from flashing between the two destinations.
+    void preloadBrokersScreen().catch(() => undefined);
+    const launchRevision = showBrokersLaunch();
+    scheduleBrokersLaunchNavigation(launchRevision, () => {
+      hideSidebarDestination();
+      router.push('/settings/brokers');
+    });
+  }, [router]);
 
   const [connectingKey, setConnectingKey] = React.useState<string | null>(null);
   const accountSwitchInFlightRef = React.useRef(false);
@@ -1065,7 +1076,9 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
               hitSlop={10}
               onPress={handleConnectAccount}
               activateOnPressIn
+              activateOnTouchStart
               latencyLabel="accounts.connect.open"
+              latencyBudgetMs={50}
               unstable_pressDelay={0}
             >
               <Ionicons name="add" size={30} color={T.text} />

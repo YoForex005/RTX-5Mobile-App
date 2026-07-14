@@ -19,9 +19,8 @@ type QuoteInfoLaunchShellProps = Readonly<{
 }>;
 
 /**
- * Query-free first frame for the quote Properties and Market Statistics
- * routes. Both variants stay pre-mounted in QuoteInfoLaunchHost so the chosen
- * layer can be revealed on the UI runtime in the option's touch frame.
+ * Lightweight Properties or Market Statistics preview.
+ * It starts no data requests; the real screen replaces it after loading.
  */
 export const QuoteInfoLaunchShell = memo(function QuoteInfoLaunchShell({
   backLatencyLabel = 'quoteInfo.shell.back',
@@ -142,6 +141,8 @@ function PropertiesLaunchViewport({
   T: ThemeColors;
 }) {
   const { t } = useTranslation();
+  // Reuse the real Properties styles so the preview does not jump
+  // when the full screen appears.
   const s = useMemo(() => makeSymbolDetailsStyles(T, isDark), [T, isDark]);
   const metrics = [
     { icon: 'analytics-outline', label: t('Mid').toUpperCase() },
@@ -151,6 +152,7 @@ function PropertiesLaunchViewport({
   ] as const;
 
   return (
+    // This is only a visual preview; the real screen handles scrolling and taps.
     <ScrollView
       scrollEnabled={false}
       pointerEvents="none"

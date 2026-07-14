@@ -9,8 +9,9 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
  * pre-populated from the broker the user just picked.
  */
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -27,6 +28,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { Screen } from '../../ui/components/Screen';
+import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import { useTheme } from '../../ui/theme/useTheme';
 import type { ThemeColors } from '../../ui/theme/glass';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -41,7 +43,6 @@ import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../../query/accounts';
 import { BROKER_CONFIG_KEY, useBrokerServers } from '../../query/broker';
 import { getTradingAccountTypeFromBackend } from '../../domain/accountType';
 import { safeRouterBack } from '../../utils/navigation';
-import { preloadRegisterScreen } from './registerScreenPreload';
 import { ActionSheet } from '../../ui/components/ActionSheet';
 import {
   setSecureItemAsync,
@@ -55,6 +56,13 @@ import {
 import { recordAccountJournalEvent } from '../../state/terminalJournalState';
 import { runImmediateAction } from '../../utils/actionLatency';
 import { formatServerFromName } from './BrokersScreen/brokerData';
+import { BrokerDetailLaunchShell } from './BrokerDetailLaunchShell';
+import {
+  completeBrokerDetailLaunch,
+  hideBrokerDetailLaunch,
+  markBrokerDetailLaunchCovered,
+  normalizeBrokerDetailLaunchSelection,
+} from './brokerDetailLaunchController';
 
 const SAVED_LOGIN_KEY = 'rtx5_saved_login';
 const primaryBlue = '#2563EB';
@@ -90,6 +98,15 @@ type ServerOption = {
   brokerSymbol: string;
   serverUrl: string;
   logoUrl: string;
+};
+
+type BrokerDetailRouteParams = {
+  brokerId?: string;
+  brokerName?: string;
+  brokerServer?: string;
+  brokerServerUrl?: string;
+  brokerLogoUrl?: string;
+  brokerDomain?: string;
 };
 
 const RESERVED_BROKER_IDS = new Set(['qr', 'custom']);
@@ -134,19 +151,70 @@ const buildServerOptionFromBrokerServer = (broker: BrokerServer): ServerOption |
   };
 };
 
-/**
- * Displays detailed information and connection settings for a specific broker.
- */
 export function BrokerDetailScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{
-    brokerId?: string;
-    brokerName?: string;
-    brokerServer?: string;
-    brokerServerUrl?: string;
-    brokerLogoUrl?: string;
-    brokerDomain?: string;
-  }>();
+  const params = useLocalSearchParams<BrokerDetailRouteParams>();
+  const isScreenFocused = useIsFocused();
+  const contentReady = useDeferredRouteContentReady(0, isScreenFocused);
+  const wasFocusedRef = useRef(false);
+  const selection = useMemo(() => normalizeBrokerDetailLaunchSelection({
+    brokerId: params.brokerId,
+    brokerName: params.brokerName,
+    brokerServer: params.brokerServer,
+    brokerServerUrl: params.brokerServerUrl,
+    brokerLogoUrl: params.brokerLogoUrl,
+    brokerDomain: params.brokerDomain,
+  }), [
+    params.brokerDomain,
+    params.brokerId,
+    params.brokerLogoUrl,
+    params.brokerName,
+    params.brokerServer,
+    params.brokerServerUrl,
+  ]);
+
+  const handleBack = useCallback(() => {
+    hideBrokerDetailLaunch();
+    safeRouterBack(router, '/settings/brokers');
+  }, [router]);
+
+  useLayoutEffect(() => {
+    if (!isScreenFocused || !contentReady) return;
+
+    // Remove the root shell in the same commit that installs the interactive
+    // controls. A normal effect leaves one tappable frame covered on Android.
+    markBrokerDetailLaunchCovered();
+  }, [contentReady, isScreenFocused]);
+
+  useEffect(() => {
+    if (isScreenFocused) {
+      wasFocusedRef.current = true;
+      return;
+    }
+
+    if (wasFocusedRef.current) {
+      wasFocusedRef.current = false;
+      completeBrokerDetailLaunch();
+    }
+  }, [isScreenFocused]);
+
+  if (!contentReady) {
+    return (
+      <BrokerDetailLaunchShell
+        selection={selection}
+        onBack={handleBack}
+        backLatencyLabel="brokerDetail.initial.back"
+      />
+    );
+  }
+
+  return <BrokerDetailInteractiveContent onBack={handleBack} />;
+}
+
+/** Displays the full interactive account and login controls after first paint. */
+function BrokerDetailInteractiveContent({ onBack }: { onBack: () => void }) {
+  const router = useRouter();
+  const params = useLocalSearchParams<BrokerDetailRouteParams>();
   const T = useTheme();
   const { t } = useTranslation();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
@@ -328,20 +396,17 @@ export function BrokerDetailScreen() {
     });
   }, [serverOptions]);
 
-  // Keep the globally selected broker connection aligned with the current
-  // server picker row before the user logs in or opens registration.
-  useEffect(() => {
+  const getSelectedBrokerConnection = useCallback(() => {
     const effectiveBrokerId = selectedServer.brokerId || apiBrokerId;
     const effectiveServerUrl = selectedServer.serverUrl || initialServerUrl;
     const effectiveLogoUrl = selectedServer.logoUrl || initialLogoUrl;
 
-    if (!effectiveBrokerId || !effectiveServerUrl) return;
-    setBrokerConnection(effectiveBrokerId, effectiveServerUrl, effectiveLogoUrl);
-    void persistSelectedBrokerSession({
+    if (!effectiveBrokerId || !effectiveServerUrl) return null;
+    return {
       brokerId: effectiveBrokerId,
       serverUrl: effectiveServerUrl,
       logoUrl: effectiveLogoUrl,
-    });
+    };
   }, [
     apiBrokerId,
     initialLogoUrl,
@@ -349,8 +414,26 @@ export function BrokerDetailScreen() {
     selectedServer.brokerId,
     selectedServer.logoUrl,
     selectedServer.serverUrl,
+  ]);
+
+  const syncSelectedBrokerConnection = useCallback(() => {
+    const connection = getSelectedBrokerConnection();
+    if (!connection) return null;
+
+    setBrokerConnection(connection.brokerId, connection.serverUrl, connection.logoUrl);
+    return connection;
+  }, [
+    getSelectedBrokerConnection,
     setBrokerConnection,
   ]);
+
+  // Persist once the real broker screen is already mounted. The Demo button
+  // only updates the in-memory selection, so storage can never delay its tap.
+  useEffect(() => {
+    const connection = syncSelectedBrokerConnection();
+    if (!connection) return;
+    void persistSelectedBrokerSession(connection);
+  }, [syncSelectedBrokerConnection]);
 
   // Lazy-load any previously saved login on first focus so returning users
   // see their credentials pre-filled (mirrors the standalone /login screen).
@@ -372,11 +455,6 @@ export function BrokerDetailScreen() {
     };
   }, []);
 
-  /**
-   * Navigates back to the previous screen (usually the broker search/selection screen).
-   */
-  const handleBack = () => safeRouterBack(router, '/settings/brokers');
-
   const navigateToRegister = (type: 'demo' | 'real') => {
     if (type === 'real') {
       // The real-account onboarding requires KYC/identity flows that are not
@@ -388,7 +466,8 @@ export function BrokerDetailScreen() {
       );
       return;
     }
-    void preloadRegisterScreen().catch(() => undefined);
+    // Push only the lightweight entry screen on this touch. That destination
+    // shows its complete preview first, then loads the heavy form after paint.
     router.push('/register-entry');
   };
 
@@ -634,7 +713,7 @@ export function BrokerDetailScreen() {
           <Pressable
             style={styles.iconBtn}
             hitSlop={15}
-            onPress={handleBack}
+            onPress={onBack}
             activateOnPressIn
             latencyLabel="brokerDetail.back"
             unstable_pressDelay={0}
@@ -691,242 +770,239 @@ export function BrokerDetailScreen() {
               </View>
             </View>
 
-            <View style={styles.optionPanel}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.optionCommand,
-                  pressed && styles.optionCommandPressed,
-                ]}
-                onPressIn={() => {
-                  void preloadRegisterScreen().catch(() => undefined);
-                }}
-                onPress={() => navigateToRegister('demo')}
-                activateOnPressIn
-                latencyLabel="brokerDetail.openDemo"
-                unstable_pressDelay={0}
-              >
-                <View style={[styles.optionIcon, styles.optionIconDemo]}>
-                  <Ionicons name="school" size={18} color="#FFFFFF" />
-                </View>
-                <View style={styles.optionTextWrap}>
-                  <Text style={styles.optionTitle}>{t('Open a demo account')}</Text>
-                  <Text style={styles.optionSub} numberOfLines={2}>
-                    {t('To learn trading and to test your strategies')}
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={T.textSub} />
-              </Pressable>
-
-              <View style={styles.optionDivider} />
-
-              <Pressable
-                style={({ pressed }) => [
-                  styles.optionCommand,
-                  hasActiveRealAccount && styles.optionRowDisabled,
-                  pressed && !hasActiveRealAccount && styles.optionCommandPressed,
-                ]}
-                onPress={() => {
-                  if (hasActiveRealAccount) return;
-                  navigateToRegister('real');
-                }}
-                disabled={hasActiveRealAccount}
-                activateOnPressIn
-                latencyLabel="brokerDetail.openReal"
-                unstable_pressDelay={0}
-              >
-                <View style={[styles.optionIcon, styles.optionIconReal]}>
-                  <Ionicons name="trending-up" size={18} color="#FFFFFF" />
-                </View>
-                <View style={styles.optionTextWrap}>
-                  <Text
-                    style={[
-                      styles.optionTitle,
-                      hasActiveRealAccount && styles.optionTitleDisabled,
-                    ]}
-                  >
-                    {t('Open a real account')}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.optionSub,
-                      hasActiveRealAccount && styles.optionSubDisabled,
-                    ]}
-                    numberOfLines={2}
-                  >
-                    {t('For live trading, additional identification is required')}
-                  </Text>
-                </View>
-                {!hasActiveRealAccount && (
-                  <Ionicons name="chevron-forward" size={18} color={T.textSub} />
-                )}
-              </Pressable>
-            </View>
-
-            <View
-              style={styles.loginPanel}
-              onLayout={(event) => {
-                loginPanelYRef.current = event.nativeEvent.layout.y;
-              }}
-            >
-              <View style={styles.panelHeader}>
-                <View style={styles.panelTitleTopRow}>
-                  <View style={styles.panelTitleRow}>
-                    <View style={styles.panelIconMark}>
-                      <Ionicons name="key-outline" size={18} color="#2563EB" />
-                    </View>
-                    <Text style={styles.panelEyebrow}>{t('Existing account')}</Text>
-                  </View>
-                  <View style={styles.securePill}>
-                    <Ionicons name="shield-checkmark-outline" size={14} color="#10B981" />
-                    <Text style={styles.secureText}>{t('Secure')}</Text>
-                  </View>
-                </View>
-                <Text style={styles.sectionTitle} numberOfLines={1}>
-                  {t('Login to an existing account')}
-                </Text>
-              </View>
-
-              <View style={styles.fieldGroup}>
-                <View style={styles.fieldBlock}>
-                  <Text style={styles.inputLabel}>{t('Login')}</Text>
-                  <View style={styles.inputShell}>
-                    <Ionicons name="person-outline" size={19} color={T.textMuted} />
-                    <TextInput
-                      style={styles.input}
-                      value={loginValue}
-                      onChangeText={setLoginValue}
-                      onFocus={handleLoginInputFocus}
-                      onBlur={handleLoginInputBlur}
-                      onSubmitEditing={() => passwordInputRef.current?.focus()}
-                      autoCapitalize="none"
-                      keyboardType="numeric"
-                      returnKeyType="next"
-                      selectionColor={T.accent}
-                      cursorColor={T.accent}
-                      underlineColorAndroid="transparent"
-                      placeholder={t('Login')}
-                      placeholderTextColor={T.textMuted}
-                    />
-                  </View>
-                </View>
-
-                <View style={styles.fieldBlock}>
-                  <Text style={styles.inputLabel}>{t('Password')}</Text>
-                  <View style={styles.inputShell}>
-                    <Ionicons name="lock-closed-outline" size={19} color={T.textMuted} />
-                    <TextInput
-                      ref={passwordInputRef}
-                      style={styles.input}
-                      value={passwordValue}
-                      onChangeText={setPasswordValue}
-                      onFocus={handleLoginInputFocus}
-                      onBlur={handleLoginInputBlur}
-                      onSubmitEditing={submitLogin}
-                      autoCapitalize="none"
-                      returnKeyType="done"
-                      secureTextEntry={!showPassword}
-                      selectionColor={T.accent}
-                      cursorColor={T.accent}
-                      underlineColorAndroid="transparent"
-                      placeholder={t('Password')}
-                      placeholderTextColor={T.textMuted}
-                    />
-                    <Pressable
-                      style={styles.fieldIconButton}
-                      onPress={() => setShowPassword((v) => !v)}
-                      hitSlop={12}
-                      activateOnPressIn
-                      latencyLabel="brokerDetail.password.toggle"
-                      unstable_pressDelay={0}
-                    >
-                      <Ionicons
-                        name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                        size={20}
-                        color={T.textSub}
-                      />
-                    </Pressable>
-                  </View>
-                </View>
-
-                <View style={styles.fieldBlock}>
-                  <Text style={styles.inputLabel}>{t('Server')}</Text>
+                <View style={styles.optionPanel}>
                   <Pressable
-                    style={styles.inputShell}
-                    onPress={openServerSelector}
-                    disabled={!hasServerChoices}
+                    style={({ pressed }) => [
+                      styles.optionCommand,
+                      pressed && styles.optionCommandPressed,
+                    ]}
+                    onPress={() => navigateToRegister('demo')}
                     activateOnPressIn
-                    latencyLabel="brokerDetail.server.open"
+                    latencyLabel="brokerDetail.openDemo"
                     unstable_pressDelay={0}
                   >
-                    {selectedBrokerLogoUrl ? (
-                      <Image
-                        source={{ uri: selectedBrokerLogoUrl }}
-                        style={styles.serverLogoIcon}
-                        resizeMode="contain"
-                        accessibilityIgnoresInvertColors
-                      />
-                    ) : (
-                      <Ionicons name="server-outline" size={19} color={T.textMuted} />
-                    )}
-                    <Text style={styles.serverValue} numberOfLines={1}>
-                      {selectedServer.label || '---'}
-                    </Text>
-                    {hasServerChoices && (
-                      <Ionicons name="chevron-down" size={18} color={T.textSub} />
+                    <View style={[styles.optionIcon, styles.optionIconDemo]}>
+                      <Ionicons name="school" size={18} color="#FFFFFF" />
+                    </View>
+                    <View style={styles.optionTextWrap}>
+                      <Text style={styles.optionTitle}>{t('Open a demo account')}</Text>
+                      <Text style={styles.optionSub} numberOfLines={2}>
+                        {t('To learn trading and to test your strategies')}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={T.textSub} />
+                  </Pressable>
+
+                  <View style={styles.optionDivider} />
+
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.optionCommand,
+                      hasActiveRealAccount && styles.optionRowDisabled,
+                      pressed && !hasActiveRealAccount && styles.optionCommandPressed,
+                    ]}
+                    onPress={() => {
+                      if (hasActiveRealAccount) return;
+                      navigateToRegister('real');
+                    }}
+                    disabled={hasActiveRealAccount}
+                    activateOnPressIn
+                    latencyLabel="brokerDetail.openReal"
+                    unstable_pressDelay={0}
+                  >
+                    <View style={[styles.optionIcon, styles.optionIconReal]}>
+                      <Ionicons name="trending-up" size={18} color="#FFFFFF" />
+                    </View>
+                    <View style={styles.optionTextWrap}>
+                      <Text
+                        style={[
+                          styles.optionTitle,
+                          hasActiveRealAccount && styles.optionTitleDisabled,
+                        ]}
+                      >
+                        {t('Open a real account')}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.optionSub,
+                          hasActiveRealAccount && styles.optionSubDisabled,
+                        ]}
+                        numberOfLines={2}
+                      >
+                        {t('For live trading, additional identification is required')}
+                      </Text>
+                    </View>
+                    {!hasActiveRealAccount && (
+                      <Ionicons name="chevron-forward" size={18} color={T.textSub} />
                     )}
                   </Pressable>
                 </View>
-              </View>
 
-              <View style={styles.formMetaRow}>
-                <Pressable
-                  style={styles.checkboxRow}
-                  onPress={() => setSavePassword((v) => !v)}
-                  hitSlop={10}
-                  activateOnPressIn
-                  latencyLabel="brokerDetail.savePassword.toggle"
-                  unstable_pressDelay={0}
+                <View
+                  style={styles.loginPanel}
+                  onLayout={(event) => {
+                    loginPanelYRef.current = event.nativeEvent.layout.y;
+                  }}
                 >
-                  <Ionicons
-                    name={savePassword ? 'checkbox' : 'square-outline'}
-                    size={22}
-                    color={savePassword ? primaryBlue : T.textSub}
-                  />
-                  <Text style={styles.checkboxText}>{t('Save password')}</Text>
-                </Pressable>
+                  <View style={styles.panelHeader}>
+                    <View style={styles.panelTitleTopRow}>
+                      <View style={styles.panelTitleRow}>
+                        <View style={styles.panelIconMark}>
+                          <Ionicons name="key-outline" size={18} color="#2563EB" />
+                        </View>
+                        <Text style={styles.panelEyebrow}>{t('Existing account')}</Text>
+                      </View>
+                      <View style={styles.securePill}>
+                        <Ionicons name="shield-checkmark-outline" size={14} color="#10B981" />
+                        <Text style={styles.secureText}>{t('Secure')}</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.sectionTitle} numberOfLines={1}>
+                      {t('Login to an existing account')}
+                    </Text>
+                  </View>
 
-                <Pressable
-                  style={styles.forgotBtn}
-                  onPress={handleForgotPassword}
-                  hitSlop={10}
-                  activateOnPressIn
-                  latencyLabel="brokerDetail.forgotPassword.open"
-                  unstable_pressDelay={0}
-                >
-                  <Text style={styles.forgotText}>{t('Forgot password?')}</Text>
-                </Pressable>
-              </View>
+                  <View style={styles.fieldGroup}>
+                    <View style={styles.fieldBlock}>
+                      <Text style={styles.inputLabel}>{t('Login')}</Text>
+                      <View style={styles.inputShell}>
+                        <Ionicons name="person-outline" size={19} color={T.textMuted} />
+                        <TextInput
+                          style={styles.input}
+                          value={loginValue}
+                          onChangeText={setLoginValue}
+                          onFocus={handleLoginInputFocus}
+                          onBlur={handleLoginInputBlur}
+                          onSubmitEditing={() => passwordInputRef.current?.focus()}
+                          autoCapitalize="none"
+                          keyboardType="numeric"
+                          returnKeyType="next"
+                          selectionColor={T.accent}
+                          cursorColor={T.accent}
+                          underlineColorAndroid="transparent"
+                          placeholder={t('Login')}
+                          placeholderTextColor={T.textMuted}
+                        />
+                      </View>
+                    </View>
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.loginBtn,
-                  (pressed || isLoading) && styles.loginBtnPressed,
-                ]}
-                onPress={submitLogin}
-                disabled={isLoading}
-                activateOnPressIn
-                latencyLabel="brokerDetail.login.submit"
-                journalActionLabel="pressed broker detail Login button"
-                journalActionSource="Actions"
-                unstable_pressDelay={0}
-              >
-                {isLoading ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.loginBtnText}>{t('Login')}</Text>
-                )}
-              </Pressable>
-            </View>
+                    <View style={styles.fieldBlock}>
+                      <Text style={styles.inputLabel}>{t('Password')}</Text>
+                      <View style={styles.inputShell}>
+                        <Ionicons name="lock-closed-outline" size={19} color={T.textMuted} />
+                        <TextInput
+                          ref={passwordInputRef}
+                          style={styles.input}
+                          value={passwordValue}
+                          onChangeText={setPasswordValue}
+                          onFocus={handleLoginInputFocus}
+                          onBlur={handleLoginInputBlur}
+                          onSubmitEditing={submitLogin}
+                          autoCapitalize="none"
+                          returnKeyType="done"
+                          secureTextEntry={!showPassword}
+                          selectionColor={T.accent}
+                          cursorColor={T.accent}
+                          underlineColorAndroid="transparent"
+                          placeholder={t('Password')}
+                          placeholderTextColor={T.textMuted}
+                        />
+                        <Pressable
+                          style={styles.fieldIconButton}
+                          onPress={() => setShowPassword((v) => !v)}
+                          hitSlop={12}
+                          activateOnPressIn
+                          latencyLabel="brokerDetail.password.toggle"
+                          unstable_pressDelay={0}
+                        >
+                          <Ionicons
+                            name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                            size={20}
+                            color={T.textSub}
+                          />
+                        </Pressable>
+                      </View>
+                    </View>
+
+                    <View style={styles.fieldBlock}>
+                      <Text style={styles.inputLabel}>{t('Server')}</Text>
+                      <Pressable
+                        style={styles.inputShell}
+                        onPress={openServerSelector}
+                        disabled={!hasServerChoices}
+                        activateOnPressIn
+                        latencyLabel="brokerDetail.server.open"
+                        unstable_pressDelay={0}
+                      >
+                        {selectedBrokerLogoUrl ? (
+                          <Image
+                            source={{ uri: selectedBrokerLogoUrl }}
+                            style={styles.serverLogoIcon}
+                            resizeMode="contain"
+                            accessibilityIgnoresInvertColors
+                          />
+                        ) : (
+                          <Ionicons name="server-outline" size={19} color={T.textMuted} />
+                        )}
+                        <Text style={styles.serverValue} numberOfLines={1}>
+                          {selectedServer.label || '---'}
+                        </Text>
+                        {hasServerChoices && (
+                          <Ionicons name="chevron-down" size={18} color={T.textSub} />
+                        )}
+                      </Pressable>
+                    </View>
+                  </View>
+
+                  <View style={styles.formMetaRow}>
+                    <Pressable
+                      style={styles.checkboxRow}
+                      onPress={() => setSavePassword((v) => !v)}
+                      hitSlop={10}
+                      activateOnPressIn
+                      latencyLabel="brokerDetail.savePassword.toggle"
+                      unstable_pressDelay={0}
+                    >
+                      <Ionicons
+                        name={savePassword ? 'checkbox' : 'square-outline'}
+                        size={22}
+                        color={savePassword ? primaryBlue : T.textSub}
+                      />
+                      <Text style={styles.checkboxText}>{t('Save password')}</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.forgotBtn}
+                      onPress={handleForgotPassword}
+                      hitSlop={10}
+                      activateOnPressIn
+                      latencyLabel="brokerDetail.forgotPassword.open"
+                      unstable_pressDelay={0}
+                    >
+                      <Text style={styles.forgotText}>{t('Forgot password?')}</Text>
+                    </Pressable>
+                  </View>
+
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.loginBtn,
+                      (pressed || isLoading) && styles.loginBtnPressed,
+                    ]}
+                    onPress={submitLogin}
+                    disabled={isLoading}
+                    activateOnPressIn
+                    latencyLabel="brokerDetail.login.submit"
+                    journalActionLabel="pressed broker detail Login button"
+                    journalActionSource="Actions"
+                    unstable_pressDelay={0}
+                  >
+                    {isLoading ? (
+                      <ActivityIndicator color="#FFFFFF" />
+                    ) : (
+                      <Text style={styles.loginBtnText}>{t('Login')}</Text>
+                    )}
+                  </Pressable>
+                </View>
 
           </ScrollView>
         </KeyboardAvoidingView>
@@ -990,21 +1066,24 @@ export function BrokerDetailScreen() {
           </View>
         )}
 
-        {/* ActionSheet rendered locally because this broker-detail route is outside the tab host. */}
-        <ActionSheet
-          visible={actionSheet !== null}
-          title={actionSheet?.title}
-          presentation={actionSheet?.presentation}
-          actions={actionSheet?.actions ?? []}
-          onClose={hideBrokerDetailActionSheet}
-          searchable={actionSheet?.searchable}
-          searchPlaceholder={actionSheet?.searchPlaceholder}
-          detent={actionSheet?.detent}
-          minimumTopInset={actionSheet?.minimumTopInset}
-          instantOpen={actionSheet?.instantOpen}
-          runActionAfterClose={actionSheet?.runActionAfterClose}
-          androidKeyboardAvoidance={actionSheet?.androidKeyboardAvoidance}
-        />
+        {/* Mount the route-local sheet only when requested; its hidden geometry
+            used to add unnecessary work to the broker screen's first frame. */}
+        {actionSheet !== null ? (
+          <ActionSheet
+            visible
+            title={actionSheet.title}
+            presentation={actionSheet.presentation}
+            actions={actionSheet.actions}
+            onClose={hideBrokerDetailActionSheet}
+            searchable={actionSheet.searchable}
+            searchPlaceholder={actionSheet.searchPlaceholder}
+            detent={actionSheet.detent}
+            minimumTopInset={actionSheet.minimumTopInset}
+            instantOpen={actionSheet.instantOpen}
+            runActionAfterClose={actionSheet.runActionAfterClose}
+            androidKeyboardAvoidance={actionSheet.androidKeyboardAvoidance}
+          />
+        ) : null}
       </View>
     </Screen>
   );

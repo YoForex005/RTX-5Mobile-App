@@ -1,0 +1,292 @@
+import { Ionicons } from '@expo/vector-icons';
+import { memo, useEffect, useMemo } from 'react';
+import { Image, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PUBLIC_BROKER_DIRECTORY_BASE_URL } from '../../api/brokerRouting';
+import { useTranslation } from '../../i18n/useTranslation';
+import { useBrokerServers } from '../../query/broker';
+import { useUserPreferences } from '../../state/userPreferences';
+import { FastPressable } from '../../ui/components/FastPressable';
+import { useTheme, type ThemeColors } from '../../ui/theme/useTheme';
+import {
+  buildBrokerDirectoryRows,
+  buildBrokerDomainLogoUrl,
+  formatBrokerInitials,
+  sortBrokerDirectoryRows,
+  type BrokerDirectoryRow,
+} from './BrokersScreen/brokerDirectoryRows';
+
+type BrokersLaunchShellProps = Readonly<{
+  onBack: () => void;
+  backLatencyLabel?: string;
+}>;
+
+const BROKERS_LAUNCH_FALLBACK_ROWS: readonly Pick<
+  BrokerDirectoryRow,
+  'name' | 'brokerId' | 'logoUrl' | 'domain'
+>[] = [
+  { name: 'Achiever Financials LTD', brokerId: 'achiever-financials' },
+  { name: 'Alpha FX Markets', brokerId: 'alphafx' },
+  { name: 'Beta Trade Pro', brokerId: 'betatrade' },
+  { name: 'Delta Pro Trading', brokerId: 'deltapro' },
+  { name: 'Gamma Capital Group', brokerId: 'gammacapital' },
+  { name: 'Grow Trading Academy', brokerId: 'gta_broker' },
+  { name: 'MyProp', brokerId: 'myprop-trade' },
+  { name: 'Omega Global Markets', brokerId: 'omegaglobal' },
+].map((row) => ({
+  ...row,
+  logoUrl: `${PUBLIC_BROKER_DIRECTORY_BASE_URL}/brokers/${row.brokerId}/logo`,
+}));
+
+const brokerLogoPrefetches = new Map<string, Promise<boolean>>();
+
+function prefetchBrokerLogo(logoUrl: string) {
+  if (!logoUrl || brokerLogoPrefetches.has(logoUrl)) return;
+
+  const request = Image.prefetch(logoUrl).catch(() => false);
+  brokerLogoPrefetches.set(logoUrl, request);
+  void request.then((loaded) => {
+    if (!loaded) brokerLogoPrefetches.delete(logoUrl);
+  });
+}
+
+/**
+ * Ready Brokers first frame kept mounted for the Accounts "+" action.
+ * Its backend Image sources warm while hidden, so the first visible frame
+ * already matches the live directory instead of flashing broker initials.
+ */
+export const BrokersLaunchShell = memo(function BrokersLaunchShell({
+  onBack,
+  backLatencyLabel = 'brokers.launch.back',
+}: BrokersLaunchShellProps) {
+  const T = useTheme();
+  const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
+  const isDark = useUserPreferences((state) => state.themeMode) === 'dark';
+  const { data: brokerServers } = useBrokerServers(true);
+  const styles = useMemo(
+    () => makeStyles(T, isDark, insets.top),
+    [T, insets.top, isDark],
+  );
+  const previewRows = useMemo(() => {
+    const liveRows = sortBrokerDirectoryRows(buildBrokerDirectoryRows(brokerServers));
+    return liveRows.length > 0
+      ? liveRows.slice(0, BROKERS_LAUNCH_FALLBACK_ROWS.length)
+      : BROKERS_LAUNCH_FALLBACK_ROWS;
+  }, [brokerServers]);
+
+  useEffect(() => {
+    for (const row of previewRows) {
+      prefetchBrokerLogo(row.logoUrl || buildBrokerDomainLogoUrl(row.domain));
+    }
+  }, [previewRows]);
+
+  return (
+    <View style={styles.root} testID="brokers-launch-shell">
+      <View style={styles.header}>
+        <FastPressable
+          style={styles.iconButton}
+          hitSlop={15}
+          onPress={onBack}
+          activateOnPressIn
+          activateOnTouchStart
+          latencyLabel={backLatencyLabel}
+          latencyBudgetMs={50}
+          unstable_pressDelay={0}
+          accessibilityRole="button"
+          accessibilityLabel={t('Back')}
+        >
+          <Ionicons name="arrow-back" size={26} color={T.text} />
+        </FastPressable>
+
+        <Text style={styles.headerTitle}>{t('Brokers')}</Text>
+        <View style={styles.iconButton} pointerEvents="none" />
+      </View>
+
+      <View style={styles.searchRow} pointerEvents="none">
+        <Ionicons name="search-outline" size={20} color={T.textMuted} />
+        <Text style={styles.searchPlaceholder}>{t('Find broker')}</Text>
+      </View>
+
+      <View style={styles.list} pointerEvents="none">
+        {previewRows.map((row) => {
+          const logoUri = row.logoUrl || buildBrokerDomainLogoUrl(row.domain);
+          return (
+            <View key={row.brokerId} style={styles.brokerRow}>
+              <View style={styles.avatar}>
+                {logoUri ? (
+                  <Image
+                    source={{ uri: logoUri, cache: 'force-cache' }}
+                    style={styles.avatarImage}
+                    resizeMode="contain"
+                    fadeDuration={0}
+                  />
+                ) : (
+                  <Text style={styles.avatarFallbackText}>{formatBrokerInitials(row.name)}</Text>
+                )}
+              </View>
+              <View style={styles.brokerCopy}>
+                <Text style={styles.brokerName} numberOfLines={1}>{row.name}</Text>
+                <View style={styles.brokerIdPill}>
+                  <Text style={styles.brokerIdText} numberOfLines={1}>{row.brokerId}</Text>
+                </View>
+              </View>
+              <View style={styles.chevronSpace}>
+                <Ionicons name="chevron-forward" size={20} color={T.textSub} />
+              </View>
+            </View>
+          );
+        })}
+      </View>
+
+      <View style={styles.footer} pointerEvents="none">
+        <Ionicons name="add-circle-outline" size={19} color={T.text} />
+        <Text style={styles.footerText}>{t("Can't find your broker?")}</Text>
+      </View>
+    </View>
+  );
+});
+
+function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
+  const surface = isDark ? T.glass2 : '#FFFFFF';
+  const softSurface = isDark ? 'rgba(255,255,255,0.045)' : '#F8FAFC';
+  const dividerColor = isDark ? T.borderSubtle : 'rgba(15,23,42,0.08)';
+  const cardBorder = isDark ? T.border : 'rgba(15,23,42,0.08)';
+
+  return StyleSheet.create({
+    root: {
+      flex: 1,
+      backgroundColor: T.bg,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingLeft: 16,
+      paddingRight: 16,
+      paddingTop: safeTop + 8,
+      paddingBottom: 8,
+      gap: 8,
+      backgroundColor: T.bg,
+    },
+    iconButton: {
+      width: 40,
+      height: 40,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    headerTitle: {
+      flex: 1,
+      color: T.text,
+      fontSize: 20,
+      fontWeight: '700',
+    },
+    searchRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      minHeight: 48,
+      marginHorizontal: 12,
+      marginTop: 4,
+      marginBottom: 10,
+      paddingHorizontal: 12,
+      gap: 12,
+      borderRadius: 14,
+      backgroundColor: surface,
+      borderWidth: 1,
+      borderColor: cardBorder,
+    },
+    searchPlaceholder: {
+      flex: 1,
+      color: T.textMuted,
+      fontSize: 16,
+      paddingVertical: 6,
+      backgroundColor: 'transparent',
+    },
+    list: {
+      flex: 1,
+      paddingHorizontal: 12,
+      paddingBottom: 14,
+      gap: 10,
+      overflow: 'hidden',
+      backgroundColor: T.bg,
+    },
+    brokerRow: {
+      minHeight: 76,
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 12,
+      gap: 12,
+      borderRadius: 16,
+      backgroundColor: surface,
+      borderWidth: 1,
+      borderColor: T.border,
+      shadowColor: isDark ? '#000000' : '#64748B',
+      shadowOffset: { width: 0, height: isDark ? 4 : 2 },
+      shadowOpacity: isDark ? 0.08 : 0.06,
+      shadowRadius: isDark ? 16 : 8,
+      elevation: isDark ? 4 : 1,
+    },
+    avatar: {
+      width: 46,
+      height: 46,
+      borderRadius: 14,
+      backgroundColor: softSurface,
+      alignItems: 'center',
+      justifyContent: 'center',
+      overflow: 'hidden',
+    },
+    avatarImage: {
+      width: 36,
+      height: 36,
+    },
+    avatarFallbackText: {
+      color: T.text,
+      fontSize: 13,
+      fontWeight: '700',
+    },
+    brokerCopy: {
+      flex: 1,
+      minWidth: 0,
+    },
+    brokerName: {
+      color: T.text,
+      fontSize: 17,
+      fontWeight: '600',
+    },
+    brokerIdPill: {
+      alignSelf: 'flex-start',
+      maxWidth: '100%',
+      marginTop: 5,
+      paddingHorizontal: 8,
+      minHeight: 24,
+      borderRadius: 12,
+      justifyContent: 'center',
+      backgroundColor: isDark ? 'rgba(37,99,235,0.16)' : 'rgba(37,99,235,0.10)',
+    },
+    brokerIdText: {
+      color: '#0A84FF',
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    chevronSpace: {
+      width: 36,
+      height: 36,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    footer: {
+      minHeight: 56,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      borderTopWidth: 1,
+      borderTopColor: dividerColor,
+      backgroundColor: surface,
+    },
+    footerText: {
+      color: T.text,
+      fontSize: 14,
+      fontWeight: '600',
+    },
+  });
+}

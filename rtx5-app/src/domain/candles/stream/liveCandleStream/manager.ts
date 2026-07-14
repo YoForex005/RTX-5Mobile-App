@@ -197,10 +197,8 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
    */
   public hydrateFromCache(symbol: string, timeframe: string, candles: CandleParams[]): void {
     const entry = this.entries.get(this.getKey(symbol, timeframe));
-    // A fresh REST request increments requestId synchronously, while the exact
-    // symbol/timeframe disk cache resolves asynchronously. Allow that trusted
-    // bootstrap to paint only while no history has committed yet. Whichever
-    // REST result wins later remains authoritative and replaces this baseline.
+    // Show saved candles only until fresh history arrives.
+    // Fresh history always replaces this cached starting point.
     if (!entry || candles.length === 0 || entry.historyCandles.length > 0) {
       return;
     }
@@ -211,8 +209,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     }
 
     entry.historyCandles = safeCandles;
-    // Preserve any live ticks that arrived while AsyncStorage was resolving;
-    // commit() safely layers this exact-key cached history beneath them.
+    // Preserve any live ticks that arrived while saved candles were loading.
     entry.renderHistoryLimit = INITIAL_HISTORY_LIMIT;
     entry.historyPaginationCursorTime = null;
 
@@ -492,6 +489,8 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
 
     const pendingPrefetch = this.historyPrefetches.get(entry.key);
     if (pendingPrefetch) {
+      // If a warm-up is already fetching this history, wait for it.
+      // Start another request only if it produced no usable candles.
       entry.loading = true;
       this.notify(entry);
       void pendingPrefetch.then(() => {

@@ -36,12 +36,7 @@ function writeOrderTicketLaunchVisibilityNow(visible: boolean) {
   }
 }
 
-/**
- * Pre-mounted optimistic first frame for Quotes -> New Order.
- *
- * Its visibility flips on the UI runtime before native-stack construction, so
- * the user sees a real ticket shell on the next vsync even when JS is busy.
- */
+/** Keeps a lightweight New Order preview ready so a tap can show it immediately. */
 export function OrderTicketLaunchHost() {
   const router = useRouter();
   const backInFlightRef = useRef(false);
@@ -84,6 +79,9 @@ export function OrderTicketLaunchHost() {
         setTimeout(tryPop, 16);
       }
     };
+
+    // Back may be tapped before the real route is on the stack.
+    // Try briefly and pop it as soon as it exists.
     tryPop();
   }, [router]);
 
@@ -95,6 +93,9 @@ export function OrderTicketLaunchHost() {
 
     backInFlightRef.current = true;
     const navigationStarted = currentSnapshot.navigationStarted;
+
+    // Hide the preview immediately. If the real route already started,
+    // remove it too as soon as navigation is ready.
     orderTicketLaunchController.hide(currentSnapshot.revision);
 
     if (backGuardTimerRef.current) {

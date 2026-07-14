@@ -11,7 +11,7 @@
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
     "test": "npx --yes tsx --test src/domain/candles/rendering/candleGeometry.test.ts",
-    "test:interaction": "npx --yes tsx --test src/utils/appActionLatencyContract.test.ts src/utils/tabNavigationPerformance.test.ts src/utils/sidebarNavigationPerformance.test.ts src/utils/loginInteractionPerformance.test.ts src/utils/errorBoundaryReliability.test.ts src/utils/apiLatencyContract.test.ts src/utils/apiLatency.test.ts src/utils/hiddenScreenWorkContract.test.ts",
+    "test:interaction": "npx --yes tsx --test src/features/settings/brokerDetailLaunchController.test.ts src/features/settings/brokersLaunchController.test.ts src/features/settings/BrokersScreen/brokerDirectoryRows.test.ts src/features/settings/BrokersScreen/brokersScreenSource.test.ts src/utils/appActionLatencyContract.test.ts src/utils/tabNavigationPerformance.test.ts src/utils/sidebarNavigationPerformance.test.ts src/utils/loginInteractionPerformance.test.ts src/utils/errorBoundaryReliability.test.ts src/utils/apiLatencyContract.test.ts src/utils/apiLatency.test.ts src/utils/hiddenScreenWorkContract.test.ts",
     "test:chart-geometry": "npx --yes tsx --test src/domain/candles/rendering/candleGeometry.test.ts",
     "test:stability": "npx --yes tsx --test tests/candle-engine/*.test.ts tests/chart-webview/*.test.ts",
     "prebuild": "expo prebuild",

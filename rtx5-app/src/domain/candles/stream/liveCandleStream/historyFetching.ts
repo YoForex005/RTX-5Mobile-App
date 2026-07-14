@@ -279,10 +279,8 @@ export const runPrefetchHistory = (
       syncMergedCandleCache(normalizedSymbol, normalizedTimeframe, history.closedCandles, { canonical: true });
 
       const liveEntry = manager.entries.get(key);
-      // Guard against a stale prefetch overwriting newer state. If a real
-      // loadHistory has run for this entry (requestId > 0) or is currently
-      // running, ignore the prefetch result — the authoritative loadHistory
-      // path owns historyCandles/historyLastTime/commit lifecycle.
+      // Do not let an older warm-up result replace history already loaded
+      // by the active chart.
       if (
         liveEntry &&
         candles.length > 0 &&

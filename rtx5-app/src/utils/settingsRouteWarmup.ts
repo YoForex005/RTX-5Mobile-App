@@ -4,6 +4,14 @@ import {
   ACCOUNTS_ROUTE_MODULE_CACHE_KEY,
   loadAccountsScreenRoute,
 } from '../features/settings/accountsScreenPreload';
+import {
+  BROKERS_ROUTE_MODULE_CACHE_KEY,
+  loadBrokersScreenRoute,
+} from '../features/settings/BrokersScreen/brokersScreenPreload';
+import {
+  BROKER_DETAIL_ROUTE_MODULE_CACHE_KEY,
+  loadBrokerDetailScreenRoute,
+} from '../features/settings/brokerDetailScreenPreload';
 import { preloadDeferredRouteModule } from '../ui/components/DeferredRouteMount';
 import { scheduleIdleWork } from './startupScheduler';
 
@@ -14,6 +22,8 @@ const SETTINGS_ROUTE_MODULE_WARMUP_BATCH_TIMEOUT_MS = 500;
 
 const SETTINGS_ROUTE_MODULE_LOADERS = [
   { key: ACCOUNTS_ROUTE_MODULE_CACHE_KEY, load: loadAccountsScreenRoute },
+  { key: BROKERS_ROUTE_MODULE_CACHE_KEY, load: loadBrokersScreenRoute },
+  { key: BROKER_DETAIL_ROUTE_MODULE_CACHE_KEY, load: loadBrokerDetailScreenRoute },
   { key: 'settings/economic-calendar', load: () => import('../features/settings/EconomicCalendarScreen').then((module) => module.EconomicCalendarScreen) },
   { key: 'settings/interface', load: () => import('../features/settings/InterfaceScreen').then((module) => module.InterfaceScreen) },
   { key: JOURNAL_ROUTE_CACHE_KEY, load: loadJournalScreenRoute },

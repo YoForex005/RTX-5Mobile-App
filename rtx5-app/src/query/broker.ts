@@ -10,6 +10,7 @@ import {
   BrokerConfigError,
   type BrokerServer,
 } from '../api/broker';
+import { appQueryClient } from '../state/providers/AppProviders';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TanStack Query hook for GET /broker/config
@@ -90,6 +91,17 @@ export function useBrokerServers(enabled: boolean = true) {
     staleTime: 5 * 60 * 1000,
     // Retry transient network blips so a single bad packet doesn't strand the
     // user on the "Failed to load brokers" screen.
+    retry: shouldRetryBrokerConfig,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
+  });
+}
+
+/** Starts the public broker directory request before the user taps Accounts +. */
+export function prefetchBrokerServers() {
+  return appQueryClient.prefetchQuery<BrokerServer[], Error>({
+    queryKey: [BROKER_SERVERS_KEY],
+    queryFn: () => getBrokerServers(),
+    staleTime: 5 * 60 * 1000,
     retry: shouldRetryBrokerConfig,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
   });

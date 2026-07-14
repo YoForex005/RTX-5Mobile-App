@@ -18,6 +18,7 @@ import { GDark, GLight } from '../src/ui/theme/glass';
 import { useTranslation } from '../src/i18n/useTranslation';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { safeRouterBack } from '../src/utils/navigation';
+import { BrokerDetailLaunchHost } from '../src/features/settings/BrokerDetailLaunchHost';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
 
@@ -94,7 +95,8 @@ function InnerLayout() {
   const registerScreenOptions = {
     headerShown: false,
     animation: 'none',
-    presentation: 'transparentModal',
+    presentation: 'card',
+    gestureEnabled: false,
     freezeOnBlur: false,
     contentStyle: { backgroundColor: brokerFlowBackground },
   } as const;
@@ -175,6 +177,8 @@ function InnerLayout() {
           <Stack.Screen name='settings/contact-developer' options={sidebarDetailScreenOptions} />
           <Stack.Screen name='settings/about' options={sidebarDetailScreenOptions} />
         </Stack>
+        {/* Root-level because Brokers and Broker Detail are both above the tab navigator. */}
+        <BrokerDetailLaunchHost />
         <SidebarDrawer />
         </ThemeProvider>
       </WebIPhoneFrame>

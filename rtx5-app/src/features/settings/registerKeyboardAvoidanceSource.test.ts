@@ -115,11 +115,17 @@ test('register demo form uses selectable origin broker, read-only currency, and 
   assert.doesNotMatch(source, /handleOpenCurrencyPicker/);
 });
 
-test('register demo form uses compact professional typography', () => {
+test('register demo form and handoff preview use the same compact Demo Account heading without a card', () => {
   const source = readSource('app/register.tsx');
+  const previewSource = readSource('src/features/settings/RegisterHandoffPreview.tsx');
 
-  assert.match(source, /heroTitle:\s*\{[\s\S]*fontSize: 22,[\s\S]*fontWeight: '600'/);
-  assert.match(source, /heroSubtitle:\s*\{[\s\S]*fontSize: 14,[\s\S]*fontWeight: '500'/);
+  for (const headingSource of [source, previewSource]) {
+    assert.match(headingSource, /<Text style=\{styles\.headerTitle\} numberOfLines=\{1\}>Demo Account<\/Text>/);
+    assert.doesNotMatch(headingSource, /heroSection|stats-chart-outline|Open Demo Account/);
+    assert.match(headingSource, /headerBackButton:\s*\{[\s\S]*?width: 40,[\s\S]*?height: 40,[\s\S]*?alignItems: 'center'/);
+    assert.doesNotMatch(headingSource, /headerBackButton:\s*\{[^}]*?(?:backgroundColor|borderColor|borderRadius|borderWidth)/);
+  }
+
   assert.match(source, /inputLabel:\s*\{[\s\S]*fontSize: 14,[\s\S]*fontWeight: '600'/);
   assert.match(source, /input:\s*\{[\s\S]*fontSize: 16,[\s\S]*fontWeight: '500'/);
   assert.match(source, /registerBtnText:\s*\{[\s\S]*fontSize: 16,[\s\S]*fontWeight: '600'/);

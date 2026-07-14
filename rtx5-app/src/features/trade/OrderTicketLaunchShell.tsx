@@ -15,8 +15,8 @@ type OrderTicketLaunchShellProps = Readonly<{
 }>;
 
 /**
- * Lightweight, real ticket-shaped first frame shared by the optimistic host
- * and the routed screen. It intentionally performs no queries or subscriptions.
+ * Lightweight New Order preview shown while the full ticket loads.
+ * It uses placeholders and starts no data requests.
  */
 export const OrderTicketLaunchShell = memo(function OrderTicketLaunchShell({
   symbol,

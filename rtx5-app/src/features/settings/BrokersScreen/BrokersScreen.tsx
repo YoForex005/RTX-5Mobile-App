@@ -7,8 +7,9 @@ import { FastPressable as Pressable } from '../../../ui/components/FastPressable
  * where they can open a demo / real account or sign into an existing one.
  */
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -22,33 +23,33 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../../ui/components/Screen';
+import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
+import { showSidebarDestination } from '../../../ui/components/sidebarDestinationHostController';
 import { useTheme } from '../../../ui/theme/useTheme';
 import type { ThemeColors } from '../../../ui/theme/glass';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useTranslation } from '../../../i18n/useTranslation';
 import { safeRouterBack } from '../../../utils/navigation';
 import { useBrokerServers } from '../../../query/broker';
-import type { BrokerServer } from '../../../api/broker';
-import { resolveBrokerServiceBaseUrl } from '../../../api/brokerRouting';
-import { persistSelectedBrokerSession } from '../../../state/brokerSessionStorage';
-import { formatServerFromName } from './brokerData';
+import { hideBrokersLaunch } from '../brokersLaunchController';
+import {
+  prepareBrokerDetailLaunch,
+  scheduleBrokerDetailLaunchNavigation,
+  showBrokerDetailLaunch,
+  type BrokerDetailLaunchSelection,
+} from '../brokerDetailLaunchController';
+import { preloadBrokerDetailScreen } from '../brokerDetailScreenPreload';
+import {
+  buildBrokerDirectoryRows,
+  buildBrokerDomainLogoUrl,
+  formatBrokerInitials,
+  sortBrokerDirectoryRows,
+  type BrokerDirectoryRow,
+} from './brokerDirectoryRows';
 
-// Always show this broker at the top when the search field is empty so the
-// screen matches the MT5 default state (MetaQuotes-Demo entry point).
-const PINNED_BROKER_NAMES = ['MetaQuotes Ltd.'];
 const BROKER_ROW_PRESS_CANCEL_MOVE_PX = 14;
 
-type BrokerRow = {
-  id: string;
-  brokerId: string;
-  name: string;
-  server: string;
-  serverUrl: string;
-  logoUrl: string;
-  region: string;
-  protocol: string;
-  domain?: string;
-};
+type BrokerRow = BrokerDirectoryRow;
 
 type BrokerPressPoint = {
   pageX: number;
@@ -61,53 +62,14 @@ type BrokerPressGesture = {
   cancelled: boolean;
 };
 
-// Map a broker name to a logo domain when one is recognisable. This is
-// best-effort branding; rows fall back to the generic icon when no domain
-// is available or the logo CDN can't serve one.
-const KNOWN_BROKER_DOMAINS: Record<string, string> = {
-  flexymarkets: 'flexymarkets.com',
-  metaquotes: 'metaquotes.net',
-  alphatrading: 'alphatrading.com',
-};
-
-function resolveBrokerDomain(name: string): string | undefined {
-  const key = name.toLowerCase().replace(/[^a-z0-9]/g, '');
-  for (const [needle, domain] of Object.entries(KNOWN_BROKER_DOMAINS)) {
-    if (key.includes(needle)) return domain;
-  }
-  return undefined;
-}
-
-function formatBrokerInitials(name: string) {
-  const words = name
-    .replace(/\([^)]*\)/g, '')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  const initials = words.slice(0, 2).map((word) => word.charAt(0)).join('').toUpperCase();
-  return initials || 'BR';
-}
-
-function isRawNetworkEndpoint(value: string) {
-  const host = value
-    .trim()
-    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')
-    .split('/')[0];
-
-  return (
-    /^(\d{1,3}\.){3}\d{1,3}(:\d+)?$/.test(host) ||
-    /^[a-z0-9.-]+\.[a-z]{2,}(:\d+)?$/i.test(host)
-  );
-}
-
-function formatVisibleServerName(broker: BrokerServer) {
-  const server = broker.server?.trim() || '';
-  if (!server || isRawNetworkEndpoint(server)) {
-    return formatServerFromName(broker.broker_name);
-  }
-
-  return server;
-}
+const toBrokerDetailSelection = (broker: BrokerRow): BrokerDetailLaunchSelection => ({
+  brokerId: broker.brokerId,
+  brokerName: broker.name,
+  brokerServer: broker.server,
+  brokerServerUrl: broker.serverUrl,
+  brokerLogoUrl: broker.logoUrl,
+  brokerDomain: broker.domain ?? '',
+});
 
 function getBrokerPressPoint(event: GestureResponderEvent): BrokerPressPoint | null {
   const { pageX, pageY } = event.nativeEvent;
@@ -137,45 +99,49 @@ export function BrokersScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const routerInstance = useRouter();
-  const setBrokerConnection = useUserPreferences((s) => s.setBrokerConnection);
+  const isScreenFocused = useIsFocused();
+  const routePaintReady = useDeferredRouteContentReady(0, isScreenFocused);
   const brokerPressGestureRef = useRef<BrokerPressGesture>({
     start: null,
     handled: false,
     cancelled: false,
   });
+  const launchCoveredRef = useRef(false);
   const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
-
   // ── GET /broker/servers — live broker directory ──────────────────────────
   // The endpoint is public, so the query is always enabled. The screen is
   // reachable from the Accounts "+" icon both before and after login, and
   // either way the user needs the full broker list to pick from.
   const { data: brokerServers, isLoading, isError, error, refetch, isFetching } = useBrokerServers(true);
 
-  const brokerRecords = useMemo<BrokerRow[]>(() => {
-    const rows = (brokerServers ?? []).filter((b: BrokerServer) => b.enabled !== false);
-    // Deduplicate broker_id entries — the API exposes one row per server, but
-    // the user only needs to pick a broker. We keep the first (lowest id)
-    // occurrence; BrokerDetailScreen fetches the same directory and exposes
-    // the full broker/server list in its searchable picker.
-    const seen = new Set<string>();
-    const deduped: BrokerServer[] = [];
-    for (const r of rows) {
-      if (seen.has(r.broker_id)) continue;
-      seen.add(r.broker_id);
-      deduped.push(r);
+  // Shared with the retained launch shell so its first frame and this live
+  // list always resolve the same backend rows and logo URLs.
+  const brokerRecords = useMemo(
+    () => buildBrokerDirectoryRows(brokerServers),
+    [brokerServers],
+  );
+
+  useEffect(() => {
+    if (
+      !isScreenFocused
+      || !routePaintReady
+      || brokerRecords.length === 0
+      || launchCoveredRef.current
+    ) {
+      return;
     }
-    return deduped.map((b) => ({
-      id: `srv-${b.id ?? b.broker_id}`,
-      brokerId: b.broker_id,
-      name: b.broker_name,
-      server: formatVisibleServerName(b),
-      serverUrl: resolveBrokerServiceBaseUrl(b),
-      logoUrl: b.logo_url?.trim() || '',
-      region: b.region,
-      protocol: b.protocol,
-      domain: resolveBrokerDomain(b.broker_name) ?? resolveBrokerDomain(b.broker_id),
-    }));
-  }, [brokerServers]);
+    launchCoveredRef.current = true;
+    // Never replace the complete-looking first frame with a spinner. The
+    // live, interactive directory takes over only after it has real rows.
+    hideBrokersLaunch();
+  }, [brokerRecords.length, isScreenFocused, routePaintReady]);
+
+  useEffect(() => {
+    if (!isScreenFocused || !routePaintReady || brokerRecords.length === 0) return;
+    // Warm the heavy login module while the user is reading the broker list.
+    // A later row tap still has its own safe preload in case this warm-up missed.
+    void preloadBrokerDetailScreen().catch(() => undefined);
+  }, [brokerRecords.length, isScreenFocused, routePaintReady]);
 
   const trimmedQuery = search.trim().toLowerCase();
   const isSearching = trimmedQuery.length > 0;
@@ -185,13 +151,7 @@ export function BrokersScreen() {
       // Show the full directory by default. Pinned brokers (e.g. MetaQuotes
       // Ltd.) bubble to the top when present so the screen mirrors MT5's
       // landing state, but we never hide the rest of the list.
-      const pinnedSet = new Set(PINNED_BROKER_NAMES.map((n) => n.toLowerCase()));
-      return [...brokerRecords].sort((a, b) => {
-        const aPinned = pinnedSet.has(a.name.toLowerCase()) ? 0 : 1;
-        const bPinned = pinnedSet.has(b.name.toLowerCase()) ? 0 : 1;
-        if (aPinned !== bPinned) return aPinned - bPinned;
-        return a.name.localeCompare(b.name);
-      });
+      return sortBrokerDirectoryRows(brokerRecords);
     }
     return brokerRecords.filter((broker) => {
       return (
@@ -206,27 +166,26 @@ export function BrokersScreen() {
   /**
    * Navigates to the Broker Detail (login) screen for the chosen broker.
    */
-  const handleSelectBroker = (broker: BrokerRow) => {
-    setBrokerConnection(broker.brokerId, broker.serverUrl, broker.logoUrl);
-    void persistSelectedBrokerSession({
-      brokerId: broker.brokerId,
-      serverUrl: broker.serverUrl,
-      logoUrl: broker.logoUrl,
-    });
-    routerInstance.push({
-      pathname: '/settings/broker-detail',
-      params: {
-        brokerId: broker.brokerId,
-        brokerName: broker.name,
-        brokerServer: broker.server,
-        brokerServerUrl: broker.serverUrl,
-        brokerLogoUrl: broker.logoUrl,
-        brokerDomain: broker.domain ?? '',
-      },
+  const openBrokerDetail = (selection: BrokerDetailLaunchSelection) => {
+    hideBrokersLaunch();
+    const launchRevision = showBrokerDetailLaunch(selection);
+    scheduleBrokerDetailLaunchNavigation(launchRevision, () => {
+      routerInstance.push({
+        pathname: '/settings/broker-detail',
+        params: selection,
+      });
     });
   };
 
-  const recordBrokerRowPressStart = (event: GestureResponderEvent) => {
+  const handleSelectBroker = (broker: BrokerRow) => {
+    openBrokerDetail(toBrokerDetailSelection(broker));
+  };
+
+  const recordBrokerRowPressStart = (broker: BrokerRow, event: GestureResponderEvent) => {
+    // Preparing an invisible shell is safe during touch-down. Selection and
+    // navigation still wait for release and the movement check below.
+    prepareBrokerDetailLaunch(toBrokerDetailSelection(broker));
+    void preloadBrokerDetailScreen().catch(() => undefined);
     brokerPressGestureRef.current = {
       start: getBrokerPressPoint(event),
       handled: false,
@@ -296,7 +255,13 @@ export function BrokersScreen() {
   /**
    * Returns to the Accounts management screen.
    */
-  const handleBack = () => safeRouterBack(routerInstance, '/settings/accounts');
+  const handleBack = () => {
+    // Restore the already-mounted Accounts pixels immediately, while its
+    // focus/query work waits until after the native Brokers pop.
+    showSidebarDestination('accounts', 'route-sync');
+    hideBrokersLaunch();
+    safeRouterBack(routerInstance, '/settings/accounts');
+  };
 
   return (
     <Screen>
@@ -363,7 +328,7 @@ export function BrokersScreen() {
                 styles.brokerRow,
                 pressed && styles.brokerRowPressed,
               ]}
-              onPressIn={recordBrokerRowPressStart}
+              onPressIn={(event) => recordBrokerRowPressStart(item, event)}
               onTouchMove={recordBrokerRowPressMove}
               onPress={(event) => handleBrokerRowPress(item, event)}
               latencyLabel={`brokers.row.${item.brokerId}`}
@@ -371,7 +336,7 @@ export function BrokersScreen() {
             >
               <BrokerAvatar
                 broker={item}
-                failed={Boolean((item.logoUrl || item.domain) && logoFailed[item.logoUrl || item.domain || ''])}
+                failed={Boolean(logoFailed[item.logoUrl || buildBrokerDomainLogoUrl(item.domain)])}
                 onError={(logoKey) => setLogoFailed((prev) => ({ ...prev, [logoKey]: true }))}
                 styles={styles}
               />
@@ -435,17 +400,28 @@ export function BrokersScreen() {
         {/* ── Footer ── */}
         <Pressable
           style={styles.footerBtn}
-          onPress={() => routerInstance.push({
-            pathname: '/settings/broker-detail',
-            params: {
+          onPressIn={() => {
+            const selection: BrokerDetailLaunchSelection = {
               brokerId: 'custom',
               brokerName: t("Can't find your broker?"),
               brokerServer: '',
               brokerServerUrl: '',
               brokerLogoUrl: '',
               brokerDomain: '',
-            },
-          })}
+            };
+            prepareBrokerDetailLaunch(selection);
+            void preloadBrokerDetailScreen().catch(() => undefined);
+          }}
+          onPress={() => {
+            openBrokerDetail({
+              brokerId: 'custom',
+              brokerName: t("Can't find your broker?"),
+              brokerServer: '',
+              brokerServerUrl: '',
+              brokerLogoUrl: '',
+              brokerDomain: '',
+            });
+          }}
           activateOnPressIn
           latencyLabel="brokers.custom"
           unstable_pressDelay={0}
@@ -472,7 +448,7 @@ function BrokerAvatar({
   onError: (logoKey: string) => void;
   styles: ReturnType<typeof makeStyles>;
 }) {
-  const logoUri = broker.logoUrl || (broker.domain ? `https://logo.clearbit.com/${broker.domain}` : '');
+  const logoUri = broker.logoUrl || buildBrokerDomainLogoUrl(broker.domain);
   if (!logoUri || failed) {
     return (
       <View style={[styles.avatar, styles.avatarFallback]}>
@@ -483,9 +459,10 @@ function BrokerAvatar({
   return (
     <View style={styles.avatar}>
       <Image
-        source={{ uri: logoUri }}
+        source={{ uri: logoUri, cache: 'force-cache' }}
         style={styles.avatarImage}
         resizeMode="contain"
+        fadeDuration={0}
         onError={() => onError(logoUri)}
       />
     </View>

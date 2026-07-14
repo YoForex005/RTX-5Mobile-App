@@ -18,9 +18,13 @@ import {
   type SidebarMountedTabPath,
 } from '../../src/ui/components/sidebarDrawerController';
 import { SidebarDestinationHost } from '../../src/ui/components/SidebarDestinationHost';
-import { hideSidebarDestination } from '../../src/ui/components/sidebarDestinationHostController';
+import {
+  hideSidebarDestination,
+  sidebarDestinationController,
+} from '../../src/ui/components/sidebarDestinationHostController';
 import { OrderTicketLaunchHost } from '../../src/features/trade/OrderTicketLaunchHost';
 import { QuoteInfoLaunchHost } from '../../src/features/quotes/QuoteInfoLaunchHost';
+import { BrokersLaunchHost } from '../../src/features/settings/BrokersLaunchHost';
 import { FastTabs as Tabs } from '../../src/ui/navigation/FastTabNavigator';
 import {
   scheduleFastTabNavigation,
@@ -232,10 +236,21 @@ export default function TabsLayout() {
 
   useEffect(() => {
     if (previousPathRef.current !== pathname) {
+      const previousPath = previousPathRef.current;
+      const hostedDestination = sidebarDestinationController.getSnapshot();
+      const isReturningFromBrokersToAccounts =
+        previousPath === '/settings/brokers'
+        && hostedDestination.activeDestination === 'accounts'
+        && hostedDestination.source === 'route-sync';
+
       // A hosted sidebar page may push a normal stack route (for example,
       // About -> Privacy Policy). Reveal that real route as soon as its path
       // changes instead of leaving the independent fast host over it.
-      hideSidebarDestination();
+      // Brokers Back is the one inverse handoff: it deliberately restores the
+      // retained Accounts screen underneath before the native route pops.
+      if (!isReturningFromBrokersToAccounts) {
+        hideSidebarDestination();
+      }
       const uiState = useUIState.getState();
       const visibleScopedActionSheet = uiState.actionSheetScope
         ? uiState.scopedActionSheets[uiState.actionSheetScope] !== null
@@ -383,7 +398,8 @@ const TabsLayoutInner = memo(function TabsLayoutInner({
       </Tabs>
 
       <SidebarDestinationHost />
-      {/* Keep these previews mounted so the selected symbol option can appear immediately. */}
+      {/* Keep route handoff shells mounted so toolbar and symbol actions paint immediately. */}
+      <BrokersLaunchHost />
       <OrderTicketLaunchHost />
       <QuoteInfoLaunchHost />
 

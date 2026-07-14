@@ -4,6 +4,14 @@ import {
   loadAccountsScreenRoute,
 } from '../features/settings/accountsScreenPreload';
 import {
+  BROKERS_ROUTE_MODULE_CACHE_KEY,
+  loadBrokersScreenRoute,
+} from '../features/settings/BrokersScreen/brokersScreenPreload';
+import {
+  BROKER_DETAIL_ROUTE_MODULE_CACHE_KEY,
+  loadBrokerDetailScreenRoute,
+} from '../features/settings/brokerDetailScreenPreload';
+import {
   MARKET_STATISTICS_ROUTE_MODULE_CACHE_KEY,
   SYMBOL_DETAILS_ROUTE_MODULE_CACHE_KEY,
   loadMarketStatisticsScreenRoute,
@@ -14,6 +22,7 @@ import {
   loadOrderTicketScreenRoute,
 } from '../features/trade/orderTicketScreenPreload';
 import { preloadDeferredRouteModule } from '../ui/components/DeferredRouteMount';
+import { prefetchBrokerServers } from '../query/broker';
 import { scheduleIdleWork } from './startupScheduler';
 
 const ACTION_ROUTE_WARMUP_BATCH_SIZE = 8;
@@ -37,7 +46,10 @@ export const ACTION_ROUTE_WARMUP_PATHS = [
   '/settings/journal',
   '/settings/economic-calendar',
   '/settings/accounts',
+  '/settings/brokers',
+  '/settings/broker-detail',
   '/settings/interface',
+  '/register-entry',
   '/register',
   '/login',
   '/trade/order-ticket',
@@ -65,6 +77,12 @@ const ACTION_DEFERRED_MODULE_WARMUPS = [
   // first "Manage accounts" tap stares at the launch preview while the
   // AccountsScreen module evaluates.
   { cacheKey: ACCOUNTS_ROUTE_MODULE_CACHE_KEY, load: loadAccountsScreenRoute },
+  // Accounts' + action shows a mounted Brokers shell first; keep the real
+  // screen module warm so the shell-to-route handoff completes within frames.
+  { cacheKey: BROKERS_ROUTE_MODULE_CACHE_KEY, load: loadBrokersScreenRoute },
+  // A broker row shows a live-data shell immediately; warm the full account
+  // form so the shell is replaced by interactive controls within a few frames.
+  { cacheKey: BROKER_DETAIL_ROUTE_MODULE_CACHE_KEY, load: loadBrokerDetailScreenRoute },
   // Quotes symbol action-sheet destinations hide their heavy screens behind
   // DeferredRouteModule so the sheet tap commits only a light launch preview;
   // warm their modules so the preview lasts about one frame instead of a
@@ -94,6 +112,9 @@ export function warmActionRoutes(router: PrefetchRouter) {
   }
 
   actionRoutesWarmupStarted = true;
+  // The Brokers preview already looks complete; warm the real directory now so
+  // its interactive rows can replace that preview without a loading state.
+  void prefetchBrokerServers().catch(() => undefined);
   let cancelled = false;
   const cancelScheduledBatches = new Set<() => void>();
   let cursor = 0;

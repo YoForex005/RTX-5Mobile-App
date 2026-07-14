@@ -4389,10 +4389,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     (!chartCanvasReady || !candlesAvailable || chartDataLoading) &&
     (shouldShowImmediateHistoryLoading || loadingDelayPassed) &&
     !loadingFallback;
-  // Keep same-context tab returns visually stable, but cover a cold
-  // symbol/timeframe switch until that exact series is painted. A lifetime-only
-  // flag exposed the empty WebView grid for the whole REST request after the
-  // first chart had ever rendered.
+  // Keep the loader until this exact symbol and timeframe has drawn candles.
+  // Returning to an already-painted chart stays instant.
   const hasPaintedCurrentChartContext =
     hasPaintedChartOnce && lastPaintedChartDataContextSig === chartDataContextSig;
   const shouldShowChartLoadingOverlay =
@@ -4801,6 +4799,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     if (renderableCandles.length === 0) {
       if (contextChanged) {
         try {
+          // Clear the old symbol while new history loads, so stale candles
+          // cannot flash under the loader.
           webViewRef.current.injectJavaScript(`
             updateChartData([]);
             true;

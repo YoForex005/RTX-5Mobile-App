@@ -49,11 +49,7 @@ function writeQuoteInfoLaunchDestinationNow(
   }
 }
 
-/**
- * Pre-mounted optimistic first frame for Quotes -> Properties / Market
- * Statistics. Both exact shells stay mounted and a numeric SharedValue chooses
- * the destination without waiting for a React render.
- */
+/** Keeps Properties and Market Statistics previews ready so a tap can show one immediately. */
 export function QuoteInfoLaunchHost() {
   const router = useRouter();
   const backInFlightRef = useRef(false);
@@ -111,6 +107,9 @@ export function QuoteInfoLaunchHost() {
         setTimeout(tryPop, 16);
       }
     };
+
+    // Back may be tapped before the real route is on the stack.
+    // Try briefly and pop it as soon as it exists.
     tryPop();
   }, [router]);
 
@@ -122,6 +121,9 @@ export function QuoteInfoLaunchHost() {
 
     backInFlightRef.current = true;
     const navigationStarted = currentSnapshot.navigationStarted;
+
+    // Hide the preview immediately. If the real route already started,
+    // remove it too as soon as navigation is ready.
     quoteInfoLaunchController.hide(currentSnapshot.revision);
 
     if (backGuardTimerRef.current) {
@@ -219,11 +221,7 @@ export function QuoteInfoLaunchHost() {
         </Animated.View>
       </Animated.View>
 
-      {/*
-       * This plain-React host is a SIBLING of the animated fast path. Keeping it
-       * outside hostAnimatedStyle is essential: if a SharedValue write trails
-       * a busy JS turn, animated opacity cannot suppress the React fallback.
-       */}
+      {/* Keep this fallback outside the animated layer so it can still show if the UI-thread value arrives late. */}
       <View
         pointerEvents={snapshot.visible ? 'auto' : 'none'}
         accessibilityElementsHidden={!snapshot.visible}

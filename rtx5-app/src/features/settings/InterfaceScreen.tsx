@@ -6,7 +6,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
  * persisted to userPreferences and applied immediately app-wide via the
  * useTranslation hook.
  */
-import React, { memo, useCallback, useMemo } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
@@ -17,7 +17,7 @@ import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteM
 import { hideSidebarDestination } from '../../ui/components/sidebarDestinationHostController';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
-import { useUserPreferences } from '../../state/userPreferences';
+import { useUserPreferences, type LanguageCode } from '../../state/userPreferences';
 import { useTranslation } from '../../i18n/useTranslation';
 import { SUPPORTED_LANGUAGES } from '../../i18n/translations';
 import { safeRouterBack } from '../../utils/navigation';
@@ -41,10 +41,68 @@ export const InterfaceScreenInner = memo(function InterfaceScreenInner({
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const { t, language, setLanguage } = useTranslation();
+  const [visualLanguage, setVisualLanguage] = useState<LanguageCode>(language);
+  const languageCommitRevisionRef = useRef(0);
+  const languageCommitFrameRef = useRef<number | null>(null);
+  const languageCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
   // Hosted by the sidebar destination host, this view stays mounted while
   // hidden. Keep only the header until the first focus, then latch the body.
   const hostBodyReady = useDeferredRouteContentReady(0, isScreenFocused);
+
+  const cancelPendingLanguageCommit = useCallback(() => {
+    if (languageCommitFrameRef.current !== null) {
+      if (typeof globalThis.cancelAnimationFrame === 'function') {
+        globalThis.cancelAnimationFrame(languageCommitFrameRef.current);
+      }
+      languageCommitFrameRef.current = null;
+    }
+    if (languageCommitTimerRef.current) {
+      clearTimeout(languageCommitTimerRef.current);
+      languageCommitTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    languageCommitRevisionRef.current += 1;
+    cancelPendingLanguageCommit();
+    setVisualLanguage(language);
+  }, [cancelPendingLanguageCommit, language]);
+
+  useEffect(() => cancelPendingLanguageCommit, [cancelPendingLanguageCommit]);
+
+  const handleLanguagePress = useCallback((nextLanguage: LanguageCode) => {
+    setVisualLanguage(nextLanguage);
+    languageCommitRevisionRef.current += 1;
+    cancelPendingLanguageCommit();
+
+    if (nextLanguage === language) {
+      return;
+    }
+
+    const revision = languageCommitRevisionRef.current;
+    const commitIfCurrent = () => {
+      languageCommitTimerRef.current = null;
+      if (languageCommitRevisionRef.current !== revision) {
+        return;
+      }
+      setLanguage(nextLanguage);
+    };
+
+    // Show the tick first, then let the app-wide translation update run.
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      const frameId = globalThis.requestAnimationFrame(() => {
+        if (languageCommitFrameRef.current === frameId) {
+          languageCommitFrameRef.current = null;
+        }
+        languageCommitTimerRef.current = setTimeout(commitIfCurrent, 0);
+      });
+      languageCommitFrameRef.current = frameId;
+      return;
+    }
+
+    languageCommitTimerRef.current = setTimeout(commitIfCurrent, 16);
+  }, [cancelPendingLanguageCommit, language, setLanguage]);
 
   /**
    * Leaves the screen: when hosted by the sidebar destination host, hiding the
@@ -82,15 +140,16 @@ export const InterfaceScreenInner = memo(function InterfaceScreenInner({
       {hostBodyReady ? <FlatList
         keyboardShouldPersistTaps="always"
         data={SUPPORTED_LANGUAGES}
-        extraData={language}
+        extraData={visualLanguage}
         keyExtractor={(item) => item.code}
         contentContainerStyle={styles.listContent}
         renderItem={({ item }) => {
-          const selected = item.code === language;
+          const selected = item.code === visualLanguage;
           return (
             <Pressable
-              onPress={() => setLanguage(item.code)}
+              onPress={() => handleLanguagePress(item.code)}
               activateOnPressIn
+              latencyBudgetMs={50}
               latencyLabel={`interface.language.${item.code}`}
               unstable_pressDelay={0}
               accessibilityRole="button"
