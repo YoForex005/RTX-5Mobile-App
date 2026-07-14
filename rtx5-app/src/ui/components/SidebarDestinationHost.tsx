@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import { memo, useEffect, useSyncExternalStore } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type RefCallback } from 'react';
 import { BackHandler, StyleSheet, View } from 'react-native';
 import { AboutScreenInner } from '../../features/settings/AboutScreen';
 import { AccountsScreenInner } from '../../features/settings/AccountsScreen';
@@ -90,6 +90,7 @@ type SidebarDestinationLayerProps = Readonly<{
    * fresh-boot JS loop).
    */
   visualActive: boolean;
+  layerRef: RefCallback<View>;
 }>;
 
 const SidebarDestinationLayer = memo(function SidebarDestinationLayer({
@@ -97,11 +98,14 @@ const SidebarDestinationLayer = memo(function SidebarDestinationLayer({
   adapter,
   active,
   visualActive,
+  layerRef,
 }: SidebarDestinationLayerProps) {
   const DestinationView = adapter.View;
 
   return (
     <View
+      ref={layerRef}
+      collapsable={false}
       style={[
         styles.destination,
         visualActive ? styles.destinationVisible : styles.destinationHidden,
@@ -128,28 +132,87 @@ export const SidebarDestinationHost = memo(function SidebarDestinationHost({
   registry = SIDEBAR_DESTINATION_COMPATIBILITY_REGISTRY,
   onVisibilityChange,
 }: SidebarDestinationHostProps) {
+  const layerRefs = useRef<Partial<Record<SidebarHostDestination, View | null>>>({});
+  const nativeVisualDestinationRef = useRef<SidebarHostDestination | null>(
+    controller.getSnapshot().activeDestination,
+  );
+  const layerRefSetters = useMemo(() => Object.fromEntries(
+    SIDEBAR_HOST_DESTINATIONS.map((destination) => [
+      destination,
+      (layer: View | null) => {
+        layerRefs.current[destination] = layer;
+        if (layer) {
+          const visible = controller.getSnapshot().activeDestination === destination;
+          layer.setNativeProps({
+            accessibilityElementsHidden: !visible,
+            importantForAccessibility: visible ? 'auto' : 'no-hide-descendants',
+            pointerEvents: visible ? 'auto' : 'none',
+            style: visible ? styles.destinationVisible : styles.destinationHidden,
+          });
+        }
+      },
+    ]),
+  ) as Record<SidebarHostDestination, RefCallback<View>>, [controller]);
+  const sweepVisualDestinationNow = useCallback((visualDestination: SidebarHostDestination | null) => {
+    for (const destination of SIDEBAR_HOST_DESTINATIONS) {
+      const visible = destination === visualDestination;
+      layerRefs.current[destination]?.setNativeProps({
+        accessibilityElementsHidden: !visible,
+        importantForAccessibility: visible ? 'auto' : 'no-hide-descendants',
+        pointerEvents: visible ? 'auto' : 'none',
+        style: visible ? styles.destinationVisible : styles.destinationHidden,
+      });
+    }
+    nativeVisualDestinationRef.current = visualDestination;
+  }, []);
+  const applyVisualDestinationNow = useCallback((visualDestination: SidebarHostDestination | null) => {
+    const previousDestination = nativeVisualDestinationRef.current;
+    if (previousDestination && previousDestination !== visualDestination) {
+      layerRefs.current[previousDestination]?.setNativeProps({
+        accessibilityElementsHidden: true,
+        importantForAccessibility: 'no-hide-descendants',
+        pointerEvents: 'none',
+        style: styles.destinationHidden,
+      });
+    }
+    if (visualDestination) {
+      layerRefs.current[visualDestination]?.setNativeProps({
+        accessibilityElementsHidden: false,
+        importantForAccessibility: 'auto',
+        pointerEvents: 'auto',
+        style: styles.destinationVisible,
+      });
+    }
+    nativeVisualDestinationRef.current = visualDestination;
+  }, []);
   // Focus/query state rides the deliberately two-frame-deferred subscription
   // so heavy destination work never runs in the tap turn...
   const snapshot = useSyncExternalStore(
     controller.subscribe,
-    controller.getSnapshot,
-    controller.getSnapshot,
-  );
-  // ...while layer VISIBILITY rides the synchronous subscription and commits
-  // with the tap turn itself. The previous Reanimated shared-value flip was
-  // observed on-device lagging >1s behind a congested fresh-boot JS loop,
-  // leaving the old page on screen after the drawer closed.
-  const visualSnapshot = useSyncExternalStore(
-    controller.subscribeVisual,
-    controller.getSnapshot,
-    controller.getSnapshot,
+    controller.getFocusSnapshot,
+    controller.getFocusSnapshot,
   );
   const activeDestination = snapshot.activeDestination;
-  const visualDestination = visualSnapshot.activeDestination;
+  // Visibility is applied imperatively in the touch turn. React adopts the
+  // same value with the intentionally delayed focus snapshot; subscribing a
+  // second time here reconciled all seven retained screens during the tap.
+  const visualDestination = controller.getSnapshot().activeDestination;
 
   useEffect(() => {
     onVisibilityChange?.(activeDestination !== null, activeDestination);
   }, [activeDestination, onVisibilityChange]);
+
+  useLayoutEffect(() => {
+    let firstApplication = true;
+    return controller.registerVisualApplier((destination) => {
+      if (firstApplication) {
+        firstApplication = false;
+        sweepVisualDestinationNow(destination);
+        return;
+      }
+      applyVisualDestinationNow(destination);
+    });
+  }, [applyVisualDestinationNow, controller, sweepVisualDestinationNow]);
 
   useEffect(() => {
     // The retained visual layer switches before focus subscribers are
@@ -198,6 +261,7 @@ export const SidebarDestinationHost = memo(function SidebarDestinationHost({
             adapter={adapter}
             active={active}
             visualActive={visualActive}
+            layerRef={layerRefSetters[destination]}
           />
         );
       })}

@@ -18,7 +18,10 @@ import { GDark, GLight } from '../src/ui/theme/glass';
 import { useTranslation } from '../src/i18n/useTranslation';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { safeRouterBack } from '../src/utils/navigation';
+import { SidebarDestinationHost } from '../src/ui/components/SidebarDestinationHost';
+import { BrokersLaunchHost } from '../src/features/settings/BrokersLaunchHost';
 import { BrokerDetailLaunchHost } from '../src/features/settings/BrokerDetailLaunchHost';
+import { RegisterLaunchHost } from '../src/features/settings/RegisterLaunchHost';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
 
@@ -177,8 +180,11 @@ function InnerLayout() {
           <Stack.Screen name='settings/contact-developer' options={sidebarDetailScreenOptions} />
           <Stack.Screen name='settings/about' options={sidebarDetailScreenOptions} />
         </Stack>
-        {/* Root-level because Brokers and Broker Detail are both above the tab navigator. */}
+        {/* Root-level retained handoffs cover every native broker-flow route. */}
+        <SidebarDestinationHost />
+        <BrokersLaunchHost />
         <BrokerDetailLaunchHost />
+        <RegisterLaunchHost />
         <SidebarDrawer />
         </ThemeProvider>
       </WebIPhoneFrame>

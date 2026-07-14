@@ -17,14 +17,12 @@ import {
   registerSidebarTabNavigationHandler,
   type SidebarMountedTabPath,
 } from '../../src/ui/components/sidebarDrawerController';
-import { SidebarDestinationHost } from '../../src/ui/components/SidebarDestinationHost';
 import {
   hideSidebarDestination,
   sidebarDestinationController,
 } from '../../src/ui/components/sidebarDestinationHostController';
 import { OrderTicketLaunchHost } from '../../src/features/trade/OrderTicketLaunchHost';
 import { QuoteInfoLaunchHost } from '../../src/features/quotes/QuoteInfoLaunchHost';
-import { BrokersLaunchHost } from '../../src/features/settings/BrokersLaunchHost';
 import { FastTabs as Tabs } from '../../src/ui/navigation/FastTabNavigator';
 import {
   scheduleFastTabNavigation,
@@ -236,19 +234,20 @@ export default function TabsLayout() {
 
   useEffect(() => {
     if (previousPathRef.current !== pathname) {
-      const previousPath = previousPathRef.current;
       const hostedDestination = sidebarDestinationController.getSnapshot();
-      const isReturningFromBrokersToAccounts =
-        previousPath === '/settings/brokers'
-        && hostedDestination.activeDestination === 'accounts'
+      const isRestoringAccountsFromBrokerFlow =
+        hostedDestination.activeDestination === 'accounts'
         && hostedDestination.source === 'route-sync';
 
       // A hosted sidebar page may push a normal stack route (for example,
       // About -> Privacy Policy). Reveal that real route as soon as its path
       // changes instead of leaving the independent fast host over it.
-      // Brokers Back is the one inverse handoff: it deliberately restores the
-      // retained Accounts screen underneath before the native route pops.
-      if (!isReturningFromBrokersToAccounts) {
+      // Broker-flow Back is the inverse handoff: it deliberately restores the
+      // retained Accounts screen before the native route pops. The tabs tree
+      // can be frozen while root-stack routes are above it, so its remembered
+      // previous pathname is not reliable proof of that handoff. The explicit
+      // route-sync ownership is the stable signal.
+      if (!isRestoringAccountsFromBrokerFlow) {
         hideSidebarDestination();
       }
       const uiState = useUIState.getState();
@@ -397,9 +396,6 @@ const TabsLayoutInner = memo(function TabsLayoutInner({
         <Tabs.Screen name='settings' options={{ title: t('Settings') }} />
       </Tabs>
 
-      <SidebarDestinationHost />
-      {/* Keep route handoff shells mounted so toolbar and symbol actions paint immediately. */}
-      <BrokersLaunchHost />
       <OrderTicketLaunchHost />
       <QuoteInfoLaunchHost />
 

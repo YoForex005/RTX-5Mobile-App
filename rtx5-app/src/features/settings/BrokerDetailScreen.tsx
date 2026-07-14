@@ -15,6 +15,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Image,
   Keyboard,
   KeyboardAvoidingView,
@@ -42,7 +43,10 @@ import { normalizeBrokerServerUrl, resolveBrokerServiceBaseUrl } from '../../api
 import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../../query/accounts';
 import { BROKER_CONFIG_KEY, useBrokerServers } from '../../query/broker';
 import { getTradingAccountTypeFromBackend } from '../../domain/accountType';
-import { safeRouterBack } from '../../utils/navigation';
+import {
+  safeRouterBack,
+  scheduleBackNavigationAfterVisualFrame,
+} from '../../utils/navigation';
 import { ActionSheet } from '../../ui/components/ActionSheet';
 import {
   setSecureItemAsync,
@@ -58,11 +62,16 @@ import { runImmediateAction } from '../../utils/actionLatency';
 import { formatServerFromName } from './BrokersScreen/brokerData';
 import { BrokerDetailLaunchShell } from './BrokerDetailLaunchShell';
 import {
-  completeBrokerDetailLaunch,
+  brokerDetailLaunchController,
   hideBrokerDetailLaunch,
-  markBrokerDetailLaunchCovered,
   normalizeBrokerDetailLaunchSelection,
+  scheduleBrokerDetailLaunchCoverRemoval,
 } from './brokerDetailLaunchController';
+import { showBrokersLaunch } from './brokersLaunchController';
+import {
+  scheduleRegisterLaunchNavigation,
+  showRegisterLaunch,
+} from './registerLaunchController';
 
 const SAVED_LOGIN_KEY = 'rtx5_saved_login';
 const primaryBlue = '#2563EB';
@@ -156,7 +165,6 @@ export function BrokerDetailScreen() {
   const params = useLocalSearchParams<BrokerDetailRouteParams>();
   const isScreenFocused = useIsFocused();
   const contentReady = useDeferredRouteContentReady(0, isScreenFocused);
-  const wasFocusedRef = useRef(false);
   const selection = useMemo(() => normalizeBrokerDetailLaunchSelection({
     brokerId: params.brokerId,
     brokerName: params.brokerName,
@@ -174,46 +182,82 @@ export function BrokerDetailScreen() {
   ]);
 
   const handleBack = useCallback(() => {
-    hideBrokerDetailLaunch();
-    safeRouterBack(router, '/settings/brokers');
+    showBrokersLaunch();
+    if (brokerDetailLaunchController.isVisible()) {
+      hideBrokerDetailLaunch();
+    }
+    scheduleBackNavigationAfterVisualFrame(() => {
+      safeRouterBack(router, '/settings/brokers');
+    });
+  }, [router]);
+  const handleOpenDemo = useCallback(() => {
+    const registerRevision = showRegisterLaunch(selection);
+    scheduleRegisterLaunchNavigation(registerRevision, () => {
+      router.push({
+        pathname: '/register-entry',
+        params: {
+          origin: 'broker-detail',
+          registerLaunchRevision: String(registerRevision),
+        },
+      });
+    });
   }, [router]);
 
   useLayoutEffect(() => {
     if (!isScreenFocused || !contentReady) return;
 
-    // Remove the root shell in the same commit that installs the interactive
-    // controls. A normal effect leaves one tappable frame covered on Android.
-    markBrokerDetailLaunchCovered();
+    const launchRevision = brokerDetailLaunchController.getSnapshot().revision;
+    scheduleBrokerDetailLaunchCoverRemoval(launchRevision);
   }, [contentReady, isScreenFocused]);
 
   useEffect(() => {
-    if (isScreenFocused) {
-      wasFocusedRef.current = true;
-      return;
-    }
+    if (!isScreenFocused) return undefined;
 
-    if (wasFocusedRef.current) {
-      wasFocusedRef.current = false;
-      completeBrokerDetailLaunch();
-    }
+    // This focus owns only the revision that existed when it became active.
+    // Its delayed blur cleanup must never hide a newer cover created by Demo
+    // Account Back while React is still flushing the older focus transition.
+    const ownedLaunchRevision = brokerDetailLaunchController.getSnapshot().revision;
+    return () => {
+      hideBrokerDetailLaunch(ownedLaunchRevision);
+    };
   }, [isScreenFocused]);
 
+  useEffect(() => {
+    if (!isScreenFocused) return undefined;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleBack();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [handleBack, isScreenFocused]);
+
   if (!contentReady) {
+    if (brokerDetailLaunchController.isVisible()) {
+      return null;
+    }
     return (
       <BrokerDetailLaunchShell
         selection={selection}
         onBack={handleBack}
+        onOpenDemo={handleOpenDemo}
         backLatencyLabel="brokerDetail.initial.back"
       />
     );
   }
 
-  return <BrokerDetailInteractiveContent onBack={handleBack} />;
+  return <BrokerDetailInteractiveContent onBack={handleBack} selection={selection} />;
 }
 
 /** Displays the full interactive account and login controls after first paint. */
-function BrokerDetailInteractiveContent({ onBack }: { onBack: () => void }) {
+function BrokerDetailInteractiveContent({
+  onBack,
+  selection,
+}: {
+  onBack: () => void;
+  selection: ReturnType<typeof normalizeBrokerDetailLaunchSelection>;
+}) {
   const router = useRouter();
+  const isScreenFocused = useIsFocused();
   const params = useLocalSearchParams<BrokerDetailRouteParams>();
   const T = useTheme();
   const { t } = useTranslation();
@@ -230,7 +274,7 @@ function BrokerDetailInteractiveContent({ onBack }: { onBack: () => void }) {
   const showBrokerDetailActionSheet = useUIState((s) => s.showBrokerDetailActionSheet);
   const actionSheet = useUIState((s) => s.scopedActionSheets.settingsBrokerDetail);
   const hideBrokerDetailActionSheet = useUIState((s) => s.hideBrokerDetailActionSheet);
-  const { data: brokerServers } = useBrokerServers(true);
+  const { data: brokerServers } = useBrokerServers(isScreenFocused);
 
   // Real-account option is disabled while the active session is a real
   // account, matching MT5: it shows as muted so the user knows they already
@@ -466,9 +510,16 @@ function BrokerDetailInteractiveContent({ onBack }: { onBack: () => void }) {
       );
       return;
     }
-    // Push only the lightweight entry screen on this touch. That destination
-    // shows its complete preview first, then loads the heavy form after paint.
-    router.push('/register-entry');
+    const registerRevision = showRegisterLaunch(selection);
+    scheduleRegisterLaunchNavigation(registerRevision, () => {
+      router.push({
+        pathname: '/register-entry',
+        params: {
+          origin: 'broker-detail',
+          registerLaunchRevision: String(registerRevision),
+        },
+      });
+    });
   };
 
   const openServerSelector = () => {
@@ -715,7 +766,9 @@ function BrokerDetailInteractiveContent({ onBack }: { onBack: () => void }) {
             hitSlop={15}
             onPress={onBack}
             activateOnPressIn
+            activateOnTouchStart
             latencyLabel="brokerDetail.back"
+            latencyBudgetMs={50}
             unstable_pressDelay={0}
           >
             <Ionicons name="arrow-back" size={26} color={T.text} />

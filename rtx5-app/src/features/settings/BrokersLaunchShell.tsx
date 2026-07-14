@@ -12,19 +12,20 @@ import {
   buildBrokerDirectoryRows,
   buildBrokerDomainLogoUrl,
   formatBrokerInitials,
+  resolveBrokerDomain,
   sortBrokerDirectoryRows,
   type BrokerDirectoryRow,
 } from './BrokersScreen/brokerDirectoryRows';
+import { formatServerFromName } from './BrokersScreen/brokerData';
 
 type BrokersLaunchShellProps = Readonly<{
   onBack: () => void;
+  onSelectBroker?: (broker: BrokerDirectoryRow) => void;
   backLatencyLabel?: string;
+  dataActive?: boolean;
 }>;
 
-const BROKERS_LAUNCH_FALLBACK_ROWS: readonly Pick<
-  BrokerDirectoryRow,
-  'name' | 'brokerId' | 'logoUrl' | 'domain'
->[] = [
+const BROKERS_LAUNCH_FALLBACK_ROWS: readonly BrokerDirectoryRow[] = [
   { name: 'Achiever Financials LTD', brokerId: 'achiever-financials' },
   { name: 'Alpha FX Markets', brokerId: 'alphafx' },
   { name: 'Beta Trade Pro', brokerId: 'betatrade' },
@@ -35,7 +36,13 @@ const BROKERS_LAUNCH_FALLBACK_ROWS: readonly Pick<
   { name: 'Omega Global Markets', brokerId: 'omegaglobal' },
 ].map((row) => ({
   ...row,
+  id: `launch-${row.brokerId}`,
+  server: formatServerFromName(row.name),
+  serverUrl: '',
   logoUrl: `${PUBLIC_BROKER_DIRECTORY_BASE_URL}/brokers/${row.brokerId}/logo`,
+  region: '',
+  protocol: '',
+  domain: resolveBrokerDomain(row.brokerId) ?? resolveBrokerDomain(row.name),
 }));
 
 const brokerLogoPrefetches = new Map<string, Promise<boolean>>();
@@ -57,13 +64,15 @@ function prefetchBrokerLogo(logoUrl: string) {
  */
 export const BrokersLaunchShell = memo(function BrokersLaunchShell({
   onBack,
+  onSelectBroker,
   backLatencyLabel = 'brokers.launch.back',
+  dataActive = true,
 }: BrokersLaunchShellProps) {
   const T = useTheme();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const isDark = useUserPreferences((state) => state.themeMode) === 'dark';
-  const { data: brokerServers } = useBrokerServers(true);
+  const { data: brokerServers } = useBrokerServers(dataActive);
   const styles = useMemo(
     () => makeStyles(T, isDark, insets.top),
     [T, insets.top, isDark],
@@ -108,11 +117,11 @@ export const BrokersLaunchShell = memo(function BrokersLaunchShell({
         <Text style={styles.searchPlaceholder}>{t('Find broker')}</Text>
       </View>
 
-      <View style={styles.list} pointerEvents="none">
+      <View style={styles.list} pointerEvents={onSelectBroker ? 'auto' : 'none'}>
         {previewRows.map((row) => {
           const logoUri = row.logoUrl || buildBrokerDomainLogoUrl(row.domain);
-          return (
-            <View key={row.brokerId} style={styles.brokerRow}>
+          const rowContent = (
+            <>
               <View style={styles.avatar}>
                 {logoUri ? (
                   <Image
@@ -134,6 +143,30 @@ export const BrokersLaunchShell = memo(function BrokersLaunchShell({
               <View style={styles.chevronSpace}>
                 <Ionicons name="chevron-forward" size={20} color={T.textSub} />
               </View>
+            </>
+          );
+
+          if (onSelectBroker) {
+            return (
+              <FastPressable
+                key={row.brokerId}
+                style={styles.brokerRow}
+                onPress={() => onSelectBroker(row)}
+                activateOnPressIn
+                latencyLabel={`brokers.launch.row.${row.brokerId}`}
+                latencyBudgetMs={50}
+                unstable_pressDelay={0}
+                accessibilityRole="button"
+                accessibilityLabel={row.name}
+              >
+                {rowContent}
+              </FastPressable>
+            );
+          }
+
+          return (
+            <View key={row.brokerId} style={styles.brokerRow}>
+              {rowContent}
             </View>
           );
         })}

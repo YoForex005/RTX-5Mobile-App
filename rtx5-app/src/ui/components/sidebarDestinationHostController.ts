@@ -38,7 +38,14 @@ export type SidebarDestinationVisualApplier = (
 ) => void;
 
 export type SidebarDestinationController = Readonly<{
+  /** Immediate visual/imperative state for the currently revealed layer. */
   getSnapshot: () => SidebarDestinationSnapshot;
+  /**
+   * Retained focus/query state. This advances only when the deferred focus
+   * notification is published, so a visual-store render cannot pull heavy
+   * destination work into the tap frame.
+   */
+  getFocusSnapshot: () => SidebarDestinationSnapshot;
   subscribe: (listener: () => void) => () => void;
   /**
    * Like subscribe, but notified synchronously in the same JavaScript turn as
@@ -84,6 +91,7 @@ const CLOSED_SNAPSHOT: SidebarDestinationSnapshot = Object.freeze({
 
 /** Focus/query work runs only after the drawer close motion has settled. */
 const FOCUS_NOTIFY_SETTLE_DELAY_MS = 110;
+const SIDEBAR_DESTINATION_CONTROLLER_VERSION = 2;
 
 /**
  * Converts Expo Router paths (including grouped routes and query/hash suffixes)
@@ -119,10 +127,10 @@ export function resolveSidebarHostDestination(
 }
 
 /**
- * Small external store used by the root destination host. The snapshot and
- * retained visual layer change in the same JavaScript turn as show/hide. On a
- * device, subscribers receive focus/query state after two paint frames so the
- * tap never waits for React work or a router/native-screen transition.
+ * Small external store used by the root destination host. The immediate visual
+ * snapshot and retained layer change in the same JavaScript turn as show/hide.
+ * On a device, the separate focus snapshot advances after two paint frames so
+ * the tap never waits for destination focus/query work.
  */
 export function createSidebarDestinationController(
   initialDestinationOrPath?: SidebarHostDestination | SidebarHostDestinationPath | string | null,
@@ -142,20 +150,23 @@ export function createSidebarDestinationController(
       revision: 1,
     })
     : CLOSED_SNAPSHOT;
+  let focusSnapshot = snapshot;
 
   const notifyAfterFirstVisualFrame = (
-    revision: number,
-    source: SidebarDestinationActivationSource | null,
+    nextSnapshot: SidebarDestinationSnapshot,
   ) => {
     const notifyIfCurrent = () => {
-      if (notificationRevision === revision) {
-        listeners.forEach((listener) => listener());
+      if (notificationRevision !== nextSnapshot.revision) {
+        return;
       }
+
+      focusSnapshot = nextSnapshot;
+      listeners.forEach((listener) => listener());
     };
 
     // Settings rows have no drawer animation to protect. Publish focus now so
     // the hosted screen's own two-frame body gate is the only first-open wait.
-    if (source === 'settings') {
+    if (nextSnapshot.source === 'settings') {
       notifyIfCurrent();
       return;
     }
@@ -184,11 +195,13 @@ export function createSidebarDestinationController(
     // this same JavaScript turn — the Reanimated applier alone was observed
     // lagging >1s behind a congested JS loop on-device.
     visualListeners.forEach((listener) => listener());
-    notifyAfterFirstVisualFrame(nextSnapshot.revision, nextSnapshot.source);
+    notifyAfterFirstVisualFrame(snapshot);
   };
 
   return Object.freeze({
     getSnapshot: () => snapshot,
+
+    getFocusSnapshot: () => focusSnapshot,
 
     subscribe: (listener: () => void) => {
       listeners.add(listener);
@@ -256,6 +269,7 @@ export function createSidebarDestinationController(
 
 type SidebarDestinationControllerGlobal = typeof globalThis & {
   __rtx5SidebarDestinationController?: SidebarDestinationController;
+  __rtx5SidebarDestinationControllerVersion?: number;
 };
 
 const controllerGlobal = globalThis as SidebarDestinationControllerGlobal;
@@ -264,12 +278,15 @@ const controllerGlobal = globalThis as SidebarDestinationControllerGlobal;
 const existingController = controllerGlobal.__rtx5SidebarDestinationController;
 export const sidebarDestinationController =
   existingController
+    && controllerGlobal.__rtx5SidebarDestinationControllerVersion === SIDEBAR_DESTINATION_CONTROLLER_VERSION
+    && typeof existingController.getFocusSnapshot === 'function'
     && typeof existingController.registerVisualApplier === 'function'
     && typeof existingController.subscribeVisual === 'function'
     ? existingController
     : createSidebarDestinationController();
 
 controllerGlobal.__rtx5SidebarDestinationController = sidebarDestinationController;
+controllerGlobal.__rtx5SidebarDestinationControllerVersion = SIDEBAR_DESTINATION_CONTROLLER_VERSION;
 
 export function showSidebarDestination(
   destinationOrPath: SidebarHostDestination | SidebarHostDestinationPath | string,

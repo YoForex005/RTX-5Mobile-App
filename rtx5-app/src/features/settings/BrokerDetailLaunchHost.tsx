@@ -1,87 +1,87 @@
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
-import { BackHandler, StyleSheet, View, type ViewProps } from 'react-native';
-import Animated, {
-  executeOnUIRuntimeSync,
-  makeMutable,
-  useAnimatedProps,
-  useAnimatedStyle,
-  type SharedValue,
-} from 'react-native-reanimated';
-import { safeRouterBack } from '../../utils/navigation';
+import { BackHandler, StyleSheet, View } from 'react-native';
+import {
+  safeRouterBack,
+  scheduleBackNavigationAfterVisualFrame,
+} from '../../utils/navigation';
 import { BrokerDetailLaunchShell } from './BrokerDetailLaunchShell';
 import { brokerDetailLaunchController } from './brokerDetailLaunchController';
+import { showBrokersLaunch } from './brokersLaunchController';
+import {
+  registerLaunchController,
+  scheduleRegisterLaunchNavigation,
+  showRegisterLaunch,
+} from './registerLaunchController';
 
-type BrokerDetailLaunchHostGlobal = typeof globalThis & {
-  __rtx5BrokerDetailLaunchVisibility?: SharedValue<number>;
-};
+const BROKER_DETAIL_LAUNCH_HIDDEN_STYLE = {
+  elevation: 0,
+  opacity: 0,
+  zIndex: 0,
+} as const;
+const BROKER_DETAIL_LAUNCH_VISIBLE_STYLE = {
+  elevation: 42,
+  opacity: 1,
+  zIndex: 42,
+} as const;
 
-const hostGlobal = globalThis as BrokerDetailLaunchHostGlobal;
-const brokerDetailLaunchVisibility =
-  hostGlobal.__rtx5BrokerDetailLaunchVisibility ?? makeMutable(0);
-hostGlobal.__rtx5BrokerDetailLaunchVisibility = brokerDetailLaunchVisibility;
-
-function writeBrokerDetailLaunchVisibilityNow(visible: boolean) {
-  const nextValue = visible ? 1 : 0;
-  try {
-    executeOnUIRuntimeSync((value: number) => {
-      'worklet';
-      brokerDetailLaunchVisibility.value = value;
-    })(nextValue);
-  } catch (error) {
-    if (typeof __DEV__ !== 'undefined' && __DEV__) {
-      console.warn('[BrokerDetailLaunch] sync UI write unavailable, using async fallback:', error);
-    }
-    brokerDetailLaunchVisibility.value = nextValue;
-  }
+function writeBrokerDetailLaunchVisibilityNow(layer: View | null, visible: boolean) {
+  layer?.setNativeProps({
+    accessibilityElementsHidden: !visible,
+    importantForAccessibility: visible ? 'auto' : 'no-hide-descendants',
+    pointerEvents: visible ? 'auto' : 'none',
+    style: visible ? BROKER_DETAIL_LAUNCH_VISIBLE_STYLE : BROKER_DETAIL_LAUNCH_HIDDEN_STYLE,
+  });
 }
 
 /** Root-level host: it can cover the Brokers route while broker detail is built. */
 export function BrokerDetailLaunchHost() {
   const router = useRouter();
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
   const backInFlightRef = useRef(false);
+  const pendingBackRevisionRef = useRef<number | null>(null);
   const backGuardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const snapshot = useSyncExternalStore(
+  const hostLayerRef = useRef<View>(null);
+  const selection = useSyncExternalStore(
     brokerDetailLaunchController.subscribe,
-    brokerDetailLaunchController.getSnapshot,
-    brokerDetailLaunchController.getSnapshot,
+    () => brokerDetailLaunchController.getSnapshot().selection,
+    () => brokerDetailLaunchController.getSnapshot().selection,
   );
-  const animatedStyle = useAnimatedStyle(() => {
-    const visible = brokerDetailLaunchVisibility.value === 1;
-    return {
-      elevation: visible ? 42 : 0,
-      opacity: visible ? 1 : 0,
-      zIndex: visible ? 42 : 0,
-    };
-  });
-  const animatedProps = useAnimatedProps<ViewProps>(() => ({
-    pointerEvents: brokerDetailLaunchVisibility.value === 1 ? 'auto' : 'none',
-  }));
+  const renderVisible = brokerDetailLaunchController.isVisible();
+  pathnameRef.current = pathname;
 
-  const popRouteWhenReady = useCallback(() => {
-    let attempt = 0;
-    const tryPop = () => {
-      try {
-        if (router.canGoBack()) {
-          safeRouterBack(router, '/settings/brokers');
-          return;
-        }
-      } catch {
-        return;
-      }
+  const armBackGuard = useCallback((delayMs: number) => {
+    if (backGuardTimerRef.current) clearTimeout(backGuardTimerRef.current);
+    backGuardTimerRef.current = setTimeout(() => {
+      backInFlightRef.current = false;
+      backGuardTimerRef.current = null;
+    }, delayMs);
+  }, []);
 
-      attempt += 1;
-      if (attempt > 4) return;
-      if (typeof globalThis.requestAnimationFrame === 'function') {
-        globalThis.requestAnimationFrame(tryPop);
-      } else {
-        setTimeout(tryPop, 16);
-      }
-    };
+  const finishCommittedBack = useCallback((revision: number) => {
+    const current = brokerDetailLaunchController.getSnapshot();
+    if (!current.visible || current.revision !== revision) {
+      pendingBackRevisionRef.current = null;
+      backInFlightRef.current = false;
+      return;
+    }
 
-    // Back can arrive before the native push commits; remove it when ready.
-    tryPop();
-  }, [router]);
+    pendingBackRevisionRef.current = null;
+    showBrokersLaunch();
+    brokerDetailLaunchController.hide(revision);
+    armBackGuard(700);
+    scheduleBackNavigationAfterVisualFrame(() => {
+      safeRouterBack(router, '/settings/brokers');
+    });
+  }, [armBackGuard, router]);
+
+  useEffect(() => {
+    if (pathname !== '/settings/broker-detail') return;
+    const pendingRevision = pendingBackRevisionRef.current;
+    if (pendingRevision === null) return;
+    finishCommittedBack(pendingRevision);
+  }, [finishCommittedBack, pathname]);
 
   const closeLaunch = useCallback(() => {
     const current = brokerDetailLaunchController.getSnapshot();
@@ -89,45 +89,77 @@ export function BrokerDetailLaunchHost() {
 
     backInFlightRef.current = true;
     const navigationStarted = current.navigationStarted;
-    brokerDetailLaunchController.hide(current.revision);
 
-    if (backGuardTimerRef.current) clearTimeout(backGuardTimerRef.current);
-    backGuardTimerRef.current = setTimeout(() => {
-      backInFlightRef.current = false;
-      backGuardTimerRef.current = null;
-    }, navigationStarted ? 700 : 100);
+    if (!navigationStarted) {
+      showBrokersLaunch();
+      brokerDetailLaunchController.hide(current.revision);
+      armBackGuard(100);
+      return;
+    }
 
-    if (navigationStarted) popRouteWhenReady();
-  }, [popRouteWhenReady]);
+    if (pathnameRef.current !== '/settings/broker-detail') {
+      pendingBackRevisionRef.current = current.revision;
+      return;
+    }
+
+    finishCommittedBack(current.revision);
+  }, [armBackGuard, finishCommittedBack]);
 
   const openDemoAccount = useCallback(() => {
     const current = brokerDetailLaunchController.getSnapshot();
-    brokerDetailLaunchController.hide(current.revision);
+    if (!current.visible || registerLaunchController.isVisible()) return;
 
-    // The launch shell may still cover the just-mounted broker route. Its Demo
-    // command pushes the lightweight entry immediately; that route owns load.
-    router.push('/register-entry');
+    // A complete Demo Account first frame is already mounted at the root.
+    // Reveal it synchronously, before either native route is constructed.
+    const registerRevision = showRegisterLaunch(current.selection);
+
+    // A very fast Demo tap can arrive before the scheduled Broker Detail push.
+    // Commit that missing stack entry now; startNavigation is single-flight, so
+    // the older scheduled callback becomes a harmless no-op.
+    if (!current.navigationStarted) {
+      if (!brokerDetailLaunchController.startNavigation(current.revision)) {
+        registerLaunchController.hide(registerRevision);
+        return;
+      }
+      router.push({
+        pathname: '/settings/broker-detail',
+        params: current.selection,
+      });
+    }
+
+    scheduleRegisterLaunchNavigation(registerRevision, () => {
+      router.push({
+        pathname: '/register-entry',
+        params: {
+          origin: 'broker-detail',
+          registerLaunchRevision: String(registerRevision),
+        },
+      });
+    });
   }, [router]);
 
   useEffect(
     () => brokerDetailLaunchController.registerVisualApplier(
-      writeBrokerDetailLaunchVisibilityNow,
+      (visible) => {
+        writeBrokerDetailLaunchVisibilityNow(hostLayerRef.current, visible);
+        if (visible && !registerLaunchController.isVisible()) {
+          pendingBackRevisionRef.current = null;
+          backInFlightRef.current = false;
+        }
+      },
     ),
     [],
   );
 
-  useEffect(() => {
-    if (snapshot.visible) backInFlightRef.current = false;
-  }, [snapshot.revision, snapshot.visible]);
-
   useEffect(() => () => {
+    pendingBackRevisionRef.current = null;
     if (backGuardTimerRef.current) clearTimeout(backGuardTimerRef.current);
   }, []);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (backInFlightRef.current) return true;
       if (!brokerDetailLaunchController.isVisible()) return false;
+      if (backInFlightRef.current) return true;
       closeLaunch();
       return true;
     });
@@ -136,35 +168,21 @@ export function BrokerDetailLaunchHost() {
 
   return (
     <View pointerEvents="box-none" style={styles.hostRoot} testID="broker-detail-launch-host">
-      <Animated.View
-        animatedProps={animatedProps}
-        pointerEvents={snapshot.visible ? 'auto' : 'none'}
-        accessibilityElementsHidden={!snapshot.visible}
-        importantForAccessibility={snapshot.visible ? 'auto' : 'no-hide-descendants'}
-        style={[styles.hostLayer, animatedStyle]}
+      <View
+        ref={hostLayerRef}
+        pointerEvents={renderVisible ? 'auto' : 'none'}
+        accessibilityElementsHidden={!renderVisible}
+        importantForAccessibility={renderVisible ? 'auto' : 'no-hide-descendants'}
+        collapsable={false}
+        style={[
+          styles.hostLayer,
+          renderVisible ? styles.hostLayerVisible : styles.hostLayerHidden,
+        ]}
+        // Keep the established diagnostic id for ADB/UI automation.
         testID="broker-detail-launch-animated-host"
       >
         <BrokerDetailLaunchShell
-          selection={snapshot.selection}
-          onBack={closeLaunch}
-          onOpenDemo={openDemoAccount}
-          backLatencyLabel="brokerDetail.launch.back"
-        />
-      </Animated.View>
-
-      {/* Plain React fallback covers devices where the sync UI write arrives late. */}
-      <View
-        pointerEvents={snapshot.visible ? 'auto' : 'none'}
-        accessibilityElementsHidden={!snapshot.visible}
-        importantForAccessibility={snapshot.visible ? 'auto' : 'no-hide-descendants'}
-        style={[
-          styles.hostLayer,
-          snapshot.visible ? styles.reactHostVisible : styles.reactHostHidden,
-        ]}
-        testID="broker-detail-launch-react-host"
-      >
-        <BrokerDetailLaunchShell
-          selection={snapshot.selection}
+          selection={selection}
           onBack={closeLaunch}
           onOpenDemo={openDemoAccount}
           backLatencyLabel="brokerDetail.launch.back"
@@ -177,6 +195,6 @@ export function BrokerDetailLaunchHost() {
 const styles = StyleSheet.create({
   hostRoot: { ...StyleSheet.absoluteFillObject },
   hostLayer: { ...StyleSheet.absoluteFillObject },
-  reactHostHidden: { elevation: 0, opacity: 0, zIndex: 0 },
-  reactHostVisible: { elevation: 43, opacity: 1, zIndex: 43 },
+  hostLayerHidden: BROKER_DETAIL_LAUNCH_HIDDEN_STYLE,
+  hostLayerVisible: BROKER_DETAIL_LAUNCH_VISIBLE_STYLE,
 });

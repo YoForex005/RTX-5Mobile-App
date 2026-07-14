@@ -24,6 +24,7 @@ export type BrokersLaunchController = Readonly<{
 }>;
 
 const BROKERS_LAUNCH_FALLBACK_MS = 5_000;
+const BROKERS_LAUNCH_CONTROLLER_VERSION = 3;
 
 const createSnapshot = (
   visible: boolean,
@@ -54,12 +55,13 @@ export function createBrokersLaunchController(): BrokersLaunchController {
   };
 
   const hideCurrent = () => {
+    clearFallbackTimer();
+    visualApplier?.(false);
+
     if (!snapshot.visible) {
       return false;
     }
 
-    clearFallbackTimer();
-    visualApplier?.(false);
     publish(createSnapshot(false, false, snapshot.revision + 1));
     return true;
   };
@@ -102,7 +104,11 @@ export function createBrokersLaunchController(): BrokersLaunchController {
     isVisible: () => snapshot.visible,
 
     startNavigation: (revision) => {
-      if (!snapshot.visible || snapshot.revision !== revision) {
+      if (
+        !snapshot.visible
+        || snapshot.revision !== revision
+        || snapshot.navigationStarted
+      ) {
         return false;
       }
 
@@ -124,6 +130,7 @@ export function createBrokersLaunchController(): BrokersLaunchController {
 
 type BrokersLaunchControllerGlobal = typeof globalThis & {
   __rtx5BrokersLaunchController?: BrokersLaunchController;
+  __rtx5BrokersLaunchControllerVersion?: number;
 };
 
 const controllerGlobal = globalThis as BrokersLaunchControllerGlobal;
@@ -131,6 +138,7 @@ const existingController = controllerGlobal.__rtx5BrokersLaunchController;
 
 export const brokersLaunchController =
   existingController
+    && controllerGlobal.__rtx5BrokersLaunchControllerVersion === BROKERS_LAUNCH_CONTROLLER_VERSION
     && typeof existingController.show === 'function'
     && typeof existingController.startNavigation === 'function'
     && typeof existingController.registerVisualApplier === 'function'
@@ -138,6 +146,7 @@ export const brokersLaunchController =
     : createBrokersLaunchController();
 
 controllerGlobal.__rtx5BrokersLaunchController = brokersLaunchController;
+controllerGlobal.__rtx5BrokersLaunchControllerVersion = BROKERS_LAUNCH_CONTROLLER_VERSION;
 
 export function showBrokersLaunch() {
   return brokersLaunchController.show();
@@ -162,10 +171,33 @@ export function scheduleBrokersLaunchNavigation(
     return;
   }
 
-  // Give the optimistic shell two paint frames before loading the real route.
+  // The shell is already mounted and actionable. Give its touch frame and the
+  // following paint both to native before starting cached route/module work.
   globalThis.requestAnimationFrame(() => {
     globalThis.requestAnimationFrame(() => {
       setTimeout(runIfCurrent, 0);
+    });
+  });
+}
+
+/**
+ * Removes the retained Brokers cover only after the native route has had two
+ * complete paint opportunities. The revision guard prevents delayed takeover
+ * work from hiding a newer launch or a Broker Detail handoff.
+ */
+export function scheduleBrokersLaunchCoverRemoval(revision: number) {
+  const hideIfCurrent = () => {
+    brokersLaunchController.hide(revision);
+  };
+
+  if (typeof globalThis.requestAnimationFrame !== 'function') {
+    setTimeout(hideIfCurrent, 32);
+    return;
+  }
+
+  globalThis.requestAnimationFrame(() => {
+    globalThis.requestAnimationFrame(() => {
+      setTimeout(hideIfCurrent, 0);
     });
   });
 }

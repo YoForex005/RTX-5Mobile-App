@@ -13,6 +13,15 @@ export type BrokerDetailLaunchSelection = Readonly<{
   brokerDomain: string;
 }>;
 
+export type BrokerDetailLaunchDirectoryRecord = Readonly<{
+  brokerId: string;
+  name: string;
+  server: string;
+  serverUrl: string;
+  logoUrl: string;
+  domain?: string;
+}>;
+
 export type BrokerDetailLaunchSnapshot = Readonly<{
   visible: boolean;
   navigationStarted: boolean;
@@ -37,6 +46,7 @@ export type BrokerDetailLaunchController = Readonly<{
 }>;
 
 const BROKER_DETAIL_LAUNCH_FALLBACK_MS = 5_000;
+const BROKER_DETAIL_LAUNCH_CONTROLLER_VERSION = 3;
 
 const EMPTY_BROKER_DETAIL_SELECTION: BrokerDetailLaunchSelection = Object.freeze({
   brokerId: '',
@@ -62,6 +72,20 @@ export function normalizeBrokerDetailLaunchSelection(
     brokerServerUrl: clean(selection.brokerServerUrl),
     brokerLogoUrl: clean(selection.brokerLogoUrl),
     brokerDomain: clean(selection.brokerDomain),
+  });
+}
+
+/** Converts a lightweight/live directory row into the stable route contract. */
+export function toBrokerDetailLaunchSelection(
+  broker: BrokerDetailLaunchDirectoryRecord,
+): BrokerDetailLaunchSelection {
+  return normalizeBrokerDetailLaunchSelection({
+    brokerId: broker.brokerId,
+    brokerName: broker.name,
+    brokerServer: broker.server,
+    brokerServerUrl: broker.serverUrl,
+    brokerLogoUrl: broker.logoUrl,
+    brokerDomain: broker.domain,
   });
 }
 
@@ -115,12 +139,13 @@ export function createBrokerDetailLaunchController(
   };
 
   const hideCurrent = () => {
+    clearFallbackTimer();
+    visualApplier?.(false);
+
     if (!snapshot.visible) {
       return false;
     }
 
-    clearFallbackTimer();
-    visualApplier?.(false);
     publish(createSnapshot(false, false, snapshot.selection, snapshot.revision + 1));
     return true;
   };
@@ -168,10 +193,13 @@ export function createBrokerDetailLaunchController(
     show: (selection) => {
       clearFallbackTimer();
       const normalized = normalizeBrokerDetailLaunchSelection(selection);
+      const preparedSelection = sameSelection(snapshot.selection, normalized)
+        ? snapshot.selection
+        : normalized;
       const revision = snapshot.revision + 1;
 
       // Publish the live broker first, then reveal the already-mounted layer.
-      publish(createSnapshot(true, false, normalized, revision));
+      publish(createSnapshot(true, false, preparedSelection, revision));
       visualApplier?.(true);
 
       // Safety: never leave the preview above the app if navigation fails.
@@ -187,7 +215,11 @@ export function createBrokerDetailLaunchController(
     },
 
     startNavigation: (revision) => {
-      if (!snapshot.visible || snapshot.revision !== revision) {
+      if (
+        !snapshot.visible
+        || snapshot.revision !== revision
+        || snapshot.navigationStarted
+      ) {
         return false;
       }
 
@@ -204,6 +236,7 @@ export function createBrokerDetailLaunchController(
 
 type BrokerDetailLaunchControllerGlobal = typeof globalThis & {
   __rtx5BrokerDetailLaunchController?: BrokerDetailLaunchController;
+  __rtx5BrokerDetailLaunchControllerVersion?: number;
 };
 
 const controllerGlobal = globalThis as BrokerDetailLaunchControllerGlobal;
@@ -211,6 +244,7 @@ const existingController = controllerGlobal.__rtx5BrokerDetailLaunchController;
 
 export const brokerDetailLaunchController =
   existingController
+    && controllerGlobal.__rtx5BrokerDetailLaunchControllerVersion === BROKER_DETAIL_LAUNCH_CONTROLLER_VERSION
     && typeof existingController.prepare === 'function'
     && typeof existingController.markCovered === 'function'
     && typeof existingController.registerVisualApplier === 'function'
@@ -218,6 +252,7 @@ export const brokerDetailLaunchController =
     : createBrokerDetailLaunchController();
 
 controllerGlobal.__rtx5BrokerDetailLaunchController = brokerDetailLaunchController;
+controllerGlobal.__rtx5BrokerDetailLaunchControllerVersion = BROKER_DETAIL_LAUNCH_CONTROLLER_VERSION;
 
 export function completeBrokerDetailLaunch() {
   return brokerDetailLaunchController.complete();
@@ -254,10 +289,29 @@ export function scheduleBrokerDetailLaunchNavigation(
     return;
   }
 
-  // Let the selected broker screen paint twice before route construction starts.
+  // The root shell is already mounted and actionable. Reserve two native
+  // paints so cached route evaluation cannot block the accepted touch frame.
   globalThis.requestAnimationFrame(() => {
     globalThis.requestAnimationFrame(() => {
       setTimeout(runIfCurrent, 0);
+    });
+  });
+}
+
+/** Keeps the actionable detail shell above Brokers until the native detail route painted. */
+export function scheduleBrokerDetailLaunchCoverRemoval(revision: number) {
+  const hideIfCurrent = () => {
+    brokerDetailLaunchController.hide(revision);
+  };
+
+  if (typeof globalThis.requestAnimationFrame !== 'function') {
+    setTimeout(hideIfCurrent, 32);
+    return;
+  }
+
+  globalThis.requestAnimationFrame(() => {
+    globalThis.requestAnimationFrame(() => {
+      setTimeout(hideIfCurrent, 0);
     });
   });
 }

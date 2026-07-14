@@ -33,10 +33,12 @@ test('Settings-hosted destinations publish focus immediately without a drawer se
     const controller = createSidebarDestinationController();
     const focusEvents: string[] = [];
     controller.subscribe(() => {
-      focusEvents.push(controller.getSnapshot().activeDestination ?? 'closed');
+      focusEvents.push(controller.getFocusSnapshot().activeDestination ?? 'closed');
     });
 
     assert.equal(controller.show('accounts', 'settings'), true);
+    assert.equal(controller.getSnapshot().activeDestination, 'accounts');
+    assert.equal(controller.getFocusSnapshot().activeDestination, 'accounts');
     assert.deepEqual(focusEvents, ['accounts']);
     assert.equal(scheduledFrames, 0);
   } finally {
@@ -55,11 +57,12 @@ test('path normalization removes route groups and suffixes without fuzzy matchin
   assert.equal(getSidebarDestinationPath('economic-calendar'), '/economic-calendar');
 });
 
-test('show and hide publish immutable snapshots synchronously', () => {
+test('show and hide publish immutable visual and focus snapshots synchronously without a frame clock', () => {
   const controller = createSidebarDestinationController();
   const observed: string[] = [];
   const unsubscribe = controller.subscribe(() => {
-    observed.push(`${controller.getSnapshot().activeDestination}:${controller.getSnapshot().revision}`);
+    const focusSnapshot = controller.getFocusSnapshot();
+    observed.push(`${focusSnapshot.activeDestination}:${focusSnapshot.revision}`);
   });
 
   assert.equal(controller.show('/journal', 'sidebar'), true);
@@ -67,10 +70,12 @@ test('show and hide publish immutable snapshots synchronously', () => {
   assert.equal(controller.getSnapshot().activePath, '/journal');
   assert.equal(controller.getSnapshot().source, 'sidebar');
   assert.equal(Object.isFrozen(controller.getSnapshot()), true);
+  assert.equal(controller.getFocusSnapshot(), controller.getSnapshot());
   assert.deepEqual(observed, ['journal:1']);
 
   assert.equal(controller.hide(), true);
   assert.equal(controller.getSnapshot().activeDestination, null);
+  assert.equal(controller.getFocusSnapshot(), controller.getSnapshot());
   assert.deepEqual(observed, ['journal:1', 'null:2']);
 
   unsubscribe();
@@ -110,7 +115,7 @@ test('retained visual layer switches before subscribers receive focus work', () 
     events.push(`visual:${destination ?? 'closed'}`);
   });
   const unsubscribe = controller.subscribe(() => {
-    events.push(`focus:${controller.getSnapshot().activeDestination ?? 'closed'}`);
+    events.push(`focus:${controller.getFocusSnapshot().activeDestination ?? 'closed'}`);
   });
 
   // Registration synchronizes the retained layer with the current snapshot.
@@ -143,12 +148,19 @@ test('rapid visual selections publish focus only for the latest revision after t
   try {
     const controller = createSidebarDestinationController();
     const visualEvents: string[] = [];
+    const visualStoreEvents: string[] = [];
     const focusEvents: string[] = [];
     controller.registerVisualApplier((destination) => {
       visualEvents.push(destination ?? 'closed');
     });
+    controller.subscribeVisual(() => {
+      visualStoreEvents.push(
+        `${controller.getSnapshot().activeDestination ?? 'closed'}`
+        + `/focus:${controller.getFocusSnapshot().activeDestination ?? 'closed'}`,
+      );
+    });
     controller.subscribe(() => {
-      focusEvents.push(controller.getSnapshot().activeDestination ?? 'closed');
+      focusEvents.push(controller.getFocusSnapshot().activeDestination ?? 'closed');
     });
     visualEvents.length = 0;
 
@@ -158,7 +170,16 @@ test('rapid visual selections publish focus only for the latest revision after t
     controller.show('/journal', 'sidebar');
 
     assert.deepEqual(visualEvents, ['help', 'about', 'closed', 'journal']);
+    assert.deepEqual(visualStoreEvents, [
+      'help/focus:closed',
+      'about/focus:closed',
+      'closed/focus:closed',
+      'journal/focus:closed',
+    ]);
     assert.deepEqual(focusEvents, []);
+    assert.equal(controller.getSnapshot().activeDestination, 'journal');
+    assert.equal(controller.getFocusSnapshot().activeDestination, null);
+    assert.notEqual(controller.getFocusSnapshot(), controller.getSnapshot());
 
     const flushFrame = () => {
       const callbacks = frameQueue;
@@ -173,6 +194,7 @@ test('rapid visual selections publish focus only for the latest revision after t
     assert.deepEqual(focusEvents, []);
     await new Promise((resolve) => setTimeout(resolve, 160));
     assert.deepEqual(focusEvents, ['journal']);
+    assert.equal(controller.getFocusSnapshot(), controller.getSnapshot());
   } finally {
     if (originalDescriptor) {
       Object.defineProperty(globalThis, 'requestAnimationFrame', originalDescriptor);

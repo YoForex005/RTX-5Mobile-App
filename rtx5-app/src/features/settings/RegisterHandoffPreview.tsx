@@ -28,7 +28,7 @@ type RegisterHandoffPreviewProps = {
 /**
  * Preview component used during the registration or onboarding process handoff.
  */
-export function RegisterHandoffPreview({
+export const RegisterHandoffPreview = React.memo(function RegisterHandoffPreview({
   onBack,
   backLatencyLabel = 'register.entry.back',
 }: RegisterHandoffPreviewProps) {
@@ -185,7 +185,7 @@ export function RegisterHandoffPreview({
       </ScrollView>
     </View>
   );
-}
+});
 
 type PreviewProps = {
   styles: ReturnType<typeof makeStyles>;

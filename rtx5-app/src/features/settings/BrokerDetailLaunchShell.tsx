@@ -111,61 +111,159 @@ export const BrokerDetailLaunchShell = memo(function BrokerDetailLaunchShell({
           </View>
         </View>
 
-            <View style={styles.optionPanel}>
-              <LaunchOption
-                icon="school"
-                title={t('Open a demo account')}
-                subtitle={t('To learn trading and to test your strategies')}
-                onPress={onOpenDemo}
-                latencyLabel="brokerDetail.launch.openDemo"
-                styles={styles}
-                T={T}
-              />
-              <View style={styles.optionDivider} />
-              <LaunchOption
-                icon="trending-up"
-                title={t('Open a real account')}
-                subtitle={t('For live trading, additional identification is required')}
-                disabled={hasActiveRealAccount}
-                styles={styles}
-                T={T}
-              />
-            </View>
+            <LaunchOptionsPanel
+              demoTitle={t('Open a demo account')}
+              demoSubtitle={t('To learn trading and to test your strategies')}
+              realTitle={t('Open a real account')}
+              realSubtitle={t('For live trading, additional identification is required')}
+              hasActiveRealAccount={hasActiveRealAccount}
+              onOpenDemo={onOpenDemo}
+              styles={styles}
+              T={T}
+            />
 
             <View style={styles.loginPanel}>
-              <View style={styles.panelHeader}>
-                <View style={styles.panelTitleTopRow}>
-                  <View style={styles.panelTitleRow}>
-                    <View style={styles.panelIconMark}>
-                      <Ionicons name="key-outline" size={18} color="#2563EB" />
-                    </View>
-                    <Text style={styles.panelEyebrow}>{t('Existing account')}</Text>
-                  </View>
-                  <View style={styles.securePill}>
-                    <Ionicons name="shield-checkmark-outline" size={14} color="#10B981" />
-                    <Text style={styles.secureText}>{t('Secure')}</Text>
-                  </View>
-                </View>
-                <Text style={styles.sectionTitle}>{t('Login to an existing account')}</Text>
-              </View>
-
-              <LaunchField label={t('Login')} value={t('Login')} icon="person-outline" styles={styles} T={T} />
-              <LaunchField label={t('Password')} value={t('Password')} icon="lock-closed-outline" trailing="eye-outline" styles={styles} T={T} />
+              <LaunchLoginHeader
+                existingLabel={t('Existing account')}
+                secureLabel={t('Secure')}
+                title={t('Login to an existing account')}
+                styles={styles}
+              />
+              <LaunchCredentialFields
+                loginLabel={t('Login')}
+                passwordLabel={t('Password')}
+                styles={styles}
+                T={T}
+              />
               <LaunchField label={t('Server')} value={server} icon="server-outline" trailing="chevron-down" styles={styles} T={T} strong />
-
-              <View style={styles.formMetaRow}>
-                <View style={styles.checkboxRow}>
-                  <Ionicons name="checkbox" size={22} color="#2563EB" />
-                  <Text style={styles.checkboxText}>{t('Save password')}</Text>
-                </View>
-                <Text style={styles.forgotText}>{t('Forgot password?')}</Text>
-              </View>
-              <View style={styles.loginBtn}>
-                <Text style={styles.loginBtnText}>{t('Login')}</Text>
-              </View>
+              <LaunchLoginFooter
+                savePasswordLabel={t('Save password')}
+                forgotPasswordLabel={t('Forgot password?')}
+                loginLabel={t('Login')}
+                styles={styles}
+              />
             </View>
       </ScrollView>
     </View>
+  );
+});
+
+const LaunchOptionsPanel = memo(function LaunchOptionsPanel({
+  demoTitle,
+  demoSubtitle,
+  realTitle,
+  realSubtitle,
+  hasActiveRealAccount,
+  onOpenDemo,
+  styles,
+  T,
+}: {
+  demoTitle: string;
+  demoSubtitle: string;
+  realTitle: string;
+  realSubtitle: string;
+  hasActiveRealAccount: boolean;
+  onOpenDemo?: () => void;
+  styles: ReturnType<typeof makeStyles>;
+  T: ThemeColors;
+}) {
+  return (
+    <View style={styles.optionPanel}>
+      <LaunchOption
+        icon="school"
+        title={demoTitle}
+        subtitle={demoSubtitle}
+        onPress={onOpenDemo}
+        latencyLabel="brokerDetail.launch.openDemo"
+        styles={styles}
+        T={T}
+      />
+      <View style={styles.optionDivider} />
+      <LaunchOption
+        icon="trending-up"
+        title={realTitle}
+        subtitle={realSubtitle}
+        disabled={hasActiveRealAccount}
+        styles={styles}
+        T={T}
+      />
+    </View>
+  );
+});
+
+const LaunchLoginHeader = memo(function LaunchLoginHeader({
+  existingLabel,
+  secureLabel,
+  title,
+  styles,
+}: {
+  existingLabel: string;
+  secureLabel: string;
+  title: string;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  return (
+    <View style={styles.panelHeader}>
+      <View style={styles.panelTitleTopRow}>
+        <View style={styles.panelTitleRow}>
+          <View style={styles.panelIconMark}>
+            <Ionicons name="key-outline" size={18} color="#2563EB" />
+          </View>
+          <Text style={styles.panelEyebrow}>{existingLabel}</Text>
+        </View>
+        <View style={styles.securePill}>
+          <Ionicons name="shield-checkmark-outline" size={14} color="#10B981" />
+          <Text style={styles.secureText}>{secureLabel}</Text>
+        </View>
+      </View>
+      <Text style={styles.sectionTitle}>{title}</Text>
+    </View>
+  );
+});
+
+const LaunchCredentialFields = memo(function LaunchCredentialFields({
+  loginLabel,
+  passwordLabel,
+  styles,
+  T,
+}: {
+  loginLabel: string;
+  passwordLabel: string;
+  styles: ReturnType<typeof makeStyles>;
+  T: ThemeColors;
+}) {
+  return (
+    <>
+      <LaunchField label={loginLabel} value={loginLabel} icon="person-outline" styles={styles} T={T} />
+      <LaunchField label={passwordLabel} value={passwordLabel} icon="lock-closed-outline" trailing="eye-outline" styles={styles} T={T} />
+    </>
+  );
+});
+
+const LaunchLoginFooter = memo(function LaunchLoginFooter({
+  savePasswordLabel,
+  forgotPasswordLabel,
+  loginLabel,
+  styles,
+}: {
+  savePasswordLabel: string;
+  forgotPasswordLabel: string;
+  loginLabel: string;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  return (
+    <>
+      <View style={styles.formMetaRow}>
+        <View style={styles.checkboxRow}>
+          <Ionicons name="checkbox" size={22} color="#2563EB" />
+          <Text style={styles.checkboxText}>{savePasswordLabel}</Text>
+        </View>
+        <Text style={styles.forgotText}>{forgotPasswordLabel}</Text>
+      </View>
+      <View style={styles.loginBtn}>
+        <Text style={styles.loginBtnText}>{loginLabel}</Text>
+      </View>
+    </>
   );
 });
 

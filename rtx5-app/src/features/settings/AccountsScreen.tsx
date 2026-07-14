@@ -91,10 +91,10 @@ import { safeRouterBack } from '../../utils/navigation';
 import { hideSidebarDestination } from '../../ui/components/sidebarDestinationHostController';
 import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import {
+  hideBrokersLaunch,
   scheduleBrokersLaunchNavigation,
   showBrokersLaunch,
 } from './brokersLaunchController';
-import { preloadBrokersScreen } from './BrokersScreen/brokersScreenPreload';
 
 const ACCOUNTS_SCREEN_DIAGNOSTICS_ENABLED =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_ACCOUNTS_SCREEN === 'true';
@@ -738,14 +738,19 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
    * Navigates the user to the Brokers screen to search for and connect a new trading account.
    */
   const handleConnectAccount = React.useCallback(() => {
-    // Reveal the already-mounted Brokers shell before route construction. The
-    // Accounts host stays underneath until that shell has painted, preventing
-    // the Settings screen from flashing between the two destinations.
-    void preloadBrokersScreen().catch(() => undefined);
+    // The root-level Brokers shell covers Accounts synchronously. Deactivate
+    // Accounts only after the retained Brokers frame has had two paints. It
+    // stays safely underneath the opaque cover, and its focus reconciliation
+    // no longer competes with the accepted touch frame.
     const launchRevision = showBrokersLaunch();
     scheduleBrokersLaunchNavigation(launchRevision, () => {
-      hideSidebarDestination();
-      router.push('/settings/brokers');
+      try {
+        router.push('/settings/brokers');
+        hideSidebarDestination();
+      } catch (error) {
+        hideBrokersLaunch(launchRevision);
+        throw error;
+      }
     });
   }, [router]);
 

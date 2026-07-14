@@ -54,6 +54,7 @@ test('bottom tab press paints optimistically on press-in and delays real navigat
 
 test('tab layout declares only the five primary cached scenes', () => {
   const source = readSource('app/(tabs)/_layout.tsx');
+  const rootSource = readSource('app/_layout.tsx');
   const declaredScreens = Array.from(
     source.matchAll(/<Tabs\.Screen\s+name='([^']+)'/g),
     (match) => match[1],
@@ -62,7 +63,8 @@ test('tab layout declares only the five primary cached scenes', () => {
   assert.deepEqual(declaredScreens, ['quotes', 'chart', 'trade', 'history', 'settings']);
   assert.equal((source.match(/<Tabs\.Screen\b/g) ?? []).length, 5);
   assert.match(source, /import \{ FastTabs as Tabs \} from '\.\.\/\.\.\/src\/ui\/navigation\/FastTabNavigator'/);
-  assert.match(source, /<SidebarDestinationHost \/>/);
+  assert.doesNotMatch(source, /SidebarDestinationHost|BrokersLaunchHost|BrokerDetailLaunchHost|RegisterLaunchHost/);
+  assert.match(rootSource, /<SidebarDestinationHost \/>[\s\S]*<BrokersLaunchHost \/>[\s\S]*<BrokerDetailLaunchHost \/>[\s\S]*<RegisterLaunchHost \/>[\s\S]*<SidebarDrawer \/>/);
   assert.match(source, /detachInactiveScreens=\{false\}/);
   assert.match(source, /<Tabs[\s\S]*backBehavior='firstRoute'[\s\S]*detachInactiveScreens=\{false\}/);
   assert.match(source, /lazy: false/);

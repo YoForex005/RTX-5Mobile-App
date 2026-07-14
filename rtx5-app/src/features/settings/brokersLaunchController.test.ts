@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   brokersLaunchController,
   createBrokersLaunchController,
+  scheduleBrokersLaunchCoverRemoval,
   scheduleBrokersLaunchNavigation,
 } from './brokersLaunchController';
 
@@ -31,6 +32,7 @@ test('brokers launch controller reveals, starts navigation, and hides synchronou
   assert.equal(controller.getSnapshot().visible, true);
   assert.equal(controller.startNavigation(revision + 1), false);
   assert.equal(controller.startNavigation(revision), true);
+  assert.equal(controller.startNavigation(revision), false);
   assert.equal(controller.getSnapshot().navigationStarted, true);
   assert.equal(controller.hide(revision + 1), false);
   assert.equal(controller.hide(revision), true);
@@ -43,7 +45,58 @@ test('brokers launch controller reveals, starts navigation, and hides synchronou
   unsubscribe();
 });
 
-test('scheduled Brokers navigation waits for two paint frames', async () => {
+test('scheduled Brokers cover removal waits for two paints and cannot hide a newer launch', async () => {
+  const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'requestAnimationFrame');
+  let frameQueue: Array<(timestamp: number) => void> = [];
+  Object.defineProperty(globalThis, 'requestAnimationFrame', {
+    configurable: true,
+    value: (callback: (timestamp: number) => void) => {
+      frameQueue.push(callback);
+      return frameQueue.length;
+    },
+  });
+
+  const flushFrame = () => {
+    const callbacks = frameQueue;
+    frameQueue = [];
+    callbacks.forEach((callback) => callback(0));
+  };
+
+  try {
+    const revision = brokersLaunchController.show();
+    scheduleBrokersLaunchCoverRemoval(revision);
+
+    assert.equal(frameQueue.length, 1);
+    assert.equal(brokersLaunchController.isVisible(), true);
+    flushFrame();
+    assert.equal(frameQueue.length, 1);
+    assert.equal(brokersLaunchController.isVisible(), true);
+    flushFrame();
+    assert.equal(frameQueue.length, 0);
+    assert.equal(brokersLaunchController.isVisible(), true);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(brokersLaunchController.isVisible(), false);
+
+    const staleRevision = brokersLaunchController.show();
+    scheduleBrokersLaunchCoverRemoval(staleRevision);
+    const latestRevision = brokersLaunchController.show();
+    flushFrame();
+    flushFrame();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    assert.equal(brokersLaunchController.isVisible(), true);
+    assert.equal(brokersLaunchController.getSnapshot().revision, latestRevision);
+  } finally {
+    brokersLaunchController.hide();
+    if (originalDescriptor) {
+      Object.defineProperty(globalThis, 'requestAnimationFrame', originalDescriptor);
+    } else {
+      delete (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+    }
+  }
+});
+
+test('scheduled Brokers navigation waits for two preview paint frames', async () => {
   const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'requestAnimationFrame');
   let frameQueue: Array<(timestamp: number) => void> = [];
   Object.defineProperty(globalThis, 'requestAnimationFrame', {
@@ -68,10 +121,13 @@ test('scheduled Brokers navigation waits for two paint frames', async () => {
     };
 
     assert.equal(navigations, 0);
+    assert.equal(frameQueue.length, 1);
     flushFrame();
     assert.equal(navigations, 0);
+    assert.equal(frameQueue.length, 1);
     flushFrame();
     assert.equal(navigations, 0);
+    assert.equal(frameQueue.length, 0);
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     assert.equal(navigations, 1);
@@ -124,6 +180,22 @@ test('scheduled Brokers navigation is cancelled when the shell closes', async ()
       delete (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame;
     }
   }
+});
+
+test('hiding Brokers launch always forces its native visual layer down', () => {
+  const controller = createBrokersLaunchController();
+  const visualEvents: boolean[] = [];
+  controller.registerVisualApplier((visible) => visualEvents.push(visible));
+  visualEvents.length = 0;
+
+  assert.equal(controller.hide(), false);
+  assert.deepEqual(visualEvents, [false]);
+
+  controller.show();
+  assert.equal(controller.hide(), true);
+  visualEvents.length = 0;
+  assert.equal(controller.hide(), false);
+  assert.deepEqual(visualEvents, [false]);
 });
 
 test('Brokers shell has a five-second safety fallback', () => {

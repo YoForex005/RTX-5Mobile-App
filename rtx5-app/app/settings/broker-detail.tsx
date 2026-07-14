@@ -2,15 +2,24 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useMemo } from 'react';
 import { BrokerDetailLaunchShell } from '../../src/features/settings/BrokerDetailLaunchShell';
 import {
+  brokerDetailLaunchController,
   hideBrokerDetailLaunch,
   normalizeBrokerDetailLaunchSelection,
 } from '../../src/features/settings/brokerDetailLaunchController';
+import { showBrokersLaunch } from '../../src/features/settings/brokersLaunchController';
+import {
+  scheduleRegisterLaunchNavigation,
+  showRegisterLaunch,
+} from '../../src/features/settings/registerLaunchController';
 import {
   BROKER_DETAIL_ROUTE_MODULE_CACHE_KEY,
   loadBrokerDetailScreenRoute,
 } from '../../src/features/settings/brokerDetailScreenPreload';
 import { DeferredRouteModule } from '../../src/ui/components/DeferredRouteMount';
-import { safeRouterBack } from '../../src/utils/navigation';
+import {
+  safeRouterBack,
+  scheduleBackNavigationAfterVisualFrame,
+} from '../../src/utils/navigation';
 
 export default function BrokerDetailRoute() {
   const router = useRouter();
@@ -38,22 +47,35 @@ export default function BrokerDetailRoute() {
     params.brokerServerUrl,
   ]);
   const handleBack = useCallback(() => {
-    hideBrokerDetailLaunch();
-    safeRouterBack(router, '/settings/brokers');
+    showBrokersLaunch();
+    if (brokerDetailLaunchController.isVisible()) {
+      hideBrokerDetailLaunch();
+    }
+    scheduleBackNavigationAfterVisualFrame(() => {
+      safeRouterBack(router, '/settings/brokers');
+    });
   }, [router]);
   const handleOpenDemo = useCallback(() => {
-    // Keep the route fallback fully actionable while the interactive broker
-    // module finishes mounting; this is the same immediate path as Settings.
-    hideBrokerDetailLaunch();
-    router.push('/register-entry');
-  }, [router]);
+    const registerRevision = showRegisterLaunch(selection);
+    scheduleRegisterLaunchNavigation(registerRevision, () => {
+      router.push({
+        pathname: '/register-entry',
+        params: {
+          origin: 'broker-detail',
+          registerLaunchRevision: String(registerRevision),
+        },
+      });
+    });
+  }, [router, selection]);
 
   return (
     <DeferredRouteModule
       cacheKey={BROKER_DETAIL_ROUTE_MODULE_CACHE_KEY}
       load={loadBrokerDetailScreenRoute}
       mountDelayMs={0}
-      fallback={(
+      fallback={brokerDetailLaunchController.isVisible()
+        ? null
+        : (
         <BrokerDetailLaunchShell
           selection={selection}
           onBack={handleBack}

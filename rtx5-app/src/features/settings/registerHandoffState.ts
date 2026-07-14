@@ -1,4 +1,4 @@
-type RegisterScreenReadyListener = () => void;
+type RegisterScreenReadyListener = (launchRevision?: number) => void;
 
 const registerScreenReadyListeners = new Set<RegisterScreenReadyListener>();
 
@@ -10,8 +10,8 @@ export function subscribeRegisterScreenReady(listener: RegisterScreenReadyListen
   };
 }
 
-export function notifyRegisterScreenReady() {
+export function notifyRegisterScreenReady(launchRevision?: number) {
   registerScreenReadyListeners.forEach((listener) => {
-    listener();
+    listener(launchRevision);
   });
 }

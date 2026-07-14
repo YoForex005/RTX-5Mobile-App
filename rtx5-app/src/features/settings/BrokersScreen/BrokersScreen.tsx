@@ -9,9 +9,10 @@ import { FastPressable as Pressable } from '../../../ui/components/FastPressable
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  BackHandler,
   FlatList,
   Image,
   Platform,
@@ -23,22 +24,31 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../../ui/components/Screen';
-import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
-import { showSidebarDestination } from '../../../ui/components/sidebarDestinationHostController';
+import {
+  hideSidebarDestination,
+  showSidebarDestination,
+} from '../../../ui/components/sidebarDestinationHostController';
 import { useTheme } from '../../../ui/theme/useTheme';
 import type { ThemeColors } from '../../../ui/theme/glass';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useTranslation } from '../../../i18n/useTranslation';
-import { safeRouterBack } from '../../../utils/navigation';
+import {
+  safeRouterBack,
+  scheduleBackNavigationAfterVisualFrame,
+} from '../../../utils/navigation';
 import { useBrokerServers } from '../../../query/broker';
-import { hideBrokersLaunch } from '../brokersLaunchController';
+import {
+  brokersLaunchController,
+  hideBrokersLaunch,
+  scheduleBrokersLaunchCoverRemoval,
+} from '../brokersLaunchController';
 import {
   prepareBrokerDetailLaunch,
   scheduleBrokerDetailLaunchNavigation,
   showBrokerDetailLaunch,
+  toBrokerDetailLaunchSelection,
   type BrokerDetailLaunchSelection,
 } from '../brokerDetailLaunchController';
-import { preloadBrokerDetailScreen } from '../brokerDetailScreenPreload';
 import {
   buildBrokerDirectoryRows,
   buildBrokerDomainLogoUrl,
@@ -60,16 +70,8 @@ type BrokerPressGesture = {
   start: BrokerPressPoint | null;
   handled: boolean;
   cancelled: boolean;
+  selection: BrokerDetailLaunchSelection | null;
 };
-
-const toBrokerDetailSelection = (broker: BrokerRow): BrokerDetailLaunchSelection => ({
-  brokerId: broker.brokerId,
-  brokerName: broker.name,
-  brokerServer: broker.server,
-  brokerServerUrl: broker.serverUrl,
-  brokerLogoUrl: broker.logoUrl,
-  brokerDomain: broker.domain ?? '',
-});
 
 function getBrokerPressPoint(event: GestureResponderEvent): BrokerPressPoint | null {
   const { pageX, pageY } = event.nativeEvent;
@@ -100,19 +102,19 @@ export function BrokersScreen() {
   const insets = useSafeAreaInsets();
   const routerInstance = useRouter();
   const isScreenFocused = useIsFocused();
-  const routePaintReady = useDeferredRouteContentReady(0, isScreenFocused);
   const brokerPressGestureRef = useRef<BrokerPressGesture>({
     start: null,
     handled: false,
     cancelled: false,
+    selection: null,
   });
-  const launchCoveredRef = useRef(false);
+  const coveredLaunchRevisionRef = useRef<number | null>(null);
   const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
   // ── GET /broker/servers — live broker directory ──────────────────────────
   // The endpoint is public, so the query is always enabled. The screen is
   // reachable from the Accounts "+" icon both before and after login, and
   // either way the user needs the full broker list to pick from.
-  const { data: brokerServers, isLoading, isError, error, refetch, isFetching } = useBrokerServers(true);
+  const { data: brokerServers, isLoading, isError, error, refetch, isFetching } = useBrokerServers(isScreenFocused);
 
   // Shared with the retained launch shell so its first frame and this live
   // list always resolve the same backend rows and logo URLs.
@@ -121,27 +123,28 @@ export function BrokersScreen() {
     [brokerServers],
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (
       !isScreenFocused
-      || !routePaintReady
       || brokerRecords.length === 0
-      || launchCoveredRef.current
     ) {
       return;
     }
-    launchCoveredRef.current = true;
+    const launchSnapshot = brokersLaunchController.getSnapshot();
+    if (
+      !launchSnapshot.visible
+      || coveredLaunchRevisionRef.current === launchSnapshot.revision
+    ) {
+      return;
+    }
+    coveredLaunchRevisionRef.current = launchSnapshot.revision;
     // Never replace the complete-looking first frame with a spinner. The
-    // live, interactive directory takes over only after it has real rows.
-    hideBrokersLaunch();
-  }, [brokerRecords.length, isScreenFocused, routePaintReady]);
-
-  useEffect(() => {
-    if (!isScreenFocused || !routePaintReady || brokerRecords.length === 0) return;
-    // Warm the heavy login module while the user is reading the broker list.
-    // A later row tap still has its own safe preload in case this warm-up missed.
-    void preloadBrokerDetailScreen().catch(() => undefined);
-  }, [brokerRecords.length, isScreenFocused, routePaintReady]);
+    // live, interactive directory takes over only after it has real rows and
+    // the native Stack has painted. Until then the matching launch directory
+    // remains fully actionable, so there is no visible or touch-input delay.
+    hideSidebarDestination();
+    scheduleBrokersLaunchCoverRemoval(launchSnapshot.revision);
+  }, [brokerRecords.length, isScreenFocused]);
 
   const trimmedQuery = search.trim().toLowerCase();
   const isSearching = trimmedQuery.length > 0;
@@ -167,8 +170,12 @@ export function BrokersScreen() {
    * Navigates to the Broker Detail (login) screen for the chosen broker.
    */
   const openBrokerDetail = (selection: BrokerDetailLaunchSelection) => {
-    hideBrokersLaunch();
     const launchRevision = showBrokerDetailLaunch(selection);
+    // Install the next cover before removing this one so no native frame can
+    // expose Quotes/Accounts between the two route layers.
+    if (brokersLaunchController.isVisible()) {
+      hideBrokersLaunch();
+    }
     scheduleBrokerDetailLaunchNavigation(launchRevision, () => {
       routerInstance.push({
         pathname: '/settings/broker-detail',
@@ -177,19 +184,16 @@ export function BrokersScreen() {
     });
   };
 
-  const handleSelectBroker = (broker: BrokerRow) => {
-    openBrokerDetail(toBrokerDetailSelection(broker));
-  };
-
   const recordBrokerRowPressStart = (broker: BrokerRow, event: GestureResponderEvent) => {
     // Preparing an invisible shell is safe during touch-down. Selection and
     // navigation still wait for release and the movement check below.
-    prepareBrokerDetailLaunch(toBrokerDetailSelection(broker));
-    void preloadBrokerDetailScreen().catch(() => undefined);
+    const selection = toBrokerDetailLaunchSelection(broker);
+    prepareBrokerDetailLaunch(selection);
     brokerPressGestureRef.current = {
       start: getBrokerPressPoint(event),
       handled: false,
       cancelled: false,
+      selection,
     };
   };
 
@@ -203,6 +207,7 @@ export function BrokersScreen() {
       start: null,
       handled: false,
       cancelled: true,
+      selection: null,
     };
   };
 
@@ -230,6 +235,7 @@ export function BrokersScreen() {
         start: null,
         handled: false,
         cancelled: true,
+        selection: null,
       };
       return true;
     }
@@ -238,6 +244,7 @@ export function BrokersScreen() {
       start: null,
       handled: true,
       cancelled: false,
+      selection: gesture.selection,
     };
     return false;
   };
@@ -246,22 +253,36 @@ export function BrokersScreen() {
    * Triggered when the user taps on a specific broker row in the search results.
    */
   const handleBrokerRowPress = (broker: BrokerRow, event: GestureResponderEvent) => {
+    const preparedSelection = brokerPressGestureRef.current.selection;
     if (shouldIgnoreBrokerRowPress(event)) {
       return;
     }
-    handleSelectBroker(broker);
+    openBrokerDetail(preparedSelection ?? toBrokerDetailLaunchSelection(broker));
   };
 
   /**
    * Returns to the Accounts management screen.
    */
-  const handleBack = () => {
+  const handleBack = useCallback(() => {
     // Restore the already-mounted Accounts pixels immediately, while its
     // focus/query work waits until after the native Brokers pop.
     showSidebarDestination('accounts', 'route-sync');
-    hideBrokersLaunch();
-    safeRouterBack(routerInstance, '/settings/accounts');
-  };
+    if (brokersLaunchController.isVisible()) {
+      hideBrokersLaunch();
+    }
+    scheduleBackNavigationAfterVisualFrame(() => {
+      safeRouterBack(routerInstance, '/settings/accounts');
+    });
+  }, [routerInstance]);
+
+  useEffect(() => {
+    if (!isScreenFocused) return undefined;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleBack();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [handleBack, isScreenFocused]);
 
   return (
     <Screen>
@@ -273,7 +294,9 @@ export function BrokersScreen() {
             hitSlop={15}
             onPress={handleBack}
             activateOnPressIn
+            activateOnTouchStart
             latencyLabel="brokers.back"
+            latencyBudgetMs={50}
             unstable_pressDelay={0}
           >
             <Ionicons name="arrow-back" size={26} color={T.text} />
@@ -410,7 +433,6 @@ export function BrokersScreen() {
               brokerDomain: '',
             };
             prepareBrokerDetailLaunch(selection);
-            void preloadBrokerDetailScreen().catch(() => undefined);
           }}
           onPress={() => {
             openBrokerDetail({

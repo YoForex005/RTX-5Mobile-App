@@ -1,5 +1,5 @@
 import { FastPressable as Pressable } from '../src/ui/components/FastPressable';
-import { Stack, router } from 'expo-router';
+import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import React, { useState } from 'react';
 import {
@@ -51,7 +51,19 @@ import {
   useOrrnnDemoStatus,
 } from '../src/query/publicDemo';
 import { notifyRegisterScreenReady } from '../src/features/settings/registerHandoffState';
-import { safeRouterBack } from '../src/utils/navigation';
+import {
+  safeRouterBack,
+  scheduleBackNavigationAfterVisualFrame,
+} from '../src/utils/navigation';
+import {
+  brokerDetailLaunchController,
+  showBrokerDetailLaunch,
+} from '../src/features/settings/brokerDetailLaunchController';
+import {
+  hideRegisterLaunch,
+  registerLaunchController,
+  requestRegisterLaunchBack,
+} from '../src/features/settings/registerLaunchController';
 import { isValidEmail, isValidPhoneNumber } from '../src/utils/contactValidation';
 import { ActionSheet } from '../src/ui/components/ActionSheet';
 import {
@@ -76,21 +88,13 @@ const REGISTER_FIELD_FOCUS_DELAY_MS = Platform.OS === 'android' ? 260 : 80;
 const REGISTER_KEYBOARD_BOTTOM_PADDING = Platform.OS === 'android' ? 220 : 120;
 const REGISTER_QUOTES_LIGHT_BACKGROUND = '#F2F4F8';
 const REGISTER_BACK_FALLBACK_HREF = '/(tabs)/settings';
-const REGISTER_INITIAL_PICKER_PRESS_GUARD_MS = 900;
-const REGISTER_ROUTE_DATA_DELAY_MS = 900;
+const REGISTER_INITIAL_PICKER_PRESS_GUARD_MS = 150;
+const REGISTER_ROUTE_DATA_DELAY_MS = 180;
 const getRegisterInteractionNow = () => (
   typeof globalThis.performance?.now === 'function'
     ? globalThis.performance.now()
     : Date.now()
 );
-const scheduleRegisterBackAfterVisualFrame = (action: () => void) => {
-  const runAfterFrame = () => setTimeout(action, 0);
-  if (typeof globalThis.requestAnimationFrame === 'function') {
-    globalThis.requestAnimationFrame(runAfterFrame);
-    return;
-  }
-  setTimeout(action, 0);
-};
 const DEMO_COUNTRY_OPTIONS = [
   { label: 'United States', code: 'US', dialCode: '+1' },
   { label: 'India', code: 'IN', dialCode: '+91' },
@@ -198,6 +202,12 @@ export default function RegisterScreen() {
   const queryClient = useQueryClient();
   const { t } = useTranslation();
   const isScreenFocused = useIsFocused();
+  const { origin, registerLaunchRevision } = useLocalSearchParams<{
+    origin?: string;
+    registerLaunchRevision?: string;
+  }>();
+  const returnsToBrokerDetail = origin === 'broker-detail';
+  const parsedRegisterLaunchRevision = Number(registerLaunchRevision);
   const [firstPaintReady, setFirstPaintReady] = useState(false);
   React.useEffect(() => {
     let cancelled = false;
@@ -343,18 +353,20 @@ export default function RegisterScreen() {
 
     registerReadyNotifiedRef.current = true;
     const notifyAfterPaint = () => {
-      notifyRegisterScreenReady();
+      notifyRegisterScreenReady(
+        Number.isInteger(parsedRegisterLaunchRevision)
+          ? parsedRegisterLaunchRevision
+          : undefined,
+      );
     };
 
     if (typeof globalThis.requestAnimationFrame === 'function') {
-      globalThis.requestAnimationFrame(() => {
-        globalThis.requestAnimationFrame(notifyAfterPaint);
-      });
+      globalThis.requestAnimationFrame(notifyAfterPaint);
       return;
     }
 
-    setTimeout(notifyAfterPaint, 32);
-  }, []);
+    setTimeout(notifyAfterPaint, 16);
+  }, [parsedRegisterLaunchRevision]);
 
   const handleRegisterBack = React.useCallback((event: GestureResponderEvent) => {
     event.preventDefault();
@@ -364,17 +376,47 @@ export default function RegisterScreen() {
       return;
     }
 
-    registerBackNavigationStartedRef.current = true;
     if (fieldFocusTimerRef.current) {
       clearTimeout(fieldFocusTimerRef.current);
       fieldFocusTimerRef.current = null;
     }
-    scheduleRegisterBackAfterVisualFrame(() => {
-      // Dismiss the whole broker-selection branch instead of returning to the
-      // selected broker screen. Direct Settings launches land there as well.
-      router.dismissTo(REGISTER_BACK_FALLBACK_HREF);
+
+    if (Number.isInteger(parsedRegisterLaunchRevision)) {
+      const launchSnapshot = registerLaunchController.getSnapshot();
+      const backResult = requestRegisterLaunchBack(parsedRegisterLaunchRevision);
+      if (backResult === 'pop' && launchSnapshot.selection) {
+        registerBackNavigationStartedRef.current = true;
+        showBrokerDetailLaunch(launchSnapshot.selection);
+        hideRegisterLaunch(parsedRegisterLaunchRevision);
+        scheduleBackNavigationAfterVisualFrame(() => {
+          safeRouterBack(router, {
+            pathname: '/settings/broker-detail',
+            params: launchSnapshot.selection ?? undefined,
+          });
+        });
+        return;
+      }
+      if (backResult !== 'stale') {
+        return;
+      }
+    }
+
+    registerBackNavigationStartedRef.current = true;
+    if (returnsToBrokerDetail) {
+      const selection = brokerDetailLaunchController.getSnapshot().selection;
+      showBrokerDetailLaunch(selection);
+      scheduleBackNavigationAfterVisualFrame(() => {
+        safeRouterBack(router, {
+          pathname: '/settings/broker-detail',
+          params: selection,
+        });
+      });
+      return;
+    }
+    scheduleBackNavigationAfterVisualFrame(() => {
+      safeRouterBack(router, REGISTER_BACK_FALLBACK_HREF);
     });
-  }, []);
+  }, [parsedRegisterLaunchRevision, returnsToBrokerDetail]);
 
   const handleFieldLayout = React.useCallback((field: RegisterFieldKey) => (event: LayoutChangeEvent) => {
     fieldYPositionsRef.current[field] = event.nativeEvent.layout.y;

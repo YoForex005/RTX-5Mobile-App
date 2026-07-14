@@ -448,13 +448,16 @@ test('sidebar hosts detail destinations directly and shares the fast primary-tab
   assert.match(rootLayoutSource, /name='settings\/about' options=\{sidebarDetailScreenOptions\}/);
   assert.doesNotMatch(rootLayoutSource, /settings\/mql5-algo-trading|settings\/traders-community/);
   assert.match(rootLayoutSource, /import \{ SidebarDrawer \} from '..\/src\/ui\/components\/SidebarDrawer'/);
-  assert.match(rootLayoutSource, /<\/Stack>[\s\S]*<BrokerDetailLaunchHost \/>[\s\S]*<SidebarDrawer \/>/);
+  assert.match(rootLayoutSource, /import \{ SidebarDestinationHost \} from '..\/src\/ui\/components\/SidebarDestinationHost'/);
+  assert.match(rootLayoutSource, /import \{ BrokersLaunchHost \} from '..\/src\/features\/settings\/BrokersLaunchHost'/);
+  assert.match(rootLayoutSource, /import \{ BrokerDetailLaunchHost \} from '..\/src\/features\/settings\/BrokerDetailLaunchHost'/);
+  assert.match(rootLayoutSource, /<\/Stack>[\s\S]*<SidebarDestinationHost \/>[\s\S]*<BrokersLaunchHost \/>[\s\S]*<BrokerDetailLaunchHost \/>[\s\S]*<SidebarDrawer \/>/);
   assert.doesNotMatch(tabsLayoutSource, /import \{ SidebarDrawer \}|<SidebarDrawer \/>/);
+  assert.doesNotMatch(tabsLayoutSource, /import \{ (?:SidebarDestinationHost|BrokersLaunchHost|BrokerDetailLaunchHost) \}|<(?:SidebarDestinationHost|BrokersLaunchHost|BrokerDetailLaunchHost) \/>/);
   assert.doesNotMatch(tabsLayoutSource, /warmSidebarRouteModules/);
   assert.doesNotMatch(tabsLayoutSource, /SidebarRouteTransitionOverlay/);
   assert.doesNotMatch(tabsLayoutSource, /const sidebarDetailTabPaths = new Set\(\[/);
   assert.doesNotMatch(tabsLayoutSource, /isSidebarDetailTab/);
-  assert.match(tabsLayoutSource, /import \{ SidebarDestinationHost \} from '\.\.\/\.\.\/src\/ui\/components\/SidebarDestinationHost'/);
   assert.match(tabsLayoutSource, /import \{\s*hideSidebarDestination,\s*sidebarDestinationController,\s*\} from '\.\.\/\.\.\/src\/ui\/components\/sidebarDestinationHostController'/);
   assert.match(tabsLayoutSource, /import \{ FastTabs as Tabs \} from '\.\.\/\.\.\/src\/ui\/navigation\/FastTabNavigator'/);
   assert.match(tabsLayoutSource, /import \{[\s\S]*scheduleFastTabNavigation,[\s\S]*showFastTabVisual,[\s\S]*\} from '\.\.\/\.\.\/src\/ui\/navigation\/fastTabVisualController'/);
@@ -469,11 +472,11 @@ test('sidebar hosts detail destinations directly and shares the fast primary-tab
   for (const name of ['journal', 'economic-calendar', 'user-guide', 'help', 'about']) {
     assert.doesNotMatch(tabsLayoutSource, new RegExp(`<Tabs\\.Screen[\\s\\S]{0,80}name='${name}'`));
   }
-  const tabsCloseIndex = tabsLayoutSource.indexOf('</Tabs>');
-  const hostMountIndex = tabsLayoutSource.indexOf('<SidebarDestinationHost />');
-  assert.notEqual(tabsCloseIndex, -1);
-  assert.notEqual(hostMountIndex, -1);
-  assert.ok(tabsCloseIndex < hostMountIndex, 'detail host must overlay the retained primary-tab navigator');
+  const rootStackCloseIndex = rootLayoutSource.indexOf('</Stack>');
+  const destinationHostMountIndex = rootLayoutSource.indexOf('<SidebarDestinationHost />');
+  assert.notEqual(rootStackCloseIndex, -1);
+  assert.notEqual(destinationHostMountIndex, -1);
+  assert.ok(rootStackCloseIndex < destinationHostMountIndex, 'detail host must overlay every root-stack broker route');
   assert.match(tabsLayoutSource, /if \(previousPathRef\.current !== pathname\) \{[\s\S]*hideSidebarDestination\(\);/);
   assert.match(tabsLayoutSource, /const isReturningFromBrokersToAccounts =[\s\S]*previousPath === '\/settings\/brokers'[\s\S]*hostedDestination\.activeDestination === 'accounts'[\s\S]*hostedDestination\.source === 'route-sync'[\s\S]*if \(!isReturningFromBrokersToAccounts\) \{\s*hideSidebarDestination\(\);/);
   assert.match(destinationControllerSource, /export const SIDEBAR_HOST_DESTINATIONS = \[[\s\S]*'journal',[\s\S]*'economic-calendar',[\s\S]*'user-guide',[\s\S]*'help',[\s\S]*'about'/);
@@ -485,7 +488,7 @@ test('sidebar hosts detail destinations directly and shares the fast primary-tab
   // heavy focus/query commit lands after the drawer close motion finishes.
   assert.match(destinationControllerSource, /const FOCUS_NOTIFY_SETTLE_DELAY_MS = 110/);
   assert.match(destinationControllerSource, /globalThis\.requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(notifyIfCurrent, FOCUS_NOTIFY_SETTLE_DELAY_MS\);/);
-  assert.match(destinationControllerSource, /if \(source === 'settings'\) \{\s*notifyIfCurrent\(\);\s*return;/);
+  assert.match(destinationControllerSource, /if \(nextSnapshot\.source === 'settings'\) \{\s*notifyIfCurrent\(\);\s*return;/);
   assert.match(destinationControllerSource, /show: \(destinationOrPath, source = 'programmatic'\) => \{/);
   assert.match(destinationControllerSource, /export function showSidebarDestination\([\s\S]*sidebarDestinationController\.show\(destinationOrPath, source\)/);
   assert.doesNotMatch(destinationControllerSource, /useRouter|router\.(?:navigate|push|replace|dismissTo)/);
@@ -523,14 +526,25 @@ test('sidebar hosts detail destinations directly and shares the fast primary-tab
       `${file} must export its inactive-aware retained host view`,
     );
   }
-  assert.match(destinationHostSource, /useSyncExternalStore\(\s*controller\.subscribe,\s*controller\.getSnapshot,\s*controller\.getSnapshot/);
-  // Layer visibility must be React-committed via the controller's synchronous
-  // visual subscription — the previous Reanimated shared-value flip was
-  // observed on-device lagging >1s behind a congested fresh-boot JS loop,
-  // leaving the old page visible after the drawer closed.
-  assert.match(destinationHostSource, /useSyncExternalStore\(\s*controller\.subscribeVisual,\s*controller\.getSnapshot,\s*controller\.getSnapshot/);
+  assert.match(destinationHostSource, /useSyncExternalStore\(\s*controller\.subscribe,\s*controller\.getFocusSnapshot,\s*controller\.getFocusSnapshot/);
+  assert.match(destinationControllerSource, /getFocusSnapshot: \(\) => focusSnapshot/);
+  // The touch-turn visual path is native-only. React subscribes once for the
+  // intentionally deferred focus/query state; the registered visual applier
+  // updates only the previous and next native layers.
+  assert.doesNotMatch(destinationHostSource, /controller\.subscribeVisual/);
+  assert.match(destinationHostSource, /const nativeVisualDestinationRef = useRef<SidebarHostDestination \| null>\(\s*controller\.getSnapshot\(\)\.activeDestination/);
+  assert.match(destinationHostSource, /const visualDestination = controller\.getSnapshot\(\)\.activeDestination/);
+  assert.match(destinationHostSource, /const layerRefSetters = useMemo[\s\S]*const visible = controller\.getSnapshot\(\)\.activeDestination === destination;[\s\S]*layer\.setNativeProps\(\{[\s\S]*pointerEvents: visible \? 'auto' : 'none'/);
+  assert.match(destinationHostSource, /const sweepVisualDestinationNow = useCallback[\s\S]*for \(const destination of SIDEBAR_HOST_DESTINATIONS\)[\s\S]*layerRefs\.current\[destination\]\?\.setNativeProps/);
+  assert.match(destinationHostSource, /const applyVisualDestinationNow = useCallback[\s\S]*const previousDestination = nativeVisualDestinationRef\.current;[\s\S]*layerRefs\.current\[previousDestination\]\?\.setNativeProps[\s\S]*layerRefs\.current\[visualDestination\]\?\.setNativeProps[\s\S]*nativeVisualDestinationRef\.current = visualDestination/);
+  assert.match(destinationHostSource, /useLayoutEffect\(\(\) => \{[\s\S]*let firstApplication = true;[\s\S]*controller\.registerVisualApplier\(\(destination\) => \{[\s\S]*if \(firstApplication\)[\s\S]*sweepVisualDestinationNow\(destination\);[\s\S]*applyVisualDestinationNow\(destination\)/);
+  assert.match(destinationHostSource, /ref=\{layerRef\}[\s\S]*collapsable=\{false\}/);
+  // Keep the controller's compatibility API/version for Fast Refresh even
+  // though the Host deliberately avoids its visual-store subscription.
   assert.match(destinationControllerSource, /subscribeVisual: \(listener: \(\) => void\) => \{/);
-  assert.match(destinationControllerSource, /visualListeners\.forEach\(\(listener\) => listener\(\)\);\s*notifyAfterFirstVisualFrame\(nextSnapshot\.revision, nextSnapshot\.source\);/);
+  assert.match(destinationControllerSource, /SIDEBAR_DESTINATION_CONTROLLER_VERSION = 2/);
+  assert.match(destinationControllerSource, /__rtx5SidebarDestinationControllerVersion/);
+  assert.match(destinationControllerSource, /visualListeners\.forEach\(\(listener\) => listener\(\)\);\s*notifyAfterFirstVisualFrame\(snapshot\);/);
   assert.match(destinationHostSource, /visualActive \? styles\.destinationVisible : styles\.destinationHidden/);
   assert.match(destinationHostSource, /pointerEvents=\{visualActive \? 'auto' : 'none'\}/);
   assert.doesNotMatch(destinationHostSource, /from 'react-native-reanimated'/);
