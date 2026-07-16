@@ -114,13 +114,16 @@ test('about account deletion request is available as an in-app contact category'
   const layoutSource = readSource('app/_layout.tsx');
 
   assert.match(screenSource, /case 'account-deletion':/);
-  assert.match(screenSource, /router\.push\('\/settings\/account-deletion'\)/);
+  assert.match(screenSource, /showAboutDetailDestination\('account-deletion'\)/);
   assert.match(screenSource, /case 'contact-developer':/);
-  assert.match(screenSource, /router\.push\('\/settings\/contact-developer'\)/);
+  assert.match(screenSource, /showAboutDetailDestination\('contact-developer'\)/);
+  assert.match(screenSource, /showSidebarDestination\('user-guide'/);
+  assert.match(screenSource, /showAboutDetailDestination\('privacy-policy'\)/);
   assert.match(accountDeletionRouteSource, /<DeveloperContactRequestScreen mode="account-deletion" \/>/);
   assert.match(contactDeveloperRouteSource, /<DeveloperContactRequestScreen mode="contact-developer" \/>/);
   assert.match(layoutSource, /<Stack\.Screen name='settings\/account-deletion'/);
   assert.match(layoutSource, /<Stack\.Screen name='settings\/contact-developer'/);
+  assert.match(layoutSource, /AboutDetailDestinationHost/);
   assert.match(screenSource, /setContactTitle\(\(current\) => \(current\.trim\(\)\.length > 0 \? current : 'Account deletion request'\)\)/);
   assert.match(screenSource, /buildAccountDeletionRequestMessage\(\{/);
   assert.match(screenSource, /categoryLocked=\{isAccountDeletion\}/);
@@ -188,4 +191,30 @@ test('about contact developer requires a valid email before sending', () => {
   assert.match(screenSource, /autoCorrect=\{keyboardType === 'email-address' \? false : undefined\}/);
   assert.match(stylesSource, /textFieldCardError: \{[\s\S]*borderColor: '#EF4444'/);
   assert.match(stylesSource, /formFieldError: \{[\s\S]*color: '#DC2626'/);
+});
+
+test('about action rows open via retained hosts on the immediate press path', () => {
+  const screenSource = readSource('src/features/settings/AboutScreen.tsx');
+  const hostSource = readSource('src/features/settings/AboutDetailDestinationHost.tsx');
+  const controllerSource = readSource('src/features/settings/aboutDetailDestinationController.ts');
+  const rootSource = readSource('app/_layout.tsx');
+
+  assert.match(
+    screenSource,
+    /const handleAboutAction = useCallback\(\(action: AboutAction\) => \{[\s\S]*runImmediateAction\(`about\.\$\{action\.id\}\.open`/,
+  );
+  assert.match(
+    screenSource,
+    /activateOnPressIn[\s\S]*activateOnTouchStart[\s\S]*unstable_pressDelay=\{0\}[\s\S]*latencyLabel=\{`about\.\$\{action\.id\}`\}/,
+  );
+  assert.match(hostSource, /AboutDetailDestinationHost/);
+  assert.match(hostSource, /privacy-policy|account-deletion|contact-developer/);
+  assert.match(hostSource, /setNativeProps/);
+  assert.match(controllerSource, /export function showAboutDetailDestination/);
+  assert.match(controllerSource, /visualApplier\?\.\(destination\)/);
+  assert.match(rootSource, /import \{ AboutDetailDestinationHost \} from/);
+  assert.match(
+    rootSource,
+    /<SidebarDestinationHost \/>[\s\S]*<AboutDetailDestinationHost \/>/,
+  );
 });

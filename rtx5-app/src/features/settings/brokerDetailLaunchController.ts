@@ -274,6 +274,17 @@ export function showBrokerDetailLaunch(selection: BrokerDetailLaunchSelection) {
   return brokerDetailLaunchController.show(selection);
 }
 
+/**
+ * Reveals Broker Detail while Demo Account is already being popped back to it.
+ * A fast second Back must wait for that pop and then remove Detail as well;
+ * it must not take the forward-launch cancellation branch.
+ */
+export function showBrokerDetailReturnLaunch(selection: BrokerDetailLaunchSelection) {
+  const revision = brokerDetailLaunchController.show(selection);
+  brokerDetailLaunchController.startNavigation(revision);
+  return revision;
+}
+
 export function scheduleBrokerDetailLaunchNavigation(
   revision: number,
   action: () => void,

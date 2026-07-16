@@ -404,7 +404,7 @@ test('web chart trade buttons keep labels, prices, and payload side aligned', ()
   assert.match(source, /const action = getChartTradeAction\(side\)/);
   assert.match(source, /const payload = buildChartMarketOrderPayload\(/);
   assert.match(source, /side: action\.side/);
-  assert.match(source, /router\.push\(\{ pathname: '\/trade\/order-ticket', params: \{ symbol, side: action\.side \} \}\)/);
+  assert.match(source, /router\.push\(\{ pathname: '\/trade\/order-ticket', params: \{ symbol, side: action\.side, origin: 'chart' \} \}\)/);
   assert.match(source, /onPressIn=\{\(\) => runCriticalTradeAction\('chart\.web\.trade\.sell', \(\) => handleTrade\('sell'\)\)\}/);
   assert.match(source, /onPressIn=\{\(\) => runCriticalTradeAction\('chart\.web\.trade\.buy', \(\) => handleTrade\('buy'\)\)\}/);
   assert.match(source, /sellAction\.displayLabel[\s\S]*@ \{\(latestBid \|\| 0\)\.toFixed\(displayDecimals\)\}/);

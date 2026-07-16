@@ -28,6 +28,11 @@ import {
   type HelpFaqItem,
 } from './helpViewModel';
 
+// The retained sidebar host mounts Help offscreen. Build its static FAQ body
+// before the first selection, after About, while keeping every interactive or
+// focus-only effect governed by isScreenFocused.
+const HELP_BODY_PREWARM_DELAY_MS = 1_650;
+
 /**
  * Provides support resources, FAQs, and contact methods for users needing assistance.
  */
@@ -41,7 +46,9 @@ export const HelpScreenInner = memo(function HelpScreenInner({ isScreenFocused }
   const [selectedCategory, setSelectedCategory] = useState<HelpFaqCategory>('All');
   const [faqQuery, setFaqQuery] = useState('');
   const [expandedFaqId, setExpandedFaqId] = useState<string>('connect-account');
-  const routeBodyReady = useDeferredRouteContentReady(0, isScreenFocused);
+  const routeBodyReady = useDeferredRouteContentReady(
+    isScreenFocused ? 0 : HELP_BODY_PREWARM_DELAY_MS,
+  );
   const categoryCounts = useMemo(() => getHelpCategoryCounts(), []);
   const visibleFaqItems = useMemo(
     () => selectHelpFaqItems({ category: selectedCategory, query: faqQuery }),

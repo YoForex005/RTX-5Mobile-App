@@ -5,6 +5,7 @@ import {
   ACTIVE_BROKER_LOGO_URL_KEY,
   ACTIVE_BROKER_SERVER_URL_KEY,
   EXPIRES_AT_KEY,
+  getStoredFeedBrokerToken,
   REFRESH_TOKEN_KEY,
   clearAuthSessionTokens,
   persistAuthSessionTokens,
@@ -20,13 +21,14 @@ import {
   isBrokerServiceBaseUrl,
   normalizeBrokerServerUrl,
 } from './brokerRouting';
-import { extractFeedBrokerToken } from './feedAuth';
+import { appendFeedAuthToWsUrl, extractFeedBrokerToken } from './feedAuth';
 
 const TOKEN_REFRESH_SKEW_MS = 60_000;
 const AUTH_REFRESH_TIMEOUT_MS = 2500;
 const AUTH_REFRESH_FAILURES_BEFORE_LOGOUT = 2;
 const AUTH_REFRESH_FAILURE_WINDOW_MS = 30_000;
 const DEFAULT_BROKER_WS_URL = 'wss://backend.orrnn.com/ws/v2';
+const MYPROP_BROKER_ID = 'myprop-trade';
 const AUTH_SESSION_EXPIRED_MESSAGE = 'Refresh token invalid or expired.';
 const AUTH_SESSION_UNAVAILABLE_MESSAGE = 'No authenticated broker session available.';
 const BROKER_BACKEND_DOMAIN_UNAVAILABLE_CODE = 'BROKER_BACKEND_DOMAIN_UNAVAILABLE';
@@ -275,6 +277,26 @@ export class BrokerAPI {
     }
     const baseUrl = buildBrokerWsUrl(session.serverUrl, '/ws/v2', DEFAULT_BROKER_WS_URL);
     return `${baseUrl}?token=${encodeURIComponent(token)}`;
+  }
+
+  async getQuoteWebSocketUrl(): Promise<string> {
+    const session = await this.getSession();
+    this.assertBrokerServiceBaseUrl(session);
+
+    if (session.brokerId.trim().toLowerCase() !== MYPROP_BROKER_ID) {
+      return this.getWebSocketUrl();
+    }
+
+    const feedToken = await getStoredFeedBrokerToken();
+    if (!feedToken) {
+      throw new Error('MyProp market data feed token is unavailable. Please sign in again.');
+    }
+
+    const baseUrl = buildBrokerWsUrl(session.serverUrl, '/ws/feed', '');
+    if (!baseUrl) {
+      throw new Error(getBrokerBackendDomainUnavailableMessage(session.brokerId));
+    }
+    return appendFeedAuthToWsUrl(baseUrl, session.brokerId, feedToken);
   }
 
   async persistSelectedBroker(input: {

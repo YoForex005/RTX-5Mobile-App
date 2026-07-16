@@ -279,6 +279,11 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
     ...(normalizedUpdate.sequence === undefined ? {} : { sequence: normalizedUpdate.sequence }),
     ...(normalizedUpdate.tickId === undefined ? {} : { tickId: normalizedUpdate.tickId }),
     ...(normalizedUpdate.source === undefined ? {} : { source: normalizedUpdate.source }),
+    ...(normalizedUpdate.authority === undefined ? {} : { authority: normalizedUpdate.authority }),
+    ...(normalizedUpdate.stale === undefined ? {} : { stale: normalizedUpdate.stale }),
+    ...(normalizedUpdate.tradable === undefined ? {} : { tradable: normalizedUpdate.tradable }),
+    ...(normalizedUpdate.ageMs === undefined ? {} : { ageMs: normalizedUpdate.ageMs }),
+    ...(normalizedUpdate.ageSec === undefined ? {} : { ageSec: normalizedUpdate.ageSec }),
     ...(normalizedUpdate.degraded === undefined ? {} : { degraded: normalizedUpdate.degraded }),
     ...(normalizedUpdate.degradationReason === undefined
       ? {}
@@ -314,6 +319,11 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
     sequence: normalizedUpdate.sequence,
     tickId: normalizedUpdate.tickId,
     source: normalizedUpdate.source,
+    authority: normalizedUpdate.authority,
+    stale: normalizedUpdate.stale,
+    tradable: normalizedUpdate.tradable,
+    ageMs: normalizedUpdate.ageMs,
+    ageSec: normalizedUpdate.ageSec,
     degraded: normalizedUpdate.degraded,
     degradationReason: normalizedUpdate.degradationReason,
     feedTickAt: normalizedTimestampMs ?? undefined,

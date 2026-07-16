@@ -355,7 +355,7 @@ test('pending chart CTA submits the pending order and then exposes chart-side le
 });
 
 test('collapsed SL/TP sheet drag gesture covers the pinned header surface', () => {
-  const visibleSheetStart = chartTradeFeatureSource.indexOf('{sheet.showChartTradeSheet ? (');
+  const visibleSheetStart = chartTradeFeatureSource.indexOf('{mountTradeSheet ? (');
   const visibleSheetBodyStart = chartTradeFeatureSource.indexOf('{showSheetBody ? (', visibleSheetStart);
   assert.notEqual(visibleSheetStart, -1, 'visible chart trade sheet branch was not found');
   assert.notEqual(visibleSheetBodyStart, -1, 'visible chart trade sheet body branch was not found');
@@ -370,6 +370,16 @@ test('collapsed SL/TP sheet drag gesture covers the pinned header surface', () =
   const dragDetectorCount =
     visibleSheetHeaderSource.match(/<GestureDetector gesture=\{sheet\.chartTradeSheetDragGesture\}>/g)?.length ?? 0;
   assert.equal(dragDetectorCount, 1, 'visible sheet header should use one gesture detector around handle and header');
+  assertSourceContains(
+    chartTradeFeatureSource,
+    /const mountTradeSheet = !!\(sheet\.mountChartTradeSheet \|\| sheet\.showChartTradeSheet\)/,
+    'trade sheet layer must support pre-mount while Chart is focused',
+  );
+  assertSourceContains(
+    chartTradeFeatureSource,
+    /pointerEvents=\{sheet\.showChartTradeSheet \? 'box-none' : 'none'\}/,
+    'pre-mounted SL/TP sheet must not intercept touches while hidden',
+  );
 });
 
 test('tap menu is suppressed while lot input or picker interaction is active', () => {
@@ -396,6 +406,20 @@ test('toolbar SL/TP tap opens the sheet immediately on a full-size touch surface
     openHandlerSource,
     /requestAnimationFrame/,
     'SL/TP toolbar action must not defer opening until a later frame',
+  );
+  // Visual snap first; panel resets may wait one frame so they cannot block open.
+  const openSheetStart = source.indexOf('const openChartTradeSheet = useCallback');
+  const openSheetEnd = source.indexOf('const handleOpenChartTradeSheet', openSheetStart);
+  const openSheetSource = source.slice(openSheetStart, openSheetEnd);
+  assertSourceContains(
+    openSheetSource,
+    /snapTradeSheet\('collapsed'\);[\s\S]*resetChartTradePanelLevels/,
+    'SL/TP must snap the sheet into view before panel level resets',
+  );
+  assertSourceContains(
+    source,
+    /mountChartTradeSheet: isScreenFocused && !isChartExpanded/,
+    'SL/TP sheet must stay pre-mounted while Chart is focused',
   );
   assertSourceContains(
     source,

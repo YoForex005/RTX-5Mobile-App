@@ -10,6 +10,12 @@ export type QuoteItem = {
   lastTickAt?: number;
   lastReceivedAt?: number;
   lastPriceChangedAt?: number;
+  source?: string;
+  authority?: string;
+  stale?: boolean;
+  tradable?: boolean;
+  ageMs?: number;
+  ageSec?: number;
   prevBid?: number;
   prevAsk?: number;
   changePct: number;
@@ -320,25 +326,11 @@ export const historyDeals = [
 
 export const settingsMenu = [
   { id: 'new-account', label: 'New Account', sub: '' },
-  { id: 'mailbox', label: 'Mailbox', sub: 'The List of Instruments Affected by High Importance News' },
-  { id: 'news', label: 'News', sub: 'WTI oil declines as US-Iran talks, OPEC+ output rumors cap gains' },
   { id: 'tradays', label: 'Economic Calender', sub: 'Economic Calender' },
-  { id: 'chat', label: 'Chat and Messages', sub: 'Sign in to MQL5.community' },
-  { id: 'community', label: 'Traders Community', sub: '' },
-  { id: 'algo', label: 'MQL5 Algo Trading', sub: '' },
-  { id: 'otp', label: 'OTP', sub: 'One-time password generator' },
   { id: 'interface', label: 'Language Preference', sub: 'English' },
   { id: 'charts', label: 'Charts', sub: '' },
   { id: 'journal', label: 'Journal', sub: '' },
   { id: 'settings', label: 'Settings', sub: '' },
-];
-
-export const newsItems = [
-  'WTI Oil declines as US-Iran nuclear talks, OPEC+ output rumors cap gains',
-  'Dow Jones Industrial Average dips as AI disruption fears persist, FOMC Minutes loom',
-  'CAD: Softer CPI boosts BoC easing flexibility - RBC',
-  'New Zealand GDT Price Index dipped from previous 6.7% to 3.6%',
-  'USD/CHF nears one-week high amid stronger US Dollar',
 ];
 
 export const brokers = [

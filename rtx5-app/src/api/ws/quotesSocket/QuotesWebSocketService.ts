@@ -234,7 +234,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     }
 
     try {
-      const socketUrl = await brokerApi.getWebSocketUrl();
+      const socketUrl = await brokerApi.getQuoteWebSocketUrl();
       this.pendingBrokerMarketBlockReason = null;
       return socketUrl;
     } catch (error) {
@@ -252,13 +252,13 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       return false;
     }
 
-    return /\/ws\/v2(?:\?|$)/.test(socketUrl);
+    return /\/ws\/(?:feed|v2)(?:\?|$)/.test(socketUrl);
   }
 
   private markBrokerSocketUnavailable(socketUrl: string, reason: string): boolean {
     if (this.shouldStayOnBrokerMarketSocket(socketUrl)) {
       console.warn(
-        `[Quotes WS] Broker market socket unavailable (${reason}). Retrying broker /ws/v2 socket.`,
+        `[Quotes WS] Broker market socket unavailable (${reason}). Retrying the selected broker market socket.`,
         { socketUrl: redactMarketSocketUrl(socketUrl) },
       );
       this.clearReconnectTimer();
@@ -416,7 +416,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
           ? '[Quotes WS] Market data requires a logged-in broker session. Skipping public feed fallback.'
           : reason === 'auth_session'
             ? '[Quotes WS] Authenticated broker market socket unavailable. Waiting for a valid access token.'
-            : '[Quotes WS] No broker market /ws/v2 URL available for logged-in session. Waiting for broker domain.',
+            : '[Quotes WS] No broker market WebSocket URL available for logged-in session. Waiting for broker domain.',
       );
       this.attemptReconnect();
       return;
@@ -720,15 +720,18 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     }
   }
 
+  private usesFeedProtocol(): boolean {
+    return /\/ws\/feed(?:\?|$)/.test(this.url);
+  }
+
   private sendSubscriptionDiff(nextDesiredSymbols: Set<string>): void {
     const subscribeSymbols = Array.from(nextDesiredSymbols).filter((symbol) => !this.sentSymbols.has(symbol));
     const unsubscribeSymbols = Array.from(this.sentSymbols).filter((symbol) => !nextDesiredSymbols.has(symbol));
 
     if (unsubscribeSymbols.length > 0) {
-      this.send({
-        action: 'unsubscribe',
-        channels: unsubscribeSymbols.map(createTickChannel),
-      });
+      this.send(this.usesFeedProtocol()
+        ? { type: 'unsubscribe', symbols: unsubscribeSymbols }
+        : { action: 'unsubscribe', channels: unsubscribeSymbols.map(createTickChannel) });
       unsubscribeSymbols.forEach((symbol) => {
         this.sentSymbols.delete(symbol);
         this.confirmedSymbols.delete(symbol);
@@ -739,10 +742,9 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     }
 
     if (subscribeSymbols.length > 0) {
-      this.send({
-        action: 'subscribe',
-        channels: subscribeSymbols.map(createTickChannel),
-      });
+      this.send(this.usesFeedProtocol()
+        ? { type: 'subscribe', symbols: subscribeSymbols }
+        : { action: 'subscribe', channels: subscribeSymbols.map(createTickChannel) });
       subscribeSymbols.forEach((symbol) => {
         this.sentSymbols.add(symbol);
         this.pendingUnsubscribeSymbols.delete(symbol);

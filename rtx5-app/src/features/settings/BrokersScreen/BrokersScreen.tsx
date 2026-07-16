@@ -271,7 +271,7 @@ export function BrokersScreen() {
       hideBrokersLaunch();
     }
     scheduleBackNavigationAfterVisualFrame(() => {
-      safeRouterBack(routerInstance, '/settings/accounts');
+      safeRouterBack(routerInstance, '/(tabs)/quotes');
     });
   }, [routerInstance]);
 

@@ -176,6 +176,11 @@ test('normalizeQuoteTickPayload maps verified live feed session fields', () => {
     ask: 1.17141,
     daily_open: 1.17223,
     previous_close: 1.17204,
+    source: 'rtx_market_data',
+    authority: 'rtx5_hub',
+    stale: false,
+    tradable: true,
+    age_ms: 12,
     session: {
       high_bid: 1.17269,
       low_bid: 1.16773,
@@ -194,6 +199,11 @@ test('normalizeQuoteTickPayload maps verified live feed session fields', () => {
   assert.equal(result.update.ask, 1.17141);
   assert.equal(result.update.dailyOpen, 1.17223);
   assert.equal(result.update.previousClose, 1.17204);
+  assert.equal(result.update.source, 'rtx_market_data');
+  assert.equal(result.update.authority, 'rtx5_hub');
+  assert.equal(result.update.stale, false);
+  assert.equal(result.update.tradable, true);
+  assert.equal(result.update.ageMs, 12);
   assert.equal(result.update.high, 1.17269);
   assert.equal(result.update.low, 1.16773);
   assert.equal(result.update.timestamp, 1777409940);

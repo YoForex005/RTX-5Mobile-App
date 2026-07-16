@@ -133,26 +133,29 @@ test('candle gateway history can run without a frontend login gate', () => {
   assert.doesNotMatch(apiSource, /PUBLIC_API_V1_BASE_URL|fetchPublicCandleHistory|HISTORY_API_KEY|\/history\/candles/);
 });
 
-test('candle websocket stays public and routes by selected broker identity', () => {
-  // Public /ws/v2 candle channels reject arbitrary account JWTs on current
-  // broker backends. Candle routing is broker-scoped through broker_id while
-  // account/trade sockets keep the authenticated realtime contract.
+test('candle websocket uses the authenticated broker session and selected broker identity', () => {
+  // Candle data remains on the authenticated broker /ws/v2 socket. The broker
+  // API owns URL and token construction so the service cannot drift from the
+  // account/trading WebSocket contract.
   assert.doesNotMatch(
     socketServiceSource,
     /getStoredAccessToken/,
-    'candle WS must not attach account JWTs to public candle channels',
+    'candle WS must not assemble account JWTs inside the socket service',
   );
   assertSourceContains(
     socketServiceSource,
-    // Path may be `./candlesSocketProtocol` or `../candlesSocketProtocol`,
-    // depending on whether the service lives in a sibling file or folder.
-    /import \{[\s\S]*appendCandleWsBrokerId[\s\S]*\} from '\.\.?\/candlesSocketProtocol'/,
-    'candle WS must use the shared broker-id URL helper from the protocol module',
+    /import \{ brokerApi \} from '\.\.\/\.\.\/\.\.\/\.\.\/api\/brokerApi'/,
+    'candle WS must resolve its authenticated URL through the broker API',
   );
   assertSourceContains(
     socketServiceSource,
-    /const wsUrl = appendCandleWsBrokerId\(this\.url, brokerId\)[\s\S]*this\.ws = new WebSocket\(wsUrl\)/,
-    'candle WS connect path must build the URL with the selected broker id',
+    /if \(!state\.isLoggedIn\) \{[\s\S]*return '';[\s\S]*\}[\s\S]*return brokerApi\.getWebSocketUrl\(\)/,
+    'candle WS must stay unavailable while logged out and use the selected broker session after login',
+  );
+  assertSourceContains(
+    socketServiceSource,
+    /const wsUrl = this\.url;[\s\S]*this\.ws = new WebSocket\(wsUrl\)/,
+    'candle WS connect path must use the authenticated URL returned by the broker API',
   );
   assertSourceContains(
     socketServiceSource,
@@ -166,8 +169,8 @@ test('candle websocket stays public and routes by selected broker identity', () 
   );
   assert.doesNotMatch(
     socketServiceSource,
-    /anonymousFallbackToken|retryPublicChannelWithoutToken|appendCandleWsToken/,
-    'candle WS must not depend on token fallback logic for public candle channels',
+    /anonymousFallbackToken|retryPublicChannelWithoutToken|appendCandleWsToken|appendCandleWsBrokerId/,
+    'candle WS must not depend on legacy public or locally assembled auth fallbacks',
   );
 });
 

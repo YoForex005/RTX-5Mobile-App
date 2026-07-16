@@ -62,3 +62,17 @@ export const extractFeedBrokerToken = (payload: unknown): string => {
 
   return '';
 };
+
+export const appendFeedAuthToWsUrl = (
+  baseUrl: string,
+  brokerId: string,
+  feedToken: string,
+): string => {
+  const url = new URL(baseUrl);
+  url.searchParams.set('broker_id', cleanString(brokerId));
+  url.searchParams.set('token', cleanString(feedToken));
+  return url.toString();
+};
+
+export const redactFeedAuthFromWsUrl = (url: string): string =>
+  url.replace(/([?&]token=)[^&]*/i, '$1***');

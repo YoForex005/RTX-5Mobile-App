@@ -5,6 +5,7 @@ import {
   createBrokerDetailLaunchController,
   scheduleBrokerDetailLaunchCoverRemoval,
   scheduleBrokerDetailLaunchNavigation,
+  showBrokerDetailReturnLaunch,
   type BrokerDetailLaunchSelection,
 } from './brokerDetailLaunchController';
 
@@ -39,6 +40,23 @@ test('broker-detail launch keeps the exact prepared live broker and reveals sync
   assert.equal(controller.hide(revision + 1), false);
   assert.equal(controller.hide(revision), true);
   assert.deepEqual(visualEvents, [true, false]);
+});
+
+test('broker-detail return launch is immediately marked committed for a chained Back', () => {
+  brokerDetailLaunchController.hide();
+
+  try {
+    const revision = showBrokerDetailReturnLaunch(GTA);
+    const snapshot = brokerDetailLaunchController.getSnapshot();
+
+    assert.equal(snapshot.visible, true);
+    assert.equal(snapshot.navigationStarted, true);
+    assert.equal(snapshot.revision, revision);
+    assert.deepEqual(snapshot.selection, GTA);
+    assert.equal(brokerDetailLaunchController.startNavigation(revision), false);
+  } finally {
+    brokerDetailLaunchController.hide();
+  }
 });
 
 test('scheduled broker-detail cover removal waits for two paints and cannot hide a newer launch', async () => {

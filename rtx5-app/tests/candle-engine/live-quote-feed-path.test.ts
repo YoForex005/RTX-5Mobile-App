@@ -201,15 +201,16 @@ test('useLiveCandles defaults to quote-driven candles and gates backend candle s
   const quoteSocketSource = readModuleSource('src/api/ws/quotesSocket');
 
   assert.match(source, /import \{ shouldUseServerCandleStream \} from '\.\.\/ws\/liveCandlesEnginePolicy'/);
+  assert.match(source, /import \{ candlesWsService \} from '\.\.\/ws\/candlesSocket'/);
   assert.match(source, /const useServerCandleStream = shouldUseServerCandleStream\(\)/);
-  assert.match(source, /const unsubscribeCandleDemand = useServerCandleStream[\s\S]*quotesWsService\.subscribeToCandles\(normalizedSymbol, normalizedTimeframe\)/);
+  assert.match(source, /const unsubscribeCandleDemand = useServerCandleStream[\s\S]*candlesWsService\.subscribe\(normalizedSymbol, normalizedTimeframe\)[\s\S]*candlesWsService\.unsubscribe\(normalizedSymbol, normalizedTimeframe\)/);
   assert.match(source, /unsubscribeCandleDemand\?\.\(\)/);
   assert.match(source, /quotesWsService\.subscribeToSymbol\(symbol, \(\) => \{\}\)/);
   assert.doesNotMatch(source, /quote_store_fallback_tick/);
   assert.doesNotMatch(source, /liveCandlesEngine\.ingestQuoteTick/);
   assert.doesNotMatch(source, /normalizeLiveTick/);
   assert.match(quoteSocketSource, /subscribeToCandles\(symbol: string, tf: string\)/);
-  assert.match(quoteSocketSource, /buildCandleFeedSubscriptionMessages\('subscribe_candles', subscribeSubscriptions\)/);
+  assert.match(quoteSocketSource, /buildCandleChannelSubscriptionMessages\('subscribe', subscribeSubscriptions\)/);
   assert.match(quoteSocketSource, /toBridgeCandleTf/);
   assert.match(quoteSocketSource, /routeBackendCandleUpdates/);
   assert.match(quoteSocketSource, /shouldRouteBackendCandlePayloads\(\)/);

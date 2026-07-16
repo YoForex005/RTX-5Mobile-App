@@ -6,7 +6,7 @@ import {
   hideBrokerDetailLaunch,
   normalizeBrokerDetailLaunchSelection,
 } from '../../src/features/settings/brokerDetailLaunchController';
-import { showBrokersLaunch } from '../../src/features/settings/brokersLaunchController';
+import { showBrokersReturnLaunch } from '../../src/features/settings/brokersLaunchController';
 import {
   scheduleRegisterLaunchNavigation,
   showRegisterLaunch,
@@ -47,7 +47,7 @@ export default function BrokerDetailRoute() {
     params.brokerServerUrl,
   ]);
   const handleBack = useCallback(() => {
-    showBrokersLaunch();
+    showBrokersReturnLaunch();
     if (brokerDetailLaunchController.isVisible()) {
       hideBrokerDetailLaunch();
     }

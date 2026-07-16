@@ -5,7 +5,7 @@
  * Highly configurable and typically controlled via the global `useUIState`
  * store rather than local component state.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   BackHandler,
@@ -35,9 +35,18 @@ import {
   resolveActionSheetFloor,
   resolveActionSheetInitialMeasuredHeight,
   resolveActionSheetMeasuredHeight,
+  resolveActionSheetMt5EntryTranslateY,
   resolveActionSheetOpenMeasuredHeight,
 } from './layout';
 import { makeActionSheetStyles } from './styles';
+import {
+  acknowledgeRetainedActionSheetVisible,
+  cancelRetainedActionSheetPreview,
+  getRetainedActionSheetVisualSnapshot,
+  registerRetainedActionSheetVisualApplier,
+  syncRetainedActionSheetVisual,
+  type RetainedActionSheetVisualSnapshot,
+} from './retainedActionSheetVisualController';
 
 type ActionSheetAction = {
   label: string;
@@ -53,6 +62,8 @@ type ActionSheetAction = {
   icon?: React.ReactNode;
 };
 
+type ActionSheetEntryMotion = 'instant' | 'mt5Slide' | 'standard';
+
 type ActionSheetProps = {
   visible: boolean;
   title?: string;
@@ -67,6 +78,9 @@ type ActionSheetProps = {
   detent?: 'auto' | 'adaptive' | 'large';
   minimumTopInset?: number;
   instantOpen?: boolean;
+  entryMotion?: ActionSheetEntryMotion;
+  immediateHostHideOnClose?: boolean;
+  visualKey?: string;
   runActionAfterClose?: boolean;
   androidKeyboardAvoidance?: 'event' | 'resize';
   keepFullHeightOnKeyboard?: boolean;
@@ -74,7 +88,7 @@ type ActionSheetProps = {
 
 type CachedActionSheetConfig = Pick<
   ActionSheetProps,
-  'title' | 'titleAlign' | 'compactText' | 'presentation' | 'showActionIcons' | 'actions' | 'searchable' | 'searchPlaceholder' | 'detent' | 'minimumTopInset' | 'instantOpen' | 'runActionAfterClose' | 'androidKeyboardAvoidance' | 'keepFullHeightOnKeyboard'
+  'title' | 'titleAlign' | 'compactText' | 'presentation' | 'showActionIcons' | 'actions' | 'searchable' | 'searchPlaceholder' | 'detent' | 'minimumTopInset' | 'instantOpen' | 'entryMotion' | 'immediateHostHideOnClose' | 'visualKey' | 'runActionAfterClose' | 'androidKeyboardAvoidance' | 'keepFullHeightOnKeyboard'
 >;
 
 const ACTION_SHEET_ROW_MIN_HEIGHT = 48;
@@ -86,16 +100,97 @@ const ACTION_SHEET_TIMEFRAME_GRID_ROW_GAP = 8;
 const ACTION_SHEET_TIMEFRAME_GRID_VERTICAL_PADDING = 16;
 const ACTION_SHEET_BACKDROP_OPEN_GUARD_MS = 60;
 const ACTION_SHEET_OPEN_TRANSLATE_Y = 12;
-const ACTION_SHEET_FAST_OPEN_TRANSLATE_Y = 0;
+const ACTION_SHEET_INSTANT_OPEN_OPACITY = 1;
+const ACTION_SHEET_INSTANT_OPEN_TRANSLATE_Y = 0;
 const ACTION_SHEET_OPEN_OVERLAY_DURATION_MS = 50;
 const ACTION_SHEET_OPEN_SHEET_DURATION_MS = 50;
-const ACTION_SHEET_FAST_OPEN_OVERLAY_DURATION_MS = 0;
-const ACTION_SHEET_FAST_OPEN_SHEET_DURATION_MS = 0;
+const ACTION_SHEET_MT5_OPEN_OVERLAY_DURATION_MS = 180;
+const ACTION_SHEET_MT5_OPEN_SHEET_DURATION_MS = 210;
 const ACTION_SHEET_CLOSE_OVERLAY_DURATION_MS = 50;
 const ACTION_SHEET_CLOSE_SHEET_DURATION_MS = 50;
 const ACTION_SHEET_INLINE_ACTION_LIMIT = 12;
 const ACTION_SHEET_KEEP_HOST_MOUNTED = true;
 const ACTION_SHEET_ROW_PRESS_CANCEL_MOVE_PX = 10;
+
+const startActionSheetEntryAnimation = ({
+  mode,
+  overlayOpacity,
+  sheetTranslateY,
+  mt5TranslateY,
+}: {
+  mode: ActionSheetEntryMotion;
+  overlayOpacity: Animated.Value;
+  sheetTranslateY: Animated.Value;
+  mt5TranslateY: number;
+}) => {
+  overlayOpacity.stopAnimation();
+  sheetTranslateY.stopAnimation();
+
+  if (mode === 'instant') {
+    overlayOpacity.setValue(ACTION_SHEET_INSTANT_OPEN_OPACITY);
+    sheetTranslateY.setValue(ACTION_SHEET_INSTANT_OPEN_TRANSLATE_Y);
+    return;
+  }
+
+  const isMt5Slide = mode === 'mt5Slide';
+  overlayOpacity.setValue(0);
+  sheetTranslateY.setValue(isMt5Slide ? mt5TranslateY : ACTION_SHEET_OPEN_TRANSLATE_Y);
+  Animated.parallel([
+    Animated.timing(overlayOpacity, {
+      toValue: 1,
+      duration: isMt5Slide
+        ? ACTION_SHEET_MT5_OPEN_OVERLAY_DURATION_MS
+        : ACTION_SHEET_OPEN_OVERLAY_DURATION_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }),
+    Animated.timing(sheetTranslateY, {
+      toValue: 0,
+      duration: isMt5Slide
+        ? ACTION_SHEET_MT5_OPEN_SHEET_DURATION_MS
+        : ACTION_SHEET_OPEN_SHEET_DURATION_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }),
+  ]).start();
+};
+
+const startActionSheetExitAnimation = ({
+  instantOpen,
+  overlayOpacity,
+  sheetTranslateY,
+  onComplete,
+}: {
+  instantOpen: boolean;
+  overlayOpacity: Animated.Value;
+  sheetTranslateY: Animated.Value;
+  onComplete?: (result: { finished: boolean }) => void;
+}) => {
+  const closeSheetTranslateY = instantOpen ? 80 : ACTION_SHEET_INSTANT_OPEN_TRANSLATE_Y;
+
+  overlayOpacity.stopAnimation();
+  sheetTranslateY.stopAnimation();
+  Animated.parallel([
+    Animated.timing(overlayOpacity, {
+      toValue: 0,
+      duration: instantOpen ? 60 : ACTION_SHEET_CLOSE_OVERLAY_DURATION_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }),
+    Animated.timing(sheetTranslateY, {
+      toValue: closeSheetTranslateY,
+      duration: instantOpen ? 80 : ACTION_SHEET_CLOSE_SHEET_DURATION_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }),
+  ]).start((result) => {
+    if (result.finished) {
+      overlayOpacity.setValue(0);
+      sheetTranslateY.setValue(closeSheetTranslateY);
+    }
+    onComplete?.(result);
+  });
+};
 
 type ActionSheetPressPoint = {
   x: number;
@@ -143,6 +238,9 @@ export function ActionSheet({
   detent = 'auto',
   minimumTopInset = 100,
   instantOpen = false,
+  entryMotion,
+  immediateHostHideOnClose = false,
+  visualKey,
   runActionAfterClose = true,
   androidKeyboardAvoidance = 'event',
   keepFullHeightOnKeyboard = false,
@@ -167,8 +265,15 @@ export function ActionSheet({
   // Measured height from the host layout. Start from the visible window height
   // so the first frame already has the final sheet geometry.
   const [measuredHeight, setMeasuredHeight] = useState(initialMeasuredHeight);
-  const overlayOpacity = useRef(new Animated.Value(visible && instantOpen ? 1 : 0)).current;
-  const sheetTranslateY = useRef(new Animated.Value(visible && instantOpen ? 0 : 28)).current;
+  const initialEntryMotion: ActionSheetEntryMotion = entryMotion ?? (
+    instantOpen ? 'instant' : 'standard'
+  );
+  const overlayOpacity = useRef(new Animated.Value(
+    visible && initialEntryMotion === 'instant' ? 1 : 0,
+  )).current;
+  const sheetTranslateY = useRef(new Animated.Value(
+    visible && initialEntryMotion === 'instant' ? 0 : 28,
+  )).current;
   const openedAtRef = useRef(visible ? Date.now() : 0);
   const cachedConfigRef = useRef<CachedActionSheetConfig>({
     title,
@@ -182,6 +287,9 @@ export function ActionSheet({
     detent,
     minimumTopInset,
     instantOpen,
+    entryMotion,
+    immediateHostHideOnClose,
+    visualKey,
     runActionAfterClose,
     androidKeyboardAvoidance,
     keepFullHeightOnKeyboard,
@@ -198,6 +306,9 @@ export function ActionSheet({
     detent,
     minimumTopInset,
     instantOpen,
+    entryMotion,
+    immediateHostHideOnClose,
+    visualKey,
     runActionAfterClose,
     androidKeyboardAvoidance,
     keepFullHeightOnKeyboard,
@@ -208,9 +319,23 @@ export function ActionSheet({
     Boolean(searchable) ||
     Boolean(searchPlaceholder) ||
     minimumTopInset !== undefined;
-  const activeConfig = visible || hasIncomingConfig ? incomingConfig : cachedConfigRef.current;
+  const prevVisibleRef = useRef(visible);
+  const closeAnimationRunningRef = useRef(false);
+  const [, refreshHiddenConfig] = useState(0);
+  const visibilityChanged = visible !== prevVisibleRef.current;
+  const isStartingClose = visibilityChanged && !visible;
 
-  if (visible || hasIncomingConfig) {
+  // Keep the outgoing rows mounted until their close animation is fully
+  // transparent. A newly preloaded symbol must never flash inside the previous
+  // sheet while that sheet is still moving off screen.
+  const canAdoptIncomingConfig = visible || !(
+    closeAnimationRunningRef.current || isStartingClose
+  );
+  const activeConfig = canAdoptIncomingConfig && hasIncomingConfig
+    ? incomingConfig
+    : cachedConfigRef.current;
+
+  if (canAdoptIncomingConfig && (visible || hasIncomingConfig)) {
     cachedConfigRef.current = incomingConfig;
   }
 
@@ -218,6 +343,8 @@ export function ActionSheet({
   const activeTitleAlign = activeConfig.titleAlign;
   const activeCompactText = activeConfig.compactText ?? false;
   const activePresentation = activeConfig.presentation ?? 'default';
+  const activeUsesTransparentMt5Host =
+    activePresentation === 'mt5Plain' || activePresentation === 'mt5TimeframeGrid';
   const activeShowActionIcons = activeConfig.showActionIcons ?? false;
   const activeActions = activeConfig.actions;
   const activeSearchable = activeConfig.searchable ?? false;
@@ -225,25 +352,25 @@ export function ActionSheet({
   const activeDetent = activeConfig.detent ?? 'adaptive';
   const activeMinimumTopInset = activeConfig.minimumTopInset;
   const activeInstantOpen = activeConfig.instantOpen ?? true;
+  const activeEntryMotion: ActionSheetEntryMotion = activeConfig.entryMotion ?? (
+    activeInstantOpen ? 'instant' : 'standard'
+  );
+  const activeImmediateHostHideOnClose = activeConfig.immediateHostHideOnClose ?? false;
+  const activeVisualKey = activeConfig.visualKey;
   const activeRunActionAfterClose = activeConfig.runActionAfterClose ?? false;
   const activeAndroidKeyboardAvoidance = activeConfig.androidKeyboardAvoidance ?? 'event';
   const activeKeepFullHeightOnKeyboard = activeConfig.keepFullHeightOnKeyboard ?? false;
+  const mt5EntryTranslateY = Math.min(
+    screenHeight,
+    Math.max(
+      160,
+      72 + activeActions.reduce(
+        (height, action) => height + (action.subtitle ? 68 : ACTION_SHEET_MT5_PLAIN_ROW_MIN_HEIGHT),
+        0,
+      ),
+    ),
+  );
 
-  const prevVisibleRef = useRef(visible);
-  if (visible !== prevVisibleRef.current) {
-    if (visible) {
-      openedAtRef.current = Date.now();
-      // Always start hidden on the very first frame to allow children to layout.
-      // This prevents a "blank flash" when the sheet first opens natively.
-      overlayOpacity.setValue(0);
-      if (activeInstantOpen) {
-        sheetTranslateY.setValue(80);
-      } else {
-        sheetTranslateY.setValue(ACTION_SHEET_OPEN_TRANSLATE_Y);
-      }
-    }
-    prevVisibleRef.current = visible;
-  }
   const pendingActionRef = useRef<(() => void) | null>(null);
   const pendingActionCancelRef = useRef<(() => void) | null>(null);
   const hasMeasuredOverlayRef = useRef(false);
@@ -251,6 +378,249 @@ export function ActionSheet({
     start: null,
     cancelled: false,
   });
+  const overlayLayerRef = useRef<View>(null);
+  const sheetBodyRef = useRef<View>(null);
+  const measuredSheetBodyHeightRef = useRef(0);
+  const hostHiddenImperativelyRef = useRef(false);
+  const retainedVisualOwnerRef = useRef<{ revision: number; visualKey: string } | null>(null);
+  const retainedAdoptionVisualKeyRef = useRef<string | null>(null);
+  const entryAnimationStartedForOpenRef = useRef(false);
+  const mt5DismissCompletedRef = useRef(false);
+  const reactVisibleRef = useRef(visible);
+  const activeVisualKeyRef = useRef(activeVisualKey);
+  const retainedMt5RevealInFlight =
+    activeEntryMotion === 'mt5Slide' &&
+    retainedVisualOwnerRef.current?.visualKey === activeVisualKey;
+  const shouldSeedMt5EntryTransform =
+    visible && visibilityChanged && activeEntryMotion === 'mt5Slide' && !retainedMt5RevealInFlight;
+  const resolveMt5EntryTranslateY = useCallback(
+    () => resolveActionSheetMt5EntryTranslateY({
+      estimatedTranslateY: mt5EntryTranslateY,
+      measuredSheetBodyHeight: measuredSheetBodyHeightRef.current,
+    }),
+    [mt5EntryTranslateY],
+  );
+
+  useLayoutEffect(() => {
+    if (!visibilityChanged) {
+      return;
+    }
+
+    const mt5DismissAlreadyCompleted = !visible && mt5DismissCompletedRef.current;
+    mt5DismissCompletedRef.current = false;
+    closeAnimationRunningRef.current = !visible && !mt5DismissAlreadyCompleted;
+    if (visible) {
+      // A visible effect can rerun while the same sheet is open when its
+      // measured height or retained config settles. Only the visibility edge
+      // may arm a new entry animation; otherwise Drawing Tools visibly rises,
+      // drops, and rises a second time.
+      entryAnimationStartedForOpenRef.current = false;
+      openedAtRef.current = Date.now();
+      if (hostHiddenImperativelyRef.current) {
+        // A preceding MT5-slide close hides the entire retained host with an
+        // imperative opacity mutation. The next sheet may be a default/search
+        // picker rather than another MT5 presentation, so restore the shared
+        // host on every visible edge, independent of the incoming style.
+        overlayLayerRef.current?.setNativeProps({
+          style: { opacity: 1 },
+          accessibilityElementsHidden: false,
+          importantForAccessibility: 'auto',
+          pointerEvents: 'auto',
+        });
+        sheetBodyRef.current?.setNativeProps({ pointerEvents: 'auto' });
+        hostHiddenImperativelyRef.current = false;
+      }
+      if (!retainedMt5RevealInFlight) {
+        overlayOpacity.stopAnimation();
+        sheetTranslateY.stopAnimation();
+        if (activeEntryMotion === 'instant') {
+          overlayOpacity.setValue(ACTION_SHEET_INSTANT_OPEN_OPACITY);
+          sheetTranslateY.setValue(ACTION_SHEET_INSTANT_OPEN_TRANSLATE_Y);
+        } else {
+          overlayOpacity.setValue(0);
+          sheetTranslateY.setValue(
+            activeEntryMotion === 'mt5Slide'
+              ? resolveMt5EntryTranslateY()
+              : ACTION_SHEET_OPEN_TRANSLATE_Y,
+          );
+        }
+      }
+      if (shouldSeedMt5EntryTransform) {
+        // The first visible commit uses a static offscreen transform below.
+        // Re-render from this layout edge so the native animated value is
+        // attached only after it has been seeded, before the slide begins.
+        refreshHiddenConfig((revision) => revision + 1);
+      }
+    } else if (activeEntryMotion === 'mt5Slide' || activeImmediateHostHideOnClose) {
+      entryAnimationStartedForOpenRef.current = false;
+      // Store-driven closes can bypass dismissActionSheet. Hide in the layout
+      // phase so no stale retained snapshot or passive effect can paint a
+      // one-frame full-sheet ghost after the sheet already disappeared.
+      overlayLayerRef.current?.setNativeProps({
+        style: { opacity: 0 },
+        accessibilityElementsHidden: true,
+        importantForAccessibility: 'no-hide-descendants',
+        pointerEvents: 'none',
+      });
+      hostHiddenImperativelyRef.current = true;
+      sheetBodyRef.current?.setNativeProps({ pointerEvents: 'none' });
+      overlayOpacity.stopAnimation();
+      sheetTranslateY.stopAnimation();
+      overlayOpacity.setValue(0);
+      sheetTranslateY.setValue(resolveMt5EntryTranslateY());
+      closeAnimationRunningRef.current = false;
+      // Adopt the newest hidden preload immediately. Without this commit the
+      // retained host can keep the outgoing Drawing/More visual key, forcing
+      // the next symbol press through the slower React fallback.
+      refreshHiddenConfig((revision) => revision + 1);
+    }
+    prevVisibleRef.current = visible;
+  }, [
+    activeEntryMotion,
+    activeImmediateHostHideOnClose,
+    activeVisualKey,
+    overlayOpacity,
+    refreshHiddenConfig,
+    resolveMt5EntryTranslateY,
+    retainedMt5RevealInFlight,
+    sheetTranslateY,
+    shouldSeedMt5EntryTransform,
+    visibilityChanged,
+    visible,
+  ]);
+
+  const applyRetainedVisualSnapshot = useCallback((
+    retainedSnapshot: RetainedActionSheetVisualSnapshot,
+  ) => {
+    const wantsVisible = retainedSnapshot.mode !== 'hidden';
+    if (wantsVisible && retainedSnapshot.visualKey !== activeVisualKeyRef.current) {
+      return false;
+    }
+    if (wantsVisible && reactVisibleRef.current) {
+      // React already owns this sheet. A duplicate same-key retained commit
+      // must not imperatively disable pointer events with no subsequent render
+      // available to restore them.
+      return false;
+    }
+    if (
+      retainedSnapshot.mode === 'committed' &&
+      retainedVisualOwnerRef.current?.revision === retainedSnapshot.revision &&
+      retainedVisualOwnerRef.current.visualKey === retainedSnapshot.visualKey
+    ) {
+      // A pending hidden passive effect may synchronize the same committed
+      // snapshot again. Keep the already-running native animation untouched.
+      return true;
+    }
+    if (retainedSnapshot.mode === 'preview') {
+      // Press-in only proves that the exact hidden content is committed. It
+      // remains invisible so starting a scroll or long-press never flashes a
+      // tap menu over the watchlist.
+      const interruptedClose = closeAnimationRunningRef.current;
+      closeAnimationRunningRef.current = false;
+      overlayOpacity.stopAnimation();
+      sheetTranslateY.stopAnimation();
+      overlayOpacity.setValue(0);
+      sheetTranslateY.setValue(
+        activeEntryMotion === 'mt5Slide' ? resolveMt5EntryTranslateY() : 80,
+      );
+      overlayLayerRef.current?.setNativeProps({
+        style: { opacity: 0 },
+        accessibilityElementsHidden: true,
+        importantForAccessibility: 'no-hide-descendants',
+        pointerEvents: 'none',
+      });
+      sheetBodyRef.current?.setNativeProps({ pointerEvents: 'none' });
+      if (interruptedClose) {
+        // The preview itself has already made the outgoing sheet fully hidden.
+        // Let React adopt the latest preload now; a cancelled gesture must not
+        // leave the old cached config held behind an interrupted close.
+        refreshHiddenConfig((revision) => revision + 1);
+      }
+      return true;
+    }
+    if (!wantsVisible && retainedVisualOwnerRef.current === null) {
+      // A hidden controller snapshot must not override a normal ActionSheet
+      // whose visibility and pointer events are owned entirely by React.
+      return false;
+    }
+
+    if (wantsVisible && retainedSnapshot.visualKey) {
+      retainedVisualOwnerRef.current = {
+        revision: retainedSnapshot.revision,
+        visualKey: retainedSnapshot.visualKey,
+      };
+    } else {
+      retainedVisualOwnerRef.current = null;
+    }
+
+    // The committed sheet owns input immediately. React adopts the same state
+    // in this tap turn, while the 60 ms backdrop guard protects the originating
+    // release from being mistaken for a dismissal.
+    const interactive = retainedSnapshot.mode === 'committed';
+    if (wantsVisible) {
+      // This runs synchronously in the accepted press turn. The content is
+      // already mounted, so only native-driver opacity/translation work starts
+      // here; the heavier React adoption happens after the first pixels paint.
+      startActionSheetEntryAnimation({
+        mode: activeEntryMotion,
+        overlayOpacity,
+        sheetTranslateY,
+        mt5TranslateY: resolveMt5EntryTranslateY(),
+      });
+    } else {
+      overlayOpacity.stopAnimation();
+      sheetTranslateY.stopAnimation();
+      overlayOpacity.setValue(0);
+      sheetTranslateY.setValue(
+        activeEntryMotion === 'mt5Slide' ? resolveMt5EntryTranslateY() : 80,
+      );
+    }
+    if (retainedSnapshot.mode === 'committed') {
+      openedAtRef.current = Date.now();
+    }
+
+    overlayLayerRef.current?.setNativeProps({
+      style: { opacity: interactive ? 1 : 0 },
+      accessibilityElementsHidden: !interactive,
+      importantForAccessibility: interactive ? 'auto' : 'no-hide-descendants',
+      pointerEvents: interactive ? 'auto' : 'none',
+    });
+    sheetBodyRef.current?.setNativeProps({
+      pointerEvents: interactive ? 'auto' : 'none',
+    });
+    return true;
+  }, [activeEntryMotion, overlayOpacity, refreshHiddenConfig, resolveMt5EntryTranslateY, sheetTranslateY]);
+
+  useLayoutEffect(
+    () => registerRetainedActionSheetVisualApplier(applyRetainedVisualSnapshot),
+    [applyRetainedVisualSnapshot],
+  );
+
+  useLayoutEffect(() => {
+    reactVisibleRef.current = visible;
+    activeVisualKeyRef.current = activeVisualKey;
+    if (visible && activeVisualKey) {
+      if (acknowledgeRetainedActionSheetVisible(activeVisualKey)) {
+        // React now owns the visible state; a later unrelated controller hide
+        // must not make this already-open sheet non-interactive.
+        overlayLayerRef.current?.setNativeProps({
+          style: { opacity: 1 },
+          accessibilityElementsHidden: false,
+          importantForAccessibility: 'auto',
+          pointerEvents: 'auto',
+        });
+        sheetBodyRef.current?.setNativeProps({ pointerEvents: 'auto' });
+        if (activeEntryMotion === 'mt5Slide') {
+          retainedAdoptionVisualKeyRef.current = activeVisualKey;
+        }
+        retainedVisualOwnerRef.current = null;
+      }
+      return;
+    }
+    if (!visible) {
+      syncRetainedActionSheetVisual();
+    }
+  }, [activeEntryMotion, activeVisualKey, visible]);
 
   const filteredActions = activeSearchable && query.trim()
     ? activeActions.filter((action) => {
@@ -265,7 +635,7 @@ export function ActionSheet({
     : activeActions;
   const isTimeframeGridPresentation = activePresentation === 'mt5TimeframeGrid';
   const isMt5PlainPresentation = activePresentation === 'mt5Plain';
-  const isMt5StylePresentation = isMt5PlainPresentation || isTimeframeGridPresentation;
+  const isMt5StylePresentation = activeUsesTransparentMt5Host;
   const isTitleCentered = activeTitleAlign === 'center';
   const actionRowMinHeight = isMt5StylePresentation
     ? ACTION_SHEET_MT5_PLAIN_ROW_MIN_HEIGHT
@@ -352,9 +722,19 @@ export function ActionSheet({
   const actionsMinHeight = sheetFloorMinHeight
     ? Math.max(180, sheetFloorMinHeight - reservedChromeHeight)
     : undefined;
+  const hasVariableActionRowHeights = filteredActions.some((action) => Boolean(action.subtitle));
+  const estimatedVisibleActionRows = Math.max(
+    1,
+    Math.ceil(actionsMaxHeight / Math.max(1, actionRowMinHeight)),
+  );
+  // Large sheets (drawing tools) only paint the first viewport of rows so the
+  // open frame never builds dozens of icon rows. Remaining rows mount on scroll.
+  const progressiveOpenCap = filteredActions.length > ACTION_SHEET_INLINE_ACTION_LIMIT
+    ? Math.min(8, estimatedVisibleActionRows)
+    : estimatedVisibleActionRows + 1;
   const initialActionRowsToRender = Math.max(
     1,
-    Math.min(filteredActions.length, activeSearchable ? 12 : 16),
+    Math.min(filteredActions.length, progressiveOpenCap),
   );
   const shouldRenderInlineActions =
     !isTimeframeGridPresentation &&
@@ -364,26 +744,58 @@ export function ActionSheet({
 
   // Run only native-driver opacity and translate animations. Layout and
   // content are already resolved before the first visible frame.
-  const runEntryAnimation = useCallback((mode: 'fast' | 'standard' = 'standard') => {
-    const isFast = mode === 'fast';
+  const runEntryAnimation = useCallback((mode: ActionSheetEntryMotion = 'standard') => {
+    startActionSheetEntryAnimation({
+      mode,
+      overlayOpacity,
+      sheetTranslateY,
+      mt5TranslateY: resolveMt5EntryTranslateY(),
+    });
+  }, [overlayOpacity, resolveMt5EntryTranslateY, sheetTranslateY]);
 
+  const hideMt5ActionSheetHostNow = useCallback(() => {
+    if (activeEntryMotion !== 'mt5Slide' && !activeImmediateHostHideOnClose) {
+      return false;
+    }
+
+    // One whole-host mutation removes every outgoing pixel and releases touch
+    // ownership before any destination work begins. Moving individual animated
+    // values first was both slower and allowed a stale full-sheet ghost.
+    overlayLayerRef.current?.setNativeProps({
+      style: { opacity: 0 },
+      accessibilityElementsHidden: true,
+      importantForAccessibility: 'no-hide-descendants',
+      pointerEvents: 'none',
+    });
+    hostHiddenImperativelyRef.current = true;
+    return true;
+  }, [activeEntryMotion, activeImmediateHostHideOnClose]);
+
+  const hideMt5ActionSheetNow = useCallback(() => {
+    if (!hideMt5ActionSheetHostNow()) {
+      return false;
+    }
+
+    // Remove any prepared/committed retained reveal before stopping native
+    // motion. Otherwise that stale snapshot can repaint the full sheet after
+    // the close has already reached the Quotes screen.
+    cancelRetainedActionSheetPreview();
+    retainedVisualOwnerRef.current = null;
+    retainedAdoptionVisualKeyRef.current = null;
+    overlayOpacity.stopAnimation();
+    sheetTranslateY.stopAnimation();
     overlayOpacity.setValue(0);
-    sheetTranslateY.setValue(isFast ? 80 : ACTION_SHEET_OPEN_TRANSLATE_Y);
-    Animated.parallel([
-      Animated.timing(overlayOpacity, {
-        toValue: 1,
-        duration: isFast ? 60 : ACTION_SHEET_OPEN_OVERLAY_DURATION_MS,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(sheetTranslateY, {
-        toValue: 0,
-        duration: isFast ? 80 : ACTION_SHEET_OPEN_SHEET_DURATION_MS,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [overlayOpacity, sheetTranslateY]);
+    sheetTranslateY.setValue(resolveMt5EntryTranslateY());
+    closeAnimationRunningRef.current = false;
+    mt5DismissCompletedRef.current = true;
+    sheetBodyRef.current?.setNativeProps({ pointerEvents: 'none' });
+    return true;
+  }, [hideMt5ActionSheetHostNow, overlayOpacity, resolveMt5EntryTranslateY, sheetTranslateY]);
+
+  const dismissActionSheet = useCallback(() => {
+    hideMt5ActionSheetNow();
+    onClose();
+  }, [hideMt5ActionSheetNow, onClose]);
 
   const handleOverlayLayout = useCallback((event: { nativeEvent: { layout: { height: number } } }) => {
     const h = event.nativeEvent.layout.height;
@@ -401,6 +813,15 @@ export function ActionSheet({
       hasMeasuredOverlayRef.current = true;
     }
   }, [activeInstantOpen]);
+
+  const handleSheetBodyLayout = useCallback((
+    event: { nativeEvent: { layout: { height: number } } },
+  ) => {
+    const height = event.nativeEvent.layout.height;
+    if (height > 0) {
+      measuredSheetBodyHeightRef.current = height;
+    }
+  }, []);
 
   // Dismiss keyboard when the ActionSheet opens and seed measured height for
   // this open cycle. Instant sheets must never reset downward after their
@@ -475,55 +896,103 @@ export function ActionSheet({
     }
 
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      onClose();
+      dismissActionSheet();
       return true;
     });
 
     return () => subscription.remove();
-  }, [onClose, visible]);
+  }, [dismissActionSheet, visible]);
 
   useEffect(() => {
     if (!visible) {
+      // A hidden-render passive effect can be queued before retained adoption
+      // and run after the newer visible layout commit. Never let that stale
+      // close work erase the already-adopted sheet.
+      if (reactVisibleRef.current) {
+        return;
+      }
       if (!mounted) {
         return;
       }
 
-      overlayOpacity.stopAnimation();
-      sheetTranslateY.stopAnimation();
-      Animated.parallel([
-        Animated.timing(overlayOpacity, {
-          toValue: 0,
-          duration: activeInstantOpen ? 60 : ACTION_SHEET_CLOSE_OVERLAY_DURATION_MS,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(sheetTranslateY, {
-          toValue: activeInstantOpen ? 80 : ACTION_SHEET_FAST_OPEN_TRANSLATE_Y,
-          duration: activeInstantOpen ? 80 : ACTION_SHEET_CLOSE_SHEET_DURATION_MS,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]).start(({ finished }) => {
+      // Preserve a committed retained reveal BEFORE any imperative host hide.
+      // Symbol picker uses immediateHostHideOnClose + retained open; wiping
+      // the committed snapshot here left a layout "shrink" with no sheet.
+      const retainedSnapshot = getRetainedActionSheetVisualSnapshot();
+      if (
+        retainedSnapshot.mode === 'committed' &&
+        retainedSnapshot.visualKey === activeVisualKey &&
+        applyRetainedVisualSnapshot(retainedSnapshot)
+      ) {
+        return;
+      }
+
+      if (activeEntryMotion === 'mt5Slide' || activeImmediateHostHideOnClose) {
+        // MT5/Quotes dismissal is a direct host hide. Never replay the old
+        // translate animation from a passive hidden render: that animation was
+        // the visible shrink plus disappear/reappear sequence in the recording.
+        hideMt5ActionSheetNow();
+        setKeyboardHeight(0);
+        hasMeasuredOverlayRef.current = false;
+        return;
+      }
+
+      if (!closeAnimationRunningRef.current) {
+        overlayOpacity.stopAnimation();
+        sheetTranslateY.stopAnimation();
+        overlayOpacity.setValue(0);
+        sheetTranslateY.setValue(80);
+        return;
+      }
+
+      // Non-MT5 sheets keep their existing compact close animation. Quotes and
+      // other MT5-style sheets returned through the direct-hide branch above.
+      startActionSheetExitAnimation({
+        instantOpen: activeInstantOpen,
+        overlayOpacity,
+        sheetTranslateY,
+        onComplete: ({ finished }) => {
         if (finished && !prevVisibleRef.current) {
+          closeAnimationRunningRef.current = false;
           setMounted(ACTION_SHEET_KEEP_HOST_MOUNTED);
           setKeyboardHeight(0);
-          hasMeasuredOverlayRef.current = false;
+          // Render the latest hidden preload only after the outgoing sheet is
+          // fully transparent, ready for the next press without a close flash.
+          refreshHiddenConfig((revision) => revision + 1);
         }
+        },
       });
       return;
     }
 
     setMounted(true);
+    if (retainedAdoptionVisualKeyRef.current === activeVisualKey) {
+      // The native MT5-style animation already started in the accepted press
+      // turn. React is only adopting ownership; do not restart or snap it.
+      retainedAdoptionVisualKeyRef.current = null;
+      entryAnimationStartedForOpenRef.current = true;
+      return;
+    }
+    if (entryAnimationStartedForOpenRef.current) {
+      return;
+    }
+    entryAnimationStartedForOpenRef.current = true;
     overlayOpacity.stopAnimation();
     sheetTranslateY.stopAnimation();
 
-    runEntryAnimation(activeInstantOpen ? 'fast' : 'standard');
+    runEntryAnimation(activeEntryMotion);
 
     return () => { };
   }, [
+    activeEntryMotion,
+    activeImmediateHostHideOnClose,
     activeInstantOpen,
+    activeVisualKey,
+    applyRetainedVisualSnapshot,
+    hideMt5ActionSheetNow,
     mounted,
     overlayOpacity,
+    resolveMt5EntryTranslateY,
     runEntryAnimation,
     sheetTranslateY,
     visible,
@@ -551,14 +1020,21 @@ export function ActionSheet({
 
     if (!activeRunActionAfterClose) {
       pendingActionRef.current = null;
-      actionPress?.();
-      onClose();
+      hideMt5ActionSheetHostNow();
+      try {
+        actionPress?.();
+      } finally {
+        // The destination is published immediately after one host mutation.
+        // Finish native/controller cleanup afterward, then reconcile React.
+        hideMt5ActionSheetNow();
+        onClose();
+      }
       return;
     }
 
     pendingActionRef.current = actionPress ?? null;
     onClose();
-  }, [activeRunActionAfterClose, onClose]);
+  }, [activeRunActionAfterClose, hideMt5ActionSheetHostNow, hideMt5ActionSheetNow, onClose]);
 
   const recordActionRowPressStart = useCallback((event: GestureResponderEvent) => {
     actionPressGestureRef.current = {
@@ -606,8 +1082,8 @@ export function ActionSheet({
     if (Date.now() - openedAtRef.current < ACTION_SHEET_BACKDROP_OPEN_GUARD_MS) {
       return;
     }
-    onClose();
-  }, [onClose]);
+    dismissActionSheet();
+  }, [dismissActionSheet]);
 
   const keyAction = useCallback(
     (action: ActionSheetAction, index: number) => `${action.label}-${index}`,
@@ -768,17 +1244,27 @@ export function ActionSheet({
     return null;
   }
 
+  // An instant sheet must commit at its final Y position. Reusing the native
+  // animated value here can expose its previous retained-sheet offset for one
+  // Android frame before setValue(0) reaches the UI thread.
+  const sheetBodyTranslateY = activeEntryMotion === 'instant'
+    ? 0
+    : (shouldSeedMt5EntryTransform ? resolveMt5EntryTranslateY() : sheetTranslateY);
+
   // No fixed height on Android: instant sheets start from the visible window
   // height and then ratchet upward from real layout. The sheet body paints on
   // the first frame so opening never looks like a late resize.
   const sheetBody = (
     <Animated.View
+      ref={sheetBodyRef}
+      collapsable={false}
+      onLayout={handleSheetBodyLayout}
       pointerEvents={visible ? 'auto' : 'none'}
       style={[
         styles.sheetContainer,
         {
           opacity: 1,
-          transform: [{ translateY: sheetTranslateY }],
+          transform: [{ translateY: sheetBodyTranslateY }],
         },
       ]}
     >
@@ -912,9 +1398,16 @@ export function ActionSheet({
             onMomentumScrollBegin={cancelActionRowPressForScroll}
             removeClippedSubviews={Platform.OS === 'android'}
             initialNumToRender={initialActionRowsToRender}
-            maxToRenderPerBatch={12}
+            maxToRenderPerBatch={Math.max(4, Math.min(8, initialActionRowsToRender))}
             updateCellsBatchingPeriod={16}
-            windowSize={5}
+            windowSize={3}
+            getItemLayout={hasVariableActionRowHeights
+              ? undefined
+              : (_data, index) => ({
+                length: actionRowMinHeight,
+                offset: actionRowMinHeight * index,
+                index,
+              })}
             scrollEventThrottle={16}
           />
         )}
@@ -933,10 +1426,30 @@ export function ActionSheet({
 
   return (
     <Animated.View
+      ref={overlayLayerRef}
+      collapsable={false}
       pointerEvents={visible ? 'auto' : 'none'}
-      style={[styles.overlay, { opacity: overlayOpacity }]}
+      accessibilityElementsHidden={!visible}
+      importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'}
+      style={[
+        styles.overlay,
+        isMt5StylePresentation ? styles.overlayMt5Plain : null,
+        isMt5StylePresentation
+          ? { opacity: visible ? 1 : 0 }
+          : { opacity: overlayOpacity },
+      ]}
       onLayout={handleOverlayLayout}
     >
+      {isMt5StylePresentation ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFillObject,
+            styles.backdropMt5Plain,
+            { opacity: overlayOpacity },
+          ]}
+        />
+      ) : null}
       <FastPressable
         style={[StyleSheet.absoluteFillObject, styles.backdrop]}
         latencyLabel="actionSheet.dismissOverlay"

@@ -1,9 +1,8 @@
 import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Trade Feature UI: CloseByScreen
- * 
- * Allows users to close an open position by merging it with a contrasting opposite
- * position (e.g. hedging) to save on spread costs.
+ *
+ * Close an open position against an opposite position of the same symbol.
  */
 
 import { Ionicons } from '@expo/vector-icons';
@@ -24,22 +23,35 @@ import { fmt } from '../../utils/format';
 import { safeRouterBack } from '../../utils/navigation';
 import { useTranslation } from '../../i18n/useTranslation';
 import { findPositionById, positionPairCandidates } from './tradeFlow';
-import { resolveLivePositionPrice } from './livePositionMetrics';
+import { resolveLivePositionPnl, resolveLivePositionPrice } from './livePositionMetrics';
 import {
   classifyTradingError,
   createFrontendTradingError,
   formatTradingErrorFeedback,
 } from '../../api/tradingErrors';
+import { hideTradePositionActionHost } from './tradePositionActionHostController';
 
-// Match the app dark-theme palette: #121212 canvas + #1E1E1E cards.
-const SETTINGS_DARK_BACKGROUND = '#121212';
-const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E';
+const CANVAS_DARK = '#121212';
+const CARD_DARK = '#1E1E1E';
+const DIVIDER_DARK = 'rgba(255,255,255,0.06)';
 
-/**
- * Screen used for 'Close By' operations, which allows closing two opposite positions of the same symbol against each other.
- */
-export function CloseByScreen() {
-  const { positionId } = useLocalSearchParams<{ positionId?: string }>();
+export type CloseByScreenProps = Readonly<{
+  hosted?: boolean;
+  hostedActive?: boolean;
+  hostedPositionId?: string | null;
+  onHostedBack?: () => void;
+}>;
+
+export function CloseByScreen({
+  hosted = false,
+  hostedActive = true,
+  hostedPositionId = null,
+  onHostedBack,
+}: CloseByScreenProps = {}) {
+  const params = useLocalSearchParams<{ positionId?: string }>();
+  const positionId = hosted
+    ? (hostedPositionId ?? undefined)
+    : (Array.isArray(params.positionId) ? params.positionId[0] : params.positionId);
   const [submitted, setSubmitted] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [actionLocked, setActionLocked] = useState(false);
@@ -48,9 +60,12 @@ export function CloseByScreen() {
   const actionReleaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
-  const T = useTheme();
+  const themeActive = !hosted || hostedActive;
+  const T = useTheme({ active: themeActive });
   const { t } = useTranslation();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
+  const insets = useSafeAreaInsets();
+  const screenBg = isDark ? CANVAS_DARK : T.bg;
 
   const positions = usePositionsState((s) => s.positions);
   const primedPosition = usePositionsState((s) =>
@@ -61,8 +76,11 @@ export function CloseByScreen() {
 
   const getLivePrice = (p: any) => {
     if (!p) return 0;
-    const q = quotes[p.symbol];
-    return resolveLivePositionPrice(p, q);
+    return resolveLivePositionPrice(p, quotes[p.symbol]);
+  };
+  const getLivePnl = (p: any) => {
+    if (!p) return 0;
+    return resolveLivePositionPnl(p, quotes[p.symbol]);
   };
 
   const sourcePosition = useMemo(
@@ -89,12 +107,8 @@ export function CloseByScreen() {
     }
   }, []);
 
-  // Auto-select the first candidate if none is selected
   const activePairId = selectedPairId || candidates[0]?.id || '';
   const selectedPair = candidates.find((candidate) => candidate.id === activePairId);
-
-  const insets = useSafeAreaInsets();
-  const screenBg = isDark ? SETTINGS_DARK_BACKGROUND : T.bg;
 
   const releaseActionLock = useCallback((delay = 0) => {
     if (actionReleaseTimeoutRef.current) {
@@ -113,9 +127,18 @@ export function CloseByScreen() {
     finalize();
   }, []);
 
-  /**
-   * Executes the 'Close By' operation with the selected opposite position.
-   */
+  const leaveScreen = useCallback(() => {
+    if (hosted) {
+      if (onHostedBack) {
+        onHostedBack();
+      } else {
+        hideTradePositionActionHost();
+      }
+      return;
+    }
+    safeRouterBack(router, '/(tabs)/trade');
+  }, [hosted, onHostedBack]);
+
   const handleSubmit = useCallback(async () => {
     if (!sourcePosition || !selectedPair || actionLockRef.current || isClosing) return;
 
@@ -143,16 +166,13 @@ export function CloseByScreen() {
     state.beginOptimisticClose(sourcePosition.id);
     state.beginOptimisticClose(selectedPair.id);
     setSubmitted(true);
-    safeRouterBack(router, '/(tabs)/trade');
+    leaveScreen();
 
     void positionsApi.closePosition(sourcePosition.id, selectedPair.id)
       .then(() => {
         const latestState = usePositionsState.getState();
         latestState.finishOptimisticClose(sourcePosition.id);
         latestState.finishOptimisticClose(selectedPair.id);
-
-        // Invalidate all history / deals / account caches so the History tab
-        // immediately shows the newly closed trade and its Net P/L.
         appQueryClient.invalidateQueries({ queryKey: ['positionHistory'] });
         appQueryClient.invalidateQueries({ queryKey: ['accountDeals'] });
         appQueryClient.invalidateQueries({ queryKey: ['deals'] });
@@ -161,7 +181,6 @@ export function CloseByScreen() {
         appQueryClient.invalidateQueries({ queryKey: ['accountSummary'] });
         appQueryClient.invalidateQueries({ queryKey: ['exposure'] });
         appQueryClient.invalidateQueries({ queryKey: ['transactions'] });
-
         if (resolvedLogin) {
           void latestState.refreshPositions(resolvedLogin);
         }
@@ -179,34 +198,49 @@ export function CloseByScreen() {
         setIsClosing(false);
         releaseActionLock();
       });
-  }, [accountDetails?.credentials?.accessToken, isClosing, releaseActionLock, resolvedLogin, selectedPair, sourcePosition, t]);
+  }, [accountDetails?.credentials?.accessToken, isClosing, leaveScreen, releaseActionLock, resolvedLogin, selectedPair, sourcePosition, t]);
 
-  if (!sourcePosition) return (
-    <View style={{ flex: 1, backgroundColor: screenBg }}>
+  if (hosted && !hostedActive) {
+    return <View style={[styles.root, { backgroundColor: screenBg }]} />;
+  }
+
+  const header = (
+    <>
       <View style={{ height: insets.top, backgroundColor: screenBg }} />
       <View style={styles.customHeader}>
-        <Pressable onPress={() => safeRouterBack(router, '/(tabs)/trade')} hitSlop={16} style={styles.headerBtn}>
-          <Ionicons name="arrow-back" size={26} color={T.text} />
+        <Pressable
+          onPress={leaveScreen}
+          hitSlop={16}
+          style={styles.headerBtn}
+          activateOnPressIn
+          latencyLabel="closeBy.back"
+          unstable_pressDelay={0}
+        >
+          <Ionicons name="arrow-back" size={24} color={T.text} />
         </Pressable>
         <Text style={[styles.headerTitleText, { color: T.text }]}>{t('Close By')}</Text>
         <View style={styles.headerBtn} />
       </View>
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator size="small" color={T.accent} />
-      </View>
-    </View>
+    </>
   );
 
-  return (
-    <View style={{ flex: 1, backgroundColor: screenBg }}>
-      <View style={{ height: insets.top, backgroundColor: screenBg }} />
-      <View style={styles.customHeader}>
-        <Pressable onPress={() => safeRouterBack(router, '/(tabs)/trade')} hitSlop={16} style={styles.headerBtn}>
-          <Ionicons name="arrow-back" size={26} color={T.text} />
-        </Pressable>
-        <Text style={[styles.headerTitleText, { color: T.text }]}>{t('Close By')}</Text>
-        <View style={styles.headerBtn} />
+  if (!sourcePosition) {
+    return (
+      <View style={[styles.root, { backgroundColor: screenBg }]}>
+        {header}
+        <View style={styles.centered}>
+          <ActivityIndicator size="small" color={T.accent} />
+        </View>
       </View>
+    );
+  }
+
+  const sourceIsBuy = sourcePosition.side === 'buy';
+  const sourcePnl = getLivePnl(sourcePosition);
+
+  return (
+    <View style={[styles.root, { backgroundColor: screenBg }]}>
+      {header}
       <ScrollView
         canCancelContentTouches={Platform.OS === 'ios'}
         style={styles.scrollView}
@@ -217,83 +251,100 @@ export function CloseByScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="always"
       >
-        <View style={styles.header}>
-          <Text style={styles.subTitle}>{t('Select a matching position to pair-close.')}</Text>
-        </View>
+        <Text style={styles.subTitle}>{t('Select a matching position to pair-close.')}</Text>
 
-        <View style={styles.referenceCard}>
-          <Text style={styles.referenceTitle}>{t('Source Position').toUpperCase()}</Text>
-          <View style={styles.separator} />
-          <View style={styles.pairTopRow}>
-            <Text style={styles.pairSymbol}>{sourcePosition.symbol.replace(/\//g, '')}</Text>
-            <Text style={styles.pairTicket}>#{sourcePosition.id}</Text>
-          </View>
-          <View style={styles.pairBottomRow}>
-            <Text style={[styles.sideText, sourcePosition.side === 'buy' ? styles.sideTextBuy : styles.sideTextSell]}>
-              {sourcePosition.side.toUpperCase()} {(sourcePosition.volume || 0).toFixed(2)}
+        <Text style={styles.sectionLabel}>{t('Source Position')}</Text>
+        <View style={styles.sourceCard}>
+          <View style={styles.rowTop}>
+            <Text style={styles.ticket}>#{sourcePosition.id}</Text>
+            <Text style={[styles.pnl, sourcePnl < 0 ? styles.negative : sourcePnl > 0 ? styles.positive : null]}>
+              {fmt.pnl(sourcePnl)}
             </Text>
-            <View style={styles.priceContainer}>
-              <Text style={styles.pairDivider}>•</Text>
-              <Text style={styles.pairPrice}>{fmt.price(getLivePrice(sourcePosition))}</Text>
+          </View>
+          <View style={styles.rowMain}>
+            <Text style={styles.symbol}>{sourcePosition.symbol.replace(/\//g, '')}</Text>
+            <View style={[styles.sideChip, sourceIsBuy ? styles.sideChipBuy : styles.sideChipSell]}>
+              <Text style={[styles.sideChipText, sourceIsBuy ? styles.sideTextBuy : styles.sideTextSell]}>
+                {sourcePosition.side.toUpperCase()} {(sourcePosition.volume || 0).toFixed(2)}
+              </Text>
             </View>
           </View>
+          <Text style={styles.priceLine}>
+            {t('Price')} · {fmt.price(getLivePrice(sourcePosition))}
+          </Text>
         </View>
 
-        <View style={styles.candidateContainer}>
-          {candidates.map((candidate) => (
-            <Pressable
-              key={candidate.id}
-              style={[
-                styles.pairCard,
-                activePairId === candidate.id && styles.pairCardSelected,
-              ]}
-              onPress={() => setSelectedPairId(candidate.id)}
-            >
-              <View>
-                <View style={styles.pairTopRow}>
-                  <Text style={styles.pairSymbol}>{candidate.symbol.replace(/\//g, '')}</Text>
-                  <Text style={styles.pairTicket}>#{candidate.id}</Text>
-                </View>
-                <View style={styles.pairBottomRow}>
-                  <Text style={[styles.sideText, candidate.side === 'buy' ? styles.sideTextBuy : styles.sideTextSell]}>
-                    {candidate.side.toUpperCase()} {(candidate.volume || 0).toFixed(2)}
-                  </Text>
-                  <View style={styles.priceContainer}>
-                    <Text style={styles.pairDivider}>•</Text>
-                    <Text style={styles.pairPrice}>{fmt.price(getLivePrice(candidate))}</Text>
+        <Text style={styles.sectionLabel}>{t('Opposite positions')}</Text>
+        <View style={styles.candidateList}>
+          {candidates.map((candidate) => {
+            const selected = activePairId === candidate.id;
+            const candIsBuy = candidate.side === 'buy';
+            const candPnl = getLivePnl(candidate);
+            return (
+              <Pressable
+                key={candidate.id}
+                style={[styles.pairCard, selected && styles.pairCardSelected]}
+                onPress={() => setSelectedPairId(candidate.id)}
+                activateOnPressIn
+                latencyLabel={`closeBy.select.${candidate.id}`}
+                unstable_pressDelay={0}
+              >
+                <View style={styles.pairLeft}>
+                  <View style={styles.rowTop}>
+                    <Text style={styles.ticket}>#{candidate.id}</Text>
+                    {selected ? (
+                      <Ionicons name="checkmark-circle" size={18} color={T.accent} />
+                    ) : (
+                      <View style={styles.radioIdle} />
+                    )}
                   </View>
+                  <View style={styles.rowMain}>
+                    <Text style={styles.symbol}>{candidate.symbol.replace(/\//g, '')}</Text>
+                    <View style={[styles.sideChip, candIsBuy ? styles.sideChipBuy : styles.sideChipSell]}>
+                      <Text style={[styles.sideChipText, candIsBuy ? styles.sideTextBuy : styles.sideTextSell]}>
+                        {candidate.side.toUpperCase()} {(candidate.volume || 0).toFixed(2)}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.priceLine}>
+                    {t('Price')} · {fmt.price(getLivePrice(candidate))}
+                  </Text>
                 </View>
-              </View>
-              <Text style={[styles.pairPnl, candidate.pnl >= 0 ? styles.positive : styles.negative]}>
-                {fmt.pnl(candidate.pnl)}
-              </Text>
-            </Pressable>
-          ))}
+                <Text style={[styles.pnl, candPnl < 0 ? styles.negative : candPnl > 0 ? styles.positive : null]}>
+                  {fmt.pnl(candPnl)}
+                </Text>
+              </Pressable>
+            );
+          })}
           {candidates.length === 0 ? (
-            <Text style={styles.emptyText}>{t('No matching positions available for close-by.')}</Text>
+            <View style={styles.emptyBox}>
+              <Ionicons name="swap-horizontal-outline" size={28} color={T.textMuted} />
+              <Text style={styles.emptyText}>{t('No matching positions available for close-by.')}</Text>
+            </View>
           ) : null}
         </View>
 
         {closeError || submitted ? (
-          <View style={closeError ? styles.error : styles.success}>
-            <Text style={closeError ? styles.errorText : styles.successText}>
-              {closeError ? closeError : t('Close-by request completed successfully.')}
+          <View style={[styles.statusBox, closeError ? styles.statusBoxError : styles.statusBoxSuccess]}>
+            <Text style={[styles.statusText, closeError ? styles.statusTextError : styles.statusTextSuccess]}>
+              {closeError ?? t('Close-by request completed successfully.')}
             </Text>
           </View>
         ) : null}
 
         <Pressable
-          style={({ pressed }) => [
+          style={[
             styles.submitButton,
             (!activePairId || candidates.length === 0 || isClosing || actionLocked) && styles.submitDisabled,
-            pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }
           ]}
           disabled={!activePairId || candidates.length === 0 || isClosing || actionLocked}
-          onPressIn={handleSubmit}
+          onPress={() => { void handleSubmit(); }}
+          activateOnPressIn
+          latencyLabel="closeBy.submit"
           unstable_pressDelay={0}
         >
           {isClosing ? (
-            <ActivityIndicator color="#FFF" />
+            <ActivityIndicator color="#FFFFFF" />
           ) : (
             <Text style={styles.submitText}>{t('Send Close By Request')}</Text>
           )}
@@ -304,165 +355,178 @@ export function CloseByScreen() {
 }
 
 const makeStyles = (T: ThemeColors, isDark = false) => StyleSheet.create({
+  root: { flex: 1 },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   customHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     height: 48,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
+    borderBottomColor: isDark ? DIVIDER_DARK : T.borderSubtle,
   },
-  headerBtn: { width: 40, height: 48, alignItems: 'center', justifyContent: 'center' },
-  headerTitleText: { flex: 1, fontSize: 17, fontWeight: '700', textAlign: 'center', letterSpacing: 0.2 },
-  scrollView: {
+  headerBtn: { width: 44, height: 48, alignItems: 'center', justifyContent: 'center' },
+  headerTitleText: {
     flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
-  header: {
-    marginTop: spacing.md,
-    paddingHorizontal: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  subTitle: {
-    color: T.textSub,
-    fontSize: 14,
+    fontSize: 17,
+    fontWeight: '600',
     textAlign: 'center',
-    fontWeight: '600',
+    letterSpacing: 0.15,
   },
-  referenceCard: {
-    marginHorizontal: spacing.md,
-    marginVertical: spacing.md,
-    padding: spacing.md,
-    borderRadius: 16,
-    backgroundColor: isDark ? SETTINGS_DARK_CARD_BACKGROUND : T.glass2,
-    borderWidth: 1,
-    borderColor: isDark ? T.border : T.borderMedium,
-  },
-  referenceTitle: {
-    color: T.textSub,
-    fontSize: 12,
-    letterSpacing: 0.8,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  separator: {
-    height: 1,
-    backgroundColor: T.borderSubtle,
-    marginBottom: 12,
-  },
-  sourceDetailsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  sourceTicket: {
-    color: T.textSub,
+  scrollView: { flex: 1 },
+  scrollContent: { flexGrow: 1, paddingTop: 12 },
+  subTitle: {
+    color: T.textMuted,
     fontSize: 13,
-    fontWeight: '600',
-  },
-  sourceSymbol: {
-    color: T.text,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  sourceVolume: {
-    color: T.text,
-    fontSize: 15,
     fontWeight: '500',
-  },
-  sideText: { fontSize: 14, fontWeight: '600', letterSpacing: 0.5 },
-  sideTextBuy: { color: T.trading.buy.primary },
-  sideTextSell: { color: T.trading.sell.primary },
-
-  candidateContainer: {
+    textAlign: 'center',
+    marginBottom: 16,
     paddingHorizontal: spacing.md,
-    gap: spacing.sm,
+  },
+  sectionLabel: {
+    marginHorizontal: spacing.md,
+    marginBottom: 8,
+    color: T.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  sourceCard: {
+    marginHorizontal: spacing.md,
+    marginBottom: 18,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: isDark ? CARD_DARK : T.glass2,
+    borderWidth: 1,
+    borderColor: isDark ? DIVIDER_DARK : T.borderMedium,
+  },
+  candidateList: {
+    paddingHorizontal: spacing.md,
+    gap: 10,
   },
   pairCard: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: spacing.md,
-    paddingVertical: 14,
+    justifyContent: 'space-between',
+    gap: 12,
+    padding: 14,
     borderRadius: 16,
-    backgroundColor: isDark ? SETTINGS_DARK_CARD_BACKGROUND : T.glass2,
+    backgroundColor: isDark ? CARD_DARK : T.glass2,
     borderWidth: 1,
-    borderColor: isDark ? T.border : T.borderMedium,
+    borderColor: isDark ? DIVIDER_DARK : T.borderMedium,
   },
   pairCardSelected: {
-    backgroundColor: T.accentGlow,
     borderColor: T.accent,
+    backgroundColor: isDark ? 'rgba(52,125,255,0.10)' : T.accentGlow,
   },
-  pairTopRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
-  pairTicket: { color: T.textSub, fontSize: 13, fontWeight: '600' },
-  pairSymbol: { color: T.text, fontSize: 16, fontWeight: '700', letterSpacing: 0 },
-  pairBottomRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  priceContainer: { flexDirection: 'row', alignItems: 'center', gap: 0 },
-  pairMeta: { color: T.textSub, fontSize: 13, fontWeight: '500' },
-  pairDivider: { color: T.textMuted, fontSize: 13, fontWeight: '600', marginRight: 2 },
-  pairPrice: { color: T.text, fontSize: 14, fontVariant: ['tabular-nums'], fontWeight: '600' },
-
-  pairPnl: {
-    fontSize: 16,
-    fontWeight: '700',
+  pairLeft: { flex: 1, minWidth: 0 },
+  rowTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  rowMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  ticket: {
+    color: T.textMuted,
+    fontSize: 12,
+    fontWeight: '500',
     fontVariant: ['tabular-nums'],
   },
-  positive: {
-    color: T.trading.profit,
+  symbol: {
+    color: T.text,
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
-  negative: {
-    color: T.trading.loss,
+  sideChip: {
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  sideChipBuy: { backgroundColor: 'rgba(37,99,235,0.12)' },
+  sideChipSell: { backgroundColor: 'rgba(220,38,38,0.12)' },
+  sideChipText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.3 },
+  sideTextBuy: { color: T.trading.buy.primary },
+  sideTextSell: { color: T.trading.sell.primary },
+  priceLine: {
+    marginTop: 6,
+    color: T.textSub,
+    fontSize: 13,
+    fontWeight: '500',
+    fontVariant: ['tabular-nums'],
+  },
+  pnl: {
+    fontSize: 15,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+    color: T.text,
+  },
+  positive: { color: T.trading.profit },
+  negative: { color: T.trading.loss },
+  radioIdle: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: isDark ? 'rgba(255,255,255,0.2)' : T.borderMedium,
+  },
+  emptyBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 28,
+    paddingHorizontal: spacing.md,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: isDark ? DIVIDER_DARK : T.borderSubtle,
+    backgroundColor: isDark ? CARD_DARK : T.glass1,
+    gap: 10,
   },
   emptyText: {
-    padding: spacing.md,
     color: T.textMuted,
     fontSize: 14,
+    fontWeight: '500',
     textAlign: 'center',
+    lineHeight: 20,
   },
-  success: {
+  statusBox: {
     marginHorizontal: spacing.md,
     marginTop: spacing.md,
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(74,222,128,0.25)',
-    backgroundColor: 'rgba(74,222,128,0.08)',
-    padding: spacing.md,
+    padding: 14,
   },
-  successText: {
-    color: T.trading.profit,
-    fontSize: 13,
+  statusBoxSuccess: {
+    borderColor: isDark ? 'rgba(16,185,129,0.34)' : 'rgba(5,150,105,0.24)',
+    backgroundColor: T.upGlow,
   },
-  error: {
-    marginHorizontal: spacing.md,
-    marginTop: spacing.md,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.25)',
-    backgroundColor: 'rgba(239, 68, 68, 0.08)',
-    padding: spacing.md,
+  statusBoxError: {
+    borderColor: isDark ? 'rgba(239,68,68,0.34)' : 'rgba(220,38,38,0.24)',
+    backgroundColor: T.downGlow,
   },
-  errorText: {
-    color: T.trading.loss,
-    fontSize: 13,
-  },
+  statusText: { fontSize: 13, fontWeight: '600', lineHeight: 18 },
+  statusTextSuccess: { color: T.trading.profit },
+  statusTextError: { color: T.trading.loss },
   submitButton: {
     marginHorizontal: spacing.md,
     marginTop: spacing.xl,
-    borderRadius: 12,
+    borderRadius: 14,
     backgroundColor: T.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
+    paddingVertical: 15,
   },
-  submitDisabled: {
-    opacity: 0.45,
-  },
+  submitDisabled: { opacity: 0.45 },
   submitText: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '700',
-    letterSpacing: 0.5,
+    letterSpacing: 0.2,
   },
 });

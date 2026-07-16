@@ -79,8 +79,6 @@ type PersistedUserPreferencesState = Omit<
   | 'setOpenOrderMode'
   | 'setOneClickAccepted'
   | 'setHistoryRange'
-  | 'setMarketNewsSavedIds'
-  | 'toggleMarketNewsSavedId'
   | 'setHistoryDateRange'
   | 'setIsDemoAccount'
   | 'setBrokerId'
@@ -94,10 +92,8 @@ type PersistedUserPreferencesState = Omit<
 >;
 
 const pendingPreferenceWrites = new Map<string, StorageValue<PersistedUserPreferencesState>>();
-let pendingThemeModeCommit: ThemeMode | null = null;
-let themeModeCommitScheduled = false;
 let preferenceWriteFlushScheduled = false;
-const PREFERENCES_STORAGE_VERSION = 20;
+const PREFERENCES_STORAGE_VERSION = 21;
 const CHART_DRAWING_RECORDS_STORAGE_KEY = 'rtx5-chart-drawing-records-v1';
 const LEGACY_BLUE_DEFAULT_CHART_COLORS: ChartColorsConfig = {
   background: '#121212',
@@ -345,7 +341,6 @@ export function normalizePersistedUserPreferencesState(
     openOrderMode: isOpenOrderMode(state.openOrderMode) ? state.openOrderMode : 'Regular',
     oneClickAccepted: asBoolean(state.oneClickAccepted, false),
     historyRange: nextHistoryRange,
-    marketNewsSavedIds: Array.from(new Set(asStringArray(state.marketNewsSavedIds))),
     historyFromMs: asFiniteNumber(state.historyFromMs, null),
     historyToMs: asFiniteNumber(state.historyToMs, null),
     isDemoAccount: asBoolean(state.isDemoAccount, true),
@@ -385,23 +380,6 @@ function schedulePreferenceWriteFlush() {
   scheduleAfterFrame(() => {
     preferenceWriteFlushScheduled = false;
     setTimeout(flushPendingPreferenceWrites, 0);
-  });
-}
-
-function scheduleThemeModePreferenceCommit(commit: () => void) {
-  if (themeModeCommitScheduled) return;
-  themeModeCommitScheduled = true;
-
-  const scheduleAfterFrame =
-    typeof globalThis.requestAnimationFrame === 'function'
-      ? globalThis.requestAnimationFrame
-      : (callback: FrameRequestCallback) => setTimeout(() => callback(Date.now()), 16);
-
-  scheduleAfterFrame(() => {
-    setTimeout(() => {
-      themeModeCommitScheduled = false;
-      commit();
-    }, 0);
   });
 }
 
@@ -454,7 +432,6 @@ function partializeUserPreferences(state: UserPreferencesState): PersistedUserPr
     openOrderMode: state.openOrderMode,
     oneClickAccepted: state.oneClickAccepted,
     historyRange: state.historyRange,
-    marketNewsSavedIds: state.marketNewsSavedIds,
     historyFromMs: state.historyFromMs,
     historyToMs: state.historyToMs,
     isDemoAccount: state.isDemoAccount,
@@ -499,7 +476,6 @@ export const useUserPreferences = create<UserPreferencesState>()(
       openOrderMode: 'Regular',
       oneClickAccepted: false,
       historyRange: 'All time',
-      marketNewsSavedIds: [],
       historyFromMs: null,
       historyToMs: null,
       isDemoAccount: true,
@@ -567,19 +543,13 @@ export const useUserPreferences = create<UserPreferencesState>()(
         }),
       setQuoteViewMode: (mode) => set({ quoteViewMode: mode }),
       setThemeMode: (mode) => {
+        // Same press turn: imperative visuals + lightweight store + preference
+        // mirror so chrome AND every preference-bound screen flip together.
         setImmediateThemeMode(mode);
         if (get().themeMode === mode) {
-          pendingThemeModeCommit = null;
           return;
         }
-
-        pendingThemeModeCommit = mode;
-        scheduleThemeModePreferenceCommit(() => {
-          const nextMode = pendingThemeModeCommit;
-          pendingThemeModeCommit = null;
-          if (!nextMode || get().themeMode === nextMode) return;
-          set({ themeMode: nextMode });
-        });
+        set({ themeMode: mode });
       },
       addQuoteSymbol: (symbol) => {
         const current = get().quoteSymbols;
@@ -680,20 +650,6 @@ export const useUserPreferences = create<UserPreferencesState>()(
       setOpenOrderMode: (mode) => set({ openOrderMode: mode }),
       setOneClickAccepted: (accepted) => set({ oneClickAccepted: accepted }),
       setHistoryRange: (range) => set({ historyRange: range }),
-      setMarketNewsSavedIds: (newsIds) =>
-        set({
-          marketNewsSavedIds: Array.from(new Set(newsIds.map((id) => id.trim()).filter(Boolean))),
-        }),
-      toggleMarketNewsSavedId: (newsId) => {
-        const normalizedId = newsId.trim();
-        if (!normalizedId) return;
-
-        set((state) => ({
-          marketNewsSavedIds: state.marketNewsSavedIds.includes(normalizedId)
-            ? state.marketNewsSavedIds.filter((id) => id !== normalizedId)
-            : [...state.marketNewsSavedIds, normalizedId],
-        }));
-      },
       setHistoryDateRange: (fromMs, toMs) => set({ historyFromMs: fromMs, historyToMs: toMs }),
       setIsDemoAccount: (isDemo) => set({ isDemoAccount: isDemo }),
       setBrokerId: (id) => set({ brokerId: id }),

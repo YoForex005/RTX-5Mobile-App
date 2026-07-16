@@ -28,3 +28,12 @@ export function preloadRegisterScreen() {
 
   return preloadPromise;
 }
+
+/**
+ * Warm the Demo Account form while Broker Detail is already on screen so
+ * "Open a demo account" can mount a preloaded module on the next paint
+ * (same class of readiness as Accounts "+" → Brokers).
+ */
+export function warmDemoAccountForm() {
+  return preloadRegisterScreen().catch(() => undefined);
+}

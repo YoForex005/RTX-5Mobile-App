@@ -14,9 +14,20 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       justifyContent: 'flex-end',
       overflow: 'hidden',
     },
+    overlayMt5Plain: {
+      // MT5 keeps the sheet surface opaque while only the backdrop fades.
+      // Leaving the backdrop color on the parent would fade the sheet too and
+      // create a translucent, shrinking-looking ghost during dismissal.
+      backgroundColor: 'transparent',
+    },
     backdrop: {
       zIndex: 0,
       elevation: 0,
+    },
+    backdropMt5Plain: {
+      zIndex: 0,
+      elevation: 0,
+      backgroundColor: isDark ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.3)',
     },
     sheetHost: {
       flex: 1,

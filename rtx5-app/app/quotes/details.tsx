@@ -1,6 +1,9 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { QuoteInfoLaunchShell } from '../../src/features/quotes/QuoteInfoLaunchShell';
-import { hideQuoteInfoLaunch } from '../../src/features/quotes/quoteInfoLaunchController';
+import {
+  beginQuoteInfoBackCover,
+  scheduleQuoteInfoBackCoverRemoval,
+} from '../../src/features/quotes/quoteInfoLaunchController';
 import {
   SYMBOL_DETAILS_ROUTE_MODULE_CACHE_KEY,
   loadSymbolDetailsScreenRoute,
@@ -13,6 +16,7 @@ import {
 
 export default function DetailsRoute() {
   const { symbol } = useLocalSearchParams<{ symbol?: string }>();
+  const resolvedSymbol = symbol || 'EURUSD';
 
   return (
     <DeferredRouteModule
@@ -20,13 +24,15 @@ export default function DetailsRoute() {
       load={loadSymbolDetailsScreenRoute}
       fallback={(
         <QuoteInfoLaunchShell
+          active
           destination="properties"
-          symbol={symbol || 'EURUSD'}
+          symbol={resolvedSymbol}
           backLatencyLabel="quoteInfo.route.properties.back"
           onBack={() => {
-            hideQuoteInfoLaunch();
+            const coverRevision = beginQuoteInfoBackCover('properties', resolvedSymbol);
             scheduleBackNavigationAfterVisualFrame(() => {
               safeRouterBack(router, '/(tabs)/quotes');
+              scheduleQuoteInfoBackCoverRemoval(coverRevision);
             });
           }}
         />

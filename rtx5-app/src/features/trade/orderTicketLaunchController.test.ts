@@ -15,17 +15,19 @@ test('order-ticket launch controller prepares, reveals, and hides synchronously'
   });
   const unsubscribe = controller.subscribe(() => {
     const snapshot = controller.getSnapshot();
-    snapshotEvents.push(`${snapshot.visible}:${snapshot.symbol}:${snapshot.navigationStarted}`);
+    snapshotEvents.push(`${snapshot.visible}:${snapshot.symbol}:${snapshot.origin}:${snapshot.navigationStarted}`);
   });
   visualEvents.length = 0;
 
-  controller.prepare('XAUUSDm');
+  controller.prepare('XAUUSDm', 'chart');
   assert.equal(controller.getSnapshot().symbol, 'XAUUSD');
   assert.equal(controller.getSnapshot().visible, false);
+  assert.equal(controller.getSnapshot().origin, 'chart');
 
-  const revision = controller.show('XAUUSDm');
+  const revision = controller.show('XAUUSDm', 'quotes');
   assert.deepEqual(visualEvents, [true]);
   assert.equal(controller.getSnapshot().visible, true);
+  assert.equal(controller.getSnapshot().origin, 'quotes');
   assert.equal(controller.startNavigation(revision + 1), false);
   assert.equal(controller.startNavigation(revision), true);
   assert.equal(controller.getSnapshot().navigationStarted, true);
@@ -33,8 +35,8 @@ test('order-ticket launch controller prepares, reveals, and hides synchronously'
   assert.equal(controller.hide(revision), true);
   assert.deepEqual(visualEvents, [true, false]);
   assert.equal(controller.getSnapshot().visible, false);
-  assert.ok(snapshotEvents.includes('true:XAUUSD:false'));
-  assert.ok(snapshotEvents.includes('true:XAUUSD:true'));
+  assert.ok(snapshotEvents.includes('true:XAUUSD:quotes:false'));
+  assert.ok(snapshotEvents.includes('true:XAUUSD:quotes:true'));
 
   unregisterVisual();
   unsubscribe();
@@ -64,12 +66,51 @@ test('scheduled native navigation is cancelled when the optimistic shell closes'
       frameQueue = [];
       callbacks.forEach((callback) => callback(0));
     };
-    flushFrame();
-    flushFrame();
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     assert.equal(navigations, 0);
     assert.equal(orderTicketLaunchController.isVisible(), false);
+  } finally {
+    orderTicketLaunchController.hide();
+    if (originalDescriptor) {
+      Object.defineProperty(globalThis, 'requestAnimationFrame', originalDescriptor);
+    } else {
+      delete (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+    }
+  }
+});
+
+test('order-ticket launch navigation starts after the shell paint frames', async () => {
+  const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'requestAnimationFrame');
+  let frameQueue: Array<(timestamp: number) => void> = [];
+  Object.defineProperty(globalThis, 'requestAnimationFrame', {
+    configurable: true,
+    value: (callback: (timestamp: number) => void) => {
+      frameQueue.push(callback);
+      return frameQueue.length;
+    },
+  });
+
+  try {
+    const revision = orderTicketLaunchController.show('EURUSD', 'chart');
+    let navigations = 0;
+    scheduleOrderTicketLaunchNavigation(revision, () => {
+      navigations += 1;
+    });
+
+    assert.equal(navigations, 0);
+    // First rAF schedules the second; navigation runs on the second frame.
+    const first = frameQueue;
+    frameQueue = [];
+    first.forEach((callback) => callback(0));
+    assert.equal(navigations, 0);
+    const second = frameQueue;
+    frameQueue = [];
+    second.forEach((callback) => callback(0));
+
+    assert.equal(navigations, 1);
+    assert.equal(orderTicketLaunchController.getSnapshot().navigationStarted, true);
+    assert.equal(orderTicketLaunchController.getSnapshot().origin, 'chart');
   } finally {
     orderTicketLaunchController.hide();
     if (originalDescriptor) {

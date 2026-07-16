@@ -22,7 +22,7 @@ test('user guide sections cover actual RTX5 mobile app surfaces in order', () =>
     'charts',
     'trade',
     'history',
-    'messages',
+    'calendar-journal',
     'accounts',
     'settings',
     'safety',

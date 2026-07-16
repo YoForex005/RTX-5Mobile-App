@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 
 import {
   assertSourceContains,
+  assertSourceOmits,
   extractFunctionBody,
   readChartScreenSource,
 } from '../support/chartSourceTestUtils';
@@ -37,8 +38,8 @@ test('drawing manager is recreated on chart init and removed before re-init', ()
 test('native drawing sync restores serialized drawings after chart ready epoch changes', () => {
   assertSourceContains(
     source,
-    /if \(!preferencesHydrated \|\| !webViewReady \|\| !chartCanvasReady \|\| !webViewRef\.current\)/,
-    'drawing sync must wait for persisted drawing hydration before WebView replay',
+    /if \(!isScreenFocused \|\| !preferencesHydrated \|\| !webViewReady \|\| !chartCanvasReady \|\| !webViewRef\.current\)/,
+    'drawing sync must wait for chart focus and persisted drawing hydration before WebView replay',
   );
   assertSourceContains(
     source,
@@ -72,6 +73,10 @@ test('drawing tools open path is resilient to iOS chart overlay touch ordering',
   const drawingFeatureSource = readProjectSource('src/features/chart/components/ChartDrawingToolsFeature.tsx');
   const drawingToolsSource = readProjectSource('src/features/chart/drawingTools/index.ts');
   const radialMenuSource = readProjectSource('src/features/chart/components/ChartTapRadialMenu.tsx');
+  const actionSheetFactory = extractFunctionBody(
+    drawingToolsSource,
+    'createDrawingToolsActionSheetActions',
+  );
 
   assertSourceContains(
     source,
@@ -94,14 +99,19 @@ test('drawing tools open path is resilient to iOS chart overlay touch ordering',
     'drawing sidebar tool rows must fire on touch-down for iOS',
   );
   assertSourceContains(
-    drawingToolsSource,
-    /DRAWING_SHEET_OPTIONS\.map\(\(definition\) => \(\{[\s\S]*activateOnPressIn:\s*true[\s\S]*onPress: \(\) => config\.onSelectTool\(definition\.tool\)/,
-    'drawing action sheet selectable rows must fire on touch-down for iOS',
+    actionSheetFactory,
+    /DRAWING_SHEET_OPTIONS\.map\(\(definition\) => \(\{[\s\S]*onPress: \(\) => config\.onSelectTool\(definition\.tool\)/,
+    'drawing action sheet selectable rows must retain their confirmed-tap handlers',
   );
   assertSourceContains(
-    drawingToolsSource,
-    /DRAWING_TOOL_COMMANDS\.map\(\(definition\) => \(\{[\s\S]*activateOnPressIn:\s*true[\s\S]*onPress: commandHandlers\[definition\.key\]/,
-    'drawing action sheet command rows must fire on touch-down for iOS',
+    actionSheetFactory,
+    /historyCommands\.map\(\(definition\) => \(\{[\s\S]*onPress: commandHandlers\[definition\.key\][\s\S]*utilityCommands\.map\(\(definition\) => \(\{[\s\S]*onPress: commandHandlers\[definition\.key\]/,
+    'drawing action sheet command rows must retain their confirmed-tap handlers',
+  );
+  assertSourceOmits(
+    actionSheetFactory,
+    /activateOnPressIn:\s*true/,
+    'scrollable drawing action sheet rows must not execute while a scroll gesture begins',
   );
   assertSourceContains(
     radialMenuSource,

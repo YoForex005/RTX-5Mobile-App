@@ -1,5 +1,5 @@
 import { usePathname, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import { BackHandler, StyleSheet, View } from 'react-native';
 import {
   safeRouterBack,
@@ -14,6 +14,7 @@ import {
   toBrokerDetailLaunchSelection,
 } from './brokerDetailLaunchController';
 import type { BrokerDirectoryRow } from './BrokersScreen/brokerDirectoryRows';
+import { warmDemoAccountForm } from './registerScreenPreload';
 
 const BROKERS_LAUNCH_HIDDEN_STYLE = {
   elevation: 0,
@@ -44,7 +45,11 @@ export function BrokersLaunchHost() {
   const pendingBackRevisionRef = useRef<number | null>(null);
   const backGuardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hostLayerRef = useRef<View>(null);
-  const renderVisible = brokersLaunchController.isVisible();
+  const renderVisible = useSyncExternalStore(
+    brokersLaunchController.subscribe,
+    brokersLaunchController.isVisible,
+    brokersLaunchController.isVisible,
+  );
   pathnameRef.current = pathname;
 
   const armBackGuard = useCallback((delayMs: number) => {
@@ -69,7 +74,7 @@ export function BrokersLaunchHost() {
     brokersLaunchController.hide(revision);
     armBackGuard(700);
     scheduleBackNavigationAfterVisualFrame(() => {
-      safeRouterBack(router, '/settings/accounts');
+      safeRouterBack(router, '/(tabs)/quotes');
     });
   }, [armBackGuard, router]);
 
@@ -112,6 +117,12 @@ export function BrokersLaunchHost() {
 
     const selection = toBrokerDetailLaunchSelection(broker);
     const detailRevision = showBrokerDetailLaunch(selection);
+    const pushBrokerDetailRoute = () => {
+      router.push({
+        pathname: '/settings/broker-detail',
+        params: selection,
+      });
+    };
     // Reveal Broker Detail first; hiding this cover first exposes the retained
     // tab for one frame and can redirect the user's next tap to the wrong row.
     if (current.visible) {
@@ -119,16 +130,16 @@ export function BrokersLaunchHost() {
     }
 
     // A very fast row tap can beat the scheduled Brokers push. Preserve the
-    // Brokers route in the back stack, then place Broker Detail above it.
+    // Brokers route in the back stack, but yield first so the already-visible
+    // Detail cover can paint before cold route construction starts.
     if (current.visible && !current.navigationStarted) {
-      router.push('/settings/brokers');
-    }
-    scheduleBrokerDetailLaunchNavigation(detailRevision, () => {
-      router.push({
-        pathname: '/settings/broker-detail',
-        params: selection,
+      scheduleBackNavigationAfterVisualFrame(() => {
+        router.push('/settings/brokers');
+        scheduleBrokerDetailLaunchNavigation(detailRevision, pushBrokerDetailRoute);
       });
-    });
+      return;
+    }
+    scheduleBrokerDetailLaunchNavigation(detailRevision, pushBrokerDetailRoute);
   }, [router]);
 
   useEffect(
@@ -136,6 +147,9 @@ export function BrokersLaunchHost() {
       (visible) => {
         writeBrokersLaunchVisibilityNow(hostLayerRef.current, visible);
         if (visible) {
+          // Prefetch Demo Account form while browsing brokers so the next
+          // "Open a demo account" tap is module-ready.
+          void warmDemoAccountForm();
           pendingBackRevisionRef.current = null;
           backInFlightRef.current = false;
         }

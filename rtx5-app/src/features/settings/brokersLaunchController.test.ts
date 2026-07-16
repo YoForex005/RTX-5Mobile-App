@@ -5,6 +5,7 @@ import {
   createBrokersLaunchController,
   scheduleBrokersLaunchCoverRemoval,
   scheduleBrokersLaunchNavigation,
+  showBrokersReturnLaunch,
 } from './brokersLaunchController';
 
 test('brokers launch controller reveals, starts navigation, and hides synchronously', () => {
@@ -43,6 +44,22 @@ test('brokers launch controller reveals, starts navigation, and hides synchronou
 
   unregisterVisual();
   unsubscribe();
+});
+
+test('Brokers return launch is immediately marked committed for a chained Back', () => {
+  brokersLaunchController.hide();
+
+  try {
+    const revision = showBrokersReturnLaunch();
+    const snapshot = brokersLaunchController.getSnapshot();
+
+    assert.equal(snapshot.visible, true);
+    assert.equal(snapshot.navigationStarted, true);
+    assert.equal(snapshot.revision, revision);
+    assert.equal(brokersLaunchController.startNavigation(revision), false);
+  } finally {
+    brokersLaunchController.hide();
+  }
 });
 
 test('scheduled Brokers cover removal waits for two paints and cannot hide a newer launch', async () => {

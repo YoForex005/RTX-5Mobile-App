@@ -43,6 +43,7 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { useShallow } from 'zustand/shallow';
 import { runImmediateAction } from '../../utils/actionLatency';
 import { calculateWinRatePercentFromPnl } from '../../utils/winRate';
+import { showHistoryFilterHost } from './historyFilterHostController';
 
 type Tab = 'Positions' | 'Orders' | 'Deals';
 type SortBy = 'Default' | 'Symbol' | 'Ticket' | 'Type' | 'Volume' | 'Open Time' | 'Close Time' | 'Profit';
@@ -368,6 +369,12 @@ function mapClosedPositionToRow(position: ClosedPosition): HistoryRow {
 const HistoryScreenInner = memo(function HistoryScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
   const [tab, setTab] = useState<Tab>('Positions');
   const [sortBy, setSortBy] = useState<SortBy>('Default');
+  const openHistoryFilter = useCallback(() => {
+    // Chart-options-class retained host: first paint in this press turn, no stack push.
+    runImmediateAction('history.filter.open', () => {
+      showHistoryFilterHost();
+    });
+  }, []);
   const { historyRange, historyFromMs, historyToMs, accountDetails } = useUserPreferences(
     useShallow((state) => ({
       historyRange: state.historyRange,
@@ -384,6 +391,35 @@ const HistoryScreenInner = memo(function HistoryScreenInner({ isScreenFocused }:
   const { t } = useTranslation();
   const isDark = useIsDarkTheme();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
+  const historySortSheetConfig = useMemo<Parameters<typeof showHistoryActionSheet>[0]>(() => ({
+    title: t('Sort By'),
+    presentation: 'mt5Plain',
+    detent: 'adaptive',
+    instantOpen: true,
+    entryMotion: 'mt5Slide',
+    runActionAfterClose: false,
+    visualKey: `history.sortBy|${sortBy}|${t('Sort By')}`,
+    actions: SORT_OPTIONS.map((option) => ({
+      label: t(option),
+      selected: option === sortBy,
+      onPress: () => startTransition(() => setSortBy(option)),
+    })),
+  }), [sortBy, t]);
+  const openHistorySortSheet = useCallback(() => {
+    runImmediateAction('history.sortSheet.open', () =>
+      showHistoryActionSheet(historySortSheetConfig),
+    );
+  }, [historySortSheetConfig, showHistoryActionSheet]);
+
+  const preloadHistoryActionSheet = useUIState((s) => s.preloadScopedActionSheet);
+  useEffect(() => {
+    if (!isScreenFocused) {
+      return;
+    }
+    // Warm the shared history host with the Sort By config so open never pays
+    // first-measure cost on the press frame (same idea as chart ⋮ preload).
+    preloadHistoryActionSheet('history', historySortSheetConfig);
+  }, [historySortSheetConfig, isScreenFocused, preloadHistoryActionSheet]);
 
   // ── Live API data via TanStack Query ─────────────────────────────────
   // GET /api/v2/positions/{login}/history — closed position history
@@ -572,7 +608,8 @@ const HistoryScreenInner = memo(function HistoryScreenInner({ isScreenFocused }:
             <View style={styles.gridRow}>
               <FastPressable
                 style={styles.gridCol}
-                onPress={() => router.push('/history/filter')}
+                onPress={openHistoryFilter}
+                activateOnPressIn
                 latencyLabel="history.filter.open"
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -612,20 +649,7 @@ const HistoryScreenInner = memo(function HistoryScreenInner({ isScreenFocused }:
               <View style={styles.topControlsRow}>
                 <FastPressable
                   style={styles.iconButton}
-                  onPress={() =>
-                    runImmediateAction('history.sortSheet.open', () =>
-                      showHistoryActionSheet({
-                        title: t('Sort By'),
-                        presentation: 'mt5Plain',
-                        detent: 'adaptive',
-                        instantOpen: true,
-                        actions: SORT_OPTIONS.map((option) => ({
-                          label: option === sortBy ? `${t(option)} ✓` : t(option),
-                          onPress: () => startTransition(() => setSortBy(option)),
-                        })),
-                      }),
-                    )
-                  }
+                  onPress={openHistorySortSheet}
                   latencyLabel="history.sort.open"
                   activateOnPressIn
                   activateOnTouchStart
@@ -649,7 +673,10 @@ const HistoryScreenInner = memo(function HistoryScreenInner({ isScreenFocused }:
 
                 <FastPressable
                   style={styles.iconButton}
-                  onPress={() => router.push('/history/filter')}
+                  onPress={openHistoryFilter}
+                  activateOnPressIn
+                  activateOnTouchStart
+                  unstable_pressDelay={0}
                   latencyLabel="history.range.open"
                 >
                   <Ionicons name='time-outline' size={20} color={T.text} />
@@ -664,7 +691,7 @@ const HistoryScreenInner = memo(function HistoryScreenInner({ isScreenFocused }:
                   tone='neutral'
                   T={T}
                   isDark={isDark}
-                  onPress={() => router.push('/history/filter')}
+                  onPress={openHistoryFilter}
                 />
                 <MetricPill
                   label={tab === 'Orders' ? t('Filled') : t('Win Rate')}

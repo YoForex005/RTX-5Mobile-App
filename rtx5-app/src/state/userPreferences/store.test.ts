@@ -8,7 +8,7 @@ const source = () => readFileSync(resolve(process.cwd(), 'src/state/userPreferen
 test('persisted user preferences are normalized before second-launch hydration reaches UI', () => {
   const storeSource = source();
 
-  assert.match(storeSource, /const PREFERENCES_STORAGE_VERSION = 20/);
+  assert.match(storeSource, /const PREFERENCES_STORAGE_VERSION = 21/);
   assert.match(storeSource, /const CHART_DRAWING_RECORDS_STORAGE_KEY = 'rtx5-chart-drawing-records-v1'/);
   assert.match(storeSource, /normalizePersistedUserPreferencesState/);
   assert.match(storeSource, /quoteSymbols: asStringArray\(state\.quoteSymbols\)/);
@@ -32,12 +32,11 @@ test('persisted user preferences are normalized before second-launch hydration r
   assert.doesNotMatch(storeSource, /const isChartVisualType/);
   assert.match(storeSource, /persistChartDrawingRecordsBySymbol\(nextRecordsBySymbol\)/);
   assert.match(storeSource, /readChartDrawingRecordsBySymbol\(\)[\s\S]*\.then\(\(storedRecordsBySymbol\) => \{[\s\S]*\.finally\(\(\) => \{[\s\S]*setHasHydrated\(true\)/);
-  assert.match(storeSource, /marketNewsSavedIds: Array\.from\(new Set\(asStringArray\(state\.marketNewsSavedIds\)\)\)/);
+  assert.doesNotMatch(storeSource, /marketNewsSavedIds|setMarketNewsSavedIds|toggleMarketNewsSavedId/);
   assert.match(storeSource, /isLoggedIn = asBoolean\(state\.isLoggedIn, false\) && accountDetails !== null/);
   assert.match(storeSource, /merge: \(persistedState, currentState\) => \(\{/);
   assert.match(storeSource, /Ignoring invalid persisted preferences/);
   assert.match(storeSource, /let preferenceWriteFlushScheduled = false/);
   assert.match(storeSource, /function schedulePreferenceWriteFlush\(\) \{[\s\S]*if \(preferenceWriteFlushScheduled\) return;[\s\S]*preferenceWriteFlushScheduled = true;[\s\S]*setTimeout\(flushPendingPreferenceWrites, 0\)/);
   assert.match(storeSource, /setItem: \(name, value\) => \{[\s\S]*pendingPreferenceWrites\.set\(name, value\);[\s\S]*schedulePreferenceWriteFlush\(\);[\s\S]*\}/);
-  assert.doesNotMatch(storeSource, /state\.marketNewsSavedIds\.map\(\(id\) => id\.trim\(\)\)/);
 });

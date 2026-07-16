@@ -3,7 +3,7 @@ import type { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import type { NavigationHelpers, ParamListBase } from '@react-navigation/native';
 import { PlatformPressable } from '@react-navigation/elements';
 import { usePathname, useRouter } from 'expo-router';
-import { memo, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
 import { View, StyleSheet, Text, useWindowDimensions, type GestureResponderEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUIState } from '../../src/state/uiState';
@@ -21,13 +21,20 @@ import {
   hideSidebarDestination,
   sidebarDestinationController,
 } from '../../src/ui/components/sidebarDestinationHostController';
+import { hideChartSettingsHost } from '../../src/features/chart/chartSettingsHostController';
+import { hideChartConfigDestination } from '../../src/features/chart/chartConfigDestinationController';
+import { hideAboutDetailDestination } from '../../src/features/settings/aboutDetailDestinationController';
+import { hideHistoryFilterHost } from '../../src/features/history/historyFilterHostController';
+import { hideTradePositionActionHost } from '../../src/features/trade/tradePositionActionHostController';
 import { OrderTicketLaunchHost } from '../../src/features/trade/OrderTicketLaunchHost';
-import { QuoteInfoLaunchHost } from '../../src/features/quotes/QuoteInfoLaunchHost';
+
 import { FastTabs as Tabs } from '../../src/ui/navigation/FastTabNavigator';
 import {
+  registerFastTabSidebarChromeApplier,
   scheduleFastTabNavigation,
   showFastTabVisual,
   TAB_BAR_NAVIGATION_SETTLE_DELAY_MS,
+  type FastTabRouteName,
 } from '../../src/ui/navigation/fastTabVisualController';
 
 const icons = {
@@ -47,6 +54,114 @@ type TabTouchEvent = GestureResponderEvent;
 type FastTabBarButtonProps = BottomTabBarButtonProps & {
   latencyLabel?: string;
 };
+
+type FastTabVisualIconProps = {
+  routeName: FastTabRouteName;
+  size: number;
+  color: string;
+  activeColor: string;
+  inactiveColor: string;
+};
+
+const FastTabVisualIcon = memo(function FastTabVisualIcon({
+  routeName,
+  size,
+  color,
+  activeColor,
+  inactiveColor,
+}: FastTabVisualIconProps) {
+  const activeLayerRef = useRef<View>(null);
+  const inactiveLayerRef = useRef<View>(null);
+  const applyVisualRoute = useCallback((visualRouteName: FastTabRouteName) => {
+    const active = visualRouteName === routeName;
+    activeLayerRef.current?.setNativeProps({
+      style: [styles.tabIconLayer, { opacity: active ? 1 : 0 }],
+    });
+    inactiveLayerRef.current?.setNativeProps({
+      style: [styles.tabIconLayer, { opacity: active ? 0 : 1 }],
+    });
+  }, [routeName]);
+
+  useLayoutEffect(
+    () => registerFastTabSidebarChromeApplier(applyVisualRoute),
+    [applyVisualRoute],
+  );
+
+  const initiallyActive = color === activeColor;
+  const renderIcon = (tintColor: string) => routeName === 'chart'
+    ? <MaterialIcons name="candlestick-chart" size={size + 2} color={tintColor} />
+    : (
+      <Ionicons
+        name={icons[routeName as keyof typeof icons] ?? 'ellipse-outline'}
+        size={size}
+        color={tintColor}
+      />
+    );
+
+  return (
+    <View style={[styles.tabIconRoot, { width: size + 2, height: size + 2 }]}>
+      <View
+        ref={inactiveLayerRef}
+        collapsable={false}
+        style={[styles.tabIconLayer, { opacity: initiallyActive ? 0 : 1 }]}
+      >
+        {renderIcon(inactiveColor)}
+      </View>
+      <View
+        ref={activeLayerRef}
+        collapsable={false}
+        style={[styles.tabIconLayer, { opacity: initiallyActive ? 1 : 0 }]}
+      >
+        {renderIcon(activeColor)}
+      </View>
+    </View>
+  );
+});
+
+type FastTabVisualLabelProps = {
+  routeName: FastTabRouteName;
+  color: string;
+  activeColor: string;
+  inactiveColor: string;
+  isLandscape: boolean;
+  children: ReactNode;
+};
+
+const FastTabVisualLabel = memo(function FastTabVisualLabel({
+  routeName,
+  color,
+  activeColor,
+  inactiveColor,
+  isLandscape,
+  children,
+}: FastTabVisualLabelProps) {
+  const labelRef = useRef<Text>(null);
+  const applyVisualRoute = useCallback((visualRouteName: FastTabRouteName) => {
+    labelRef.current?.setNativeProps({
+      style: [
+        styles.tabLabel,
+        isLandscape && styles.tabLabelLandscape,
+        { color: visualRouteName === routeName ? activeColor : inactiveColor },
+      ],
+    });
+  }, [activeColor, inactiveColor, isLandscape, routeName]);
+
+  useLayoutEffect(
+    () => registerFastTabSidebarChromeApplier(applyVisualRoute),
+    [applyVisualRoute],
+  );
+
+  return (
+    <Text
+      ref={labelRef}
+      allowFontScaling={false}
+      numberOfLines={1}
+      style={[styles.tabLabel, isLandscape && styles.tabLabelLandscape, { color }]}
+    >
+      {children}
+    </Text>
+  );
+});
 
 const getNow = () =>
   typeof globalThis.performance?.now === 'function'
@@ -199,6 +314,9 @@ const GlobalActionSheetHost = memo(function GlobalActionSheetHost() {
       detent={activeConfig?.detent}
       minimumTopInset={activeConfig?.minimumTopInset}
       instantOpen={activeConfig?.instantOpen}
+      entryMotion={activeConfig?.entryMotion}
+      immediateHostHideOnClose={activeConfig?.immediateHostHideOnClose}
+      visualKey={activeConfig?.visualKey}
       runActionAfterClose={activeConfig?.runActionAfterClose}
       androidKeyboardAvoidance={activeConfig?.androidKeyboardAvoidance}
       keepFullHeightOnKeyboard={activeConfig?.keepFullHeightOnKeyboard}
@@ -250,6 +368,13 @@ export default function TabsLayout() {
       if (!isRestoringAccountsFromBrokerFlow) {
         hideSidebarDestination();
       }
+      // Chart Preferences is a retained overlay (no route push). Clear it when
+      // the user leaves the chart tab / navigates elsewhere so it never sticks.
+      hideChartConfigDestination();
+      hideChartSettingsHost();
+      hideAboutDetailDestination();
+      hideHistoryFilterHost();
+      hideTradePositionActionHost();
       const uiState = useUIState.getState();
       const visibleScopedActionSheet = uiState.actionSheetScope
         ? uiState.scopedActionSheets[uiState.actionSheetScope] !== null
@@ -267,7 +392,11 @@ export default function TabsLayout() {
   );
 }
 
-const TabsLayoutInner = memo(function TabsLayoutInner({
+/**
+ * Theme-dependent tab chrome only. Kept outside the retained tab screens and
+ * launch hosts so a theme tap does not re-render Quotes/Chart/Trade trees.
+ */
+const ThemedTabsChrome = memo(function ThemedTabsChrome({
   isChartTab,
 }: {
   isChartTab: boolean;
@@ -305,8 +434,6 @@ const TabsLayoutInner = memo(function TabsLayoutInner({
     !shouldHideMenu &&
     chartTabBarKeyboardLift > 0;
 
-  // Tab bar height adapts to the device's bottom inset (home indicator / pill)
-  // Base: 56dp icon+label zone + real bottom inset + 2dp breathing room
   const tabBarHeight = resolveBottomTabBarHeight({
     safeAreaBottom: insets.bottom,
     isChartTab,
@@ -330,78 +457,87 @@ const TabsLayoutInner = memo(function TabsLayoutInner({
   useEffect(() => warmActionRoutes(router), [router]);
 
   return (
-    <View style={styles.root}>
-      <Tabs
-        layout={renderTabsLayout}
-        // Back returns secondary tabs to Quotes without rebuilding the screens.
-        backBehavior='firstRoute'
-        // Keep all five main screens mounted, so taps and Back reuse them
-        // instead of waiting for a screen to be created again.
-        detachInactiveScreens={false}
-        screenOptions={({ route }) => ({
-          headerShown: false,
-          tabBarStyle: shouldHideMenu
-            ? { display: 'none' }
-            : [
-              tabBarStyle,
-              shouldLiftChartTabBar && {
-                position: 'absolute',
-                left: 0,
-                right: 0,
-                bottom: chartTabBarKeyboardLift + Math.max(insets.bottom, 0),
-              },
-            ],
-          tabBarActiveTintColor: bottomTabActiveColor,
-          tabBarInactiveTintColor: inactiveTabColor,
-          tabBarIcon: ({ size, color }) => {
-            if (route.name === 'chart') {
-              return <MaterialIcons name="candlestick-chart" size={size + 2} color={color} />;
-            }
-            const name = icons[route.name as keyof typeof icons] ?? 'ellipse-outline';
-            return <Ionicons name={name} size={size} color={color} />;
-          },
-          tabBarLabel: ({ children, color }) => {
-            return (
-              <Text
-                allowFontScaling={false}
-                numberOfLines={1}
-                style={[styles.tabLabel, isLandscape && styles.tabLabelLandscape, { color }]}
-              >
-                {children}
-              </Text>
-            );
-          },
-          tabBarActiveBackgroundColor: 'transparent',
-          tabBarItemStyle: { backgroundColor: 'transparent' },
-          tabBarHideOnKeyboard: !isChartTab,
-          tabBarButton: (props) => (
-            <FastTabBarButton
-              {...props}
-              latencyLabel={route.name}
+    <Tabs
+      layout={renderTabsLayout}
+      backBehavior='firstRoute'
+      detachInactiveScreens={false}
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarStyle: shouldHideMenu
+          ? { display: 'none' }
+          : [
+            tabBarStyle,
+            shouldLiftChartTabBar && {
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: chartTabBarKeyboardLift + Math.max(insets.bottom, 0),
+            },
+          ],
+        tabBarActiveTintColor: bottomTabActiveColor,
+        tabBarInactiveTintColor: inactiveTabColor,
+        tabBarIcon: ({ size, color }) => {
+          return (
+            <FastTabVisualIcon
+              routeName={route.name as FastTabRouteName}
+              size={size}
+              color={color}
+              activeColor={bottomTabActiveColor}
+              inactiveColor={inactiveTabColor}
             />
-          ),
+          );
+        },
+        tabBarLabel: ({ children, color }) => {
+          return (
+            <FastTabVisualLabel
+              routeName={route.name as FastTabRouteName}
+              color={color}
+              activeColor={bottomTabActiveColor}
+              inactiveColor={inactiveTabColor}
+              isLandscape={isLandscape}
+            >
+              {children}
+            </FastTabVisualLabel>
+          );
+        },
+        tabBarActiveBackgroundColor: 'transparent',
+        tabBarItemStyle: { backgroundColor: 'transparent' },
+        tabBarHideOnKeyboard: !isChartTab,
+        tabBarButton: (props) => (
+          <FastTabBarButton
+            {...props}
+            latencyLabel={route.name}
+          />
+        ),
+        lazy: false,
+      })}
+    >
+      <Tabs.Screen name='quotes' options={{ title: t('Quotes') }} />
+      <Tabs.Screen
+        name='chart'
+        options={{
+          title: t('Chart'),
           lazy: false,
-        })}
-      >
-        <Tabs.Screen name='quotes' options={{ title: t('Quotes') }} />
-        <Tabs.Screen
-          name='chart'
-          options={{
-            title: t('Chart'),
-            lazy: false,
-          }}
-        />
-        <Tabs.Screen name='trade' options={{ title: t('Trade') }} />
-        <Tabs.Screen name='history' options={{ title: t('History') }} />
-        <Tabs.Screen name='settings' options={{ title: t('Settings') }} />
-      </Tabs>
+        }}
+      />
+      <Tabs.Screen name='trade' options={{ title: t('Trade') }} />
+      <Tabs.Screen name='history' options={{ title: t('History') }} />
+      <Tabs.Screen name='settings' options={{ title: t('Settings') }} />
+    </Tabs>
+  );
+});
 
+const TabsLayoutInner = memo(function TabsLayoutInner({
+  isChartTab,
+}: {
+  isChartTab: boolean;
+}) {
+  // Theme is confined to ThemedTabsChrome so launch hosts and tab bodies are
+  // not reconciled on every light/dark press.
+  return (
+    <View style={styles.root}>
+      <ThemedTabsChrome isChartTab={isChartTab} />
       <OrderTicketLaunchHost />
-      <QuoteInfoLaunchHost />
-
-      {/* Hamburger menu button is now inside AppHeader for consistent alignment */}
-
-      {/* Action sheet – shared across all tabs, renders inside device frame */}
       <GlobalActionSheetHost />
     </View>
   );
@@ -409,6 +545,15 @@ const TabsLayoutInner = memo(function TabsLayoutInner({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  tabIconRoot: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabIconLayer: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   tabLabel: {
     fontSize: 12,
     marginBottom: 4,

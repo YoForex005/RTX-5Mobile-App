@@ -13,6 +13,12 @@ test('close position dark theme uses semantic status colors and visible loading 
   assert.match(source, /statusTextSuccess:[\s\S]*color: T\.trading\.profit/);
   assert.match(source, /statusTextError:[\s\S]*color: T\.trading\.loss/);
   assert.match(source, /<ActivityIndicator color="#FFFFFF" \/>/);
-  assert.match(source, /closeByButton:[\s\S]*backgroundColor: isDark \? SETTINGS_DARK_CARD_BACKGROUND : T\.glass1[\s\S]*borderColor: isDark \? T\.border : T\.borderMedium/);
+  assert.match(source, /secondaryBtn:[\s\S]*backgroundColor: isDark \? CARD_DARK : T\.glass1/);
   assert.doesNotMatch(source, /styles\.success|successText|rgba\(74,222,128/);
+});
+
+test('close position shows floating P/L from live quote metrics', () => {
+  assert.match(source, /resolveLivePositionPnl/);
+  assert.match(source, /t\('Floating P\/L'\)/);
+  assert.doesNotMatch(source, /t\('Real-time P\/L'\)/);
 });

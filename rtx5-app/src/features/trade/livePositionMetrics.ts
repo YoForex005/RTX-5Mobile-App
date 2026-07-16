@@ -1,8 +1,9 @@
 import type { PositionItem, QuoteItem } from '../../dev/mock/tradingData';
 import { normalizeSymbol } from '../../domain/symbols.ts';
+import { MARKET_QUOTE_STALE_AFTER_MS } from '../../market/quotePolicy.ts';
 
 type QuoteLike = Partial<QuoteItem> | undefined;
-const LIVE_QUOTE_STALE_MS = 45_000;
+const LIVE_QUOTE_STALE_MS = MARKET_QUOTE_STALE_AFTER_MS;
 
 function toFiniteNumber(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) {

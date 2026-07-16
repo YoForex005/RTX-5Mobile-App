@@ -5617,6 +5617,89 @@ export const CH_HTML = `
         }
       }
 
+      function applyChartVisualTheme(opts) {
+        try {
+          var safeOpts = applyChartLayout(cloneSerializableValue(opts || {}, {}));
+          var chartBackgroundColor = resolveChartBackgroundColor(safeOpts);
+          var chartTextColor = resolveChartTextColor(safeOpts);
+          var customColors = safeOpts.customColors || {};
+          var chartElement = document.getElementById('chart');
+
+          lastChartBackgroundColor = chartBackgroundColor;
+          lastChartAxisBackgroundColor = resolveChartAxisBackgroundColor(safeOpts, chartBackgroundColor);
+          lastChartTextColor = chartTextColor;
+
+          if (document.documentElement) {
+            document.documentElement.style.background = chartBackgroundColor;
+          }
+          if (document.body) {
+            document.body.style.background = chartBackgroundColor;
+          }
+          if (chartElement) {
+            chartElement.style.background = 'transparent';
+          }
+
+          if (chart && typeof chart.applyOptions === 'function') {
+            chart.applyOptions({
+              layout: {
+                background: { type: 'solid', color: 'transparent' },
+                textColor: chartTextColor,
+              },
+            });
+          }
+
+          applyMovingVerticalGridColor(customColors.grid);
+          applyChartAxisDividerColor(customColors.axisDivider);
+          applyPeriodSeparatorOptions(safeOpts.periodSeparators || {});
+          updateChartPaneBackgroundLayer();
+
+          // Recolor the mounted SVG and fallback nodes in this task. The
+          // scheduled helpers reconcile their geometry on the next frame.
+          var gridLayer = getMovingVerticalGridLayer();
+          if (gridLayer && typeof gridLayer.querySelectorAll === 'function') {
+            var gridLines = gridLayer.querySelectorAll('line');
+            for (var gridIndex = 0; gridIndex < gridLines.length; gridIndex += 1) {
+              gridLines[gridIndex].setAttribute('stroke', movingVerticalGridColor);
+              gridLines[gridIndex].__rtx5GridStyleSignature = '';
+            }
+          }
+          var dividerLayer = getChartAxisDividerLayer();
+          if (dividerLayer && typeof dividerLayer.querySelectorAll === 'function') {
+            var dividerLines = dividerLayer.querySelectorAll('line');
+            for (var dividerIndex = 0; dividerIndex < dividerLines.length; dividerIndex += 1) {
+              dividerLines[dividerIndex].setAttribute('stroke', chartAxisDividerColor);
+            }
+            chartAxisDividerSignature = '';
+          }
+          var separatorLayer = getPeriodSeparatorLayer();
+          if (separatorLayer && typeof separatorLayer.querySelectorAll === 'function') {
+            var separatorLines = separatorLayer.querySelectorAll('line');
+            for (var separatorIndex = 0; separatorIndex < separatorLines.length; separatorIndex += 1) {
+              separatorLines[separatorIndex].setAttribute('stroke', periodSeparatorColor);
+              separatorLines[separatorIndex].__rtx5PeriodSeparatorStyleSignature = '';
+            }
+          }
+          if (rightPriceScaleFallbackBackgroundNode) {
+            rightPriceScaleFallbackBackgroundNode.style.background = lastChartAxisBackgroundColor;
+          }
+          var fallbackTextColor = resolveReadableRightPriceScaleFallbackTextColor(chartTextColor);
+          for (var labelIndex = 0; labelIndex < rightPriceScaleFallbackLabelNodes.length; labelIndex += 1) {
+            if (rightPriceScaleFallbackLabelNodes[labelIndex]) {
+              rightPriceScaleFallbackLabelNodes[labelIndex].style.color = fallbackTextColor;
+            }
+          }
+
+          scheduleRightPriceScaleFallbackRefresh();
+          scheduleMovingVerticalGridUpdate(false);
+          scheduleChartAxisDividersUpdate();
+          schedulePeriodSeparatorsUpdate();
+          return true;
+        } catch (error) {
+          postError('applyChartVisualTheme', error);
+          return false;
+        }
+      }
+
       function pickSeriesColors(opts, chartType) {
         var c = (opts && opts.customColors) || {};
         var up = c.candlesUptrend || '#2962FF';
@@ -8140,6 +8223,7 @@ export const CH_HTML = `
       startOverlayResync();
 
       window.initChart = initChart;
+      window.applyChartVisualTheme = applyChartVisualTheme;
       window.updateChartData = updateChartData;
       window.updateTick = updateTick;
       window.setDisplayDecimals = setDisplayDecimals;

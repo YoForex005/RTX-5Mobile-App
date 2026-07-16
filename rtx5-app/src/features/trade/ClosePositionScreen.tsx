@@ -1,9 +1,8 @@
 import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Trade Feature UI: ClosePositionScreen
- * 
- * Interface for partially or fully closing a single specific active position. 
- * Allows users to adjust the exact volume to close.
+ *
+ * Interface for closing a single active position at market.
  */
 
 import { Ionicons } from '@expo/vector-icons';
@@ -26,16 +25,27 @@ import { safeRouterBack } from '../../utils/navigation';
 import { useTranslation } from '../../i18n/useTranslation';
 import { CRITICAL_TRADE_ACTION_MAX_LATENCY_MS } from '../../utils/actionLatency';
 import { findPositionById, symbolDisplayName } from './tradeFlow';
-import { resolveLivePositionPrice } from './livePositionMetrics';
+import { resolveLivePositionPnl, resolveLivePositionPrice } from './livePositionMetrics';
 import {
   classifyTradingError,
   createFrontendTradingError,
   formatTradingErrorFeedback,
 } from '../../api/tradingErrors';
+import {
+  hideTradePositionActionHost,
+  showTradePositionAction,
+} from './tradePositionActionHostController';
 
-// Match the app dark-theme palette: #121212 canvas + #1E1E1E cards.
-const SETTINGS_DARK_BACKGROUND = '#121212';
-const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E';
+const CANVAS_DARK = '#121212';
+const CARD_DARK = '#1E1E1E';
+const DIVIDER_DARK = 'rgba(255,255,255,0.06)';
+
+export type ClosePositionScreenProps = Readonly<{
+  hosted?: boolean;
+  hostedActive?: boolean;
+  hostedPositionId?: string | null;
+  onHostedBack?: () => void;
+}>;
 
 function isValidCloseTicket(value: unknown): value is string | number {
   return typeof value === 'number'
@@ -54,27 +64,34 @@ function isRenderableClosePosition(position: PositionItem | undefined): position
   );
 }
 
-/**
- * Screen dedicated to partially or fully closing an open position at the current market price.
- */
-export function ClosePositionScreen() {
-  const { positionId } = useLocalSearchParams<{ positionId?: string }>();
+export function ClosePositionScreen({
+  hosted = false,
+  hostedActive = true,
+  hostedPositionId = null,
+  onHostedBack,
+}: ClosePositionScreenProps = {}) {
+  const params = useLocalSearchParams<{ positionId?: string }>();
+  const positionId = hosted
+    ? (hostedPositionId ?? undefined)
+    : (Array.isArray(params.positionId) ? params.positionId[0] : params.positionId);
   const [submitted, setSubmitted] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [actionLocked, setActionLocked] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
   const actionLockRef = useRef(false);
   const actionReleaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const T = useTheme();
+  const themeActive = !hosted || hostedActive;
+  const T = useTheme({ active: themeActive });
   const { t } = useTranslation();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
+  const insets = useSafeAreaInsets();
+  const screenBg = isDark ? CANVAS_DARK : T.bg;
 
   const positions = usePositionsState((s) => s.positions);
   const primedPosition = usePositionsState((s) =>
     positionId ? s.positionSnapshots[Array.isArray(positionId) ? positionId[0] : positionId] : undefined
   );
-  const primePositionSnapshot = usePositionsState((s) => s.primePositionSnapshot);
   const resolvedPosition = useMemo(
     () => findPositionById(positions, positionId) ?? primedPosition,
     [positions, positionId, primedPosition]
@@ -93,11 +110,8 @@ export function ClosePositionScreen() {
   const resolvedLogin = resolveTradingLoginString();
 
   const quotes = useTradingState((s) => s.quotes);
-  const getLivePrice = (p: typeof position) => {
-    if (!p) return 0;
-    const q = quotes[p.symbol];
-    return resolveLivePositionPrice(p, q);
-  };
+  const livePrice = position ? resolveLivePositionPrice(position, quotes[position.symbol]) : 0;
+  const livePnl = position ? resolveLivePositionPnl(position, quotes[position.symbol]) : 0;
 
   useEffect(() => {
     if (!position && resolvedLogin) {
@@ -129,9 +143,27 @@ export function ClosePositionScreen() {
     finalize();
   }, []);
 
-  /**
-   * Executes the market order to close the specified volume of the position.
-   */
+  const leaveScreen = useCallback(() => {
+    if (hosted) {
+      if (onHostedBack) {
+        onHostedBack();
+      } else {
+        hideTradePositionActionHost();
+      }
+      return;
+    }
+    safeRouterBack(router, '/(tabs)/trade');
+  }, [hosted, onHostedBack]);
+
+  const handleOpenCloseBy = useCallback(() => {
+    if (!position || actionLockRef.current || isClosing) return;
+    if (hosted) {
+      showTradePositionAction('close-by', String(position.id));
+      return;
+    }
+    router.push({ pathname: '/trade/close-by', params: { positionId: String(position.id) } });
+  }, [hosted, isClosing, position]);
+
   const handleClosePosition = useCallback(async () => {
     if (!position || actionLockRef.current || isClosing) {
       return;
@@ -171,19 +203,14 @@ export function ClosePositionScreen() {
     setIsClosing(true);
     setCloseError(null);
     const closeSnapshot = { ...position };
-    // Close feels instant: remove the row and navigate back first, then finish
-    // server confirmation in the background or restore the row on failure.
     usePositionsState.getState().beginOptimisticClose(ticketId);
     setSubmitted(true);
-    safeRouterBack(router, '/(tabs)/trade');
+    leaveScreen();
 
     void positionsApi.closePosition(ticketId)
       .then(() => {
         const state = usePositionsState.getState();
         state.finishOptimisticClose(ticketId);
-
-        // Invalidate all history / deals / account caches so the History tab
-        // immediately shows the newly closed trade and its Net P/L.
         appQueryClient.invalidateQueries({ queryKey: ['positionHistory'] });
         appQueryClient.invalidateQueries({ queryKey: ['accountDeals'] });
         appQueryClient.invalidateQueries({ queryKey: ['deals'] });
@@ -192,68 +219,64 @@ export function ClosePositionScreen() {
         appQueryClient.invalidateQueries({ queryKey: ['accountSummary'] });
         appQueryClient.invalidateQueries({ queryKey: ['exposure'] });
         appQueryClient.invalidateQueries({ queryKey: ['transactions'] });
-
         if (resolvedLogin) {
           void state.refreshPositions(resolvedLogin);
         }
       })
       .catch((error: any) => {
-        const feedback = classifyTradingError(error, { action: 'close-position' });
-        const message = formatTradingErrorFeedback(feedback);
+        const feedback = classifyTradingError(error, { action: 'close' });
         usePositionsState.getState().rollbackOptimisticClose(closeSnapshot);
-        setCloseError(message);
+        setCloseError(formatTradingErrorFeedback(feedback));
         Alert.alert(feedback.title, feedback.message);
       })
       .finally(() => {
         setIsClosing(false);
         releaseActionLock();
       });
-  }, [isClosing, position, releaseActionLock, resolvedLogin, t]);
+  }, [isClosing, leaveScreen, position, releaseActionLock, resolvedLogin, t]);
 
-  /**
-   * Navigates the user to the 'Close By' screen, allowing them to close this position by merging it with an opposite open position.
-   */
-  const handleOpenCloseBy = useCallback(() => {
-    if (!position || actionLockRef.current || isClosing) {
-      return;
-    }
+  // Hosted inactive layers skip paint work while another action is visible.
+  if (hosted && !hostedActive) {
+    return <View style={[styles.root, { backgroundColor: screenBg }]} />;
+  }
 
-    actionLockRef.current = true;
-    setActionLocked(true);
-    primePositionSnapshot(position);
-    router.push({ pathname: '/trade/close-by', params: { positionId: position.id } });
-    releaseActionLock(320);
-  }, [isClosing, position, primePositionSnapshot, releaseActionLock]);
-
-  const insets = useSafeAreaInsets();
-  const screenBg = isDark ? SETTINGS_DARK_BACKGROUND : T.bg;
-
-  if (!position) return (
-    <View style={{ flex: 1, backgroundColor: screenBg }}>
+  const header = (
+    <>
       <View style={{ height: insets.top, backgroundColor: screenBg }} />
       <View style={styles.customHeader}>
-        <Pressable onPress={() => safeRouterBack(router, '/(tabs)/trade')} hitSlop={16} style={styles.headerBtn}>
-          <Ionicons name="arrow-back" size={26} color={T.text} />
+        <Pressable
+          onPress={leaveScreen}
+          hitSlop={16}
+          style={styles.headerBtn}
+          activateOnPressIn
+          latencyLabel="closePosition.back"
+          unstable_pressDelay={0}
+        >
+          <Ionicons name="arrow-back" size={24} color={T.text} />
         </Pressable>
-        <Text style={[styles.headerTitle, { color: T.text }]}>{t('Close position')}</Text>
+        <Text style={[styles.headerTitle, { color: T.text }]} numberOfLines={1}>{t('Close position')}</Text>
         <View style={styles.headerBtn} />
       </View>
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator size="small" color={T.accent} />
-      </View>
-    </View>
+    </>
   );
 
-  return (
-    <View style={{ flex: 1, backgroundColor: screenBg }}>
-      <View style={{ height: insets.top, backgroundColor: screenBg }} />
-      <View style={styles.customHeader}>
-        <Pressable onPress={() => safeRouterBack(router, '/(tabs)/trade')} hitSlop={16} style={styles.headerBtn}>
-          <Ionicons name="arrow-back" size={26} color={T.text} />
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: T.text }]}>{t('Close position')}</Text>
-        <View style={styles.headerBtn} />
+  if (!position) {
+    return (
+      <View style={[styles.root, { backgroundColor: screenBg }]}>
+        {header}
+        <View style={styles.centered}>
+          <ActivityIndicator size="small" color={T.accent} />
+        </View>
       </View>
+    );
+  }
+
+  const isBuy = position.side === 'buy';
+  const symbol = position.symbol.replace(/\//g, '');
+
+  return (
+    <View style={[styles.root, { backgroundColor: screenBg }]}>
+      {header}
       <ScrollView
         canCancelContentTouches={Platform.OS === 'ios'}
         style={styles.contentWrap}
@@ -264,47 +287,48 @@ export function ClosePositionScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="always"
       >
-        <View style={styles.header}>
-          <Text style={styles.subTitle}>{t('Review and confirm closing order')}</Text>
-        </View>
+        <Text style={styles.subTitle}>{t('Review and confirm closing order')}</Text>
 
         <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <View>
-              <Text style={styles.symbol}>{position.symbol.replace(/\//g, '')}</Text>
-              <Text style={styles.instrument}>{symbolDisplayName(position.symbol)}</Text>
+          <View style={styles.cardTop}>
+            <View style={styles.cardTopLeft}>
+              <Text style={styles.ticket}>#{position.id}</Text>
+              <Text style={styles.symbol}>{symbol}</Text>
+              <Text style={styles.instrument} numberOfLines={1}>{symbolDisplayName(position.symbol)}</Text>
             </View>
-            <Text style={[styles.sideText, position.side === 'buy' ? styles.sideTextBuy : styles.sideTextSell]}>
-              {position.side.toUpperCase()} {(position.volume || 0).toFixed(2)}
-            </Text>
+            <View style={[styles.sideBadge, isBuy ? styles.sideBadgeBuy : styles.sideBadgeSell]}>
+              <Text style={[styles.sideBadgeText, isBuy ? styles.sideTextBuy : styles.sideTextSell]}>
+                {position.side.toUpperCase()}
+              </Text>
+              <Text style={[styles.sideVolume, isBuy ? styles.sideTextBuy : styles.sideTextSell]}>
+                {(position.volume || 0).toFixed(2)}
+              </Text>
+            </View>
           </View>
 
-          <View style={styles.separator} />
+          <View style={styles.divider} />
 
-          <View style={styles.metrics}>
-            <Metric label={t('Open Price')} value={fmt.price(position.openPrice)} />
-            <Metric label={t('Current Price')} value={fmt.price(getLivePrice(position))} />
-            <View style={styles.metricSpacer} />
-            <Metric label={t('Real-time P/L')} value={fmt.pnl(position.pnl)} negative={position.pnl < 0} positive={position.pnl > 0} isHighlighted />
-            <Metric label={t('Order Ticket')} value={`#${position.id}`} isSecondary />
+          <MetricRow label={t('Open Price')} value={fmt.price(position.openPrice)} styles={styles} muted />
+          <MetricRow label={t('Current Price')} value={fmt.price(livePrice)} styles={styles} />
+          <View style={styles.pnlBlock}>
+            <Text style={styles.pnlLabel}>{t('Floating P/L')}</Text>
+            <Text style={[styles.pnlValue, livePnl < 0 ? styles.negative : livePnl > 0 ? styles.positive : null]}>
+              {fmt.pnl(livePnl)}
+            </Text>
           </View>
         </View>
 
         {closeError || submitted ? (
           <View style={[styles.statusBox, closeError ? styles.statusBoxError : styles.statusBoxSuccess]}>
-            {closeError ? (
-              <Text style={[styles.statusText, styles.statusTextError]}>
-                {closeError}
-              </Text>
-            ) : (
-              <Text style={[styles.statusText, styles.statusTextSuccess]}>{t('Close order submitted. Position closed successfully.')}</Text>
-            )}
+            <Text style={[styles.statusText, closeError ? styles.statusTextError : styles.statusTextSuccess]}>
+              {closeError ?? t('Close order submitted. Position closed successfully.')}
+            </Text>
           </View>
         ) : null}
 
-        <View style={styles.buttonRow}>
+        <View style={styles.buttonStack}>
           <Pressable
-            style={[styles.actionButton, styles.closeButton, (isClosing || actionLocked) && { opacity: 0.6 }]}
+            style={[styles.primaryBtn, (isClosing || actionLocked) && styles.btnDisabled]}
             disabled={isClosing || actionLocked}
             onPress={() => { void handleClosePosition(); }}
             activateOnPressIn
@@ -315,17 +339,19 @@ export function ClosePositionScreen() {
             {isClosing ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
-              <Text style={styles.closeButtonText}>{t('Close position')}</Text>
+              <Text style={styles.primaryBtnText}>{t('Close position')}</Text>
             )}
           </Pressable>
 
           <Pressable
-            style={[styles.actionButton, styles.closeByButton, actionLocked && { opacity: 0.6 }]}
+            style={[styles.secondaryBtn, actionLocked && styles.btnDisabled]}
             disabled={isClosing || actionLocked}
-            onPressIn={handleOpenCloseBy}
+            onPress={handleOpenCloseBy}
+            activateOnPressIn
+            latencyLabel="closePosition.closeBy"
             unstable_pressDelay={0}
           >
-            <Text style={styles.closeByButtonText}>{t('Close By')}</Text>
+            <Text style={styles.secondaryBtnText}>{t('Close By')}</Text>
           </Pressable>
         </View>
       </ScrollView>
@@ -333,93 +359,81 @@ export function ClosePositionScreen() {
   );
 }
 
-/**
- * A reusable UI sub-component for rendering a small label/value statistic (e.g. commission, swap).
- */
-function Metric({
+function MetricRow({
   label,
   value,
-  negative = false,
-  positive = false,
-  isHighlighted = false,
-  isSecondary = false,
+  styles,
+  muted = false,
 }: {
   label: string;
   value: string;
-  negative?: boolean;
-  positive?: boolean;
-  isHighlighted?: boolean;
-  isSecondary?: boolean;
+  styles: ReturnType<typeof makeStyles>;
+  muted?: boolean;
 }) {
-  const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
-  const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   return (
-    <View style={[styles.metricRow, isHighlighted && styles.highlightedRow]}>
-      <Text style={[styles.metricLabel, isHighlighted && styles.highlightedLabel]}>{label}</Text>
-      <Text style={[
-        styles.metricValue, 
-        negative && styles.negative, 
-        positive && styles.positive,
-        isSecondary && styles.secondaryValue,
-        isHighlighted && styles.highlightedValue
-      ]}>{value}</Text>
+    <View style={styles.metricRow}>
+      <Text style={styles.metricLabel}>{label}</Text>
+      <Text style={[styles.metricValue, muted && styles.metricValueMuted]}>{value}</Text>
     </View>
   );
 }
 
 const makeStyles = (T: ThemeColors, isDark = false) => StyleSheet.create({
+  root: { flex: 1 },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   customHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     height: 48,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
+    borderBottomColor: isDark ? DIVIDER_DARK : T.borderSubtle,
   },
-  headerBtn: { width: 40, height: 48, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', textAlign: 'center', letterSpacing: 0.2 },
-  contentWrap: {
+  headerBtn: { width: 44, height: 48, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: {
     flex: 1,
+    fontSize: 17,
+    fontWeight: '600',
+    textAlign: 'center',
+    letterSpacing: 0.15,
   },
-  scrollContent: {
-    flexGrow: 1,
-  },
-  header: {
-    marginTop: 4,
+  contentWrap: { flex: 1 },
+  scrollContent: { flexGrow: 1, paddingTop: 12 },
+  subTitle: {
+    color: T.textMuted,
+    fontSize: 13,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginBottom: 12,
     paddingHorizontal: spacing.md,
   },
-  title: {
-    color: T.text,
-    fontSize: 24,
-    fontWeight: '700',
-  },
-  subTitle: {
-    marginTop: 2,
-    color: T.textMuted,
-    fontSize: 14,
-    textAlign: 'center',
-    fontWeight: '500',
-  },
   card: {
-    margin: spacing.md,
-    marginTop: spacing.sm,
-    padding: spacing.md,
+    marginHorizontal: spacing.md,
+    padding: 16,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: isDark ? T.border : T.borderMedium,
-    backgroundColor: isDark ? SETTINGS_DARK_CARD_BACKGROUND : T.glass2,
+    borderColor: isDark ? DIVIDER_DARK : T.borderMedium,
+    backgroundColor: isDark ? CARD_DARK : T.glass2,
   },
-  cardHeader: {
+  cardTop: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
+    gap: 12,
+  },
+  cardTopLeft: { flex: 1, minWidth: 0 },
+  ticket: {
+    color: T.textMuted,
+    fontSize: 12,
+    fontWeight: '500',
+    fontVariant: ['tabular-nums'],
+    marginBottom: 4,
   },
   symbol: {
     color: T.text,
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '700',
-    letterSpacing: 0,
+    letterSpacing: 0.2,
   },
   instrument: {
     marginTop: 2,
@@ -427,75 +441,73 @@ const makeStyles = (T: ThemeColors, isDark = false) => StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
   },
-  sideText: {
-    fontSize: 14,
-    fontWeight: '600',
-    letterSpacing: 0.5,
+  sideBadge: {
+    alignItems: 'flex-end',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    gap: 2,
   },
-  sideTextBuy: {
-    color: T.trading.buy.primary,
-  },
-  sideTextSell: {
-    color: T.trading.sell.primary,
-  },
-  separator: {
-    height: 1,
-    backgroundColor: T.borderSubtle,
-    marginVertical: 12,
-  },
-  metrics: {
-    gap: 8,
+  sideBadgeBuy: { backgroundColor: 'rgba(37,99,235,0.12)' },
+  sideBadgeSell: { backgroundColor: 'rgba(220,38,38,0.12)' },
+  sideBadgeText: { fontSize: 12, fontWeight: '700', letterSpacing: 0.4 },
+  sideVolume: { fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  sideTextBuy: { color: T.trading.buy.primary },
+  sideTextSell: { color: T.trading.sell.primary },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: isDark ? DIVIDER_DARK : T.borderSubtle,
+    marginVertical: 14,
   },
   metricRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  highlightedRow: {
-    marginTop: 2,
-    backgroundColor: isDark ? 'rgba(15,23,42,0.42)' : T.glass1,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-  },
-  metricSpacer: {
-    height: 4,
+    paddingVertical: 8,
   },
   metricLabel: {
-    color: T.textSub,
+    color: T.textMuted,
     fontSize: 13,
     fontWeight: '500',
-  },
-  highlightedLabel: {
-    color: T.text,
-    fontWeight: '600',
   },
   metricValue: {
     color: T.text,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
-  secondaryValue: {
+  metricValueMuted: {
     color: T.textSub,
-    fontSize: 13,
+  },
+  pnlBlock: {
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : T.glass1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  pnlLabel: {
+    color: T.text,
+    fontSize: 14,
     fontWeight: '600',
   },
-  highlightedValue: {
-    fontSize: 16,
-    fontWeight: '600',
+  pnlValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+    color: T.text,
   },
-  negative: {
-    color: T.trading.loss,
-  },
-  positive: {
-    color: T.trading.profit,
-  },
+  negative: { color: T.trading.loss },
+  positive: { color: T.trading.profit },
   statusBox: {
     marginHorizontal: spacing.md,
-    borderRadius: 8,
+    marginTop: spacing.md,
+    borderRadius: 12,
     borderWidth: 1,
-    padding: spacing.md,
+    padding: 14,
   },
   statusBoxSuccess: {
     borderColor: isDark ? 'rgba(16,185,129,0.34)' : 'rgba(5,150,105,0.24)',
@@ -505,48 +517,40 @@ const makeStyles = (T: ThemeColors, isDark = false) => StyleSheet.create({
     borderColor: isDark ? 'rgba(239,68,68,0.34)' : 'rgba(220,38,38,0.24)',
     backgroundColor: T.downGlow,
   },
-  statusText: {
-    fontSize: 13,
-    fontWeight: '600',
-    lineHeight: 18,
-  },
-  statusTextSuccess: {
-    color: T.trading.profit,
-  },
-  statusTextError: {
-    color: T.trading.loss,
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    marginTop: spacing.sm,
+  statusText: { fontSize: 13, fontWeight: '600', lineHeight: 18 },
+  statusTextSuccess: { color: T.trading.profit },
+  statusTextError: { color: T.trading.loss },
+  buttonStack: {
+    marginTop: spacing.lg,
     marginHorizontal: spacing.md,
-    gap: spacing.md,
+    gap: 10,
   },
-  actionButton: {
-    flex: 1,
-    borderRadius: 12,
+  primaryBtn: {
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 15,
+    backgroundColor: T.trading.sell.primary,
+  },
+  primaryBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  secondaryBtn: {
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 14,
-  },
-  closeButton: {
-    backgroundColor: T.trading.sell.primary,
-  },
-  closeButtonText: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  closeByButton: {
-    backgroundColor: isDark ? SETTINGS_DARK_CARD_BACKGROUND : T.glass1,
+    backgroundColor: isDark ? CARD_DARK : T.glass1,
     borderWidth: 1,
-    borderColor: isDark ? T.border : T.borderMedium,
+    borderColor: isDark ? DIVIDER_DARK : T.borderMedium,
   },
-  closeByButtonText: {
+  secondaryBtnText: {
     color: T.text,
     fontSize: 15,
     fontWeight: '600',
-    letterSpacing: 0.5,
   },
+  btnDisabled: { opacity: 0.55 },
 });

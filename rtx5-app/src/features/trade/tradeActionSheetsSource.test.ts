@@ -16,6 +16,8 @@ test('trade bulk action sheet uses the MT5 plain icon action contract', () => {
   assert.notEqual(bulkConfigEnd, -1);
   assert.match(bulkConfigSource, /presentation:\s*'mt5Plain'/);
   assert.match(bulkConfigSource, /showActionIcons:\s*true/);
+  assert.match(bulkConfigSource, /entryMotion:\s*'mt5Slide'/);
+  assert.match(bulkConfigSource, /runActionAfterClose:\s*false/);
   assert.doesNotMatch(bulkConfigSource, /title:\s*t\('Bulk Operations'\)/);
   assert.match(bulkConfigSource, /name="close-circle-outline"[\s\S]*label: t\('Close All Positions'\)/);
   assert.match(bulkConfigSource, /name="trending-up-outline"[\s\S]*label: t\('Close Profitable Positions'\)/);

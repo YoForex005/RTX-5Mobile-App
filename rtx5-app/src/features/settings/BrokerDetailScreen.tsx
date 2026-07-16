@@ -67,7 +67,7 @@ import {
   normalizeBrokerDetailLaunchSelection,
   scheduleBrokerDetailLaunchCoverRemoval,
 } from './brokerDetailLaunchController';
-import { showBrokersLaunch } from './brokersLaunchController';
+import { showBrokersReturnLaunch } from './brokersLaunchController';
 import {
   scheduleRegisterLaunchNavigation,
   showRegisterLaunch,
@@ -182,7 +182,7 @@ export function BrokerDetailScreen() {
   ]);
 
   const handleBack = useCallback(() => {
-    showBrokersLaunch();
+    showBrokersReturnLaunch();
     if (brokerDetailLaunchController.isVisible()) {
       hideBrokerDetailLaunch();
     }
@@ -191,17 +191,19 @@ export function BrokerDetailScreen() {
     });
   }, [router]);
   const handleOpenDemo = useCallback(() => {
-    const registerRevision = showRegisterLaunch(selection);
-    scheduleRegisterLaunchNavigation(registerRevision, () => {
-      router.push({
-        pathname: '/register-entry',
-        params: {
-          origin: 'broker-detail',
-          registerLaunchRevision: String(registerRevision),
-        },
+    runImmediateAction('brokerDetail.openDemo', () => {
+      const registerRevision = showRegisterLaunch(selection);
+      scheduleRegisterLaunchNavigation(registerRevision, () => {
+        router.push({
+          pathname: '/register-entry',
+          params: {
+            origin: 'broker-detail',
+            registerLaunchRevision: String(registerRevision),
+          },
+        });
       });
     });
-  }, [router]);
+  }, [router, selection]);
 
   useLayoutEffect(() => {
     if (!isScreenFocused || !contentReady) return;
@@ -499,7 +501,7 @@ function BrokerDetailInteractiveContent({
     };
   }, []);
 
-  const navigateToRegister = (type: 'demo' | 'real') => {
+  const navigateToRegister = useCallback((type: 'demo' | 'real') => {
     if (type === 'real') {
       // The real-account onboarding requires KYC/identity flows that are not
       // yet wired up in the app — keep the option present but route users to
@@ -510,17 +512,21 @@ function BrokerDetailInteractiveContent({
       );
       return;
     }
-    const registerRevision = showRegisterLaunch(selection);
-    scheduleRegisterLaunchNavigation(registerRevision, () => {
-      router.push({
-        pathname: '/register-entry',
-        params: {
-          origin: 'broker-detail',
-          registerLaunchRevision: String(registerRevision),
-        },
+    // Same class as Accounts "+" → Brokers: reveal retained Demo shell in this
+    // press turn, then push the route after it has painted.
+    runImmediateAction('brokerDetail.openDemo', () => {
+      const registerRevision = showRegisterLaunch(selection);
+      scheduleRegisterLaunchNavigation(registerRevision, () => {
+        router.push({
+          pathname: '/register-entry',
+          params: {
+            origin: 'broker-detail',
+            registerLaunchRevision: String(registerRevision),
+          },
+        });
       });
     });
-  };
+  }, [router, selection, t]);
 
   const openServerSelector = () => {
     if (serverOptions.length <= 1) return;
@@ -831,6 +837,7 @@ function BrokerDetailInteractiveContent({
                     ]}
                     onPress={() => navigateToRegister('demo')}
                     activateOnPressIn
+                    activateOnTouchStart
                     latencyLabel="brokerDetail.openDemo"
                     unstable_pressDelay={0}
                   >

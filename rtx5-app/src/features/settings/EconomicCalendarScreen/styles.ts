@@ -123,14 +123,34 @@ export function makeEconomicCalendarStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: isDark ? activeBg : '#EEF2FF',
     },
     emptyResetText: { color: isDark ? T.accent : '#4F46E5', fontSize: 14, fontWeight: '600' },
-    modalOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 100, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end', alignItems: 'center' },
+    // Full-window Modal host — transparent root; dim is a separate layer so the
+    // sheet never inherits scrim opacity (avoids washed-out / shrinking chrome).
+    modalOverlay: {
+      flex: 1,
+      justifyContent: 'flex-end',
+      alignItems: 'stretch',
+      backgroundColor: 'transparent',
+      overflow: 'hidden',
+    },
     modalCard: {
-      width: '100%', maxWidth: 480,
+      // Edge-to-edge dock (MT5-style). Centered maxWidth cards look like they
+      // scale/shrink while sliding on open.
+      width: '100%',
+      alignSelf: 'stretch',
+      // Fully opaque surface — never animate opacity on this node.
       backgroundColor: cardBg,
-      borderTopLeftRadius: 24, borderTopRightRadius: 24,
-      borderWidth: 1, borderBottomWidth: 0,
+      borderTopLeftRadius: 16,
+      borderTopRightRadius: 16,
+      borderWidth: 1,
+      borderBottomWidth: 0,
       borderColor: isDark ? T.border : 'rgba(0,0,0,0.06)',
-      paddingHorizontal: 20, paddingBottom: 34,
+      paddingHorizontal: 20,
+      paddingBottom: 34,
+      // Flat elevation during open — soft shadows can read as a shrinking ghost.
+      elevation: 0,
+      shadowOpacity: 0,
+      shadowRadius: 0,
+      shadowOffset: { width: 0, height: 0 },
     },
     modalHeader: { alignItems: 'center', paddingTop: 10, paddingBottom: 14 },
     modalHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: isDark ? T.borderHi : '#CBD5E1', marginBottom: 14 },

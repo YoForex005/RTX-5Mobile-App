@@ -169,18 +169,14 @@ export const SidebarDestinationHost = memo(function SidebarDestinationHost({
     const previousDestination = nativeVisualDestinationRef.current;
     if (previousDestination && previousDestination !== visualDestination) {
       layerRefs.current[previousDestination]?.setNativeProps({
-        accessibilityElementsHidden: true,
-        importantForAccessibility: 'no-hide-descendants',
         pointerEvents: 'none',
-        style: styles.destinationHidden,
+        style: [styles.destination, styles.destinationHidden],
       });
     }
     if (visualDestination) {
       layerRefs.current[visualDestination]?.setNativeProps({
-        accessibilityElementsHidden: false,
-        importantForAccessibility: 'auto',
         pointerEvents: 'auto',
-        style: styles.destinationVisible,
+        style: [styles.destination, styles.destinationVisible],
       });
     }
     nativeVisualDestinationRef.current = visualDestination;
@@ -222,6 +218,9 @@ export const SidebarDestinationHost = memo(function SidebarDestinationHost({
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       if (!controller.isVisible()) {
         return false;
+      }
+      if (controller.requestBack()) {
+        return true;
       }
       controller.hide();
       return true;

@@ -54,7 +54,7 @@ export default function BrokersRoute() {
               hideBrokersLaunch();
             }
             scheduleBackNavigationAfterVisualFrame(() => {
-              safeRouterBack(router, '/settings/accounts');
+              safeRouterBack(router, '/(tabs)/quotes');
             });
           }}
         />

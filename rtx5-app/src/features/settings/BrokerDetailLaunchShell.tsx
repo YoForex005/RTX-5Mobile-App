@@ -294,6 +294,7 @@ function LaunchOption({ icon, title, subtitle, disabled = false, onPress, latenc
         style={styles.optionCommand}
         onPress={onPress}
         activateOnPressIn
+        activateOnTouchStart
         latencyLabel={latencyLabel ?? 'brokerDetail.launch.option'}
         latencyBudgetMs={50}
         unstable_pressDelay={0}

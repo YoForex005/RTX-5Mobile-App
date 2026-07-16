@@ -19,6 +19,13 @@ import { ActivityIndicator, Alert, LayoutChangeEvent, ScrollView, StyleSheet, Te
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../ui/components/ActionSheet';
 import { runCriticalTradeAction, runImmediateAction } from '../../utils/actionLatency';
+import { hideChartConfigDestination } from './chartConfigDestinationController';
+import { showChartSettingsHost } from './chartSettingsHostController';
+import {
+  hideOrderTicketLaunch,
+  scheduleOrderTicketLaunchNavigation,
+  showOrderTicketLaunch,
+} from '../trade/orderTicketLaunchController';
 import { scheduleIdleWork } from '../../utils/startupScheduler';
 import {
   TvCrosshair, TvTrendLine, TvFib, TvText, TvMeasure, TvZoom, TvPencil, TvLock, TvHide, TvTrash, TvLayers,
@@ -332,8 +339,17 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize,
         }
       );
     } else {
-      router.push({ pathname: '/trade/order-ticket', params: { symbol, side: action.side } });
-      releaseTradeTapLock();
+      // Same retained-shell handoff as native: shell paints first, then route.
+      const launchRevision = showOrderTicketLaunch(symbol, 'chart');
+      scheduleOrderTicketLaunchNavigation(launchRevision, () => {
+        try {
+          router.push({ pathname: '/trade/order-ticket', params: { symbol, side: action.side, origin: 'chart' } });
+        } catch {
+          hideOrderTicketLaunch(launchRevision);
+        } finally {
+          releaseTradeTapLock();
+        }
+      });
     }
   };
 
@@ -1522,7 +1538,15 @@ export function ChartScreen() {
                 <View style={styles.toolbarSeparator} />
 
                 {/* 7: Chart Preferences */}
-                <Pressable style={styles.toolbarIconButton} onPressIn={() => runImmediateAction('chart.web.settings.open', () => router.push('/chart/settings'))} hitSlop={8} unstable_pressDelay={0}>
+                <Pressable
+                  style={styles.toolbarIconButton}
+                  onPressIn={() => runImmediateAction('chart.web.settings.open', () => {
+                    hideChartConfigDestination();
+                    showChartSettingsHost();
+                  })}
+                  hitSlop={8}
+                  unstable_pressDelay={0}
+                >
                   <Ionicons name="options-outline" size={16} color={toolbarNeutralIconColor} />
                 </Pressable>
 

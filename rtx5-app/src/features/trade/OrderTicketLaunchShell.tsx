@@ -3,37 +3,55 @@ import { memo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { normalizeSymbol } from '../../domain/symbols';
-import { useUserPreferences } from '../../state/userPreferences';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { useTheme, type ThemeColors } from '../../ui/theme/useTheme';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useTranslation } from '../../i18n/useTranslation';
+import { fmt } from '../../utils/format';
+import { hasDisplayableLiveQuotePrice } from '../quotes/liveQuoteSnapshot';
+import { useLiveQuoteSnapshot } from '../quotes/useLiveQuotes';
 
 type OrderTicketLaunchShellProps = Readonly<{
   symbol: string;
   onBack: () => void;
   backLatencyLabel?: string;
+  /** When true, live ticks repaint bid/ask. Off while hidden. */
+  active?: boolean;
 }>;
 
 /**
  * Lightweight New Order preview shown while the full ticket loads.
- * It uses placeholders and starts no data requests.
+ * Seeds bid/ask from the already-cached live quote store (no new network work).
  */
 export const OrderTicketLaunchShell = memo(function OrderTicketLaunchShell({
   symbol,
   onBack,
   backLatencyLabel = 'orderTicket.shell.back',
+  active = false,
 }: OrderTicketLaunchShellProps) {
   const normalizedSymbol = normalizeSymbol(symbol || 'EURUSD');
   const insets = useSafeAreaInsets();
-  const themeMode = useUserPreferences((state) => state.themeMode);
-  const T = useTheme();
+  // Freeze theme while the shell is hidden so theme taps skip this host.
+  const T = useTheme({ active });
   const { t } = useTranslation();
-  const isDark = themeMode === 'dark';
+  const isDark = useIsDarkTheme({ active });
   const styles = makeStyles(T, isDark);
   const sellColor = T.trading.sell.primary;
   const buyColor = T.trading.buy.primary;
   const sellBackground = isDark ? 'rgba(255,59,48,0.08)' : 'rgba(220,38,38,0.06)';
   const buyBackground = isDark ? 'rgba(52,125,255,0.14)' : 'rgba(37,99,235,0.08)';
+  const liveQuote = useLiveQuoteSnapshot(normalizedSymbol, active);
+  const digits = Math.max(0, Math.min(8, Math.floor(liveQuote?.digits ?? 5)));
+  const displayable = hasDisplayableLiveQuotePrice(liveQuote);
+  const bidText = displayable && typeof liveQuote?.bid === 'number'
+    ? fmt.price(liveQuote.bid, digits)
+    : '--';
+  const askText = displayable && typeof liveQuote?.ask === 'number'
+    ? fmt.price(liveQuote.ask, digits)
+    : '--';
+  const spreadText = displayable && typeof liveQuote?.spread === 'number'
+    ? parseFloat(Number(liveQuote.spread).toFixed(1)).toString()
+    : '0';
 
   return (
     <View
@@ -68,17 +86,17 @@ export const OrderTicketLaunchShell = memo(function OrderTicketLaunchShell({
       <View style={styles.pricePanel}>
         <View style={[styles.priceHalf, { backgroundColor: sellBackground }]}>
           <Text style={[styles.priceTag, { color: sellColor }]}>SELL</Text>
-          <Text style={styles.priceMain}>--</Text>
+          <Text style={styles.priceMain}>{bidText}</Text>
           <Text style={styles.priceLabel}>BID</Text>
         </View>
         <View style={styles.spreadCenter}>
           <Ionicons name="swap-horizontal" size={11} color={T.textSub} />
-          <Text style={styles.spreadValue}>0</Text>
+          <Text style={styles.spreadValue}>{spreadText}</Text>
           <Text style={styles.spreadUnit}>pts</Text>
         </View>
         <View style={[styles.priceHalf, { backgroundColor: buyBackground }]}>
           <Text style={[styles.priceTag, { color: buyColor }]}>BUY</Text>
-          <Text style={styles.priceMain}>--</Text>
+          <Text style={styles.priceMain}>{askText}</Text>
           <Text style={styles.priceLabel}>ASK</Text>
         </View>
       </View>

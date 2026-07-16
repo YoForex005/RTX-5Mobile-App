@@ -14,13 +14,27 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useTheme } from '../../ui/theme/useTheme';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { safeRouterBack } from '../../utils/navigation';
 
-export function ChartPriceSourceScreen() {
+export type ChartPriceSourceScreenProps = Readonly<{
+  /** When true, this screen is shown from ChartConfigDestinationHost. */
+  hosted?: boolean;
+  hostedActive?: boolean;
+  onHostedBack?: () => void;
+}>;
+
+export function ChartPriceSourceScreen({
+  hosted = false,
+  hostedActive = false,
+  onHostedBack,
+}: ChartPriceSourceScreenProps) {
   const router = useRouter();
   const { t } = useTranslation();
-  const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  // When hosted but not the active layer, freeze theme updates.
+  const themeActive = !hosted || hostedActive;
+  const T = useTheme({ active: themeActive });
+  const isDark = useIsDarkTheme({ active: themeActive });
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const insets = useSafeAreaInsets();
@@ -29,6 +43,14 @@ export function ChartPriceSourceScreen() {
 
   const handleSelect = (source: 'bid' | 'ask') => {
     setPriceSource(source);
+  };
+
+  const handleBack = () => {
+    if (hosted && onHostedBack) {
+      onHostedBack();
+      return;
+    }
+    safeRouterBack(router, '/chart/settings');
   };
 
   const screenBg = T.bg;
@@ -40,7 +62,14 @@ export function ChartPriceSourceScreen() {
 
       {/* Header */}
       <View style={[styles.header, { backgroundColor: screenBg }]}>
-        <Pressable onPress={() => safeRouterBack(router, '/(tabs)/chart')} hitSlop={16} style={styles.headerBtn}>
+        <Pressable
+          onPress={handleBack}
+          activateOnPressIn
+          activateOnTouchStart
+          unstable_pressDelay={0}
+          hitSlop={16}
+          style={styles.headerBtn}
+        >
           <Ionicons name="arrow-back" size={22} color={T.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: T.text }]} numberOfLines={1}>

@@ -7,6 +7,7 @@ import {
   resolveActionSheetFloor,
   resolveActionSheetInitialMeasuredHeight,
   resolveActionSheetMeasuredHeight,
+  resolveActionSheetMt5EntryTranslateY,
   resolveActionSheetOpenMeasuredHeight,
 } from './layout';
 
@@ -21,6 +22,30 @@ test('instant action sheets start from the visible window height', () => {
       windowHeight: 1512,
     }),
     1512,
+  );
+});
+
+test('MT5 open and close stay below the measured sheet instead of exposing a shrinking slice', () => {
+  assert.equal(
+    resolveActionSheetMt5EntryTranslateY({
+      estimatedTranslateY: 260,
+      measuredSheetBodyHeight: 420,
+    }),
+    421,
+  );
+  assert.equal(
+    resolveActionSheetMt5EntryTranslateY({
+      estimatedTranslateY: 520,
+      measuredSheetBodyHeight: 420,
+    }),
+    520,
+  );
+  assert.equal(
+    resolveActionSheetMt5EntryTranslateY({
+      estimatedTranslateY: 260,
+      measuredSheetBodyHeight: 0,
+    }),
+    260,
   );
 });
 
@@ -185,7 +210,7 @@ test('after first layout action sheets only ratchet upward', () => {
   );
 });
 
-test('android instant action sheets animate in-tree without modal geometry settle', () => {
+test('android instant sheets keep final-frame opening while MT5 sheets snap the whole host closed', () => {
   const source = readActionSheetSource();
 
   assert.match(
@@ -198,32 +223,42 @@ test('android instant action sheets animate in-tree without modal geometry settl
   );
   assert.match(
     source,
-    /ACTION_SHEET_FAST_OPEN_TRANSLATE_Y = 0/,
+    /ACTION_SHEET_INSTANT_OPEN_OPACITY = 1/,
   );
   assert.match(
     source,
-    /ACTION_SHEET_FAST_OPEN_SHEET_DURATION_MS = 0/,
+    /ACTION_SHEET_INSTANT_OPEN_TRANSLATE_Y = 0/,
   );
   assert.match(
     source,
-    /const isFast = mode === 'fast'/,
+    /if \(mode === 'instant'\) \{/,
   );
   assert.match(
     source,
-    /duration: isFast \? 60 : ACTION_SHEET_OPEN_OVERLAY_DURATION_MS/,
+    /if \(mode === 'instant'\) \{[\s\S]*overlayOpacity\.setValue\(ACTION_SHEET_INSTANT_OPEN_OPACITY\);[\s\S]*sheetTranslateY\.setValue\(ACTION_SHEET_INSTANT_OPEN_TRANSLATE_Y\);[\s\S]*return;/,
   );
   assert.match(
     source,
-    /duration: isFast \? 80 : ACTION_SHEET_OPEN_SHEET_DURATION_MS/,
+    /ACTION_SHEET_OPEN_OVERLAY_DURATION_MS = 50/,
   );
   assert.match(
     source,
-    /if \(activeInstantOpen\) \{[\s\S]*sheetTranslateY\.setValue\(80\);/,
+    /ACTION_SHEET_OPEN_SHEET_DURATION_MS = 50/,
   );
-  assert.match(
-    source,
-    /runEntryAnimation\(activeInstantOpen \? 'fast' : 'standard'\)/,
-  );
+  assert.match(source, /ACTION_SHEET_MT5_OPEN_OVERLAY_DURATION_MS = 180/);
+  assert.match(source, /ACTION_SHEET_MT5_OPEN_SHEET_DURATION_MS = 210/);
+  assert.doesNotMatch(source, /ACTION_SHEET_MT5_CLOSE_OVERLAY_DURATION_MS/);
+  assert.doesNotMatch(source, /ACTION_SHEET_MT5_CLOSE_SHEET_DURATION_MS/);
+  assert.match(source, /const isMt5Slide = mode === 'mt5Slide'/);
+  assert.match(source, /sheetTranslateY\.setValue\(isMt5Slide \? mt5TranslateY : ACTION_SHEET_OPEN_TRANSLATE_Y\)/);
+  assert.match(source, /activeConfig\.entryMotion \?\? \([\s\S]*activeInstantOpen \? 'instant' : 'standard'/);
+  assert.match(source, /const resolveMt5EntryTranslateY = useCallback\([\s\S]*resolveActionSheetMt5EntryTranslateY\([\s\S]*measuredSheetBodyHeight: measuredSheetBodyHeightRef\.current/);
+  assert.match(source, /const mt5EntryTranslateY = Math\.min\(\s*screenHeight,/);
+  assert.match(source, /ref=\{sheetBodyRef\}[\s\S]*onLayout=\{handleSheetBodyLayout\}/);
+  assert.match(source, /startActionSheetEntryAnimation\(\{[\s\S]*mode: activeEntryMotion,[\s\S]*mt5TranslateY: resolveMt5EntryTranslateY\(\)/);
+  assert.match(source, /retainedMt5RevealInFlight/);
+  assert.match(source, /retainedAdoptionVisualKeyRef\.current === activeVisualKey/);
+  assert.match(source, /runEntryAnimation\(activeEntryMotion\)/);
   assert.match(
     source,
     /easing: Easing\.out\(Easing\.cubic\)/,
@@ -232,12 +267,73 @@ test('android instant action sheets animate in-tree without modal geometry settl
     source,
     /pointerEvents=\{visible \? 'auto' : 'none'\}/,
   );
+  assert.match(source, /ref=\{overlayLayerRef\}[\s\S]*collapsable=\{false\}/);
+  assert.match(source, /ref=\{sheetBodyRef\}[\s\S]*collapsable=\{false\}/);
+  assert.match(source, /getRetainedActionSheetVisualSnapshot\(\)/);
+  assert.match(source, /const reactVisibleRef = useRef\(visible\)/);
+  assert.match(source, /if \(wantsVisible && reactVisibleRef\.current\) \{[\s\S]*return false;/);
+  assert.match(source, /retainedSnapshot\.mode === 'committed'/);
+  assert.match(source, /retainedSnapshot\.visualKey === activeVisualKey/);
+  assert.match(source, /applyRetainedVisualSnapshot\(retainedSnapshot\)/);
   assert.match(
     source,
     /if \(!visible && !mounted\) \{/,
   );
   assert.match(source, /ACTION_SHEET_CLOSE_SHEET_DURATION_MS = 50/);
-  assert.match(source, /style=\{\[styles\.overlay, \{ opacity: overlayOpacity \}\]\}/);
+  assert.match(source, /const closeSheetTranslateY = instantOpen \? 80 : ACTION_SHEET_INSTANT_OPEN_TRANSLATE_Y/);
+  assert.match(source, /toValue: closeSheetTranslateY/);
+  assert.match(
+    source,
+    /const shouldSeedMt5EntryTransform\s*=\s*visible && visibilityChanged && activeEntryMotion === 'mt5Slide' && !retainedMt5RevealInFlight/,
+  );
+  assert.match(
+    source,
+    /if \(shouldSeedMt5EntryTransform\) \{[\s\S]*refreshHiddenConfig\(\(revision\) => revision \+ 1\)/,
+  );
+  assert.match(
+    source,
+    /const sheetBodyTranslateY = activeEntryMotion === 'instant'[\s\S]*shouldSeedMt5EntryTransform \? resolveMt5EntryTranslateY\(\) : sheetTranslateY/,
+  );
+  assert.match(source, /transform: \[\{ translateY: sheetBodyTranslateY \}\]/);
+  assert.match(
+    source,
+    /const hideMt5ActionSheetHostNow = useCallback\(\(\) => \{[\s\S]*activeEntryMotion !== 'mt5Slide' && !activeImmediateHostHideOnClose[\s\S]*overlayLayerRef\.current\?\.setNativeProps\(\{[\s\S]*style: \{ opacity: 0 \}[\s\S]*accessibilityElementsHidden: true[\s\S]*importantForAccessibility: 'no-hide-descendants'[\s\S]*pointerEvents: 'none'[\s\S]*return true;/,
+  );
+  assert.match(
+    source,
+    /const hideMt5ActionSheetNow = useCallback\(\(\) => \{[\s\S]*hideMt5ActionSheetHostNow\(\)[\s\S]*cancelRetainedActionSheetPreview\(\);[\s\S]*retainedVisualOwnerRef\.current = null;[\s\S]*retainedAdoptionVisualKeyRef\.current = null;[\s\S]*overlayOpacity\.stopAnimation\(\);[\s\S]*sheetTranslateY\.stopAnimation\(\);[\s\S]*overlayOpacity\.setValue\(0\);[\s\S]*sheetTranslateY\.setValue\(resolveMt5EntryTranslateY\(\)\);[\s\S]*closeAnimationRunningRef\.current = false;[\s\S]*mt5DismissCompletedRef\.current = true;[\s\S]*sheetBodyRef\.current\?\.setNativeProps\(\{ pointerEvents: 'none' \}\);/,
+  );
+  assert.match(
+    source,
+    /const dismissActionSheet = useCallback\(\(\) => \{\s*hideMt5ActionSheetNow\(\);\s*onClose\(\);/,
+  );
+  assert.match(source, /const mt5DismissAlreadyCompleted = !visible && mt5DismissCompletedRef\.current/);
+  assert.match(source, /handleBackdropPress[\s\S]*dismissActionSheet\(\)/);
+  assert.match(
+    source,
+    /if \(activeEntryMotion === 'mt5Slide' \|\| activeImmediateHostHideOnClose\) \{[\s\S]*hideMt5ActionSheetNow\(\);[\s\S]*setKeyboardHeight\(0\);[\s\S]*hasMeasuredOverlayRef\.current = false;[\s\S]*return;[\s\S]*startActionSheetExitAnimation\(\{/,
+  );
+  assert.match(
+    source,
+    /if \(!activeRunActionAfterClose\) \{[\s\S]*pendingActionRef\.current = null;[\s\S]*hideMt5ActionSheetHostNow\(\);[\s\S]*try \{[\s\S]*actionPress\?\.\(\);[\s\S]*finally \{[\s\S]*hideMt5ActionSheetNow\(\);[\s\S]*onClose\(\);/,
+  );
+  assert.match(source, /const hostHiddenImperativelyRef = useRef\(false\)/);
+  assert.match(
+    source,
+    /if \(visible\) \{[\s\S]*if \(hostHiddenImperativelyRef\.current\) \{[\s\S]*style: \{ opacity: 1 \}[\s\S]*pointerEvents: 'auto'[\s\S]*hostHiddenImperativelyRef\.current = false/,
+  );
+  assert.match(source, /style: \{ opacity: 0 \}[\s\S]*hostHiddenImperativelyRef\.current = true/);
+  assert.match(source, /const estimatedVisibleActionRows = Math\.max\([\s\S]*Math\.ceil\(actionsMaxHeight \/ Math\.max\(1, actionRowMinHeight\)\)/);
+  assert.match(source, /progressiveOpenCap/);
+  assert.match(source, /initialNumToRender=\{initialActionRowsToRender\}[\s\S]*windowSize=\{3\}[\s\S]*getItemLayout=\{hasVariableActionRowHeights/);
+  assert.match(source, /isMt5StylePresentation \? styles\.overlayMt5Plain : null/);
+  assert.match(source, /isMt5StylePresentation[\s\S]*\{ opacity: visible \? 1 : 0 \}[\s\S]*\{ opacity: overlayOpacity \}/);
+  assert.match(source, /styles\.backdropMt5Plain[\s\S]*opacity: overlayOpacity/);
+  assert.match(source, /closeAnimationRunningRef\.current = false[\s\S]*refreshHiddenConfig/);
+  assert.match(
+    source,
+    /sheetTranslateY\.setValue\(resolveMt5EntryTranslateY\(\)\);[\s\S]*closeAnimationRunningRef\.current = false;[\s\S]*refreshHiddenConfig\(\(revision\) => revision \+ 1\);/,
+  );
   assert.doesNotMatch(source, /<Modal/);
   assert.doesNotMatch(source, /OVERLAY_MODAL_PROPS/);
   assert.doesNotMatch(source, /ACTION_SHEET_ANDROID_GEOMETRY_SETTLE_MS/);

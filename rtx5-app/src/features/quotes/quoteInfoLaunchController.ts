@@ -80,7 +80,12 @@ export function createQuoteInfoLaunchController(
   const reset = () => {
     const alreadyHidden = snapshot.phase === 'hidden';
     clearFallbackTimer();
-    visualApplier?.(null);
+    // Once the real route has covered the retained shell, its UI-thread value
+    // is already zero. Repeating the synchronous visual write during Back can
+    // wait behind Android/WebView rendering and starve the press frame.
+    if (snapshot.visible) {
+      visualApplier?.(null);
+    }
     if (alreadyHidden) {
       return false;
     }
@@ -223,13 +228,16 @@ export function createQuoteInfoLaunchController(
 
 type QuoteInfoLaunchControllerGlobal = typeof globalThis & {
   __rtx5QuoteInfoLaunchController?: QuoteInfoLaunchController;
+  __rtx5QuoteInfoLaunchControllerVersion?: number;
 };
 
+const QUOTE_INFO_LAUNCH_CONTROLLER_VERSION = 2;
 const controllerGlobal = globalThis as QuoteInfoLaunchControllerGlobal;
 const existingController = controllerGlobal.__rtx5QuoteInfoLaunchController;
 
 export const quoteInfoLaunchController =
   existingController
+    && controllerGlobal.__rtx5QuoteInfoLaunchControllerVersion === QUOTE_INFO_LAUNCH_CONTROLLER_VERSION
     && typeof existingController.prepare === 'function'
     && typeof existingController.markCovered === 'function'
     && typeof existingController.registerVisualApplier === 'function'
@@ -237,6 +245,7 @@ export const quoteInfoLaunchController =
     : createQuoteInfoLaunchController();
 
 controllerGlobal.__rtx5QuoteInfoLaunchController = quoteInfoLaunchController;
+controllerGlobal.__rtx5QuoteInfoLaunchControllerVersion = QUOTE_INFO_LAUNCH_CONTROLLER_VERSION;
 
 export function completeQuoteInfoLaunch(destination: QuoteInfoLaunchDestination) {
   return quoteInfoLaunchController.complete(destination);
@@ -261,6 +270,20 @@ export function showQuoteInfoLaunch(
   return quoteInfoLaunchController.show(destination, symbol);
 }
 
+/**
+ * Back cover: re-reveal the retained shell ABOVE the stack in this press turn
+ * so the native pop never exposes a laggy Quotes remount. Caller pops the route
+ * after one visual frame, then hideQuoteInfoLaunch(revision).
+ */
+export function beginQuoteInfoBackCover(
+  destination: QuoteInfoLaunchDestination,
+  symbol: string,
+) {
+  const revision = quoteInfoLaunchController.show(destination, symbol);
+  quoteInfoLaunchController.startNavigation(revision);
+  return revision;
+}
+
 export function scheduleQuoteInfoLaunchNavigation(
   revision: number,
   action: () => void,
@@ -271,15 +294,30 @@ export function scheduleQuoteInfoLaunchNavigation(
     }
   };
 
+  // Shell is already on the UI thread from show(). Push the real route after
+  // one paint frame so open stays Brokers+/New-Order class.
   if (typeof globalThis.requestAnimationFrame !== 'function') {
-    setTimeout(runIfCurrent, 32);
+    setTimeout(runIfCurrent, 0);
     return;
   }
 
-  // Give the preview two paint frames before loading the real route.
   globalThis.requestAnimationFrame(() => {
-    globalThis.requestAnimationFrame(() => {
-      setTimeout(runIfCurrent, 0);
-    });
+    setTimeout(runIfCurrent, 0);
+  });
+}
+
+/** Drop the back-cover shell after Quotes has had a chance to paint under it. */
+export function scheduleQuoteInfoBackCoverRemoval(revision: number) {
+  const hideIfCurrent = () => {
+    quoteInfoLaunchController.hide(revision);
+  };
+
+  if (typeof globalThis.requestAnimationFrame !== 'function') {
+    setTimeout(hideIfCurrent, 0);
+    return;
+  }
+
+  globalThis.requestAnimationFrame(() => {
+    globalThis.requestAnimationFrame(hideIfCurrent);
   });
 }

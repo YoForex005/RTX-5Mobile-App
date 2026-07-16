@@ -3,7 +3,6 @@
  * show the tapped screen now, then let the real navigation route catch up.
  */
 import { useSyncExternalStore } from 'react';
-import { executeOnUIRuntimeSync, makeMutable, type SharedValue } from 'react-native-reanimated';
 
 export const FAST_TAB_ROUTE_NAMES = ['quotes', 'chart', 'trade', 'history', 'settings'] as const;
 export type FastTabRouteName = (typeof FAST_TAB_ROUTE_NAMES)[number];
@@ -13,54 +12,28 @@ type FastTabVisualSnapshot = Readonly<{
   revision: number;
 }>;
 
+export type FastTabVisualApplier = (routeName: FastTabRouteName) => void;
+
 type FastTabVisualController = {
   version: number;
   getSnapshot: () => FastTabVisualSnapshot;
   subscribe: (listener: () => void) => () => void;
   setActualRouteName: (routeName: FastTabRouteName) => void;
-  show: (routeName: FastTabRouteName) => number;
+  show: (routeName: FastTabRouteName, notifySubscribers?: boolean) => number;
   clear: (revision?: number) => void;
   confirm: (revision: number) => void;
+  registerVisualApplier: (applier: FastTabVisualApplier) => () => void;
+  registerSidebarChromeApplier: (applier: FastTabVisualApplier) => () => void;
 };
 
-const FAST_TAB_VISUAL_CONTROLLER_VERSION = 2;
+const FAST_TAB_VISUAL_CONTROLLER_VERSION = 6;
 
 type FastTabVisualGlobal = typeof globalThis & {
   __rtx5FastTabVisualController?: FastTabVisualController;
-  __rtx5FastTabVisualIndex?: SharedValue<number>;
 };
-
-const FAST_TAB_ROUTE_INDEX: Readonly<Record<FastTabRouteName, number>> = {
-  quotes: 0,
-  chart: 1,
-  trade: 2,
-  history: 3,
-  settings: 4,
-};
-
-export function getFastTabRouteIndex(routeName: FastTabRouteName) {
-  return FAST_TAB_ROUTE_INDEX[routeName];
-}
 
 const isFastTabRouteName = (value: string): value is FastTabRouteName =>
   (FAST_TAB_ROUTE_NAMES as readonly string[]).includes(value);
-
-/**
- * Keeps the optional animation-side tab index aligned with the requested tab.
- */
-function writeFastTabVisualIndexNow(index: number) {
-  try {
-    executeOnUIRuntimeSync((value: number) => {
-      'worklet';
-      fastTabVisualIndex.value = value;
-    })(index);
-  } catch (error) {
-    if (typeof __DEV__ !== 'undefined' && __DEV__) {
-      console.warn('[FastTab] sync UI write unavailable, using async fallback:', error);
-    }
-    fastTabVisualIndex.value = index;
-  }
-}
 
 export function resolveFastTabRouteName(pathOrName: string): FastTabRouteName | null {
   const normalized = pathOrName
@@ -72,24 +45,37 @@ export function resolveFastTabRouteName(pathOrName: string): FastTabRouteName | 
   return isFastTabRouteName(firstSegment) ? firstSegment : null;
 }
 
-function createController() {
+export function createFastTabVisualController(): FastTabVisualController {
   const listeners = new Set<() => void>();
   let actualRouteName: FastTabRouteName | null = null;
   let snapshot: FastTabVisualSnapshot = Object.freeze({ routeName: null, revision: 0 });
   let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  const visualAppliers = new Set<FastTabVisualApplier>();
+  const sidebarChromeAppliers = new Set<FastTabVisualApplier>();
 
-  const publish = (routeName: FastTabRouteName | null, revision: number) => {
+  const publish = (
+    routeName: FastTabRouteName | null,
+    revision: number,
+    notifySubscribers = true,
+  ) => {
     snapshot = Object.freeze({ routeName, revision });
-    listeners.forEach((listener) => listener());
+    if (notifySubscribers) {
+      listeners.forEach((listener) => listener());
+    }
   };
 
   const applyVisualRoute = (routeName: FastTabRouteName) => {
-    writeFastTabVisualIndexNow(FAST_TAB_ROUTE_INDEX[routeName]);
+    visualAppliers.forEach((applier) => applier(routeName));
+  };
+
+  const applySidebarChromeRoute = (routeName: FastTabRouteName) => {
+    sidebarChromeAppliers.forEach((applier) => applier(routeName));
   };
 
   const restoreActualRoute = () => {
     if (actualRouteName) {
-      writeFastTabVisualIndexNow(FAST_TAB_ROUTE_INDEX[actualRouteName]);
+      applyVisualRoute(actualRouteName);
+      applySidebarChromeRoute(actualRouteName);
     }
   };
 
@@ -104,7 +90,8 @@ function createController() {
       actualRouteName = routeName;
       // The real route has caught up. Clear the temporary tap choice so normal
       // navigation and Android Back always agree with the visible menu item.
-      writeFastTabVisualIndexNow(FAST_TAB_ROUTE_INDEX[routeName]);
+      applyVisualRoute(routeName);
+      applySidebarChromeRoute(routeName);
       if (snapshot.routeName !== null) {
         if (fallbackTimer) {
           clearTimeout(fallbackTimer);
@@ -113,13 +100,19 @@ function createController() {
         publish(null, snapshot.revision);
       }
     },
-    show: (routeName: FastTabRouteName) => {
+    show: (routeName: FastTabRouteName, notifySubscribers = true) => {
       const revision = snapshot.revision + 1;
       if (fallbackTimer) {
         clearTimeout(fallbackTimer);
       }
       applyVisualRoute(routeName);
-      publish(routeName, revision);
+      // Scene, icon, and label are one visual transaction. Whether React
+      // subscribers are notified must never decide which menu item is blue.
+      applySidebarChromeRoute(routeName);
+      // Drawer taps already switch the retained native layers imperatively.
+      // They can postpone the React tab-bar adoption until real navigation so
+      // no retained-tree reconciliation competes with the close animation.
+      publish(routeName, revision, notifySubscribers);
       // Safety: if navigation never confirms the tap, return to the real route
       // instead of leaving the temporary screen visible forever.
       fallbackTimer = setTimeout(() => {
@@ -156,26 +149,60 @@ function createController() {
         publish(null, snapshot.revision);
       }
     },
+    registerVisualApplier: (applier: FastTabVisualApplier) => {
+      visualAppliers.add(applier);
+      if (snapshot.routeName ?? actualRouteName) {
+        applier((snapshot.routeName ?? actualRouteName) as FastTabRouteName);
+      }
+      return () => {
+        visualAppliers.delete(applier);
+      };
+    },
+    registerSidebarChromeApplier: (applier: FastTabVisualApplier) => {
+      sidebarChromeAppliers.add(applier);
+      if (snapshot.routeName ?? actualRouteName) {
+        applier((snapshot.routeName ?? actualRouteName) as FastTabRouteName);
+      }
+      return () => {
+        sidebarChromeAppliers.delete(applier);
+      };
+    },
   };
 }
 
 const controllerGlobal = globalThis as FastTabVisualGlobal;
-export const fastTabVisualIndex =
-  controllerGlobal.__rtx5FastTabVisualIndex ?? makeMutable(0);
-controllerGlobal.__rtx5FastTabVisualIndex = fastTabVisualIndex;
 const existingController = controllerGlobal.__rtx5FastTabVisualController;
 export const fastTabVisualController =
   existingController
     && existingController.version === FAST_TAB_VISUAL_CONTROLLER_VERSION
     && typeof existingController.setActualRouteName === 'function'
     && typeof existingController.confirm === 'function'
+    && typeof existingController.registerVisualApplier === 'function'
+    && typeof existingController.registerSidebarChromeApplier === 'function'
     ? existingController
-    : createController();
+    : createFastTabVisualController();
 controllerGlobal.__rtx5FastTabVisualController = fastTabVisualController;
 
 export function showFastTabVisual(pathOrName: string) {
   const routeName = resolveFastTabRouteName(pathOrName);
   return routeName ? fastTabVisualController.show(routeName) : null;
+}
+
+/**
+ * Drawer rows already cover the tab bar. Flip the retained native scene now,
+ * then let the real route update adopt it after the drawer has closed.
+ */
+export function showFastTabVisualForSidebar(pathOrName: string) {
+  const routeName = resolveFastTabRouteName(pathOrName);
+  return routeName ? fastTabVisualController.show(routeName, false) : null;
+}
+
+export function registerFastTabVisualApplier(applier: FastTabVisualApplier) {
+  return fastTabVisualController.registerVisualApplier(applier);
+}
+
+export function registerFastTabSidebarChromeApplier(applier: FastTabVisualApplier) {
+  return fastTabVisualController.registerSidebarChromeApplier(applier);
 }
 
 export function clearFastTabVisual(revision?: number) {
@@ -202,7 +229,7 @@ export function useFastTabVisualSnapshot() {
 }
 
 // A drawer close gets a short pause so its closing animation stays smooth.
-const FAST_TAB_NAVIGATION_SETTLE_DELAY_MS = 110;
+const FAST_TAB_NAVIGATION_SETTLE_DELAY_MS = 60;
 
 // A bottom-menu tap has no drawer animation, so it needs no extra pause.
 export const TAB_BAR_NAVIGATION_SETTLE_DELAY_MS = 0;

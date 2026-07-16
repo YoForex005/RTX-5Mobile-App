@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
-import { BackHandler, StyleSheet, View, type ViewProps } from 'react-native';
+import { BackHandler, StyleSheet, type ViewProps } from 'react-native';
 import Animated, {
   executeOnUIRuntimeSync,
   makeMutable,
@@ -13,7 +13,10 @@ import {
   quoteInfoLaunchController,
   type QuoteInfoLaunchDestination,
 } from './quoteInfoLaunchController';
-import { safeRouterBack } from '../../utils/navigation';
+import {
+  safeRouterBack,
+  scheduleBackNavigationAfterVisualFrame,
+} from '../../utils/navigation';
 
 type QuoteInfoLaunchHostGlobal = typeof globalThis & {
   __rtx5QuoteInfoLaunchDestination?: SharedValue<number>;
@@ -49,7 +52,15 @@ function writeQuoteInfoLaunchDestinationNow(
   }
 }
 
-/** Keeps Properties and Market Statistics previews ready so a tap can show one immediately. */
+/**
+ * New-Order-class retained host for Properties and Market Statistics.
+ *
+ * Critical for speed (same model as OrderTicketLaunchHost):
+ * - Always keep TWO lightweight shells mounted (never mount the full screens here)
+ * - Tap only flips a UI-thread shared value → opacity (no heavy React mount)
+ * - prepare() already set the symbol while the action sheet was open
+ * - Full interactive routes load behind the shell after the press paint
+ */
 export function QuoteInfoLaunchHost() {
   const router = useRouter();
   const backInFlightRef = useRef(false);
@@ -59,12 +70,16 @@ export function QuoteInfoLaunchHost() {
     quoteInfoLaunchController.getSnapshot,
     quoteInfoLaunchController.getSnapshot,
   );
+
+  // Host visibility — driven purely by UI-thread shared value for the open frame.
+  // Root-level elevation must sit above the Stack so open AND back covers work
+  // (tabs-level hosts sat under /quotes/* and could not cover on Back).
   const hostAnimatedStyle = useAnimatedStyle(() => {
     const visible = quoteInfoLaunchDestination.value !== 0;
     return {
-      elevation: visible ? 32 : 0,
+      elevation: visible ? 48 : 0,
       opacity: visible ? 1 : 0,
-      zIndex: visible ? 32 : 0,
+      zIndex: visible ? 48 : 0,
     };
   });
   const hostAnimatedProps = useAnimatedProps<ViewProps>(() => ({
@@ -108,8 +123,6 @@ export function QuoteInfoLaunchHost() {
       }
     };
 
-    // Back may be tapped before the real route is on the stack.
-    // Try briefly and pop it as soon as it exists.
     tryPop();
   }, [router]);
 
@@ -122,8 +135,6 @@ export function QuoteInfoLaunchHost() {
     backInFlightRef.current = true;
     const navigationStarted = currentSnapshot.navigationStarted;
 
-    // Hide the preview immediately. If the real route already started,
-    // remove it too as soon as navigation is ready.
     quoteInfoLaunchController.hide(currentSnapshot.revision);
 
     if (backGuardTimerRef.current) {
@@ -135,7 +146,7 @@ export function QuoteInfoLaunchHost() {
     }, navigationStarted ? 700 : 100);
 
     if (navigationStarted) {
-      popRouteWhenReady();
+      scheduleBackNavigationAfterVisualFrame(popRouteWhenReady);
     }
   }, [popRouteWhenReady]);
 
@@ -172,156 +183,73 @@ export function QuoteInfoLaunchHost() {
     return () => subscription.remove();
   }, [closeLaunch]);
 
+  // Shells stay mounted for the prepared symbol. `active` only gates live tick
+  // subscriptions — never mounts/unmounts the tree on the option press.
+  const propertiesActive = snapshot.visible && snapshot.destination === 'properties';
+  const statisticsActive = snapshot.visible && snapshot.destination === 'market-statistics';
+
   return (
-    <View
-      pointerEvents="box-none"
-      style={styles.hostRoot}
+    <Animated.View
+      animatedProps={hostAnimatedProps}
+      pointerEvents={snapshot.visible ? 'auto' : 'none'}
+      accessibilityElementsHidden={!snapshot.visible}
+      importantForAccessibility={snapshot.visible ? 'auto' : 'no-hide-descendants'}
+      style={[
+        styles.hostRoot,
+        hostAnimatedStyle,
+        snapshot.visible ? styles.hostVisible : null,
+      ]}
       testID="quote-info-launch-host"
     >
       <Animated.View
-        animatedProps={hostAnimatedProps}
-        pointerEvents={snapshot.visible ? 'auto' : 'none'}
-        accessibilityElementsHidden={!snapshot.visible}
-        importantForAccessibility={snapshot.visible ? 'auto' : 'no-hide-descendants'}
-        style={[styles.hostLayer, hostAnimatedStyle]}
+        animatedProps={propertiesAnimatedProps}
+        pointerEvents={propertiesActive ? 'auto' : 'none'}
+        accessibilityElementsHidden={!propertiesActive}
+        importantForAccessibility={propertiesActive ? 'auto' : 'no-hide-descendants'}
+        style={[styles.layer, propertiesAnimatedStyle]}
         testID="quote-info-launch-animated-host"
       >
-        <Animated.View
-          animatedProps={propertiesAnimatedProps}
-          pointerEvents={
-            snapshot.visible && snapshot.destination === 'properties'
-              ? 'auto'
-              : 'none'
-          }
-          style={[styles.layer, propertiesAnimatedStyle]}
-        >
-          <QuoteInfoLaunchShell
-            destination="properties"
-            symbol={snapshot.symbol}
-            onBack={closeLaunch}
-            backLatencyLabel="quoteInfo.launch.properties.back"
-          />
-        </Animated.View>
-
-        <Animated.View
-          animatedProps={statisticsAnimatedProps}
-          pointerEvents={
-            snapshot.visible && snapshot.destination === 'market-statistics'
-              ? 'auto'
-              : 'none'
-          }
-          style={[styles.layer, statisticsAnimatedStyle]}
-        >
-          <QuoteInfoLaunchShell
-            destination="market-statistics"
-            symbol={snapshot.symbol}
-            onBack={closeLaunch}
-            backLatencyLabel="quoteInfo.launch.marketStatistics.back"
-          />
-        </Animated.View>
+        <QuoteInfoLaunchShell
+          active={propertiesActive}
+          destination="properties"
+          symbol={snapshot.symbol}
+          onBack={closeLaunch}
+          backLatencyLabel="quoteInfo.launch.properties.back"
+        />
       </Animated.View>
 
-      {/* Keep this fallback outside the animated layer so it can still show if the UI-thread value arrives late. */}
-      <View
-        pointerEvents={snapshot.visible ? 'auto' : 'none'}
-        accessibilityElementsHidden={!snapshot.visible}
-        importantForAccessibility={snapshot.visible ? 'auto' : 'no-hide-descendants'}
-        style={[
-          styles.hostLayer,
-          snapshot.visible ? styles.reactHostVisible : styles.reactHostHidden,
-        ]}
-        testID="quote-info-launch-react-host"
+      <Animated.View
+        animatedProps={statisticsAnimatedProps}
+        pointerEvents={statisticsActive ? 'auto' : 'none'}
+        accessibilityElementsHidden={!statisticsActive}
+        importantForAccessibility={statisticsActive ? 'auto' : 'no-hide-descendants'}
+        style={[styles.layer, statisticsAnimatedStyle]}
       >
-        <View
-          pointerEvents={
-            snapshot.visible && snapshot.destination === 'properties'
-              ? 'auto'
-              : 'none'
-          }
-          accessibilityElementsHidden={
-            !snapshot.visible || snapshot.destination !== 'properties'
-          }
-          importantForAccessibility={
-            snapshot.visible && snapshot.destination === 'properties'
-              ? 'auto'
-              : 'no-hide-descendants'
-          }
-          style={[
-            styles.layer,
-            snapshot.visible && snapshot.destination === 'properties'
-              ? styles.reactLayerVisible
-              : styles.reactLayerHidden,
-          ]}
-          testID="quote-info-launch-react-properties"
-        >
-          <QuoteInfoLaunchShell
-            destination="properties"
-            symbol={snapshot.symbol}
-            onBack={closeLaunch}
-            backLatencyLabel="quoteInfo.launch.properties.back"
-          />
-        </View>
-
-        <View
-          pointerEvents={
-            snapshot.visible && snapshot.destination === 'market-statistics'
-              ? 'auto'
-              : 'none'
-          }
-          accessibilityElementsHidden={
-            !snapshot.visible || snapshot.destination !== 'market-statistics'
-          }
-          importantForAccessibility={
-            snapshot.visible && snapshot.destination === 'market-statistics'
-              ? 'auto'
-              : 'no-hide-descendants'
-          }
-          style={[
-            styles.layer,
-            snapshot.visible && snapshot.destination === 'market-statistics'
-              ? styles.reactLayerVisible
-              : styles.reactLayerHidden,
-          ]}
-          testID="quote-info-launch-react-market-statistics"
-        >
-          <QuoteInfoLaunchShell
-            destination="market-statistics"
-            symbol={snapshot.symbol}
-            onBack={closeLaunch}
-            backLatencyLabel="quoteInfo.launch.marketStatistics.back"
-          />
-        </View>
-      </View>
-    </View>
+        <QuoteInfoLaunchShell
+          active={statisticsActive}
+          destination="market-statistics"
+          symbol={snapshot.symbol}
+          onBack={closeLaunch}
+          backLatencyLabel="quoteInfo.launch.marketStatistics.back"
+        />
+      </Animated.View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   hostRoot: {
     ...StyleSheet.absoluteFillObject,
+    // Root sibling of Stack — above route screens, below ActionSheet (9999)
+    // and RegisterLaunchHost (50).
+    elevation: 47,
+    zIndex: 47,
   },
-  hostLayer: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  reactHostHidden: {
-    elevation: 0,
-    opacity: 0,
-    zIndex: 0,
-  },
-  reactHostVisible: {
-    elevation: 33,
-    opacity: 1,
-    zIndex: 33,
+  hostVisible: {
+    elevation: 49,
+    zIndex: 49,
   },
   layer: {
     ...StyleSheet.absoluteFillObject,
-  },
-  reactLayerHidden: {
-    opacity: 0,
-    zIndex: 0,
-  },
-  reactLayerVisible: {
-    opacity: 1,
-    zIndex: 2,
   },
 });

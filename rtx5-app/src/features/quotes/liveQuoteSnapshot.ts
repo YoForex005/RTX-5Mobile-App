@@ -5,8 +5,9 @@ import { quotes as mockQuotes, type QuoteItem } from '../../dev/mock/tradingData
 import { hasQuotePriceChange } from '../../utils/quotePriceChange';
 import { calculateQuoteSpreadPoints } from '../../utils/quoteSpread';
 import { resolveBackendQuoteVolume } from '../../utils/quoteVolume';
+import { MARKET_QUOTE_STALE_AFTER_MS } from '../../market/quotePolicy';
 
-export const LIVE_QUOTE_STALE_MS = 45_000;
+export const LIVE_QUOTE_STALE_MS = MARKET_QUOTE_STALE_AFTER_MS;
 
 export type LiveQuoteSnapshot = Partial<QuoteItem> & {
   symbol: string;
@@ -202,6 +203,12 @@ export const applyLiveQuoteTickToSnapshot = (
     lastPriceChangedAt: priceChanged ? receivedAt : base?.lastPriceChangedAt,
     previousClose,
     dailyOpen,
+    source: tick.source ?? base?.source,
+    authority: tick.authority ?? base?.authority,
+    stale: tick.stale,
+    tradable: tick.tradable ?? base?.tradable,
+    ageMs: tick.ageMs,
+    ageSec: tick.ageSec,
     updateSeq,
   } as LiveQuoteSnapshot;
 };

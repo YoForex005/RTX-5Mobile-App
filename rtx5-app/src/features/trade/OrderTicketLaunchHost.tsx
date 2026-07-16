@@ -9,7 +9,10 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated';
 import { OrderTicketLaunchShell } from './OrderTicketLaunchShell';
-import { orderTicketLaunchController } from './orderTicketLaunchController';
+import {
+  getOrderTicketOriginHref,
+  orderTicketLaunchController,
+} from './orderTicketLaunchController';
 import { safeRouterBack } from '../../utils/navigation';
 
 type OrderTicketLaunchHostGlobal = typeof globalThis & {
@@ -49,20 +52,22 @@ export function OrderTicketLaunchHost() {
   const animatedStyle = useAnimatedStyle(() => {
     const visible = orderTicketLaunchVisibility.value === 1;
     return {
+      elevation: visible ? 38 : 0,
       opacity: visible ? 1 : 0,
-      zIndex: visible ? 30 : 0,
+      zIndex: visible ? 38 : 0,
     };
   });
   const animatedProps = useAnimatedProps<ViewProps>(() => ({
     pointerEvents: orderTicketLaunchVisibility.value === 1 ? 'auto' : 'none',
   }));
+  const shellActive = snapshot.visible;
 
-  const popRouteWhenReady = useCallback(() => {
+  const popRouteWhenReady = useCallback((fallbackHref: ReturnType<typeof getOrderTicketOriginHref>) => {
     let attempt = 0;
     const tryPop = () => {
       try {
         if (router.canGoBack()) {
-          safeRouterBack(router, '/(tabs)/quotes');
+          safeRouterBack(router, fallbackHref);
           return;
         }
       } catch {
@@ -110,7 +115,7 @@ export function OrderTicketLaunchHost() {
       return;
     }
 
-    popRouteWhenReady();
+    popRouteWhenReady(getOrderTicketOriginHref(currentSnapshot.origin));
   }, [popRouteWhenReady]);
 
   useEffect(
@@ -157,6 +162,7 @@ export function OrderTicketLaunchHost() {
       testID="order-ticket-launch-host"
     >
       <OrderTicketLaunchShell
+        active={shellActive}
         symbol={snapshot.symbol}
         onBack={closeLaunch}
         backLatencyLabel="orderTicket.launch.back"
@@ -168,10 +174,12 @@ export function OrderTicketLaunchHost() {
 const styles = StyleSheet.create({
   host: {
     ...StyleSheet.absoluteFillObject,
-    elevation: 30,
+    // Above chart trade chrome; below ActionSheet (9999).
+    elevation: 38,
   },
   hostVisible: {
+    elevation: 39,
     opacity: 1,
-    zIndex: 31,
+    zIndex: 39,
   },
 });

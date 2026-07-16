@@ -28,6 +28,11 @@ import {
   type GuideManualSection,
 } from './userGuideViewModel';
 
+// User Guide is static and retained. Stagger its offscreen body mount behind
+// the lighter About/Help trees so its first drawer reveal is already complete
+// without concentrating all sidebar work in one startup frame.
+const USER_GUIDE_BODY_PREWARM_DELAY_MS = 1_900;
+
 /**
  * Displays tutorials, documentation, and user guides on how to use the trading platform.
  */
@@ -38,7 +43,9 @@ export const UserGuideScreenInner = memo(function UserGuideScreenInner({ isScree
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const styles = useMemo(() => makeUserGuideStyles(isDark), [isDark]);
   const summary = useMemo(() => buildGuideSummary(), []);
-  const routeBodyReady = useDeferredRouteContentReady(0, isScreenFocused);
+  const routeBodyReady = useDeferredRouteContentReady(
+    isScreenFocused ? 0 : USER_GUIDE_BODY_PREWARM_DELAY_MS,
+  );
   const visibleSections = GUIDE_MANUAL_SECTIONS;
   const menuIconColor = isDark ? '#F8FAFC' : '#050505';
   const sectionIconColor = isDark ? '#60A5FA' : '#0A6EEB';

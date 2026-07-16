@@ -31,6 +31,8 @@ import {
 import { useLiveTick } from '../../domain/candles/hooks/useLiveCandles';
 import { useLiveQuoteSnapshot } from '../quotes/useLiveQuotes';
 import { normalizeSymbol } from '../../domain/symbols';
+import { normalizeQuoteTickTimestampToMs } from '../../api/ws/quoteTimestamp';
+import { isMarketQuoteStale } from '../../market/quotePolicy';
 import { assertTradeSide, normalizeTradeSide, TRADE_SIDE, type TradeSide } from '../../domain/tradeSide';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 import { TradeFeedbackModal, type TradeFeedbackState } from '../../ui/components/TradeFeedbackModal';
@@ -40,7 +42,11 @@ import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteM
 import { CRITICAL_TRADE_ACTION_MAX_LATENCY_MS, runImmediateAction } from '../../utils/actionLatency';
 import { useTranslation } from '../../i18n/useTranslation';
 import { OrderTicketLaunchShell } from './OrderTicketLaunchShell';
-import { hideOrderTicketLaunch } from './orderTicketLaunchController';
+import {
+  getOrderTicketOriginHref,
+  hideOrderTicketLaunch,
+  resolveOrderTicketOrigin,
+} from './orderTicketLaunchController';
 import {
   formatTradeVolume,
   incrementTradeVolume,
@@ -84,8 +90,10 @@ type OrderTicketTradeAction = {
 const ORDER_TICKET_TRADE_CONFIRMATION_VISIBLE_MS = 5000;
 const ORDER_TICKET_TRADE_CONFIRMATION_MAX_ITEMS = 3;
 const ORDER_TICKET_FULL_CONTENT_DELAY_MS = 0;
-const ORDER_TICKET_DATA_READY_DELAY_MS = 180;
-const ORDER_TICKET_HEAVY_CONTENT_DELAY_MS = 240;
+// No artificial settle — the launch shell already covers first paint. Data and
+// heavy sections mount on the next deferred frame only (delay 0).
+const ORDER_TICKET_DATA_READY_DELAY_MS = 0;
+const ORDER_TICKET_HEAVY_CONTENT_DELAY_MS = 0;
 const ORDER_TICKET_FALLBACK_LEVERAGE = 100;
 
 const isOrderTicketLeverageValue = (value: number | null | undefined): value is number => (
@@ -125,6 +133,15 @@ export function OrderTicketScreen() {
     }
   }, [isScreenFocused]);
 
+  // Once the interactive ticket is ready under the stack, drop the handoff
+  // shell so Back only pops one layer (no double shell + stack lag).
+  useEffect(() => {
+    if (!isScreenFocused || !contentReady) {
+      return;
+    }
+    hideOrderTicketLaunch();
+  }, [contentReady, isScreenFocused]);
+
   if (!contentReady) {
     return <OrderTicketInitialShell />;
   }
@@ -136,8 +153,9 @@ export function OrderTicketScreen() {
  * A placeholder loading shell displayed while the Order Ticket fetches initial quote and configuration data.
  */
 function OrderTicketInitialShell() {
-  const { symbol: routeSymbol } = useLocalSearchParams<{ symbol?: string }>();
+  const { symbol: routeSymbol, origin } = useLocalSearchParams<{ symbol?: string; origin?: string }>();
   const symbol = normalizeSymbol(routeSymbol || 'EURUSD');
+  const originHref = getOrderTicketOriginHref(resolveOrderTicketOrigin(origin));
   const router = useRouter();
   const backNavigationStartedRef = useRef(false);
 
@@ -148,16 +166,18 @@ function OrderTicketInitialShell() {
     backNavigationStartedRef.current = true;
     hideOrderTicketLaunch();
     scheduleBackNavigationAfterVisualFrame(() => {
-      safeRouterBack(router, '/(tabs)/trade');
+      safeRouterBack(router, originHref);
     });
-  }, [router]);
+  }, [originHref, router]);
 
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
       <OrderTicketLaunchShell
         symbol={symbol}
+        active
         onBack={handleBack}
+        backLatencyLabel="orderTicket.route.shell.back"
       />
     </>
   );
@@ -175,7 +195,9 @@ function OrderTicketInteractiveContent() {
     side: routeSideParam,
     sl: routeSlParam,
     tp: routeTpParam,
-  } = useLocalSearchParams<{ symbol?: string; comment?: string; side?: string; sl?: string; tp?: string }>();
+    origin,
+  } = useLocalSearchParams<{ symbol?: string; comment?: string; side?: string; sl?: string; tp?: string; origin?: string }>();
+  const originHref = getOrderTicketOriginHref(resolveOrderTicketOrigin(origin));
   const routeInitialSymbol = normalizeSymbol(routeSymbol || 'EURUSD');
   const [symbol, setSymbol] = useState(routeInitialSymbol);
   const routeSymbolRef = useRef(routeInitialSymbol);
@@ -215,11 +237,13 @@ function OrderTicketInteractiveContent() {
       return;
     }
     backNavigationStartedRef.current = true;
+    // Drop any leftover handoff shell first, then pop after the press frame
+    // so return to chart stays smooth (same ordering as Chart Preferences back).
     hideOrderTicketLaunch();
     scheduleBackNavigationAfterVisualFrame(() => {
-      safeRouterBack(router, '/(tabs)/trade');
+      safeRouterBack(router, originHref);
     });
-  }, [router]);
+  }, [originHref, router]);
 
   useEffect(() => {
     if (routeSymbolRef.current === routeInitialSymbol) {
@@ -397,6 +421,28 @@ function OrderTicketInteractiveContent() {
     ?? (latestTick as any)?.time
     ?? (latestTick as any)?.t
     ?? null;
+  const [quoteFreshnessNow, setQuoteFreshnessNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isScreenFocused) return;
+    const timer = setInterval(() => setQuoteFreshnessNow(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, [isScreenFocused]);
+  const quoteTimeMs = normalizeQuoteTickTimestampToMs(
+    (latestTick as any)?.receivedAt
+      ?? (latestTick as any)?.feedTickAt
+      ?? tickTimestamp
+      ?? seedQuote?.lastReceivedAt
+      ?? seedQuote?.feedTickAt
+      ?? seedQuote?.lastTickAt,
+  );
+  const quoteIsUnavailable =
+    BID <= 0 ||
+    ASK <= 0 ||
+    isMarketQuoteStale(
+      { timeMs: quoteTimeMs, stale: (latestTick as any)?.stale ?? seedQuote?.stale },
+      quoteFreshnessNow,
+    ) ||
+    ((latestTick as any)?.tradable ?? seedQuote?.tradable) === false;
   const isMarketExecution = orderType === 'Market Execution';
 
   const loginStr = resolveTradingLoginString();
@@ -607,7 +653,7 @@ function OrderTicketInteractiveContent() {
   // The tap lock blocks double-submits while a trade request is in flight.
   const tradeTapLockRef = useRef(false);
   const tradeTapLockSideRef = useRef<TradeSide | null>(null);
-  const tradeActionDisabled = pendingSide !== null || tradeActionLocked;
+  const tradeActionDisabled = pendingSide !== null || tradeActionLocked || quoteIsUnavailable;
   const pricePanelActionUnavailable = !oneClickAccepted || !isMarketExecution;
   const isTradeActionPending = (side: TradeSide) => pendingSide === side;
   const isPricePanelActionDisabled = (_side: TradeSide) => pricePanelActionUnavailable || tradeActionDisabled;
@@ -1017,8 +1063,6 @@ function OrderTicketInteractiveContent() {
       <View style={[styles.header, { paddingTop: insets.top + 6, zIndex: 10 }]}>
         <FastPressable
           onPress={handleOrderTicketBack}
-          activateOnPressIn
-          activateOnTouchStart
           latencyLabel="orderTicket.back"
           latencyBudgetMs={50}
           unstable_pressDelay={0}

@@ -13,7 +13,7 @@ import { AppLogo } from '../src/ui/components/AppLogo';
 import { FastPressable } from '../src/ui/components/FastPressable';
 import { SidebarDrawer } from '../src/ui/components/SidebarDrawer';
 import { useUserPreferences } from '../src/state/userPreferences';
-import { useDeferredThemeMode, useIsDarkTheme } from '../src/state/themeMode';
+import { useIsDarkTheme, useThemeMode } from '../src/state/themeMode';
 import { GDark, GLight } from '../src/ui/theme/glass';
 import { useTranslation } from '../src/i18n/useTranslation';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
@@ -22,6 +22,12 @@ import { SidebarDestinationHost } from '../src/ui/components/SidebarDestinationH
 import { BrokersLaunchHost } from '../src/features/settings/BrokersLaunchHost';
 import { BrokerDetailLaunchHost } from '../src/features/settings/BrokerDetailLaunchHost';
 import { RegisterLaunchHost } from '../src/features/settings/RegisterLaunchHost';
+import { ChartConfigDestinationHost } from '../src/features/chart/ChartConfigDestinationHost';
+import { ChartSettingsHost } from '../src/features/chart/ChartSettingsHost';
+import { AboutDetailDestinationHost } from '../src/features/settings/AboutDetailDestinationHost';
+import { QuoteInfoLaunchHost } from '../src/features/quotes/QuoteInfoLaunchHost';
+import { HistoryFilterHost } from '../src/features/history/HistoryFilterHost';
+import { TradePositionActionHost } from '../src/features/trade/TradePositionActionHost';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
 
@@ -72,15 +78,35 @@ function AppStatusBar() {
   return <StatusBar style={isDark ? 'light' : 'dark'} />;
 }
 
-function InnerLayout() {
-  const navigationThemeMode = useDeferredThemeMode();
+/**
+ * Theme-bound navigator shell only. Retained hosts stay as siblings of this
+ * component so a theme tap does not reconcile every pre-mounted destination.
+ */
+function ThemedNavigatorShell() {
+  // Keep the root navigator, screen surface, and bottom menu on one visual
+  // clock. Persistence is already deferred by the preference storage adapter,
+  // so delaying the visible navigation theme only creates a light/dark flash.
+  const navigationThemeMode = useThemeMode();
   const isDark = navigationThemeMode === 'dark';
   const T = navigationThemeMode === 'light' ? GLight : GDark;
   const { t } = useTranslation();
   const router = useRouter();
   const chartPageScreenOptions = {
     headerShown: false,
-  };
+    animation: 'none',
+    freezeOnBlur: false,
+    contentStyle: { backgroundColor: T.bg },
+  } as const;
+  const historyFilterScreenOptions = {
+    headerShown: false,
+    animation: 'none',
+    // Keep the History tab attached behind this opaque route. Without a
+    // retained previous screen, an animation-free Android pop can expose the
+    // Activity and navigator backgrounds before the tab is reattached.
+    presentation: 'containedTransparentModal',
+    gestureEnabled: false,
+    contentStyle: { backgroundColor: T.bg },
+  } as const;
   const sidebarDetailScreenOptions = {
     headerShown: false,
     animation: 'none',
@@ -105,11 +131,9 @@ function InnerLayout() {
   } as const;
 
   return (
-    <>
-      <AppStatusBar />
-      <WebIPhoneFrame bgColor={T.bg}>
-        <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
-          <Stack
+    <WebIPhoneFrame bgColor={T.bg}>
+      <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
+        <Stack
           screenOptions={{
             headerStyle: { backgroundColor: T.bg },
             headerTintColor: T.text,
@@ -131,7 +155,7 @@ function InnerLayout() {
                   </FastPressable>
                 </View>
               );
-            }
+            },
           }}
         >
           <Stack.Screen name='index' options={{ headerShown: false }} />
@@ -141,7 +165,7 @@ function InnerLayout() {
           <Stack.Screen name='trade/order-ticket' options={{ headerShown: false, animation: 'none' }} />
           <Stack.Screen name='trade/one-click-terms' options={{ title: t('One Click Trading') }} />
           <Stack.Screen name='trade/close-position' options={{ headerShown: false, animation: 'none' }} />
-          <Stack.Screen name='trade/close-by' options={{ headerShown: false }} />
+          <Stack.Screen name='trade/close-by' options={{ headerShown: false, animation: 'none' }} />
           <Stack.Screen name='trade/modify-position' options={{ headerShown: false, animation: 'none' }} />
           <Stack.Screen name='trade/bulk' options={{ headerShown: false }} />
           <Stack.Screen name='login' options={{ title: t('Login'), headerLeft: () => null }} />
@@ -163,10 +187,8 @@ function InnerLayout() {
           <Stack.Screen name='chart/specification' options={chartPageScreenOptions} />
           <Stack.Screen name='chart/alerts' options={chartPageScreenOptions} />
           <Stack.Screen name='chart/menu-order' options={chartPageScreenOptions} />
-          <Stack.Screen name='history/filter' options={{ title: t('History Filter') }} />
+          <Stack.Screen name='history/filter' options={historyFilterScreenOptions} />
           <Stack.Screen name='settings/accounts' options={{ title: t('Accounts'), ...sidebarHeaderScreenOptions }} />
-          <Stack.Screen name='settings/mailbox' options={sidebarDetailScreenOptions} />
-          <Stack.Screen name='settings/news' options={sidebarDetailScreenOptions} />
           <Stack.Screen name='settings/brokers' options={brokerFlowScreenOptions} />
           <Stack.Screen name='settings/broker-detail' options={brokerFlowScreenOptions} />
           <Stack.Screen name='settings/charts' options={{ title: t('Chart Schema & Colors') }} />
@@ -180,14 +202,35 @@ function InnerLayout() {
           <Stack.Screen name='settings/contact-developer' options={sidebarDetailScreenOptions} />
           <Stack.Screen name='settings/about' options={sidebarDetailScreenOptions} />
         </Stack>
-        {/* Root-level retained handoffs cover every native broker-flow route. */}
-        <SidebarDestinationHost />
-        <BrokersLaunchHost />
-        <BrokerDetailLaunchHost />
-        <RegisterLaunchHost />
-        <SidebarDrawer />
-        </ThemeProvider>
-      </WebIPhoneFrame>
+      </ThemeProvider>
+    </WebIPhoneFrame>
+  );
+}
+
+function InnerLayout() {
+  // No theme subscription here — retained hosts must not re-render on every
+  // light/dark press just because the navigator shell did.
+  return (
+    <>
+      <AppStatusBar />
+      <ThemedNavigatorShell />
+      {/* Root-level retained handoffs cover every native broker-flow route. */}
+      <SidebarDestinationHost />
+      {/* About row details (Privacy / Contact / Deletion) — above About host. */}
+      <AboutDetailDestinationHost />
+      <BrokersLaunchHost />
+      <BrokerDetailLaunchHost />
+      <RegisterLaunchHost />
+      {/* Properties / Market Statistics — root-level so open/back covers the stack. */}
+      <QuoteInfoLaunchHost />
+      {/* History clock filter — retained host like Chart options. */}
+      <HistoryFilterHost />
+      {/* Close / Close By / Modify — retained host (no stack push on open/back). */}
+      <TradePositionActionHost />
+      {/* Chart Preferences + nested config rows (sidebar-style instant open/back). */}
+      <ChartSettingsHost />
+      <ChartConfigDestinationHost />
+      <SidebarDrawer />
     </>
   );
 }

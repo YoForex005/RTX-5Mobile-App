@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Alert, ScrollView, Share, StyleSheet, Text, View, Platform } from 'react-native';
 import { quotes, type QuoteItem } from '../../../dev/mock/tradingData';
 import { useMarketData } from '../../../query/websocket';
@@ -32,9 +32,11 @@ import { MetricPill, MomentumBar, RangeBar, Row, Section } from './SubComponents
 import { makeSymbolDetailsStyles } from './styles';
 import { QuoteInfoLaunchShell } from '../QuoteInfoLaunchShell';
 import {
+  beginQuoteInfoBackCover,
   completeQuoteInfoLaunch,
-  hideQuoteInfoLaunch,
   markQuoteInfoLaunchCovered,
+  quoteInfoLaunchController,
+  scheduleQuoteInfoBackCoverRemoval,
 } from '../quoteInfoLaunchController';
 import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
 
@@ -65,7 +67,25 @@ const formatSwapValue = (value: number | null | undefined) => {
 
 export function SymbolDetailsScreen() {
   const isScreenFocused = useIsFocused();
-  const contentReady = useDeferredRouteContentReady(0, isScreenFocused);
+  const launchSnapshot = useSyncExternalStore(
+    quoteInfoLaunchController.subscribe,
+    quoteInfoLaunchController.getSnapshot,
+    quoteInfoLaunchController.getSnapshot,
+  );
+  // Optimistic cover already hides mount cost — mount the body on the same
+  // focus frame so markCovered can swap as soon as the interactive tree paints.
+  // Keep readiness sticky after markCovered removes the cover, so the body is
+  // not torn down while the deferred 2-frame timer is still catching up.
+  const launchCovers = launchSnapshot.visible
+    && launchSnapshot.destination === 'properties';
+  const deferredReady = useDeferredRouteContentReady(0, isScreenFocused);
+  const bodyMountedRef = useRef(false);
+  if (!isScreenFocused) {
+    bodyMountedRef.current = false;
+  } else if (deferredReady || launchCovers) {
+    bodyMountedRef.current = true;
+  }
+  const contentReady = isScreenFocused && bodyMountedRef.current;
   const { symbol: routeSymbol = 'BTCUSD' } = useLocalSearchParams<{ symbol?: string }>();
   const symbol = useMemo(() => normalizeSymbol(routeSymbol), [routeSymbol]);
   const wasFocusedRef = useRef(false);
@@ -95,15 +115,19 @@ export function SymbolDetailsScreen() {
       return;
     }
     backNavigationStartedRef.current = true;
-    hideQuoteInfoLaunch();
+    // Re-cover with the root retained shell first so stack pop never flashes
+    // a laggy Quotes remount (same class as RegisterLaunch back cover).
+    const coverRevision = beginQuoteInfoBackCover('properties', symbol);
     scheduleBackNavigationAfterVisualFrame(() => {
       safeRouterBack(router, '/(tabs)/quotes');
+      scheduleQuoteInfoBackCoverRemoval(coverRevision);
     });
-  }, []);
+  }, [symbol]);
 
   if (!contentReady) {
     return (
       <QuoteInfoLaunchShell
+        active
         destination="properties"
         symbol={symbol}
         onBack={handleBack}
@@ -115,10 +139,28 @@ export function SymbolDetailsScreen() {
   return <SymbolDetailsInteractiveContent onBack={handleBack} />;
 }
 
-function SymbolDetailsInteractiveContent({ onBack }: { onBack: () => void }) {
+export type SymbolDetailsInteractiveContentProps = Readonly<{
+  onBack: () => void;
+  /** When set (launch host), wins over the route param. */
+  symbol?: string;
+  /**
+   * Sidebar-style activity gate for pre-mounted launch hosts: warm while the
+   * action sheet is open, then go fully live on the same tap turn as show().
+   */
+  active?: boolean;
+}>;
+
+export function SymbolDetailsInteractiveContent({
+  onBack,
+  symbol: symbolOverride,
+  active: activeOverride,
+}: SymbolDetailsInteractiveContentProps) {
   const { t } = useTranslation();
   const { symbol: routeSymbol = 'BTCUSD' } = useLocalSearchParams<{ symbol?: string }>();
-  const symbol = useMemo(() => normalizeSymbol(routeSymbol), [routeSymbol]);
+  const symbol = useMemo(
+    () => normalizeSymbol(symbolOverride || routeSymbol),
+    [routeSymbol, symbolOverride],
+  );
   const setChartSymbol = useUserPreferences((s) => s.setChartSymbol);
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
   const { mutate: placeOrder, isPending } = usePlaceOrderMutation();
@@ -128,10 +170,11 @@ function SymbolDetailsInteractiveContent({ onBack }: { onBack: () => void }) {
   const activeSideResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [alertOn, setAlertOn] = useState(false);
   const isScreenFocused = useIsFocused();
+  const active = activeOverride ?? isScreenFocused;
   const resolvedLogin = useResolvedTradingLogin();
   const accountLoginString = resolvedLogin !== undefined ? String(resolvedLogin) : undefined;
 
-  const liveQuotes = useMarketData([symbol], isScreenFocused);
+  const liveQuotes = useMarketData([symbol], active);
 
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
@@ -139,9 +182,9 @@ function SymbolDetailsInteractiveContent({ onBack }: { onBack: () => void }) {
   const s = useMemo(() => makeSymbolDetailsStyles(T, isDark), [T, isDark]);
   const screenBg = isDark ? '#121212' : T.bg;
 
-  const { data: remoteMeta } = useInstrumentMeta(symbol, isScreenFocused);
+  const { data: remoteMeta } = useInstrumentMeta(symbol, active);
   const { data: accountSummary } = useAccountSummary(accountLoginString, {
-    enabled: isScreenFocused && !!accountLoginString,
+    enabled: active && !!accountLoginString,
   });
 
   const q = useMemo<QuoteItem>(() => {
@@ -180,7 +223,7 @@ function SymbolDetailsInteractiveContent({ onBack }: { onBack: () => void }) {
     };
   }, [symbol, remoteMeta]);
 
-  const { data: dailyRangeCandle = null } = useLatestDailyCandle(symbol, isScreenFocused);
+  const { data: dailyRangeCandle = null } = useLatestDailyCandle(symbol, active);
 
   const d = q.digits ?? 2;
   const col = dCol(q.changePct, T);
@@ -354,8 +397,6 @@ function SymbolDetailsInteractiveContent({ onBack }: { onBack: () => void }) {
         <View style={{ height: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10 }}>
           <Pressable
             onPress={onBack}
-            activateOnPressIn
-            activateOnTouchStart
             latencyLabel="quoteInfo.properties.back"
             latencyBudgetMs={50}
             unstable_pressDelay={0}

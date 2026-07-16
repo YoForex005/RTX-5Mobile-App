@@ -38,12 +38,14 @@ import {
 import {
   forwardRef,
   memo,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ComponentProps,
+  type RefCallback,
 } from 'react';
 import {
   Platform,
@@ -59,8 +61,11 @@ import {
   type EdgeInsets,
 } from 'react-native-safe-area-context';
 import {
+  FAST_TAB_ROUTE_NAMES,
+  registerFastTabVisualApplier,
   setFastTabActualRoute,
   useFastTabVisualSnapshot,
+  type FastTabRouteName,
 } from './fastTabVisualController';
 
 type DescriptorMap = BottomTabBarProps['descriptors'];
@@ -85,9 +90,10 @@ type SceneLayerProps = {
   layout: { width: number; height: number };
   tabBarHeight: number;
   tabBarPosition: BottomTabNavigationOptions['tabBarPosition'];
+  layerRef: RefCallback<View>;
 };
 
-type SceneContentProps = Omit<SceneLayerProps, 'visualFocused'>;
+type SceneContentProps = Omit<SceneLayerProps, 'visualFocused' | 'layerRef'>;
 
 const renderDefaultTabBar = (props: BottomTabBarProps) => (
   <BottomTabBar {...props} />
@@ -157,11 +163,14 @@ const SceneLayer = memo(function SceneLayer({
   layout,
   tabBarHeight,
   tabBarPosition,
+  layerRef,
 }: SceneLayerProps) {
   // Only the chosen screen can be seen or touched. The other main screens stay
   // mounted in the background so the next menu tap does not rebuild them.
   return (
     <View
+      ref={layerRef}
+      collapsable={false}
       accessibilityElementsHidden={!visualFocused}
       importantForAccessibility={visualFocused ? 'auto' : 'no-hide-descendants'}
       style={[
@@ -183,6 +192,7 @@ const SceneLayer = memo(function SceneLayer({
   if (
     previous.navigationFocused !== next.navigationFocused
     || previous.visualFocused !== next.visualFocused
+    || previous.layerRef !== next.layerRef
   ) {
     return false;
   }
@@ -277,12 +287,41 @@ export function FastTabView({
     : state;
   const visibleRouteName = visibleState.routes[visibleState.index]?.name
     ?? focusedRoute.name;
+  const layerRefs = useRef<Partial<Record<FastTabRouteName, View | null>>>({});
+  const nativeVisualRouteRef = useRef<FastTabRouteName>(focusedRoute.name as FastTabRouteName);
+  const layerRefSetters = useMemo(() => Object.fromEntries(
+    FAST_TAB_ROUTE_NAMES.map((routeName) => [
+      routeName,
+      (layer: View | null) => {
+        layerRefs.current[routeName] = layer;
+      },
+    ]),
+  ) as Record<FastTabRouteName, RefCallback<View>>, []);
+  const applyNativeVisualRouteNow = useCallback((routeName: FastTabRouteName) => {
+    const previousRouteName = nativeVisualRouteRef.current;
+    if (previousRouteName !== routeName) {
+      layerRefs.current[previousRouteName]?.setNativeProps({
+        pointerEvents: 'none',
+        style: [styles.sceneLayer, styles.sceneLayerHidden],
+      });
+    }
+    layerRefs.current[routeName]?.setNativeProps({
+      pointerEvents: 'auto',
+      style: [styles.sceneLayer, styles.sceneLayerVisible],
+    });
+    nativeVisualRouteRef.current = routeName;
+  }, []);
   const previousFocusedRouteKeyRef = useRef(focusedRouteKey);
   const loadedRouteKeysRef = useRef(new Set<string>([focusedRouteKey]));
   const { width, height } = useWindowDimensions();
   const layout = useMemo(() => ({ width, height }), [height, width]);
   const [tabBarHeight, setTabBarHeight] = useState(() =>
     resolveExplicitTabBarHeight(descriptors, focusedRouteKey),
+  );
+
+  useLayoutEffect(
+    () => registerFastTabVisualApplier(applyNativeVisualRouteNow),
+    [applyNativeVisualRouteNow],
   );
 
   useLayoutEffect(() => {
@@ -368,6 +407,7 @@ export function FastTabView({
               descriptor={descriptor}
               navigationFocused={navigationFocused}
               visualFocused={route.name === visibleRouteName}
+              layerRef={layerRefSetters[route.name as FastTabRouteName]}
               layout={layout}
               tabBarHeight={tabBarHeight}
               tabBarPosition={tabBarPosition}

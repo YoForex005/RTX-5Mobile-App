@@ -108,6 +108,29 @@ test('unsupported routes do not change state and duplicate requests avoid notifi
   assert.equal(notifications, 2);
 });
 
+test('active destinations can own hardware Back without hiding the host early', () => {
+  const controller = createSidebarDestinationController();
+  let handled = 0;
+  const unregister = controller.registerBackHandler('accounts', () => {
+    handled += 1;
+    return true;
+  });
+
+  assert.equal(controller.requestBack(), false);
+  controller.show('accounts', 'route-sync');
+  assert.equal(controller.requestBack(), true);
+  assert.equal(handled, 1);
+  assert.equal(controller.getSnapshot().activeDestination, 'accounts');
+
+  controller.show('help', 'sidebar');
+  assert.equal(controller.requestBack(), false);
+  assert.equal(handled, 1);
+
+  unregister();
+  controller.show('accounts', 'route-sync');
+  assert.equal(controller.requestBack(), false);
+});
+
 test('retained visual layer switches before subscribers receive focus work', () => {
   const controller = createSidebarDestinationController();
   const events: string[] = [];

@@ -261,6 +261,7 @@ test('webview bridge: zero-size WebView init is deferred and retried from rAF an
 test('webview bridge: exposes required bridge methods for updates and recovery', () => {
   [
     'initChart',
+    'applyChartVisualTheme',
     'updateChartData',
     'updateTick',
     'setLivePriceLine',
@@ -1098,6 +1099,53 @@ test('webview bridge: native chart uses the GitHub resolved chart background', (
   assertSourceContains(doInitBody, /document\.body\.style\.background = chartBackgroundColor[\s\S]*el\.style\.background = 'transparent'/, 'chart init must keep #chart transparent after layout is resolved');
   assertSourceContains(paneBackgroundBody, /clearChartPaneBackgroundLayer\(\)[\s\S]*return false/, 'pane background updater must clear itself instead of covering the GitHub grid');
   assert.doesNotMatch(paneBackgroundBody, /ensureChartPaneBackgroundLayer\(\)|layer\.style\.background = lastChartBackgroundColor/, 'pane background updater must not recreate a layer above the moving grid');
+});
+
+test('webview bridge: theme visuals update in place before the full chart init catches up', () => {
+  const themeBody = extractFunctionBody(chartWebViewHtmlSource, 'applyChartVisualTheme');
+  const nativeThemeCallbackStart = source.indexOf('const applyImmediateChartVisualTheme = useCallback');
+  const nativeThemeCallbackEnd = source.indexOf('\n  }, [', nativeThemeCallbackStart);
+
+  assert.notEqual(nativeThemeCallbackStart, -1, 'native chart must define its immediate WebView theme callback');
+  assert.notEqual(nativeThemeCallbackEnd, -1, 'native immediate WebView theme callback must have a bounded dependency list');
+  const nativeThemeCallbackSource = source.slice(nativeThemeCallbackStart, nativeThemeCallbackEnd);
+
+  assertSourceContains(
+    themeBody,
+    /document\.body\.style\.background = [^;]+/,
+    'the WebView document background must flip without waiting for initChart',
+  );
+  assertSourceContains(themeBody, /lastChartBackgroundColor = [^;]+/, 'theme updates must retain the new chart background');
+  assertSourceContains(themeBody, /lastChartAxisBackgroundColor = [^;]+/, 'theme updates must retain the new right-axis background');
+  assertSourceContains(themeBody, /lastChartTextColor = [^;]+/, 'theme updates must retain the new axis text color');
+  assertSourceContains(
+    themeBody,
+    /chart\.applyOptions\(\{[\s\S]*layout:[\s\S]*textColor:/,
+    'the existing chart must adopt layout text colors in place',
+  );
+  assertSourceContains(themeBody, /applyMovingVerticalGridColor\(/, 'the moving grid must share the immediate palette');
+  assertSourceContains(themeBody, /applyChartAxisDividerColor\(/, 'the axis divider must share the immediate palette');
+  assertSourceContains(themeBody, /updateChartPaneBackgroundLayer\(\)/, 'the pane background must refresh with the immediate palette');
+  assert.doesNotMatch(
+    themeBody,
+    /series\.applyOptions\(/,
+    'the immediate theme path must not redraw or blank the retained candle history',
+  );
+  assertSourceContains(
+    nativeThemeCallbackSource,
+    /(?:injectChartScript|injectJavaScript)\(`[\s\S]*typeof (?:window\.)?applyChartVisualTheme === ['"]function['"][\s\S]*(?:window\.)?applyChartVisualTheme\(/,
+    'the retained native Chart screen must invoke the WebView theme bridge directly',
+  );
+  assert.doesNotMatch(
+    nativeThemeCallbackSource,
+    /requestAnimationFrame|setTimeout|scheduleAfterFirstFrame|scheduleIdleWork/,
+    'the WebView palette injection must stay in the immediate visual-applier turn',
+  );
+  assertSourceContains(
+    source,
+    /registerImmediateThemeVisualApplier\(applyImmediateChartVisualTheme\)/,
+    'the retained Chart WebView must subscribe to the central pre-Zustand visual clock',
+  );
 });
 
 test('web chart: precision overlays and crosshair stay parity-safe', () => {

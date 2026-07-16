@@ -31,6 +31,11 @@ import { makeJournalStyles } from './styles';
 import { useNextFrameValue } from '../../../hooks/useNextFrameValue';
 import { useTranslation } from '../../../i18n/useTranslation';
 
+// Retain the virtualized Journal body before it is selected, after the static
+// sidebar pages have prewarmed. The trade query and journal maintenance below
+// still remain strictly focus-gated by isScreenFocused.
+const JOURNAL_BODY_PREWARM_DELAY_MS = 2_200;
+
 type JournalFilter = 'All' | 'Trades' | 'Accounts' | 'Actions' | 'Errors' | 'Notes';
 
 type JournalLogRow = {
@@ -195,7 +200,9 @@ const groupJournalRowsByDate = (items: JournalLogRow[], t: (key: string) => stri
  * A detailed logging screen that tracks system events, connection status changes, and raw trade execution responses for diagnostic purposes.
  */
 export const JournalScreenInner = React.memo(function JournalScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
-  const routeBodyReady = useDeferredRouteContentReady(0, isScreenFocused);
+  const routeBodyReady = useDeferredRouteContentReady(
+    isScreenFocused ? 0 : JOURNAL_BODY_PREWARM_DELAY_MS,
+  );
   const T = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => makeJournalStyles(T), [T]);

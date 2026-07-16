@@ -12,13 +12,27 @@ import { getLegalDocument, type LegalDocument } from './legalDocumentViewModel';
 
 export type LegalDocumentKind = 'terms' | 'privacy';
 
+export type LegalDocumentScreenProps = Readonly<{
+  document: LegalDocumentKind;
+  /** When true, shown from AboutDetailDestinationHost over About. */
+  hosted?: boolean;
+  hostedActive?: boolean;
+  onHostedBack?: () => void;
+}>;
+
 /**
  * Displays legal agreements, privacy policies, and terms of service.
  */
-export function LegalDocumentScreen({ document }: { document: LegalDocumentKind }) {
+export function LegalDocumentScreen({
+  document,
+  hosted = false,
+  hostedActive = false,
+  onHostedBack,
+}: LegalDocumentScreenProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const isDark = useIsDarkTheme();
+  const themeActive = !hosted || hostedActive;
+  const isDark = useIsDarkTheme({ active: themeActive });
   const styles = useMemo(() => makeStyles(isDark), [isDark]);
   const legalDocument = useMemo(() => getLegalDocument(document), [document]);
   const privacyPolicyUrl = useMemo(
@@ -28,6 +42,14 @@ export function LegalDocumentScreen({ document }: { document: LegalDocumentKind 
   const iconColor = isDark ? '#60A5FA' : '#1D4ED8';
   const backIconColor = isDark ? '#F8FAFC' : '#050505';
   const isTermsDocument = document === 'terms';
+
+  const handleBack = useCallback(() => {
+    if (hosted && onHostedBack) {
+      onHostedBack();
+      return;
+    }
+    safeRouterBack(router, '/settings/about');
+  }, [hosted, onHostedBack, router]);
 
   const openPrivacyPolicy = useCallback(async () => {
     if (!privacyPolicyUrl) {
@@ -45,8 +67,11 @@ export function LegalDocumentScreen({ document }: { document: LegalDocumentKind 
     <Screen noBottomInset style={styles.screen}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 12 }]}>
         <FastPressable
-          onPress={() => safeRouterBack(router, '/settings/about')}
+          onPress={handleBack}
+          activateOnPressIn
+          activateOnTouchStart
           latencyLabel="legal.back"
+          unstable_pressDelay={0}
           hitSlop={12}
           style={styles.backButton}
           accessibilityRole="button"

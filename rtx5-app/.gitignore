@@ -28,6 +28,15 @@ npm-debug.*
 yarn-debug.*
 yarn-error.*
 
+# local device repro dumps (screenshots / videos / UI XML)
+rtx5_*.png
+rtx5_*.jpg
+rtx5_*.jpeg
+rtx5_*.mp4
+rtx5_*.xml
+webterminal_*
+rtx5_measure_frames/
+
 # build artifacts
 *.apk
 *.aab

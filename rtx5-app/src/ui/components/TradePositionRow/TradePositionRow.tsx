@@ -28,6 +28,7 @@ import {
   resolveLivePositionPrice,
 } from '../../../features/trade/livePositionMetrics';
 import { closePositionImmediately } from '../../../features/trade/closePositionFlow';
+import { showTradePositionAction } from '../../../features/trade/tradePositionActionHostController';
 import { OverlayActions } from './OverlayActions';
 import { tradePositionRowStyles as styles } from './styles';
 
@@ -362,13 +363,13 @@ function TradePositionRowComponent({
   const dividerColor = isDark ? T.borderSubtle : T.border;
   const tradingLogin = resolveTradingLoginString();
 
-  const navigateWithSnapshot = (pathname: '/trade/close-position' | '/trade/close-by' | '/trade/modify-position') => {
+  const openPositionAction = (destination: 'close' | 'close-by' | 'modify') => {
     primePositionSnapshot(item);
-    router.push({ pathname, params: { positionId: item.id } });
+    showTradePositionAction(destination, item.id);
   };
 
   const navigateToModifyPosition = () => {
-    navigateWithSnapshot('/trade/modify-position');
+    openPositionAction('modify');
   };
 
   const navigateToOrderTicket = () => {
@@ -396,56 +397,61 @@ function TradePositionRowComponent({
           selected && { backgroundColor: T.glass1, borderColor: T.border },
         ]}
       >
-        <Text style={[styles.cornerId, { color: T.textMuted }]}>#{item.id}</Text>
-
         <Pressable
           onPress={toggleExpand}
           onLongPress={() => onLongPress(item)}
           delayLongPress={400}
-          style={({ pressed }) => [styles.body, pressed && !expanded && styles.rowPressed]}
+          style={styles.body}
         >
+          {/*
+            Left column is a vertical stack with one shared left edge (draw a
+            vertical line through ticket id, symbol, and open price). Ticket is
+            not absolute-positioned, so all three share the same start x.
+          */}
           <View style={styles.headerRow}>
-            <View style={styles.symbolLine}>
-              <Text style={[styles.symbol, { color: T.text }]}>{fmt.symbol(item.symbol)}</Text>
-              <View style={[
-                styles.sideBadge,
-                isBuy
-                  ? { backgroundColor: 'rgba(37,99,235,0.15)' }
-                  : { backgroundColor: 'rgba(220,38,38,0.12)' },
-              ]}>
-                <Text style={[styles.sideText, { color: isBuy ? T.trading.buy.hover : T.trading.sell.hover }]}>
-                  {item.side}
+            <View style={styles.leftCol}>
+              <Text style={[styles.ticketId, { color: T.textMuted }]} numberOfLines={1}>
+                #{item.id}
+              </Text>
+              <View style={styles.symbolLine}>
+                <Text style={[styles.symbol, { color: T.text }]} numberOfLines={1}>
+                  {fmt.symbol(item.symbol)}
+                </Text>
+                <View style={[
+                  styles.sideBadge,
+                  isBuy
+                    ? { backgroundColor: 'rgba(37,99,235,0.15)' }
+                    : { backgroundColor: 'rgba(220,38,38,0.12)' },
+                ]}>
+                  <Text style={[styles.sideText, { color: isBuy ? T.trading.buy.hover : T.trading.sell.hover }]}>
+                    {item.side}
+                  </Text>
+                </View>
+                <Text style={[styles.volume, { color: T.textMuted }]}>{(item.volume || 0).toFixed(2)}</Text>
+              </View>
+              <View style={styles.priceLeft}>
+                <Text style={[styles.price, { color: T.textSub }]} numberOfLines={1}>
+                  {Number.isFinite(item.openPrice) ? item.openPrice.toFixed(decimals) : '---'}
+                </Text>
+                <Ionicons name="arrow-forward-outline" size={14} color={T.textSub} style={styles.arrow} />
+                <Text style={[styles.price, { color: T.textSub }]} numberOfLines={1}>
+                  {Number.isFinite(livePrice) ? livePrice.toFixed(decimals) : '---'}
                 </Text>
               </View>
-              <Text style={[styles.volume, { color: T.textMuted }]}>{(item.volume || 0).toFixed(2)}</Text>
             </View>
             <View style={styles.rightCol}>
-              <View>
-                <Text
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.82}
-                  style={[styles.pnl, { color: displayPnl >= 0 ? T.trading.profit : T.trading.loss }]}
-                >
-                  {formatLiveRowPnl(displayPnl)} {pnlCurrency}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.priceRow}>
-            <View style={styles.priceLeft}>
-              <Text style={[styles.price, { color: T.textSub }]}>
-                {Number.isFinite(item.openPrice) ? item.openPrice.toFixed(decimals) : '---'}
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.82}
+                style={[styles.pnl, { color: displayPnl >= 0 ? T.trading.profit : T.trading.loss }]}
+              >
+                {formatLiveRowPnl(displayPnl)} {pnlCurrency}
               </Text>
-              <Ionicons name="arrow-forward-outline" size={16} color={T.textSub} style={styles.arrow} />
-              <Text style={[styles.price, { color: T.textSub }]}>
-                {Number.isFinite(livePrice) ? livePrice.toFixed(decimals) : '---'}
+              <Text style={[styles.dateRight, { color: T.textSub }]}>
+                {formatBrokerTime(item.openTime).replace(' ', '   ')}
               </Text>
             </View>
-            <Text style={[styles.dateRight, { color: T.textSub }]}>
-              {formatBrokerTime(item.openTime).replace(' ', '   ')}
-            </Text>
           </View>
 
           {(!!item.sl || !!item.tp) && (
@@ -524,7 +530,7 @@ function TradePositionRowComponent({
             overlayActionLocked={overlayActionLocked}
             overlayStyle={overlayStyle}
             onClose={() => runOverlayAction(() => closePositionImmediately(item, { resolvedLogin: tradingLogin }))}
-            onCloseBy={() => runOverlayAction(() => navigateWithSnapshot('/trade/close-by'))}
+            onCloseBy={() => runOverlayAction(() => openPositionAction('close-by'))}
             onModify={() => runOverlayAction(navigateToModifyPosition)}
             onOrderTicket={() => runOverlayAction(navigateToOrderTicket)}
             onOpenChart={() => runOverlayAction(() => {

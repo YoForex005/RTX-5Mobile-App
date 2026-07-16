@@ -14,7 +14,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { router, useFocusEffect } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, BackHandler, Dimensions, Keyboard, Platform, ScrollView, Text, TextInput, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -56,10 +56,11 @@ import { useTranslation } from '../../i18n/useTranslation';
 import {
   type ChartDisplaySettings,
   type ChartTradeVolumeDisplayMode,
+  type ThemeMode,
   resolveChartColorsForTheme,
   useUserPreferences,
 } from '../../state/userPreferences';
-import { useIsDarkTheme } from '../../state/themeMode';
+import { registerImmediateThemeVisualApplier, useIsDarkTheme } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
 import { fmt } from '../../utils/format';
 import { useTheme } from '../../ui/theme/useTheme';
@@ -75,7 +76,13 @@ import { classifyTradingError, createFrontendTradingError } from '../../api/trad
 
 
 import { usePositionsState } from '../../state/positionsState';
-import { resolveTradingLogin } from '../../state/tradingLogin';
+import { resolveTradingLogin, resolveTradingLoginString } from '../../state/tradingLogin';
+import { prepareOrderTicketLaunch } from '../trade/orderTicketLaunchController';
+import {
+  ORDER_TICKET_ROUTE_MODULE_CACHE_KEY,
+  loadOrderTicketScreenRoute,
+} from '../trade/orderTicketScreenPreload';
+import { preloadDeferredRouteModule } from '../../ui/components/DeferredRouteMount';
 import { usePositionHistoryQuery } from '../../query/positions';
 import { useAlertsQuery } from '../../query/alerts';
 import { useMarketSymbols } from '../../query/market';
@@ -116,6 +123,10 @@ import { getMarketCloseSeparator, getPeriodSeparators } from './periodSeparators
 import { useShallow } from 'zustand/shallow';
 import { recordUiFeedGap } from '../../dev/uiInteractionDiagnostics';
 import { runImmediateAction } from '../../utils/actionLatency';
+import {
+  hideChartConfigDestination,
+} from './chartConfigDestinationController';
+import { showChartSettingsHost } from './chartSettingsHostController';
 import { scheduleAfterFirstFrame, scheduleIdleWork } from '../../utils/startupScheduler';
 import { getDevRefreshKey, hashDevRefreshSource } from '../../dev/devRefreshKey';
 import {
@@ -157,7 +168,7 @@ import {
   shouldShowChartTradePreviewOnChart,
   shouldShowChartTradeSheetHeader,
 } from './chartTradeInteractionUtils';
-import { prefetchInstrument } from '../../utils/navigationPrefetch';
+import { prefetchInstrument, prefetchOrderTicketData } from '../../utils/navigationPrefetch';
 import { CH_HTML } from "./rendering/ChartWebViewHtml";
 import { makeStyles } from "./ChartScreen.styles";
 import { PendingOrderPreviewChart } from "./components/PendingOrderPreviewChart";
@@ -827,6 +838,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const setChartInlineInputActive = useUIState((s) => s.setChartInlineInputActive);
   const setChartTabBarKeyboardLift = useUIState((s) => s.setChartTabBarKeyboardLift);
   const showChartActionSheet = useUIState((s) => s.showChartActionSheet);
+  const preloadScopedActionSheet = useUIState((s) => s.preloadScopedActionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const safeInsets = useSafeAreaInsets();
   const handleOpenSidebar = useCallback(() => {
@@ -1906,19 +1918,20 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       return;
     }
 
+    // Sheet is pre-mounted while Chart is focused — opening only flips
+    // visibility + spring. Avoid an extra rAF so SL/TP lands in the press turn.
     if (!showChartTradeSheet) {
-      chartTradeSheetTranslateY.value = mode === 'expanded' ? target : chartTradeSheetHiddenTranslateY;
+      chartTradeSheetTranslateY.value = chartTradeSheetHiddenTranslateY;
       setShowChartTradeSheet(true);
     }
 
     chartTradeSheetLastVisibleOffsetRef.current = target;
     setChartTradeSheetMode(mode);
-    requestAnimationFrame(() => {
-      chartTradeSheetTranslateY.value = withSpring(target, {
-        damping: 26,
-        stiffness: 240,
-        overshootClamping: true,
-      });
+    chartTradeSheetTranslateY.value = withSpring(target, {
+      damping: 26,
+      stiffness: 280,
+      mass: 0.72,
+      overshootClamping: true,
     });
   }, [
     chartTradeSheetDragStartY,
@@ -1966,17 +1979,28 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   ]);
 
   const openChartTradeSheet = useCallback((orderType: ChartOrderType = chartTradeOrderType) => {
-    closeChartTapMenu();
-    setFooterLotPickerMode(null);
-    if (footerLotEditorFocused) {
-      finishFooterLotEditor();
-    } else {
-      setFooterLotEditorOpening(false);
-    }
-    Keyboard.dismiss();
+    // Visual first (pre-mounted sheet + same-turn spring) — never let panel
+    // resets / keyboard work steal the SL/TP open frame.
     setChartTradeOrderType(orderType);
-    resetChartTradePanelLevels(orderType);
     snapTradeSheet('collapsed');
+
+    // Non-visual cleanup after the open paint so first frame stays instant.
+    const finalizeOpenWork = () => {
+      closeChartTapMenu();
+      setFooterLotPickerMode(null);
+      if (footerLotEditorFocused) {
+        finishFooterLotEditor();
+      } else {
+        setFooterLotEditorOpening(false);
+      }
+      Keyboard.dismiss();
+      resetChartTradePanelLevels(orderType);
+    };
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      globalThis.requestAnimationFrame(finalizeOpenWork);
+    } else {
+      setTimeout(finalizeOpenWork, 0);
+    }
   }, [
     chartTradeOrderType,
     closeChartTapMenu,
@@ -3608,7 +3632,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     setTimeout(() => Keyboard.dismiss(), 0);
   }, [closeChartTapMenu]);
   const scheduleChartActionSheetContextReset = useCallback(() => {
-    requestAnimationFrame(resetChartActionSheetContext);
+    scheduleAfterFirstFrame(resetChartActionSheetContext);
   }, [resetChartActionSheetContext]);
 
   const prefetchChartTimeframeHistory = useCallback((nextSymbol: string, nextTimeframe: string) => {
@@ -3733,23 +3757,70 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     [availableSymbols, handleSymbolSelect],
   );
 
+  const symbolPickerVisualKey = useMemo(
+    () => `chart.symbolPicker:${t('Select Symbol')}:${availableSymbols.join('|')}`,
+    [availableSymbols, t],
+  );
+  const symbolPickerActionSheetConfig = useMemo<Parameters<typeof showChartActionSheet>[0]>(
+    () => ({
+      title: t('Select Symbol'),
+      searchable: true,
+      compactText: true,
+      presentation: 'mt5Plain',
+      detent: 'large',
+      instantOpen: true,
+      // Instant (not mt5Slide): sliding from estimated height while the large
+      // searchable list settles reads as a shrinking ghost — same failure as
+      // drawing tools / event filters. Chart more-menu can still use mt5Slide
+      // because its short adaptive body has a stable measured height.
+      entryMotion: 'instant',
+      immediateHostHideOnClose: true,
+      runActionAfterClose: false,
+      visualKey: symbolPickerVisualKey,
+      // Keep the sheet fixed when the search keyboard opens (no rise/jump);
+      // the keyboard just overlays the lower part of the list.
+      keepFullHeightOnKeyboard: true,
+      actions: symbolPickerActions,
+    }),
+    [showChartActionSheet, symbolPickerActions, symbolPickerVisualKey, t],
+  );
+
+  useEffect(() => {
+    if (!isScreenFocused) {
+      return;
+    }
+    preloadScopedActionSheet('chart', symbolPickerActionSheetConfig);
+    // Warm the New Order shell so one-click-off Buy/Sell paints instantly with
+    // origin=chart (back returns to Chart, not Quotes/Trade).
+    prepareOrderTicketLaunch(chartSymbol, 'chart');
+    prefetchOrderTicketData(resolveTradingLoginString(), chartSymbol);
+    // Preload the full ticket module so the post-paint router.push is a thin mount.
+    void preloadDeferredRouteModule(
+      ORDER_TICKET_ROUTE_MODULE_CACHE_KEY,
+      loadOrderTicketScreenRoute,
+    );
+  }, [
+    chartSymbol,
+    isScreenFocused,
+    preloadScopedActionSheet,
+    symbolPickerActionSheetConfig,
+  ]);
+
   const handleOpenSymbolPicker = useCallback(() => {
     runImmediateAction('chart.symbolPicker.open', () => {
-      showChartActionSheet({
-        title: t('Select Symbol'),
-        searchable: true,
-        compactText: true,
-        detent: 'large',
-        instantOpen: true,
-        // Keep the sheet fixed when the search keyboard opens (no rise/jump);
-        // the keyboard just overlays the lower part of the list.
-        keepFullHeightOnKeyboard: true,
-        actions: symbolPickerActions,
-      });
+      // Direct instant open — no retained mt5Slide preview. The retained
+      // preview + slide park was painting a mid-height ghost before the large
+      // searchable sheet committed at full size.
+      showChartActionSheet(symbolPickerActionSheetConfig);
       scheduleChartActionSheetContextReset();
       prefetchSymbolPickerHistory();
     });
-  }, [prefetchSymbolPickerHistory, scheduleChartActionSheetContextReset, showChartActionSheet, t, symbolPickerActions]);
+  }, [
+    prefetchSymbolPickerHistory,
+    scheduleChartActionSheetContextReset,
+    showChartActionSheet,
+    symbolPickerActionSheetConfig,
+  ]);
 
   const handleOpenTimeframePicker = useCallback(() => {
     runImmediateAction('chart.timeframePicker.open', () => {
@@ -3871,25 +3942,68 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     ],
   );
 
+  const drawingToolsVisualKey = useMemo(
+    () => [
+      'chart.drawingTools',
+      drawingToolsActions.length,
+      chartHideAll ? 'hide' : 'show',
+      chartLockAll ? 'lock' : 'unlock',
+      drawingMagnetMode ? 'magnet' : 'free',
+      stickyDrawingMode ? 'sticky' : 'once',
+      t('Undo Drawing'),
+    ].join('|'),
+    [
+      chartHideAll,
+      chartLockAll,
+      drawingMagnetMode,
+      drawingToolsActions.length,
+      stickyDrawingMode,
+      t,
+    ],
+  );
+
+  const drawingToolsActionSheetConfig = useMemo<Parameters<typeof showChartActionSheet>[0]>(
+    () => ({
+      presentation: 'mt5Plain',
+      showActionIcons: true,
+      minimumTopInset: drawingToolsSheetTopInset,
+      // Large fixed floor keeps height stable while FlatList only paints the
+      // first viewport of tools; remaining tools appear on scroll (no shrink).
+      detent: 'large',
+      instantOpen: true,
+      // Instant open (not mt5Slide): slide-from-height while rows settle looks
+      // like a translucent shrinking ghost on this long tool list.
+      entryMotion: 'instant',
+      // Same direct host hide as symbol picker — avoids replaying a close slide
+      // that looked like a second shrink when reopening tools.
+      immediateHostHideOnClose: true,
+      runActionAfterClose: false,
+      visualKey: drawingToolsVisualKey,
+      actions: drawingToolsActions,
+    }),
+    [drawingToolsActions, drawingToolsSheetTopInset, drawingToolsVisualKey],
+  );
+
   const handleOpenDrawingTools = useCallback(() => {
     runImmediateAction('chart.drawingTools.open', () => {
       closeChartTapMenu();
-      showChartActionSheet({
-        presentation: 'mt5Plain',
-        showActionIcons: true,
-        minimumTopInset: drawingToolsSheetTopInset,
-        detent: 'adaptive',
-        instantOpen: true,
-        actions: drawingToolsActions,
-      });
+      // Instant full-size open from memoized config (no retained slide preview).
+      showChartActionSheet(drawingToolsActionSheetConfig);
       scheduleChartActionSheetContextReset();
     });
-  }, [closeChartTapMenu, drawingToolsActions, drawingToolsSheetTopInset, scheduleChartActionSheetContextReset, showChartActionSheet]);
+  }, [
+    closeChartTapMenu,
+    drawingToolsActionSheetConfig,
+    scheduleChartActionSheetContextReset,
+    showChartActionSheet,
+  ]);
 
   const handleOpenSettingsScreen = useCallback(() => {
     runImmediateAction('chart.settings.open', () => {
       closeChartTapMenu();
-      router.push('/chart/settings');
+      // Sidebar-style retained host: first paint in this press turn, no stack push.
+      hideChartConfigDestination();
+      showChartSettingsHost();
     });
   }, [closeChartTapMenu]);
 
@@ -4126,6 +4240,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         showActionIcons: true,
         detent: 'adaptive',
         instantOpen: true,
+        entryMotion: 'mt5Slide',
+        runActionAfterClose: false,
         actions: chartMoreActions,
       });
       scheduleChartActionSheetContextReset();
@@ -4267,6 +4383,61 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     },
     periodSeparators: periodSeparatorOptions,
   }), [chartAxisBorderColor, chartDisplay.showGrid, chartGridColor, chartSymbol, chartTimeframe, chartType, drawingMagnetMode, isDark, periodSeparatorOptions, resolvedChartColors, showChartVolumePane]);
+
+  const applyImmediateChartVisualTheme = useCallback((mode: ThemeMode) => {
+    const nextIsDark = mode === 'dark';
+    const nextColors = resolveChartColorsForTheme(chartColors, chartColorScheme, nextIsDark);
+    const nextBackgroundColor = nextColors.background;
+    const payload = {
+      layout: {
+        background: { color: nextBackgroundColor },
+        textColor: nextColors.foreground,
+      },
+      customColors: {
+        grid: chartDisplay.showGrid
+          ? (nextIsDark ? nextColors.grid : MT5_LIGHT_GRID_COLOR)
+          : 'transparent',
+        axisDivider: nextIsDark ? MT5_DARK_AXIS_BORDER_COLOR : MT5_LIGHT_AXIS_BORDER_COLOR,
+      },
+      periodSeparators: {
+        enabled: chartDisplay.periodSeparators || marketCloseSeparatorPayload.length > 0,
+        color: nextIsDark ? 'rgba(148, 163, 184, 0.42)' : 'rgba(100, 116, 139, 0.45)',
+        width: 1,
+        dashPattern: '1 5',
+      },
+    };
+
+    // The WebView itself is a native surface, so repaint its host and DOM in
+    // the press turn instead of waiting for React plus the full chart rebuild.
+    const immediateWebViewHost = webViewRef.current as unknown as {
+      setNativeProps?: (props: { style: { backgroundColor: string } }) => void;
+    } | null;
+    immediateWebViewHost?.setNativeProps?.({ style: { backgroundColor: nextBackgroundColor } });
+    if (!webViewReady) {
+      return;
+    }
+    injectChartScript(`
+      if (typeof window.applyChartVisualTheme === 'function') {
+        window.applyChartVisualTheme(${JSON.stringify(payload)});
+      }
+    `);
+  }, [
+    chartColorScheme,
+    chartColors,
+    chartDisplay.periodSeparators,
+    chartDisplay.showGrid,
+    injectChartScript,
+    marketCloseSeparatorPayload.length,
+    webViewReady,
+  ]);
+
+  useLayoutEffect(() => {
+    const unregister = registerImmediateThemeVisualApplier(applyImmediateChartVisualTheme);
+    // This also covers hydration and a WebView becoming ready after the theme
+    // was selected; direct user toggles take the registry path above first.
+    applyImmediateChartVisualTheme(isDark ? 'dark' : 'light');
+    return unregister;
+  }, [applyImmediateChartVisualTheme, isDark]);
 
   const [overlaySyncRevision, setOverlaySyncRevision] = useState(0);
   // Monotonic counter — incremented every time the WebView confirms
@@ -5180,8 +5351,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           style={styles.toolbarIconButton}
           onPress={handleOpenSettingsScreen}
           activateOnPressIn
+          activateOnTouchStart
           hitSlop={8}
           unstable_pressDelay={0}
+          latencyLabel="chart.settings.open"
         >
           <Ionicons name="options-outline" size={18} color={TEXT_MUTED} />
         </Pressable>
@@ -5343,6 +5516,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         displayDecimals,
       }}
       sheet={{
+        // Keep the SL/TP sheet tree warm while Chart is focused so toolbar
+        // taps only spring the already-mounted layer into view.
+        mountChartTradeSheet: isScreenFocused && !isChartExpanded,
         showChartTradeSheet,
         showHiddenInlineTradeSheet: !isChartExpanded && showChartTradeSheet,
         showInlineFooterWhileSheetOpen: showInlineFooterWhileChartTradeSheetOpen && !isChartExpanded && showChartTradeSheet,

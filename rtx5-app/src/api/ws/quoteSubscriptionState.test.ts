@@ -76,8 +76,8 @@ test('quote websocket service sends subscription diffs and tracks acknowledgemen
   assert.match(source, /private pendingUnsubscribeSymbols: Set<string> = new Set\(\)/);
   assert.match(source, /private confirmedSymbols: Set<string> = new Set\(\)/);
   assert.match(source, /private sendSubscriptionDiff\(nextDesiredSymbols: Set<string>\): void/);
-  assert.match(source, /this\.send\(\{ type: 'unsubscribe', symbols: unsubscribeSymbols \}\)/);
-  assert.match(source, /this\.send\(\{ type: 'subscribe', symbols: subscribeSymbols \}\)/);
+  assert.match(source, /this\.usesFeedProtocol\(\)[\s\S]*\{ type: 'unsubscribe', symbols: unsubscribeSymbols \}/);
+  assert.match(source, /this\.usesFeedProtocol\(\)[\s\S]*\{ type: 'subscribe', symbols: subscribeSymbols \}/);
   assert.match(source, /const ack = extractSubscriptionAck\(payload\)/);
   assert.match(source, /this\.handleSubscriptionAckPayload\(payload\)/);
   assert.match(source, /this\.markSymbolsConfirmed\(\[symbol, tick\.symbol, tick\.rawSymbol \?\? ''\]\)/);

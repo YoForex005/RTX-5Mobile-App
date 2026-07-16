@@ -1363,12 +1363,16 @@ export function ChartTradeOverlayLayer({
   // Optional bottom reservation for callers that deliberately keep a footer
   // visible. The toolbar SL/TP flow passes 0 so the sheet covers that area.
   const tradeSheetFrameBottom = tradeSheetBottomInset;
+  // Pre-mounted while Chart is focused so SL/TP only springs into view.
+  const mountTradeSheet = !!(sheet.mountChartTradeSheet || sheet.showChartTradeSheet);
 
   return (
     <>
-      {sheet.showChartTradeSheet ? (
+      {mountTradeSheet ? (
         <View
-          pointerEvents="box-none"
+          pointerEvents={sheet.showChartTradeSheet ? 'box-none' : 'none'}
+          accessibilityElementsHidden={!sheet.showChartTradeSheet}
+          importantForAccessibility={sheet.showChartTradeSheet ? 'auto' : 'no-hide-descendants'}
           style={[
             styles.chartTradeSheetLayer,
             sheet.chartTradeSheetFrozenLayerHeight > 0 && { height: sheet.chartTradeSheetFrozenLayerHeight },

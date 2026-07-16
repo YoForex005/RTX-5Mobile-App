@@ -14,6 +14,7 @@ import { Screen } from '../../../ui/components/Screen';
 import { useTranslation } from '../../../i18n/useTranslation';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useTheme } from '../../../ui/theme/useTheme';
+import { useIsDarkTheme } from '../../../state/themeMode';
 import { safeRouterBack } from '../../../utils/navigation';
 import {
   PRESETS,
@@ -28,13 +29,25 @@ import {
 } from './dateUtils';
 import { makeHistoryFilterStyles } from './styles';
 
-export function HistoryFilterScreen() {
+export type HistoryFilterScreenProps = Readonly<{
+  /** When true, shown from HistoryFilterHost over the History tab. */
+  hosted?: boolean;
+  hostedActive?: boolean;
+  onHostedBack?: () => void;
+}>;
+
+export function HistoryFilterScreen({
+  hosted = false,
+  hostedActive = false,
+  onHostedBack,
+}: HistoryFilterScreenProps = {}) {
   const { t, language } = useTranslation();
   const historyRange = useUserPreferences((s) => s.historyRange);
   const setHistoryRange = useUserPreferences((s) => s.setHistoryRange);
   const setHistoryDateRange = useUserPreferences((s) => s.setHistoryDateRange);
-  const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const themeActive = !hosted || hostedActive;
+  const T = useTheme({ active: themeActive });
+  const isDark = useIsDarkTheme({ active: themeActive });
   const insets = useSafeAreaInsets();
   const s = useMemo(() => makeHistoryFilterStyles(T, isDark), [T, isDark]);
 
@@ -163,8 +176,12 @@ export function HistoryFilterScreen() {
   };
 
   const handleBack = useCallback(() => {
+    if (hosted && onHostedBack) {
+      onHostedBack();
+      return;
+    }
     safeRouterBack(router, '/(tabs)/history');
-  }, []);
+  }, [hosted, onHostedBack]);
 
   const calendarGrid = useMemo(() => {
     const daysInMonth = getDaysInMonth(calYear, calMonth);
@@ -200,7 +217,15 @@ export function HistoryFilterScreen() {
           ]}
         >
           <View style={s.headerRow}>
-            <Pressable onPress={handleBack} hitSlop={16} style={s.headerBackButton}>
+            <Pressable
+              onPress={handleBack}
+              activateOnPressIn
+              activateOnTouchStart
+              unstable_pressDelay={0}
+              latencyLabel="history.filter.back"
+              hitSlop={16}
+              style={s.headerBackButton}
+            >
               <Ionicons name="arrow-back" size={26} color={T.text} />
             </Pressable>
             <View style={s.headerTitleWrap} pointerEvents="none">

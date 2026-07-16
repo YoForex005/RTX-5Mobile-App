@@ -21,6 +21,11 @@ type FloorInput = {
   availableWindowHeight: number;
 };
 
+type Mt5EntryTranslateInput = {
+  estimatedTranslateY: number;
+  measuredSheetBodyHeight: number;
+};
+
 const MIN_FALLBACK_HEIGHT = 260;
 const MIN_BOTTOM_INSET = 12;
 const ANDROID_STABLE_BOTTOM_INSET = 24;
@@ -33,6 +38,13 @@ const ADAPTIVE_HEIGHT_RATIO = 0.46;
 
 const normalizeHeight = (height: number) =>
   Number.isFinite(height) && height > 0 ? height : 0;
+
+export function resolveActionSheetMt5EntryTranslateY({
+  estimatedTranslateY,
+  measuredSheetBodyHeight,
+}: Mt5EntryTranslateInput): number {
+  return Math.max(estimatedTranslateY, measuredSheetBodyHeight + 1);
+}
 
 export function resolveActionSheetBottomInset(
   safeAreaBottom: number,

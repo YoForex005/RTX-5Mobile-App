@@ -19,8 +19,9 @@ import { hasQuotePriceChange } from '../utils/quotePriceChange';
 import { calculateQuoteSpreadPoints } from '../utils/quoteSpread';
 import { resolveBackendQuoteVolume } from '../utils/quoteVolume';
 import { buildRestQuoteTickEvent } from './restQuoteTick';
+import { MARKET_QUOTE_STALE_AFTER_MS } from '../market/quotePolicy';
 
-const LIVE_QUOTE_STALE_MS = 45_000;
+const LIVE_QUOTE_STALE_MS = MARKET_QUOTE_STALE_AFTER_MS;
 const LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS = 16;
 const LIVE_SYMBOL_REST_SNAPSHOT_POLL_MS = 1_000;
 const LIVE_SYMBOL_REST_DIRECT_TICK_SUPPRESS_MS = 2_000;
@@ -28,6 +29,55 @@ const EMPTY_LIVE_QUOTES: Record<string, any> = Object.freeze({});
 
 type LiveSymbolQuoteListener = (tick: QuoteTickEvent) => void;
 type LiveSymbolDirectTickAnchor = () => number;
+
+let liveSymbolNotificationPauseDepth = 0;
+const pendingLiveSymbolTicks = new Map<LiveSymbolQuoteListener, QuoteTickEvent>();
+
+const deliverLiveSymbolTick = (listener: LiveSymbolQuoteListener, tick: QuoteTickEvent): void => {
+  if (liveSymbolNotificationPauseDepth > 0) {
+    pendingLiveSymbolTicks.set(listener, tick);
+    return;
+  }
+  try {
+    listener(tick);
+  } catch (error) {
+    console.warn('[Quotes] Symbol listener error', error);
+  }
+};
+
+const flushPausedLiveSymbolTicks = (): void => {
+  if (liveSymbolNotificationPauseDepth > 0 || pendingLiveSymbolTicks.size === 0) {
+    return;
+  }
+  const pending = Array.from(pendingLiveSymbolTicks.entries());
+  pendingLiveSymbolTicks.clear();
+  pending.forEach(([listener, tick]) => deliverLiveSymbolTick(listener, tick));
+};
+
+/**
+ * Temporarily buffers the newest direct tick per listener without stopping the
+ * socket. Drawer and sheet motion can therefore remain responsive, then every
+ * visible quote catches up to the latest value when the interaction settles.
+ */
+export const pauseLiveSymbolQuoteNotifications = (durationMs = 2_500): (() => void) => {
+  liveSymbolNotificationPauseDepth += 1;
+  let released = false;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const release = () => {
+    if (released) {
+      return;
+    }
+    released = true;
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+    liveSymbolNotificationPauseDepth = Math.max(0, liveSymbolNotificationPauseDepth - 1);
+    flushPausedLiveSymbolTicks();
+  };
+  timeoutId = setTimeout(release, Math.max(0, durationMs));
+  return release;
+};
 
 type RestQuoteFallbackEntry = {
   symbol: string;
@@ -165,13 +215,7 @@ const fetchRestQuoteSnapshotForEntry = async (entry: RestQuoteFallbackEntry): Pr
     }
 
     publishQuoteTickToSharedStores(selectedTick);
-    entry.listeners.forEach((listener) => {
-      try {
-        listener(selectedTick);
-      } catch (error) {
-        console.warn('[Quotes REST] Symbol listener error', error);
-      }
-    });
+    entry.listeners.forEach((listener) => listener(selectedTick));
   } catch (error) {
     console.warn('[Quotes REST] Symbol snapshot poll failed', error);
   } finally {
@@ -555,17 +599,21 @@ export function useLiveSymbolQuote(
       applyQuoteTick(tick);
     };
     const restListener: LiveSymbolQuoteListener = applyQuoteTick;
+    const guardedWsListener: LiveSymbolQuoteListener = (tick) => deliverLiveSymbolTick(wsListener, tick);
+    const guardedRestListener: LiveSymbolQuoteListener = (tick) => deliverLiveSymbolTick(restListener, tick);
 
-    const unsubscribe = quotesWsService.subscribeToSymbol(symbol, wsListener);
+    const unsubscribe = quotesWsService.subscribeToSymbol(symbol, guardedWsListener);
     const unsubscribeRestFallback = subscribeLiveSymbolRestQuoteFallback(
       symbol,
-      restListener,
+      guardedRestListener,
       () => directQuoteTickAtRef.current,
     );
 
     return () => {
       unsubscribe();
       unsubscribeRestFallback();
+      pendingLiveSymbolTicks.delete(wsListener);
+      pendingLiveSymbolTicks.delete(restListener);
       directQuoteTickAtRef.current = 0;
       cancelScheduledCommit();
     };
@@ -698,16 +746,20 @@ export function useLiveSymbolQuotes(
         applyQuoteTick(tick);
       };
       const restListener: LiveSymbolQuoteListener = applyQuoteTick;
+      const guardedWsListener: LiveSymbolQuoteListener = (tick) => deliverLiveSymbolTick(wsListener, tick);
+      const guardedRestListener: LiveSymbolQuoteListener = (tick) => deliverLiveSymbolTick(restListener, tick);
 
-      const unsubscribeWs = quotesWsService.subscribeToSymbol(requestedSymbol, wsListener);
+      const unsubscribeWs = quotesWsService.subscribeToSymbol(requestedSymbol, guardedWsListener);
       const unsubscribeRest = subscribeLiveSymbolRestQuoteFallback(
         requestedSymbol,
-        restListener,
+        guardedRestListener,
         () => directQuoteTickAtBySymbolRef.current[requestedSymbol] ?? 0,
       );
       return () => {
         unsubscribeWs();
         unsubscribeRest();
+        pendingLiveSymbolTicks.delete(wsListener);
+        pendingLiveSymbolTicks.delete(restListener);
         delete directQuoteTickAtBySymbolRef.current[requestedSymbol];
       };
     });

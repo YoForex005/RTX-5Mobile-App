@@ -36,6 +36,7 @@ import { runImmediateAction } from '../../../utils/actionLatency';
 import { useDeferredActiveFlag } from '../../../hooks/useDeferredActiveFlag';
 import { useNextFrameValue } from '../../../hooks/useNextFrameValue';
 import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
+import { showTradePositionAction } from '../tradePositionActionHostController';
 import { TradeSummaryHeader } from './SummaryHeader';
 import { makeTradeScreenStyles } from './styles';
 
@@ -260,6 +261,8 @@ const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused 
       showActionIcons: true,
       detent: 'auto',
       instantOpen: true,
+      entryMotion: 'mt5Slide',
+      runActionAfterClose: false,
       actions,
     };
   }, [bulkActionIconColor, navigateToBulkMode, showTradeActionSheet, t]);
@@ -267,6 +270,14 @@ const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused 
   const showBulkSheet = useCallback(() => {
     runImmediateAction('trade.bulkSheet.open', () => showTradeActionSheet(bulkActionSheetConfig));
   }, [bulkActionSheetConfig, showTradeActionSheet]);
+
+  const preloadTradeActionSheet = useUIState((s) => s.preloadScopedActionSheet);
+  useEffect(() => {
+    if (!isScreenFocused) {
+      return;
+    }
+    preloadTradeActionSheet('trade', bulkActionSheetConfig);
+  }, [bulkActionSheetConfig, isScreenFocused, preloadTradeActionSheet]);
 
   const showPositionSheet = useCallback((item: PositionItem) => {
     runImmediateAction('trade.positionSheet.open', () =>
@@ -281,19 +292,28 @@ const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused 
             label: t('Close position'),
             textColor: positionCloseActionColor,
             textFontWeight: TRADE_POSITION_CLOSE_ACTION_FONT_WEIGHT,
-            onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/close-position', params: { positionId: item.id } }); },
+            onPress: () => {
+              primePositionSnapshot(item);
+              showTradePositionAction('close', item.id);
+            },
           },
           {
             icon: <Ionicons name="git-compare-outline" size={20} color={positionCloseActionColor} />,
             label: t('Close By'),
             textColor: positionCloseActionColor,
             textFontWeight: TRADE_POSITION_CLOSE_ACTION_FONT_WEIGHT,
-            onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/close-by', params: { positionId: item.id } }); },
+            onPress: () => {
+              primePositionSnapshot(item);
+              showTradePositionAction('close-by', item.id);
+            },
           },
           {
             icon: <Ionicons name="create-outline" size={20} color={T.textMuted} />,
             label: t('Modify position'),
-            onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/modify-position', params: { positionId: item.id } }); },
+            onPress: () => {
+              primePositionSnapshot(item);
+              showTradePositionAction('modify', item.id);
+            },
           },
           {
             icon: <Ionicons name="swap-horizontal-outline" size={20} color={T.textMuted} />,

@@ -37,10 +37,16 @@ import { FastPressable } from '../../ui/components/FastPressable';
 import { Screen } from '../../ui/components/Screen';
 import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../ui/components/sidebarDrawerController';
+import { showSidebarDestination } from '../../ui/components/sidebarDestinationHostController';
 import { GDark } from '../../ui/theme/glass';
 import { safeRouterBack } from '../../utils/navigation';
+import { runImmediateAction } from '../../utils/actionLatency';
 import { useNextFrameValue } from '../../hooks/useNextFrameValue';
 import { useTranslation } from '../../i18n/useTranslation';
+import {
+  hideAboutDetailDestination,
+  showAboutDetailDestination,
+} from './aboutDetailDestinationController';
 import {
   ABOUT_LINK_CHEVRON,
   ABOUT_STAR,
@@ -77,11 +83,18 @@ type ContactDetailsLayout = {
 
 type DeveloperContactMode = 'contact-developer' | 'account-deletion';
 
+// About is retained by the root sidebar host. Pre-mount its complete visual
+// body shortly after the primary Trade/Settings tabs so a drawer selection
+// reveals finished content instead of adding rows after the screen appears.
+const ABOUT_BODY_PREWARM_DELAY_MS = 1_400;
+
 /**
  * Displays information about the app version, copyright, and developer details.
  */
 export const AboutScreenInner = memo(function AboutScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
-  const routeBodyReady = useDeferredRouteContentReady(0, isScreenFocused);
+  const routeBodyReady = useDeferredRouteContentReady(
+    isScreenFocused ? 0 : ABOUT_BODY_PREWARM_DELAY_MS,
+  );
   const router = useRouter();
   const isDark = useIsDarkTheme();
   const { t } = useTranslation();
@@ -114,7 +127,7 @@ export const AboutScreenInner = memo(function AboutScreenInner({ isScreenFocused
     }
   };
 
-  const handleRateExperience = async () => {
+  const handleRateExperience = useCallback(async () => {
     const target = getAboutStoreTarget(Platform.OS, {
       ...ABOUT_EXTERNAL_LINKS,
       androidPackageName,
@@ -130,37 +143,49 @@ export const AboutScreenInner = memo(function AboutScreenInner({ isScreenFocused
         Alert.alert(`Open ${target.storeLabel}`, t('The store listing could not be opened on this device.'));
       }
     }
-  };
+  }, [androidPackageName, t]);
 
-  const handleOpenPrivacyPolicy = () => {
+  const handleOpenPrivacyPolicy = useCallback(() => {
     const privacyPolicyUrl = resolveLegalUrl(undefined, getConfiguredPrivacyPolicyUrl());
     if (privacyPolicyUrl) {
       void openExternalUrl(privacyPolicyUrl, t('Open Privacy Policy'));
       return;
     }
 
-    router.push({ pathname: '/settings/legal', params: { document: 'privacy' } });
-  };
+    // In-app legal screen via retained host — no stack push on the tap path.
+    showAboutDetailDestination('privacy-policy');
+  }, [t]);
 
-  const handleAboutAction = (action: AboutAction) => {
-    switch (action.id) {
-      case 'rate-experience':
-        void handleRateExperience();
-        return;
-      case 'user-guide':
-        router.push('/settings/user-guide');
-        return;
-      case 'privacy-policy':
-        handleOpenPrivacyPolicy();
-        return;
-      case 'account-deletion':
-        router.push('/settings/account-deletion');
-        return;
-      case 'contact-developer':
-        router.push('/settings/contact-developer');
-        return;
-    }
-  };
+  /**
+   * Sidebar-class open: reveal a pre-mounted destination in this press turn.
+   * User Guide is already a root sidebar host layer; the other rows use
+   * AboutDetailDestinationHost. Rate opens the store URL immediately.
+   */
+  const handleAboutAction = useCallback((action: AboutAction) => {
+    runImmediateAction(`about.${action.id}.open`, () => {
+      switch (action.id) {
+        case 'rate-experience':
+          void handleRateExperience();
+          return;
+        case 'user-guide':
+          hideAboutDetailDestination();
+          // Swap to the retained User Guide layer (same as the drawer item).
+          if (!showSidebarDestination('user-guide', 'programmatic')) {
+            router.push('/settings/user-guide');
+          }
+          return;
+        case 'privacy-policy':
+          handleOpenPrivacyPolicy();
+          return;
+        case 'account-deletion':
+          showAboutDetailDestination('account-deletion');
+          return;
+        case 'contact-developer':
+          showAboutDetailDestination('contact-developer');
+          return;
+      }
+    });
+  }, [handleOpenPrivacyPolicy, handleRateExperience, router]);
 
   return (
     <Screen noBottomInset style={styles.screen}>
@@ -209,9 +234,22 @@ export function AboutScreen() {
   return <AboutScreenInner isScreenFocused={deferredScreenFocused} />;
 }
 
-export function DeveloperContactRequestScreen({ mode }: { mode: DeveloperContactMode }) {
+export type DeveloperContactRequestScreenProps = Readonly<{
+  mode: DeveloperContactMode;
+  hosted?: boolean;
+  hostedActive?: boolean;
+  onHostedBack?: () => void;
+}>;
+
+export function DeveloperContactRequestScreen({
+  mode,
+  hosted = false,
+  hostedActive = false,
+  onHostedBack,
+}: DeveloperContactRequestScreenProps) {
   const router = useRouter();
-  const isDark = useIsDarkTheme();
+  const themeActive = !hosted || hostedActive;
+  const isDark = useIsDarkTheme({ active: themeActive });
   const { t } = useTranslation();
   const styles = useMemo(() => makeAboutStyles(isDark), [isDark]);
   const insets = useSafeAreaInsets();
@@ -270,15 +308,21 @@ export function DeveloperContactRequestScreen({ mode }: { mode: DeveloperContact
     }
   };
 
-  const handleOpenPrivacyPolicy = () => {
+  const handleOpenPrivacyPolicy = useCallback(() => {
     const privacyPolicyUrl = resolveLegalUrl(undefined, getConfiguredPrivacyPolicyUrl());
     if (privacyPolicyUrl) {
       void openExternalUrl(privacyPolicyUrl, t('Open Privacy Policy'));
       return;
     }
 
+    if (hosted && onHostedBack) {
+      // Stay in the retained stack: swap About detail to the privacy layer.
+      showAboutDetailDestination('privacy-policy');
+      return;
+    }
+
     router.push({ pathname: '/settings/legal', params: { document: 'privacy' } });
-  };
+  }, [hosted, onHostedBack, router, t]);
 
   const handleSendDeveloperMessage = () => {
     if (!isValidDeveloperContactEmail(contactEmail)) {
@@ -301,6 +345,15 @@ export function DeveloperContactRequestScreen({ mode }: { mode: DeveloperContact
 
     void openExternalUrl(mailtoUrl, isAccountDeletion ? t('Request Account Deletion') : t('Contact Developer'));
   };
+
+  const handleClose = useCallback(() => {
+    setCategorySheetOpen(false);
+    if (hosted && onHostedBack) {
+      onHostedBack();
+      return;
+    }
+    safeRouterBack(router, '/settings/about');
+  }, [hosted, onHostedBack, router]);
 
   return (
     <ContactDeveloperScreen
@@ -342,10 +395,7 @@ export function DeveloperContactRequestScreen({ mode }: { mode: DeveloperContact
         setCategorySheetOpen(false);
       }}
       onOpenPrivacyPolicy={handleOpenPrivacyPolicy}
-      onClose={() => {
-        setCategorySheetOpen(false);
-        safeRouterBack(router, '/settings/about');
-      }}
+      onClose={handleClose}
       onSend={handleSendDeveloperMessage}
       sendAccessibilityLabel={
         isAccountDeletion ? 'Send account deletion request' : 'Send developer support request'
@@ -387,6 +437,9 @@ function AboutActionRow({
   return (
     <FastPressable
       onPress={onPress}
+      activateOnPressIn
+      activateOnTouchStart
+      unstable_pressDelay={0}
       latencyLabel={`about.${action.id}`}
       style={({ pressed }) => [styles.actionRow, pressed && styles.actionRowPressed]}
       accessibilityRole="button"
@@ -612,7 +665,10 @@ function ContactDeveloperScreen({
     <Screen noBottomInset style={styles.contactScreen}>
       <View style={[styles.contactPageHeader, { paddingTop: Math.max(insetsTop, 0) + 14 }]}>
         <FastPressable
-          onPressIn={onClose}
+          onPress={onClose}
+          activateOnPressIn
+          activateOnTouchStart
+          unstable_pressDelay={0}
           latencyLabel="about.contact.back"
           hitSlop={12}
           style={styles.contactBackButton}

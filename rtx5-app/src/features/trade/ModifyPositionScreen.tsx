@@ -42,10 +42,18 @@ import {
   createFrontendTradingError,
   formatTradingErrorFeedback,
 } from '../../api/tradingErrors';
+import { hideTradePositionActionHost } from './tradePositionActionHostController';
 
 const SETTINGS_DARK_BACKGROUND = '#121212';
 const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E';
 const MIN_STOP_DISTANCE_POINTS = 5;
+
+export type ModifyPositionScreenProps = Readonly<{
+  hosted?: boolean;
+  hostedActive?: boolean;
+  hostedPositionId?: string | null;
+  onHostedBack?: () => void;
+}>;
 
 const hasOwn = (source: Record<string, unknown>, key: string): boolean =>
   Object.prototype.hasOwnProperty.call(source, key);
@@ -90,18 +98,28 @@ function formatModifyPrice(val: number, decimals: number) {
 /**
  * Screen used to adjust the Stop Loss (SL) and Take Profit (TP) parameters for an active, open position.
  */
-export function ModifyPositionScreen() {
-  const { positionId } = useLocalSearchParams<{ positionId?: string }>();
+export function ModifyPositionScreen({
+  hosted = false,
+  hostedActive = true,
+  hostedPositionId = null,
+  onHostedBack,
+}: ModifyPositionScreenProps = {}) {
+  const params = useLocalSearchParams<{ positionId?: string }>();
+  const positionId = hosted
+    ? (hostedPositionId ?? undefined)
+    : (Array.isArray(params.positionId) ? params.positionId[0] : params.positionId);
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
-  const T = useTheme();
+  const themeActive = !hosted || hostedActive;
+  const T = useTheme({ active: themeActive });
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const screenBg = isDark ? SETTINGS_DARK_BACKGROUND : T.bg;
   const SL_COLOR = T.trading.loss;
   const TP_COLOR = T.trading.profit;
-  const isScreenFocused = useIsFocused();
+  const routeFocused = useIsFocused();
+  const isScreenFocused = hosted ? hostedActive : routeFocused;
 
   const positions = usePositionsState((s) => s.positions);
   const primedPosition = usePositionsState((s) =>
@@ -228,8 +246,16 @@ export function ModifyPositionScreen() {
    * Navigates back to the previous screen (usually the Trade tab or Chart).
    */
   const handleBack = useCallback(() => {
+    if (hosted) {
+      if (onHostedBack) {
+        onHostedBack();
+      } else {
+        hideTradePositionActionHost();
+      }
+      return;
+    }
     safeRouterBack(router, '/(tabs)/trade');
-  }, []);
+  }, [hosted, onHostedBack]);
 
   // Same elements as the order ticket's top-right symbol picker: the full
   // market symbol list. An open position's symbol is fixed, so choosing a
@@ -544,6 +570,11 @@ export function ModifyPositionScreen() {
     }
   };
 
+  // Hosted inactive layers skip heavy paint while another action is visible.
+  if (hosted && !hostedActive) {
+    return <View style={styles.screen} />;
+  }
+
   if (!position) {
     return (
       <View style={styles.screen}>
@@ -556,6 +587,9 @@ export function ModifyPositionScreen() {
               style={styles.backBtn}
               accessibilityRole="button"
               accessibilityLabel={t('Go back')}
+              activateOnPressIn
+              latencyLabel="modifyPosition.back"
+              unstable_pressDelay={0}
             >
               <Ionicons name="arrow-back" size={24} color={T.text} />
             </Pressable>
@@ -662,6 +696,9 @@ export function ModifyPositionScreen() {
             style={styles.backBtn}
             accessibilityRole="button"
             accessibilityLabel={t('Go back')}
+            activateOnPressIn
+            latencyLabel="modifyPosition.back"
+            unstable_pressDelay={0}
           >
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>

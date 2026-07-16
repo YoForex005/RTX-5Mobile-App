@@ -1,28 +1,99 @@
 import { Ionicons } from '@expo/vector-icons';
 import { memo, useMemo, type ReactNode } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { normalizeSymbol } from '../../domain/symbols';
 import { useTranslation } from '../../i18n/useTranslation';
-import { useUserPreferences } from '../../state/userPreferences';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { useTheme, type ThemeColors } from '../../ui/theme/useTheme';
+import { useIsDarkTheme } from '../../state/themeMode';
+import { fmt } from '../../utils/format';
 import type { QuoteInfoLaunchDestination } from './quoteInfoLaunchController';
+import {
+  hasDisplayableLiveQuotePrice,
+  type LiveQuoteSnapshot,
+} from './liveQuoteSnapshot';
 import { getMeta } from './SymbolDetailsScreen/instrumentMeta';
-import { makeSymbolDetailsStyles } from './SymbolDetailsScreen/styles';
+import { useLiveQuoteSnapshot } from './useLiveQuotes';
 
 type QuoteInfoLaunchShellProps = Readonly<{
+  /** When true, live tick updates repaint the shell. Off when hidden. */
+  active?: boolean;
   backLatencyLabel?: string;
   destination: QuoteInfoLaunchDestination;
   onBack: () => void;
   symbol: string;
 }>;
 
+const finiteOrUndefined = (value: number | undefined | null): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+
+const formatPriceOrDash = (value: number | undefined, digits: number) =>
+  value === undefined ? '--' : fmt.price(value, digits);
+
+const formatPctOrDash = (value: number | undefined) => {
+  if (value === undefined) return '--.--%';
+  const sign = value >= 0 ? '+' : '';
+  return `${sign}${value.toFixed(2)}%`;
+};
+
+const formatPointsOrDash = (value: number | undefined) => {
+  if (value === undefined) return '--';
+  const sign = value >= 0 ? '+' : '';
+  return `${sign}${value.toFixed(0)}`;
+};
+
+type LaunchQuoteReadout = Readonly<{
+  askText: string;
+  bidText: string;
+  changePct: number | undefined;
+  changeText: string;
+  highText: string;
+  isUp: boolean;
+  lowText: string;
+  openText: string;
+  pointsText: string;
+  spreadText: string;
+}>;
+
+function buildLaunchQuoteReadout(quote: LiveQuoteSnapshot | undefined): LaunchQuoteReadout {
+  const displayable = hasDisplayableLiveQuotePrice(quote);
+  const digits = Math.max(0, Math.min(8, Math.floor(quote?.digits ?? 5)));
+  const bid = displayable ? finiteOrUndefined(quote?.bid) : undefined;
+  const ask = displayable ? finiteOrUndefined(quote?.ask) : undefined;
+  const high = finiteOrUndefined(quote?.high);
+  const low = finiteOrUndefined(quote?.low);
+  const open = finiteOrUndefined(quote?.open) ?? finiteOrUndefined(quote?.close) ?? bid;
+  const changePct = finiteOrUndefined(quote?.changePct);
+  const spread = finiteOrUndefined(quote?.spread);
+  const pip = 1 / Math.pow(10, digits);
+  const points = bid !== undefined && open !== undefined && pip > 0
+    ? (bid - open) / pip
+    : undefined;
+
+  return {
+    askText: formatPriceOrDash(ask, digits),
+    bidText: formatPriceOrDash(bid, digits),
+    changePct,
+    changeText: formatPctOrDash(changePct),
+    highText: formatPriceOrDash(high, digits),
+    isUp: (changePct ?? 0) >= 0,
+    lowText: formatPriceOrDash(low, digits),
+    openText: formatPriceOrDash(open, digits),
+    pointsText: formatPointsOrDash(points),
+    spreadText: spread === undefined
+      ? '--'
+      : parseFloat(Number(spread).toFixed(2)).toString(),
+  };
+}
+
 /**
- * Lightweight Properties or Market Statistics preview.
- * It starts no data requests; the real screen replaces it after loading.
+ * New-Order-weight launch shell for Properties and Market Statistics.
+ * Always cheap to paint: header + bid/ask + three metrics + a short row card.
+ * Full interactive screens mount only on the real routes behind this cover.
  */
 export const QuoteInfoLaunchShell = memo(function QuoteInfoLaunchShell({
+  active = false,
   backLatencyLabel = 'quoteInfo.shell.back',
   destination,
   onBack,
@@ -31,20 +102,25 @@ export const QuoteInfoLaunchShell = memo(function QuoteInfoLaunchShell({
   const normalizedSymbol = normalizeSymbol(symbol || 'EURUSD');
   const displaySymbol = normalizedSymbol.replace(/\//g, '');
   const insets = useSafeAreaInsets();
-  const themeMode = useUserPreferences((state) => state.themeMode);
-  const T = useTheme();
+  const T = useTheme({ active });
   const { t } = useTranslation();
-  const isDark = themeMode === 'dark';
-  const styles = useMemo(
-    () => makeStyles(T, isDark),
-    [T, isDark],
-  );
+  const isDark = useIsDarkTheme({ active });
+  const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
+  const liveQuote = useLiveQuoteSnapshot(normalizedSymbol, active);
+  const readout = useMemo(() => buildLaunchQuoteReadout(liveQuote), [liveQuote]);
   const isProperties = destination === 'properties';
   const title = isProperties ? t('Quote Details') : t('Market Statistics');
   const instrumentName = useMemo(
     () => getMeta(normalizedSymbol).name,
     [normalizedSymbol],
   );
+  const changeAccent = readout.changePct === undefined
+    ? T.textSub
+    : readout.isUp
+      ? T.up
+      : T.down;
+  const marketOpen = liveQuote?.tradeAllowed !== false;
+  const marketStatusColor = marketOpen ? T.up : T.down;
 
   return (
     <View
@@ -54,8 +130,6 @@ export const QuoteInfoLaunchShell = memo(function QuoteInfoLaunchShell({
       <View style={[styles.header, { paddingTop: insets.top }]}>
         <FastPressable
           onPress={onBack}
-          activateOnPressIn
-          activateOnTouchStart
           latencyLabel={backLatencyLabel}
           latencyBudgetMs={50}
           unstable_pressDelay={0}
@@ -70,263 +144,73 @@ export const QuoteInfoLaunchShell = memo(function QuoteInfoLaunchShell({
         <View style={styles.headerSpacer} />
       </View>
 
-      {isProperties ? (
-        <PropertiesLaunchViewport
-          displaySymbol={displaySymbol}
-          instrumentName={instrumentName}
-          isDark={isDark}
-          T={T}
-        />
-      ) : (
-        <View style={styles.body}>
-          <View style={styles.hero}>
-            <View style={styles.instrumentRow}>
-              <View style={styles.symbolMark}>
-                <Ionicons
-                  name="stats-chart-outline"
-                  size={20}
-                  color={T.trading.buy.primary}
-                />
-              </View>
-              <View style={styles.instrumentCopy}>
-                <Text style={styles.symbol}>{displaySymbol}</Text>
-                <Text style={styles.instrumentName}>{t('Market instrument')}</Text>
-              </View>
-              <View style={styles.marketChip}>
-                <View style={[styles.marketDot, { backgroundColor: T.up }]} />
-                <Text style={[styles.marketChipText, { color: T.up }]}>{t('Open')}</Text>
-              </View>
+      <View style={styles.body}>
+        <View style={styles.hero}>
+          <View style={styles.instrumentRow}>
+            <View style={styles.symbolMark}>
+              <Ionicons
+                name={isProperties ? 'document-text-outline' : 'stats-chart-outline'}
+                size={20}
+                color={T.trading.buy.primary}
+              />
             </View>
-
-            <View style={styles.quoteBand}>
-              <View style={styles.quoteSide}>
-                <Text style={[styles.quoteLabel, { color: T.down }]}>{t('BID')}</Text>
-                <Text style={styles.quoteValue}>--</Text>
-              </View>
-              <View style={styles.quoteDivider} />
-              <View style={styles.quoteSide}>
-                <Text style={[styles.quoteLabel, { color: T.trading.buy.primary }]}>{t('ASK')}</Text>
-                <Text style={styles.quoteValue}>--</Text>
-              </View>
+            <View style={styles.instrumentCopy}>
+              <Text style={styles.symbol}>{displaySymbol}</Text>
+              <Text style={styles.instrumentName} numberOfLines={1}>{instrumentName}</Text>
             </View>
-          </View>
-
-          <View style={styles.changeStrip}>
-            <LaunchMetric label={t('Change')} value="--" styles={styles} />
-            <LaunchMetric label={t('Points')} value="--" styles={styles} />
-            <LaunchMetric label={t('Spread')} value="--" styles={styles} />
-          </View>
-          <LaunchSection title={t('Session Statistics')} styles={styles}>
-            <LaunchRow label={t('Bid high')} value="--" styles={styles} />
-            <LaunchRow label={t('Bid low')} value="--" styles={styles} />
-            <LaunchRow label={t('Ask high')} value="--" styles={styles} />
-            <LaunchRow label={t('Ask low')} value="--" styles={styles} />
-            <LaunchRow label={t('Open price')} value="--" styles={styles} last />
-          </LaunchSection>
-        </View>
-      )}
-    </View>
-  );
-});
-
-function PropertiesLaunchViewport({
-  displaySymbol,
-  instrumentName,
-  isDark,
-  T,
-}: {
-  displaySymbol: string;
-  instrumentName: string;
-  isDark: boolean;
-  T: ThemeColors;
-}) {
-  const { t } = useTranslation();
-  // Reuse the real Properties styles so the preview does not jump
-  // when the full screen appears.
-  const s = useMemo(() => makeSymbolDetailsStyles(T, isDark), [T, isDark]);
-  const metrics = [
-    { icon: 'analytics-outline', label: t('Mid').toUpperCase() },
-    { icon: 'time-outline', label: t('Open').toUpperCase() },
-    { icon: 'calendar-outline', label: t('PREV') },
-    { icon: 'bar-chart-outline', label: t('Vol').toUpperCase() },
-  ] as const;
-
-  return (
-    // This is only a visual preview; the real screen handles scrolling and taps.
-    <ScrollView
-      scrollEnabled={false}
-      pointerEvents="none"
-      keyboardShouldPersistTaps="always"
-      canCancelContentTouches={false}
-      showsVerticalScrollIndicator={false}
-      contentContainerStyle={{ paddingBottom: 60, paddingTop: 6 }}
-    >
-      <View style={s.glassHero.container}>
-        {isDark ? <View style={s.glassHero.borderHighlight} /> : null}
-
-        <View style={[s.glassHero.header, { alignItems: 'flex-start' }]}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.hero.sym}>{displaySymbol}</Text>
-            <Text style={s.hero.name}>{instrumentName}</Text>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: 6, marginRight: -8 }}>
-            <View style={{ paddingHorizontal: 6, paddingVertical: 4 }}>
-              <Ionicons name="notifications-outline" size={22} color={T.textSub} />
-            </View>
-            <View style={{ paddingHorizontal: 6, paddingVertical: 4 }}>
-              <Ionicons name="share-outline" size={22} color={T.textSub} />
-            </View>
-          </View>
-        </View>
-
-        <View style={s.glassHero.priceRow}>
-          <Text style={[s.glassHero.bigPrice, { color: T.text }]}>--.-----</Text>
-          <View style={{ alignItems: 'flex-start', justifyContent: 'center' }}>
-            <View style={s.hero.changePill}>
-              <Ionicons name="caret-up" size={14} color={T.textSub} />
-              <Text style={[s.hero.changeTxt, { color: T.textSub }]}>--.--%</Text>
-            </View>
-            <Text style={s.glassHero.ptsTxt}>-- {t('pts today')}</Text>
-          </View>
-        </View>
-
-        <View style={s.ticker.container}>
-          <View style={s.ticker.spreadBadge}>
-            <Text style={s.ticker.spreadVal}>--</Text>
-            <Text style={s.ticker.spreadLbl}>{t('Spread').toUpperCase()}</Text>
-          </View>
-          <View style={s.ticker.inner}>
-            <View style={s.ticker.side}>
-              <View style={s.ticker.sideHeader}>
-                <Text style={[s.ticker.sideLabel, { color: T.down }]}>{t('SELL')}</Text>
-                <View style={s.ticker.arrowWrap}>
-                  <Ionicons name="caret-down" size={10} color={T.down} />
-                </View>
-              </View>
-              <View style={s.ticker.priceWrap}>
-                <Text style={s.ticker.priceBase}>--.</Text>
-                <Text style={[s.ticker.pipHighlight, { color: T.down }]}>--</Text>
-              </View>
-            </View>
-
-            <View style={s.ticker.dividerCol}>
-              <View style={s.ticker.dividerLine} />
-              <View style={s.ticker.pipBadge}>
-                <Text style={s.ticker.pipVal}>--</Text>
-                <Text style={s.ticker.pipUnit}>{t('PIP')}</Text>
-              </View>
-            </View>
-
-            <View style={s.ticker.side}>
-              <View style={s.ticker.sideHeader}>
-                <Text style={[s.ticker.sideLabel, { color: T.up }]}>{t('BUY')}</Text>
-                <View style={s.ticker.arrowWrap}>
-                  <Ionicons name="caret-up" size={10} color={T.up} />
-                </View>
-              </View>
-              <View style={s.ticker.priceWrap}>
-                <Text style={s.ticker.priceBase}>--.</Text>
-                <Text style={[s.ticker.pipHighlight, { color: T.up }]}>--</Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={[s.ticker.infoStrip, { justifyContent: 'center' }]}>
-            <View style={s.ticker.infoItem}>
-              <View style={[s.nav.liveDot, { marginRight: 2 }]} />
-              <Text style={[s.ticker.infoTxt, { fontSize: 11, textTransform: 'uppercase' }]}>
-                {t('Live Market Data')}
+            <View style={[styles.marketChip, { borderColor: marketStatusColor }]}>
+              <View style={[styles.marketDot, { backgroundColor: marketStatusColor }]} />
+              <Text style={[styles.marketChipText, { color: marketStatusColor }]}>
+                {marketOpen ? t('Open') : t('Closed')}
               </Text>
             </View>
           </View>
-        </View>
 
-        <View style={s.glassHero.metricsRow}>
-          {metrics.map((metric) => (
-            <View key={metric.label} style={s.mp.chip}>
-              <View style={s.mp.iconRow}>
-                <Ionicons name={metric.icon} size={14} color={T.textSub} />
-                <Text style={s.mp.lbl}>{metric.label}</Text>
-              </View>
-              <Text style={s.mp.val}>--</Text>
+          <View style={styles.quoteBand}>
+            <View style={styles.quoteSide}>
+              <Text style={[styles.quoteLabel, { color: T.down }]}>
+                {isProperties ? t('SELL') : t('BID')}
+              </Text>
+              <Text style={styles.quoteValue}>{readout.bidText}</Text>
             </View>
-          ))}
-        </View>
-
-        <View style={s.glassHero.rangeCard}>
-          <View style={s.glassHero.rangeTop}>
-            <View>
-              <Text style={s.glassHero.rangeLbl}>{t('LOW')}</Text>
-              <Text style={s.glassHero.rangeVal}>--</Text>
-            </View>
-            <View style={{ alignItems: 'center' }}>
-              <Text style={s.glassHero.rangeLbl}>{t('Day Range').toUpperCase()}</Text>
-              <Text style={s.glassHero.rangeVal}>--.--%</Text>
-            </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={s.glassHero.rangeLbl}>{t('HIGH')}</Text>
-              <Text style={s.glassHero.rangeVal}>--</Text>
-            </View>
-          </View>
-          <View style={{ paddingHorizontal: 14, paddingTop: 6 }}>
-            <View style={s.rangeB.track}>
-              <View style={[s.rangeB.fill, { width: '50%', backgroundColor: T.textMuted }]} />
-              <View style={[s.rangeB.knob, { left: '50%', borderColor: T.textMuted }]} />
+            <View style={styles.quoteDivider} />
+            <View style={styles.quoteSide}>
+              <Text style={[styles.quoteLabel, { color: T.trading.buy.primary }]}>
+                {isProperties ? t('BUY') : t('ASK')}
+              </Text>
+              <Text style={styles.quoteValue}>{readout.askText}</Text>
             </View>
           </View>
         </View>
 
-        <View style={s.mom.container}>
-          <View style={s.mom.header}>
-            <Text style={s.mom.title}>{t('Market Sentiment').toUpperCase()}</Text>
-          </View>
-          <View style={s.mom.barRow}>
-            <Text style={[s.mom.pctText, { color: T.up }]}>--%</Text>
-            <View style={s.mom.barTrack}>
-              <View style={[s.mom.barFillLeft, { width: '50%', backgroundColor: T.up }]} />
-              <View style={[s.mom.barFillRight, { width: '50%', backgroundColor: T.down }]} />
-            </View>
-            <Text style={[s.mom.pctText, { color: T.down }]}>--%</Text>
-          </View>
-          <View style={s.mom.labelRow}>
-            <Text style={[s.mom.label, { color: T.up }]}>{t('BUYERS')}</Text>
-            <Text style={[s.mom.label, { color: T.down }]}>{t('SELLERS')}</Text>
-          </View>
+        <View style={styles.changeStrip}>
+          <LaunchMetric
+            label={t('Change')}
+            value={readout.changeText}
+            valueColor={changeAccent}
+            styles={styles}
+          />
+          <LaunchMetric
+            label={t('Points')}
+            value={readout.pointsText}
+            valueColor={changeAccent}
+            styles={styles}
+          />
+          <LaunchMetric label={t('Spread')} value={readout.spreadText} styles={styles} />
         </View>
+
+        <LaunchSection
+          title={isProperties ? t('Contract Specification') : t('Session Statistics')}
+          styles={styles}
+        >
+          <LaunchRow label={t('Bid high')} value={readout.highText} styles={styles} />
+          <LaunchRow label={t('Bid low')} value={readout.lowText} styles={styles} />
+          <LaunchRow label={t('Open price')} value={readout.openText} styles={styles} last />
+        </LaunchSection>
       </View>
-
-      <View style={s.act.row}>
-        <View style={[s.act.btn, s.act.buyBtn, { backgroundColor: '#2563EB' }]}>
-          <Ionicons name="flash" size={15} color="#fff" />
-          <Text style={s.act.buyTxt}>{t('Trade Now')}</Text>
-        </View>
-        <View style={[s.act.btn, s.act.chartBtn]}>
-          <Ionicons name="stats-chart-outline" size={15} color={T.textSub} />
-          <Text style={s.act.chartTxt}>{t('Full Chart')}</Text>
-        </View>
-      </View>
-
-      <View style={s.sec.card}>
-        <View style={s.sec.headerGrad}>
-          <View style={s.sec.iconBox}>
-            <Ionicons name="reader-outline" size={13} color={T.trading.buy.primary} />
-          </View>
-          <Text style={s.sec.title}>{t('Contract Specification')}</Text>
-          <View style={{ flex: 1 }} />
-          <Ionicons name="chevron-up" size={14} color={T.textMuted} />
-        </View>
-        <View style={s.rw.row}>
-          <Text style={s.rw.key}>{t('Contract Size')}</Text>
-          <Text style={s.rw.val}>--</Text>
-        </View>
-        <View style={[s.rw.row, { borderBottomWidth: 0 }]}>
-          <Text style={s.rw.key}>{t('Min Volume')}</Text>
-          <Text style={s.rw.val}>--</Text>
-        </View>
-      </View>
-    </ScrollView>
+    </View>
   );
-}
+});
 
 type LaunchStyles = ReturnType<typeof makeStyles>;
 
@@ -370,15 +254,17 @@ function LaunchMetric({
   label,
   styles,
   value,
+  valueColor,
 }: {
   label: string;
   styles: LaunchStyles;
   value: string;
+  valueColor?: string;
 }) {
   return (
     <View style={styles.metric}>
       <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={styles.metricValue}>{value}</Text>
+      <Text style={[styles.metricValue, valueColor ? { color: valueColor } : null]}>{value}</Text>
     </View>
   );
 }

@@ -15,13 +15,25 @@ import { useUserPreferences } from '../../state/userPreferences';
 import { useTranslation } from '../../i18n/useTranslation';
 import type { ThemeColors } from '../../ui/theme/glass';
 import { useTheme } from '../../ui/theme/useTheme';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { safeRouterBack } from '../../utils/navigation';
 
-export function ChartOpenOrderModeScreen() {
+export type ChartOpenOrderModeScreenProps = Readonly<{
+  hosted?: boolean;
+  hostedActive?: boolean;
+  onHostedBack?: () => void;
+}>;
+
+export function ChartOpenOrderModeScreen({
+  hosted = false,
+  hostedActive = false,
+  onHostedBack,
+}: ChartOpenOrderModeScreenProps) {
   const router = useRouter();
   const { t } = useTranslation();
-  const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const themeActive = !hosted || hostedActive;
+  const T = useTheme({ active: themeActive });
+  const isDark = useIsDarkTheme({ active: themeActive });
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
@@ -30,6 +42,14 @@ export function ChartOpenOrderModeScreen() {
 
   const handleSelect = (mode: 'Regular' | 'Risk calculator' | 'One-click') => {
     setOpenOrderMode(mode);
+  };
+
+  const handleBack = () => {
+    if (hosted && onHostedBack) {
+      onHostedBack();
+      return;
+    }
+    safeRouterBack(router, '/chart/settings');
   };
 
   const screenBg = T.bgRoot;
@@ -41,7 +61,14 @@ export function ChartOpenOrderModeScreen() {
 
       {/* Header */}
       <View style={[styles.header, { backgroundColor: screenBg }]}>
-        <Pressable onPress={() => safeRouterBack(router, '/(tabs)/chart')} hitSlop={16} style={styles.headerBtn}>
+        <Pressable
+          onPress={handleBack}
+          activateOnPressIn
+          activateOnTouchStart
+          unstable_pressDelay={0}
+          hitSlop={16}
+          style={styles.headerBtn}
+        >
           <Ionicons name="arrow-back" size={22} color={T.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: T.text }]} numberOfLines={1}>

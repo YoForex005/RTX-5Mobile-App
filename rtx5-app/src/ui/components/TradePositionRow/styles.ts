@@ -5,15 +5,16 @@ export const tradePositionRowStyles = StyleSheet.create({
   row: {
     marginHorizontal: spacing.md,
     marginTop: spacing.sm,
-    paddingTop: 18,
+    paddingTop: 12,
     paddingBottom: 10,
     paddingHorizontal: spacing.md,
     borderRadius: 16,
     borderWidth: 1,
   },
+  // Press feedback only — never scale the card. A scale transform made the
+  // open trade row look like it was "shrinking" while expand/collapse ran.
   rowPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }],
+    opacity: 0.92,
   },
   shadowLight: {
     shadowColor: '#64748B',
@@ -36,23 +37,43 @@ export const tradePositionRowStyles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
+    gap: 8,
+  },
+  // Vertical stack: ticket, symbol row, open-price row — same left edge (x).
+  leftCol: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'flex-start',
+    gap: 4,
   },
   symbolLine: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    flex: 1,
+    minWidth: 0,
+    // No extra left padding — starts at the same x as ticketId and open price.
+    alignSelf: 'stretch',
+  },
+  ticketId: {
+    fontSize: 11,
+    fontWeight: '500',
+    fontVariant: ['tabular-nums'],
+    letterSpacing: 0,
+    // In-flow (not absolute) so it shares the left column edge with symbol/price.
+    textAlign: 'left',
   },
   symbol: {
     fontSize: 16,
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0,
+    flexShrink: 1,
   },
   sideBadge: {
     borderRadius: 3,
     paddingHorizontal: 6,
     paddingVertical: 2,
+    flexShrink: 0,
   },
   sideText: {
     fontSize: 11,
@@ -63,9 +84,11 @@ export const tradePositionRowStyles = StyleSheet.create({
   volume: {
     fontSize: 13,
     fontWeight: '500',
+    flexShrink: 0,
   },
   pnl: {
-    minWidth: 126,
+    minWidth: 110,
+    maxWidth: 140,
     textAlign: 'right',
     fontSize: 16,
     fontWeight: '600',
@@ -73,7 +96,7 @@ export const tradePositionRowStyles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   priceRow: {
-    marginTop: 10,
+    marginTop: 8,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -82,33 +105,31 @@ export const tradePositionRowStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
+    minWidth: 0,
+    // Same left edge as ticketId / symbolLine.
+    alignSelf: 'stretch',
   },
   price: {
     fontSize: 13,
     fontWeight: '500',
     fontVariant: ['tabular-nums'],
+    flexShrink: 0,
   },
   arrow: {
-    marginHorizontal: 4,
+    marginHorizontal: 2,
+    flexShrink: 0,
   },
   dateRight: {
     fontSize: 12,
     fontWeight: '500',
     textAlign: 'right',
     fontVariant: ['tabular-nums'],
+    marginTop: 4,
   },
   rightCol: {
     alignItems: 'flex-end',
     justifyContent: 'flex-start',
-  },
-  cornerId: {
-    position: 'absolute',
-    top: 4,
-    left: 8,
-    fontSize: 11,
-    fontWeight: '500',
-    fontVariant: ['tabular-nums'],
-    letterSpacing: 0,
+    flexShrink: 0,
   },
   slTpRow: {
     flexDirection: 'row',

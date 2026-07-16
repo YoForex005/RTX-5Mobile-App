@@ -13,16 +13,34 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { FastPressable } from '../../ui/components/FastPressable';
-import { safeRouterBack } from '../../utils/navigation';
+import {
+  safeRouterBack,
+  scheduleBackNavigationAfterVisualFrame,
+} from '../../utils/navigation';
 import { useUserPreferences, type ChartDisplaySettings } from '../../state/userPreferences';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useUIState, type PendingChartCommand } from '../../state/uiState';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useTheme } from '../../ui/theme/useTheme';
+import { useIsDarkTheme } from '../../state/themeMode';
+import { runImmediateAction } from '../../utils/actionLatency';
+import { navigateMountedSidebarTab } from '../../ui/components/sidebarDrawerController';
+import { showFastTabVisual } from '../../ui/navigation/fastTabVisualController';
+import {
+  showChartConfigDestination,
+  type ChartConfigDestination,
+} from './chartConfigDestinationController';
 import {
   CHART_SHOW_ON_CHART_ITEMS,
   type ChartShowOnChartKey,
 } from './chartShowOnChart';
+
+export type ChartSettingsScreenProps = Readonly<{
+  /** When true, shown from ChartSettingsHost over the live chart. */
+  hosted?: boolean;
+  hostedActive?: boolean;
+  onHostedBack?: () => void;
+}>;
 
 
 const SHOW_ON_CHART_ICONS: Record<ChartShowOnChartKey, keyof typeof Ionicons.glyphMap> = {
@@ -85,10 +103,16 @@ const shouldNavigateFromChartSettingsSwipe = (dx: number, dy: number, vx: number
 /**
  * Screen where users can toggle various chart visual preferences (OHLC, grid, trade levels, volumes) and configure chart behaviors.
  */
-export function ChartSettingsScreen() {
+export function ChartSettingsScreen({
+  hosted = false,
+  hostedActive = false,
+  onHostedBack,
+}: ChartSettingsScreenProps = {}) {
   const { t } = useTranslation();
-  const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  // When hosted but inactive, freeze theme so light/dark toggles stay cheap.
+  const themeActive = !hosted || hostedActive;
+  const T = useTheme({ active: themeActive });
+  const isDark = useIsDarkTheme({ active: themeActive });
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
@@ -106,11 +130,58 @@ export function ChartSettingsScreen() {
   const setChartShowOnChartItem = useUserPreferences((s) => s.setChartShowOnChartItem);
   const queueChartCommand = useUIState((s) => s.queueChartCommand);
   /**
-   * Closes the chart settings screen and returns the user to the active chart.
+   * Closes Chart Preferences and returns to the live chart.
+   * Hosted path: hide the retained layer in this press turn (no stack pop / no chart re-mount lag).
+   * Route path: defer the stack pop one visual frame so chrome does not freeze.
    */
   const handleReturnToChart = useCallback(() => {
-    safeRouterBack(router, '/(tabs)/chart');
+    if (hosted && onHostedBack) {
+      onHostedBack();
+      return;
+    }
+    scheduleBackNavigationAfterVisualFrame(() => {
+      safeRouterBack(router, '/(tabs)/chart');
+    });
+  }, [hosted, onHostedBack]);
+  /**
+   * Sidebar-style: reveal a pre-mounted configuration screen in this tap turn.
+   * No router.push is required for first paint.
+   */
+  const openConfigDestination = useCallback((destination: ChartConfigDestination, label: string) => {
+    runImmediateAction(`chart.config.${label}.open`, () => {
+      showChartConfigDestination(destination);
+    });
   }, []);
+
+  const handleOpenSchemaColors = useCallback(() => {
+    openConfigDestination('schema-colors', 'schemaColors');
+  }, [openConfigDestination]);
+
+  const handleOpenPriceSource = useCallback(() => {
+    openConfigDestination('price-source', 'priceSource');
+  }, [openConfigDestination]);
+
+  const handleOpenOrderMode = useCallback(() => {
+    openConfigDestination('open-order-mode', 'openOrderMode');
+  }, [openConfigDestination]);
+
+  const handleOpenPriceAlerts = useCallback(() => {
+    openConfigDestination('alerts', 'alerts');
+  }, [openConfigDestination]);
+
+  /** Chart row: flip the retained Chart tab instantly (same as sidebar tabs). */
+  const handleOpenChartTab = useCallback(() => {
+    runImmediateAction('chart.config.chartTab.open', () => {
+      // Hosted Preferences sits over the live chart — hide it first for an instant return.
+      if (hosted && onHostedBack) {
+        onHostedBack();
+      }
+      showFastTabVisual('chart');
+      if (!navigateMountedSidebarTab('/chart')) {
+        router.push('/(tabs)/chart');
+      }
+    });
+  }, [hosted, onHostedBack]);
   const getChartDisplaySettingEnabled = useCallback(
     (key: keyof ChartDisplaySettings) => {
       const linkedShowOnChartKey = CHART_DISPLAY_TO_SHOW_ON_CHART_KEY[key];
@@ -191,7 +262,15 @@ export function ChartSettingsScreen() {
       <View style={styles.swipeHost} {...chartReturnSwipePanResponder.panHandlers}>
         <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
           <View style={styles.headerRow}>
-            <FastPressable onPress={handleReturnToChart} latencyLabel="chartSettings.back" hitSlop={16} style={styles.headerBackBtn}>
+            <FastPressable
+              onPress={handleReturnToChart}
+              activateOnPressIn
+              activateOnTouchStart
+              unstable_pressDelay={0}
+              latencyLabel="chartSettings.back"
+              hitSlop={16}
+              style={styles.headerBackBtn}
+            >
               <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
             </FastPressable>
             <View style={styles.headerTitleWrap} pointerEvents="none">
@@ -214,28 +293,28 @@ export function ChartSettingsScreen() {
           <NavRow
             label="Chart Schema & Colors"
             value=""
-            onPress={() => router.push('/chart/schema-colors')}
+            onPress={handleOpenSchemaColors}
             styles={styles}
           />
           <View style={styles.separator} />
           <NavRow
             label="Chart"
             value="RTX-5"
-            onPress={() => router.push('/(tabs)/chart')}
+            onPress={handleOpenChartTab}
             styles={styles}
           />
           <View style={styles.separator} />
           <NavRow
             label="Price source"
             value={priceSource === 'bid' ? t('Bid prices') : t('Ask prices')}
-            onPress={() => router.push('/chart/price-source')}
+            onPress={handleOpenPriceSource}
             styles={styles}
           />
           <View style={styles.separator} />
           <NavRow
             label="Open order mode"
             value={t(openOrderMode)}
-            onPress={() => router.push('/chart/open-order-mode')}
+            onPress={handleOpenOrderMode}
             styles={styles}
           />
         </View>
@@ -347,7 +426,7 @@ export function ChartSettingsScreen() {
           <NavRow
             label="Price Alerts"
             value=""
-            onPress={() => router.push('/chart/alerts')}
+            onPress={handleOpenPriceAlerts}
             styles={styles}
           />
         </View>
@@ -524,6 +603,8 @@ function NavRow({
     <FastPressable
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       onPress={onPress}
+      activateOnPressIn
+      unstable_pressDelay={0}
       latencyLabel={`chartSettings.nav.${label}`}
     >
       <Text style={styles.rowLabel}>{t(label)}</Text>

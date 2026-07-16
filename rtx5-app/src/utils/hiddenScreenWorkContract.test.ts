@@ -16,7 +16,6 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   const marketStatusSource = readSource('src/query/marketStatus.ts');
   const priceAlertsSource = readSource('src/features/chart/PriceAlertsScreen/PriceAlertsScreen.tsx');
   const chartSpecificationSource = readSource('src/features/chart/ChartSpecificationScreen.tsx');
-  const newsSource = readSource('src/features/settings/NewsScreen.tsx');
   const registerSource = readSource('app/register.tsx');
   const publicDemoSource = readSource('src/query/publicDemo.ts');
   const liveCandlesSource = readSource('src/domain/candles/hooks/useLiveCandles.ts');
@@ -31,7 +30,8 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.match(quotesSource, /const QuotesScreenInner = React\.memo\(function QuotesScreenInner\(\{ isScreenFocused \}: \{ isScreenFocused: boolean \}\)/);
   assert.match(quotesSource, /export function QuotesScreen\(\) \{\s*const isScreenFocused = useIsFocused\(\);\s*const deferredScreenFocused = useNextFrameValue\(isScreenFocused\);\s*return <QuotesScreenInner isScreenFocused=\{deferredScreenFocused\} \/>;\s*\}/);
   assert.match(quotesSource, /const quoteRouteActive = isScreenFocused/);
-  assert.match(quotesSource, /const quoteCatalogActive = quoteRouteActive && !quoteSheetRouteActionPending/);
+  assert.match(quotesSource, /const quoteCatalogActive = quoteRouteActive/);
+  assert.doesNotMatch(quotesSource, /quoteSheetRouteActionPending|setQuoteSheetRouteActionPending/);
   assert.match(quotesSource, /const quoteWatchlistActive = quoteCatalogActive && isLoggedIn/);
   assert.match(quotesSource, /useMarketSymbols\(quoteCatalogActive\)/);
   assert.match(quotesSource, /useWatchlistQuery\(quoteWatchlistActive\)/);
@@ -130,8 +130,6 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.match(chartSpecificationSource, /const isScreenFocused = useIsFocused\(\)/);
   assert.match(chartSpecificationSource, /useInstrumentMeta\(currentSymbol, isScreenFocused\)/);
   assert.match(chartSpecificationSource, /useMarketStatus\(currentSymbol, isScreenFocused\)/);
-  assert.match(newsSource, /const isScreenFocused = useIsFocused\(\)/);
-  assert.match(newsSource, /useMarketSymbols\(isScreenFocused\)/);
 });
 
 test('settings, trade, and history screens pause work when another screen is focused', () => {
@@ -247,7 +245,9 @@ test('settings, trade, and history screens pause work when another screen is foc
   assert.match(calendarSource, /const \[dataEvents, setDataEvents\] = useState<EconomicEvent\[\]>\(initialEvents\)/);
   assert.match(calendarSource, /if \(!isScreenFocused\) \{[\s\S]*return;[\s\S]*\}/);
   assert.doesNotMatch(calendarSource, /CALENDAR_INITIAL_DATA_DELAY_MS|calendarDataReady/);
-  assert.match(calendarSource, /const routeBodyReady = useDeferredRouteContentReady\(0, isScreenFocused\)/);
+  assert.match(calendarSource, /const ECON_CALENDAR_BODY_PREWARM_DELAY_MS = 2_800/);
+  assert.match(calendarSource, /const routeBodyReady = useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : ECON_CALENDAR_BODY_PREWARM_DELAY_MS,\s*\)/);
+  assert.doesNotMatch(calendarSource, /useDeferredRouteContentReady\(0, isScreenFocused\)/);
   // One bounded idle prewarm is the only work the hidden calendar shell may do:
   // it fills the event cache once, well after boot, so the FIRST sidebar visit
   // reveals real rows (MT5 parity) instead of fetching on focus.

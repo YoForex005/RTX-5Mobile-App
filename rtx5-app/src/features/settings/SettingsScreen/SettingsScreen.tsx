@@ -35,7 +35,7 @@ import { useThemeMode } from '../../../state/themeMode';
 import { clearAuthSessionTokens } from '../../../state/brokerSessionStorage';
 import { useUIState } from '../../../state/uiState';
 import { fmt } from '../../../utils/format';
-import { useTheme } from '../../../ui/theme/useTheme';
+import { GDark, GLight } from '../../../ui/theme/glass';
 import { useTranslation } from '../../../i18n/useTranslation';
 import { SUPPORTED_LANGUAGES, translateAccountCardName } from '../../../i18n/translations';
 import { useLiveAccountState } from '../../../state/liveAccountState';
@@ -124,7 +124,13 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
       accountDetails: state.accountDetails,
     })),
   );
-  const themeMode = useThemeMode();
+  // Navigation focus (not deferred isScreenFocused) so the first Settings paint
+  // after a sidebar theme tap already reads the live immediate theme store.
+  const appliedThemeMode = useThemeMode();
+  // Optimistic local mode: Theme switch/label flip on the press turn before
+  // the rest of the app finishes adopting the new palette.
+  const [pendingThemeMode, setPendingThemeMode] = useState<'light' | 'dark' | null>(null);
+  const themeMode = pendingThemeMode ?? appliedThemeMode;
   const brokerId = useUserPreferences((s) => s.brokerId);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const isAccountConnected = hasAuthenticatedAccountSession(isLoggedIn, accountDetails);
@@ -138,6 +144,12 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
   const liveBalance = useLiveAccountState((s) => s.balance);
   const liveHasBalance = useLiveAccountState((s) => s.metricFlags.balance);
   const [firstPaintReady, setFirstPaintReady] = useState(false);
+
+  useEffect(() => {
+    if (pendingThemeMode !== null && pendingThemeMode === appliedThemeMode) {
+      setPendingThemeMode(null);
+    }
+  }, [appliedThemeMode, pendingThemeMode]);
   useEffect(() => {
     let cancelled = false;
     let frameId: number | null = null;
@@ -186,7 +198,12 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
   const displayCurrency = activeAccount?.currency ?? 'USD';
   const displayBrokerName = brokerConfig?.broker_name ?? '---';
   const setSearchActive = useUIState((s) => s.setSearchActive);
-  const T = useTheme();
+  // Drive Settings chrome from optimistic themeMode so the screen flips in the
+  // same press turn as the switch.
+  const T = useMemo(
+    () => (themeMode === 'light' ? GLight : GDark),
+    [themeMode],
+  );
   const { t, language } = useTranslation();
   const displayAccountName = translateAccountCardName(rawAccountName, t);
   const currentLanguageNative = SUPPORTED_LANGUAGES.find((l) => l.code === language)?.nativeName ?? 'English';
@@ -212,9 +229,16 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
       style={StyleSheet.absoluteFillObject}
     />
   ) : null;
+  const applyThemeMode = useCallback((nextMode: 'light' | 'dark') => {
+    if (themeMode === nextMode && appliedThemeMode === nextMode) {
+      return;
+    }
+    setPendingThemeMode(nextMode);
+    setThemeMode(nextMode);
+  }, [appliedThemeMode, setThemeMode, themeMode]);
   const toggleThemeMode = useCallback(() => {
-    setThemeMode(themeMode === 'light' ? 'dark' : 'light');
-  }, [setThemeMode, themeMode]);
+    applyThemeMode(themeMode === 'light' ? 'dark' : 'light');
+  }, [applyThemeMode, themeMode]);
 
   void activeAccount;
 
@@ -578,7 +602,7 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
                         <View pointerEvents="none">
                           <Switch
                             value={themeMode === 'light'}
-                            onValueChange={(val) => setThemeMode(val ? 'light' : 'dark')}
+                            onValueChange={(val) => applyThemeMode(val ? 'light' : 'dark')}
                             trackColor={{ false: settingsSwitchOffTrack, true: settingsSwitchTrack }}
                             thumbColor={themeMode === 'light' ? '#3b82f6' : settingsSwitchThumbInactive}
                             style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
@@ -791,7 +815,7 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
                   <View pointerEvents="none">
                     <Switch
                       value={themeMode === 'light'}
-                      onValueChange={(val) => setThemeMode(val ? 'light' : 'dark')}
+                      onValueChange={(val) => applyThemeMode(val ? 'light' : 'dark')}
                       trackColor={{ false: settingsSwitchOffTrack, true: settingsSwitchTrack }}
                       thumbColor={themeMode === 'light' ? '#3b82f6' : settingsSwitchThumbInactive}
                       style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}

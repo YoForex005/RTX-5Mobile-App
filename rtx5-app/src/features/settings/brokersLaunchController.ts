@@ -152,6 +152,17 @@ export function showBrokersLaunch() {
   return brokersLaunchController.show();
 }
 
+/**
+ * Reveals Brokers while a higher route is already being popped back to it.
+ * Marking navigation as started distinguishes this reverse handoff from an
+ * Accounts -> Brokers launch that can still be cancelled before its push.
+ */
+export function showBrokersReturnLaunch() {
+  const revision = brokersLaunchController.show();
+  brokersLaunchController.startNavigation(revision);
+  return revision;
+}
+
 export function hideBrokersLaunch(revision?: number) {
   return brokersLaunchController.hide(revision);
 }

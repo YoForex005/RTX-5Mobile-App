@@ -22,7 +22,10 @@ import { AppLogo } from './AppLogo';
 import { resolveAppDisplayVersion } from '../../config/appDisplayVersion';
 import { getConfiguredSupportEmail } from '../../config/legalLinks';
 import { buildHelpMailto } from '../../features/settings/helpViewModel';
+import { pauseLiveQuoteSnapshotNotifications } from '../../features/quotes/useLiveQuotes';
 import { useTranslation } from '../../i18n/useTranslation';
+import { pauseLiveSymbolQuoteNotifications } from '../../query/websocket';
+import { quotesWsService } from '../../api/ws/quotesSocket';
 import { navigateMountedSidebarTab, registerSidebarOpenHandler } from './sidebarDrawerController';
 import {
   hideSidebarDestination,
@@ -31,8 +34,7 @@ import {
   sidebarDestinationController,
 } from './sidebarDestinationHostController';
 import {
-  scheduleFastTabNavigation,
-  showFastTabVisual,
+  showFastTabVisualForSidebar,
 } from '../navigation/fastTabVisualController';
 
 // ─── Menu Items ──────────────────────────────────────────────────────────────
@@ -60,11 +62,14 @@ const MENU_ITEMS: MenuItem[] = [
 const DRAWER_WIDTH = 310;
 const DRAWER_CLOSED_TRANSLATE_X = -DRAWER_WIDTH - 2;
 const DRAWER_OPEN_ANIMATION_MS = 110;
-const DRAWER_CLOSE_ANIMATION_MS = 90;
+const DRAWER_CLOSE_ANIMATION_MS = 60;
 const SIDEBAR_MENU_ITEM_HIT_SLOP = { top: 6, bottom: 6, left: 8, right: 8 } as const;
 const SIDEBAR_PROFILE_ACTION_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 4 } as const;
 const SIDEBAR_NAVIGATION_LOCK_MS = 50;
 const SIDEBAR_PROFILE_DATA_DELAY_MS = 1200;
+const SIDEBAR_LIVE_WORK_PAUSE_TIMEOUT_MS = 30_000;
+const SIDEBAR_LIVE_WORK_RESUME_DELAY_MS = 180;
+const SIDEBAR_RECONNECT_DEFER_MS = 1_000;
 const LOGGED_OUT_PREFETCH_ROUTES = ['/login'] as const;
 const SIDEBAR_STACK_ROUTES = new Set<string>(LOGGED_OUT_PREFETCH_ROUTES);
 const SIDEBAR_PUSH_ROUTE_PREFIXES = ['/settings/'] as const;
@@ -97,23 +102,6 @@ function scheduleNextFrame(action: () => void) {
     return;
   }
   setTimeout(action, 0);
-}
-
-/**
- * MT5-style transition sequencing: the destination is swapped in behind the
- * drawer FIRST, its reveal render gets a full frame to draw, and only then
- * does the close slide start — so the 90ms motion is pure animation with no
- * concurrent commit. Starting the close in the same turn as the reveal was
- * measured dropping the close from 60fps to ~2-3 total frames on-device.
- */
-function scheduleCloseAfterRevealFrame(action: () => void) {
-  if (typeof globalThis.requestAnimationFrame !== 'function') {
-    setTimeout(action, 32);
-    return;
-  }
-  globalThis.requestAnimationFrame(() => {
-    globalThis.requestAnimationFrame(action);
-  });
 }
 
 function normalizeSidebarPath(path: string) {
@@ -213,9 +201,13 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
   const overlayAnim = useRef(new Animated.Value(initialSidebarOpenRef.current ? 1 : 0)).current;
   const isClosingRef = useRef(false);
   const animatedVisibleRef = useRef(initialSidebarOpenRef.current);
+  const drawerAnimationGenerationRef = useRef(0);
   const interactiveGenerationRef = useRef(0);
   const navigationLockedRef = useRef(false);
   const navigationUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveSnapshotPauseReleaseRef = useRef<(() => void) | null>(null);
+  const liveSymbolPauseReleaseRef = useRef<(() => void) | null>(null);
+  const liveWorkResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<View>(null);
 
   useEffect(() => {
@@ -243,14 +235,53 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
       clearTimeout(navigationUnlockTimerRef.current);
       navigationUnlockTimerRef.current = null;
     }
+    if (liveWorkResumeTimerRef.current) {
+      clearTimeout(liveWorkResumeTimerRef.current);
+      liveWorkResumeTimerRef.current = null;
+    }
+    liveSnapshotPauseReleaseRef.current?.();
+    liveSnapshotPauseReleaseRef.current = null;
+    liveSymbolPauseReleaseRef.current?.();
+    liveSymbolPauseReleaseRef.current = null;
   }, []);
 
   useEffect(() => {
     setBrokerLogoFailed(false);
   }, [activeBrokerLogoUrl]);
 
+  const pauseLiveWorkForDrawer = useCallback(() => {
+    if (liveWorkResumeTimerRef.current) {
+      clearTimeout(liveWorkResumeTimerRef.current);
+      liveWorkResumeTimerRef.current = null;
+    }
+    liveSnapshotPauseReleaseRef.current ??=
+      pauseLiveQuoteSnapshotNotifications(SIDEBAR_LIVE_WORK_PAUSE_TIMEOUT_MS);
+    liveSymbolPauseReleaseRef.current ??=
+      pauseLiveSymbolQuoteNotifications(SIDEBAR_LIVE_WORK_PAUSE_TIMEOUT_MS);
+    // This service API is a shared expiry, not an owned token. Extend it only
+    // for this short motion and let it expire; clearing it here could cancel a
+    // newer Quotes action-sheet deferral.
+    quotesWsService.deferReconnectForInteraction?.(SIDEBAR_RECONNECT_DEFER_MS);
+  }, []);
+
+  const scheduleLiveWorkResumeAfterClose = useCallback(() => {
+    if (liveWorkResumeTimerRef.current) {
+      clearTimeout(liveWorkResumeTimerRef.current);
+    }
+    liveWorkResumeTimerRef.current = setTimeout(() => {
+      liveWorkResumeTimerRef.current = null;
+      liveSnapshotPauseReleaseRef.current?.();
+      liveSnapshotPauseReleaseRef.current = null;
+      liveSymbolPauseReleaseRef.current?.();
+      liveSymbolPauseReleaseRef.current = null;
+    }, SIDEBAR_LIVE_WORK_RESUME_DELAY_MS);
+  }, []);
+
   /* Keep the drawer warm offscreen so opening only has to run native-driver motion. */
   const startOpenAnimation = useCallback(() => {
+    pauseLiveWorkForDrawer();
+    const animationGeneration = drawerAnimationGenerationRef.current + 1;
+    drawerAnimationGenerationRef.current = animationGeneration;
     animatedVisibleRef.current = true;
     isClosingRef.current = false;
     slideAnim.stopAnimation();
@@ -269,11 +300,15 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
         useNativeDriver: true,
       }),
     ]).start(({ finished }) => {
-      if (finished && animatedVisibleRef.current) {
+      if (
+        animationGeneration === drawerAnimationGenerationRef.current
+        && finished
+        && animatedVisibleRef.current
+      ) {
         setSidebarOpen(true);
       }
     });
-  }, [overlayAnim, setSidebarOpen, slideAnim]);
+  }, [overlayAnim, pauseLiveWorkForDrawer, setSidebarOpen, slideAnim]);
 
   const showInteractiveAfterVisualFrame = useCallback(() => {
     const generation = interactiveGenerationRef.current + 1;
@@ -313,8 +348,15 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
    */
   const handleClose = useCallback((afterClose?: () => void) => {
     if (isClosingRef.current) return;
+    const animationGeneration = drawerAnimationGenerationRef.current + 1;
+    drawerAnimationGenerationRef.current = animationGeneration;
     animatedVisibleRef.current = false;
     isClosingRef.current = true;
+    quotesWsService.deferReconnectForInteraction?.(SIDEBAR_RECONNECT_DEFER_MS);
+    // Stop intercepting the newly revealed screen in this touch turn without
+    // adding a React state commit to the native-driver close animation.
+    interactiveGenerationRef.current += 1;
+    containerRef.current?.setNativeProps({ pointerEvents: 'none' });
     slideAnim.stopAnimation();
     overlayAnim.stopAnimation();
     Animated.parallel([
@@ -330,13 +372,27 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
-    ]).start(() => {
+    ]).start(({ finished }) => {
+      if (
+        animationGeneration !== drawerAnimationGenerationRef.current
+        || !finished
+        || animatedVisibleRef.current
+      ) {
+        if (animationGeneration === drawerAnimationGenerationRef.current) {
+          isClosingRef.current = false;
+        }
+        // Route taps use this callback only to release their single-flight
+        // lock. Never apply stale close state to a newly reopened drawer.
+        afterClose?.();
+        return;
+      }
       onClose();
       hideInteractiveNow();
       isClosingRef.current = false;
+      scheduleLiveWorkResumeAfterClose();
       afterClose?.();
     });
-  }, [hideInteractiveNow, onClose, overlayAnim, slideAnim]);
+  }, [hideInteractiveNow, onClose, overlayAnim, scheduleLiveWorkResumeAfterClose, slideAnim]);
 
   useEffect(() => {
     const unsubscribe = useUIState.subscribe((state, previousState) => {
@@ -389,6 +445,7 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
     // an open drawer or wait for the close animation.
     animatedVisibleRef.current = false;
     isClosingRef.current = false;
+    drawerAnimationGenerationRef.current += 1;
     slideAnim.stopAnimation();
     overlayAnim.stopAnimation();
     slideAnim.setValue(DRAWER_CLOSED_TRANSLATE_X);
@@ -455,28 +512,27 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
 
     if (resolveSidebarHostDestination(route)) {
       showSidebarDestination(route, 'sidebar');
-      scheduleCloseAfterRevealFrame(() => {
-        handleClose(() => {
-          unlockSidebarNavigation();
-        });
+      handleClose(() => {
+        unlockSidebarNavigation();
       });
       return;
     }
 
     if (SIDEBAR_PRIMARY_TAB_ROUTES.has(route)) {
-      const visualRevision = showFastTabVisual(route);
+      showFastTabVisualForSidebar(route);
       hideSidebarDestination();
-      scheduleCloseAfterRevealFrame(() => {
-        handleClose(() => {
-          unlockSidebarNavigation();
-        });
+      // Start the native close before dispatching navigation, then let the
+      // mounted tab adopt the same visual choice in this tap turn. Waiting for
+      // the close callback left a brief old-tab highlight under the newly
+      // revealed Trade/Settings screen when JS was busy.
+      handleClose(() => {
+        unlockSidebarNavigation();
       });
-      if (visualRevision !== null) {
-        scheduleFastTabNavigation(visualRevision, () => {
-          runSidebarNavigation(route);
-        });
-      } else {
+      try {
         runSidebarNavigation(route);
+      } catch (error) {
+        unlockSidebarNavigation();
+        throw error;
       }
       return;
     }
@@ -516,10 +572,11 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
     snapClosedForNavigation();
     hideInteractiveNow();
     onClose();
+    scheduleLiveWorkResumeAfterClose();
     void openSupportEmail().finally(() => {
       unlockSidebarNavigation();
     });
-  }, [hideInteractiveNow, onClose, openSupportEmail, snapClosedForNavigation, unlockSidebarNavigation]);
+  }, [hideInteractiveNow, onClose, openSupportEmail, scheduleLiveWorkResumeAfterClose, snapClosedForNavigation, unlockSidebarNavigation]);
 
   /**
    * Navigates to the selected route when a menu item is tapped, automatically closing the drawer.
@@ -567,8 +624,6 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
 
         {/* Drawer */}
         <Animated.View
-          renderToHardwareTextureAndroid
-          shouldRasterizeIOS
           style={[
             ds.drawer,
             { transform: [{ translateX: slideAnim }] },
@@ -738,7 +793,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       right: 0,
       bottom: 0,
       left: DRAWER_WIDTH,
-      backgroundColor: isDark ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.3)',
+      // While switching to dark, conceal the retained chart WebView for its
+      // brief native bridge catch-up. The close fade reveals the themed chart.
+      backgroundColor: isDark ? '#000000' : 'rgba(0,0,0,0.3)',
       zIndex: 0,
       elevation: 0,
     },

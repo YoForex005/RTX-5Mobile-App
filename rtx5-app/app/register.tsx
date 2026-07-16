@@ -57,7 +57,7 @@ import {
 } from '../src/utils/navigation';
 import {
   brokerDetailLaunchController,
-  showBrokerDetailLaunch,
+  showBrokerDetailReturnLaunch,
 } from '../src/features/settings/brokerDetailLaunchController';
 import {
   hideRegisterLaunch,
@@ -384,9 +384,12 @@ export default function RegisterScreen() {
     if (Number.isInteger(parsedRegisterLaunchRevision)) {
       const launchSnapshot = registerLaunchController.getSnapshot();
       const backResult = requestRegisterLaunchBack(parsedRegisterLaunchRevision);
-      if (backResult === 'pop' && launchSnapshot.selection) {
+      if (
+        (backResult === 'pop' || backResult === 'wait' || backResult === 'handled')
+        && launchSnapshot.selection
+      ) {
         registerBackNavigationStartedRef.current = true;
-        showBrokerDetailLaunch(launchSnapshot.selection);
+        showBrokerDetailReturnLaunch(launchSnapshot.selection);
         hideRegisterLaunch(parsedRegisterLaunchRevision);
         scheduleBackNavigationAfterVisualFrame(() => {
           safeRouterBack(router, {
@@ -404,7 +407,7 @@ export default function RegisterScreen() {
     registerBackNavigationStartedRef.current = true;
     if (returnsToBrokerDetail) {
       const selection = brokerDetailLaunchController.getSnapshot().selection;
-      showBrokerDetailLaunch(selection);
+      showBrokerDetailReturnLaunch(selection);
       scheduleBackNavigationAfterVisualFrame(() => {
         safeRouterBack(router, {
           pathname: '/settings/broker-detail',

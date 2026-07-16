@@ -5,6 +5,7 @@
  */
 
 import type { BrokerDetailLaunchSelection } from './brokerDetailLaunchController';
+import { warmDemoAccountForm } from './registerScreenPreload';
 
 export type RegisterLaunchSnapshot = Readonly<{
   visible: boolean;
@@ -220,6 +221,9 @@ controllerGlobal.__rtx5RegisterLaunchController = registerLaunchController;
 controllerGlobal.__rtx5RegisterLaunchControllerVersion = REGISTER_LAUNCH_CONTROLLER_VERSION;
 
 export function showRegisterLaunch(selection: BrokerDetailLaunchSelection) {
+  // Kick the Demo form module while the retained shell paints so register-entry
+  // can mount immediately when the module is already warm.
+  void warmDemoAccountForm();
   return registerLaunchController.show(selection);
 }
 

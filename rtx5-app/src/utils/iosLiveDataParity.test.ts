@@ -21,7 +21,7 @@ test('live data websocket URLs stay iOS-safe across quote candle account and pri
   assert.match(brokerRoutingSource, /url\.protocol !== 'wss:'/);
   assert.match(brokerRoutingSource, /isRawIpHost\(url\.hostname\)/);
 
-  assert.match(quotesSocketSource, /brokerApi\.getWebSocketUrl\(\)/);
+  assert.match(quotesSocketSource, /brokerApi\.getQuoteWebSocketUrl\(\)/);
   assert.doesNotMatch(quotesSocketSource, /EXPO_PUBLIC_QUOTES_WS_URL|DEFAULT_QUOTES_WS_URL|appendFeedAuthToWsUrl/);
   assert.match(
     quotesSocketSource,

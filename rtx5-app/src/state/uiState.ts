@@ -59,6 +59,12 @@ export type ActionSheetConfig = {
   minimumTopInset?: number;
   /** If true, mounts the sheet visible immediately without the entry delay */
   instantOpen?: boolean;
+  /** Optional entry motion; MT5 slide keeps first-pixel response immediate while animating native values. */
+  entryMotion?: 'instant' | 'mt5Slide' | 'standard';
+  /** Hide the retained host synchronously on close without changing the entry animation. */
+  immediateHostHideOnClose?: boolean;
+  /** Opaque identity used to reveal an exact retained sheet before React adopts visibility. */
+  visualKey?: string;
   /** If true, defers action execution until after sheet dismiss animation */
   runActionAfterClose?: boolean;
   /** Android keyboard avoidance mode for searchable sheets */
@@ -77,7 +83,6 @@ export type ActionSheetScope =
   | 'chart'
   | 'trade'
   | 'history'
-  | 'settingsNews'
   | 'settingsAccounts'
   | 'settingsBrokerDetail';
 type ScopedActionSheetState = Record<ActionSheetScope, ActionSheetConfig | null>;
@@ -87,7 +92,6 @@ const ACTION_SHEET_SCOPES: ActionSheetScope[] = [
   'chart',
   'trade',
   'history',
-  'settingsNews',
   'settingsAccounts',
   'settingsBrokerDetail',
 ];
@@ -97,7 +101,6 @@ const createEmptyScopedActionSheets = (): ScopedActionSheetState => ({
   chart: null,
   trade: null,
   history: null,
-  settingsNews: null,
   settingsAccounts: null,
   settingsBrokerDetail: null,
 });
@@ -105,13 +108,17 @@ const createEmptyScopedActionSheets = (): ScopedActionSheetState => ({
 const hasScopedActionSheet = (sheets: ScopedActionSheetState) =>
   ACTION_SHEET_SCOPES.some((scope) => sheets[scope] !== null);
 
+const withInstantActionSheetOpen = (config: ActionSheetConfig): ActionSheetConfig => (
+  config.instantOpen === true ? config : { ...config, instantOpen: true }
+);
+
 const openScopedActionSheet = (
   sheets: ScopedActionSheetState,
   scope: ActionSheetScope,
   config: ActionSheetConfig,
 ): ScopedActionSheetState => ({
   ...sheets,
-  [scope]: { ...config, instantOpen: true },
+  [scope]: withInstantActionSheetOpen(config),
 });
 
 const hideScopedActionSheetState = (
@@ -125,11 +132,14 @@ const closeScopedActionSheet = (
   state: {
     actionSheetScope: ActionSheetScope | null;
     scopedActionSheets: ScopedActionSheetState;
+    preloadedScopedActionSheets: ScopedActionSheetState;
   },
   scope: ActionSheetScope,
 ) => {
   const nextSheets = hideScopedActionSheetState(state.scopedActionSheets, scope);
-  const nextScope = state.actionSheetScope === scope ? null : state.actionSheetScope;
+  const nextScope = state.actionSheetScope === scope
+    ? (state.preloadedScopedActionSheets[scope] ? scope : null)
+    : state.actionSheetScope;
   if (nextSheets === state.scopedActionSheets && nextScope === state.actionSheetScope) {
     return state;
   }
@@ -202,8 +212,6 @@ type UIState = {
   hideTradeActionSheet: () => void;
   showHistoryActionSheet: (config: ActionSheetConfig) => void;
   hideHistoryActionSheet: () => void;
-  showNewsActionSheet: (config: ActionSheetConfig) => void;
-  hideNewsActionSheet: () => void;
   showAccountsActionSheet: (config: ActionSheetConfig) => void;
   hideAccountsActionSheet: () => void;
   showBrokerDetailActionSheet: (config: ActionSheetConfig) => void;
@@ -242,8 +250,8 @@ export const useUIState = create<UIState>((set) => ({
   scopedActionSheets: createEmptyScopedActionSheets(),
   preloadedScopedActionSheets: createEmptyScopedActionSheets(),
   actionSheetScope: null,
-  showActionSheet: (config) => set({ actionSheet: { ...config, instantOpen: true } }),
-  preloadActionSheet: (config) => set({ preloadedActionSheet: { ...config, instantOpen: true } }),
+  showActionSheet: (config) => set({ actionSheet: withInstantActionSheetOpen(config) }),
+  preloadActionSheet: (config) => set({ preloadedActionSheet: withInstantActionSheetOpen(config) }),
   hideActionSheet: () => set((state) => {
     if (
       state.actionSheet === null &&
@@ -265,7 +273,9 @@ export const useUIState = create<UIState>((set) => ({
     scopedActionSheets: openScopedActionSheet(state.scopedActionSheets, scope, config),
   })),
   preloadScopedActionSheet: (scope, config) => set((state) => ({
-    actionSheetScope: state.actionSheetScope ?? scope,
+    actionSheetScope: hasScopedActionSheet(state.scopedActionSheets)
+      ? (state.actionSheetScope ?? scope)
+      : scope,
     preloadedScopedActionSheets: openScopedActionSheet(
       state.preloadedScopedActionSheets,
       scope,
@@ -279,7 +289,9 @@ export const useUIState = create<UIState>((set) => ({
     scopedActionSheets: openScopedActionSheet(state.scopedActionSheets, 'quotes', config),
   })),
   preloadQuotesActionSheet: (config) => set((state) => ({
-    actionSheetScope: state.actionSheetScope ?? 'quotes',
+    actionSheetScope: hasScopedActionSheet(state.scopedActionSheets)
+      ? (state.actionSheetScope ?? 'quotes')
+      : 'quotes',
     preloadedScopedActionSheets: openScopedActionSheet(
       state.preloadedScopedActionSheets,
       'quotes',
@@ -305,12 +317,6 @@ export const useUIState = create<UIState>((set) => ({
     scopedActionSheets: openScopedActionSheet(state.scopedActionSheets, 'history', config),
   })),
   hideHistoryActionSheet: () => set((state) => closeScopedActionSheet(state, 'history')),
-  showNewsActionSheet: (config) => set((state) => ({
-    actionSheet: null,
-    actionSheetScope: 'settingsNews',
-    scopedActionSheets: openScopedActionSheet(state.scopedActionSheets, 'settingsNews', config),
-  })),
-  hideNewsActionSheet: () => set((state) => closeScopedActionSheet(state, 'settingsNews')),
   showAccountsActionSheet: (config) => set((state) => ({
     actionSheet: null,
     actionSheetScope: 'settingsAccounts',

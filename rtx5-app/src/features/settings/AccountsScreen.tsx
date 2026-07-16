@@ -10,7 +10,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import { ActivityIndicator, Alert, FlatList, Image, Platform, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../ui/components/Screen';
 import { FastPressable } from '../../ui/components/FastPressable';
@@ -87,8 +87,14 @@ import {
   resolveBrokerServiceBaseUrl,
 } from '../../api/brokerRouting';
 import { hasAuthenticatedAccountSession } from './accountConnectionStatus';
-import { safeRouterBack } from '../../utils/navigation';
-import { hideSidebarDestination } from '../../ui/components/sidebarDestinationHostController';
+import {
+  safeRouterBack,
+  scheduleBackNavigationAfterVisualFrame,
+} from '../../utils/navigation';
+import {
+  hideSidebarDestination,
+  sidebarDestinationController,
+} from '../../ui/components/sidebarDestinationHostController';
 import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import {
   hideBrokersLaunch,
@@ -107,6 +113,47 @@ const logAccountsScreenDiagnostic = (...args: Parameters<typeof console.log>) =>
 
 const ACCOUNT_SWITCH_ACCOUNT_MISSING_MESSAGE =
   'Account does not exist on this broker anymore. It was removed from this device.';
+const ACCOUNTS_BROKER_RETURN_FALLBACK_MS = 700;
+
+const isBrokerFlowRoute = (pathname: string) => (
+  pathname === '/settings/brokers'
+  || pathname === '/settings/broker-detail'
+  || pathname === '/register-entry'
+  || pathname === '/register'
+);
+
+/**
+ * Accounts can render outside the tabs stack, so its sheet stays local. Keep
+ * the scoped-store subscription inside this tiny host: opening or closing the
+ * menu must not reconcile the account cards and their FlatList.
+ */
+const AccountsActionSheetHost = React.memo(function AccountsActionSheetHost() {
+  const actionSheet = useUIState((state) => state.scopedActionSheets.settingsAccounts);
+  const hideAccountsActionSheet = useUIState((state) => state.hideAccountsActionSheet);
+
+  return (
+    <ActionSheet
+      visible={actionSheet !== null}
+      title={actionSheet?.title}
+      titleAlign={actionSheet?.titleAlign}
+      compactText={actionSheet?.compactText}
+      presentation={actionSheet?.presentation}
+      showActionIcons={actionSheet?.showActionIcons}
+      actions={actionSheet?.actions ?? []}
+      onClose={hideAccountsActionSheet}
+      searchable={actionSheet?.searchable}
+      searchPlaceholder={actionSheet?.searchPlaceholder}
+      detent={actionSheet?.detent}
+      minimumTopInset={actionSheet?.minimumTopInset}
+      instantOpen={actionSheet?.instantOpen}
+      entryMotion={actionSheet?.entryMotion}
+      visualKey={actionSheet?.visualKey}
+      runActionAfterClose={actionSheet?.runActionAfterClose}
+      androidKeyboardAvoidance={actionSheet?.androidKeyboardAvoidance}
+      keepFullHeightOnKeyboard={actionSheet?.keepFullHeightOnKeyboard}
+    />
+  );
+});
 
 const ACCOUNT_SWITCH_STALE_QUERY_KEYS: ReadonlyArray<readonly unknown[]> = [
   [ACCOUNTS_LIST_KEY],
@@ -369,11 +416,14 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
   isScreenFocused: boolean;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const pathnameRef = React.useRef(pathname);
+  const pendingBrokerReturnCloseRef = React.useRef(false);
+  const pendingBrokerReturnTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  pathnameRef.current = pathname;
   const queryClient = useQueryClient();
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const showAccountsActionSheet = useUIState((s) => s.showAccountsActionSheet);
-  const actionSheet = useUIState((s) => s.scopedActionSheets.settingsAccounts);
-  const hideAccountsActionSheet = useUIState((s) => s.hideAccountsActionSheet);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const isDemoAccount = useUserPreferences((s) => s.isDemoAccount);
   const userLogin = useUserPreferences((s) => s.login);
@@ -727,12 +777,82 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
    * host reveals the retained tab underneath instantly; as a pushed route it
    * pops back to the Settings tab.
    */
+  const clearPendingBrokerReturnTimer = React.useCallback(() => {
+    if (!pendingBrokerReturnTimerRef.current) return;
+    clearTimeout(pendingBrokerReturnTimerRef.current);
+    pendingBrokerReturnTimerRef.current = null;
+  }, []);
+
+  const finishPendingBrokerReturnClose = React.useCallback((settledPathname: string) => {
+    if (!pendingBrokerReturnCloseRef.current) return;
+    pendingBrokerReturnCloseRef.current = false;
+    clearPendingBrokerReturnTimer();
+    hideSidebarDestination();
+
+    // A fallback/deep-link can land on a real Accounts route instead of the
+    // retained tab underneath. Remove that route too so this Back still ends
+    // at the original tab rather than revealing Accounts a second time.
+    if (settledPathname === '/settings/accounts') {
+      scheduleBackNavigationAfterVisualFrame(() => {
+        safeRouterBack(router, '/(tabs)/quotes');
+      });
+    }
+  }, [clearPendingBrokerReturnTimer, router]);
+
+  React.useEffect(() => {
+    if (
+      pendingBrokerReturnCloseRef.current
+      && !isBrokerFlowRoute(pathname)
+    ) {
+      finishPendingBrokerReturnClose(pathname);
+    }
+  }, [finishPendingBrokerReturnClose, pathname]);
+
+  React.useEffect(() => () => {
+    clearPendingBrokerReturnTimer();
+  }, [clearPendingBrokerReturnTimer]);
+
   const closeAccountsScreen = React.useCallback(() => {
+    const hostedSnapshot = sidebarDestinationController.getSnapshot();
+    const isBrokerReturnHost = hostedSnapshot.activeDestination === 'accounts'
+      && hostedSnapshot.source === 'route-sync';
+
+    if (isBrokerReturnHost && isBrokerFlowRoute(pathnameRef.current)) {
+      // Brokers Back has revealed this retained screen before its owned native
+      // pop. A rapid Accounts Back must wait for that pop; hiding now exposes
+      // the stale Brokers route and breaks the reverse chain.
+      if (pendingBrokerReturnCloseRef.current) return;
+      pendingBrokerReturnCloseRef.current = true;
+      pendingBrokerReturnTimerRef.current = setTimeout(() => {
+        if (!pendingBrokerReturnCloseRef.current) return;
+        pendingBrokerReturnTimerRef.current = null;
+        router.replace('/(tabs)/quotes');
+        finishPendingBrokerReturnClose('/(tabs)/quotes');
+      }, ACCOUNTS_BROKER_RETURN_FALLBACK_MS);
+      return;
+    }
+
     if (hideSidebarDestination()) {
+      if (isBrokerReturnHost && pathnameRef.current === '/settings/accounts') {
+        scheduleBackNavigationAfterVisualFrame(() => {
+          safeRouterBack(router, '/(tabs)/quotes');
+        });
+      }
       return;
     }
     safeRouterBack(router, '/(tabs)/settings');
-  }, [router]);
+  }, [finishPendingBrokerReturnClose, router]);
+
+  React.useEffect(
+    () => sidebarDestinationController.registerBackHandler('accounts', () => {
+      if (sidebarDestinationController.getSnapshot().activeDestination !== 'accounts') {
+        return false;
+      }
+      closeAccountsScreen();
+      return true;
+    }),
+    [closeAccountsScreen],
+  );
 
   /**
    * Navigates the user to the Brokers screen to search for and connect a new trading account.
@@ -963,6 +1083,8 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
         presentation: 'mt5Plain',
         detent: 'auto',
         instantOpen: true,
+        entryMotion: 'mt5Slide',
+        runActionAfterClose: false,
         actions: [
           { label: t('Delete account'), danger: true, onPress: () => handleRemoveSavedAccount(row) },
         ],
@@ -970,10 +1092,10 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
     );
   };
 
-  const openPasswordSheet = (type: 'master' | 'investor') => {
+  const openPasswordSheet = React.useCallback((type: 'master' | 'investor') => {
     setPasswordType(type);
     setPasswordSheetVisible(true);
-  };
+  }, []);
 
   /**
    * Cancels the account deletion process and closes the confirmation modal.
@@ -1018,21 +1140,31 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
     closeAccountsScreen();
   };
 
-  const openOptions = () => {
+  const accountsOptionsSheetConfig = React.useMemo<Parameters<typeof showAccountsActionSheet>[0]>(() => ({
+    presentation: 'mt5Plain',
+    detent: 'auto',
+    instantOpen: true,
+    entryMotion: 'mt5Slide',
+    runActionAfterClose: false,
+    visualKey: `accounts.options|${t('Change master password')}|${t('Delete account')}`,
+    actions: [
+      { label: t('Change master password'), onPress: () => openPasswordSheet('master') },
+      { label: t('Change investor password'), onPress: () => openPasswordSheet('investor') },
+      { label: t('Clear saved password') },
+      { label: t('Delete account'), danger: true, onPress: () => setDeleteTarget({ type: 'current' }) },
+    ],
+  }), [openPasswordSheet, showAccountsActionSheet, t]);
+
+  const preloadAccountsActionSheet = useUIState((s) => s.preloadScopedActionSheet);
+  React.useEffect(() => {
+    preloadAccountsActionSheet('settingsAccounts', accountsOptionsSheetConfig);
+  }, [accountsOptionsSheetConfig, preloadAccountsActionSheet]);
+
+  const openOptions = React.useCallback(() => {
     runImmediateAction('accounts.optionsSheet.open', () =>
-      showAccountsActionSheet({
-        presentation: 'mt5Plain',
-        detent: 'auto',
-        instantOpen: true,
-        actions: [
-          { label: t('Change master password'), onPress: () => openPasswordSheet('master') },
-          { label: t('Change investor password'), onPress: () => openPasswordSheet('investor') },
-          { label: t('Clear saved password') },
-          { label: t('Delete account'), danger: true, onPress: () => setDeleteTarget({ type: 'current' }) },
-        ],
-      }),
+      showAccountsActionSheet(accountsOptionsSheetConfig),
     );
-  };
+  }, [accountsOptionsSheetConfig, showAccountsActionSheet]);
 
   const deleteAccountName = deleteTarget?.type === 'saved'
     ? translateAccountCardName(deleteTarget.row.name || `Account ${deleteTarget.row.login}`, t)
@@ -1093,6 +1225,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
               hitSlop={10}
               onPress={openOptions}
               activateOnPressIn
+              activateOnTouchStart
               latencyLabel="accounts.options.open"
               unstable_pressDelay={0}
             >
@@ -1572,19 +1705,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
         </View>
       )}
 
-      {/* ActionSheet — rendered locally since this is a Stack route outside (tabs) */}
-      <ActionSheet
-        visible={actionSheet !== null}
-        title={actionSheet?.title}
-        actions={actionSheet?.actions ?? []}
-        onClose={hideAccountsActionSheet}
-        presentation={actionSheet?.presentation}
-        searchable={actionSheet?.searchable}
-        detent={actionSheet?.detent}
-        minimumTopInset={actionSheet?.minimumTopInset}
-        instantOpen={actionSheet?.instantOpen}
-        runActionAfterClose={actionSheet?.runActionAfterClose}
-      />
+      <AccountsActionSheetHost />
     </Screen>
   );
 });

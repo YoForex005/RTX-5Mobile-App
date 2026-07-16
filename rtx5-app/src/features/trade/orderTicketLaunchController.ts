@@ -7,18 +7,33 @@ import { normalizeSymbol } from '../../domain/symbols';
 export type OrderTicketLaunchSnapshot = Readonly<{
   visible: boolean;
   symbol: string;
+  origin: OrderTicketOrigin;
   navigationStarted: boolean;
   /** Changes on every launch so delayed work from an older tap can be ignored. */
   revision: number;
 }>;
 
+export type OrderTicketOrigin = 'quotes' | 'chart' | 'trade';
+
+export function resolveOrderTicketOrigin(value: unknown): OrderTicketOrigin {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  return candidate === 'quotes' || candidate === 'chart' || candidate === 'trade'
+    ? candidate
+    : 'trade';
+}
+
+export function getOrderTicketOriginHref(origin: OrderTicketOrigin) {
+  return `/(tabs)/${origin}` as const;
+}
+
 export type OrderTicketLaunchVisualApplier = (visible: boolean) => void;
 
 export type OrderTicketLaunchController = Readonly<{
+  version: number;
   getSnapshot: () => OrderTicketLaunchSnapshot;
   subscribe: (listener: () => void) => () => void;
-  prepare: (symbol: string) => void;
-  show: (symbol: string) => number;
+  prepare: (symbol: string, origin?: OrderTicketOrigin) => void;
+  show: (symbol: string, origin?: OrderTicketOrigin) => number;
   hide: (revision?: number) => boolean;
   isVisible: () => boolean;
   startNavigation: (revision: number) => boolean;
@@ -26,15 +41,18 @@ export type OrderTicketLaunchController = Readonly<{
 }>;
 
 const ORDER_TICKET_LAUNCH_FALLBACK_MS = 5_000;
+const ORDER_TICKET_LAUNCH_CONTROLLER_VERSION = 2;
 
 const createSnapshot = (
   visible: boolean,
   symbol: string,
+  origin: OrderTicketOrigin,
   navigationStarted: boolean,
   revision: number,
 ): OrderTicketLaunchSnapshot => Object.freeze({
   visible,
   symbol: normalizeSymbol(symbol || 'EURUSD'),
+  origin,
   navigationStarted,
   revision,
 });
@@ -45,7 +63,7 @@ export function createOrderTicketLaunchController(
   const listeners = new Set<() => void>();
   let visualApplier: OrderTicketLaunchVisualApplier | null = null;
   let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
-  let snapshot = createSnapshot(false, initialSymbol, false, 0);
+  let snapshot = createSnapshot(false, initialSymbol, 'trade', false, 0);
 
   const clearFallbackTimer = () => {
     if (fallbackTimer) {
@@ -66,11 +84,12 @@ export function createOrderTicketLaunchController(
 
     clearFallbackTimer();
     visualApplier?.(false);
-    publish(createSnapshot(false, snapshot.symbol, false, snapshot.revision + 1));
+    publish(createSnapshot(false, snapshot.symbol, snapshot.origin, false, snapshot.revision + 1));
     return true;
   };
 
   return Object.freeze({
+    version: ORDER_TICKET_LAUNCH_CONTROLLER_VERSION,
     getSnapshot: () => snapshot,
 
     subscribe: (listener: () => void) => {
@@ -78,10 +97,10 @@ export function createOrderTicketLaunchController(
       return () => listeners.delete(listener);
     },
 
-    prepare: (symbol: string) => {
+    prepare: (symbol: string, origin: OrderTicketOrigin = 'trade') => {
       // Remember the tapped symbol while the options sheet is still visible.
       const normalizedSymbol = normalizeSymbol(symbol || 'EURUSD');
-      if (snapshot.symbol === normalizedSymbol && !snapshot.visible) {
+      if (snapshot.symbol === normalizedSymbol && snapshot.origin === origin && !snapshot.visible) {
         return;
       }
 
@@ -89,24 +108,24 @@ export function createOrderTicketLaunchController(
       if (snapshot.visible) {
         visualApplier?.(false);
       }
-      publish(createSnapshot(false, normalizedSymbol, false, snapshot.revision + 1));
+      publish(createSnapshot(false, normalizedSymbol, origin, false, snapshot.revision + 1));
     },
 
-    show: (symbol: string) => {
+    show: (symbol: string, origin: OrderTicketOrigin = 'trade') => {
       clearFallbackTimer();
       const revision = snapshot.revision + 1;
       const normalizedSymbol = normalizeSymbol(symbol || snapshot.symbol || 'EURUSD');
 
       // Show the ready ticket first; the real route starts after it has painted.
       visualApplier?.(true);
-      publish(createSnapshot(true, normalizedSymbol, false, revision));
+      publish(createSnapshot(true, normalizedSymbol, origin, false, revision));
 
       // Safety: hide the preview if the full ticket never finishes opening.
       fallbackTimer = setTimeout(() => {
         fallbackTimer = null;
         if (snapshot.visible && snapshot.revision === revision) {
           visualApplier?.(false);
-          publish(createSnapshot(false, snapshot.symbol, false, revision + 1));
+          publish(createSnapshot(false, snapshot.symbol, snapshot.origin, false, revision + 1));
         }
       }, ORDER_TICKET_LAUNCH_FALLBACK_MS);
 
@@ -127,7 +146,7 @@ export function createOrderTicketLaunchController(
         return false;
       }
 
-      publish(createSnapshot(true, snapshot.symbol, true, revision));
+      publish(createSnapshot(true, snapshot.symbol, snapshot.origin, true, revision));
       return true;
     },
 
@@ -152,6 +171,7 @@ const existingController = controllerGlobal.__rtx5OrderTicketLaunchController;
 
 export const orderTicketLaunchController =
   existingController
+    && existingController.version === ORDER_TICKET_LAUNCH_CONTROLLER_VERSION
     && typeof existingController.prepare === 'function'
     && typeof existingController.startNavigation === 'function'
     && typeof existingController.registerVisualApplier === 'function'
@@ -160,12 +180,12 @@ export const orderTicketLaunchController =
 
 controllerGlobal.__rtx5OrderTicketLaunchController = orderTicketLaunchController;
 
-export function prepareOrderTicketLaunch(symbol: string) {
-  orderTicketLaunchController.prepare(symbol);
+export function prepareOrderTicketLaunch(symbol: string, origin: OrderTicketOrigin = 'trade') {
+  orderTicketLaunchController.prepare(symbol, origin);
 }
 
-export function showOrderTicketLaunch(symbol: string) {
-  return orderTicketLaunchController.show(symbol);
+export function showOrderTicketLaunch(symbol: string, origin: OrderTicketOrigin = 'trade') {
+  return orderTicketLaunchController.show(symbol, origin);
 }
 
 export function hideOrderTicketLaunch(revision?: number) {
@@ -182,15 +202,15 @@ export function scheduleOrderTicketLaunchNavigation(
     }
   };
 
-  if (typeof globalThis.requestAnimationFrame !== 'function') {
-    setTimeout(runIfCurrent, 32);
+  // Shell opacity is already on the UI thread from show(). Let that paint
+  // complete (double rAF ≈ after the next frame) before router.push mounts
+  // the heavy ticket, so Buy/Sell first paint stays instant and smooth.
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(() => {
+      globalThis.requestAnimationFrame(runIfCurrent);
+    });
     return;
   }
 
-  // Give the preview two paint frames before loading the real route.
-  globalThis.requestAnimationFrame(() => {
-    globalThis.requestAnimationFrame(() => {
-      setTimeout(runIfCurrent, 0);
-    });
-  });
+  setTimeout(runIfCurrent, 0);
 }

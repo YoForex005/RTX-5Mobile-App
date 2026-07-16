@@ -27,7 +27,7 @@ test('symbol switch resets time range and commits only the selected symbol', () 
 
 test('symbol and timeframe switching reuse the initialized WebView surface', () => {
   const currentSigStart = source.indexOf('const currentSig = useMemo');
-  const currentSigEnd = source.indexOf('const chartDataContextSig', currentSigStart);
+  const currentSigEnd = source.indexOf('useEffect(() => {', currentSigStart);
   assert.notEqual(currentSigStart, -1);
   assert.notEqual(currentSigEnd, -1);
   const currentSigSource = source.slice(currentSigStart, currentSigEnd);

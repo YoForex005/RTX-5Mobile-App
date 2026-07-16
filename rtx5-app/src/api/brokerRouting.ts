@@ -186,7 +186,7 @@ export function buildBrokerHealthUrl(serverUrl: string): string {
 
 export function buildBrokerWsUrl(
   serverUrl: string | undefined | null,
-  path: '/ws' | '/ws/v2',
+  path: '/ws' | '/ws/v2' | '/ws/feed',
   fallbackUrl: string,
 ): string {
   const normalizedServerUrl = normalizeBrokerServerUrl(serverUrl);

@@ -19,6 +19,11 @@ import {
   getChartTradeButtonSharedLockSide,
   releaseChartTradeButtonSharedLock,
 } from './sharedLock';
+import {
+  hideOrderTicketLaunch,
+  scheduleOrderTicketLaunchNavigation,
+  showOrderTicketLaunch,
+} from '../../../trade/orderTicketLaunchController';
 
 const CHART_TRADE_DIAGNOSTICS_ENABLED =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CHART_TRADE === 'true';
@@ -35,17 +40,6 @@ const warnChartTradeDiagnostic = (...args: Parameters<typeof console.warn>) => {
   if (CHART_TRADE_DIAGNOSTICS_ENABLED) {
     console.warn(...args);
   }
-};
-
-const runAfterChartTradeTapPaint = (work: () => void) => {
-  if (typeof globalThis.requestAnimationFrame === 'function') {
-    globalThis.requestAnimationFrame(() => {
-      setTimeout(work, 0);
-    });
-    return;
-  }
-
-  setTimeout(work, 0);
 };
 
 type TradeFeedback = {
@@ -326,40 +320,96 @@ export function useTradeHandler({
       });
       return;
     }
-    const sharedLockSide = getChartTradeButtonSharedLockSide();
-    if (!oneClickAccepted && (tradeTapLockRef.current || sharedLockSide !== null)) {
-      logChartTradeDiagnostic('[TRADE-BUTTON-PRESS]', {
-        side,
-        buttonPressed: action.buttonPressed,
-        symbol,
-        displayedLabel: variant === 'mt5-market' ? action.marketLabel : action.displayLabel,
-        sidePassedToHandler: action.side,
-        ignored: true,
-        lockSide: sharedLockSide,
-        reason: tradeTapLockRef.current ? 'tap-lock' : 'shared-tap-lock',
-        timestamp: new Date().toISOString(),
-      });
-      return;
-    }
-    if (!oneClickAccepted && !acquireChartTradeButtonSharedLock(action.side)) {
-      logChartTradeDiagnostic('[TRADE-BUTTON-PRESS]', {
-        side,
-        buttonPressed: action.buttonPressed,
-        symbol,
-        displayedLabel: variant === 'mt5-market' ? action.marketLabel : action.displayLabel,
-        sidePassedToHandler: action.side,
-        ignored: true,
-        lockSide: getChartTradeButtonSharedLockSide(),
-        reason: 'shared-tap-lock',
-        timestamp: new Date().toISOString(),
-      });
-      return;
-    }
+
+    // ── One-click OFF: open New Order as a sidebar-class retained handoff ──
+    // Show the pre-mounted shell in this touch turn BEFORE auth/volume/SL work
+    // or React setState so Buy/Sell first paint is not competing with chart work.
     if (!oneClickAccepted) {
+      const openLockSide = getChartTradeButtonSharedLockSide();
+      if (tradeTapLockRef.current || openLockSide !== null) {
+        logChartTradeDiagnostic('[TRADE-BUTTON-PRESS]', {
+          side,
+          buttonPressed: action.buttonPressed,
+          symbol,
+          displayedLabel: variant === 'mt5-market' ? action.marketLabel : action.displayLabel,
+          sidePassedToHandler: action.side,
+          ignored: true,
+          lockSide: openLockSide,
+          reason: tradeTapLockRef.current ? 'tap-lock' : 'shared-tap-lock',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+      if (!acquireChartTradeButtonSharedLock(action.side)) {
+        logChartTradeDiagnostic('[TRADE-BUTTON-PRESS]', {
+          side,
+          buttonPressed: action.buttonPressed,
+          symbol,
+          displayedLabel: variant === 'mt5-market' ? action.marketLabel : action.displayLabel,
+          sidePassedToHandler: action.side,
+          ignored: true,
+          lockSide: getChartTradeButtonSharedLockSide(),
+          reason: 'shared-tap-lock',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      // UI-thread shell first — zero validation work before this line.
+      logChartTradeDiagnostic('[Trade] navigate path → /trade/order-ticket');
+      const launchRevision = showOrderTicketLaunch(symbol, 'chart');
+
       tradeTapLockRef.current = true;
       tradeTapLockSideRef.current = action.side;
       markActiveTradeSide(action.side);
+
+      const trimmedComment = typeof comment === 'string' ? comment.trim() : '';
+      const normalizedStopLossPrice = Number(stopLossPrice);
+      const normalizedTakeProfitPrice = Number(takeProfitPrice);
+      const hasStopLossPrice = Number.isFinite(normalizedStopLossPrice) && normalizedStopLossPrice > 0;
+      const hasTakeProfitPrice = Number.isFinite(normalizedTakeProfitPrice) && normalizedTakeProfitPrice > 0;
+
+      logChartTradeDiagnostic('[TRADE-BUTTON-PRESS]', {
+        side,
+        buttonPressed: action.buttonPressed,
+        symbol,
+        displayedLabel: variant === 'mt5-market' ? action.marketLabel : action.displayLabel,
+        sidePassedToHandler: action.side,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Real ticket mounts after the shell has a paint frame (see scheduler).
+      scheduleOrderTicketLaunchNavigation(launchRevision, () => {
+        try {
+          router.push({
+            pathname: '/trade/order-ticket',
+            params: {
+              symbol,
+              origin: 'chart',
+              side: action.side,
+              ...(hasStopLossPrice ? { sl: String(normalizedStopLossPrice) } : {}),
+              ...(hasTakeProfitPrice ? { tp: String(normalizedTakeProfitPrice) } : {}),
+              ...(trimmedComment ? { comment: trimmedComment } : {}),
+            },
+          });
+          releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
+        } catch (navErr: any) {
+          hideOrderTicketLaunch(launchRevision);
+          warnChartTradeDiagnostic('[Trade] navigation failed', navErr);
+          onTradeResult?.({
+            visible: true, type: 'error',
+            title: 'Navigation Error',
+            message: navErr?.message || 'Could not open the order ticket screen.',
+            side: action.side,
+          });
+          releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
+        }
+      });
+      return;
     }
+
+    // ── One-click ON: place market order (validation required) ───────────
+    const sharedLockSide = getChartTradeButtonSharedLockSide();
     const volume = Number(lotSize);
     const trimmedComment = typeof comment === 'string' ? comment.trim() : '';
     const normalizedStopLossPrice = Number(stopLossPrice);
@@ -386,7 +436,6 @@ export function useTradeHandler({
         message: 'Please sign in to your trading account before placing orders.',
         side: action.side,
       });
-      releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
       return;
     }
 
@@ -397,7 +446,6 @@ export function useTradeHandler({
         message: 'No active trading account is selected. Open the account menu and choose one, then try again.',
         side: action.side,
       });
-      releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
       return;
     }
 
@@ -408,7 +456,6 @@ export function useTradeHandler({
         message: `Volume must be greater than 0. Current: ${lotSize}`,
         side: action.side,
       });
-      releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
       return;
     }
 
@@ -430,83 +477,54 @@ export function useTradeHandler({
         message: protectionValidation.message,
         side: action.side,
       });
-      releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
       return;
     }
 
-    if (oneClickAccepted) {
-      logChartTradeDiagnostic('[Trade] one-click path, login=', tradingLogin);
-      const queuedTrade: QueuedChartTrade = {
-        id: nextTradeQueueIdRef.current,
+    logChartTradeDiagnostic('[Trade] one-click path, login=', tradingLogin);
+    const queuedTrade: QueuedChartTrade = {
+      id: nextTradeQueueIdRef.current,
+      side: action.side,
+      symbol,
+      tradingLogin,
+      volume,
+      comment: trimmedComment,
+      ...(hasStopLossPrice ? { stopLossPrice: normalizedStopLossPrice } : {}),
+      ...(hasTakeProfitPrice ? { takeProfitPrice: normalizedTakeProfitPrice } : {}),
+      latestBid,
+      latestAsk,
+      queuedAtMs: getApiLatencyNow(),
+    };
+    const pendingTradeCount = tradeQueueRef.current.length + (tradeTapLockRef.current ? 1 : 0);
+    if (pendingTradeCount >= CHART_TRADE_QUEUE_LIMIT) {
+      warnChartTradeDiagnostic('[TRADE-QUEUE-FULL]', {
         side: action.side,
         symbol,
-        tradingLogin,
-        volume,
-        comment: trimmedComment,
-        ...(hasStopLossPrice ? { stopLossPrice: normalizedStopLossPrice } : {}),
-        ...(hasTakeProfitPrice ? { takeProfitPrice: normalizedTakeProfitPrice } : {}),
-        latestBid,
-        latestAsk,
-        queuedAtMs: getApiLatencyNow(),
-      };
-      const pendingTradeCount = tradeQueueRef.current.length + (tradeTapLockRef.current ? 1 : 0);
-      if (pendingTradeCount >= CHART_TRADE_QUEUE_LIMIT) {
-        warnChartTradeDiagnostic('[TRADE-QUEUE-FULL]', {
-          side: action.side,
-          symbol,
-          pendingTradeCount,
-          limit: CHART_TRADE_QUEUE_LIMIT,
-          timestamp: new Date().toISOString(),
-        });
-        onTradeResult?.({
-          visible: true,
-          type: 'error',
-          title: 'Trade Queue Full',
-          message: `Wait for the current orders to finish before sending more than ${CHART_TRADE_QUEUE_LIMIT} rapid trades.`,
-          side: action.side,
-        });
-        return;
-      }
-      nextTradeQueueIdRef.current += 1;
-      tradeQueueRef.current.push(queuedTrade);
-      logChartTradeDiagnostic('[TRADE-QUEUE-ENQUEUE]', {
-        queueId: queuedTrade.id,
-        side: action.side,
-        symbol,
-        volume,
-        queueLength: tradeQueueRef.current.length,
-        activeInFlight: tradeTapLockRef.current,
-        sharedLockSide,
+        pendingTradeCount,
+        limit: CHART_TRADE_QUEUE_LIMIT,
         timestamp: new Date().toISOString(),
       });
-      processNextQueuedTrade();
-    } else {
-      logChartTradeDiagnostic('[Trade] navigate path → /trade/order-ticket');
-      runAfterChartTradeTapPaint(() => {
-        try {
-          router.push({
-            pathname: '/trade/order-ticket',
-            params: {
-              symbol,
-              side: action.side,
-              ...(hasStopLossPrice ? { sl: String(normalizedStopLossPrice) } : {}),
-              ...(hasTakeProfitPrice ? { tp: String(normalizedTakeProfitPrice) } : {}),
-              ...(trimmedComment ? { comment: trimmedComment } : {}),
-            },
-          });
-          releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
-        } catch (navErr: any) {
-          warnChartTradeDiagnostic('[Trade] navigation failed', navErr);
-          onTradeResult?.({
-            visible: true, type: 'error',
-            title: 'Navigation Error',
-            message: navErr?.message || 'Could not open the order ticket screen.',
-            side: action.side,
-          });
-          releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
-        }
+      onTradeResult?.({
+        visible: true,
+        type: 'error',
+        title: 'Trade Queue Full',
+        message: `Wait for the current orders to finish before sending more than ${CHART_TRADE_QUEUE_LIMIT} rapid trades.`,
+        side: action.side,
       });
+      return;
     }
+    nextTradeQueueIdRef.current += 1;
+    tradeQueueRef.current.push(queuedTrade);
+    logChartTradeDiagnostic('[TRADE-QUEUE-ENQUEUE]', {
+      queueId: queuedTrade.id,
+      side: action.side,
+      symbol,
+      volume,
+      queueLength: tradeQueueRef.current.length,
+      activeInFlight: tradeTapLockRef.current,
+      sharedLockSide,
+      timestamp: new Date().toISOString(),
+    });
+    processNextQueuedTrade();
   };
 
   const handleTrade = (side: TradeSide) =>

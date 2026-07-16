@@ -21,6 +21,11 @@ export type QuoteTickEvent = {
   sequence?: string | number;
   tickId?: string;
   source?: string;
+  authority?: string;
+  stale?: boolean;
+  tradable?: boolean;
+  ageMs?: number;
+  ageSec?: number;
   degraded?: boolean;
   degradationReason?: 'missing_ask';
   feedTickAt?: number;
@@ -48,6 +53,11 @@ export type NormalizedQuoteFeedUpdate = {
   sequence?: string | number;
   tickId?: string;
   source?: string;
+  authority?: string;
+  stale?: boolean;
+  tradable?: boolean;
+  ageMs?: number;
+  ageSec?: number;
   degraded?: boolean;
   degradationReason?: 'missing_ask';
   timestamp: number | null;
@@ -104,6 +114,7 @@ const TICK_SIZE_KEYS = [
 const SEQUENCE_KEYS = ['sequence', 'seq', 'source_seq', 'sourceSeq', 'sequenceId', 'sourceSequence'];
 const TICK_ID_KEYS = ['tick_id', 'tickId', 'source_tick_id', 'sourceTickId'];
 const SOURCE_KEYS = ['source', 'feed_source', 'feedSource', 'provider'];
+const AUTHORITY_KEYS = ['authority', 'feed_authority', 'feedAuthority'];
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -186,6 +197,17 @@ const toCleanString = (value: unknown): string | undefined => {
 
   const cleaned = String(value).trim();
   return cleaned ? cleaned : undefined;
+};
+
+const toOptionalBoolean = (value: unknown): boolean | undefined => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true' || normalized === '1') return true;
+    if (normalized === 'false' || normalized === '0') return false;
+  }
+  return undefined;
 };
 
 const extractSymbolFromChannel = (value: unknown): string => {
@@ -302,6 +324,11 @@ export const normalizeQuoteTickPayload = (
   const sequence = pickFirstValue(metricRecords, SEQUENCE_KEYS) as string | number | undefined;
   const tickId = toCleanString(pickFirstValue(metricRecords, TICK_ID_KEYS));
   const source = toCleanString(pickFirstValue(metricRecords, SOURCE_KEYS));
+  const authority = toCleanString(pickFirstValue(metricRecords, AUTHORITY_KEYS));
+  const stale = toOptionalBoolean(pickFirstValue(metricRecords, ['stale', 'is_stale', 'isStale']));
+  const tradable = toOptionalBoolean(pickFirstValue(metricRecords, ['tradable', 'trade_allowed', 'tradeAllowed']));
+  const ageMs = toNonNegativeOptionalNumber(pickFirstValue(metricRecords, ['age_ms', 'ageMs']));
+  const ageSec = toNonNegativeOptionalNumber(pickFirstValue(metricRecords, ['age_sec', 'ageSec']));
   const resolvedTimestamp = resolveTimestamp(records, fallbackTimestampMs);
   return {
     ok: true,
@@ -325,6 +352,11 @@ export const normalizeQuoteTickPayload = (
       sequence,
       tickId,
       source,
+      authority,
+      stale,
+      tradable,
+      ageMs,
+      ageSec,
       ...(askWasFallback ? { degraded: true, degradationReason: 'missing_ask' as const } : {}),
       timestamp: resolvedTimestamp.timestamp,
       timestampSource: resolvedTimestamp.timestampSource,

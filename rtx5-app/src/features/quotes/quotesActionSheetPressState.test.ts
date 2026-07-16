@@ -27,7 +27,7 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.doesNotMatch(quoteCardSource, /activateOnTouchStart/);
   assert.match(
     source,
-    /<QuoteCard[\s\S]*onPressIn=\{\(\) => pauseQuoteSheetFeed\(\)\}[\s\S]*onPress=\{\(\) => handleSymbolTap\(sym\)\}[\s\S]*suppressPressFeedback[\s\S]*onLongPress=/,
+    /<QuoteCard[\s\S]*onPressIn=\{\(event\) => handleSymbolPressIn\(sym, event\)\}[\s\S]*onPressOut=\{\(\) => handleSymbolPressOut\(sym\)\}[\s\S]*onTouchMove=\{handleSymbolPressMove\}[\s\S]*onPress=\{\(event\) => handleSymbolTap\(sym, event\)\}[\s\S]*suppressPressFeedback[\s\S]*onLongPress=/,
   );
   assert.doesNotMatch(source, /onPressIn=\{\(\) => handleSymbolTap\(sym\)\}/);
 
@@ -46,6 +46,7 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.match(tapConfigSource, /presentation: 'mt5Plain'/);
   assert.match(tapConfigSource, /detent: 'auto'/);
   assert.match(tapConfigSource, /instantOpen: true/);
+  assert.match(tapConfigSource, /entryMotion: 'mt5Slide'/);
   // Route actions commit only a light preview (or the fast-tab flip), so they
   // run in the press frame instead of waiting behind the close animation.
   assert.match(tapConfigSource, /runActionAfterClose: false/);
@@ -54,15 +55,16 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.match(longPressConfigSource, /presentation: 'mt5Plain'/);
   assert.match(longPressConfigSource, /detent: 'auto'/);
   assert.match(longPressConfigSource, /instantOpen: true/);
+  assert.match(longPressConfigSource, /entryMotion: 'mt5Slide'/);
   assert.match(longPressConfigSource, /runActionAfterClose: false/);
   assert.doesNotMatch(source, /const hideQuotesActionSheet = useUIState\(\(s\) => s\.hideQuotesActionSheet\)/);
   assert.match(source, /type QuoteSheetOptionOptions = \{[\s\S]*routeChange\?: boolean;[\s\S]*\}/);
-  assert.match(source, /const \[quoteSheetRouteActionPending, setQuoteSheetRouteActionPending\] = useState\(false\)/);
+  assert.doesNotMatch(source, /quoteSheetRouteActionPending|setQuoteSheetRouteActionPending/);
   assert.match(source, /pauseLiveQuoteSnapshotNotifications/);
   assert.match(source, /const quoteSheetFeedPauseReleaseRef = useRef<\(\(\) => void\) \| null>\(null\)/);
   assert.match(source, /const QUOTE_SHEET_OPEN_FEED_PAUSE_MS = 15_000/);
   assert.doesNotMatch(source, /quotesSheetVisible/);
-  assert.match(source, /const quoteCatalogActive = quoteRouteActive && !quoteSheetRouteActionPending/);
+  assert.match(source, /const quoteCatalogActive = quoteRouteActive/);
   assert.match(source, /const quoteWatchlistActive = quoteCatalogActive && isLoggedIn/);
   assert.match(source, /const quoteRestFallbackActive = quoteCatalogActive/);
   assert.match(source, /useWatchlistLiveQuotes\(quoteFeedSymbols, quoteStickyFeedActive, \{[\s\S]*restFallbackActive: quoteRestFallbackActive,[\s\S]*\}\)/);
@@ -70,15 +72,26 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.match(source, /<TickCounter[\s\S]*active=\{quoteStickyFeedActive\}/);
   assert.match(source, /const pauseQuoteSheetFeed = useCallback\(\(durationMs = QUOTE_SHEET_OPEN_FEED_PAUSE_MS\) => \{/);
   assert.match(source, /quotesWsService\.deferReconnectForInteraction\?\.\(durationMs\)/);
+  assert.match(source, /QUOTE_SHEET_PRESS_CANCEL_MOVE_PX = 10/);
+  assert.match(source, /const hasQuoteSheetPressMovedBeyondThreshold = [\s\S]*dx \* dx \+ dy \* dy[\s\S]*QUOTE_SHEET_PRESS_CANCEL_MOVE_PX \* QUOTE_SHEET_PRESS_CANCEL_MOVE_PX/);
+  assert.match(source, /requestRetainedActionSheetPreview/);
+  assert.match(source, /commitRetainedActionSheetPreview/);
+  assert.match(source, /cancelRetainedActionSheetPreview/);
+  assert.doesNotMatch(source, /scheduleRetainedActionSheetReactAdoption/);
+  assert.match(source, /const handleSymbolPressIn = useCallback\(\(sym: string, event: GestureResponderEvent\) => \{[\s\S]*quoteTapActionSheetConfigs\.get\(sym\)[\s\S]*preloadedQuoteTapConfigRef\.current !== config[\s\S]*preloadQuotesActionSheet\(config\)[\s\S]*requestRetainedActionSheetPreview\(config\.visualKey\)[\s\S]*start: getQuoteSheetPressPoint\(event\)[\s\S]*pauseQuoteSheetFeed\(\)/);
+  assert.match(source, /const handleSymbolPressMove = useCallback[\s\S]*hasQuoteSheetPressMovedBeyondThreshold[\s\S]*cancelSymbolSheetPreview\(gesture\.sequence\)/);
+  assert.match(source, /const handleSymbolPressOut = useCallback[\s\S]*setTimeout\(\(\) => \{[\s\S]*cancelSymbolSheetPreview\(sequence\);[\s\S]*\}, 0\)/);
+  assert.match(source, /onScrollBeginDrag=\{\(\) => cancelSymbolSheetPreview\(\)\}/);
+  assert.match(source, /onMomentumScrollBegin=\{\(\) => cancelSymbolSheetPreview\(\)\}/);
   assert.match(source, /const releaseQuoteSheetFeedPause = useCallback\(\(\) => \{/);
   assert.match(source, /quotesWsService\.resumeReconnectAfterInteraction\?\.\(\)/);
-  assert.match(source, /if \(isScreenFocused\) \{[\s\S]*releaseQuoteSheetFeedPause\(\);[\s\S]*setQuoteSheetRouteActionPending\(false\);/);
+  assert.match(source, /if \(isScreenFocused\) \{[\s\S]*releaseQuoteSheetFeedPause\(\);/);
   assert.doesNotMatch(source, /quotesActionSheetOpen|quoteSheetTouchPending|quoteSheetInteractionBusy|quoteVisibleFeedActive/);
   assert.doesNotMatch(source, /scheduleQuoteSheetOptionAction/);
   assert.doesNotMatch(source, /requestAnimationFrame\([\s\S]*requestAnimationFrame\([\s\S]*setTimeout\(action, 0\)/);
   assert.match(
     source,
-    /const runQuoteSheetOption = useCallback\(\(action: \(\) => void, options\?: QuoteSheetOptionOptions\) => \{[\s\S]*options\?\.routeChange === true[\s\S]*pauseQuoteSheetFeed\(routeChange \? QUOTE_SHEET_ROUTE_FEED_PAUSE_MS : QUOTE_SHEET_OPTION_FEED_PAUSE_MS\);[\s\S]*if \(routeChange\) \{[\s\S]*action\(\);[\s\S]*React\.startTransition\(\(\) => \{[\s\S]*setQuoteSheetRouteActionPending\(true\);[\s\S]*return;[\s\S]*action\(\);/,
+    /const runQuoteSheetOption = useCallback\(\(action: \(\) => void, options\?: QuoteSheetOptionOptions\) => \{[\s\S]*options\?\.routeChange === true[\s\S]*pauseQuoteSheetFeed\(routeChange \? QUOTE_SHEET_ROUTE_FEED_PAUSE_MS : QUOTE_SHEET_OPTION_FEED_PAUSE_MS\);[\s\S]*if \(routeChange\) \{[\s\S]*action\(\);[\s\S]*return;[\s\S]*action\(\);/,
   );
   assert.match(tapConfigSource, /label: t\('New Order'\),[\s\S]*activateOnPressIn: true/);
   assert.match(tapConfigSource, /label: t\('Chart'\),[\s\S]*activateOnPressIn: true/);
@@ -102,19 +115,28 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   );
   assert.match(
     source,
-    /const openOrderTicketForSymbol = useCallback\(\(sym: string\) => \{[\s\S]*runQuoteSheetOption\(\(\) => \{[\s\S]*const launchRevision = showOrderTicketLaunch\(sym\);[\s\S]*scheduleOrderTicketLaunchNavigation\(launchRevision, \(\) => \{[\s\S]*router\.push\(\{ pathname: '\/trade\/order-ticket', params: \{ symbol: sym \} \}\);[\s\S]*\}, \{ routeChange: true \}\);/,
+    /const openOrderTicketForSymbol = useCallback\(\(sym: string\) => \{[\s\S]*runQuoteSheetOption\(\(\) => \{[\s\S]*const launchRevision = showOrderTicketLaunch\(sym, 'quotes'\);[\s\S]*scheduleOrderTicketLaunchNavigation\(launchRevision, \(\) => \{[\s\S]*router\.push\(\{ pathname: '\/trade\/order-ticket', params: \{ symbol: sym, origin: 'quotes' \} \}\);[\s\S]*\}, \{ routeChange: true \}\);/,
   );
   assert.match(
     source,
-    /const openChartTabForSymbol = useCallback\(\(sym: string\) => \{[\s\S]*const chartTimeframe = prepareChartSymbol\(sym\);[\s\S]*const visualRevision = showFastTabVisual\('chart'\);[\s\S]*liveCandlesEngine\.prefetchHistory\(sym, chartTimeframe\);[\s\S]*scheduleFastTabNavigation\(visualRevision, \(\) => \{[\s\S]*navigateMountedSidebarTab\('\/chart'\)[\s\S]*router\.push\('\/\(tabs\)\/chart'\);[\s\S]*TAB_BAR_NAVIGATION_SETTLE_DELAY_MS\);[\s\S]*\}, \{ routeChange: true \}\);/,
+    /const openChartTabForSymbol = useCallback\(\(sym: string\) => \{[\s\S]*const visualRevision = showFastTabVisual\('chart'\);[\s\S]*navigateMountedSidebarTab\('\/chart'\)[\s\S]*router\.push\('\/\(tabs\)\/chart'\)[\s\S]*const chartTimeframe = prepareChartSymbol\(sym\);[\s\S]*liveCandlesEngine\.prefetchHistory\(sym, chartTimeframe\);[\s\S]*\}, \{ routeChange: true \}\);/,
   );
   assert.match(
     source,
-    /const handleSymbolTap = useCallback[\s\S]*quoteTapActionSheetConfigs\.get\(sym\)[\s\S]*runImmediateAction\('quotes\.symbolSheet\.tap\.open'[\s\S]*pauseQuoteSheetFeed\(\);[\s\S]*prepareOrderTicketLaunch\(sym\);[\s\S]*prepareQuoteInfoLaunch\(sym\);[\s\S]*showQuotesActionSheet\(config\);[\s\S]*prepareSymbolDestinationsAfterSheetPaint\(sym\)/,
+    /const handleSymbolTap = useCallback[\s\S]*quoteTapActionSheetConfigs\.get\(sym\)[\s\S]*hasQuoteSheetPressMovedBeyondThreshold[\s\S]*gesture\.accepted = true[\s\S]*commitRetainedActionSheetPreview[\s\S]*runImmediateAction\('quotes\.symbolSheet\.tap\.open'[\s\S]*const adoptRetainedSheet[\s\S]*showQuotesActionSheet\(config\);[\s\S]*prepareSymbolDestinationsAfterSheetPaint\(sym\)[\s\S]*if \(retainedRevealRevision !== null\) \{[\s\S]*adoptRetainedSheet\(\);/,
+  );
+  const tapHandlerEnd = source.indexOf('\n\n  /**', tapHandlerStart);
+  const tapHandlerSource = source.slice(tapHandlerStart, tapHandlerEnd);
+  const tapShowIndex = tapHandlerSource.indexOf('showQuotesActionSheet(config)');
+  assert.notEqual(tapShowIndex, -1);
+  assert.doesNotMatch(
+    tapHandlerSource.slice(0, tapShowIndex),
+    /pauseQuoteSheetFeed|prepareOrderTicketLaunch|prepareQuoteInfoLaunch|prefetch|router\.|await|InteractionManager|setTimeout|requestAnimationFrame/,
+    'nothing may compete with the accepted tap before sheet visibility is published',
   );
   assert.match(
     source,
-    /const prepareSymbolDestinationsAfterSheetPaint = useCallback\(\(sym: string\) => \{[\s\S]*const chartTimeframe = prepareChartSymbol\(sym\);[\s\S]*liveCandlesEngine\.prefetchHistory\(sym, chartTimeframe\);[\s\S]*prefetchOrderTicketData\(resolveTradingLoginString\(\), sym\);[\s\S]*prefetchQuoteDetails\(sym\);[\s\S]*pathname: '\/trade\/order-ticket'[\s\S]*pathname: '\/quotes\/details'[\s\S]*pathname: '\/quotes\/market-statistics'[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*setTimeout\(prepareDestinations, 0\)/,
+    /const prepareSymbolDestinationsAfterSheetPaint = useCallback\(\(sym: string\) => \{[\s\S]*prepareOrderTicketLaunch\(sym, 'quotes'\);[\s\S]*prepareQuoteInfoLaunch\(sym\);[\s\S]*const chartTimeframe = prepareChartSymbol\(sym\);[\s\S]*liveCandlesEngine\.prefetchHistory\(sym, chartTimeframe\);[\s\S]*prefetchOrderTicketData\(resolveTradingLoginString\(\), sym\);[\s\S]*prefetchQuoteDetails\(sym\);[\s\S]*preloadDeferredRouteModule\(\s*SYMBOL_DETAILS_ROUTE_MODULE_CACHE_KEY,\s*loadSymbolDetailsScreenRoute,[\s\S]*preloadDeferredRouteModule\(\s*MARKET_STATISTICS_ROUTE_MODULE_CACHE_KEY,\s*loadMarketStatisticsScreenRoute,[\s\S]*pathname: '\/trade\/order-ticket'[\s\S]*pathname: '\/quotes\/details'[\s\S]*pathname: '\/quotes\/market-statistics'[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*setTimeout\(prepareDestinations, 0\)/,
   );
   assert.match(
     source,
@@ -122,19 +144,25 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   );
   assert.match(
     source,
-    /const handleSymbolLongPress = useCallback[\s\S]*quoteLongPressActionSheetConfigs\.get\(sym\)[\s\S]*runImmediateAction\('quotes\.symbolSheet\.longPress\.open'[\s\S]*pauseQuoteSheetFeed\(\);[\s\S]*prepareQuoteInfoLaunch\(sym\);[\s\S]*showQuotesActionSheet\(config\);[\s\S]*prepareSymbolDestinationsAfterSheetPaint\(sym\)/,
+    /const handleSymbolLongPress = useCallback[\s\S]*quoteLongPressActionSheetConfigs\.get\(sym\)[\s\S]*gesture\.accepted = true[\s\S]*cancelRetainedActionSheetPreview\(gesture\.previewRevision\)[\s\S]*runImmediateAction\('quotes\.symbolSheet\.longPress\.open'[\s\S]*showQuotesActionSheet\(config\);[\s\S]*prepareSymbolDestinationsAfterSheetPaint\(sym\)/,
   );
   assert.match(source, /onLongPress=\{\(\) => handleSymbolLongPress\(sym\)\}/);
 });
 
 test('quote details paints an exact shell before mounting its focused heavy body', () => {
   const source = readSymbolDetailsSource();
+  const backControlStart = source.indexOf('<Pressable\n            onPress={onBack}');
+  const backControlEnd = source.indexOf('</Pressable>', backControlStart);
+  const backControlSource = source.slice(backControlStart, backControlEnd);
 
-  assert.match(source, /export function SymbolDetailsScreen\(\) \{[\s\S]*useDeferredRouteContentReady\(0, isScreenFocused\)[\s\S]*if \(!contentReady\) \{[\s\S]*<QuoteInfoLaunchShell[\s\S]*destination="properties"[\s\S]*return <SymbolDetailsInteractiveContent onBack=\{handleBack\} \/>/);
+  assert.match(source, /export function SymbolDetailsScreen\(\) \{[\s\S]*launchCovers[\s\S]*useDeferredRouteContentReady\(0, isScreenFocused\)[\s\S]*bodyMountedRef[\s\S]*if \(!contentReady\) \{[\s\S]*<QuoteInfoLaunchShell[\s\S]*destination="properties"[\s\S]*return <SymbolDetailsInteractiveContent onBack=\{handleBack\} \/>/);
   assert.match(source, /markQuoteInfoLaunchCovered\('properties'\)/);
   assert.match(source, /completeQuoteInfoLaunch\('properties'\)/);
-  assert.match(source, /backNavigationStartedRef\.current = true;[\s\S]*hideQuoteInfoLaunch\(\);[\s\S]*scheduleBackNavigationAfterVisualFrame\(\(\) => \{[\s\S]*safeRouterBack\(router, '\/\(tabs\)\/quotes'\)/);
-  assert.match(source, /onPress=\{onBack\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart[\s\S]*latencyLabel="quoteInfo\.properties\.back"[\s\S]*latencyBudgetMs=\{50\}/);
+  assert.match(source, /backNavigationStartedRef\.current = true;[\s\S]*beginQuoteInfoBackCover\('properties', symbol\);[\s\S]*scheduleBackNavigationAfterVisualFrame\(\(\) => \{[\s\S]*safeRouterBack\(router, '\/\(tabs\)\/quotes'\);[\s\S]*scheduleQuoteInfoBackCoverRemoval\(coverRevision\)/);
+  assert.notEqual(backControlStart, -1);
+  assert.notEqual(backControlEnd, -1);
+  assert.match(backControlSource, /onPress=\{onBack\}[\s\S]*latencyLabel="quoteInfo\.properties\.back"[\s\S]*latencyBudgetMs=\{50\}/);
+  assert.doesNotMatch(backControlSource, /activateOnPressIn|activateOnTouchStart/);
   assert.doesNotMatch(source, /SYMBOL_DETAILS_FULL_CONTENT_DELAY_MS/);
 });
 
@@ -152,7 +180,7 @@ test('quote details specification shows point and account leverage', () => {
   assert.match(source, /import \{ useAccountSummary \} from '..\/..\/..\/query\/account'/);
   assert.match(source, /resolveTradingLoginString, useResolvedTradingLogin/);
   assert.doesNotMatch(source, /useSavedAccounts|activeSavedAccountLeverage|brokerId/);
-  assert.match(source, /useAccountSummary\(accountLoginString, \{[\s\S]*enabled: isScreenFocused && !!accountLoginString/);
+  assert.match(source, /useAccountSummary\(accountLoginString, \{[\s\S]*enabled: active && !!accountLoginString/);
   assert.match(source, /base\.point = remoteMeta\.point \?\? base\.point/);
   assert.match(source, /const point = remoteMeta\?\.point \?\? q\.point \?\? q\.tickSize \?\? pip/);
   assert.match(source, /const resolvedLeverage = accountSummary\?\.leverage && accountSummary\.leverage > 0[\s\S]*\? accountSummary\.leverage[\s\S]*: undefined/);
@@ -184,11 +212,17 @@ test('quote details keeps real swap values visible', () => {
 
 test('market statistics paints an exact shell before mounting its focused heavy body', () => {
   const source = readMarketStatisticsSource();
+  const backControlStart = source.indexOf('<Pressable\n            onPress={onBack}');
+  const backControlEnd = source.indexOf('</Pressable>', backControlStart);
+  const backControlSource = source.slice(backControlStart, backControlEnd);
 
-  assert.match(source, /export function MarketStatisticsScreen\(\) \{[\s\S]*useDeferredRouteContentReady\(0, isScreenFocused\)[\s\S]*if \(!contentReady\) \{[\s\S]*<QuoteInfoLaunchShell[\s\S]*destination="market-statistics"[\s\S]*return <MarketStatisticsInteractiveContent onBack=\{handleBack\} \/>/);
+  assert.match(source, /export function MarketStatisticsScreen\(\) \{[\s\S]*launchCovers[\s\S]*useDeferredRouteContentReady\(0, isScreenFocused\)[\s\S]*bodyMountedRef[\s\S]*if \(!contentReady\) \{[\s\S]*<QuoteInfoLaunchShell[\s\S]*destination="market-statistics"[\s\S]*return <MarketStatisticsInteractiveContent onBack=\{handleBack\} \/>/);
   assert.match(source, /markQuoteInfoLaunchCovered\('market-statistics'\)/);
   assert.match(source, /completeQuoteInfoLaunch\('market-statistics'\)/);
-  assert.match(source, /backNavigationStartedRef\.current = true;[\s\S]*hideQuoteInfoLaunch\(\);[\s\S]*scheduleBackNavigationAfterVisualFrame\(\(\) => \{[\s\S]*safeRouterBack\(router, '\/\(tabs\)\/quotes'\)/);
-  assert.match(source, /onPress=\{onBack\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart[\s\S]*latencyLabel="quoteInfo\.marketStatistics\.back"[\s\S]*latencyBudgetMs=\{50\}/);
+  assert.match(source, /backNavigationStartedRef\.current = true;[\s\S]*beginQuoteInfoBackCover\('market-statistics', symbol\);[\s\S]*scheduleBackNavigationAfterVisualFrame\(\(\) => \{[\s\S]*safeRouterBack\(router, '\/\(tabs\)\/quotes'\);[\s\S]*scheduleQuoteInfoBackCoverRemoval\(coverRevision\)/);
+  assert.notEqual(backControlStart, -1);
+  assert.notEqual(backControlEnd, -1);
+  assert.match(backControlSource, /onPress=\{onBack\}[\s\S]*latencyLabel="quoteInfo\.marketStatistics\.back"[\s\S]*latencyBudgetMs=\{50\}/);
+  assert.doesNotMatch(backControlSource, /activateOnPressIn|activateOnTouchStart/);
   assert.doesNotMatch(source, /MARKET_STATISTICS_FULL_CONTENT_DELAY_MS/);
 });

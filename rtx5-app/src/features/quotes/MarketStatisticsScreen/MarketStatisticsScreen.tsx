@@ -11,7 +11,7 @@ import { FastPressable as Pressable } from '../../../ui/components/FastPressable
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { ScrollView, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -33,9 +33,11 @@ import { getMeta } from '../SymbolDetailsScreen/instrumentMeta';
 import { makeMarketStatisticsStyles } from './styles';
 import { QuoteInfoLaunchShell } from '../QuoteInfoLaunchShell';
 import {
+  beginQuoteInfoBackCover,
   completeQuoteInfoLaunch,
-  hideQuoteInfoLaunch,
   markQuoteInfoLaunchCovered,
+  quoteInfoLaunchController,
+  scheduleQuoteInfoBackCoverRemoval,
 } from '../quoteInfoLaunchController';
 import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
 
@@ -91,7 +93,25 @@ const resolveDirection = (current: number, previous?: number): StatDirection => 
 
 export function MarketStatisticsScreen() {
   const isScreenFocused = useIsFocused();
-  const contentReady = useDeferredRouteContentReady(0, isScreenFocused);
+  const launchSnapshot = useSyncExternalStore(
+    quoteInfoLaunchController.subscribe,
+    quoteInfoLaunchController.getSnapshot,
+    quoteInfoLaunchController.getSnapshot,
+  );
+  // Optimistic cover already hides mount cost — mount the body on the same
+  // focus frame so markCovered can swap as soon as the interactive tree paints.
+  // Keep readiness sticky after markCovered removes the cover, so the body is
+  // not torn down while the deferred 2-frame timer is still catching up.
+  const launchCovers = launchSnapshot.visible
+    && launchSnapshot.destination === 'market-statistics';
+  const deferredReady = useDeferredRouteContentReady(0, isScreenFocused);
+  const bodyMountedRef = useRef(false);
+  if (!isScreenFocused) {
+    bodyMountedRef.current = false;
+  } else if (deferredReady || launchCovers) {
+    bodyMountedRef.current = true;
+  }
+  const contentReady = isScreenFocused && bodyMountedRef.current;
   const { symbol: routeSymbol = 'EURUSD' } = useLocalSearchParams<{ symbol?: string }>();
   const symbol = useMemo(() => normalizeSymbol(routeSymbol), [routeSymbol]);
   const router = useRouter();
@@ -121,15 +141,19 @@ export function MarketStatisticsScreen() {
       return;
     }
     backNavigationStartedRef.current = true;
-    hideQuoteInfoLaunch();
+    // Re-cover with the root retained shell first so stack pop never flashes
+    // a laggy Quotes remount (same class as RegisterLaunch back cover).
+    const coverRevision = beginQuoteInfoBackCover('market-statistics', symbol);
     scheduleBackNavigationAfterVisualFrame(() => {
       safeRouterBack(router, '/(tabs)/quotes');
+      scheduleQuoteInfoBackCoverRemoval(coverRevision);
     });
-  }, [router]);
+  }, [router, symbol]);
 
   if (!contentReady) {
     return (
       <QuoteInfoLaunchShell
+        active
         destination="market-statistics"
         symbol={symbol}
         onBack={handleBack}
@@ -141,20 +165,40 @@ export function MarketStatisticsScreen() {
   return <MarketStatisticsInteractiveContent onBack={handleBack} />;
 }
 
-function MarketStatisticsInteractiveContent({ onBack }: { onBack: () => void }) {
+export type MarketStatisticsInteractiveContentProps = Readonly<{
+  onBack: () => void;
+  /** When set (launch host), wins over the route param. */
+  symbol?: string;
+  /**
+   * Sidebar-style activity gate. When provided, live queries follow this flag
+   * instead of navigation focus so a pre-mounted host can warm inactive and
+   * reveal fully interactive content on the same tap turn.
+   */
+  active?: boolean;
+}>;
+
+export function MarketStatisticsInteractiveContent({
+  onBack,
+  symbol: symbolOverride,
+  active: activeOverride,
+}: MarketStatisticsInteractiveContentProps) {
   const { t } = useTranslation();
   const { symbol: routeSymbol = 'EURUSD' } = useLocalSearchParams<{ symbol?: string }>();
-  const symbol = useMemo(() => normalizeSymbol(routeSymbol), [routeSymbol]);
+  const symbol = useMemo(
+    () => normalizeSymbol(symbolOverride || routeSymbol),
+    [routeSymbol, symbolOverride],
+  );
 
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const isScreenFocused = useIsFocused();
+  const active = activeOverride ?? isScreenFocused;
 
   // Subscribe to live tick data
-  const liveQuotes = useMarketData([symbol], isScreenFocused);
-  const { data: remoteMeta } = useInstrumentMeta(symbol, isScreenFocused);
-  const { data: dailyRangeCandle = null } = useLatestDailyCandle(symbol, isScreenFocused);
+  const liveQuotes = useMarketData([symbol], active);
+  const { data: remoteMeta } = useInstrumentMeta(symbol, active);
+  const { data: dailyRangeCandle = null } = useLatestDailyCandle(symbol, active);
 
   const q = useMemo<QuoteItem>(() => {
     const live = liveQuotes[symbol] as Partial<QuoteItem> | undefined;
@@ -276,8 +320,6 @@ function MarketStatisticsInteractiveContent({ onBack }: { onBack: () => void }) 
         <View style={styles.headerRow}>
           <Pressable
             onPress={onBack}
-            activateOnPressIn
-            activateOnTouchStart
             latencyLabel="quoteInfo.marketStatistics.back"
             latencyBudgetMs={50}
             unstable_pressDelay={0}

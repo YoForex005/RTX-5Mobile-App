@@ -28,7 +28,6 @@ import {
   CURRENCY_FILTERS,
   DATE_TABS,
   IMPACT_CONFIG,
-  IMPACT_FILTERS,
   getEventsForTab,
   parseAndDiff,
 } from './eventHelpers';
@@ -36,14 +35,25 @@ import { CountryBadge, PulseDot } from './subComponents';
 import { makeEconomicCalendarStyles } from './styles';
 import { useNextFrameValue } from '../../../hooks/useNextFrameValue';
 import { useTranslation } from '../../../i18n/useTranslation';
+import { runImmediateAction } from '../../../utils/actionLatency';
+import {
+  EconomicEventFiltersSheet,
+  type EconomicEventFiltersSheetHandle,
+} from './EconomicEventFiltersSheet';
 
 const ECON_CALENDAR_IDLE_PREWARM_DELAY_MS = 6000;
+// Mount the retained calendar rows offscreen after the lighter sidebar pages.
+// Live refreshes remain focus-only; this prewarm consumes the existing local
+// fallback/cache and prevents a visible body-load after a drawer selection.
+const ECON_CALENDAR_BODY_PREWARM_DELAY_MS = 2_800;
 
 /**
  * Screen displaying a calendar of upcoming global macroeconomic events and their expected market impact.
  */
 export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
-  const routeBodyReady = useDeferredRouteContentReady(0, isScreenFocused);
+  const routeBodyReady = useDeferredRouteContentReady(
+    isScreenFocused ? 0 : ECON_CALENDAR_BODY_PREWARM_DELAY_MS,
+  );
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeEconomicCalendarStyles(T, isDark), [T, isDark]);
@@ -56,7 +66,7 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
   const [selectedImpacts, setSelectedImpacts] = useState<Set<ImpactLevel>>(new Set(['high', 'medium', 'low', 'holiday']));
   const [selectedCurrency, setSelectedCurrency] = useState('All');
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
-  const [filterModalOpen, setFilterModalOpen] = useState(false);
+  const eventFiltersSheetRef = useRef<EconomicEventFiltersSheetHandle>(null);
 
   const [dataEvents, setDataEvents] = useState<EconomicEvent[]>(initialEvents);
   const [fetchError, setFetchError] = useState(initialEvents.length === 0);
@@ -108,12 +118,15 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
     return () => clearInterval(interval);
   }, [isScreenFocused, loadData]);
 
-  const toggleImpact = useCallback((impact: ImpactLevel) => {
-    setSelectedImpacts((prev) => {
-      const next = new Set(prev);
-      if (next.has(impact)) next.delete(impact);
-      else next.add(impact);
-      return next;
+  const openEventFilters = useCallback(() => {
+    runImmediateAction('economicCalendar.filters.open', () => {
+      eventFiltersSheetRef.current?.open();
+    });
+  }, []);
+
+  const applyEventFilters = useCallback((nextImpacts: Set<ImpactLevel>) => {
+    React.startTransition(() => {
+      setSelectedImpacts(nextImpacts);
     });
   }, []);
 
@@ -312,7 +325,14 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
                 <Text style={styles.heroTitle}>{t('Economic Calender')}</Text>
                 <Text style={styles.heroSub}>{t('Market events calendar')}</Text>
               </View>
-              <Pressable style={styles.filterBtn} onPress={() => setFilterModalOpen(true)}>
+              <Pressable
+                style={styles.filterBtn}
+                onPress={openEventFilters}
+                activateOnPressIn
+                activateOnTouchStart
+                latencyLabel="economicCalendar.filters.open"
+                unstable_pressDelay={0}
+              >
                 <Ionicons name="options-outline" size={16} color={isDark ? T.accent : '#4F46E5'} />
               </Pressable>
             </View>
@@ -418,53 +438,11 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
         <View style={{ height: 36 }} />
       </ScrollView> : <View style={styles.scroll} />}
 
-      {filterModalOpen && (
-        <Pressable style={styles.modalOverlay} onPress={() => setFilterModalOpen(false)}>
-          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
-            <View style={styles.modalHeader}>
-              <View style={styles.modalHandle} />
-              <Text style={styles.modalTitle}>{t('Event Filters')}</Text>
-              <Text style={styles.modalSub}>{t('Customize which events appear')}</Text>
-            </View>
-
-            <Text style={styles.modalGroupTitle}>{t('IMPACT LEVEL')}</Text>
-            <View style={styles.modalImpactRow}>
-              {IMPACT_FILTERS.map((impact) => {
-                const config = IMPACT_CONFIG[impact];
-                const isActive = selectedImpacts.has(impact);
-                return (
-                  <Pressable key={impact} style={[styles.modalImpactBtn, isActive && { borderColor: config.color + '60', backgroundColor: config.color + '10' }]} onPress={() => toggleImpact(impact)}>
-                    <View style={[styles.modalImpactIndicator, { opacity: isActive ? 1 : 0.6 }]}>
-                      <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: isActive ? config.color + '30' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: isActive ? config.color : isDark ? T.textMuted : '#CBD5E1' }} />
-                      </View>
-                    </View>
-                    <Text style={[styles.modalImpactLabel, isActive && { color: config.color }]}>{t(config.label)}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            <Text style={styles.modalGroupTitle}>{t('OTHER')}</Text>
-            <Pressable style={[styles.modalToggleRow, selectedImpacts.has('holiday') && styles.modalToggleRowActive]} onPress={() => toggleImpact('holiday')}>
-              <Ionicons name="calendar" size={16} color="#8B5CF6" />
-              <Text style={styles.modalToggleLabel}>{t('Show Bank Holidays')}</Text>
-              <View style={[styles.modalToggle, selectedImpacts.has('holiday') && styles.modalToggleOn]}>
-                <View style={[styles.modalToggleThumb, selectedImpacts.has('holiday') && styles.modalToggleThumbOn]} />
-              </View>
-            </Pressable>
-
-            <Pressable style={styles.modalDoneBtn} onPress={() => setFilterModalOpen(false)}>
-              <LinearGradient
-                colors={isDark ? [T.accent, T.trading.buy.active] : ['#4F46E5', '#4338CA']}
-                start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-                style={[StyleSheet.absoluteFillObject, { borderRadius: 14 }]}
-              />
-              <Text style={styles.modalDoneBtnText}>{t('Apply Filters')}</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      )}
+      <EconomicEventFiltersSheet
+        ref={eventFiltersSheetRef}
+        selectedImpacts={selectedImpacts}
+        onApply={applyEventFilters}
+      />
     </Screen>
   );
 });

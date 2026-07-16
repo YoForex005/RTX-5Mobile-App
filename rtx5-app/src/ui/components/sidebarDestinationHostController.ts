@@ -37,6 +37,8 @@ export type SidebarDestinationVisualApplier = (
   destination: SidebarHostDestination | null,
 ) => void;
 
+export type SidebarDestinationBackHandler = () => boolean;
+
 export type SidebarDestinationController = Readonly<{
   /** Immediate visual/imperative state for the currently revealed layer. */
   getSnapshot: () => SidebarDestinationSnapshot;
@@ -60,6 +62,11 @@ export type SidebarDestinationController = Readonly<{
   ) => boolean;
   hide: () => boolean;
   isVisible: () => boolean;
+  requestBack: () => boolean;
+  registerBackHandler: (
+    destination: SidebarHostDestination,
+    handler: SidebarDestinationBackHandler,
+  ) => () => void;
   registerVisualApplier: (applier: SidebarDestinationVisualApplier) => () => void;
 }>;
 
@@ -90,8 +97,8 @@ const CLOSED_SNAPSHOT: SidebarDestinationSnapshot = Object.freeze({
 });
 
 /** Focus/query work runs only after the drawer close motion has settled. */
-const FOCUS_NOTIFY_SETTLE_DELAY_MS = 110;
-const SIDEBAR_DESTINATION_CONTROLLER_VERSION = 2;
+const FOCUS_NOTIFY_SETTLE_DELAY_MS = 60;
+const SIDEBAR_DESTINATION_CONTROLLER_VERSION = 3;
 
 /**
  * Converts Expo Router paths (including grouped routes and query/hash suffixes)
@@ -137,6 +144,7 @@ export function createSidebarDestinationController(
 ): SidebarDestinationController {
   const listeners = new Set<() => void>();
   const visualListeners = new Set<() => void>();
+  const backHandlers = new Map<SidebarHostDestination, SidebarDestinationBackHandler>();
   let visualApplier: SidebarDestinationVisualApplier | null = null;
   let notificationRevision = 0;
   const initialDestination = initialDestinationOrPath
@@ -173,7 +181,7 @@ export function createSidebarDestinationController(
 
     // Node/test environments have no frame clock and retain the controller's
     // synchronous observable contract. On-device, the retained native layer
-    // paints first and the drawer close animation (~90ms) finishes before
+    // paints first and the drawer close animation (~60ms) finishes before
     // focus/query React work is published — a focus commit landing
     // mid-animation was measured dropping 48-86ms of drawer frames.
     if (typeof globalThis.requestAnimationFrame !== 'function') {
@@ -255,6 +263,21 @@ export function createSidebarDestinationController(
 
     isVisible: () => snapshot.activeDestination !== null,
 
+    requestBack: () => {
+      const destination = snapshot.activeDestination;
+      if (!destination) return false;
+      return backHandlers.get(destination)?.() ?? false;
+    },
+
+    registerBackHandler: (destination, handler) => {
+      backHandlers.set(destination, handler);
+      return () => {
+        if (backHandlers.get(destination) === handler) {
+          backHandlers.delete(destination);
+        }
+      };
+    },
+
     registerVisualApplier: (applier) => {
       visualApplier = applier;
       applier(snapshot.activeDestination);
@@ -282,6 +305,8 @@ export const sidebarDestinationController =
     && typeof existingController.getFocusSnapshot === 'function'
     && typeof existingController.registerVisualApplier === 'function'
     && typeof existingController.subscribeVisual === 'function'
+    && typeof existingController.requestBack === 'function'
+    && typeof existingController.registerBackHandler === 'function'
     ? existingController
     : createSidebarDestinationController();
 

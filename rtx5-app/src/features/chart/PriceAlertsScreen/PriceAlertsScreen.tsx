@@ -66,7 +66,17 @@ const normalizeRouteCondition = (value: string | string[] | undefined): AlertCon
 const normalizeRouteMessage = (value: string | string[] | undefined) =>
   (firstRouteParam(value) ?? '').replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim();
 
-export function PriceAlertsScreen() {
+export type PriceAlertsScreenProps = Readonly<{
+  hosted?: boolean;
+  hostedActive?: boolean;
+  onHostedBack?: () => void;
+}>;
+
+export function PriceAlertsScreen({
+  hosted = false,
+  hostedActive = false,
+  onHostedBack,
+}: PriceAlertsScreenProps) {
   const router = useRouter();
   const { t } = useTranslation();
   const routeParams = useLocalSearchParams<PriceAlertRouteParams>();
@@ -74,7 +84,7 @@ export function PriceAlertsScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makePriceAlertsStyles(T, isDark), [T, isDark]);
-  const isScreenFocused = useIsFocused();
+  const isScreenFocused = useIsFocused() || (hosted && hostedActive);
 
   // Current chart symbol pre-fills the symbol field
   const chartSymbol = useUserPreferences((s) => s.chartSymbol);
@@ -222,7 +232,20 @@ export function PriceAlertsScreen() {
 
       {/* ── Header ── */}
       <View style={[styles.header, { backgroundColor: screenBg }]}>
-        <Pressable onPress={() => safeRouterBack(router, '/(tabs)/chart')} hitSlop={16} style={styles.headerBtn}>
+        <Pressable
+          onPress={() => {
+            if (hosted && onHostedBack) {
+              onHostedBack();
+              return;
+            }
+            safeRouterBack(router, '/chart/settings');
+          }}
+          activateOnPressIn
+          activateOnTouchStart
+          unstable_pressDelay={0}
+          hitSlop={16}
+          style={styles.headerBtn}
+        >
           <Ionicons name="arrow-back" size={22} color={T.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: T.text }]} numberOfLines={1}>

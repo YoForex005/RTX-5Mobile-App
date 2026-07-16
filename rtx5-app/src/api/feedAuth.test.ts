@@ -3,7 +3,7 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { extractFeedBrokerToken } from './feedAuth';
+import { appendFeedAuthToWsUrl, extractFeedBrokerToken, redactFeedAuthFromWsUrl } from './feedAuth';
 
 test('extractFeedBrokerToken reads common response fields and nested feed auth', () => {
   assert.equal(
@@ -20,8 +20,14 @@ test('extractFeedBrokerToken reads common response fields and nested feed auth',
   );
 });
 
-test('feed auth no longer exposes websocket URL builders or feed-token env routing', () => {
+test('feed auth builds and redacts the MyProp query-auth URL without env secrets', () => {
   const source = readFileSync(resolve(process.cwd(), 'src/api/feedAuth.ts'), 'utf8');
 
-  assert.doesNotMatch(source, /process\.env|appendFeedAuthToWsUrl|redactFeedAuthFromWsUrl|stripFeedAuthQueryFromWsUrl|EXPO_PUBLIC_FEED_BROKER_TOKEN/);
+  const url = appendFeedAuthToWsUrl('wss://services.myprop.trade/ws/feed', 'myprop-trade', 'feed-secret');
+  assert.equal(url, 'wss://services.myprop.trade/ws/feed?broker_id=myprop-trade&token=feed-secret');
+  assert.equal(
+    redactFeedAuthFromWsUrl(url),
+    'wss://services.myprop.trade/ws/feed?broker_id=myprop-trade&token=***',
+  );
+  assert.doesNotMatch(source, /process\.env|EXPO_PUBLIC_FEED_BROKER_TOKEN/);
 });

@@ -2,38 +2,64 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Trade Feature UI: BulkOperationScreen
  *
- * Provides an interface to execute bulk actions on multiple open positions simultaneously
- * such as "Close all profitable", "Close all losing", or "Close all".
+ * Confirm and run bulk close actions on matching open positions.
  */
 
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  Platform,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePositionsState } from '../../state/positionsState';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useTradingState } from '../../state/tradingState';
+import { resolveTradingLoginString } from '../../state/tradingLogin';
+import { positionsApi } from '../../api/positions';
+import { appQueryClient } from '../../state/providers/AppProviders';
 import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { fmt } from '../../utils/format';
 import { safeRouterBack } from '../../utils/navigation';
 import { useTranslation } from '../../i18n/useTranslation';
+import { CRITICAL_TRADE_ACTION_MAX_LATENCY_MS } from '../../utils/actionLatency';
 import { bulkModeLabel, filterPositionsForBulk } from './tradeFlow';
+import { resolveLivePositionPnl } from './livePositionMetrics';
+import {
+  classifyTradingError,
+  createFrontendTradingError,
+  formatTradingErrorFeedback,
+} from '../../api/tradingErrors';
+
+const CANVAS_DARK = '#121212';
+const CARD_DARK = '#1E1E1E';
+const DIVIDER_DARK = 'rgba(255,255,255,0.06)';
+const PREVIEW_LIMIT = 8;
 
 export function BulkOperationScreen() {
   const { mode } = useLocalSearchParams<{ mode?: string }>();
-  const [submitted, setSubmitted] = useState(false);
+  const [isRunning, setIsRunning] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState(false);
+  const runningRef = useRef(false);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const T = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
-
   const { t } = useTranslation();
   const positions = usePositionsState((s) => s.positions);
-  // Translate the bulk-mode label at the render layer: fixed labels resolve
-  // directly from the dictionary; symbol-specific labels ("Close BTCUSD
-  // Positions") go through the '{symbol}' template key instead.
+  const quotes = useTradingState((s) => s.quotes);
+  const resolvedLogin = resolveTradingLoginString();
+  const screenBg = isDark ? CANVAS_DARK : T.bg;
+
   const title = useMemo(() => {
     const rawTitle = bulkModeLabel(mode);
     const translated = t(rawTitle);
@@ -43,31 +69,114 @@ export function BulkOperationScreen() {
       ? t('Close {symbol} Positions').replace('{symbol}', symbolTitle[1])
       : translated;
   }, [mode, t]);
+
   const affectedPositions = useMemo(
     () => filterPositionsForBulk(positions, mode),
     [positions, mode]
   );
-  const totalPnl = affectedPositions.reduce((sum, position) => sum + position.pnl, 0);
 
-  // Live exposure stats
-  const activeExposures: any[] = [];
-  const totalNetExposure = 0;
-  const screenBg = isDark ? '#121212' : T.bg;
+  const totalPnl = useMemo(
+    () => affectedPositions.reduce(
+      (sum, position) => sum + resolveLivePositionPnl(position, quotes[position.symbol]),
+      0,
+    ),
+    [affectedPositions, quotes],
+  );
+  const totalVolume = useMemo(
+    () => affectedPositions.reduce((sum, position) => sum + (position.volume || 0), 0),
+    [affectedPositions],
+  );
+  const symbolCount = useMemo(
+    () => new Set(affectedPositions.map((position) => position.symbol)).size,
+    [affectedPositions],
+  );
+  const extraPreviewCount = Math.max(0, affectedPositions.length - PREVIEW_LIMIT);
+
+  const handleExecute = useCallback(async () => {
+    if (runningRef.current || affectedPositions.length === 0) {
+      return;
+    }
+
+    const accountDetails = useUserPreferences.getState().accountDetails;
+    if (!accountDetails?.credentials?.accessToken) {
+      setStatusError(true);
+      setStatusMessage(
+        formatTradingErrorFeedback(
+          createFrontendTradingError(
+            t('Authentication Error'),
+            t('The app does not have a valid local trading session. Log in again before closing positions.'),
+          ),
+        ),
+      );
+      return;
+    }
+
+    runningRef.current = true;
+    setIsRunning(true);
+    setStatusMessage(null);
+    setStatusError(false);
+
+    const snapshots = affectedPositions.map((position) => ({ ...position }));
+    const state = usePositionsState.getState();
+    for (const position of snapshots) {
+      state.beginOptimisticClose(position.id);
+    }
+
+    safeRouterBack(router, '/(tabs)/trade');
+
+    const results = await Promise.allSettled(
+      snapshots.map((position) => positionsApi.closePosition(position.id)),
+    );
+
+    const latest = usePositionsState.getState();
+    let failed = 0;
+    results.forEach((result, index) => {
+      const snapshot = snapshots[index];
+      if (result.status === 'fulfilled') {
+        latest.finishOptimisticClose(snapshot.id);
+      } else {
+        failed += 1;
+        latest.rollbackOptimisticClose(snapshot);
+      }
+    });
+
+    appQueryClient.invalidateQueries({ queryKey: ['positionHistory'] });
+    appQueryClient.invalidateQueries({ queryKey: ['accountDeals'] });
+    appQueryClient.invalidateQueries({ queryKey: ['deals'] });
+    appQueryClient.invalidateQueries({ queryKey: ['positions'] });
+    appQueryClient.invalidateQueries({ queryKey: ['ordersByLogin'] });
+    appQueryClient.invalidateQueries({ queryKey: ['accountSummary'] });
+    appQueryClient.invalidateQueries({ queryKey: ['exposure'] });
+    appQueryClient.invalidateQueries({ queryKey: ['transactions'] });
+
+    if (resolvedLogin) {
+      void latest.refreshPositions(resolvedLogin);
+    }
+
+    if (failed > 0) {
+      const feedback = classifyTradingError(
+        new Error(`${failed} of ${snapshots.length} closes failed`),
+        { action: 'close' },
+      );
+      Alert.alert(feedback.title, t('Some positions could not be closed. Check Trade and try again.'));
+    }
+
+    runningRef.current = false;
+    setIsRunning(false);
+  }, [affectedPositions, resolvedLogin, t]);
 
   return (
     <View style={[styles.root, { backgroundColor: screenBg }]}>
       <View style={{ height: insets.top, backgroundColor: screenBg }} />
 
-      <View
-        style={[
-          styles.customHeader,
-          { borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle },
-        ]}
-      >
+      <View style={styles.customHeader}>
         <Pressable
           onPress={() => safeRouterBack(router, '/(tabs)/trade')}
           hitSlop={16}
           style={styles.headerBtn}
+          activateOnPressIn
+          latencyLabel="bulk.back"
+          unstable_pressDelay={0}
         >
           <Ionicons name="arrow-back" size={24} color={T.text} />
         </Pressable>
@@ -93,69 +202,125 @@ export function BulkOperationScreen() {
           styles.scrollContent,
           { paddingBottom: Math.max(insets.bottom, spacing.md) + spacing.lg },
         ]}
-        keyboardShouldPersistTaps='always'
+        keyboardShouldPersistTaps="always"
         showsVerticalScrollIndicator={false}
       >
+        <Text style={styles.subTitle}>{t('Review positions before closing')}</Text>
+
         <View style={styles.summaryCard}>
-          <Row label={t('Affected Positions')} value={String(affectedPositions.length)} isDark={isDark} T={T} />
-          <Row border label={t('Total Exposure P/L')} value={fmt.pnl(totalPnl)} danger={totalPnl < 0} positive={totalPnl > 0} isDark={isDark} T={T} />
-          <Row border label={t('Active Exposures')} value={String(activeExposures.length)} isDark={isDark} T={T} />
-          <Row border label={t('Net Exposure (USD)')} value={fmt.pnl(totalNetExposure)} danger={totalNetExposure < 0} positive={totalNetExposure > 0} isDark={isDark} T={T} />
+          <SummaryRow
+            label={t('Affected Positions')}
+            value={String(affectedPositions.length)}
+            styles={styles}
+            T={T}
+          />
+          <SummaryRow
+            label={t('Symbols')}
+            value={String(symbolCount)}
+            styles={styles}
+            T={T}
+            border
+          />
+          <SummaryRow
+            label={t('Total Volume')}
+            value={totalVolume.toFixed(2)}
+            styles={styles}
+            T={T}
+            border
+          />
+          <SummaryRow
+            label={t('Floating P/L')}
+            value={fmt.pnl(totalPnl)}
+            styles={styles}
+            T={T}
+            border
+            danger={totalPnl < 0}
+            positive={totalPnl > 0}
+          />
         </View>
 
+        <Text style={styles.sectionLabel}>{t('Positions')}</Text>
         <View style={styles.previewCard}>
-          {affectedPositions.slice(0, 6).map((position, i) => (
-            <View key={position.id} style={[styles.previewRow, i !== 0 && styles.previewRowBorder]}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.rowIdText, { color: T.textMuted }]}>#{position.id}</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.symbolText, { color: T.text }]}>{position.symbol.replace(/\//g, '')}</Text>
-                  <Text
-                    style={[
-                      styles.sideText,
-                      position.side === 'buy' ? { color: T.trading.buy.hover } : { color: T.trading.sell.hover },
-                    ]}
-                  >
-                    {position.side}
-                  </Text>
-                  <Text style={[styles.volumeText, { color: T.textMuted }]}>{(position.volume || 0).toFixed(2)}</Text>
+          {affectedPositions.slice(0, PREVIEW_LIMIT).map((position, index) => {
+            const livePnl = resolveLivePositionPnl(position, quotes[position.symbol]);
+            const isBuy = position.side === 'buy';
+            return (
+              <View
+                key={position.id}
+                style={[styles.previewRow, index !== 0 && styles.previewRowBorder]}
+              >
+                <View style={styles.previewLeft}>
+                  <Text style={styles.ticket}>#{position.id}</Text>
+                  <View style={styles.symbolLine}>
+                    <Text style={styles.symbolText}>{position.symbol.replace(/\//g, '')}</Text>
+                    <View style={[styles.sideChip, isBuy ? styles.sideChipBuy : styles.sideChipSell]}>
+                      <Text style={[styles.sideChipText, isBuy ? styles.sideTextBuy : styles.sideTextSell]}>
+                        {position.side}
+                      </Text>
+                    </View>
+                    <Text style={styles.volumeText}>{(position.volume || 0).toFixed(2)}</Text>
+                  </View>
                 </View>
+                <Text style={[styles.previewPnl, livePnl < 0 ? styles.danger : livePnl > 0 ? styles.positive : null]}>
+                  {fmt.pnl(livePnl)}
+                </Text>
               </View>
-              <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
-                <Text style={[styles.previewRight, position.pnl < 0 ? styles.danger : styles.positive]}>{fmt.pnl(position.pnl)}</Text>
-              </View>
-            </View>
-          ))}
+            );
+          })}
+
+          {extraPreviewCount > 0 ? (
+            <Text style={styles.moreText}>
+              {t('+{count} more').replace('{count}', String(extraPreviewCount))}
+            </Text>
+          ) : null}
+
           {affectedPositions.length === 0 ? (
-            <Text style={styles.emptyText}>{t('No positions match this operation.')}</Text>
+            <View style={styles.emptyBox}>
+              <Ionicons name="layers-outline" size={28} color={T.textMuted} />
+              <Text style={styles.emptyText}>{t('No positions match this operation.')}</Text>
+            </View>
           ) : null}
         </View>
 
-        {submitted ? (
-          <View style={styles.success}>
-            <Text style={styles.successText}>{t('Bulk operation simulated and queued for backend execution.')}</Text>
+        {statusMessage ? (
+          <View style={[styles.statusBox, statusError ? styles.statusBoxError : styles.statusBoxSuccess]}>
+            <Text style={[styles.statusText, statusError ? styles.statusTextError : styles.statusTextSuccess]}>
+              {statusMessage}
+            </Text>
           </View>
         ) : null}
 
         <Pressable
-          style={[styles.executeButton, affectedPositions.length === 0 && styles.executeDisabled]}
-          onPress={() => setSubmitted(true)}
-          disabled={affectedPositions.length === 0}
+          style={[styles.executeButton, (affectedPositions.length === 0 || isRunning) && styles.executeDisabled]}
+          onPress={() => { void handleExecute(); }}
+          disabled={affectedPositions.length === 0 || isRunning}
+          activateOnPressIn
+          latencyLabel="bulk.execute"
+          latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
+          unstable_pressDelay={0}
         >
-          <Text style={styles.executeText}>{t('Execute Bulk Operation')}</Text>
+          {isRunning ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.executeText}>
+              {affectedPositions.length === 0
+                ? t('No positions to close')
+                : t('Close {count} positions').replace('{count}', String(affectedPositions.length))}
+            </Text>
+          )}
         </Pressable>
       </ScrollView>
     </View>
   );
 }
 
-function Row({
+function SummaryRow({
   label,
   value,
   danger = false,
   positive = false,
   border = false,
-  isDark,
+  styles,
   T,
 }: {
   label: string;
@@ -163,31 +328,38 @@ function Row({
   danger?: boolean;
   positive?: boolean;
   border?: boolean;
-  isDark: boolean;
+  styles: ReturnType<typeof makeStyles>;
   T: ThemeColors;
 }) {
-  const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   return (
     <View style={[styles.summaryRow, border && styles.summaryRowBorder]}>
       <Text style={[styles.summaryLabel, { color: T.textMuted }]}>{label}</Text>
-      <Text style={[styles.summaryValue, { color: T.text }, danger && styles.danger, positive && styles.positive]}>{value}</Text>
+      <Text
+        style={[
+          styles.summaryValue,
+          { color: T.text },
+          danger && styles.danger,
+          positive && styles.positive,
+        ]}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
 
 const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
-  root: {
-    flex: 1,
-  },
+  root: { flex: 1 },
   customHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     height: 48,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: isDark ? DIVIDER_DARK : T.borderSubtle,
   },
   headerBtn: {
-    width: 40,
+    width: 44,
     height: 48,
     alignItems: 'center',
     justifyContent: 'center',
@@ -199,136 +371,181 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   headerTitle: {
     textAlign: 'center',
     fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: 0.2,
+    fontWeight: '600',
+    letterSpacing: 0.15,
   },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
+  scrollView: { flex: 1 },
+  scrollContent: { flexGrow: 1, paddingTop: 12 },
+  subTitle: {
+    color: T.textMuted,
+    fontSize: 13,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginBottom: 14,
+    paddingHorizontal: spacing.md,
   },
   summaryCard: {
     marginHorizontal: spacing.md,
-    marginTop: spacing.md,
-    marginBottom: spacing.md,
-    padding: spacing.md,
+    marginBottom: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
-    backgroundColor: isDark ? T.glass2 : T.glass2,
+    borderColor: isDark ? DIVIDER_DARK : T.borderSubtle,
+    backgroundColor: isDark ? CARD_DARK : T.glass2,
   },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 12,
   },
   summaryRowBorder: {
-    borderTopWidth: 1,
-    borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: isDark ? DIVIDER_DARK : T.borderSubtle,
   },
   summaryLabel: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '500',
   },
   summaryValue: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
     fontVariant: ['tabular-nums'],
-    letterSpacing: 0,
+  },
+  sectionLabel: {
+    marginHorizontal: spacing.md,
+    marginBottom: 8,
+    color: T.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
   },
   previewCard: {
     marginHorizontal: spacing.md,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
-    backgroundColor: isDark ? T.glass2 : T.glass2,
+    borderColor: isDark ? DIVIDER_DARK : T.borderSubtle,
+    backgroundColor: isDark ? CARD_DARK : T.glass2,
     overflow: 'hidden',
   },
   previewRow: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 12,
   },
   previewRowBorder: {
-    borderTopWidth: 1,
-    borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: isDark ? DIVIDER_DARK : T.borderSubtle,
   },
-  rowIdText: {
+  previewLeft: { flex: 1, minWidth: 0 },
+  ticket: {
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '500',
     fontVariant: ['tabular-nums'],
-    letterSpacing: 0.5,
-    marginBottom: 4
+    color: T.textMuted,
+    marginBottom: 4,
+  },
+  symbolLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
   },
   symbolText: {
     fontSize: 15,
     fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.5
+    color: T.text,
   },
-  sideText: {
-    fontSize: 12,
-    fontWeight: '600',
+  sideChip: {
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  sideChipBuy: { backgroundColor: 'rgba(37,99,235,0.12)' },
+  sideChipSell: { backgroundColor: 'rgba(220,38,38,0.12)' },
+  sideChipText: {
+    fontSize: 11,
+    fontWeight: '700',
     textTransform: 'lowercase',
-    letterSpacing: 0.3
   },
+  sideTextBuy: { color: T.trading.buy.primary },
+  sideTextSell: { color: T.trading.sell.primary },
   volumeText: {
     fontSize: 13,
-    fontWeight: '700'
-  },
-  previewRight: {
-    fontSize: 15,
     fontWeight: '600',
+    color: T.textMuted,
     fontVariant: ['tabular-nums'],
   },
+  previewPnl: {
+    fontSize: 15,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+    color: T.text,
+  },
+  moreText: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    textAlign: 'center',
+    color: T.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: isDark ? DIVIDER_DARK : T.borderSubtle,
+  },
+  emptyBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: spacing.md,
+    gap: 10,
+  },
   emptyText: {
-    padding: spacing.xl,
     textAlign: 'center',
     color: T.textMuted,
     fontSize: 14,
     fontWeight: '500',
   },
-  success: {
+  statusBox: {
     marginHorizontal: spacing.md,
     marginTop: spacing.md,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(74,222,128,0.25)',
-    backgroundColor: 'rgba(74,222,128,0.08)',
-    padding: spacing.md,
+    padding: 14,
   },
-  successText: {
-    color: T.trading.profit,
-    fontSize: 13,
-    fontWeight: '600',
+  statusBoxSuccess: {
+    borderColor: isDark ? 'rgba(16,185,129,0.34)' : 'rgba(5,150,105,0.24)',
+    backgroundColor: T.upGlow,
   },
+  statusBoxError: {
+    borderColor: isDark ? 'rgba(239,68,68,0.34)' : 'rgba(220,38,38,0.24)',
+    backgroundColor: T.downGlow,
+  },
+  statusText: { fontSize: 13, fontWeight: '600', lineHeight: 18 },
+  statusTextSuccess: { color: T.trading.profit },
+  statusTextError: { color: T.trading.loss },
   executeButton: {
     marginHorizontal: spacing.md,
     marginTop: spacing.xl,
-    borderRadius: 12,
-    backgroundColor: '#DC2626', // Pure bright red instead of T.trading.sell.primary which might be dark
+    borderRadius: 14,
+    backgroundColor: T.trading.sell.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
-    shadowColor: '#DC2626',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 4,
+    paddingVertical: 15,
   },
   executeDisabled: {
-    opacity: 0.4,
-    shadowOpacity: 0,
+    opacity: 0.45,
   },
   executeText: {
-    color: '#FFFFFF', // Force stark white for explosive contrast against red
-    fontSize: 17,
-    fontWeight: '600',
-    letterSpacing: 0.5,
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   danger: {
     color: T.trading.loss,

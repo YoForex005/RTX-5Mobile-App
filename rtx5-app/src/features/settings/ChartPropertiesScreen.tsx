@@ -2,14 +2,18 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { router, Stack } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ColorPicker, { HueSlider, Panel1, Preview, colorKit } from 'reanimated-color-picker';
 import { Screen } from '../../ui/components/Screen';
+import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import { useTranslation } from '../../i18n/useTranslation';
-import { safeRouterBack } from '../../utils/navigation';
+import {
+  safeRouterBack,
+  scheduleBackNavigationAfterVisualFrame,
+} from '../../utils/navigation';
 import { useLiveCandles } from '../../domain/candles/hooks/useLiveCandles';
 import { useLiveSymbolQuote } from '../../query/websocket';
 import { calculateQuoteSpreadPoints } from '../../utils/quoteSpread';
@@ -22,8 +26,12 @@ import {
 } from '../../state/userPreferences';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useTheme } from '../../ui/theme/useTheme';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
 import { LiveChartPreview } from '../chart/preview';
+
+/** Keep the chrome instant; only mount the WebView preview after this settle. */
+const SCHEMA_COLORS_PREVIEW_DELAY_MS = 120;
 
 // Match the app dark palette for the chart preferences shell and cards.
 const SETTINGS_DARK_BACKGROUND = '#121212';
@@ -101,14 +109,35 @@ const formatQuote = (value?: number, digits = 2) =>
 /**
  * Screen for configuring global chart visual properties and display preferences.
  */
-export function ChartPropertiesScreen() {
-  const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+export type ChartPropertiesScreenProps = Readonly<{
+  /** When true, shown from ChartConfigDestinationHost over Chart Preferences. */
+  hosted?: boolean;
+  hostedActive?: boolean;
+  onHostedBack?: () => void;
+}>;
+
+export function ChartPropertiesScreen({
+  hosted = false,
+  hostedActive = false,
+  onHostedBack,
+}: ChartPropertiesScreenProps) {
+  // Hosted opens are active when the retained layer is visible; routed opens
+  // still use navigation focus. Inactive host layers freeze theme so a theme
+  // tap only repaints the visible Settings shell.
+  const isScreenFocused = useIsFocused() || (hosted && hostedActive);
+  const themeActive = !hosted || hostedActive;
+  const T = useTheme({ active: themeActive });
+  const isDark = useIsDarkTheme({ active: themeActive });
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const { width } = useWindowDimensions();
   const isCompact = width < 390;
-  const isScreenFocused = useIsFocused();
+  // Delay the live WebView preview so Schema & Colors chrome paints on the
+  // first frame. Live quote/candles only start after that settle.
+  const previewContentReady = useDeferredRouteContentReady(
+    SCHEMA_COLORS_PREVIEW_DELAY_MS,
+    isScreenFocused,
+  );
   const { t } = useTranslation();
 
 
@@ -133,8 +162,32 @@ export function ChartPropertiesScreen() {
   const [draftColor, setDraftColor] = useState('');
   const livePickerFrameRef = useRef<number | null>(null);
   const pendingPickerDraftRef = useRef<string | null>(null);
+  const backNavigationStartedRef = useRef(false);
   const colorEditorOpen = activeColorKey !== null;
-  const previewActive = isScreenFocused && !colorEditorOpen;
+  const previewActive = previewContentReady && isScreenFocused && !colorEditorOpen;
+
+  useEffect(() => {
+    if (isScreenFocused) {
+      backNavigationStartedRef.current = false;
+    }
+  }, [isScreenFocused]);
+
+  const handleReturnFromSchema = useCallback(() => {
+    if (backNavigationStartedRef.current) {
+      return;
+    }
+    // Hosted path: hide the retained layer instantly (sidebar-style).
+    if (hosted && onHostedBack) {
+      onHostedBack();
+      return;
+    }
+    backNavigationStartedRef.current = true;
+    // Prefer Chart Preferences when that is the previous stack entry; fall
+    // back to the chart tab when Schema was opened from elsewhere.
+    scheduleBackNavigationAfterVisualFrame(() => {
+      safeRouterBack(router, '/chart/settings');
+    });
+  }, [hosted, onHostedBack]);
 
   // Direct per-symbol ticks keep the Bid and Spread preview cards live without waiting on the shared quote map.
   const liveQuote = useLiveSymbolQuote(chartSymbol, previewActive, 0);
@@ -344,7 +397,15 @@ export function ChartPropertiesScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
         <View style={styles.headerRow}>
-          <Pressable onPress={() => safeRouterBack(router, '/(tabs)/chart')} hitSlop={16} style={styles.headerBackBtn}>
+          <Pressable
+            onPress={handleReturnFromSchema}
+            activateOnPressIn
+            activateOnTouchStart
+            unstable_pressDelay={0}
+            latencyLabel="chartProperties.back"
+            hitSlop={16}
+            style={styles.headerBackBtn}
+          >
             <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">
@@ -401,16 +462,24 @@ export function ChartPropertiesScreen() {
           )}
 
           <View style={[styles.previewChart, { backgroundColor: resolvedChartColors.background }]}>
-            <LiveChartPreview
-              symbol={chartSymbol}
-              timeframe={chartTimeframe}
-              chartType={chartVisualType}
-              priceSource={priceSource}
-              colors={resolvedChartColors}
-              display={previewDisplay}
-              isDark={isDark}
-              active={previewActive}
-            />
+            {previewContentReady ? (
+              <LiveChartPreview
+                symbol={chartSymbol}
+                timeframe={chartTimeframe}
+                chartType={chartVisualType}
+                priceSource={priceSource}
+                colors={resolvedChartColors}
+                display={previewDisplay}
+                isDark={isDark}
+                active={previewActive}
+              />
+            ) : (
+              <View
+                testID="chart-live-preview-placeholder"
+                pointerEvents="none"
+                style={StyleSheet.absoluteFillObject}
+              />
+            )}
           </View>
 
           <View style={styles.previewFooter}>

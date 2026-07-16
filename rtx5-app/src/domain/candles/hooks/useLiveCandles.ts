@@ -14,6 +14,7 @@ import {
   type CandleParams,
 } from '../stream/liveCandleStream';
 import { quotesWsService } from '../../../api/ws/quotesSocket';
+import { candlesWsService } from '../ws/candlesSocket';
 import {
   normalizeSymbol,
   normalizeTimeframeStrict,
@@ -23,13 +24,14 @@ import { hasLiveQuoteFeedData, useMarketData } from '../../../query/websocket';
 import { hydratePersistedCandleCache } from '../state/persistedCandleCache';
 import { shouldUseServerCandleStream } from '../ws/liveCandlesEnginePolicy';
 import { useUserPreferences } from '../../../state/userPreferences';
+import { MARKET_QUOTE_STALE_AFTER_MS } from '../../../market/quotePolicy';
 
 // Cache the empty-snapshot reference for useSyncExternalStore. Returning a new
 // `[]` each call would trip React's "cache the snapshot" guard and infinite-loop.
 const emptyCandles = EMPTY_CANDLES as CandleParams[];
 const EMPTY_STREAM_SNAPSHOT_KEY = 'empty';
 const getEmptyStreamSnapshotKey = () => EMPTY_STREAM_SNAPSHOT_KEY;
-const LIVE_TICK_STALE_MS = 45_000;
+const LIVE_TICK_STALE_MS = MARKET_QUOTE_STALE_AFTER_MS;
 
 const getCandleStreamSnapshotKey = (symbol: string, timeframe: string): string => {
   const state = liveCandlesEngine.getState(symbol, timeframe);
@@ -130,7 +132,10 @@ export function useLiveCandles(symbol: string, timeframe: string, active = true)
       }
 
       const unsubscribeCandleDemand = useServerCandleStream
-        ? quotesWsService.subscribeToCandles(normalizedSymbol, normalizedTimeframe)
+        ? (() => {
+            candlesWsService.subscribe(normalizedSymbol, normalizedTimeframe);
+            return () => candlesWsService.unsubscribe(normalizedSymbol, normalizedTimeframe);
+          })()
         : null;
       // Keep the quote socket on for this chart. In the default mode, quote
       // ticks are the only active-candle body source; server candles are opt-in

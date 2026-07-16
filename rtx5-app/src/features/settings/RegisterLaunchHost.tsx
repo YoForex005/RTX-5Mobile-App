@@ -1,15 +1,8 @@
-import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef } from 'react';
-import { BackHandler, StyleSheet, View, type ViewProps } from 'react-native';
-import Animated, {
-  executeOnUIRuntimeSync,
-  makeMutable,
-  useAnimatedProps,
-  useAnimatedStyle,
-  type SharedValue,
-} from 'react-native-reanimated';
+import { usePathname, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
+import { BackHandler, StyleSheet, View } from 'react-native';
 import { safeRouterBack, scheduleBackNavigationAfterVisualFrame } from '../../utils/navigation';
-import { showBrokerDetailLaunch } from './brokerDetailLaunchController';
+import { showBrokerDetailReturnLaunch } from './brokerDetailLaunchController';
 import { RegisterHandoffPreview } from './RegisterHandoffPreview';
 import {
   registerLaunchController,
@@ -27,50 +20,41 @@ const REGISTER_LAUNCH_VISIBLE_STYLE = {
   zIndex: 50,
 } as const;
 
-type RegisterLaunchHostGlobal = typeof globalThis & {
-  __rtx5RegisterLaunchVisibility?: SharedValue<number>;
-};
+const isRegisterFlowRoute = (pathname: string) => (
+  pathname === '/register-entry' || pathname === '/register'
+);
 
-const registerLaunchHostGlobal = globalThis as RegisterLaunchHostGlobal;
-const registerLaunchVisibility =
-  registerLaunchHostGlobal.__rtx5RegisterLaunchVisibility ?? makeMutable(0);
-registerLaunchHostGlobal.__rtx5RegisterLaunchVisibility = registerLaunchVisibility;
-
-function writeRegisterLaunchVisibilityNow(visible: boolean) {
-  const nextValue = visible ? 1 : 0;
-  try {
-    executeOnUIRuntimeSync((value: number) => {
-      'worklet';
-      registerLaunchVisibility.value = value;
-    })(nextValue);
-  } catch {
-    registerLaunchVisibility.value = nextValue;
-  }
+function writeRegisterLaunchVisibilityNow(layer: View | null, visible: boolean) {
+  layer?.setNativeProps({
+    accessibilityElementsHidden: !visible,
+    importantForAccessibility: visible ? 'auto' : 'no-hide-descendants',
+    pointerEvents: visible ? 'auto' : 'none',
+    style: visible ? REGISTER_LAUNCH_VISIBLE_STYLE : REGISTER_LAUNCH_HIDDEN_STYLE,
+  });
 }
 
 /** Keeps the Demo Account first frame mounted above every broker-flow route. */
 export function RegisterLaunchHost() {
   const router = useRouter();
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
   const backInFlightRef = useRef(false);
+  const pendingBackRevisionRef = useRef<number | null>(null);
   const backGuardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const renderVisible = registerLaunchController.isVisible();
-  const hostAnimatedStyle = useAnimatedStyle(() => {
-    const visible = registerLaunchVisibility.value === 1;
-    return {
-      elevation: visible ? 50 : 0,
-      opacity: visible ? 1 : 0,
-      zIndex: visible ? 50 : 0,
-    };
-  });
-  const hostAnimatedProps = useAnimatedProps<ViewProps>(() => ({
-    pointerEvents: registerLaunchVisibility.value === 1 ? 'auto' : 'none',
-  }));
+  const hostLayerRef = useRef<View>(null);
+  const renderVisible = useSyncExternalStore(
+    registerLaunchController.subscribe,
+    registerLaunchController.isVisible,
+    registerLaunchController.isVisible,
+  );
+  pathnameRef.current = pathname;
 
   const popCommittedRegisterRoute = useCallback((
     revision: number,
     selection: NonNullable<ReturnType<typeof registerLaunchController.getSnapshot>['selection']>,
   ) => {
-    showBrokerDetailLaunch(selection);
+    pendingBackRevisionRef.current = null;
+    showBrokerDetailReturnLaunch(selection);
     registerLaunchController.hide(revision);
     scheduleBackNavigationAfterVisualFrame(() => {
       safeRouterBack(router, {
@@ -83,6 +67,20 @@ export function RegisterLaunchHost() {
       }, 700);
     });
   }, [router]);
+
+  useEffect(() => {
+    if (!isRegisterFlowRoute(pathname)) return;
+    const pendingRevision = pendingBackRevisionRef.current;
+    if (pendingRevision === null) return;
+
+    const current = registerLaunchController.getSnapshot();
+    if (!current.visible || current.revision !== pendingRevision || !current.selection) {
+      pendingBackRevisionRef.current = null;
+      backInFlightRef.current = false;
+      return;
+    }
+    popCommittedRegisterRoute(pendingRevision, current.selection);
+  }, [pathname, popCommittedRegisterRoute]);
 
   const closeLaunch = useCallback(() => {
     const current = registerLaunchController.getSnapshot();
@@ -107,17 +105,28 @@ export function RegisterLaunchHost() {
       return;
     }
 
+    if ((backResult === 'wait' || backResult === 'handled') && current.selection) {
+      // The mounted Demo form is authoritative even if its controller mount
+      // notification was missed. If the native route is already current, pop
+      // it now; otherwise keep the cover and finish as soon as it commits.
+      if (isRegisterFlowRoute(pathnameRef.current)) {
+        popCommittedRegisterRoute(current.revision, current.selection);
+      } else {
+        pendingBackRevisionRef.current = current.revision;
+      }
+      return;
+    }
+
     if (backResult === 'stale') {
       backInFlightRef.current = false;
     }
-    // 'wait' keeps the Demo cover visible. Register Entry owns the one pop as
-    // soon as it marks this exact revision mounted; 'handled' is a duplicate.
   }, [popCommittedRegisterRoute]);
 
   useEffect(
     () => registerLaunchController.registerVisualApplier((visible) => {
-      writeRegisterLaunchVisibilityNow(visible);
+      writeRegisterLaunchVisibilityNow(hostLayerRef.current, visible);
       if (visible) {
+        pendingBackRevisionRef.current = null;
         backInFlightRef.current = false;
       }
     }),
@@ -125,6 +134,7 @@ export function RegisterLaunchHost() {
   );
 
   useEffect(() => () => {
+    pendingBackRevisionRef.current = null;
     if (backGuardTimerRef.current) clearTimeout(backGuardTimerRef.current);
   }, []);
 
@@ -139,8 +149,8 @@ export function RegisterLaunchHost() {
 
   return (
     <View pointerEvents="box-none" style={styles.hostRoot} testID="register-launch-host">
-      <Animated.View
-        animatedProps={hostAnimatedProps}
+      <View
+        ref={hostLayerRef}
         pointerEvents={renderVisible ? 'auto' : 'none'}
         accessibilityElementsHidden={!renderVisible}
         importantForAccessibility={renderVisible ? 'auto' : 'no-hide-descendants'}
@@ -148,7 +158,6 @@ export function RegisterLaunchHost() {
         style={[
           styles.hostLayer,
           renderVisible ? styles.hostLayerVisible : styles.hostLayerHidden,
-          hostAnimatedStyle,
         ]}
         testID="register-launch-animated-host"
       >
@@ -156,7 +165,7 @@ export function RegisterLaunchHost() {
           onBack={closeLaunch}
           backLatencyLabel="register.launch.back"
         />
-      </Animated.View>
+      </View>
     </View>
   );
 }

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
+import { createFastTabVisualController } from '../ui/navigation/fastTabVisualController';
 
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
@@ -43,11 +44,10 @@ test('bottom tab press paints optimistically on press-in and delays real navigat
   assert.match(visualControllerSource, /export function scheduleFastTabNavigation\(\s*revision: number,\s*action: \(\) => void,\s*settleDelayMs: number = FAST_TAB_NAVIGATION_SETTLE_DELAY_MS,\s*\)/);
   assert.match(visualControllerSource, /fastTabVisualController\.getSnapshot\(\)\.revision === revision/);
   assert.match(visualControllerSource, /setTimeout\(runIfCurrent, 32\)/);
-  // The real navigation commit behind a DRAWER close waits for the motion to
-  // settle so it cannot drop frames of the 90-110ms animation (device-measured
-  // jank). Bottom-bar taps have no motion to protect and commit right after
+  // The real navigation commit behind a DRAWER close waits for the shortened
+  // native motion to settle. Bottom-bar taps have no motion to protect and commit right after
   // the two optimistic swap frames.
-  assert.match(visualControllerSource, /const FAST_TAB_NAVIGATION_SETTLE_DELAY_MS = 110/);
+  assert.match(visualControllerSource, /const FAST_TAB_NAVIGATION_SETTLE_DELAY_MS = 60/);
   assert.match(visualControllerSource, /export const TAB_BAR_NAVIGATION_SETTLE_DELAY_MS = 0/);
   assert.match(visualControllerSource, /globalThis\.requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(runIfCurrent, settleDelayMs\);/);
 });
@@ -117,17 +117,18 @@ test('fast tab scenes remain cached in plain absolute view layers', () => {
 test('tab bar and retained scenes share one deterministic visible route', () => {
   const navigatorSource = readSource('src/ui/navigation/FastTabNavigator.tsx');
   const controllerSource = readSource('src/ui/navigation/fastTabVisualController.ts');
+  const tabsLayoutSource = readSource('app/(tabs)/_layout.tsx');
 
   assert.match(controllerSource, /export const FAST_TAB_ROUTE_NAMES = \['quotes', 'chart', 'trade', 'history', 'settings'\] as const/);
-  assert.match(controllerSource, /__rtx5FastTabVisualIndex\?: SharedValue<number>/);
-  assert.match(controllerSource, /export const fastTabVisualIndex =[\s\S]*makeMutable\(0\)/);
-  // The visibility index must be written synchronously ON the UI runtime; an
-  // async JS->UI flush was observed on-device queuing >1s behind a congested
-  // JS event loop, leaving the old tab on screen after the drawer closed.
-  assert.match(controllerSource, /function writeFastTabVisualIndexNow\(index: number\) \{\s*try \{\s*executeOnUIRuntimeSync\(/);
-  assert.match(controllerSource, /writeFastTabVisualIndexNow\(FAST_TAB_ROUTE_INDEX\[routeName\]\)/);
-  assert.match(controllerSource, /setActualRouteName: \(routeName: FastTabRouteName\) => \{[\s\S]*writeFastTabVisualIndexNow\(FAST_TAB_ROUTE_INDEX\[routeName\]\);[\s\S]*if \(snapshot\.routeName !== null\) \{[\s\S]*publish\(null, snapshot\.revision\)/);
-  assert.match(controllerSource, /fastTabVisualIndex\.value = index;\s*\}\s*\}/);
+  assert.doesNotMatch(controllerSource, /react-native-reanimated|fastTabVisualIndex|executeOnUIRuntimeSync|makeMutable/);
+  assert.match(controllerSource, /const visualAppliers = new Set<FastTabVisualApplier>\(\)/);
+  assert.match(controllerSource, /const sidebarChromeAppliers = new Set<FastTabVisualApplier>\(\)/);
+  assert.match(controllerSource, /registerVisualApplier: \(applier: FastTabVisualApplier\) => \{[\s\S]*visualAppliers\.add\(applier\)[\s\S]*visualAppliers\.delete\(applier\)/);
+  assert.match(controllerSource, /export function showFastTabVisualForSidebar\(pathOrName: string\) \{[\s\S]*fastTabVisualController\.show\(routeName, false\)/);
+  assert.match(controllerSource, /const applyVisualRoute = \(routeName: FastTabRouteName\) => \{\s*visualAppliers\.forEach\(\(applier\) => applier\(routeName\)\);/);
+  assert.match(controllerSource, /show: \(routeName: FastTabRouteName, notifySubscribers = true\) => \{[\s\S]*applyVisualRoute\(routeName\);[\s\S]*applySidebarChromeRoute\(routeName\);[\s\S]*publish\(routeName, revision, notifySubscribers\)/);
+  assert.match(controllerSource, /setActualRouteName: \(routeName: FastTabRouteName\) => \{[\s\S]*applyVisualRoute\(routeName\);[\s\S]*applySidebarChromeRoute\(routeName\);[\s\S]*if \(snapshot\.routeName !== null\) \{[\s\S]*publish\(null, snapshot\.revision\)/);
+  assert.doesNotMatch(controllerSource, /sidebarChromeRouteName/);
   assert.match(controllerSource, /existingController\.version === FAST_TAB_VISUAL_CONTROLLER_VERSION/);
   assert.equal(
     (navigatorSource.match(/useFastTabVisualSnapshot\(\)/g) ?? []).length,
@@ -146,6 +147,14 @@ test('tab bar and retained scenes share one deterministic visible route', () => 
   assert.match(navigatorSource, /const visibleRouteName = visibleState\.routes\[visibleState\.index\]\?\.name\s*\?\? focusedRoute\.name/);
   assert.match(navigatorSource, /<FastTabBarHost\s*state=\{visibleState\}/);
   assert.match(navigatorSource, /visualFocused=\{route\.name === visibleRouteName\}/);
+  assert.match(navigatorSource, /registerFastTabVisualApplier\(applyNativeVisualRouteNow\)/);
+  assert.match(navigatorSource, /const applyNativeVisualRouteNow = useCallback\([\s\S]*setNativeProps\(\{[\s\S]*style: \[styles\.sceneLayer, styles\.sceneLayerHidden\][\s\S]*setNativeProps\(\{[\s\S]*style: \[styles\.sceneLayer, styles\.sceneLayerVisible\]/);
+  assert.match(sceneLayerSource, /ref=\{layerRef\}[\s\S]*collapsable=\{false\}/);
+  assert.match(tabsLayoutSource, /const FastTabVisualIcon = memo[\s\S]*activeLayerRef\.current\?\.setNativeProps[\s\S]*inactiveLayerRef\.current\?\.setNativeProps[\s\S]*registerFastTabSidebarChromeApplier\(applyVisualRoute\)/);
+  assert.match(tabsLayoutSource, /style: \[styles\.tabIconLayer, \{ opacity: active \? 1 : 0 \}\][\s\S]*style: \[styles\.tabIconLayer, \{ opacity: active \? 0 : 1 \}\]/);
+  assert.match(tabsLayoutSource, /const FastTabVisualLabel = memo[\s\S]*labelRef\.current\?\.setNativeProps[\s\S]*registerFastTabSidebarChromeApplier\(applyVisualRoute\)/);
+  assert.match(tabsLayoutSource, /tabBarIcon: \(\{ size, color \}\) => \{[\s\S]*<FastTabVisualIcon[\s\S]*routeName=\{route\.name as FastTabRouteName\}/);
+  assert.match(tabsLayoutSource, /tabBarLabel: \(\{ children, color \}\) => \{[\s\S]*<FastTabVisualLabel[\s\S]*routeName=\{route\.name as FastTabRouteName\}/);
   assert.match(sceneLayerSource, /<View[\s\S]*visualFocused \? styles\.sceneLayerVisible : styles\.sceneLayerHidden/);
   assert.doesNotMatch(sceneLayerSource, /Animated\.View|useAnimatedStyle|useAnimatedProps|animatedStyle|animatedProps/);
   assert.match(navigatorSource, /pointerEvents=\{visualFocused \? 'auto' : 'none'\}/);
@@ -153,6 +162,27 @@ test('tab bar and retained scenes share one deterministic visible route', () => 
   assert.match(navigatorSource, /sceneLayerHidden: \{\s*opacity: 0,\s*zIndex: 0,\s*\}/);
   assert.doesNotMatch(navigatorSource, /fastTabVisualIndex|getFastTabRouteIndex|from 'react-native-reanimated'/);
   assert.match(navigatorSource, /\|\| previous\.visualFocused !== next\.visualFocused/);
+});
+
+test('fast tab native scene and menu chrome always receive the same route', () => {
+  const controller = createFastTabVisualController();
+  const sceneRoutes: string[] = [];
+  const chromeRoutes: string[] = [];
+  const unregisterScene = controller.registerVisualApplier((route) => sceneRoutes.push(route));
+  const unregisterChrome = controller.registerSidebarChromeApplier((route) => chromeRoutes.push(route));
+
+  controller.setActualRouteName('trade');
+  const chartRevision = controller.show('chart');
+  controller.setActualRouteName('chart');
+  const historyRevision = controller.show('history', false);
+  controller.clear(historyRevision);
+
+  assert.equal(chartRevision > 0, true);
+  assert.deepEqual(sceneRoutes, ['trade', 'chart', 'chart', 'history', 'chart']);
+  assert.deepEqual(chromeRoutes, sceneRoutes);
+
+  unregisterScene();
+  unregisterChrome();
 });
 
 test('bottom tab bar follows the optimistic visual route before navigation commits', () => {
@@ -181,6 +211,7 @@ test('bottom tab navigation fast path preserves light and dark tab bar themes', 
   const source = readSource('app/(tabs)/_layout.tsx');
 
   assert.match(source, /import \{ useThemeMode \} from '\.\.\/\.\.\/src\/state\/themeMode'/);
+  assert.match(source, /ThemedTabsChrome/);
   assert.match(source, /const themeMode = useThemeMode\(\)/);
   assert.match(source, /const isDark = themeMode === 'dark'/);
   assert.match(source, /const T = themeMode === 'light' \? GLight : GDark/);

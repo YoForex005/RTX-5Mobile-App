@@ -2,113 +2,149 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Settings -> Language Preference (Language picker)
  *
- * Lets the user pick from the supported language list. Selection is
- * persisted to userPreferences and applied immediately app-wide via the
- * useTranslation hook.
+ * Selection is optimistic on the list (checkmark), then the global language
+ * preference is committed after that paint so app-wide useTranslation()
+ * re-renders do not steal the press frame.
  */
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
-import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
-import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import { hideSidebarDestination } from '../../ui/components/sidebarDestinationHostController';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useUserPreferences, type LanguageCode } from '../../state/userPreferences';
-import { useTranslation } from '../../i18n/useTranslation';
-import { SUPPORTED_LANGUAGES } from '../../i18n/translations';
+import {
+  SUPPORTED_LANGUAGES,
+  normalizeLanguageCode,
+  translate,
+} from '../../i18n/translations';
+import {
+  cancelPendingLanguagePreferenceCommit,
+  flushPendingLanguagePreferenceCommit,
+  scheduleLanguagePreferenceCommit,
+} from '../../i18n/languageCommit';
 import { safeRouterBack } from '../../utils/navigation';
 
 /**
- * Allows the user to customize the application's UI, such as theme (light/dark) and language.
- * Route entry point — the body lives in InterfaceScreenInner so the sidebar
- * destination host can retain the same view with an externally driven focus flag.
+ * Allows the user to customize the application's UI language.
+ * Route entry point — body lives in InterfaceScreenInner for the sidebar host.
  */
 export function InterfaceScreen() {
   const isScreenFocused = useIsFocused();
   return <InterfaceScreenInner isScreenFocused={isScreenFocused} />;
 }
 
+type LanguageRowProps = {
+  code: LanguageCode;
+  nativeName: string;
+  englishName: string;
+  selected: boolean;
+  styles: ReturnType<typeof makeStyles>;
+  accentColor: string;
+  onSelect: (code: LanguageCode) => void;
+};
+
+const LanguageRow = memo(function LanguageRow({
+  code,
+  nativeName,
+  englishName,
+  selected,
+  styles,
+  accentColor,
+  onSelect,
+}: LanguageRowProps) {
+  return (
+    <Pressable
+      onPress={() => onSelect(code)}
+      activateOnPressIn
+      activateOnTouchStart
+      latencyBudgetMs={32}
+      latencyLabel={`interface.language.${code}`}
+      unstable_pressDelay={0}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      style={styles.row}
+    >
+      <View style={styles.rowText}>
+        <Text style={styles.nativeName}>{nativeName}</Text>
+        <Text style={styles.englishName}>{englishName}</Text>
+      </View>
+      {selected ? <Ionicons name="checkmark" size={22} color={accentColor} /> : null}
+    </Pressable>
+  );
+}, (prev, next) => (
+  prev.selected === next.selected
+  && prev.styles === next.styles
+  && prev.accentColor === next.accentColor
+  && prev.onSelect === next.onSelect
+  && prev.nativeName === next.nativeName
+  && prev.englishName === next.englishName
+  && prev.code === next.code
+));
+
 export const InterfaceScreenInner = memo(function InterfaceScreenInner({
   isScreenFocused,
 }: {
   isScreenFocused: boolean;
 }) {
+  void isScreenFocused;
+
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
-  const { t, language, setLanguage } = useTranslation();
+  // Read store language without useTranslation() so this screen is not forced
+  // through the shared t() callback identity churn on every language field tick.
+  const storedLanguage = useUserPreferences((s) => s.language);
+  const setStoredLanguage = useUserPreferences((s) => s.setLanguage);
+  const language = normalizeLanguageCode(storedLanguage);
   const [visualLanguage, setVisualLanguage] = useState<LanguageCode>(language);
-  const languageCommitRevisionRef = useRef(0);
-  const languageCommitFrameRef = useRef<number | null>(null);
-  const languageCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
-  // Hosted by the sidebar destination host, this view stays mounted while
-  // hidden. Keep only the header until the first focus, then latch the body.
-  const hostBodyReady = useDeferredRouteContentReady(0, isScreenFocused);
-
-  const cancelPendingLanguageCommit = useCallback(() => {
-    if (languageCommitFrameRef.current !== null) {
-      if (typeof globalThis.cancelAnimationFrame === 'function') {
-        globalThis.cancelAnimationFrame(languageCommitFrameRef.current);
-      }
-      languageCommitFrameRef.current = null;
-    }
-    if (languageCommitTimerRef.current) {
-      clearTimeout(languageCommitTimerRef.current);
-      languageCommitTimerRef.current = null;
-    }
-  }, []);
+  const accentColor = T.accent ?? '#2563EB';
+  // Section title follows optimistic language without waiting on the store.
+  const sectionLabel = useMemo(
+    () => translate('Select language', visualLanguage),
+    [visualLanguage],
+  );
 
   useEffect(() => {
-    languageCommitRevisionRef.current += 1;
-    cancelPendingLanguageCommit();
     setVisualLanguage(language);
-  }, [cancelPendingLanguageCommit, language]);
+  }, [language]);
 
-  useEffect(() => cancelPendingLanguageCommit, [cancelPendingLanguageCommit]);
+  useEffect(() => () => {
+    // Leaving the screen must still persist the last tapped language.
+    flushPendingLanguagePreferenceCommit();
+  }, []);
+
+  // Stable handler so unselected rows do not re-render when only the tick moves.
+  const visualLanguageRef = useRef(visualLanguage);
+  visualLanguageRef.current = visualLanguage;
+  const languageRef = useRef(language);
+  languageRef.current = language;
 
   const handleLanguagePress = useCallback((nextLanguage: LanguageCode) => {
+    if (visualLanguageRef.current === nextLanguage && languageRef.current === nextLanguage) {
+      return;
+    }
+
+    // 1) Paint the checkmark in this turn only (local state).
     setVisualLanguage(nextLanguage);
-    languageCommitRevisionRef.current += 1;
-    cancelPendingLanguageCommit();
 
-    if (nextLanguage === language) {
+    if (languageRef.current === nextLanguage) {
+      cancelPendingLanguagePreferenceCommit();
       return;
     }
 
-    const revision = languageCommitRevisionRef.current;
-    const commitIfCurrent = () => {
-      languageCommitTimerRef.current = null;
-      if (languageCommitRevisionRef.current !== revision) {
-        return;
-      }
-      setLanguage(nextLanguage);
-    };
+    // 2) After this frame, commit the preference. That notifies every
+    // useTranslation() consumer app-wide; doing it here freezes the list.
+    scheduleLanguagePreferenceCommit(nextLanguage, (code) => {
+      setStoredLanguage(code);
+    });
+  }, [setStoredLanguage]);
 
-    // Show the tick first, then let the app-wide translation update run.
-    if (typeof globalThis.requestAnimationFrame === 'function') {
-      const frameId = globalThis.requestAnimationFrame(() => {
-        if (languageCommitFrameRef.current === frameId) {
-          languageCommitFrameRef.current = null;
-        }
-        languageCommitTimerRef.current = setTimeout(commitIfCurrent, 0);
-      });
-      languageCommitFrameRef.current = frameId;
-      return;
-    }
-
-    languageCommitTimerRef.current = setTimeout(commitIfCurrent, 16);
-  }, [cancelPendingLanguageCommit, language, setLanguage]);
-
-  /**
-   * Leaves the screen: when hosted by the sidebar destination host, hiding the
-   * host reveals the retained Settings tab underneath instantly; as a pushed
-   * route it pops back to the Settings tab.
-   */
   const closeInterfaceScreen = useCallback(() => {
     if (hideSidebarDestination()) {
       return;
@@ -135,37 +171,27 @@ export const InterfaceScreenInner = memo(function InterfaceScreenInner({
         <View style={{ width: 40 }} />
       </View>
 
-      <Text style={styles.sectionLabel}>{t('Select language')}</Text>
+      <Text style={styles.sectionLabel}>{sectionLabel}</Text>
 
-      {hostBodyReady ? <FlatList
+      <ScrollView
         keyboardShouldPersistTaps="always"
-        data={SUPPORTED_LANGUAGES}
-        extraData={visualLanguage}
-        keyExtractor={(item) => item.code}
+        canCancelContentTouches={false}
         contentContainerStyle={styles.listContent}
-        renderItem={({ item }) => {
-          const selected = item.code === visualLanguage;
-          return (
-            <Pressable
-              onPress={() => handleLanguagePress(item.code)}
-              activateOnPressIn
-              latencyBudgetMs={50}
-              latencyLabel={`interface.language.${item.code}`}
-              unstable_pressDelay={0}
-              accessibilityRole="button"
-              accessibilityState={{ selected }}
-              style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}
-            >
-              <View style={styles.rowText}>
-                <Text style={styles.nativeName}>{item.nativeName}</Text>
-                <Text style={styles.englishName}>{item.englishName}</Text>
-              </View>
-              {selected && <Ionicons name="checkmark" size={22} color={T.accent ?? '#2563EB'} />}
-            </Pressable>
-          );
-        }}
-        ItemSeparatorComponent={() => <View style={styles.divider} />}
-      /> : <View style={{ flex: 1 }} />}
+        showsVerticalScrollIndicator={false}
+      >
+        {SUPPORTED_LANGUAGES.map((item) => (
+          <LanguageRow
+            key={item.code}
+            code={item.code}
+            nativeName={item.nativeName}
+            englishName={item.englishName}
+            selected={item.code === visualLanguage}
+            styles={styles}
+            accentColor={accentColor}
+            onSelect={handleLanguagePress}
+          />
+        ))}
+      </ScrollView>
     </Screen>
   );
 });
@@ -215,6 +241,5 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     rowText: { flex: 1 },
     nativeName: { fontSize: 16, fontWeight: '600', color: T.text },
     englishName: { fontSize: 12, color: T.textMuted, marginTop: 2 },
-    divider: { height: 0 },
   });
 }

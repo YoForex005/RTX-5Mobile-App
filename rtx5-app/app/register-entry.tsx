@@ -5,7 +5,7 @@ import { BackHandler, StyleSheet, type GestureResponderEvent, View } from 'react
 import {
   brokerDetailLaunchController,
   hideBrokerDetailLaunch,
-  showBrokerDetailLaunch,
+  showBrokerDetailReturnLaunch,
 } from '../src/features/settings/brokerDetailLaunchController';
 import { RegisterHandoffPreview } from '../src/features/settings/RegisterHandoffPreview';
 import { subscribeRegisterScreenReady } from '../src/features/settings/registerHandoffState';
@@ -82,7 +82,10 @@ export default function RegisterEntryScreen() {
     }
   }, []);
 
-  const scheduleRegisterScreenMount = React.useCallback((screenComponent: RegisterScreenComponent) => {
+  const scheduleRegisterScreenMount = React.useCallback((
+    screenComponent: RegisterScreenComponent,
+    options?: { immediate?: boolean },
+  ) => {
     if (loadCancelledRef.current) {
       return;
     }
@@ -95,6 +98,13 @@ export default function RegisterEntryScreen() {
       registerScreenLoadedRef.current = true;
       setRegisterScreen(() => screenComponent);
     };
+
+    // Preloaded module: mount in this turn so Demo Account matches Brokers+
+    // (shell already painted; form must not wait an extra rAF).
+    if (options?.immediate) {
+      mountScreen();
+      return;
+    }
 
     const scheduleMountTimer = () => {
       loadRegisterFrameRef.current = null;
@@ -118,7 +128,7 @@ export default function RegisterEntryScreen() {
     backNavigationStartedRef.current = true;
     loadCancelledRef.current = true;
     clearHandoffTimers();
-    showBrokerDetailLaunch(snapshot.selection);
+    showBrokerDetailReturnLaunch(snapshot.selection);
     hideRegisterLaunch(revision);
     scheduleBackNavigationAfterVisualFrame(() => {
       safeRouterBack(router, {
@@ -184,14 +194,13 @@ export default function RegisterEntryScreen() {
 
     const preloadedScreen = getPreloadedRegisterScreen();
     if (preloadedScreen) {
-      scheduleRegisterScreenMount(preloadedScreen);
+      scheduleRegisterScreenMount(preloadedScreen, { immediate: true });
     } else {
-      loadRegisterTimerRef.current = setTimeout(() => {
-        loadRegisterTimerRef.current = null;
-        void preloadRegisterScreen().then((screenComponent) => {
-          scheduleRegisterScreenMount(screenComponent);
-        });
-      }, REGISTER_ENTRY_FORM_IMPORT_DELAY_MS);
+      // Start the import immediately (no artificial delay) so a cold tap still
+      // gets the form as soon as the module resolves.
+      void preloadRegisterScreen().then((screenComponent) => {
+        scheduleRegisterScreenMount(screenComponent, { immediate: true });
+      });
     }
 
     fallbackHideTimerRef.current = setTimeout(() => {
@@ -230,11 +239,8 @@ export default function RegisterEntryScreen() {
     if (rootLaunchRevision !== null) {
       backNavigationStartedRef.current = false;
       const backResult = requestRegisterLaunchBack(rootLaunchRevision);
-      if (backResult === 'pop') {
+      if (backResult === 'pop' || backResult === 'wait' || backResult === 'handled') {
         finishRootLaunchBack(rootLaunchRevision);
-        return;
-      }
-      if (backResult === 'wait' || backResult === 'handled') {
         return;
       }
       if (backResult === 'cancel') {
@@ -244,7 +250,7 @@ export default function RegisterEntryScreen() {
     }
     if (returnsToBrokerDetail) {
       const selection = brokerDetailLaunchController.getSnapshot().selection;
-      showBrokerDetailLaunch(selection);
+      showBrokerDetailReturnLaunch(selection);
       scheduleBackNavigationAfterVisualFrame(() => {
         safeRouterBack(router, {
           pathname: '/settings/broker-detail',

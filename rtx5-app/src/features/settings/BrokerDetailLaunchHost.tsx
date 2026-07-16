@@ -7,12 +7,13 @@ import {
 } from '../../utils/navigation';
 import { BrokerDetailLaunchShell } from './BrokerDetailLaunchShell';
 import { brokerDetailLaunchController } from './brokerDetailLaunchController';
-import { showBrokersLaunch } from './brokersLaunchController';
+import { showBrokersReturnLaunch } from './brokersLaunchController';
 import {
   registerLaunchController,
   scheduleRegisterLaunchNavigation,
   showRegisterLaunch,
 } from './registerLaunchController';
+import { warmDemoAccountForm } from './registerScreenPreload';
 
 const BROKER_DETAIL_LAUNCH_HIDDEN_STYLE = {
   elevation: 0,
@@ -48,7 +49,11 @@ export function BrokerDetailLaunchHost() {
     () => brokerDetailLaunchController.getSnapshot().selection,
     () => brokerDetailLaunchController.getSnapshot().selection,
   );
-  const renderVisible = brokerDetailLaunchController.isVisible();
+  const renderVisible = useSyncExternalStore(
+    brokerDetailLaunchController.subscribe,
+    brokerDetailLaunchController.isVisible,
+    brokerDetailLaunchController.isVisible,
+  );
   pathnameRef.current = pathname;
 
   const armBackGuard = useCallback((delayMs: number) => {
@@ -68,7 +73,7 @@ export function BrokerDetailLaunchHost() {
     }
 
     pendingBackRevisionRef.current = null;
-    showBrokersLaunch();
+    showBrokersReturnLaunch();
     brokerDetailLaunchController.hide(revision);
     armBackGuard(700);
     scheduleBackNavigationAfterVisualFrame(() => {
@@ -91,7 +96,7 @@ export function BrokerDetailLaunchHost() {
     const navigationStarted = current.navigationStarted;
 
     if (!navigationStarted) {
-      showBrokersLaunch();
+      showBrokersReturnLaunch();
       brokerDetailLaunchController.hide(current.revision);
       armBackGuard(100);
       return;
@@ -114,17 +119,30 @@ export function BrokerDetailLaunchHost() {
     const registerRevision = showRegisterLaunch(current.selection);
 
     // A very fast Demo tap can arrive before the scheduled Broker Detail push.
-    // Commit that missing stack entry now; startNavigation is single-flight, so
-    // the older scheduled callback becomes a harmless no-op.
+    // Claim that missing stack entry now, but defer its construction until the
+    // retained Demo preview has painted. The older scheduled Detail callback
+    // becomes a harmless no-op because startNavigation is single-flight.
     if (!current.navigationStarted) {
       if (!brokerDetailLaunchController.startNavigation(current.revision)) {
         registerLaunchController.hide(registerRevision);
         return;
       }
-      router.push({
-        pathname: '/settings/broker-detail',
-        params: current.selection,
+      scheduleBackNavigationAfterVisualFrame(() => {
+        router.push({
+          pathname: '/settings/broker-detail',
+          params: current.selection,
+        });
+        scheduleRegisterLaunchNavigation(registerRevision, () => {
+          router.push({
+            pathname: '/register-entry',
+            params: {
+              origin: 'broker-detail',
+              registerLaunchRevision: String(registerRevision),
+            },
+          });
+        });
       });
+      return;
     }
 
     scheduleRegisterLaunchNavigation(registerRevision, () => {
@@ -145,6 +163,9 @@ export function BrokerDetailLaunchHost() {
         if (visible && !registerLaunchController.isVisible()) {
           pendingBackRevisionRef.current = null;
           backInFlightRef.current = false;
+          // Warm Demo Account form while Broker Detail is on screen so the
+          // "Open a demo account" tap only reveals a ready module.
+          void warmDemoAccountForm();
         }
       },
     ),

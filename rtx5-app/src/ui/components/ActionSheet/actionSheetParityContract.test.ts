@@ -36,11 +36,12 @@ test('ActionSheet surfaces use the shared instant Quotes-style sheet contract', 
   const allSource = readAllSource();
   const actionSheetMounts = [...allSource.matchAll(/<ActionSheet\b[\s\S]*?\/>/g)];
   const scopedActionSheetCalls = [
-    ...allSource.matchAll(/\bshow(?:Quotes|Chart|Trade|History|News|Accounts|BrokerDetail)ActionSheet\(/g),
+    ...allSource.matchAll(/\bshow(?:Quotes|Chart|Trade|History|Accounts|BrokerDetail)ActionSheet\(/g),
   ];
 
-  assert.equal(actionSheetMounts.length, 22);
-  assert.equal(scopedActionSheetCalls.length, 15);
+  // Mailbox/News/Community screens removed — fewer mounts and no News sheet scope.
+  assert.equal(actionSheetMounts.length, 21);
+  assert.equal(scopedActionSheetCalls.length, 14);
 
   for (const mount of actionSheetMounts) {
     assert.match(mount[0], /instantOpen/, 'ActionSheet mount must opt into instant open path');
@@ -58,7 +59,61 @@ test('ActionSheet surfaces use the shared instant Quotes-style sheet contract', 
   assert.match(tabsLayoutSource, /presentation=\{activeConfig\?\.presentation\}/);
   assert.match(tabsLayoutSource, /showActionIcons=\{activeConfig\?\.showActionIcons\}/);
   assert.match(tabsLayoutSource, /androidKeyboardAvoidance=\{activeConfig\?\.androidKeyboardAvoidance\}/);
-  assert.match(uiStateSource, /showActionSheet: \(config\) => set\(\{ actionSheet: \{ \.\.\.config, instantOpen: true \} \}\)/);
+  assert.match(tabsLayoutSource, /entryMotion=\{activeConfig\?\.entryMotion\}/);
+  assert.match(tabsLayoutSource, /visualKey=\{activeConfig\?\.visualKey\}/);
+  assert.match(tabsLayoutSource, /const activeConfig = actionSheet \|\| scopedActionSheet \|\| preloadConfig \|\| scopedPreloadConfig/);
+  assert.match(tabsLayoutSource, /const visible = actionSheet !== null \|\| scopedActionSheet !== null/);
+  assert.match(uiStateSource, /showActionSheet: \(config\) => set\(\{ actionSheet: withInstantActionSheetOpen\(config\) \}\)/);
+  assert.match(uiStateSource, /config\.instantOpen === true \? config : \{ \.\.\.config, instantOpen: true \}/);
+  assert.match(uiStateSource, /entryMotion\?: 'instant' \| 'mt5Slide' \| 'standard'/);
+  assert.match(actionSheetSource, /registerRetainedActionSheetVisualApplier/);
+  assert.match(actionSheetSource, /retainedSnapshot\.mode === 'preview'[\s\S]*overlayOpacity\.setValue\(0\)[\s\S]*pointerEvents: 'none'[\s\S]*return true/);
+  assert.match(actionSheetSource, /retainedSnapshot\.mode === 'committed'/);
+  assert.match(actionSheetSource, /retainedVisualOwnerRef\.current\?\.revision === retainedSnapshot\.revision/);
+  assert.match(actionSheetSource, /const interactive = retainedSnapshot\.mode === 'committed'/);
+  assert.match(actionSheetSource, /pointerEvents: interactive \? 'auto' : 'none'/);
+  assert.match(actionSheetSource, /acknowledgeRetainedActionSheetVisible\(activeVisualKey\)/);
+  assert.match(actionSheetSource, /acknowledgeRetainedActionSheetVisible\(activeVisualKey\)[\s\S]*pointerEvents: 'auto'/);
+  assert.match(actionSheetSource, /retainedVisualOwnerRef\.current === null/);
+  assert.match(actionSheetSource, /if \(!visible\) \{[\s\S]*syncRetainedActionSheetVisual\(\)/);
+  assert.match(actionSheetSource, /syncRetainedActionSheetVisual\(\)/);
+  assert.match(actionSheetSource, /const interruptedClose = closeAnimationRunningRef\.current[\s\S]*closeAnimationRunningRef\.current = false[\s\S]*refreshHiddenConfig/);
+});
+
+test('opening the next sheet restores a shared host hidden by an MT5 close', () => {
+  const actionSheetSource = readSource('src/ui/components/ActionSheet/ActionSheet.tsx');
+  const visibilityEffectStart = actionSheetSource.indexOf('useLayoutEffect(() => {');
+  const visibilityEffectEnd = actionSheetSource.indexOf(
+    'const applyRetainedVisualSnapshot',
+    visibilityEffectStart,
+  );
+  const visibilityEffectSource = actionSheetSource.slice(
+    visibilityEffectStart,
+    visibilityEffectEnd,
+  );
+
+  assert.match(
+    actionSheetSource,
+    /const activeUsesTransparentMt5Host =[\s\S]*activePresentation === 'mt5Plain' \|\| activePresentation === 'mt5TimeframeGrid'/,
+  );
+  assert.match(
+    visibilityEffectSource,
+    /if \(visible\) \{[\s\S]*if \(hostHiddenImperativelyRef\.current\) \{[\s\S]*overlayLayerRef\.current\?\.setNativeProps\(\{[\s\S]*style: \{ opacity: 1 \}[\s\S]*hostHiddenImperativelyRef\.current = false/,
+  );
+});
+
+test('an open MT5 sheet runs its entry animation only once per visibility transition', () => {
+  const actionSheetSource = readSource('src/ui/components/ActionSheet/ActionSheet.tsx');
+
+  assert.match(actionSheetSource, /const entryAnimationStartedForOpenRef = useRef\(false\)/);
+  assert.match(
+    actionSheetSource,
+    /if \(visible\) \{[\s\S]*entryAnimationStartedForOpenRef\.current = false;[\s\S]*openedAtRef\.current = Date\.now\(\)/,
+  );
+  assert.match(
+    actionSheetSource,
+    /retainedAdoptionVisualKeyRef\.current = null;[\s\S]*entryAnimationStartedForOpenRef\.current = true;[\s\S]*if \(entryAnimationStartedForOpenRef\.current\) \{[\s\S]*return;[\s\S]*entryAnimationStartedForOpenRef\.current = true;[\s\S]*runEntryAnimation\(activeEntryMotion\)/,
+  );
 });
 
 test('high-traffic scoped action sheets open through immediate action wrappers', () => {
@@ -66,18 +121,18 @@ test('high-traffic scoped action sheets open through immediate action wrappers',
   const tradeSource = readSource('src/features/trade/TradeScreen/TradeScreen.tsx');
   const historySource = readSource('src/features/history/HistoryScreen.tsx');
   const chartSource = readSource('src/features/chart/ChartScreen.native.tsx');
-  const newsSource = readSource('src/features/settings/NewsScreen.tsx');
   const accountsSource = readSource('src/features/settings/AccountsScreen.tsx');
   const brokerDetailSource = readSource('src/features/settings/BrokerDetailScreen.tsx');
 
   assert.match(quotesSource, /runImmediateAction\('quotes\.symbolSheet\.tap\.open'[\s\S]*showQuotesActionSheet\(config\)/);
   assert.match(quotesSource, /runImmediateAction\('quotes\.symbolSheet\.longPress\.open'[\s\S]*showQuotesActionSheet\(config\)/);
   assert.match(tradeSource, /runImmediateAction\('trade\.bulkSheet\.open'[\s\S]*showTradeActionSheet\(bulkActionSheetConfig\)/);
+  assert.match(tradeSource, /const bulkActionSheetConfig = useMemo[\s\S]*entryMotion: 'mt5Slide'[\s\S]*runActionAfterClose: false/);
   assert.match(tradeSource, /runImmediateAction\('trade\.positionSheet\.open'[\s\S]*showTradeActionSheet\(\{/);
-  assert.match(historySource, /runImmediateAction\('history\.sortSheet\.open'[\s\S]*showHistoryActionSheet\(\{/);
-  assert.match(historySource, /showHistoryActionSheet\(\{[\s\S]*title: t\('Sort By'\),[\s\S]*presentation: 'mt5Plain'[\s\S]*actions: SORT_OPTIONS\.map/);
-  assert.match(newsSource, /runImmediateAction\('news\.filterSheet\.open'[\s\S]*showNewsActionSheet\(\{/);
-  assert.match(accountsSource, /runImmediateAction\('accounts\.optionsSheet\.open'[\s\S]*showAccountsActionSheet\(\{/);
+  assert.match(historySource, /const historySortSheetConfig = useMemo[\s\S]*title: t\('Sort By'\),[\s\S]*presentation: 'mt5Plain'[\s\S]*entryMotion: 'mt5Slide'[\s\S]*runActionAfterClose: false[\s\S]*actions: SORT_OPTIONS\.map/);
+  assert.match(historySource, /runImmediateAction\('history\.sortSheet\.open'[\s\S]*showHistoryActionSheet\(historySortSheetConfig\)/);
+  assert.match(accountsSource, /const accountsOptionsSheetConfig = React\.useMemo[\s\S]*entryMotion: 'mt5Slide'[\s\S]*runActionAfterClose: false/);
+  assert.match(accountsSource, /runImmediateAction\('accounts\.optionsSheet\.open'[\s\S]*showAccountsActionSheet\(accountsOptionsSheetConfig\)/);
   assert.match(brokerDetailSource, /runImmediateAction\('brokerDetail\.serverSheet\.open'[\s\S]*showBrokerDetailActionSheet\(\{/);
   assert.match(chartSource, /runImmediateAction\('chart\.symbolPicker\.open'[\s\S]*showChartActionSheet\(\{/);
   assert.match(chartSource, /runImmediateAction\('chart\.timeframePicker\.open'[\s\S]*showChartActionSheet\(\{/);
