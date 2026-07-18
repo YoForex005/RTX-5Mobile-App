@@ -29,7 +29,7 @@ test('login submit uses the shared stable fast press path', () => {
   assert.match(source, /void handleLogin\(snapshot\)/);
   assert.match(source, /onPress=\{handleLoginPress\}[\s\S]*activateOnTouchStart/);
   assert.doesNotMatch(source, /onPressIn=\{handleLoginPress\}/);
-  assert.match(source, /const isLoginSubmitDisabled = isLoading \|\| Boolean\(brokerSelectionError\)/);
+  assert.match(source, /const isLoginSubmitDisabled = isLoading[\s\S]*\|\| isBrokerHealthChecking[\s\S]*\|\| Boolean\(brokerSelectionError\)[\s\S]*\|\| !isSelectedBrokerHealthVerified/);
   assert.match(source, /disabled=\{isLoginSubmitDisabled\}/);
   assert.match(source, /hitSlop=\{LOGIN_BUTTON_HIT_SLOP\}/);
   assert.match(source, /pressRetentionOffset=\{LOGIN_BUTTON_PRESS_RETENTION_OFFSET\}/);
@@ -42,21 +42,51 @@ test('login submit uses the shared stable fast press path', () => {
   assert.doesNotMatch(source, /loginBtnPressed: \{[\s\S]*transform:/);
 });
 
-test('login screen pre-warms the broker connection before submit', () => {
+test('login screen pre-warms health from only the selected broker server URL', () => {
   const source = readSource('app/login.tsx');
 
-  // The submit POST must not pay DNS + TCP + TLS on a cold socket: once the
-  // target broker server is known (saved credentials, dev prefill, or picker
-  // selection) the screen probes /health on the same host so the connection
-  // pool keeps a hot socket for /auth/login.
+  // checkBrokerServerHealth owns construction of `{server_url}/health`, so the
+  // caller must pass the exact selected API base rather than a feed-status URL.
   assert.match(source, /const warmedBrokerServerUrlRef = useRef\(''\)/);
   assert.match(
     source,
-    /if \(!isBrokerServiceBaseUrl\(serverUrl\) \|\| warmedBrokerServerUrlRef\.current === serverUrl\) \{[\s\S]*?\}\s*warmedBrokerServerUrlRef\.current = serverUrl;\s*void probeBrokerHealth\(serverUrl\);/,
+    /const serverUrl = normalizeBrokerServerUrl\(selectedBrokerOption\?\.serverUrl \|\| ''\);[\s\S]*warmedBrokerServerUrlRef\.current = serverUrl;[\s\S]*void probeBrokerHealth\(serverUrl\)/,
   );
   assert.match(
     source,
-    /warmedBrokerServerUrlRef\.current = normalizeBrokerServerUrl\(option\.serverUrl\);\s*void probeBrokerHealth\(option\.serverUrl\);/,
+    /warmedBrokerServerUrlRef\.current = option\.serverUrl;\s*void probeBrokerHealth\(option\.serverUrl\);/,
+  );
+  assert.doesNotMatch(source, /probeBrokerHealth\(option\.endpoints\.feedStatusUrl\)/);
+  assert.match(source, /const exactServerUrl = normalizeBrokerServerUrl\(broker\.server_url\)/);
+  assert.match(source, /!isBrokerServerUrlForApiBase\(exactServerUrl, resolution\.endpoints\.apiBase\)/);
+  assert.match(source, /serverUrl: exactServerUrl/);
+});
+
+test('login submit requires health success for the exact selected broker server URL', () => {
+  const source = readSource('app/login.tsx');
+
+  assert.match(source, /const \[healthVerifiedBrokerServerUrl, setHealthVerifiedBrokerServerUrl\] = useState\(''\)/);
+  assert.match(source, /const healthVerifiedBrokerServerUrlRef = useRef\(''\)/);
+  assert.match(
+    source,
+    /await checkBrokerServerHealth\(normalizedServerUrl\);[\s\S]*healthVerifiedBrokerServerUrlRef\.current = normalizedServerUrl;[\s\S]*setHealthVerifiedBrokerServerUrl\(normalizedServerUrl\)/,
+  );
+  assert.match(
+    source,
+    /const clearBrokerHealthVerification = useCallback\(\(\) => \{[\s\S]*healthVerifiedBrokerServerUrlRef\.current = '';[\s\S]*setHealthVerifiedBrokerServerUrl\(''\)/,
+  );
+  assert.match(
+    source,
+    /const selectBrokerOption = useCallback\(\(option: LoginBrokerOption\) => \{[\s\S]*clearBrokerHealthVerification\(\);[\s\S]*void probeBrokerHealth\(option\.serverUrl\)/,
+  );
+  assert.match(source, /setBrokerHealthWarning\(t\('Selected broker is unavailable'\)\)/);
+  assert.match(
+    source,
+    /const isSelectedBrokerHealthVerified = Boolean\([\s\S]*healthVerifiedBrokerServerUrl === exactSelectedBrokerServerUrl/,
+  );
+  assert.match(
+    source,
+    /if \(healthVerifiedBrokerServerUrlRef\.current !== normalizedServerUrl\) \{[\s\S]*const unavailableMessage = t\('Selected broker is unavailable'\);[\s\S]*return;[\s\S]*if \(!normalizedAccountId \|\| !currentPassword\)/,
   );
 });
 
@@ -78,23 +108,28 @@ test('login broker id can be selected from the broker directory dropdown', () =>
   const source = readSource('app/login.tsx');
 
   assert.match(source, /import \{ ActionSheet \} from '\.\.\/src\/ui\/components\/ActionSheet'/);
-  assert.match(source, /import \{ BROKER_CONFIG_KEY, useBrokerServers \} from '\.\.\/src\/query\/broker'/);
+  assert.match(source, /import \{ useBrokerServers, getBrokerConfigQueryKey \} from '\.\.\/src\/query\/broker'/);
   assert.match(source, /const \[brokerPickerOpen, setBrokerPickerOpen\] = useState\(false\)/);
   assert.match(source, /useBrokerServers\(true\)/);
   assert.match(source, /const brokerOptions = useMemo<LoginBrokerOption\[\]>\(\(\) => \{/);
   assert.match(source, /const selectedBrokerOption = useMemo\(\(\) => \{/);
   assert.match(source, /const brokerPickerActions = useMemo\(\(\) => \{/);
   assert.match(source, /const selectBrokerOption = useCallback\(\(option: LoginBrokerOption\) => \{/);
+  assert.match(source, /const resolution = resolveBrokerEndpointSet\(broker\)/);
+  assert.match(source, /if \(!resolution\.ok\) continue/);
+  assert.match(source, /const exactServerUrl = normalizeBrokerServerUrl\(broker\.server_url\)/);
+  assert.match(source, /!isBrokerServerUrlForApiBase\(exactServerUrl, resolution\.endpoints\.apiBase\)/);
+  assert.match(source, /serverUrl: exactServerUrl/);
+  assert.match(source, /endpoints: resolution\.endpoints/);
   assert.match(source, /const resolveBrokerSelectionError = useCallback\(\(candidateBrokerId: string, candidateServerUrl = ''\) => \{/);
   assert.match(source, /const matchedBrokerOption = brokerOptions\.find\(\(option\) => option\.key === candidateKey\)/);
-  assert.match(source, /isBrokerServiceBaseUrl\(normalizeBrokerServerUrl\(candidateServerUrl\)\)/);
   assert.match(source, /Broker list unavailable\. Retry broker list and select your broker before login\./);
   assert.match(source, /Please select your broker from the broker list before login\./);
   assert.doesNotMatch(source, /You can still type the Broker ID manually\./);
-  assert.match(source, /setBrokerConnection\(option\.brokerId, option\.serverUrl, option\.logoUrl\)/);
-  assert.match(source, /persistSelectedBrokerSession\(\{/);
+  assert.match(source, /brokerServerUrlValueRef\.current = option\.serverUrl/);
+  assert.match(source, /setBrokerServerUrl\(option\.serverUrl\)/);
   assert.match(source, /onPress: \(\) => selectBrokerOption\(option\)/);
-  assert.match(source, /serverUrl: resolveBrokerServiceBaseUrl\(broker\)/);
+  assert.doesNotMatch(source, /setBrokerConnection|persistSelectedBrokerSession|resolveBrokerServiceBaseUrl/);
   assert.doesNotMatch(source, /proxyServer: resolveBrokerProxyServerAddress\(broker\)/);
   assert.match(source, /const handleBrokerPickerPress = \(\) => \{/);
   assert.match(source, /runImmediateAction\('login\.brokerPicker\.open'/);
@@ -127,8 +162,10 @@ test('login validation snapshots the latest committed native field values', () =
   assert.match(source, /const updatePassword = \(value: string\) => \{[\s\S]*passwordValueRef\.current = value;[\s\S]*setPassword\(value\);[\s\S]*\}/);
   assert.match(source, /const getLoginCredentialsSnapshot = \(\): LoginCredentialsSnapshot => \{/);
   assert.match(source, /const candidateServerUrl = normalizeBrokerServerUrl\(/);
-  assert.match(source, /brokerId: \(brokerIdValueRef\.current \?\? brokerId\)\.trim\(\)/);
-  assert.match(source, /serverUrl: isBrokerServiceBaseUrl\(candidateServerUrl\) \? candidateServerUrl : ''/);
+  assert.match(source, /const candidateBrokerId = \(brokerIdValueRef\.current \?\? brokerId\)\.trim\(\)/);
+  assert.match(source, /brokerId: candidateBrokerId/);
+  assert.match(source, /serverUrl: isBrokerServerUrlForApiBase\(candidateServerUrl, matchedOption\?\.endpoints\.apiBase\)[\s\S]*\? candidateServerUrl[\s\S]*: ''/);
+  assert.match(source, /endpoints: matchedOption\?\.endpoints \?\? null/);
   assert.doesNotMatch(source, /proxyServer: selectedProxyServer/);
   assert.match(source, /logoUrl: brokerLogoUrlValueRef\.current \?\? selectedBrokerLogoUrl/);
   assert.match(source, /accountId: \(accountIdValueRef\.current \?\? accountId\)\.trim\(\)/);
@@ -140,7 +177,7 @@ test('login validation snapshots the latest committed native field values', () =
   assert.match(source, /if \(!normalizedBrokerId\) \{\s*setIsLoading\(false\);/);
   assert.match(source, /const brokerSelectionMessage = resolveBrokerSelectionError\(normalizedBrokerId, normalizedServerUrl\)/);
   assert.match(source, /if \(brokerSelectionMessage\) \{\s*setIsLoading\(false\);/);
-  assert.match(source, /if \(!normalizedServerUrl\) \{\s*setIsLoading\(false\);/);
+  assert.match(source, /if \(\s*!normalizedServerUrl\s*\|\|\s*!selectedEndpoints\s*\|\|\s*!isBrokerServerUrlForApiBase\(normalizedServerUrl, selectedEndpoints\.apiBase\)\s*\) \{/);
   assert.match(source, /if \(!normalizedAccountId \|\| !currentPassword\) \{\s*setIsLoading\(false\);/);
   assert.match(source, /onChangeText=\{updateBrokerId\}/);
   assert.match(source, /onEndEditing=\{updateBrokerIdFromEndEditing\}/);
@@ -153,7 +190,8 @@ test('login validation snapshots the latest committed native field values', () =
 test('login failure modal keeps the real backend error visible', () => {
   const source = readSource('app/login.tsx');
 
-  assert.match(source, /setModalState\(\{ visible: true, type: 'error', title: t\('Login Failed'\), message: error\.message \|\| t\('Invalid credentials'\) \}\)/);
+  assert.match(source, /const safeErrorMessage = redactSensitiveString\([\s\S]*error\?\.message[\s\S]*t\('Invalid credentials'\)[\s\S]*\)/);
+  assert.match(source, /setModalState\(\{ visible: true, type: 'error', title: t\('Login Failed'\), message: safeErrorMessage \}\)/);
   assert.doesNotMatch(source, /setTimeout\(\(\) => \{\s*setModalState\(prev => \(\{ \.\.\.prev, visible: false \}\)\);[\s\S]*\}, 2000\)/);
 });
 
@@ -170,20 +208,18 @@ test('login submit has a synchronous duplicate request guard', () => {
   assert.match(source, /finally \{\s*loginRequestInFlightRef\.current = false;/);
 });
 
-test('login success path does not wait on optional broker config or a fixed success delay', () => {
+test('login atomically commits the validated secure session before navigation', () => {
   const source = readSource('app/login.tsx');
   const loginRequestIndex = source.indexOf('const response: any = await loginAPI');
+  const sessionCommitIndex = source.indexOf('await commitBrokerSession({', loginRequestIndex);
   const routerReplaceIndex = source.indexOf("router.replace('/(tabs)/quotes');", loginRequestIndex);
   const postLoginWorkIndex = source.indexOf('schedulePostLoginWork(() => {', routerReplaceIndex);
-  const selectedBrokerPersistIndex = source.indexOf('persistSelectedBrokerSession({', postLoginWorkIndex);
-  const authTokenPersistIndex = source.indexOf('persistAuthSessionTokens({', postLoginWorkIndex);
   const brokerConfigRefreshIndex = source.indexOf('void getBrokerConfig(canonicalBrokerId)', postLoginWorkIndex);
 
   assert.notEqual(loginRequestIndex, -1);
+  assert.notEqual(sessionCommitIndex, -1);
   assert.notEqual(routerReplaceIndex, -1);
   assert.notEqual(postLoginWorkIndex, -1);
-  assert.notEqual(selectedBrokerPersistIndex, -1);
-  assert.notEqual(authTokenPersistIndex, -1);
   assert.notEqual(brokerConfigRefreshIndex, -1);
   const loginCriticalPath = source.slice(loginRequestIndex, routerReplaceIndex);
   assert.doesNotMatch(
@@ -191,40 +227,29 @@ test('login success path does not wait on optional broker config or a fixed succ
     /checkBrokerServerHealth/,
     'login should not run a serial health probe after the user presses submit',
   );
-  assert.doesNotMatch(
-    loginCriticalPath,
-    /persist(?:SelectedBrokerSession|AuthSessionTokens)/,
-    'login should not wait for secure-storage writes before navigation',
-  );
-  assert.doesNotMatch(
-    loginCriticalPath,
-    /setBrokerConnection\(canonicalBrokerId/,
-    'login should avoid a duplicate broker-store write before navigation',
-  );
-  assert.doesNotMatch(
-    loginCriticalPath,
-    /setIsDemoAccount/,
-    'login should fold account type into the atomic session update before navigation',
-  );
+  assert.match(loginCriticalPath, /if \(normalizeBrokerKey\(canonicalBrokerId\) !== normalizeBrokerKey\(selectedEndpoints\.brokerId\)\)/);
+  assert.match(loginCriticalPath, /await commitBrokerSession\(\{/);
+  assert.match(loginCriticalPath, /brokerId: selectedEndpoints\.brokerId/);
+  assert.match(loginCriticalPath, /apiBase: selectedEndpoints\.apiBase/);
+  assert.match(loginCriticalPath, /feedWsBase: selectedEndpoints\.feedWsBase/);
+  assert.match(loginCriticalPath, /feedStatusUrl: selectedEndpoints\.feedStatusUrl/);
+  assert.match(loginCriticalPath, /accessToken,[\s\S]*refreshToken: refreshToken \?\? ''/);
   assert.match(loginCriticalPath, /isDemoAccount: accountType === 'demo'/);
+  assert.doesNotMatch(loginCriticalPath, /persistSelectedBrokerSession|persistAuthSessionTokens|setBrokerConnection/);
   assert.match(source, /let didStartSuccessNavigation = false/);
   assert.match(source, /didStartSuccessNavigation = true/);
-  assert.match(source, /if \(!didStartSuccessNavigation\) \{\s*setIsLoading\(false\);/);
+  assert.match(source, /if \(!didStartSuccessNavigation\) \{\s*if \(loginMountedRef\.current\) \{\s*setIsLoading\(false\);/);
   assert.ok(
     brokerConfigRefreshIndex > loginRequestIndex,
     'broker config refresh should run after auth has already completed',
   );
   assert.ok(
-    routerReplaceIndex > loginRequestIndex,
-    'login should navigate after auth has completed',
+    sessionCommitIndex > loginRequestIndex && routerReplaceIndex > sessionCommitIndex,
+    'login must finish its atomic secure session commit before navigation',
   );
   assert.ok(
     postLoginWorkIndex > routerReplaceIndex,
     'non-critical login bookkeeping should be scheduled after navigation starts',
-  );
-  assert.ok(
-    selectedBrokerPersistIndex > postLoginWorkIndex && authTokenPersistIndex > postLoginWorkIndex,
-    'secure broker persistence should stay in the post-navigation work queue',
   );
   assert.ok(
     brokerConfigRefreshIndex > postLoginWorkIndex,
@@ -238,62 +263,76 @@ test('login success path does not wait on optional broker config or a fixed succ
     /setTimeout\(\s*\(\)\s*=>\s*\{[\s\S]*router\.replace\('\/\(tabs\)\/quotes'\)[\s\S]*\},\s*1200\s*\)/,
   );
   assert.match(source, /const schedulePostLoginWork = \(task: \(\) => void\) => \{[\s\S]*requestAnimationFrame/);
-  assert.match(source, /router\.replace\('\/\(tabs\)\/quotes'\);\s*didStartSuccessNavigation = true;\s*schedulePostLoginWork\(\(\) => \{/);
-  assert.match(source, /queryClient\.setQueryData\(\[BROKER_CONFIG_KEY, canonicalBrokerId\], brokerConfig\)/);
+  assert.match(source, /await commitBrokerSession\(\{[\s\S]*\}, commitAuthorization\);[\s\S]*router\.replace\('\/\(tabs\)\/quotes'\);\s*didStartSuccessNavigation = true;\s*schedulePostLoginWork\(\(\) => \{/);
+  assert.match(source, /authorizeBrokerSessionCommit\(\)[\s\S]*signal: loginAbortController\.signal/);
+  assert.match(source, /bootstrapApp\(\{[\s\S]*expectedProvenance: committedProvenance/);
+  assert.match(
+    source,
+    /queryClient\.setQueryData\(\s*getBrokerConfigQueryKey\(committedSession\.session\.cacheNamespace, canonicalBrokerId\),\s*brokerConfig,\s*\)/,
+  );
 });
 
-test('broker detail login does not wait on health probes or secure storage before navigation', () => {
+test('broker detail login atomically commits the selected directory session before navigation', () => {
   const source = readSource('src/features/settings/BrokerDetailScreen.tsx');
   const submitIndex = source.indexOf('const submitLogin = async () => {');
   const loginRequestIndex = source.indexOf('const response: any = await loginAPI', submitIndex);
+  const sessionCommitIndex = source.indexOf('await commitBrokerSession({', loginRequestIndex);
   const routerReplaceIndex = source.indexOf("router.replace('/(tabs)/quotes');", loginRequestIndex);
   const postLoginWorkIndex = source.indexOf('scheduleBrokerDetailPostLoginWork(() => {', routerReplaceIndex);
-  const selectedBrokerPersistIndex = source.indexOf('persistSelectedBrokerSession({', postLoginWorkIndex);
-  const authTokenPersistIndex = source.indexOf('persistAuthSessionTokens({', postLoginWorkIndex);
 
   assert.notEqual(submitIndex, -1);
   assert.notEqual(loginRequestIndex, -1);
+  assert.notEqual(sessionCommitIndex, -1);
   assert.notEqual(routerReplaceIndex, -1);
   assert.notEqual(postLoginWorkIndex, -1);
-  assert.notEqual(selectedBrokerPersistIndex, -1);
-  assert.notEqual(authTokenPersistIndex, -1);
   assert.match(source, /const scheduleBrokerDetailKeyboardDismiss = \(\) => \{/);
   assert.match(source, /scheduleBrokerDetailKeyboardDismiss\(\);/);
   assert.doesNotMatch(source, /checkBrokerServerHealth/);
   const brokerDetailCriticalPath = source.slice(submitIndex, routerReplaceIndex);
-  assert.doesNotMatch(
-    brokerDetailCriticalPath,
-    /persist(?:SelectedBrokerSession|AuthSessionTokens)/,
-    'broker detail login should not wait for secure-storage writes before navigation',
-  );
-  assert.doesNotMatch(
-    brokerDetailCriticalPath,
-    /await Promise\.all/,
-    'broker detail login should not await optional post-login bookkeeping before navigation',
-  );
-  assert.doesNotMatch(
-    brokerDetailCriticalPath,
-    /setBrokerConnection\(canonicalBrokerId/,
-    'broker detail login should avoid a duplicate broker-store write before navigation',
-  );
-  assert.doesNotMatch(
-    brokerDetailCriticalPath,
-    /setIsDemoAccount/,
-    'broker detail login should fold account type into the atomic session update before navigation',
-  );
+  assert.match(brokerDetailCriticalPath, /canonicalBrokerId\.trim\(\)\.toLowerCase\(\)[\s\S]*!== selectedEndpoints\.brokerId\.trim\(\)\.toLowerCase\(\)/);
+  assert.match(brokerDetailCriticalPath, /await commitBrokerSession\(\{/);
+  assert.match(brokerDetailCriticalPath, /brokerId: selectedEndpoints\.brokerId/);
+  assert.match(brokerDetailCriticalPath, /apiBase: selectedEndpoints\.apiBase/);
+  assert.match(brokerDetailCriticalPath, /feedWsBase: selectedEndpoints\.feedWsBase/);
+  assert.match(brokerDetailCriticalPath, /feedStatusUrl: selectedEndpoints\.feedStatusUrl/);
   assert.match(brokerDetailCriticalPath, /isDemoAccount: accountType === 'demo'/);
+  assert.doesNotMatch(brokerDetailCriticalPath, /persistSelectedBrokerSession|persistAuthSessionTokens|setBrokerConnection/);
   assert.match(source, /let didStartSuccessNavigation = false/);
   assert.match(source, /didStartSuccessNavigation = true/);
-  assert.match(source, /if \(!didStartSuccessNavigation\) \{\s*setIsLoading\(false\);/);
+  assert.match(source, /if \(!didStartSuccessNavigation\) \{\s*if \(brokerLoginMountedRef\.current\) \{\s*setIsLoading\(false\);/);
   assert.ok(
-    postLoginWorkIndex > routerReplaceIndex,
-    'broker detail post-login bookkeeping should be scheduled after navigation starts',
+    sessionCommitIndex > loginRequestIndex && routerReplaceIndex > sessionCommitIndex,
+    'broker detail must finish the atomic secure session commit before navigation',
   );
-  assert.ok(
-    selectedBrokerPersistIndex > postLoginWorkIndex && authTokenPersistIndex > postLoginWorkIndex,
-    'broker detail secure broker persistence should stay in the post-navigation work queue',
-  );
-  assert.match(source, /router\.replace\('\/\(tabs\)\/quotes'\);\s*didStartSuccessNavigation = true;\s*scheduleBrokerDetailPostLoginWork\(\(\) => \{/);
+  assert.ok(postLoginWorkIndex > routerReplaceIndex, 'optional bookkeeping stays after navigation');
+  assert.match(source, /await commitBrokerSession\(\{[\s\S]*\}, commitAuthorization\);[\s\S]*router\.replace\('\/\(tabs\)\/quotes'\);\s*didStartSuccessNavigation = true;\s*scheduleBrokerDetailPostLoginWork\(\(\) => \{/);
+  assert.match(source, /authorizeBrokerSessionCommit\(\)[\s\S]*signal: loginAbortController\.signal/);
+});
+
+test('broker detail preserves only the exact selected broker ID and server URL', () => {
+  const source = readSource('src/features/settings/BrokerDetailScreen.tsx');
+  const reconcileStart = source.search(/useEffect\(\(\) => \{\r?\n\s*setSelectedServer\(\(current\) => \{/);
+  const reconcileEnd = source.indexOf('  }, [serverOptions]);', reconcileStart);
+  const submitStart = source.indexOf('const submitLogin = async () => {');
+  const submitEnd = source.indexOf('const openExistingAccount', submitStart);
+  const reconcileSource = source.slice(reconcileStart, reconcileEnd);
+  const submitSource = source.slice(submitStart, submitEnd);
+
+  assert.notEqual(reconcileStart, -1);
+  assert.notEqual(reconcileEnd, -1);
+  assert.notEqual(submitStart, -1);
+  assert.match(source, /const isExactBrokerServerSelection = \(/);
+  assert.match(source, /leftBrokerId === rightBrokerId[\s\S]*leftServerUrl === rightServerUrl/);
+  assert.match(source, /serverOptions\.find\(\(option\) => \([\s\S]*isExactBrokerServerSelection\(option, initialServerOption\)[\s\S]*\)\) \?\? initialServerOption/);
+  assert.match(source, /\.map\(buildServerOptionFromBrokerServer\)[\s\S]*\.filter\(\(option\) => isExactBrokerServerSelection\(option, initialServerOption\)\)/);
+  assert.doesNotMatch(source, /serverOptions\[0\] \?\? initialServerOption/);
+  assert.match(reconcileSource, /option\.endpoints !== null[\s\S]*isExactBrokerServerSelection\(option, current\)/);
+  assert.doesNotMatch(reconcileSource, /option\.brokerId\.trim\(\)\.toLowerCase\(\) === current\.brokerId\.trim\(\)\.toLowerCase\(\)/);
+  assert.match(submitSource, /const effectiveBrokerId = selectedServer\.brokerId\.trim\(\)/);
+  assert.match(submitSource, /const effectiveServerUrl = normalizeBrokerServerUrl\(selectedServer\.serverUrl\)/);
+  assert.doesNotMatch(submitSource, /selectedServer\.serverUrl \|\| initialServerUrl/);
+  assert.match(submitSource, /selectedEndpoints\.brokerId\.trim\(\)\.toLowerCase\(\) !== effectiveBrokerId\.toLowerCase\(\)/);
+  assert.match(submitSource, /!isBrokerServerUrlForApiBase\(effectiveServerUrl, selectedEndpoints\.apiBase\)/);
 });
 
 test('broker detail login button shows text without a trailing arrow icon', () => {

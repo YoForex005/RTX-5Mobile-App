@@ -19,7 +19,7 @@ import Svg, { Line, Path, Text as SvgText, Rect, G } from 'react-native-svg';
 
 import { positionsApi } from '../../api/positions';
 import { appQueryClient } from '../../state/providers/AppProviders';
-import { useLiveTick, useLiveCandles } from '../../domain/candles/hooks/useLiveCandles';
+import { useLiveCandles } from '../../domain/candles/hooks/useLiveCandles';
 import { normalizeSymbol } from '../../domain/symbols';
 import { useInstrumentMeta } from '../../query/instruments';
 import { useMarketSymbols } from '../../query/market';
@@ -43,6 +43,13 @@ import {
   formatTradingErrorFeedback,
 } from '../../api/tradingErrors';
 import { hideTradePositionActionHost } from './tradePositionActionHostController';
+import { useExecutableQuote } from '../quotes/useExecutableQuote';
+import { quoteActionBlockMessage, recordBlockedPriceAction } from '../../market/quoteIntegrity';
+import {
+  captureActiveBrokerSessionProvenance,
+  isActiveBrokerSessionProvenanceCurrent,
+} from '../../state/activeBrokerSession';
+import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope';
 
 const SETTINGS_DARK_BACKGROUND = '#121212';
 const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E';
@@ -87,6 +94,9 @@ const readModifiedStopValue = (
 };
 
 function formatModifyPrice(val: number, decimals: number) {
+  if (!Number.isFinite(val) || val <= 0) {
+    return { main: '—', huge: '' };
+  }
   const str = val.toFixed(decimals);
   // Splitting off the exact last two digits that the user circled
   return {
@@ -158,10 +168,13 @@ export function ModifyPositionScreen({
     }
   }, [isScreenFocused, position, resolvedLogin]);
 
-  // Tick History State for Chart — all live market data follows the VIEWED
-  // symbol so the picker can browse any instrument's backend feed in place.
-  const latestTick = useLiveTick(viewSymbol || 'EURUSD', undefined, isScreenFocused);
-  const latestClose = latestTick?.close || (symbolsMatch ? position?.currentPrice : 0) || 0;
+  // All editable market anchors come from a fresh, tradable quote for the
+  // active broker session. Candles remain chart history only.
+  const {
+    quote: executableQuote,
+    availability: quoteAvailability,
+    getCurrentAvailability,
+  } = useExecutableQuote(viewSymbol, isScreenFocused && Boolean(viewSymbol));
 
   const isJpy = viewSymbol.includes('JPY');
   // The route is a transparentModal with animation:'none', so nothing paints
@@ -170,11 +183,13 @@ export function ModifyPositionScreen({
   // the decorative tick chart (and its candle subscription) comes in last.
   const sheetBodyReady = useDeferredRouteContentReady(0);
   const tickChartReady = useDeferredRouteContentReady(450);
-  // Fallbacks if bid/ask not provided directly
   const { candles } = useLiveCandles(viewSymbol, '1', isScreenFocused && tickChartReady); // Fetch REAL 1M histories!
-  const syntheticAsk = latestClose + (isJpy ? 0.015 : 0.00015);
-  const BID = (latestTick as any)?.bid || latestClose;
-  const ASK = (latestTick as any)?.ask || syntheticAsk;
+  const BID = typeof executableQuote?.bid === 'number' && executableQuote.bid > 0
+    ? executableQuote.bid
+    : 0;
+  const ASK = typeof executableQuote?.ask === 'number' && executableQuote.ask > 0
+    ? executableQuote.ask
+    : 0;
 
   // Symbol precision comes from the backend instrument meta (digits/point);
   // fall back to the app-wide JPY heuristic when the endpoint has no record.
@@ -418,7 +433,7 @@ export function ModifyPositionScreen({
    * Incrementally steps the Stop Loss value up or down by a predefined point amount when tapping the +/- buttons.
    */
   const handleStepSl = (delta: number) => {
-    if (!position) return;
+    if (!position || !quoteAvailability.allowed) return;
     setStopLoss((prev) => {
       // If setting for the first time, bias it directly against the live matching price for the position side
       const livePrice = closingMarketPrice;
@@ -436,7 +451,7 @@ export function ModifyPositionScreen({
    * Incrementally steps the Take Profit value up or down by a predefined point amount when tapping the +/- buttons.
    */
   const handleStepTp = (delta: number) => {
-    if (!position) return;
+    if (!position || !quoteAvailability.allowed) return;
     setTakeProfit((prev) => {
       const livePrice = closingMarketPrice;
       let base = prev;
@@ -478,6 +493,20 @@ export function ModifyPositionScreen({
       return;
     }
 
+    const currentQuoteAvailability = getCurrentAvailability();
+    if (!currentQuoteAvailability.allowed) {
+      recordBlockedPriceAction('modify_position', currentQuoteAvailability);
+      setSubmitMessage(
+        formatTradingErrorFeedback(
+          createFrontendTradingError(
+            t('Market Data Unavailable'),
+            t(quoteActionBlockMessage(currentQuoteAvailability)),
+          ),
+        ),
+      );
+      return;
+    }
+
     if (!accountDetails?.credentials?.accessToken) {
       setSubmitMessage(
         formatTradingErrorFeedback(
@@ -500,6 +529,8 @@ export function ModifyPositionScreen({
       );
       return;
     }
+    const actionProvenance = captureActiveBrokerSessionProvenance();
+    if (!actionProvenance) return;
 
     modifySubmittingRef.current = true;
     setIsSubmitting(true);
@@ -511,6 +542,7 @@ export function ModifyPositionScreen({
         price_sl: requestedSl,
         price_tp: requestedTp,
       });
+      if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) return;
 
       const slResult = readModifiedStopValue(modifyResult, ['price_sl', 'sl'], requestedSl);
       const tpResult = readModifiedStopValue(modifyResult, ['price_tp', 'tp'], requestedTp);
@@ -550,15 +582,15 @@ export function ModifyPositionScreen({
         };
       });
 
-      appQueryClient.invalidateQueries({ queryKey: ['positions'] });
-      appQueryClient.invalidateQueries({ queryKey: ['positionHistory'] });
-      appQueryClient.invalidateQueries({ queryKey: ['deals'] });
-      appQueryClient.invalidateQueries({ queryKey: ['accountSummary'] });
-      appQueryClient.invalidateQueries({ queryKey: ['exposure'] });
-      appQueryClient.invalidateQueries({ queryKey: ['transactions'] });
+      void invalidateSessionQueryRoots(
+        appQueryClient,
+        actionProvenance.cacheNamespace,
+        ['positions', 'positionHistory', 'deals', 'accountSummary', 'exposure', 'transactions'],
+      );
 
       handleBack();
     } catch (error: any) {
+      if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) return;
       setSubmitMessage(
         formatTradingErrorFeedback(
           classifyTradingError(error, { action: 'modify-position' }),
@@ -1006,6 +1038,11 @@ export function ModifyPositionScreen({
           {submitMessage && (
             <Text style={styles.validationText}>{submitMessage}</Text>
           )}
+          {!submitMessage && !quoteAvailability.allowed && (
+            <Text style={styles.validationText} accessibilityRole="alert">
+              {t(quoteActionBlockMessage(quoteAvailability))}
+            </Text>
+          )}
           {!submitMessage && !positionsApi && (
             <Text style={styles.validationText}>{t('No connection')}</Text>
           )}
@@ -1014,9 +1051,9 @@ export function ModifyPositionScreen({
             style={({ pressed }) => [
               styles.modifyBtn,
               pressed && { opacity: 0.8 },
-              isSubmitting && { opacity: 0.5 }
+              (isSubmitting || !quoteAvailability.allowed) && { opacity: 0.5 }
             ]}
-            disabled={isSubmitting}
+            disabled={isSubmitting || !quoteAvailability.allowed}
             onPress={handleModify}
             activateOnPressIn
             unstable_pressDelay={0}

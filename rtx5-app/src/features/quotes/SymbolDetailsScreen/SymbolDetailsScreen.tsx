@@ -7,9 +7,13 @@ import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Alert, ScrollView, Share, StyleSheet, Text, View, Platform } from 'react-native';
-import { quotes, type QuoteItem } from '../../../dev/mock/tradingData';
+import type { QuoteItem } from '../../../dev/mock/tradingData';
 import { useMarketData } from '../../../query/websocket';
 import { useUserPreferences } from '../../../state/userPreferences';
+import {
+  captureActiveBrokerSessionProvenance,
+  isActiveBrokerSessionProvenanceCurrent,
+} from '../../../state/activeBrokerSession';
 import { useTheme } from '../../../ui/theme/useTheme';
 import { usePlaceOrderMutation } from '../../../query/orders';
 import { useInstrumentMeta } from '../../../query/instruments';
@@ -19,7 +23,13 @@ import { resolveTradingLogin, resolveTradingLoginString, useResolvedTradingLogin
 import { fmt } from '../../../utils/format';
 import { calculateMarketSentiment } from '../../../domain/marketSentiment';
 import { normalizeSymbol } from '../../../domain/symbols';
+import {
+  quoteActionBlockMessage,
+  recordBlockedPriceAction,
+  resolveSessionQuoteActionAvailability,
+} from '../../../market/quoteIntegrity';
 import { classifyTradingError, createFrontendTradingError } from '../../../api/tradingErrors';
+import { resolveBrokerExecutionEvidence } from '../../../api/orders/executionEvidence';
 import {
   safeRouterBack,
   scheduleBackNavigationAfterVisualFrame,
@@ -39,6 +49,7 @@ import {
   scheduleQuoteInfoBackCoverRemoval,
 } from '../quoteInfoLaunchController';
 import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
+import { BrokerFeedHealthBanner } from '../../../market/BrokerFeedHealthBanner';
 
 const formatDetailNumber = (value: number | null | undefined) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -64,6 +75,11 @@ const formatSwapValue = (value: number | null | undefined) => {
   const formatted = formatDetailNumber(value);
   return formatted === '--' ? formatted : `${formatted} pts`;
 };
+
+const formatDetailPrice = (value: number | null | undefined, digits: number) =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? fmt.price(value, digits)
+    : '--';
 
 export function SymbolDetailsScreen() {
   const isScreenFocused = useIsFocused();
@@ -175,6 +191,8 @@ export function SymbolDetailsInteractiveContent({
   const accountLoginString = resolvedLogin !== undefined ? String(resolvedLogin) : undefined;
 
   const liveQuotes = useMarketData([symbol], active);
+  const liveQuote = liveQuotes[symbol] as Partial<QuoteItem> | undefined;
+  const quoteActionAvailability = resolveSessionQuoteActionAvailability(liveQuote);
 
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
@@ -188,9 +206,19 @@ export function SymbolDetailsInteractiveContent({
   });
 
   const q = useMemo<QuoteItem>(() => {
-    const live = liveQuotes[symbol] as Partial<QuoteItem> | undefined;
-    const mock = quotes.find(i => i.symbol === symbol) ?? quotes[0];
-    const base: QuoteItem = { ...mock, ...live, symbol };
+    const base = {
+      ...(liveQuote || {}),
+      symbol,
+      bid: resolveDetailNumber(liveQuote?.bid) ?? Number.NaN,
+      ask: resolveDetailNumber(liveQuote?.ask) ?? Number.NaN,
+      changePct: resolveDetailNumber(liveQuote?.changePct) ?? 0,
+      high: resolveDetailNumber(liveQuote?.high) ?? Number.NaN,
+      low: resolveDetailNumber(liveQuote?.low) ?? Number.NaN,
+      contractSize: resolveDetailNumber(remoteMeta?.contractSize, liveQuote?.contractSize) ?? 0,
+      swapLong: resolveDetailNumber(remoteMeta?.swapLong, liveQuote?.swapLong) ?? Number.NaN,
+      swapShort: resolveDetailNumber(remoteMeta?.swapShort, liveQuote?.swapShort) ?? Number.NaN,
+      spread: resolveDetailNumber(liveQuote?.spread) ?? 0,
+    } as QuoteItem;
     if (remoteMeta) {
       base.contractSize = remoteMeta.contractSize ?? base.contractSize;
       base.minVolume = remoteMeta.minVolume ?? base.minVolume;
@@ -203,10 +231,10 @@ export function SymbolDetailsInteractiveContent({
       base.baseCurrency = remoteMeta.baseCurrency ?? base.baseCurrency;
       base.profitCurrency = remoteMeta.profitCurrency ?? base.profitCurrency;
     }
-    base.swapLong = resolveDetailNumber(remoteMeta?.swapLong, base.swapLong, mock.swapLong) ?? base.swapLong;
-    base.swapShort = resolveDetailNumber(remoteMeta?.swapShort, base.swapShort, mock.swapShort) ?? base.swapShort;
+    base.swapLong = resolveDetailNumber(remoteMeta?.swapLong, base.swapLong) ?? Number.NaN;
+    base.swapShort = resolveDetailNumber(remoteMeta?.swapShort, base.swapShort) ?? Number.NaN;
     return base;
-  }, [liveQuotes, symbol, remoteMeta]);
+  }, [liveQuote, symbol, remoteMeta]);
 
   const meta = useMemo(() => {
     const localMeta = getMeta(symbol);
@@ -228,8 +256,8 @@ export function SymbolDetailsInteractiveContent({
   const d = q.digits ?? 2;
   const col = dCol(q.changePct, T);
   const mid = ((q.bid || 0) + (q.ask || 0)) / 2;
-  const bidPriceText = fmt.price(q.bid, d);
-  const askPriceText = fmt.price(q.ask, d);
+  const bidPriceText = formatDetailPrice(q.bid, d);
+  const askPriceText = formatDetailPrice(q.ask, d);
 
   const marketSentiment = useMemo(
     () => calculateMarketSentiment(q, dailyRangeCandle),
@@ -247,7 +275,7 @@ export function SymbolDetailsInteractiveContent({
   }, [dailyRangeCandle, q.bid, q.close, q.open]);
 
   const dynVol = useMemo(() => {
-    let baseVol = q.volume ?? 0;
+    let baseVol = q.volume;
     if (dailyRangeCandle) {
       baseVol = dailyRangeCandle.volume;
     }
@@ -268,12 +296,14 @@ export function SymbolDetailsInteractiveContent({
   const swapLong = resolveDetailNumber(remoteMeta?.swapLong, q.swapLong);
   const swapShort = resolveDetailNumber(remoteMeta?.swapShort, q.swapShort);
   const spp = ((q.spread || 0) * (pip || 1)).toFixed(1);
-  const ctk = q.tickValue ?? (10 / mid);
+  const ctk = q.tickValue ?? (Number.isFinite(mid) && mid > 0 ? 10 / mid : undefined);
 
-  const ptsRaw = ((q.bid || 0) - dynOpen) / (pip || 1);
-  const pts = `${ptsRaw >= 0 ? '+' : ''}${ptsRaw.toFixed(0)}`;
+  const ptsRaw = Number.isFinite(q.bid) && Number.isFinite(dynOpen)
+    ? (q.bid - dynOpen) / (pip || 1)
+    : Number.NaN;
+  const pts = Number.isFinite(ptsRaw) ? `${ptsRaw >= 0 ? '+' : ''}${ptsRaw.toFixed(0)}` : '--';
   const isUp = q.changePct >= 0;
-  const isMarketOpen = q.tradeAllowed !== false;
+  const isMarketOpen = quoteActionAvailability.allowed && q.tradeAllowed !== false;
 
   useEffect(() => () => {
     if (tradeTapLockReleaseTimerRef.current) {
@@ -289,8 +319,8 @@ export function SymbolDetailsInteractiveContent({
   const handleShare = async () => {
     try {
       const displayName = symbol.replace(/m$/i, '').replace(/\//g, '');
-      const bidPrice = fmt.price(q.bid, d);
-      const askPrice = fmt.price(q.ask, d);
+      const bidPrice = bidPriceText;
+      const askPrice = askPriceText;
       const changePct = (q.changePct || 0).toFixed(2);
       const changeSign = q.changePct >= 0 ? '+' : '';
       const spreadVal = parseFloat(Number(q.spread || 0).toFixed(2)).toString();
@@ -345,8 +375,27 @@ export function SymbolDetailsInteractiveContent({
     }, 800);
 
     if (oneClickAccepted) {
+      const currentQuoteAvailability = resolveSessionQuoteActionAvailability(liveQuote);
+      if (!currentQuoteAvailability.allowed) {
+        recordBlockedPriceAction('symbol_details_market_order', currentQuoteAvailability);
+        Alert.alert(t('Market Data Unavailable'), t(quoteActionBlockMessage(currentQuoteAvailability)));
+        releaseTradeTapLock();
+        return;
+      }
+
+      const actionProvenance = captureActiveBrokerSessionProvenance();
+      if (!actionProvenance) {
+        const feedback = createFrontendTradingError(
+          t('Authentication Error'),
+          t('The active broker session is unavailable. Log in again before placing an order.'),
+        );
+        Alert.alert(feedback.title, feedback.message);
+        releaseTradeTapLock();
+        return;
+      }
+
       const tradingLogin = resolveTradingLogin();
-      if (!tradingLogin) {
+      if (!tradingLogin || String(tradingLogin) !== actionProvenance.identity.accountLogin) {
         const feedback = createFrontendTradingError(
           t('Account Error'),
           t('The app could not resolve the active trading account from local state. Select an account and try again.'),
@@ -370,10 +419,26 @@ export function SymbolDetailsInteractiveContent({
           magic: 0
         },
         {
-          onSuccess: () => {
-            Alert.alert(t('Order Executed'), t('Your order was successfully transmitted.'));
+          onSuccess: (data) => {
+            if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) {
+              releaseTradeTapLock();
+              return;
+            }
+            const executionEvidence = resolveBrokerExecutionEvidence(data);
+            Alert.alert(
+              t(executionEvidence.confirmed ? 'Order Executed' : 'Order Submitted — Confirmation Pending'),
+              t(
+                executionEvidence.confirmed
+                  ? 'The broker confirmed the order ticket and execution price.'
+                  : 'The broker accepted the request without complete execution evidence. Verify it in Positions or Orders before acting on it.',
+              ),
+            );
           },
           onError: (err: any) => {
+            if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) {
+              releaseTradeTapLock();
+              return;
+            }
             const feedback = classifyTradingError(err, { action: 'place-order' });
             Alert.alert(feedback.title, feedback.message);
           },
@@ -415,6 +480,12 @@ export function SymbolDetailsInteractiveContent({
       <ScrollView
         keyboardShouldPersistTaps="always"
         canCancelContentTouches={Platform.OS === 'ios'} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60, paddingTop: 6 }}>
+
+        <BrokerFeedHealthBanner
+          compact
+          latencyLabel="symbolDetails.feedHealth.retry"
+          style={{ marginHorizontal: 12, marginBottom: 8 }}
+        />
 
         <View style={s.glassHero.container}>
           {isDark && <BlurView intensity={20} tint="dark" style={[StyleSheet.absoluteFillObject, { borderRadius: 24, overflow: 'hidden' }]} />}
@@ -463,8 +534,8 @@ export function SymbolDetailsInteractiveContent({
 
             <View style={[s.ticker.inner]}>
               <Pressable
-                style={[s.ticker.side, (activeSide === 'sell' || (isPending && !activeSide)) && { opacity: 0.5 }]}
-                disabled={isPending}
+                style={[s.ticker.side, (activeSide === 'sell' || (isPending && !activeSide) || (oneClickAccepted && !quoteActionAvailability.allowed)) && { opacity: 0.5 }]}
+                disabled={isPending || (oneClickAccepted && !quoteActionAvailability.allowed)}
                 onPress={() => handleTrade('sell')}
                 latencyLabel="symbolDetails.trade.sell"
                 latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
@@ -491,8 +562,8 @@ export function SymbolDetailsInteractiveContent({
               </View>
 
               <Pressable
-                style={[s.ticker.side, (activeSide === 'buy' || (isPending && !activeSide)) && { opacity: 0.5 }]}
-                disabled={isPending}
+                style={[s.ticker.side, (activeSide === 'buy' || (isPending && !activeSide) || (oneClickAccepted && !quoteActionAvailability.allowed)) && { opacity: 0.5 }]}
+                disabled={isPending || (oneClickAccepted && !quoteActionAvailability.allowed)}
                 onPress={() => handleTrade('buy')}
                 latencyLabel="symbolDetails.trade.buy"
                 latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
@@ -518,24 +589,24 @@ export function SymbolDetailsInteractiveContent({
                   { marginRight: 2, backgroundColor: isMarketOpen ? T.up : T.textMuted, shadowColor: isMarketOpen ? T.up : 'transparent' }
                 ]} />
                 <Text style={[s.ticker.infoTxt, { fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.4, color: T.textSub }]}>
-                  {isMarketOpen ? t('Live Market Data') : t('Market Closed')}
+                  {isMarketOpen ? t('Live Market Data') : q.tradeAllowed === false ? t('Market Closed') : t('Market Data Unavailable')}
                 </Text>
               </View>
             </View>
           </View>
 
           <View style={s.glassHero.metricsRow}>
-            <MetricPill label={t('Mid').toUpperCase()} value={fmt.price(mid, d)} icon="analytics-outline" />
-            <MetricPill label={t('Open').toUpperCase()} value={fmt.price(dynOpen, d)} icon="time-outline" />
-            <MetricPill label={t('PREV')} value={fmt.price(q.close ?? q.ask, d)} icon="calendar-outline" />
-            <MetricPill label={t('Vol').toUpperCase()} value={dynVol.toLocaleString()} icon="bar-chart-outline" />
+            <MetricPill label={t('Mid').toUpperCase()} value={formatDetailPrice(mid, d)} icon="analytics-outline" />
+            <MetricPill label={t('Open').toUpperCase()} value={formatDetailPrice(dynOpen, d)} icon="time-outline" />
+            <MetricPill label={t('PREV')} value={formatDetailPrice(q.close ?? q.ask, d)} icon="calendar-outline" />
+            <MetricPill label={t('Vol').toUpperCase()} value={dynVol === undefined ? '--' : dynVol.toLocaleString()} icon="bar-chart-outline" />
           </View>
 
           <View style={s.glassHero.rangeCard}>
             <View style={s.glassHero.rangeTop}>
               <View>
                 <Text style={s.glassHero.rangeLbl}>{t('LOW')}</Text>
-                <Text style={s.glassHero.rangeVal}>{fmt.price(dynLow !== Infinity ? dynLow : q.bid, d)}</Text>
+                <Text style={s.glassHero.rangeVal}>{formatDetailPrice(dynLow !== Infinity ? dynLow : q.bid, d)}</Text>
               </View>
               <View style={{ alignItems: 'center' }}>
                 <Text style={s.glassHero.rangeLbl}>{t('Day Range').toUpperCase()}</Text>
@@ -543,7 +614,7 @@ export function SymbolDetailsInteractiveContent({
               </View>
               <View style={{ alignItems: 'flex-end' }}>
                 <Text style={s.glassHero.rangeLbl}>{t('HIGH')}</Text>
-                <Text style={s.glassHero.rangeVal}>{fmt.price(dynHigh, d)}</Text>
+                <Text style={s.glassHero.rangeVal}>{formatDetailPrice(dynHigh, d)}</Text>
               </View>
             </View>
             <View style={{ paddingHorizontal: 14, paddingTop: 6 }}>
@@ -573,7 +644,7 @@ export function SymbolDetailsInteractiveContent({
           <Row label={t('Lot Step')} value={String(q.stepVolume ?? '0.01')} />
           <Row label={t('Point')} value={formatDetailNumber(point)} />
           <Row label={t('Tick Size')} value={String(q.tickSize ?? pip)} />
-          <Row label={t('Tick Value')} value={'$' + (ctk || 0).toFixed(2)} last />
+          <Row label={t('Tick Value')} value={ctk === undefined ? '--' : '$' + ctk.toFixed(2)} last />
         </Section>
 
         <Section title={t('Pricing & Fees')} icon="pricetags-outline">

@@ -2,34 +2,7 @@
  * Generic helpers for picking values out of inconsistent backend payloads.
  * Used by both the open-positions and closed-history paths.
  */
-import { buildActiveApiUrl, isApiKeyCredential } from '../apiClient';
-import { useUserPreferences } from '../../state/userPreferences';
-import { timedFetch } from '../../utils/apiLatency';
 import type { JsonRecord } from './types';
-
-export async function rawPositionsFetch(endpoint: string): Promise<Response> {
-  const token = useUserPreferences.getState().accountDetails?.credentials?.accessToken;
-  const headers: Record<string, string> = {
-    accept: 'application/json',
-  };
-
-  if (token) {
-    if (!isApiKeyCredential(token)) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-    headers['X-API-Key'] = token;
-  }
-
-  return timedFetch(buildActiveApiUrl(endpoint), {
-    method: 'GET',
-    headers,
-  }, {
-    label: 'positions.rawFetch',
-    method: 'GET',
-    endpoint,
-    source: 'positions',
-  });
-}
 
 export function isJsonRecord(value: unknown): value is JsonRecord {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));

@@ -51,7 +51,7 @@ test('live quote payload normalizes bid ask data for active candle extension', (
       timestamp: normalized.update.timestamp,
     },
     {
-      symbol: 'XAUUSD',
+      symbol: 'XAUUSDM',
       bid: 2300.1,
       ask: 2300.4,
       timestamp: secondsUtc(2024, 3, 22, 10, 3, 23),
@@ -158,7 +158,9 @@ test('bid ask only socket payload remains visible even without candle timestamp'
   assert.equal(normalized.ok, true);
   if (!normalized.ok) return;
 
-  assert.equal(normalized.update.symbol, 'XAUUSD');
+  assert.equal(normalized.update.symbol, 'XAUUSD.C');
+  assert.equal(normalized.update.bid, 2301.2);
+  assert.equal(normalized.update.ask, 2301.5);
   assert.equal(normalized.update.timestamp, null);
   assert.equal(normalized.update.timestampSource, 'missing');
 });
@@ -217,15 +219,15 @@ test('useLiveCandles defaults to quote-driven candles and gates backend candle s
   assert.doesNotMatch(source, /pushPrice\(/);
 });
 
-test('API prices websocket also forwards quote ticks into active candle stream', () => {
+test('legacy API websocket cannot own executable quote or candle updates', () => {
   const socketSource = readModuleSource('src/api/ws/socket');
 
-  assert.match(socketSource, /import \{ liveCandleStream \} from '..\/..\/domain\/candles\/stream\/liveCandleStream'/);
-  assert.match(socketSource, /channel === 'prices' \|\| channel\.startsWith\('quotes\.'\)/);
-  assert.match(socketSource, /const feedTickTime = data\.lastTickAt \?\? data\.timestamp \?\? data\.time \?\? data\.t/);
-  assert.match(socketSource, /const candleTickTime =[\s\S]*isCryptoSymbol\(data\.symbol\)[\s\S]*\? tickTime[\s\S]*: null/);
-  assert.match(socketSource, /store\.setQuote\(data\.symbol,[\s\S]*lastTickAt: tickTime/);
-  assert.match(socketSource, /if \(candleTickTime !== null\) \{[\s\S]*liveCandleStream\.extendActiveCandlesFromQuoteTick\(data\.symbol,[\s\S]*price: bid,[\s\S]*time: candleTickTime/);
+  assert.doesNotMatch(socketSource, /liveCandleStream|setQuote\(|extendActiveCandlesFromQuoteTick/);
+  assert.match(
+    socketSource,
+    /normalized === 'prices' \|\| normalized\.startsWith\('quotes\.'\)[\s\S]*Quote channels are disabled; executable quotes use \/ws\/feed only/,
+  );
+  assert.match(socketSource, /if \(channel\.startsWith\('account\.'\)\) \{[\s\S]*store\.setAccount\(data\)/);
 });
 
 test('public quote websocket gates nested backend candle payloads until server mode is proven', () => {

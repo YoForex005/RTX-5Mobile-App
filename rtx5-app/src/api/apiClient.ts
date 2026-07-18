@@ -8,30 +8,27 @@
  * - concurrent refresh coalescing
  * - one retry after a 401
  */
-import { useUserPreferences } from '../state/userPreferences';
+import { captureActiveBrokerSession } from '../state/activeBrokerSession';
 import { timedFetch } from '../utils/apiLatency';
 import {
   DEFAULT_API_BASE_URL,
   buildApiUrl,
-  buildBrokerApiBaseUrl,
   getBrokerBackendDomainUnavailableMessage,
-  isBrokerServiceBaseUrl,
 } from './brokerRouting';
-import { brokerApi, type BrokerApiRequestInit } from './brokerApi';
+import {
+  brokerApi,
+  type BrokerApiJsonResponse,
+  type BrokerApiRequestInit,
+} from './brokerApi';
 
 // V2 API base URL - resolved from environment variable, falls back to direct IP.
 export const API_BASE_URL = DEFAULT_API_BASE_URL;
 export const getActiveApiBaseUrl = () => {
-  const state = useUserPreferences.getState();
-  const hasAuthenticatedSession = Boolean(
-    state.isLoggedIn ||
-      state.accountDetails?.credentials?.accessToken ||
-      state.accountDetails?.credentials?.refreshToken,
-  );
-  if (hasAuthenticatedSession && !isBrokerServiceBaseUrl(state.brokerServerUrl)) {
-    throw new Error(getBrokerBackendDomainUnavailableMessage(state.brokerId));
+  const capture = captureActiveBrokerSession();
+  if (!capture) {
+    throw new Error(getBrokerBackendDomainUnavailableMessage());
   }
-  return buildBrokerApiBaseUrl(state.brokerServerUrl);
+  return capture.session.apiBase;
 };
 export const buildActiveApiUrl = (endpoint: string) =>
   buildApiUrl(endpoint, getActiveApiBaseUrl());
@@ -68,9 +65,8 @@ export const decodeBrokerIdFromToken = (token: string | undefined | null): strin
 };
 
 export const resolveBrokerId = (): string | null => {
-  const state = useUserPreferences.getState();
-  const token = state.accountDetails?.credentials?.accessToken;
-  return decodeBrokerIdFromToken(token) || state.brokerId || null;
+  const capture = captureActiveBrokerSession();
+  return capture?.session.brokerId ?? null;
 };
 
 type ApiClientRequestInit = BrokerApiRequestInit & {
@@ -88,6 +84,17 @@ export const apiClient = async (
   endpoint: string,
   options: ApiClientRequestInit = {},
 ): Promise<Response> => brokerApi.request(endpoint, options);
+
+export const apiJsonClient = <T>(
+  endpoint: string,
+  options: ApiClientRequestInit = {},
+): Promise<BrokerApiJsonResponse<T>> => brokerApi.getJsonResponse<T>(endpoint, options);
+
+export const commitApiJson = <T, R>(
+  result: BrokerApiJsonResponse<T>,
+  expectedCacheNamespace: string,
+  commit: (data: T) => R,
+): R => brokerApi.commitJsonResponse(result, expectedCacheNamespace, commit);
 
 // Keep the explicit dependency visible to the latency contract test while the
 // actual timed fetch calls are centralized inside brokerApi.

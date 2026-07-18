@@ -1,4 +1,4 @@
-import { useUserPreferences } from '../../../../state/userPreferences';
+import { captureActiveBrokerSession } from '../../../../state/activeBrokerSession';
 import { normalizeSymbol, normalizeTimeframeStrict } from '../../core/candles';
 
 /**
@@ -7,7 +7,7 @@ import { normalizeSymbol, normalizeTimeframeStrict } from '../../core/candles';
  */
 export const getStoredAccessToken = (): string | null => {
   try {
-    return useUserPreferences.getState().accountDetails?.credentials?.accessToken ?? null;
+    return captureActiveBrokerSession()?.credentials.accessToken ?? null;
   } catch {
     return null;
   }

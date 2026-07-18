@@ -22,6 +22,7 @@ export type QuoteTickEvent = {
   tickId?: string;
   source?: string;
   authority?: string;
+  transport?: 'websocket' | 'rest_snapshot';
   stale?: boolean;
   tradable?: boolean;
   ageMs?: number;
@@ -29,6 +30,8 @@ export type QuoteTickEvent = {
   degraded?: boolean;
   degradationReason?: 'missing_ask';
   feedTickAt?: number;
+  /** Monotonic process-local timestamp captured beside receivedAt. */
+  receiptMonotonicAt?: number;
   receivedAt: number;
   timestamp: number;
 };
@@ -172,9 +175,6 @@ const toFinitePrice = (value: unknown): number | null => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 };
 
-const hasProvidedValue = (value: unknown): boolean =>
-  value !== undefined && value !== null && (typeof value !== 'string' || value.trim().length > 0);
-
 const toFiniteOptionalNumber = (value: unknown): number | undefined => {
   const parsed = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
@@ -243,7 +243,18 @@ const resolveTimestamp = (
 ): { timestamp: number | null; timestampSource: NormalizedQuoteFeedUpdate['timestampSource'] } => {
   const fromFeed = resolveQuoteTickTimestamp({
     timestamp: pickFirstValue(records, ['timestamp', 'Timestamp', 'TIMESTAMP']),
-    timestampMs: pickFirstValue(records, ['timestamp_ms', 'timestampMs', 'TimestampMs', 'TIMESTAMP_MS']),
+    timestampMs: pickFirstValue(records, [
+      'timestamp_ms',
+      'timestampMs',
+      'TimestampMs',
+      'TIMESTAMP_MS',
+      'hub_publish_timestamp',
+      'hubPublishTimestamp',
+      'provider_timestamp',
+      'providerTimestamp',
+      'hub_ingest_timestamp',
+      'hubIngestTimestamp',
+    ]),
     time: pickFirstValue(records, ['time', 'Time', 'TIME', 'tick_time', 'tickTime', 'source_time', 'sourceTime']),
     timeMs: pickFirstValue(records, ['time_ms', 'timeMs', 'tick_time_ms', 'tickTimeMs', 'source_time_ms', 'sourceTimeMs']),
     t: pickFirstValue(records, ['t', 'T', 'ts', 'TS']),
@@ -301,9 +312,7 @@ export const normalizeQuoteTickPayload = (
 
   const bid = toFinitePrice(pickFirstValue(records, BID_KEYS));
   const rawAsk = pickFirstValue(records, ASK_KEYS);
-  const askWasFallback = !hasProvidedValue(rawAsk);
-  const askCandidate = toFinitePrice(rawAsk);
-  const ask = askWasFallback ? bid : askCandidate;
+  const ask = toFinitePrice(rawAsk);
   if (bid === null || ask === null || ask < bid) {
     return { ok: false, reason: 'missing_bid_ask', rawKeys };
   }
@@ -357,7 +366,6 @@ export const normalizeQuoteTickPayload = (
       tradable,
       ageMs,
       ageSec,
-      ...(askWasFallback ? { degraded: true, degradationReason: 'missing_ask' as const } : {}),
       timestamp: resolvedTimestamp.timestamp,
       timestampSource: resolvedTimestamp.timestampSource,
       rawKeys,

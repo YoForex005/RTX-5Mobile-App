@@ -15,8 +15,17 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { watchlistApi } from '../api/watchlist';
+import {
+  getSessionQueryCacheNamespace,
+  invalidateSessionQueryRoots,
+  runSessionBoundQuery,
+  useActiveBrokerQuerySession,
+} from './authenticatedQueryScope';
 
-const WATCHLIST_KEY = ['watchlist'] as const;
+export const WATCHLIST_KEY = 'watchlist';
+
+export const getWatchlistQueryKey = (cacheNamespace: string) =>
+  [WATCHLIST_KEY, cacheNamespace] as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET — fetch server watchlist
@@ -28,10 +37,16 @@ const WATCHLIST_KEY = ['watchlist'] as const;
  * Stale after 60s; re-fetches on window focus.
  */
 export function useWatchlistQuery(enabled = true) {
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
+  const isEnabled = Boolean(session) && enabled;
   return useQuery({
-    queryKey: WATCHLIST_KEY,
-    queryFn: () => watchlistApi.getWatchlist(),
-    enabled,
+    queryKey: getWatchlistQueryKey(cacheNamespace),
+    queryFn: () => runSessionBoundQuery(
+      cacheNamespace,
+      () => watchlistApi.getWatchlist(),
+    ),
+    enabled: isEnabled,
     staleTime: 60_000,
     retry: 2,
   });
@@ -48,10 +63,15 @@ export function useWatchlistQuery(enabled = true) {
  */
 export function useAddToWatchlistMutation() {
   const queryClient = useQueryClient();
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
   return useMutation({
-    mutationFn: (symbol: string) => watchlistApi.addSymbol(symbol),
+    mutationFn: (symbol: string) => runSessionBoundQuery(
+      cacheNamespace,
+      () => watchlistApi.addSymbol(symbol),
+    ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: WATCHLIST_KEY });
+      void invalidateSessionQueryRoots(queryClient, cacheNamespace, [WATCHLIST_KEY]);
     },
   });
 }
@@ -66,10 +86,15 @@ export function useAddToWatchlistMutation() {
  */
 export function useRemoveWatchlistMutation() {
   const queryClient = useQueryClient();
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
   return useMutation({
-    mutationFn: (symbol: string) => watchlistApi.removeSymbol(symbol),
+    mutationFn: (symbol: string) => runSessionBoundQuery(
+      cacheNamespace,
+      () => watchlistApi.removeSymbol(symbol),
+    ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: WATCHLIST_KEY });
+      void invalidateSessionQueryRoots(queryClient, cacheNamespace, [WATCHLIST_KEY]);
     },
   });
 }
@@ -85,10 +110,15 @@ export function useRemoveWatchlistMutation() {
  */
 export function useReplaceWatchlistMutation() {
   const queryClient = useQueryClient();
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
   return useMutation({
-    mutationFn: (symbols: string[]) => watchlistApi.replaceWatchlist(symbols),
+    mutationFn: (symbols: string[]) => runSessionBoundQuery(
+      cacheNamespace,
+      () => watchlistApi.replaceWatchlist(symbols),
+    ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: WATCHLIST_KEY });
+      void invalidateSessionQueryRoots(queryClient, cacheNamespace, [WATCHLIST_KEY]);
     },
   });
 }

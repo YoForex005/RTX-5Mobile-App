@@ -63,9 +63,10 @@ const BROKER_SUFFIXES_RE = /(?:PRO|ECN|STD|STP|RAW|ZERO|CENT|MICRO|MINI|NANO|FIX
 export const normalizeQuoteSymbolKey = (symbol: string): string =>
   symbol.trim().toUpperCase().replace(/[\/\s]+/g, '');
 
-// normalizeSymbol is pure and sits on the per-tick P&L hot path (called per
-// position per quote tick). The set of distinct raw symbols is tiny and bounded,
-// so memoizing on the raw input string removes the repeated regex/Set work.
+// normalizeSymbol is the canonical identity key used by quote, cache, and order
+// paths. Broker suffixes are part of that identity: EURUSD, EURUSD.pro, and
+// EURUSDm must never share state. The set of distinct raw symbols is tiny and
+// bounded, so memoizing on the raw input string keeps this safe on hot paths.
 const NORMALIZE_SYMBOL_CACHE = new Map<string, string>();
 const NORMALIZE_SYMBOL_CACHE_LIMIT = 1024;
 
@@ -75,7 +76,7 @@ export const normalizeSymbol = (symbol: string): string => {
     return cached;
   }
 
-  const result = computeNormalizedSymbol(symbol);
+  const result = normalizeQuoteSymbolKey(symbol);
   // Bounded guard: symbols are a small fixed universe, but never let an
   // unexpected flood of inputs grow the cache without limit.
   if (NORMALIZE_SYMBOL_CACHE.size >= NORMALIZE_SYMBOL_CACHE_LIMIT) {
@@ -86,7 +87,9 @@ export const normalizeSymbol = (symbol: string): string => {
 };
 
 export const isCryptoSymbol = (symbol: string): boolean => {
-  const normalized = normalizeSymbol(symbol);
+  // Family normalization is deliberately display/classification-only. It must
+  // not leak into quote/cache/order identity, where broker suffixes are exact.
+  const normalized = computeSymbolFamily(symbol);
   if (!normalized) {
     return false;
   }
@@ -104,7 +107,7 @@ export const isCryptoSymbol = (symbol: string): boolean => {
   return false;
 };
 
-const computeNormalizedSymbol = (symbol: string): string => {
+const computeSymbolFamily = (symbol: string): string => {
   const normalized = normalizeQuoteSymbolKey(symbol);
   if (!normalized) return '';
 

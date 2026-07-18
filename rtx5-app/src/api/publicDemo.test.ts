@@ -3,15 +3,16 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import {
-  OrrnnDemoApiError,
-  PUBLIC_DEMO_API_BASE_URL,
-  createOrrnnDemoAccount,
-  getOrrnnDemoGroups,
-  getOrrnnDemoStatus,
-  resolveOrrnnDemoBrokerAuthRoute,
-  type CreateOrrnnDemoAccountRequest,
-} from './publicDemo';
+import type { CreateOrrnnDemoAccountRequest } from './publicDemo';
+
+const TEST_PUBLIC_DEMO_API_BASE_URL = 'https://demo-api.example.com/api/v1';
+let configuredPublicDemoModule: Promise<typeof import('./publicDemo')> | null = null;
+
+const loadConfiguredPublicDemo = () => {
+  process.env.EXPO_PUBLIC_DEMO_API_BASE_URL = TEST_PUBLIC_DEMO_API_BASE_URL;
+  configuredPublicDemoModule ??= import('./publicDemo');
+  return configuredPublicDemoModule;
+};
 
 const demoRequest: CreateOrrnnDemoAccountRequest = {
   group: 'orrnn/demo-std',
@@ -36,6 +37,7 @@ function mockFetch(t: { after: (fn: () => void) => void }, implementation: typeo
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
 test('createOrrnnDemoAccount posts compact body to /api/v1/public/demo-account', async (t) => {
+  const { createOrrnnDemoAccount, PUBLIC_DEMO_API_BASE_URL } = await loadConfiguredPublicDemo();
   let capturedUrl = '';
   let capturedBody: Record<string, unknown> = {};
 
@@ -84,14 +86,16 @@ test('createOrrnnDemoAccount posts compact body to /api/v1/public/demo-account',
   assert.equal(response.api_key, 'rtx5_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
 });
 
-test('Orrnn demo origin broker defaults to global demo and keeps test broker as an option', () => {
+test('demo broker identities are explicit environment contracts with no synthesized defaults', () => {
   const source = readSource('src/api/publicDemo.ts');
   const registerSource = readSource('app/register.tsx');
 
-  assert.match(source, /export const ORRNN_DEMO_ORIGIN_BROKER =[\s\S]*?'orrnn';/);
-  assert.match(source, /export const ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME =[\s\S]*?'Orrnn Global Demo broker';/);
-  assert.match(source, /export const TEST_ORRNN_DEMO_ORIGIN_BROKER =[\s\S]*?'testorrnn';/);
-  assert.match(source, /export const TEST_ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME =[\s\S]*?'Test Orrnn broker';/);
+  assert.match(source, /export const ORRNN_DEMO_BROKER_ID = process\.env\.EXPO_PUBLIC_ORRNN_DEMO_BROKER_ID \|\| ''/);
+  assert.match(source, /export const ORRNN_DEMO_ORIGIN_BROKER =[\s\S]*process\.env\.EXPO_PUBLIC_ORRNN_DEMO_ORIGIN_BROKER[\s\S]*process\.env\.EXPO_PUBLIC_ORIGIN_BROKER[\s\S]*'';/);
+  assert.match(source, /export const TEST_ORRNN_DEMO_ORIGIN_BROKER =[\s\S]*process\.env\.EXPO_PUBLIC_TEST_BROKER_ID[\s\S]*'';/);
+  assert.doesNotMatch(source, /ORRNN_DEMO_BROKER_ID[\s\S]{0,120}\|\|\s*['"]orrnn['"]/);
+  assert.doesNotMatch(source, /ORRNN_DEMO_ORIGIN_BROKER[\s\S]{0,220}\|\|\s*['"]orrnn['"]/);
+  assert.doesNotMatch(source, /TEST_ORRNN_DEMO_ORIGIN_BROKER[\s\S]{0,160}\|\|\s*['"]testorrnn['"]/);
   assert.match(registerSource, /const DEMO_ORIGIN_BROKER_OPTIONS: readonly DemoOriginBrokerOption\[] = \[/);
   assert.match(registerSource, /const DEFAULT_DEMO_ORIGIN_BROKER = DEMO_ORIGIN_BROKER_OPTIONS\[0\]/);
   assert.match(registerSource, /const \[selectedOriginBrokerValue, setSelectedOriginBrokerValue\]/);
@@ -99,22 +103,42 @@ test('Orrnn demo origin broker defaults to global demo and keeps test broker as 
   assert.match(registerSource, /latencyLabel="register\.originBroker\.open"/);
 });
 
-test('resolveOrrnnDemoBrokerAuthRoute prefers the Orrnn broker services domain', () => {
+test('resolveOrrnnDemoBrokerAuthRoute accepts only the exact approved rich endpoint set', async () => {
+  const { resolveOrrnnDemoBrokerAuthRoute } = await loadConfiguredPublicDemo();
   const route = resolveOrrnnDemoBrokerAuthRoute('orrnn', [{
     broker_id: 'orrnn',
     broker_name: 'Orrnn',
-    services_domain: 'https://trade.orrnn.example/api/v2',
+    enabled: true,
+    active: true,
+    license_active: true,
+    config_version: 'orrnn-v2',
+    schema_version: 'broker-directory.rich.v1',
+    services_domain: 'trade.orrnn.example',
+    market_api_url: 'https://trade.orrnn.example/api/v2',
+    feed_wss_url: 'wss://trade.orrnn.example/ws/feed',
+    feed_status_https_url: 'https://trade.orrnn.example/ws/feed/status',
+    trade_wss_url: 'wss://trade.orrnn.example/ws/v2',
     server: '69.197.178.27:443',
     server_ip: '69.197.178.27',
     logo_url: ' https://cdn.orrnn.example/logo.png ',
   }]);
 
-  assert.equal(route.serverUrl, 'https://trade.orrnn.example');
+  assert.equal(route.serverUrl, 'https://trade.orrnn.example/api/v2');
   assert.equal(route.logoUrl, 'https://cdn.orrnn.example/logo.png');
   assert.equal(route.source, 'broker-directory');
+  assert.deepEqual(route.endpoints, {
+    brokerId: 'orrnn',
+    apiBase: 'https://trade.orrnn.example/api/v2',
+    feedWsBase: 'wss://trade.orrnn.example/ws/feed',
+    feedStatusUrl: 'https://trade.orrnn.example/ws/feed/status',
+    tradeWsBase: 'wss://trade.orrnn.example/ws/v2',
+    servicesDomain: 'trade.orrnn.example',
+    configVersion: 'orrnn-v2',
+  });
 });
 
-test('resolveOrrnnDemoBrokerAuthRoute rejects non-URL broker servers', () => {
+test('resolveOrrnnDemoBrokerAuthRoute rejects opaque unapproved broker records', async () => {
+  const { resolveOrrnnDemoBrokerAuthRoute } = await loadConfiguredPublicDemo();
   const route = resolveOrrnnDemoBrokerAuthRoute('orrnn', [{
     broker_id: 'orrnn',
     broker_name: 'Orrnn',
@@ -126,34 +150,47 @@ test('resolveOrrnnDemoBrokerAuthRoute rejects non-URL broker servers', () => {
   assert.equal(route.source, 'missing');
 });
 
-test('resolveOrrnnDemoBrokerAuthRoute requires a broker directory services domain for Orrnn login', () => {
+test('resolveOrrnnDemoBrokerAuthRoute requires a broker directory services domain for Orrnn login', async () => {
+  const { resolveOrrnnDemoBrokerAuthRoute } = await loadConfiguredPublicDemo();
   const route = resolveOrrnnDemoBrokerAuthRoute('orrnn', []);
 
   assert.equal(route.serverUrl, '');
   assert.equal(route.source, 'missing');
 });
 
-test('register fallback login uses resolved Orrnn broker route and persists secure session', () => {
+test('register fallback login commits the exact approved route through the atomic session coordinator', () => {
   const source = readSource('app/register.tsx');
 
   assert.match(source, /resolveOrrnnDemoBrokerAuthRoute\(canonicalBrokerId, brokerServers\)/);
   assert.match(source, /demoAuthRoute\.source !== 'broker-directory'/);
   assert.match(source, /refetchBrokerServers\(\)/);
+  assert.match(source, /const commitAuthorization = authorizeBrokerSessionCommit\(\)/);
+  assert.match(source, /const isRegisterAttemptCancelled = \(\) =>/);
+  assert.match(source, /if \(isRegisterAttemptCancelled\(\)\) return;/);
   assert.match(
     source,
-    /loginAPI\(\{[\s\S]*broker_id: canonicalBrokerId,[\s\S]*\}, \{[\s\S]*serverUrl: demoAuthRoute\.serverUrl,[\s\S]*\}\)/,
+    /loginAPI\(\{[\s\S]*broker_id: canonicalBrokerId,[\s\S]*\}, \{[\s\S]*serverUrl: demoAuthRoute\.serverUrl,[\s\S]*signal: loginAbortController\.signal,[\s\S]*\}\)/,
   );
   assert.match(
     source,
-    /persistSelectedBrokerSession\(\{[\s\S]*brokerId: canonicalBrokerId,[\s\S]*serverUrl: demoAuthRoute\.serverUrl,[\s\S]*logoUrl: demoAuthRoute\.logoUrl,[\s\S]*\}\)/,
+    /await commitBrokerSession\(\{[\s\S]*brokerId: demoAuthRoute\.endpoints\.brokerId,[\s\S]*apiBase: demoAuthRoute\.endpoints\.apiBase,[\s\S]*feedWsBase: demoAuthRoute\.endpoints\.feedWsBase,[\s\S]*feedStatusUrl: demoAuthRoute\.endpoints\.feedStatusUrl,[\s\S]*servicesDomain: demoAuthRoute\.endpoints\.servicesDomain,[\s\S]*configVersion: demoAuthRoute\.endpoints\.configVersion/,
   );
   assert.match(
     source,
-    /persistAuthSessionTokens\(\{[\s\S]*accessToken: sessionToken,[\s\S]*refreshToken: sessionRefreshToken,[\s\S]*expiresAt: sessionExpiresAt,[\s\S]*\}\)/,
+    /credentials: \{[\s\S]*accessToken: sessionToken,[\s\S]*refreshToken: sessionRefreshToken,[\s\S]*expiresAt: sessionExpiresAt/,
   );
+  assert.match(source, /\}, commitAuthorization\)/);
+  assert.match(source, /isStaleBrokerSessionCommitError\(error\)/);
+  assert.match(source, /cancelBrokerSessionCommitAuthorization\(commitAuthorization\)/);
+  assert.doesNotMatch(source, /persistSelectedBrokerSession|persistAuthSessionTokens/);
 });
 
 test('public demo status and groups use the dedicated public demo API base URL', async (t) => {
+  const {
+    PUBLIC_DEMO_API_BASE_URL,
+    getOrrnnDemoGroups,
+    getOrrnnDemoStatus,
+  } = await loadConfiguredPublicDemo();
   const capturedUrls: string[] = [];
 
   mockFetch(t, (async (input) => {
@@ -193,6 +230,11 @@ test('public demo status and groups use the dedicated public demo API base URL',
 });
 
 test('public demo setup failures use user-safe temporary unavailable copy', async (t) => {
+  const {
+    OrrnnDemoApiError,
+    getOrrnnDemoGroups,
+    getOrrnnDemoStatus,
+  } = await loadConfiguredPublicDemo();
   const temporaryUnavailableCopy =
     'Demo account service is temporarily unavailable. Please try again in a moment.';
   let requestCount = 0;
@@ -219,6 +261,7 @@ test('public demo setup failures use user-safe temporary unavailable copy', asyn
 });
 
 test('createOrrnnDemoAccount omits blank optional strings from compact body', async (t) => {
+  const { createOrrnnDemoAccount } = await loadConfiguredPublicDemo();
   let capturedBody: Record<string, unknown> = {};
 
   mockFetch(t, (async (_input, init) => {
@@ -257,6 +300,7 @@ test('createOrrnnDemoAccount omits blank optional strings from compact body', as
 });
 
 test('createOrrnnDemoAccount treats documented 201 ExceptionResult as an error', async (t) => {
+  const { createOrrnnDemoAccount, OrrnnDemoApiError } = await loadConfiguredPublicDemo();
   mockFetch(t, (async () => new Response(
     JSON.stringify({
       code: 'MT_RET_ERR_PERMISSIONS',
@@ -280,6 +324,7 @@ test('createOrrnnDemoAccount treats documented 201 ExceptionResult as an error',
 });
 
 test('createOrrnnDemoAccount accepts live success responses that omit api_key', async (t) => {
+  const { createOrrnnDemoAccount } = await loadConfiguredPublicDemo();
   mockFetch(t, (async () => new Response(
     JSON.stringify({
       login: 200107,

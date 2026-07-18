@@ -1,19 +1,26 @@
 import { brokerApi } from '../brokerApi';
-import { useTradingState } from '../../state/tradingState';
-import { useUserPreferences } from '../../state/userPreferences';
-import { resolveTradingLoginString } from '../../state/tradingLogin';
+import { AppState } from 'react-native';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { usePositionsState } from '../../state/positionsState';
 import { appQueryClient } from '../../state/providers/AppProviders';
 import {
-  buildContractSizeMap,
-  calculateFloatingPnlFromTick,
-  type InstrumentContractSpec,
-} from '../../domain/account/equity';
-import { normalizeSymbol } from '../../domain/symbols';
+  captureActiveBrokerSession,
+  getActiveBrokerSessionIdentity,
+  isActiveBrokerSessionCurrent,
+  type ActiveBrokerSessionIdentity,
+} from '../../state/activeBrokerSession';
+import { isSocketAuthenticationFailure } from './socketClosePolicy';
+import { payloadMatchesSocketIdentity } from './socketPayloadIdentity';
+import {
+  hasStableConnectionSucceeded,
+  resolveFullJitterBackoffMs,
+} from './reconnectBackoff';
+import { redactDiagnosticValue } from '../../utils/securityRedaction';
+import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope';
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 15000;
+const STABLE_CONNECTION_MS = 10_000;
 const AUTH_SESSION_UNAVAILABLE_PATTERN =
   /No authenticated broker session available|Refresh token invalid or expired|No refresh token available/i;
 const ACCOUNT_LIFECYCLE_CHANNELS = ['positions', 'account', 'metrics', 'orders', 'deals', 'history'] as const;
@@ -59,19 +66,30 @@ const isAuthSessionUnavailable = (error: unknown): boolean => {
   return AUTH_SESSION_UNAVAILABLE_PATTERN.test(message);
 };
 
+const sameIdentity = (
+  left: ActiveBrokerSessionIdentity | null,
+  right: ActiveBrokerSessionIdentity,
+): boolean => Boolean(
+  left &&
+  left.brokerId === right.brokerId &&
+  left.accountLogin === right.accountLogin &&
+  left.sessionEpoch === right.sessionEpoch,
+);
+
 class BrokerRealtimeService {
   private static instance: BrokerRealtimeService | null = null;
   private ws: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private stableConnectionTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
   private reconnectAttempts = 0;
   private shouldReconnect = false;
+  private isSuspended = AppState.currentState !== 'active';
+  private isOpening = false;
+  private activeIdentity: ActiveBrokerSessionIdentity | null = null;
   private activeChannels: string[] = [];
-  private contractSizes: Record<string, number> = {};
-  // Last bid/ask we actually processed per symbol. Floating P/L only moves when a
-  // price moves, so an unchanged tick lets us skip the O(positions) equity
-  // recompute and the two store writes below.
-  private lastTickPrice: Map<string, { bid: number; ask: number }> = new Map();
+  private connectedAt = 0;
+  private acceptedPayloadCount = 0;
 
   static getInstance(): BrokerRealtimeService {
     if (!BrokerRealtimeService.instance) {
@@ -81,31 +99,42 @@ class BrokerRealtimeService {
   }
 
   connect(): void {
-    if (!this.hasAuthenticatedSession()) {
+    const identity = this.resolveIdentity();
+    if (!identity) {
       this.pauseUntilNextLogin();
       return;
     }
     this.shouldReconnect = true;
-    this.activeChannels = this.resolveChannels();
-    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
-      this.subscribe();
+    this.activeChannels = this.resolveChannels(identity);
+    if (this.isSuspended) {
       return;
     }
-    void this.open();
+    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
+      if (sameIdentity(this.activeIdentity, identity)) {
+        this.subscribe(identity);
+        return;
+      }
+      this.teardownSocket();
+    }
+    void this.open(identity);
   }
 
   reconnect(): void {
-    if (!this.hasAuthenticatedSession()) {
+    const identity = this.resolveIdentity();
+    if (!identity) {
       this.pauseUntilNextLogin();
       return;
     }
     if (!this.shouldReconnect) {
       this.shouldReconnect = true;
     }
+    if (this.isSuspended) {
+      return;
+    }
     this.clearReconnectTimer();
     this.teardownSocket();
-    this.activeChannels = this.resolveChannels();
-    void this.open();
+    this.activeChannels = this.resolveChannels(identity);
+    void this.open(identity);
   }
 
   disconnect(): void {
@@ -116,81 +145,128 @@ class BrokerRealtimeService {
     this.teardownSocket();
   }
 
-  setInstrumentSpecs(instruments: InstrumentContractSpec[]): void {
-    this.contractSizes = {
-      ...this.contractSizes,
-      ...buildContractSizeMap(instruments),
-    };
+  /** Pause transport work without dropping lifecycle demand or cached state. */
+  suspend(): void {
+    if (this.isSuspended) return;
+    this.isSuspended = true;
+    this.clearReconnectTimer();
+    this.teardownSocket();
   }
 
-  private async open(): Promise<void> {
-    if (!this.shouldReconnect) {
+  /** Resume only the demand that existed before the app left the foreground. */
+  resume(): void {
+    if (!this.isSuspended) return;
+    this.isSuspended = false;
+    if (!this.shouldReconnect) return;
+    const identity = this.resolveIdentity();
+    if (!identity) {
+      this.pauseUntilNextLogin();
+      return;
+    }
+    this.activeChannels = this.resolveChannels(identity);
+    void this.open(identity);
+  }
+
+  private async open(identity: ActiveBrokerSessionIdentity): Promise<void> {
+    if (
+      !this.shouldReconnect ||
+      this.isSuspended ||
+      !isActiveBrokerSessionCurrent(identity) ||
+      this.isOpening
+    ) {
       return;
     }
 
+    this.isOpening = true;
     try {
       const wsUrl = await brokerApi.getWebSocketUrl();
-      this.ws = new WebSocket(wsUrl);
+      this.isOpening = false;
+      if (this.isSuspended || !this.shouldReconnect || !isActiveBrokerSessionCurrent(identity)) {
+        const current = this.resolveIdentity();
+        if (this.shouldReconnect && current) void this.open(current);
+        return;
+      }
+      const socket = new WebSocket(wsUrl);
+      this.ws = socket;
+      this.activeIdentity = identity;
 
-      this.ws.onopen = () => {
-        this.reconnectAttempts = 0;
-        this.activeChannels = this.resolveChannels();
-        this.startHeartbeat();
-        this.subscribe();
+      socket.onopen = () => {
+        if (this.ws !== socket || !isActiveBrokerSessionCurrent(identity)) {
+          socket.close();
+          return;
+        }
+        this.activeChannels = this.resolveChannels(identity);
+        this.connectedAt = Date.now();
+        this.acceptedPayloadCount = 0;
+        this.startHeartbeat(identity);
+        this.startStableConnectionTimer(socket, identity);
+        this.subscribe(identity);
       };
 
-      this.ws.onmessage = (event) => {
+      socket.onmessage = (event) => {
+        if (this.ws !== socket || !isActiveBrokerSessionCurrent(identity)) return;
         try {
-          this.handleMessage(JSON.parse(event.data as string));
+          const accepted = this.handleMessage(JSON.parse(event.data as string), identity);
+          if (accepted) {
+            this.acceptedPayloadCount += 1;
+            if (hasStableConnectionSucceeded({
+              connectedAt: this.connectedAt,
+              now: Date.now(),
+              acceptedPayloadCount: this.acceptedPayloadCount,
+              stableAfterMs: STABLE_CONNECTION_MS,
+            })) {
+              this.markConnectionHealthy();
+            }
+          }
         } catch (error) {
-          console.warn('[BrokerRealtime] Failed to parse message', error);
+          console.warn(
+            '[BrokerRealtime] Failed to parse message',
+            redactDiagnosticValue(error),
+          );
         }
       };
 
-      this.ws.onclose = () => {
+      socket.onclose = (event) => {
+        if (this.ws !== socket) return;
+        this.stopHeartbeat();
+        this.clearStableConnectionTimer();
         this.ws = null;
-        this.scheduleReconnect();
+        this.activeIdentity = null;
+        this.connectedAt = 0;
+        this.acceptedPayloadCount = 0;
+        if (isSocketAuthenticationFailure(event?.code)) {
+          this.pauseUntilNextLogin();
+          return;
+        }
+        if (isActiveBrokerSessionCurrent(identity)) this.scheduleReconnect(identity);
       };
 
-      this.ws.onerror = () => {
+      socket.onerror = () => {
         // onclose performs reconnect scheduling on React Native.
       };
     } catch (error) {
+      this.isOpening = false;
       if (isAuthSessionUnavailable(error)) {
         this.pauseUntilNextLogin();
         return;
       }
-      console.warn('[BrokerRealtime] Connection failed', error);
-      this.scheduleReconnect();
+      console.warn('[BrokerRealtime] Connection failed', redactDiagnosticValue(error));
+      if (isActiveBrokerSessionCurrent(identity)) this.scheduleReconnect(identity);
     }
   }
 
-  private resolveChannels(): string[] {
-    const login = resolveTradingLoginString();
-    const channels: string[] = this.getOpenPositionSymbols().map((symbol) => `ticks.${symbol}`);
-
-    if (login) {
-      ACCOUNT_LIFECYCLE_CHANNELS.forEach((channel) => {
-        channels.push(`${channel}.${login}`);
-      });
-    }
-
-    return Array.from(new Set(channels));
+  private resolveChannels(identity: ActiveBrokerSessionIdentity): string[] {
+    const login = identity.accountLogin;
+    return ACCOUNT_LIFECYCLE_CHANNELS.map((channel) => `${channel}.${login}`);
   }
 
-  private getOpenPositionSymbols(): string[] {
-    const positions = usePositionsState.getState().positions;
-    return Array.from(
-      new Set(
-        positions
-          .map((position) => normalizeSymbol(position.symbol))
-          .filter((symbol): symbol is string => Boolean(symbol)),
-      ),
-    );
-  }
-
-  private subscribe(): void {
-    if (this.ws?.readyState !== WebSocket.OPEN || this.activeChannels.length === 0) {
+  private subscribe(identity: ActiveBrokerSessionIdentity): void {
+    if (
+      this.ws?.readyState !== WebSocket.OPEN ||
+      this.activeChannels.length === 0 ||
+      !sameIdentity(this.activeIdentity, identity) ||
+      !isActiveBrokerSessionCurrent(identity)
+    ) {
       return;
     }
 
@@ -200,10 +276,17 @@ class BrokerRealtimeService {
     });
   }
 
-  private handleMessage(payload: unknown): void {
+  private handleMessage(payload: unknown, identity: ActiveBrokerSessionIdentity): boolean {
+    if (
+      !sameIdentity(this.activeIdentity, identity) ||
+      !isActiveBrokerSessionCurrent(identity) ||
+      !payloadMatchesSocketIdentity(payload, identity)
+    ) {
+      return false;
+    }
     const record = asRecord(payload);
     if (!record) {
-      return;
+      return false;
     }
 
     const channel = normalizeChannel(record.channel ?? record.topic);
@@ -213,13 +296,9 @@ class BrokerRealtimeService {
       normalizeEventName(record.event ?? record.type ?? record.action) ||
       normalizeEventName(dataRecord?.event ?? dataRecord?.type ?? dataRecord?.action);
 
-    if (channel.startsWith('ticks.') || eventName.includes('tick')) {
-      this.handleTick(dataRecord ?? record, channel);
-    }
-
+    let accepted = false;
     if (channel.startsWith('positions.') || eventName.includes('position')) {
-      this.handlePositions(data, eventName);
-      this.refreshSubscriptionsIfNeeded();
+      accepted = this.handlePositions(data, eventName, identity) || accepted;
     }
 
     if (
@@ -228,7 +307,7 @@ class BrokerRealtimeService {
       eventName.includes('account') ||
       eventName.includes('metrics')
     ) {
-      this.handleAccount(dataRecord ?? record);
+      accepted = this.handleAccount(dataRecord ?? record, identity) || accepted;
     }
 
     if (
@@ -239,102 +318,34 @@ class BrokerRealtimeService {
       eventName.startsWith('deal.') ||
       eventName.startsWith('history.')
     ) {
-      this.handleLifecycleEvent(dataRecord ?? record, eventName);
+      accepted = this.handleLifecycleEvent(dataRecord ?? record, eventName, identity) || accepted;
     }
+    return accepted;
   }
 
-  private handleTick(data: Record<string, unknown>, channel: string): void {
-    const channelSymbol = channel.startsWith('ticks.') ? channel.slice('ticks.'.length) : '';
-    const symbol = String(data.symbol ?? data.s ?? channelSymbol ?? '');
-    const bid = numberFrom(data.bid, data.b, data.price);
-    const ask = numberFrom(data.ask, data.a, data.price);
-    if (!symbol || bid === undefined || ask === undefined) {
-      return;
-    }
-
-    const tickTime = data.timestamp ?? data.time ?? data.t ?? Date.now();
-    useTradingState.getState().setQuote(symbol, {
-      bid,
-      ask,
-      lastTickAt: Number(tickTime) || Date.now(),
-      lastReceivedAt: Date.now(),
-    });
-
-    // Skip the equity recompute when neither bid nor ask moved. The quote store
-    // is already updated above (keeps freshness/staleness correct); only the
-    // expensive floating-P/L recompute + store writes are gated.
-    const previousTickPrice = this.lastTickPrice.get(symbol);
-    this.lastTickPrice.set(symbol, { bid, ask });
-    if (previousTickPrice && previousTickPrice.bid === bid && previousTickPrice.ask === ask) {
-      return;
-    }
-
-    const liveAccount = useLiveAccountState.getState();
-    const positions = usePositionsState.getState().positions;
-    const currentPrice = numberFrom(data.price, bid, ask);
-    if (currentPrice === undefined || positions.length === 0) {
-      return;
-    }
-
-    const tradingAccount = useTradingState.getState().account;
-    // Quote ticks can arrive before the account snapshot. Update floating P/L,
-    // but wait for a settled balance before deriving equity/free margin.
-    const hasSettledBalance = liveAccount.metricFlags.balance || Number.isFinite(tradingAccount?.balance);
-    const settledBalance = liveAccount.metricFlags.balance
-      ? liveAccount.balance
-      : (tradingAccount?.balance ?? 0);
-    const floating = calculateFloatingPnlFromTick({
-      positions,
-      tick: { symbol, price: currentPrice },
-      contractSizes: this.contractSizes,
-    });
-
-    if (!hasSettledBalance) {
-      useLiveAccountState.getState().updateMetrics({ floating });
-      useTradingState.getState().setAccount({ floating });
-      return;
-    }
-
-    const equity = settledBalance + floating;
-    const margin = liveAccount.metricFlags.margin && Number.isFinite(liveAccount.margin)
-      ? liveAccount.margin
-      : (tradingAccount?.margin ?? 0);
-    const marginFree = equity - margin;
-    const marginLevel = margin > 0 ? (equity / margin) * 100 : 0;
-
-    useLiveAccountState.getState().updateMetrics({
-      equity,
-      floating,
-      margin_free: marginFree,
-      margin_level: marginLevel,
-    });
-    useTradingState.getState().setAccount({
-      equity,
-      floating,
-      freeMargin: marginFree,
-      marginLevel,
-    });
-  }
-
-  private handlePositions(data: unknown, eventName = ''): void {
+  private handlePositions(
+    data: unknown,
+    eventName: string,
+    identity: ActiveBrokerSessionIdentity,
+  ): boolean {
     if (Array.isArray(data)) {
-      usePositionsState.getState().applyPositionsSnapshot(data, resolveTradingLoginString(), {
+      usePositionsState.getState().applyPositionsSnapshot(data, identity.accountLogin, {
         preserveMissingExisting: false,
       });
-      return;
+      return true;
     }
 
     const record = asRecord(data);
     if (!record) {
-      return;
+      return false;
     }
 
     const positions = record.positions ?? record.items ?? record.data;
     if (Array.isArray(positions)) {
-      usePositionsState.getState().applyPositionsSnapshot(positions, resolveTradingLoginString(), {
+      usePositionsState.getState().applyPositionsSnapshot(positions, identity.accountLogin, {
         preserveMissingExisting: false,
       });
-      return;
+      return true;
     }
 
     const lifecycleHints = this.getLifecycleHints(record, eventName);
@@ -346,21 +357,25 @@ class BrokerRealtimeService {
         ticket: nestedPosition.ticket ?? lifecycleHints.ticket,
         position_ticket: nestedPosition.position_ticket ?? lifecycleHints.position_ticket ?? lifecycleHints.ticket,
       });
-      this.invalidateLifecycleQueries(eventName);
-      return;
+      this.invalidateLifecycleQueries(eventName, identity);
+      return true;
     }
 
     usePositionsState.getState().upsertPosition({
       ...lifecycleHints,
       ...record,
     });
-    this.invalidateLifecycleQueries(eventName);
+    this.invalidateLifecycleQueries(eventName, identity);
+    return true;
   }
 
-  private handleAccount(data: Record<string, unknown>): void {
+  private handleAccount(
+    data: Record<string, unknown>,
+    identity: ActiveBrokerSessionIdentity,
+  ): boolean {
     const metricsRecord = asRecord(data.metrics) ?? asRecord(data.account) ?? data;
-    const login = numberFrom(metricsRecord.login, metricsRecord.account_login, resolveTradingLoginString());
-    useLiveAccountState.getState().updateMetrics({
+    const login = numberFrom(metricsRecord.login, metricsRecord.account_login, identity.accountLogin);
+    const metrics = {
       ...(login !== undefined ? { login } : {}),
       ...(numberFrom(metricsRecord.balance) !== undefined ? { balance: numberFrom(metricsRecord.balance)! } : {}),
       ...(numberFrom(metricsRecord.equity) !== undefined ? { equity: numberFrom(metricsRecord.equity)! } : {}),
@@ -368,7 +383,10 @@ class BrokerRealtimeService {
       ...(numberFrom(metricsRecord.margin_free, metricsRecord.freeMargin) !== undefined ? { margin_free: numberFrom(metricsRecord.margin_free, metricsRecord.freeMargin)! } : {}),
       ...(numberFrom(metricsRecord.margin_level, metricsRecord.marginLevel) !== undefined ? { margin_level: numberFrom(metricsRecord.margin_level, metricsRecord.marginLevel)! } : {}),
       ...(numberFrom(metricsRecord.floating, metricsRecord.pnl, metricsRecord.profit) !== undefined ? { floating: numberFrom(metricsRecord.floating, metricsRecord.pnl, metricsRecord.profit)! } : {}),
-    });
+    };
+    if (Object.keys(metrics).length === 0) return false;
+    useLiveAccountState.getState().updateMetrics(metrics);
+    return true;
   }
 
   private getLifecycleHints(record: Record<string, unknown>, eventName: string): Record<string, unknown> {
@@ -397,21 +415,30 @@ class BrokerRealtimeService {
     return hints;
   }
 
-  private handleLifecycleEvent(data: Record<string, unknown>, eventName: string): void {
+  private handleLifecycleEvent(
+    data: Record<string, unknown>,
+    eventName: string,
+    identity: ActiveBrokerSessionIdentity,
+  ): boolean {
+    let accepted = false;
     const position = asRecord(data.position);
     if (position) {
-      this.handlePositions(data, eventName);
+      accepted = this.handlePositions(data, eventName, identity) || accepted;
     }
 
     const metrics = asRecord(data.metrics) ?? asRecord(data.account);
     if (metrics) {
-      this.handleAccount(metrics);
+      accepted = this.handleAccount(metrics, identity) || accepted;
     }
 
-    this.invalidateLifecycleQueries(eventName);
+    this.invalidateLifecycleQueries(eventName, identity);
+    return accepted || Boolean(eventName);
   }
 
-  private invalidateLifecycleQueries(eventName: string): void {
+  private invalidateLifecycleQueries(
+    eventName: string,
+    identity: ActiveBrokerSessionIdentity,
+  ): void {
     if (!eventName) {
       return;
     }
@@ -429,39 +456,39 @@ class BrokerRealtimeService {
       return;
     }
 
-    LIFECYCLE_CACHE_KEYS.forEach((key) => {
-      appQueryClient.invalidateQueries({ queryKey: [key] });
-    });
+    const capture = captureActiveBrokerSession();
+    if (!capture || !isActiveBrokerSessionCurrent(identity)) return;
+    void invalidateSessionQueryRoots(
+      appQueryClient,
+      capture.session.cacheNamespace,
+      LIFECYCLE_CACHE_KEYS,
+    );
   }
 
-  private refreshSubscriptionsIfNeeded(): void {
-    const nextChannels = this.resolveChannels();
-    const changed =
-      nextChannels.length !== this.activeChannels.length ||
-      nextChannels.some((channel, index) => channel !== this.activeChannels[index]);
-
-    if (!changed) {
+  private scheduleReconnect(identity: ActiveBrokerSessionIdentity): void {
+    if (
+      !this.shouldReconnect ||
+      this.isSuspended ||
+      this.reconnectTimer ||
+      !isActiveBrokerSessionCurrent(identity)
+    ) {
       return;
     }
-
-    this.activeChannels = nextChannels;
-    this.subscribe();
-  }
-
-  private scheduleReconnect(): void {
-    if (!this.shouldReconnect || this.reconnectTimer) {
-      return;
-    }
-    if (!this.hasAuthenticatedSession()) {
+    const currentIdentity = this.resolveIdentity();
+    if (!currentIdentity || !sameIdentity(currentIdentity, identity)) {
       this.pauseUntilNextLogin();
       return;
     }
 
-    const delay = Math.min(RECONNECT_BASE_MS * 2 ** this.reconnectAttempts, RECONNECT_MAX_MS);
+    const delay = resolveFullJitterBackoffMs({
+      attempt: this.reconnectAttempts,
+      baseMs: RECONNECT_BASE_MS,
+      capMs: RECONNECT_MAX_MS,
+    });
     this.reconnectAttempts += 1;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      void this.open();
+      if (!this.isSuspended && isActiveBrokerSessionCurrent(identity)) void this.open(identity);
     }, delay);
   }
 
@@ -475,7 +502,11 @@ class BrokerRealtimeService {
   private teardownSocket(): void {
     const socket = this.ws;
     this.ws = null;
+    this.activeIdentity = null;
+    this.connectedAt = 0;
+    this.acceptedPayloadCount = 0;
     this.stopHeartbeat();
+    this.clearStableConnectionTimer();
     if (!socket) {
       return;
     }
@@ -486,9 +517,13 @@ class BrokerRealtimeService {
     socket.close();
   }
 
-  private startHeartbeat(): void {
+  private startHeartbeat(identity: ActiveBrokerSessionIdentity): void {
     this.stopHeartbeat();
     this.heartbeatInterval = setInterval(() => {
+      if (!isActiveBrokerSessionCurrent(identity)) {
+        this.teardownSocket();
+        return;
+      }
       this.send({ action: 'ping' });
     }, 15000);
   }
@@ -500,22 +535,63 @@ class BrokerRealtimeService {
     }
   }
 
+  private startStableConnectionTimer(
+    socket: WebSocket,
+    identity: ActiveBrokerSessionIdentity,
+  ): void {
+    this.clearStableConnectionTimer();
+    this.stableConnectionTimer = setTimeout(() => {
+      this.stableConnectionTimer = null;
+      if (
+        this.ws === socket &&
+        socket.readyState === WebSocket.OPEN &&
+        !this.isSuspended &&
+        isActiveBrokerSessionCurrent(identity) &&
+        hasStableConnectionSucceeded({
+          connectedAt: this.connectedAt,
+          now: Date.now(),
+          acceptedPayloadCount: this.acceptedPayloadCount,
+          stableAfterMs: STABLE_CONNECTION_MS,
+        })
+      ) {
+        this.markConnectionHealthy();
+      }
+    }, STABLE_CONNECTION_MS);
+  }
+
+  private clearStableConnectionTimer(): void {
+    if (this.stableConnectionTimer) {
+      clearTimeout(this.stableConnectionTimer);
+      this.stableConnectionTimer = null;
+    }
+  }
+
+  private markConnectionHealthy(): void {
+    this.reconnectAttempts = 0;
+    this.connectedAt = 0;
+    this.acceptedPayloadCount = 0;
+    this.clearStableConnectionTimer();
+  }
+
   private send(message: Record<string, unknown>): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
     }
   }
 
-  private hasAuthenticatedSession(): boolean {
-    const state = useUserPreferences.getState();
-    return Boolean(state.isLoggedIn && state.accountDetails?.credentials?.accessToken);
+  private resolveIdentity(): ActiveBrokerSessionIdentity | null {
+    const capture = captureActiveBrokerSession();
+    if (!capture?.session.tradeWsBase || !capture.credentials.accessToken) return null;
+    return getActiveBrokerSessionIdentity(capture.session);
   }
 
   private pauseUntilNextLogin(): void {
     this.shouldReconnect = false;
     this.reconnectAttempts = 0;
     this.activeChannels = [];
+    this.activeIdentity = null;
     this.clearReconnectTimer();
+    this.clearStableConnectionTimer();
     this.teardownSocket();
   }
 }

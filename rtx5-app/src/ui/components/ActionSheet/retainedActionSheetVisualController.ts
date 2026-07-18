@@ -10,6 +10,8 @@ type RetainedActionSheetVisualApplier = (
   snapshot: RetainedActionSheetVisualSnapshot,
 ) => boolean;
 
+type RetainedActionSheetHostParker = (activeVisualKey: string) => boolean;
+
 const hiddenSnapshot = (revision: number): RetainedActionSheetVisualSnapshot => ({
   mode: 'hidden',
   visualKey: null,
@@ -19,6 +21,7 @@ const hiddenSnapshot = (revision: number): RetainedActionSheetVisualSnapshot => 
 let nextRevision = 0;
 let snapshot = hiddenSnapshot(nextRevision);
 const visualAppliers = new Set<RetainedActionSheetVisualApplier>();
+const hostParkers = new Set<RetainedActionSheetHostParker>();
 
 const applySnapshot = (nextSnapshot: RetainedActionSheetVisualSnapshot) => {
   let applied = false;
@@ -124,8 +127,32 @@ export function registerRetainedActionSheetVisualApplier(
   };
 }
 
+/**
+ * Hides the exact currently mounted host before React replaces its rows with a
+ * different sheet configuration. This one-off preparation deliberately does
+ * not change the retained preview snapshot.
+ */
+export function parkRetainedActionSheetHostForConfigSwap(activeVisualKey: string) {
+  let parked = false;
+  hostParkers.forEach((parker) => {
+    parked = parker(activeVisualKey) || parked;
+  });
+  return parked;
+}
+
+export function registerRetainedActionSheetHostParker(
+  parker: RetainedActionSheetHostParker,
+) {
+  hostParkers.add(parker);
+
+  return () => {
+    hostParkers.delete(parker);
+  };
+}
+
 export function resetRetainedActionSheetVisualControllerForTests() {
   nextRevision = 0;
   snapshot = hiddenSnapshot(nextRevision);
   visualAppliers.clear();
+  hostParkers.clear();
 }

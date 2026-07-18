@@ -37,6 +37,16 @@ const cleanString = (value: unknown): string => {
   return String(value).trim();
 };
 
+const firstConfiguredValue = (values: readonly unknown[]): string => {
+  for (const value of values) {
+    const cleaned = cleanString(value);
+    if (cleaned) {
+      return cleaned;
+    }
+  }
+  return '';
+};
+
 export const extractFeedBrokerToken = (payload: unknown): string => {
   const root = asRecord(payload);
   if (!root) {
@@ -63,16 +73,81 @@ export const extractFeedBrokerToken = (payload: unknown): string => {
   return '';
 };
 
+/**
+ * Legacy app-config market-data token (old flow). Prefer login-issued tokens
+ * when present; env is a deliberate fallback so MyProp works without backend
+ * feed_auth_context yet.
+ */
+export const resolveConfiguredFeedBrokerToken = (): string =>
+  firstConfiguredValue([
+    process.env.EXPO_PUBLIC_FEED_BROKER_TOKEN,
+    process.env.EXPO_PUBLIC_BROKER_FEED_TOKEN,
+    process.env.EXPO_PUBLIC_MYPROP_FEED_TOKEN,
+    process.env.EXPO_PUBLIC_WS_FEED_TOKEN,
+    process.env.EXPO_PUBLIC_FEED_TOKEN,
+  ]);
+
+export const resolveConfiguredFeedBrokerId = (): string =>
+  firstConfiguredValue([
+    process.env.EXPO_PUBLIC_FEED_BROKER_ID,
+    process.env.EXPO_PUBLIC_BROKER_FEED_ID,
+    process.env.EXPO_PUBLIC_MYPROP_FEED_BROKER_ID,
+  ]);
+
+const normalizeBrokerId = (value: unknown): string =>
+  cleanString(value).toLowerCase();
+
+/** Env token for the active broker (optional broker-id lock). */
+export const resolveConfiguredFeedBrokerTokenForBroker = (
+  brokerId?: string | null,
+): string => {
+  const token = resolveConfiguredFeedBrokerToken();
+  if (!token) {
+    return '';
+  }
+
+  const configuredBrokerId = normalizeBrokerId(resolveConfiguredFeedBrokerId());
+  if (!configuredBrokerId) {
+    return token;
+  }
+
+  return configuredBrokerId === normalizeBrokerId(brokerId) ? token : '';
+};
+
 export const appendFeedAuthToWsUrl = (
   baseUrl: string,
   brokerId: string,
-  feedToken: string,
+  token: string,
 ): string => {
-  const url = new URL(baseUrl);
-  url.searchParams.set('broker_id', cleanString(brokerId));
-  url.searchParams.set('token', cleanString(feedToken));
-  return url.toString();
+  const normalizedBrokerId = cleanString(brokerId);
+  const normalizedToken = cleanString(token);
+  if (!baseUrl || !normalizedBrokerId) {
+    return baseUrl;
+  }
+
+  const queryStart = baseUrl.indexOf('?');
+  const base = queryStart === -1 ? baseUrl : baseUrl.slice(0, queryStart);
+  const query = queryStart === -1 ? '' : baseUrl.slice(queryStart + 1);
+  const params = query
+    .split('&')
+    .map((entry) => entry.trim())
+    .filter((entry) => {
+      if (!entry) return false;
+      const lower = entry.toLowerCase();
+      return !lower.startsWith('broker_id=') && !lower.startsWith('token=');
+    });
+
+  params.push(`broker_id=${encodeURIComponent(normalizedBrokerId)}`);
+  if (normalizedToken) {
+    params.push(`token=${encodeURIComponent(normalizedToken)}`);
+  }
+  return `${base}?${params.join('&')}`;
 };
 
 export const redactFeedAuthFromWsUrl = (url: string): string =>
   url.replace(/([?&]token=)[^&]*/i, '$1***');
+
+export const stripFeedAuthQueryFromWsUrl = (url: string): string => {
+  const queryStart = url.indexOf('?');
+  return queryStart === -1 ? url : url.slice(0, queryStart);
+};

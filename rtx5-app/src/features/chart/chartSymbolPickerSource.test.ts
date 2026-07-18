@@ -76,16 +76,19 @@ test('symbol picker stays fixed when the search keyboard opens (no focus-time ju
   );
 });
 
-test('market symbol API cache is broker scoped and parses full instrument payloads', () => {
+test('market symbol API cache uses the immutable active-session namespace and parses full instrument payloads', () => {
   const querySource = readSource('src/query/market.ts');
   const extractorSource = readSource('src/domain/marketSymbols.ts');
 
-  assert.match(querySource, /useUserPreferences\(\(state\) => state\.brokerId\)/);
-  assert.match(querySource, /useUserPreferences\(\(state\) => state\.accountDetails\?\.id \?\? ''\)/);
-  assert.match(querySource, /const accountScope\s*=\s*accountId \|\| 'none'/);
-  assert.match(querySource, /queryKey:\s*\['market', 'symbols', 'instrument-catalog-v2', brokerId, accountScope\]/);
+  assert.match(querySource, /useActiveBrokerQuerySession/);
+  assert.match(querySource, /getSessionQueryCacheNamespace/);
+  assert.match(querySource, /const cacheNamespace = getSessionQueryCacheNamespace\(session\)/);
+  assert.match(querySource, /const isEnabled = enabled && Boolean\(session\)/);
+  assert.match(querySource, /queryKey:\s*\['market', cacheNamespace, 'symbols', 'instrument-catalog-v3'\]/);
   assert.match(querySource, /staleTime:\s*1000 \* 60 \* 5/);
-  assert.match(querySource, /primeInstrumentMetaCacheFromCatalogPayload\(data, cacheScope\)/);
+  assert.match(querySource, /commitApiJson\(result, cacheNamespace, \(data\) => \{/);
+  assert.match(querySource, /primeInstrumentMetaCacheFromCatalogPayload\(data, cacheNamespace\)/);
+  assert.doesNotMatch(querySource, /useUserPreferences|accountScope|brokerId/);
   assert.match(extractorSource, /'instruments'[\s\S]*'symbols'[\s\S]*'data'[\s\S]*'items'[\s\S]*'results'[\s\S]*'records'/);
   assert.match(extractorSource, /'symbol'[\s\S]*'Symbol'[\s\S]*'instrumentSymbol'[\s\S]*'code'[\s\S]*'ticker'/);
 });
@@ -98,7 +101,7 @@ test('native compact symbol header opens immediately from the full header tap ta
   assert.match(source, /actions: symbolPickerActions/);
   assert.match(
     source,
-    /title: t\('Select Symbol'\)[\s\S]*presentation:\s*'mt5Plain'[\s\S]*instantOpen:\s*true[\s\S]*entryMotion:\s*'instant'[\s\S]*immediateHostHideOnClose:\s*true[\s\S]*actions: symbolPickerActions/,
+    /title: t\('Select Symbol'\)[\s\S]*presentation:\s*'mt5Plain'[\s\S]*deferOffscreenActions:\s*true[\s\S]*maximumVisibleActionRows:\s*9[\s\S]*instantOpen:\s*true[\s\S]*entryMotion:\s*'mt5Slide'[\s\S]*immediateHostHideOnClose:\s*true[\s\S]*actions: symbolPickerActions/,
   );
   assert.doesNotMatch(source, /const stopSymbolPickerTouchPropagation = useCallback/);
   assert.doesNotMatch(source, /const handleSymbolPickerStartShouldSetResponder = useCallback/);
@@ -209,6 +212,14 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
     source.indexOf('const handleOpenTimeframePicker = useCallback'),
     source.indexOf('const handleSelectChartType = useCallback', source.indexOf('const handleOpenTimeframePicker = useCallback')),
   );
+  const symbolPickerHandlerSource = source.slice(
+    source.indexOf('const handleOpenSymbolPicker = useCallback'),
+    source.indexOf('const handleOpenTimeframePicker = useCallback', source.indexOf('const handleOpenSymbolPicker = useCallback')),
+  );
+  const drawingToolsHandlerSource = source.slice(
+    source.indexOf('const handleOpenDrawingTools = useCallback'),
+    source.indexOf('const handleOpenSettingsScreen = useCallback', source.indexOf('const handleOpenDrawingTools = useCallback')),
+  );
 
   assert.match(timeframePickerSource, /TIMEFRAME_PICKER_GROUPS[\s\S]*title: 'Minutes'[\s\S]*options: \['M1', 'M5', 'M15', 'M30'\]/);
   assert.match(timeframePickerSource, /title: 'Hours'[\s\S]*options: \['H1', 'H4'\]/);
@@ -239,6 +250,19 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(source, /chartTradeExpirationActions = useMemo\([\s\S]*name="infinite-outline"[\s\S]*label: t\('GTC'\)[\s\S]*name="today-outline"[\s\S]*label: t\('Today'\)[\s\S]*name="time-outline"[\s\S]*label: t\('Date and Time'\)[\s\S]*name="calendar-outline"[\s\S]*label: t\('Date'\)/);
   assert.doesNotMatch(source, /const timeframePickerActions = useMemo\(/);
   assert.match(source, /const drawingToolsActions = useMemo\(/);
+  for (const handler of [
+    'handleSetTool',
+    'handleClearDrawings',
+    'handleUndoDrawing',
+    'handleRedoDrawing',
+    'handleToggleStickyMode',
+    'handleToggleMagnetMode',
+    'handleToggleLock',
+    'handleToggleHide',
+    'handleZoomTool',
+  ]) {
+    assert.match(source, new RegExp(`const ${handler} = useCallback\\(`));
+  }
   assert.match(source, /const chartTypePickerActions = useMemo\(/);
   assert.match(source, /const chartMoreActions = useMemo\(/);
   assert.match(source, /const CHART_SCALE_DISPLAY_ITEMS:[\s\S]*key: 'showTicker'[\s\S]*label: 'Show ticker'[\s\S]*key: 'showTradeLevels'[\s\S]*label: 'Show trade levels'/);
@@ -253,25 +277,41 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.doesNotMatch(timeframeHandlerSource, /showActionIcons:\s*true/);
   assert.doesNotMatch(timeframeHandlerSource, /showChartActionSheet|presentation:\s*'mt5Plain'|presentation:\s*'mt5TimeframeGrid'|detent:\s*'adaptive'/);
   assert.match(source, /<ChartTimeframePickerOverlay[\s\S]*visible=\{timeframePickerVisible\}[\s\S]*supportedTimeframes=\{timeframes\}[\s\S]*onClose=\{handleCloseTimeframePicker\}[\s\S]*onSelect=\{handleTimeframeSelect\}/);
-  assert.match(source, /drawingToolsActionSheetConfig = useMemo[\s\S]*presentation:\s*'mt5Plain'[\s\S]*showActionIcons:\s*true[\s\S]*detent:\s*'large'[\s\S]*instantOpen:\s*true[\s\S]*entryMotion:\s*'instant'[\s\S]*immediateHostHideOnClose:\s*true[\s\S]*runActionAfterClose:\s*false[\s\S]*actions: drawingToolsActions/);
-  assert.match(source, /runImmediateAction\('chart\.drawingTools\.open'[\s\S]*showChartActionSheet\(drawingToolsActionSheetConfig\)/);
-  // Long list sheets must not use mt5Slide — slide-from-height reads as shrink.
+  assert.match(source, /drawingToolsActionSheetConfig = useMemo[\s\S]*title:\s*t\('Drawing Tools'\)[\s\S]*searchable:\s*true[\s\S]*searchPlaceholder:\s*t\('Search drawing tools\.\.\.'\)[\s\S]*compactText:\s*true[\s\S]*presentation:\s*'mt5Plain'[\s\S]*showActionIcons:\s*true[\s\S]*deferOffscreenActions:\s*true[\s\S]*maximumVisibleActionRows:\s*12[\s\S]*detent:\s*'large'[\s\S]*instantOpen:\s*true[\s\S]*entryMotion:\s*'mt5Slide'[\s\S]*immediateHostHideOnClose:\s*true[\s\S]*runActionAfterClose:\s*false[\s\S]*keepFullHeightOnKeyboard:\s*true[\s\S]*actions: drawingToolsActions/);
+  assert.match(source, /const openChartActionSheetSmoothly = useCallback[\s\S]*mountedVisualKey =[\s\S]*preloadedScopedActionSheets\.chart\?\.visualKey[\s\S]*parkRetainedActionSheetHostForConfigSwap\(mountedVisualKey\)[\s\S]*preloadScopedActionSheet\('chart', config\)[\s\S]*if \(parked\)[\s\S]*scheduleAfterFirstFrame\(\(\) => \{[\s\S]*showChartActionSheet\(config\)/);
+  assert.doesNotMatch(source, /const openChartActionSheetSmoothly =[\s\S]*requestRetainedActionSheetPreview/);
+  assert.match(drawingToolsHandlerSource, /runImmediateAction\('chart\.drawingTools\.open'[\s\S]*openChartActionSheetSmoothly\(drawingToolsActionSheetConfig\)/);
+  assert.match(symbolPickerHandlerSource, /runImmediateAction\('chart\.symbolPicker\.open'[\s\S]*openChartActionSheetSmoothly\(symbolPickerActionSheetConfig\)/);
+  assert.doesNotMatch(drawingToolsHandlerSource, /scheduleAfterFirstFrame/);
+  assert.doesNotMatch(symbolPickerHandlerSource, /scheduleAfterFirstFrame/);
+  // Both long chart lists can share More-menu motion once their opening
+  // viewport is stable and their offscreen rows are deferred.
   const symbolPickerConfigStart = source.indexOf('const symbolPickerActionSheetConfig = useMemo');
   const symbolPickerConfigEnd = source.indexOf('const handleOpenSymbolPicker', symbolPickerConfigStart);
   assert.notEqual(symbolPickerConfigStart, -1);
   assert.notEqual(symbolPickerConfigEnd, -1);
   const symbolPickerConfigSource = source.slice(symbolPickerConfigStart, symbolPickerConfigEnd);
-  assert.match(symbolPickerConfigSource, /entryMotion:\s*'instant'/);
-  assert.doesNotMatch(symbolPickerConfigSource, /entryMotion:\s*'mt5Slide'/);
+  assert.match(symbolPickerConfigSource, /deferOffscreenActions:\s*true/);
+  assert.match(symbolPickerConfigSource, /maximumVisibleActionRows:\s*9/);
+  assert.match(symbolPickerConfigSource, /entryMotion:\s*'mt5Slide'/);
+  assert.doesNotMatch(symbolPickerConfigSource, /entryMotion:\s*'instant'/);
   const drawingToolsConfigStart = source.indexOf('const drawingToolsActionSheetConfig = useMemo');
   const drawingToolsConfigEnd = source.indexOf('const handleOpenDrawingTools', drawingToolsConfigStart);
   assert.notEqual(drawingToolsConfigStart, -1);
   assert.notEqual(drawingToolsConfigEnd, -1);
   const drawingToolsConfigSource = source.slice(drawingToolsConfigStart, drawingToolsConfigEnd);
-  assert.match(drawingToolsConfigSource, /entryMotion:\s*'instant'/);
-  assert.doesNotMatch(drawingToolsConfigSource, /entryMotion:\s*'mt5Slide'/);
-  assert.doesNotMatch(source, /title:\s*t\('Drawing Tools'\)[\s\S]*presentation:\s*'mt5Plain'/);
-  assert.doesNotMatch(drawingSource, /title="Drawing Tools"/);
+  assert.match(drawingToolsConfigSource, /title:\s*t\('Drawing Tools'\)/);
+  assert.match(drawingToolsConfigSource, /searchable:\s*true/);
+  assert.match(drawingToolsConfigSource, /searchPlaceholder:\s*t\('Search drawing tools\.\.\.'\)/);
+  assert.match(drawingToolsConfigSource, /compactText:\s*true/);
+  assert.match(drawingToolsConfigSource, /deferOffscreenActions:\s*true/);
+  assert.match(drawingToolsConfigSource, /maximumVisibleActionRows:\s*12/);
+  assert.match(drawingToolsConfigSource, /detent:\s*'large'/);
+  assert.match(drawingToolsConfigSource, /entryMotion:\s*'mt5Slide'/);
+  assert.match(drawingToolsConfigSource, /keepFullHeightOnKeyboard:\s*true/);
+  assert.doesNotMatch(drawingToolsConfigSource, /entryMotion:\s*'instant'/);
+  assert.match(source, /title:\s*t\('Drawing Tools'\)[\s\S]*presentation:\s*'mt5Plain'/);
+  assert.match(drawingSource, /title=\{t\('Drawing Tools'\)\}[\s\S]*searchable[\s\S]*searchPlaceholder=\{t\('Search drawing tools\.\.\.'\)\}[\s\S]*maximumVisibleActionRows=\{12\}[\s\S]*detent="large"[\s\S]*keepFullHeightOnKeyboard/);
   assert.match(drawingSource, /presentation="mt5Plain"[\s\S]*showActionIcons[\s\S]*actions=\{createDrawingToolsActionSheetActions/);
   assert.match(drawingTypesSource, /icon\?: ReactNode/);
   assert.match(drawingToolsSource, /DRAWING_SHEET_OPTIONS\.map\(\(definition\) => \(\{[\s\S]*icon: definition\.renderIcon\(iconColor\)/);
@@ -344,14 +384,10 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
     source,
     /const prefetchSymbolPickerHistory = useCallback\([\s\S]*slice\(0, CHART_SYMBOL_PICKER_PREFETCH_LIMIT\)[\s\S]*prefetchChartTimeframeHistory\(targetSymbol, chartTimeframe\)/,
   );
-  // Instant open path — no retained mt5Slide preview (that mid-height park shrank).
+  // The exact preloaded picker starts its native slide before React adoption.
   assert.match(
     source,
-    /runImmediateAction\('chart\.symbolPicker\.open'[\s\S]*showChartActionSheet\(symbolPickerActionSheetConfig\)[\s\S]*scheduleChartActionSheetContextReset\(\);[\s\S]*prefetchSymbolPickerHistory\(\);/,
-  );
-  assert.doesNotMatch(
-    source,
-    /requestRetainedActionSheetPreview\(symbolPickerVisualKey\)/,
+    /runImmediateAction\('chart\.symbolPicker\.open'[\s\S]*openChartActionSheetSmoothly\(symbolPickerActionSheetConfig\)[\s\S]*scheduleChartActionSheetContextReset\(\);[\s\S]*prefetchSymbolPickerHistory\(\);/,
   );
   assert.match(
     source,

@@ -23,11 +23,20 @@ import { normalizeCandleHistoryTimeframe } from '../../domain/candles/core/candl
 import { DEFAULT_TRADE_VOLUME, normalizeTradeVolume } from '../../utils/tradeVolume';
 import { normalizeLanguageCode } from '../../i18n/translations';
 import {
+  clearAuthSessionTokens,
+  migrateLegacyAuthSessionCredentials,
+} from '../brokerSessionStorage';
+import {
   CHART_COLOR_SCHEME_PRESETS,
   DEFAULT_CHART_COLOR_SCHEME,
   DEFAULT_CHART_COLORS,
   DEFAULT_CHART_DISPLAY_SETTINGS,
 } from './chartColors';
+import {
+  failClosedPersistedAuthState,
+  injectRuntimeCredentials,
+  sanitizePreferenceAuthStorageValue,
+} from './authPersistence';
 import { setImmediateThemeMode } from '../themeMode';
 import type {
   ChartColorsConfig,
@@ -93,7 +102,7 @@ type PersistedUserPreferencesState = Omit<
 
 const pendingPreferenceWrites = new Map<string, StorageValue<PersistedUserPreferencesState>>();
 let preferenceWriteFlushScheduled = false;
-const PREFERENCES_STORAGE_VERSION = 21;
+const PREFERENCES_STORAGE_VERSION = 22;
 const CHART_DRAWING_RECORDS_STORAGE_KEY = 'rtx5-chart-drawing-records-v1';
 const LEGACY_BLUE_DEFAULT_CHART_COLORS: ChartColorsConfig = {
   background: '#121212',
@@ -191,11 +200,17 @@ const normalizeChartDisplay = (value: unknown): ChartDisplaySettings => {
   const record = asRecord(value);
   const next: ChartDisplaySettings = { ...DEFAULT_CHART_DISPLAY_SETTINGS };
   const hasPersistedLivePriceLine = typeof record.showLivePriceLine === 'boolean';
+  const hasPersistedShowOHLC = typeof record.showOHLC === 'boolean';
   (Object.keys(next) as Array<keyof ChartDisplaySettings>).forEach((key) => {
     next[key] = asBoolean(record[key], next[key]);
   });
   if (!hasPersistedLivePriceLine && typeof record.showBidPriceLine === 'boolean') {
     next.showLivePriceLine = record.showBidPriceLine;
+  }
+  // Historical default was showOHLC=false, which hid O/H/L/C under the symbol
+  // picker. When the preference was never written, keep the new default on.
+  if (!hasPersistedShowOHLC) {
+    next.showOHLC = true;
   }
   next.showBidPriceLine = next.showLivePriceLine;
   next.showAskPriceLine = false;
@@ -211,19 +226,19 @@ const normalizeAccountDetails = (value: unknown): UserPreferencesState['accountD
   const accessToken = asString(credentials.accessToken);
   const refreshToken = asString(credentials.refreshToken);
   const expiresAt = asString(credentials.expiresAt);
-  if (!accessToken) {
-    return null;
-  }
-
   return {
     id,
     name: asString(record.name, `Account ${id}`),
     server: asString(record.server),
-    credentials: {
-      accessToken,
-      refreshToken,
-      expiresAt,
-    },
+    ...(accessToken
+      ? {
+          credentials: {
+            accessToken,
+            refreshToken,
+            expiresAt,
+          },
+        }
+      : {}),
   };
 };
 
@@ -287,7 +302,9 @@ export function normalizePersistedUserPreferencesState(
     nextDrawingRecordsBySymbol[getChartDrawingBucketKey(chartSymbol)] ?? [],
   );
   const accountDetails = normalizeAccountDetails(state.accountDetails);
-  const isLoggedIn = asBoolean(state.isLoggedIn, false) && accountDetails !== null;
+  const isLoggedIn =
+    asBoolean(state.isLoggedIn, false) &&
+    Boolean(accountDetails?.credentials?.accessToken);
   const nextHistoryRange =
     (version ?? 0) < 11 &&
     state.historyRange === 'Last 6 months' &&
@@ -387,7 +404,61 @@ const userPreferencesStorage: PersistStorage<PersistedUserPreferencesState, void
   getItem: async (name) => {
     try {
       const value = await AsyncStorage.getItem(name);
-      return value ? (JSON.parse(value) as StorageValue<PersistedUserPreferencesState>) : null;
+      if (!value) return null;
+
+      const parsed = JSON.parse(value) as StorageValue<PersistedUserPreferencesState>;
+      const authSnapshot = sanitizePreferenceAuthStorageValue(parsed);
+      let persistedStorageValue = authSnapshot.sanitizedStorageValue;
+      let runtimeStorageValue = persistedStorageValue;
+
+      if (
+        authSnapshot.shouldRestoreAuthenticatedSession &&
+        authSnapshot.accountIdentity &&
+        authSnapshot.brokerId
+      ) {
+        const bundle = await migrateLegacyAuthSessionCredentials({
+          brokerId: authSnapshot.brokerId,
+          accountLogin: authSnapshot.accountIdentity.id,
+          credentials: authSnapshot.legacyCredentials,
+        }).catch(async (error) => {
+          console.warn('[UserPreferences] Secure auth restore failed closed', error);
+          await clearAuthSessionTokens().catch(() => undefined);
+          return null;
+        });
+
+        if (bundle) {
+          runtimeStorageValue = injectRuntimeCredentials(
+            persistedStorageValue,
+            bundle,
+            authSnapshot.accountIdentity,
+          );
+        } else {
+          persistedStorageValue = failClosedPersistedAuthState(persistedStorageValue);
+          runtimeStorageValue = persistedStorageValue;
+        }
+      } else {
+        if (authSnapshot.shouldRestoreAuthenticatedSession || authSnapshot.legacyCredentials) {
+          persistedStorageValue = failClosedPersistedAuthState(persistedStorageValue);
+          runtimeStorageValue = persistedStorageValue;
+        }
+        await clearAuthSessionTokens().catch(() => undefined);
+      }
+
+      if (
+        authSnapshot.containedAuthSecrets ||
+        JSON.stringify(persistedStorageValue) !== value
+      ) {
+        try {
+          await AsyncStorage.setItem(name, JSON.stringify(persistedStorageValue));
+        } catch (rewriteError) {
+          // If a token-bearing legacy blob cannot be rewritten safely, remove
+          // the whole preference blob rather than leave credentials in place.
+          await AsyncStorage.removeItem(name).catch(() => undefined);
+          throw rewriteError;
+        }
+      }
+
+      return runtimeStorageValue as StorageValue<PersistedUserPreferencesState>;
     } catch (error) {
       console.warn('[UserPreferences] Ignoring invalid persisted preferences', error);
       void AsyncStorage.removeItem(name).catch((removeError) => {
@@ -397,7 +468,11 @@ const userPreferencesStorage: PersistStorage<PersistedUserPreferencesState, void
     }
   },
   setItem: (name, value) => {
-    pendingPreferenceWrites.set(name, value);
+    const sanitized = sanitizePreferenceAuthStorageValue(value).sanitizedStorageValue;
+    pendingPreferenceWrites.set(
+      name,
+      sanitized as StorageValue<PersistedUserPreferencesState>,
+    );
     schedulePreferenceWriteFlush();
   },
   removeItem: (name) => {
@@ -440,7 +515,13 @@ function partializeUserPreferences(state: UserPreferencesState): PersistedUserPr
     brokerId: state.brokerId,
     brokerServerUrl: state.brokerServerUrl,
     brokerLogoUrl: state.brokerLogoUrl,
-    accountDetails: state.accountDetails,
+    accountDetails: state.accountDetails
+      ? {
+          id: state.accountDetails.id,
+          name: state.accountDetails.name,
+          server: state.accountDetails.server,
+        }
+      : null,
     chartColorScheme: state.chartColorScheme,
     chartColors: state.chartColors,
     chartDisplay: state.chartDisplay,
@@ -652,9 +733,13 @@ export const useUserPreferences = create<UserPreferencesState>()(
       setHistoryRange: (range) => set({ historyRange: range }),
       setHistoryDateRange: (fromMs, toMs) => set({ historyFromMs: fromMs, historyToMs: toMs }),
       setIsDemoAccount: (isDemo) => set({ isDemoAccount: isDemo }),
-      setBrokerId: (id) => set({ brokerId: id }),
+      setBrokerId: (id) =>
+        set((state) => state.isLoggedIn ? state : { brokerId: id }),
       setBrokerConnection: (brokerId, serverUrl = '', logoUrl = '') =>
         set((state) => {
+          if (state.isLoggedIn) {
+            return state;
+          }
           const sameBroker =
             normalizeBrokerConnectionId(state.brokerId) === normalizeBrokerConnectionId(brokerId);
           return {

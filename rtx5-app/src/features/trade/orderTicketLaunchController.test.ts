@@ -20,7 +20,7 @@ test('order-ticket launch controller prepares, reveals, and hides synchronously'
   visualEvents.length = 0;
 
   controller.prepare('XAUUSDm', 'chart');
-  assert.equal(controller.getSnapshot().symbol, 'XAUUSD');
+  assert.equal(controller.getSnapshot().symbol, 'XAUUSDM');
   assert.equal(controller.getSnapshot().visible, false);
   assert.equal(controller.getSnapshot().origin, 'chart');
 
@@ -35,8 +35,8 @@ test('order-ticket launch controller prepares, reveals, and hides synchronously'
   assert.equal(controller.hide(revision), true);
   assert.deepEqual(visualEvents, [true, false]);
   assert.equal(controller.getSnapshot().visible, false);
-  assert.ok(snapshotEvents.includes('true:XAUUSD:quotes:false'));
-  assert.ok(snapshotEvents.includes('true:XAUUSD:quotes:true'));
+  assert.ok(snapshotEvents.includes('true:XAUUSDM:quotes:false'));
+  assert.ok(snapshotEvents.includes('true:XAUUSDM:quotes:true'));
 
   unregisterVisual();
   unsubscribe();

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import test from 'node:test';
 
 import {
@@ -8,6 +10,10 @@ import {
 } from '../support/chartSourceTestUtils';
 
 const source = readChartScreenSource();
+const quoteFallbackSource = readFileSync(
+  resolve(process.cwd(), 'src/features/chart/components/ChartTradeButtonsFeature/quoteFallback.ts'),
+  'utf8',
+);
 
 test('timeframe switch resets time range and commits only the selected timeframe', () => {
   assertSourceContains(
@@ -121,7 +127,7 @@ test('symbol-specific drawings use a normalized drawing bucket', () => {
   );
 });
 
-test('symbol change recalculates decimals and quote fallback from backend metadata without synthetic spreads', () => {
+test('symbol change recalculates decimals and candle close cannot become a trade-button quote', () => {
   const displayDecimalsStart = source.indexOf('const rawDisplayDecimals = useMemo');
   const displayDecimalsEnd = source.indexOf('const sanitizedCandles', displayDecimalsStart);
   assert.notEqual(displayDecimalsStart, -1);
@@ -139,9 +145,14 @@ test('symbol change recalculates decimals and quote fallback from backend metada
     'display decimals must not use frontend symbol-family precision guesses',
   );
   assertSourceContains(
-    source,
-    /const \{ bid: chartBid, ask: chartAsk \} = useMemo\([\s\S]*resolveChartTradeButtonQuote\(\{[\s\S]*fallbackBid: latestChartClose,[\s\S]*fallbackAsk: latestChartClose/,
-    'chart quote fallback must come from the latest backend chart price when live bid/ask is unavailable',
+    quoteFallbackSource,
+    /bid: toPositiveFiniteNumber\(liveBid\) \?\? 0,[\s\S]*ask: toPositiveFiniteNumber\(liveAsk\) \?\? 0/,
+    'trade-button quote resolution must use only live bid and ask',
+  );
+  assertSourceOmits(
+    quoteFallbackSource,
+    /toPositiveFiniteNumber\(_?fallback(?:Bid|Ask)\)/,
+    'candle/chart fallback values must never become executable quote prices',
   );
   assertSourceOmits(
     source,

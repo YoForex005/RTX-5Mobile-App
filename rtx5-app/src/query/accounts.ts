@@ -4,6 +4,11 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { getAccounts, getAccountById, TradingAccount, AccountsApiError } from '../api/accounts';
+import {
+  getSessionQueryCacheNamespace,
+  runSessionBoundQuery,
+  useActiveBrokerQuerySession,
+} from './authenticatedQueryScope';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TanStack Query hooks for Accounts API
@@ -20,6 +25,14 @@ import { getAccounts, getAccountById, TradingAccount, AccountsApiError } from '.
 
 export const ACCOUNTS_LIST_KEY = 'accountsList';
 export const ACCOUNT_DETAIL_KEY = 'accountDetail';
+
+export const getAccountsListQueryKey = (cacheNamespace: string) =>
+  [ACCOUNTS_LIST_KEY, cacheNamespace] as const;
+
+export const getAccountDetailQueryKey = (
+  cacheNamespace: string,
+  login?: number,
+) => [ACCOUNT_DETAIL_KEY, cacheNamespace, login] as const;
 
 /**
  * Determines whether a failed accounts request should be retried.
@@ -57,10 +70,12 @@ function shouldRetryAccounts(failureCount: number, error: Error): boolean {
  *                  Defaults to true (assumes caller checks auth state).
  */
 export function useAccounts(enabled?: boolean) {
-  const isEnabled = enabled ?? true;
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
+  const isEnabled = Boolean(session) && (enabled ?? true);
   return useQuery<TradingAccount[], Error>({
-    queryKey: [ACCOUNTS_LIST_KEY],
-    queryFn: getAccounts,
+    queryKey: getAccountsListQueryKey(cacheNamespace),
+    queryFn: () => runSessionBoundQuery(cacheNamespace, getAccounts),
     enabled: isEnabled,
     staleTime: 5 * 1000,          // 5 seconds — keep data fresh for account screens
     refetchInterval: isEnabled ? 10 * 1000 : false,  // Refresh every 10 seconds for near-real-time data
@@ -80,10 +95,15 @@ export function useAccounts(enabled?: boolean) {
  * @param enabled - Optional override to control when the query fires.
  */
 export function useAccountDetails(login?: number, enabled?: boolean) {
-  const isEnabled = (enabled ?? true) && !!login;
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
+  const isEnabled = Boolean(session) && (enabled ?? true) && !!login;
   return useQuery<TradingAccount, Error>({
-    queryKey: [ACCOUNT_DETAIL_KEY, login],
-    queryFn: () => getAccountById(login!),
+    queryKey: getAccountDetailQueryKey(cacheNamespace, login),
+    queryFn: () => runSessionBoundQuery(
+      cacheNamespace,
+      () => getAccountById(login!),
+    ),
     enabled: isEnabled,
     staleTime: 15 * 1000,        // 15 seconds — tighter for active account view
     refetchInterval: isEnabled ? 30 * 1000 : false,  // Poll every 30 seconds for near-real-time data

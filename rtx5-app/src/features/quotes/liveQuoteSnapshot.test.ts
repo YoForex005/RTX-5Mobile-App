@@ -3,9 +3,41 @@ import test from 'node:test';
 
 import {
   applyLiveQuoteTickToSnapshot,
+  buildInitialLiveQuoteSnapshot,
   hasDisplayableLiveQuotePrice,
   hasFreshLiveQuote,
 } from './liveQuoteSnapshot';
+
+test('initial snapshot never injects a mock/spec price', () => {
+  assert.equal(buildInitialLiveQuoteSnapshot('EURUSD'), undefined);
+  assert.deepEqual(
+    buildInitialLiveQuoteSnapshot('EURUSD', { bid: 1.1, ask: 1.1002 }),
+    { symbol: 'EURUSD', bid: 1.1, ask: 1.1002, volume: undefined, volumeSource: undefined },
+  );
+});
+
+test('a websocket tick replaces REST non-tradable provenance instead of carrying it forward', () => {
+  const previous = buildInitialLiveQuoteSnapshot('EURUSD', {
+    bid: 1.1,
+    ask: 1.1002,
+    transport: 'rest_snapshot',
+    tradable: false,
+    degraded: true,
+  });
+  const next = applyLiveQuoteTickToSnapshot('EURUSD', previous, {
+    symbol: 'EURUSD',
+    bid: 1.1001,
+    ask: 1.1003,
+    transport: 'websocket',
+    tradable: true,
+    timestamp: 1_777_410_001,
+    receivedAt: 1_777_410_003_000,
+  }, 1);
+
+  assert.equal(next?.transport, 'websocket');
+  assert.equal(next?.tradable, true);
+  assert.equal(next?.degraded, undefined);
+});
 
 test('applyLiveQuoteTickToSnapshot refreshes duplicate backend snapshots', () => {
   const first = applyLiveQuoteTickToSnapshot(
@@ -65,7 +97,7 @@ test('applyLiveQuoteTickToSnapshot tracks previous bid ask on real price movemen
     'GBPUSD.c',
     undefined,
     {
-      symbol: 'GBPUSD',
+      symbol: 'GBPUSD.c',
       bid: 1.35155,
       ask: 1.35193,
       timestamp: 1777409999,
@@ -77,7 +109,7 @@ test('applyLiveQuoteTickToSnapshot tracks previous bid ask on real price movemen
     'GBPUSD.c',
     first,
     {
-      symbol: 'GBPUSD',
+      symbol: 'GBPUSD.c',
       bid: 1.3517,
       ask: 1.352,
       timestamp: 1777410001,
@@ -87,10 +119,24 @@ test('applyLiveQuoteTickToSnapshot tracks previous bid ask on real price movemen
   );
 
   assert.ok(moved);
-  assert.equal(moved.symbol, 'GBPUSD');
+  assert.equal(moved.symbol, 'GBPUSD.C');
   assert.equal(moved.prevBid, 1.35155);
   assert.equal(moved.prevAsk, 1.35193);
   assert.equal(moved.lastPriceChangedAt, 1777410003000);
+
+  const differentBrokerInstrument = applyLiveQuoteTickToSnapshot(
+    'GBPUSD.c',
+    moved,
+    {
+      symbol: 'GBPUSD',
+      bid: 1.36,
+      ask: 1.3602,
+      timestamp: 1777410002,
+      receivedAt: 1777410004000,
+    },
+    3,
+  );
+  assert.equal(differentBrokerInstrument, moved);
 });
 
 test('applyLiveQuoteTickToSnapshot derives spread from displayed bid ask instead of feed spread', () => {

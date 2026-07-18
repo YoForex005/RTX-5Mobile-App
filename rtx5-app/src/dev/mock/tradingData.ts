@@ -12,8 +12,13 @@ export type QuoteItem = {
   lastPriceChangedAt?: number;
   source?: string;
   authority?: string;
+  transport?: 'websocket' | 'rest_snapshot';
   stale?: boolean;
   tradable?: boolean;
+  degraded?: boolean;
+  degradationReason?: 'missing_ask';
+  sequence?: string | number;
+  tickId?: string;
   ageMs?: number;
   ageSec?: number;
   prevBid?: number;

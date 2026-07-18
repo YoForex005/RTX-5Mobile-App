@@ -105,7 +105,7 @@ test('normalizeInstrumentMetaPayload maps specification screen broker aliases', 
   assert.equal(meta.chartMode, 'By Bid');
 });
 
-test('instrument catalog payload primes cached backend digits by exact and normalized symbol', () => {
+test('instrument catalog payload primes metadata only for the exact broker instrument', () => {
   primeInstrumentMetaCacheFromCatalogPayload({
     instruments: [
       { symbol: 'BTCUSDm', digits: 2 },
@@ -113,10 +113,11 @@ test('instrument catalog payload primes cached backend digits by exact and norma
   });
 
   assert.equal(getCachedInstrumentMeta('BTCUSDm')?.digits, 2);
-  assert.equal(getCachedInstrumentMeta('BTCUSD')?.digits, 2);
+  assert.equal(getCachedInstrumentMeta('btcusdm')?.digits, 2);
+  assert.equal(getCachedInstrumentMeta('BTCUSD'), undefined);
 });
 
-test('instrument catalog lookup resolves exact and normalized symbol matches', () => {
+test('instrument catalog lookup resolves exact identity keys without suffix aliasing', () => {
   const payload = {
     data: {
       instruments: [
@@ -126,7 +127,8 @@ test('instrument catalog lookup resolves exact and normalized symbol matches', (
     },
   };
 
-  assert.equal(findInstrumentMetaInCatalogPayload(payload, 'BTCUSD')?.symbol, 'BTCUSDm');
+  assert.equal(findInstrumentMetaInCatalogPayload(payload, 'BTCUSD'), undefined);
+  assert.equal(findInstrumentMetaInCatalogPayload(payload, 'btcusdm')?.symbol, 'BTCUSDm');
   assert.equal(findInstrumentMetaInCatalogPayload(payload, 'ETHUSDm')?.minVolume, 0.05);
   assert.equal(findInstrumentMetaInCatalogPayload(payload, 'XAUUSD'), undefined);
 });

@@ -12,6 +12,26 @@
 import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { ordersApi, type PlaceOrderPayload, type PlaceOrderResponse } from '../api/orders';
+import { StaleBrokerSessionError } from '../api/brokerApi';
+import { redactDiagnosticValue } from '../utils/securityRedaction';
+import {
+  getSessionQueryCacheNamespace,
+  invalidateSessionQueryRoots,
+  isSessionQueryCacheNamespaceCurrent,
+  runSessionBoundQuery,
+  useActiveBrokerQuerySession,
+} from './authenticatedQueryScope';
+
+export const ORDERS_BY_LOGIN_KEY = 'ordersByLogin';
+export const ACCOUNT_ORDERS_KEY = 'accountOrders';
+
+export const getOrdersByLoginQueryKey = (
+  cacheNamespace: string,
+  login?: number,
+) => [ORDERS_BY_LOGIN_KEY, cacheNamespace, login] as const;
+
+export const getAccountOrdersQueryKey = (cacheNamespace: string) =>
+  [ACCOUNT_ORDERS_KEY, cacheNamespace] as const;
 
 type PollingQueryOptions = {
   enabled?: boolean;
@@ -42,10 +62,15 @@ export function useOrdersByLoginQuery(
   login: number | undefined,
   options: PollingQueryOptions = {},
 ) {
-  const enabled = !!login && (options.enabled ?? true);
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
+  const enabled = Boolean(session) && !!login && (options.enabled ?? true);
   return useQuery({
-    queryKey: ['ordersByLogin', login],
-    queryFn: () => ordersApi.getOrdersByLogin(login!),
+    queryKey: getOrdersByLoginQueryKey(cacheNamespace, login),
+    queryFn: () => runSessionBoundQuery(
+      cacheNamespace,
+      () => ordersApi.getOrdersByLogin(login!),
+    ),
     enabled,
     refetchInterval: resolvePollingRefetchInterval(enabled, 10_000, options.refetchInterval),
     refetchOnMount: options.refetchOnMount,
@@ -64,10 +89,15 @@ export function useOrdersByLoginQuery(
  * Polls every 10 seconds (orders change less frequently than positions/deals).
  */
 export function useAccountOrdersQuery(options: PollingQueryOptions = {}) {
-  const enabled = options.enabled ?? true;
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
+  const enabled = Boolean(session) && (options.enabled ?? true);
   return useQuery({
-    queryKey: ['accountOrders'],
-    queryFn: () => ordersApi.getAccountOrders(),
+    queryKey: getAccountOrdersQueryKey(cacheNamespace),
+    queryFn: () => runSessionBoundQuery(
+      cacheNamespace,
+      () => ordersApi.getAccountOrders(),
+    ),
     enabled,
     refetchInterval: resolvePollingRefetchInterval(enabled, 10_000, options.refetchInterval),
   });
@@ -81,12 +111,31 @@ const TRADE_POST_SUCCESS_REFRESH_DELAY_MS = 250;
 
 const logOrderDiagnostic = (...args: Parameters<typeof console.log>) => {
   if (ORDER_DIAGNOSTICS_ENABLED) {
-    console.log(...args);
+    console.log(...args.map(redactDiagnosticValue));
   }
 };
 
 const scheduleTradePostSuccessRefresh = (work: () => void) => {
   setTimeout(work, TRADE_POST_SUCCESS_REFRESH_DELAY_MS);
+};
+
+const firstPositiveFiniteNumber = (...values: unknown[]): number | null => {
+  for (const value of values) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return null;
+};
+
+const getConfirmedMarketOrderValues = (data: PlaceOrderResponse) => {
+  const ticket = firstPositiveFiniteNumber(
+    data.position_ticket,
+    data.order_ticket,
+    data.ticket,
+  );
+  const executionPrice = firstPositiveFiniteNumber(data.price_open, data.price);
+  const currentPrice = firstPositiveFiniteNumber(data.price_current) ?? executionPrice;
+  return { ticket, executionPrice, currentPrice } as const;
 };
 
 const logPlaceOrderPayload = (payload: PlaceOrderPayload) => {
@@ -107,7 +156,11 @@ const handlePlaceOrderSuccess = (
   queryClient: QueryClient,
   data: PlaceOrderResponse,
   variables: PlaceOrderPayload,
+  cacheNamespace: string,
 ) => {
+  if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) {
+    throw new StaleBrokerSessionError();
+  }
   logOrderDiagnostic('[TRADE-RESPONSE]', {
     requestSide: variables.side,
     result: data?.status ?? 'success',
@@ -117,16 +170,20 @@ const handlePlaceOrderSuccess = (
   // â”€â”€ Optimistic UI Update â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Instantly inject the trade into the Zustand store so the Chart Screen
   // renders the new position line without waiting for the next data poll.
-  const positionTicket = data.position_ticket ?? data.order_ticket ?? data.ticket;
-  if (positionTicket) {
+  const {
+    ticket: positionTicket,
+    executionPrice,
+    currentPrice,
+  } = getConfirmedMarketOrderValues(data);
+  if (positionTicket !== null && executionPrice !== null && currentPrice !== null) {
     const state = usePositionsState.getState();
     const newPos = {
       id: String(positionTicket),
       symbol: variables.symbol,
       side: variables.side,
       volume: variables.volume,
-      openPrice: data.price || 0,
-      currentPrice: data.price || 0,
+      openPrice: executionPrice,
+      currentPrice,
       pnl: 0,
       swap: 0,
       openTime: new Date().toISOString(),
@@ -139,13 +196,17 @@ const handlePlaceOrderSuccess = (
   }
 
   scheduleTradePostSuccessRefresh(() => {
+    if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) return;
+
     // Fire a background sync loop to eventually replace the optimistic record
     // with the fully-hydrated backend record after the chart has painted.
     const mt5Login = resolveTradingLoginString();
     if (mt5Login && positionTicket) {
       const syncLoop = async () => {
         for (let i = 0; i < 5; i++) {
+          if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) return;
           await usePositionsState.getState().refreshPositions(mt5Login);
+          if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) return;
           const exists = usePositionsState.getState().positions.some(p => String(p.id) === String(positionTicket));
           if (exists) break;
           await new Promise(r => setTimeout(r, 1000));
@@ -155,9 +216,11 @@ const handlePlaceOrderSuccess = (
     }
 
     // Invalidate queries that should update after a new trade.
-    queryClient.invalidateQueries({ queryKey: ['positions'] });
-    queryClient.invalidateQueries({ queryKey: ['accountSummary'] });
-    queryClient.invalidateQueries({ queryKey: ['transactions'] });
+    void invalidateSessionQueryRoots(queryClient, cacheNamespace, [
+      'positions',
+      'accountSummary',
+      'transactions',
+    ]);
   });
 };
 
@@ -169,10 +232,14 @@ type PlaceOrderExecutorOptions = {
 const submitPlaceOrderWithCacheUpdate = async (
   queryClient: QueryClient,
   payload: PlaceOrderPayload,
+  cacheNamespace: string,
 ) => {
   logPlaceOrderPayload(payload);
-  const data = await ordersApi.placeMarketOrder(payload);
-  handlePlaceOrderSuccess(queryClient, data, payload);
+  const data = await runSessionBoundQuery(
+    cacheNamespace,
+    () => ordersApi.placeMarketOrder(payload),
+  );
+  handlePlaceOrderSuccess(queryClient, data, payload, cacheNamespace);
   return data;
 };
 
@@ -189,13 +256,19 @@ const submitPlaceOrderWithCacheUpdate = async (
  */
 export const usePlaceOrderMutation = () => {
   const queryClient = useQueryClient();
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
 
   return useMutation({
     mutationFn: (payload: PlaceOrderPayload) => {
       logPlaceOrderPayload(payload);
-      return ordersApi.placeMarketOrder(payload);
+      return runSessionBoundQuery(
+        cacheNamespace,
+        () => ordersApi.placeMarketOrder(payload),
+      );
     },
     onSuccess: (data, variables) => {
+      if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) return;
       logOrderDiagnostic('[TRADE-RESPONSE]', {
         requestSide: variables.side,
         result: data?.status ?? 'success',
@@ -205,16 +278,20 @@ export const usePlaceOrderMutation = () => {
       // ── Optimistic UI Update ───────────────────────────
       // Instantly inject the trade into the Zustand store so the Chart Screen
       // renders the new position line without waiting for the next data poll.
-      const positionTicket = data.position_ticket ?? data.order_ticket ?? data.ticket;
-      if (positionTicket) {
+      const {
+        ticket: positionTicket,
+        executionPrice,
+        currentPrice,
+      } = getConfirmedMarketOrderValues(data);
+      if (positionTicket !== null && executionPrice !== null && currentPrice !== null) {
         const state = usePositionsState.getState();
         const newPos = {
           id: String(positionTicket),
           symbol: variables.symbol,
           side: variables.side,
           volume: variables.volume,
-          openPrice: data.price || 0,
-          currentPrice: data.price || 0,
+          openPrice: executionPrice,
+          currentPrice,
           pnl: 0,
           swap: 0,
           openTime: new Date().toISOString(),
@@ -227,13 +304,17 @@ export const usePlaceOrderMutation = () => {
       }
 
       scheduleTradePostSuccessRefresh(() => {
+        if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) return;
+
         // Fire a background sync loop to eventually replace the optimistic record
         // with the fully-hydrated backend record after the chart has painted.
         const mt5Login = resolveTradingLoginString();
         if (mt5Login && positionTicket) {
           const syncLoop = async () => {
             for (let i = 0; i < 5; i++) {
+              if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) return;
               await usePositionsState.getState().refreshPositions(mt5Login);
+              if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) return;
               const exists = usePositionsState.getState().positions.some(p => String(p.id) === String(positionTicket));
               if (exists) break;
               await new Promise(r => setTimeout(r, 1000));
@@ -243,9 +324,11 @@ export const usePlaceOrderMutation = () => {
         }
 
         // Invalidate queries that should update after a new trade.
-        queryClient.invalidateQueries({ queryKey: ['positions'] });
-        queryClient.invalidateQueries({ queryKey: ['accountSummary'] });
-        queryClient.invalidateQueries({ queryKey: ['transactions'] });
+        void invalidateSessionQueryRoots(queryClient, cacheNamespace, [
+          'positions',
+          'accountSummary',
+          'transactions',
+        ]);
       });
     },
   });
@@ -253,14 +336,18 @@ export const usePlaceOrderMutation = () => {
 
 export const usePlaceOrderExecutor = () => {
   const queryClient = useQueryClient();
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
 
   return useCallback((payload: PlaceOrderPayload, options: PlaceOrderExecutorOptions = {}) => {
-    void submitPlaceOrderWithCacheUpdate(queryClient, payload)
+    void submitPlaceOrderWithCacheUpdate(queryClient, payload, cacheNamespace)
       .then((data) => {
+        if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) return;
         options.onSuccess?.(data);
       })
       .catch((error) => {
+        if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) return;
         options.onError?.(error);
       });
-  }, [queryClient]);
+  }, [cacheNamespace, queryClient]);
 };

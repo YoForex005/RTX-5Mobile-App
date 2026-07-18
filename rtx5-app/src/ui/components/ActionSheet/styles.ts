@@ -2,6 +2,7 @@ import { StyleSheet } from 'react-native';
 import type { ThemeColors } from '../../theme/useTheme';
 
 const TIMEFRAME_ACTION_SHEET_DARK_BACKGROUND = '#1E1E1E';
+export const ACTION_SHEET_SUBTITLE_ROW_MIN_HEIGHT = 60;
 
 export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
@@ -10,7 +11,8 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       width: '100%',
       zIndex: 9999,
       elevation: 9999,
-      backgroundColor: isDark ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.3)',
+      // Soft dim only — a heavy black veil read as a "shadow flash" on open.
+      backgroundColor: isDark ? 'rgba(0,0,0,0.28)' : 'rgba(0,0,0,0.12)',
       justifyContent: 'flex-end',
       overflow: 'hidden',
     },
@@ -27,7 +29,8 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
     backdropMt5Plain: {
       zIndex: 0,
       elevation: 0,
-      backgroundColor: isDark ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.3)',
+      // Match overlay: light scrim, not a black full-screen shadow.
+      backgroundColor: isDark ? 'rgba(0,0,0,0.28)' : 'rgba(0,0,0,0.12)',
     },
     sheetHost: {
       flex: 1,
@@ -35,7 +38,9 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       justifyContent: 'flex-end',
       position: 'relative',
       zIndex: 1,
-      elevation: 1,
+      // No elevation here — Android elevation painted an extra drop-shadow
+      // behind the sheet that looked like a second backdrop layer.
+      elevation: 0,
     },
     sheetContainer: {
       width: '100%',
@@ -49,6 +54,10 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       borderColor: T.border,
       backgroundColor: T.glass2,
       overflow: 'hidden',
+      elevation: 0,
+      shadowOpacity: 0,
+      shadowRadius: 0,
+      shadowOffset: { width: 0, height: 0 },
     },
     sheetMt5Plain: {
       borderTopLeftRadius: 0,
@@ -56,6 +65,8 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       borderTopWidth: 0,
       borderColor: 'transparent',
       backgroundColor: isDark ? T.glass2 : '#FFFFFF',
+      elevation: 0,
+      shadowOpacity: 0,
     },
     sheetTimeframeGrid: {
       backgroundColor: isDark ? TIMEFRAME_ACTION_SHEET_DARK_BACKGROUND : '#FFFFFF',
@@ -178,7 +189,7 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       paddingHorizontal: 16,
     },
     actionWithSubtitle: {
-      minHeight: 60,
+      minHeight: ACTION_SHEET_SUBTITLE_ROW_MIN_HEIGHT,
       paddingVertical: 8,
     },
     actionLeft: {

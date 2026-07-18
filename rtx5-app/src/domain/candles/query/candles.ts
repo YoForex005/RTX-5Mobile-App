@@ -3,7 +3,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { getCandleHistory } from '../api/candles';
+import { commitCandleHistoryResponse, getCandleHistory } from '../api/candles';
 import { mergeHistoryIntoCandleCache } from '../state/candleCache';
 import {
   CANDLE_HISTORY_QUERY_GC_MS,
@@ -12,6 +12,10 @@ import {
   normalizeCandleHistoryTimeframeStrict,
   normalizeSymbol,
 } from '../core/candles';
+import {
+  getSessionQueryCacheNamespace,
+  useActiveBrokerQuerySession,
+} from '../../../query/authenticatedQueryScope';
 
 // ─── Query Keys ─────────────────────────────────────────────────────────────
 
@@ -20,11 +24,12 @@ import {
  * Used for invalidating or prefetching queries.
  */
 export const candleKeys = {
-  all: ['candles'] as const,
-  history: (symbol: string, timeframe: string) =>
-    [...candleKeys.all, 'history', symbol, timeframe] as const,
-  latestDaily: (symbol: string) =>
-    [...candleKeys.all, 'latestDaily', symbol] as const,
+  root: ['candles'] as const,
+  all: (cacheNamespace: string) => [...candleKeys.root, cacheNamespace] as const,
+  history: (cacheNamespace: string, symbol: string, timeframe: string) =>
+    [...candleKeys.all(cacheNamespace), 'history', symbol, timeframe] as const,
+  latestDaily: (cacheNamespace: string, symbol: string) =>
+    [...candleKeys.all(cacheNamespace), 'latestDaily', symbol] as const,
 };
 
 // ─── Candle History Query Hook ──────────────────────────────────────────────
@@ -35,20 +40,31 @@ export const candleKeys = {
  * dedicated candle WebSocket layer.
  */
 export function useCandleHistory(symbol: string, timeframe: string) {
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
   const normalizedSymbol = normalizeSymbol(symbol);
   const normalizedTimeframe = normalizeCandleHistoryTimeframeStrict(timeframe);
 
   return useQuery({
-    queryKey: candleKeys.history(normalizedSymbol, normalizedTimeframe ?? ''),
+    queryKey: candleKeys.history(cacheNamespace, normalizedSymbol, normalizedTimeframe ?? ''),
     queryFn: async () => {
       if (!normalizedTimeframe) {
         return [];
       }
-      const res = await getCandleHistory(normalizedSymbol, normalizedTimeframe, DEFAULT_CANDLE_HISTORY_LIMIT);
-      mergeHistoryIntoCandleCache(normalizedSymbol, normalizedTimeframe, res.candles);
-      return res.candles;
+      const res = await getCandleHistory(
+        normalizedSymbol,
+        normalizedTimeframe,
+        DEFAULT_CANDLE_HISTORY_LIMIT,
+        { cacheNamespace },
+      );
+      return commitCandleHistoryResponse(res, (current) => {
+        mergeHistoryIntoCandleCache(normalizedSymbol, normalizedTimeframe, current.candles, {
+          provenance: current.provenance,
+        });
+        return current.candles;
+      });
     },
-    enabled: !!normalizedSymbol && !!normalizedTimeframe,
+    enabled: Boolean(session) && !!normalizedSymbol && !!normalizedTimeframe,
     staleTime: 30_000,       // 30s — candles update via WS after initial fetch
     gcTime: CANDLE_HISTORY_QUERY_GC_MS,
     retry: 2,
@@ -62,19 +78,25 @@ export function useCandleHistory(symbol: string, timeframe: string) {
  * (e.g., watchlists or account summaries) without subscribing to a full streaming chart.
  */
 export function useLatestDailyCandle(symbol: string, enabled = true) {
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
   const normalizedSymbol = normalizeSymbol(symbol);
 
   return useQuery({
-    queryKey: candleKeys.latestDaily(normalizedSymbol),
+    queryKey: candleKeys.latestDaily(cacheNamespace, normalizedSymbol),
     queryFn: async () => {
       const res = await getCandleHistory(
         normalizedSymbol,
         'D1',
         LATEST_DAILY_CANDLE_HISTORY_LIMIT,
+        { cacheNamespace },
       );
-      return res.currentCandle ?? res.candles[res.candles.length - 1] ?? null;
+      return commitCandleHistoryResponse(
+        res,
+        (current) => current.currentCandle ?? current.candles[current.candles.length - 1] ?? null,
+      );
     },
-    enabled: enabled && !!normalizedSymbol,
+    enabled: enabled && Boolean(session) && !!normalizedSymbol,
     staleTime: 30_000,
     gcTime: CANDLE_HISTORY_QUERY_GC_MS,
     retry: 2,

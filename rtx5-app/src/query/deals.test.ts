@@ -26,17 +26,18 @@ function makeDeal(overrides: Partial<Deal>): Deal {
   };
 }
 
-test('account deals query key is scoped by active login', () => {
-  assert.deepEqual(buildAccountDealsQueryKey(200082, 1_700_000_000, 1_700_086_400), [
+test('account deals query key is scoped by active epoch and login', () => {
+  assert.deepEqual(buildAccountDealsQueryKey('broker-a:200082:7', 200082, 1_700_000_000, 1_700_086_400), [
     'accountDeals',
+    'broker-a:200082:7',
     200082,
     1_700_000_000,
     1_700_086_400,
   ]);
 
   assert.notDeepEqual(
-    buildAccountDealsQueryKey(200082, 1_700_000_000, 1_700_086_400),
-    buildAccountDealsQueryKey(300082, 1_700_000_000, 1_700_086_400),
+    buildAccountDealsQueryKey('broker-a:200082:7', 200082, 1_700_000_000, 1_700_086_400),
+    buildAccountDealsQueryKey('broker-a:300082:8', 300082, 1_700_000_000, 1_700_086_400),
   );
 });
 

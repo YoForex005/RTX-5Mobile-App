@@ -1,14 +1,24 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
 import { apiClient } from '../../api/apiClient';
-import { isBrokerServiceBaseUrl } from '../../api/brokerRouting';
 import { normalizeQuoteTickPayload } from '../../api/ws/quoteTickNormalizer';
 import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket';
 import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
 import { normalizeQuoteVolume } from '../../utils/quoteVolume';
 import { useTradingState } from '../../state/tradingState';
-import { useUserPreferences } from '../../state/userPreferences';
+import {
+  captureActiveBrokerSession,
+  getActiveBrokerSession,
+  getActiveBrokerSessionIdentity,
+  isActiveBrokerSessionCurrent,
+  subscribeActiveBrokerSession,
+} from '../../state/activeBrokerSession';
+import { redactDiagnosticValue } from '../../utils/securityRedaction';
+import {
+  quoteLatencyMonotonicNow,
+  recordQuoteCacheCommit,
+  resetQuoteLatencyMetrics,
+} from '../../market/quoteLatencyMetrics';
+import { subscribeQuoteSnapshotReconcile } from '../../market/quoteSnapshotReconcileRuntime';
 import {
   applyLiveQuoteTickToSnapshot,
   buildInitialLiveQuoteSnapshot,
@@ -22,67 +32,40 @@ type SnapshotListener = () => void;
 const snapshotsBySymbol = new Map<string, LiveQuoteSnapshot | undefined>();
 const listenersBySymbol = new Map<string, Set<SnapshotListener>>();
 const pendingNotifySymbols = new Set<string>();
-// Symbols we've already received at least one REST /quotes response for. Lets a
-// missing volume force the initial fetch on app open without polling forever for
-// symbols the backend simply never reports volume on.
-const restPrimedSymbols = new Set<string>();
 let updateSeq = 0;
+let quoteRuntimeGeneration = 0;
 let notifyAnimationFrame: number | null = null;
 let notifyTimer: ReturnType<typeof setTimeout> | null = null;
 let snapshotNotificationPauseDepth = 0;
+const snapshotPauseTimers = new Set<ReturnType<typeof setTimeout>>();
 const WATCHLIST_QUOTE_NOTIFY_INTERVAL_MS = 16;
-const QUOTE_REST_SNAPSHOT_POLL_MS = 500;
 const QUOTE_REST_SNAPSHOT_STALE_MS = 2_000;
 const QUOTE_SNAPSHOT_NOTIFICATION_PAUSE_MS = 2_500;
 
-// Volume is REST-only (WS ticks omit it) and the quotes store has no `persist`,
-// so on cold open "Vol: --" lingered for ~1s+ until the slow /quotes response.
-// We remember the last backend volume per symbol on disk and seed it as a
-// display-only fallback (snapshot.cachedVolume) so a value paints instantly; the
-// live REST volume overwrites it within the first poll. Kept out of
-// volume/volumeSource so it never suppresses the volume refetch.
-const QUOTE_VOLUME_CACHE_STORAGE_KEY = 'rtx5-quote-volume-cache-v1';
-const QUOTE_VOLUME_CACHE_PERSIST_DEBOUNCE_MS = 1_500;
-const cachedVolumeBySymbol = new Map<string, number>();
-let volumeCachePersistTimer: ReturnType<typeof setTimeout> | null = null;
-let volumeCacheDirty = false;
+// Quote snapshots are memory-only and scoped by the immutable active namespace.
+// Persisting a symbol-only volume cache could leak broker A display data into
+// broker B, so the bounded REST snapshot repair repopulates volume per session.
+const getQuoteCacheNamespace = (): string =>
+  captureActiveBrokerSession()?.session.cacheNamespace ?? '';
 
-const schedulePersistVolumeCache = (): void => {
-  if (volumeCachePersistTimer) {
-    return;
-  }
-  volumeCachePersistTimer = setTimeout(() => {
-    volumeCachePersistTimer = null;
-    if (!volumeCacheDirty) {
-      return;
-    }
-    volumeCacheDirty = false;
-    const serialized = JSON.stringify(Object.fromEntries(cachedVolumeBySymbol));
-    void AsyncStorage.setItem(QUOTE_VOLUME_CACHE_STORAGE_KEY, serialized).catch(() => {});
-  }, QUOTE_VOLUME_CACHE_PERSIST_DEBOUNCE_MS);
-};
+const subscribeQuoteCacheNamespace = (listener: () => void): (() => void) =>
+  subscribeActiveBrokerSession(() => listener());
 
-const rememberBackendVolume = (symbolKey: string, volume: number | undefined): void => {
-  if (!symbolKey || volume === undefined || !Number.isFinite(volume)) {
-    return;
-  }
-  if (cachedVolumeBySymbol.get(symbolKey) === volume) {
-    return;
-  }
-  cachedVolumeBySymbol.set(symbolKey, volume);
-  volumeCacheDirty = true;
-  schedulePersistVolumeCache();
-};
+const getQuoteCacheNamespaceSnapshot = (): string =>
+  getActiveBrokerSession()?.cacheNamespace ?? '';
 
-const seedSnapshotCachedVolume = (
-  snapshot: LiveQuoteSnapshot | undefined,
-  symbolKey: string,
-): LiveQuoteSnapshot | undefined => {
-  if (!snapshot || snapshot.cachedVolume !== undefined) {
-    return snapshot;
-  }
-  const cached = cachedVolumeBySymbol.get(symbolKey);
-  return cached === undefined ? snapshot : { ...snapshot, cachedVolume: cached };
+const getServerQuoteCacheNamespaceSnapshot = (): string => '';
+
+const useActiveQuoteCacheNamespace = (): string =>
+  useSyncExternalStore(
+    subscribeQuoteCacheNamespace,
+    getQuoteCacheNamespaceSnapshot,
+    getServerQuoteCacheNamespaceSnapshot,
+  );
+
+const scopeQuoteSnapshotKey = (symbolKey: string): string => {
+  const namespace = getQuoteCacheNamespace();
+  return namespace && symbolKey ? `${namespace}|${symbolKey}` : '';
 };
 
 const getTickSymbolKey = (tick: QuoteTickEvent): string =>
@@ -143,6 +126,7 @@ export const pauseLiveQuoteSnapshotNotifications = (
     released = true;
     if (timeoutId) {
       clearTimeout(timeoutId);
+      snapshotPauseTimers.delete(timeoutId);
       timeoutId = null;
     }
     snapshotNotificationPauseDepth = Math.max(0, snapshotNotificationPauseDepth - 1);
@@ -152,6 +136,7 @@ export const pauseLiveQuoteSnapshotNotifications = (
   };
 
   timeoutId = setTimeout(release, Math.max(0, durationMs));
+  snapshotPauseTimers.add(timeoutId);
   return release;
 };
 
@@ -195,20 +180,23 @@ const getStateQuote = (symbol: string): LiveQuoteSnapshot | undefined => {
 
 const ensureSnapshot = (symbol: string): LiveQuoteSnapshot | undefined => {
   const normalizedSymbol = normalizeQuoteSymbolKey(symbol);
-  if (!normalizedSymbol) return undefined;
+  const scopedKey = scopeQuoteSnapshotKey(normalizedSymbol);
+  if (!normalizedSymbol || !scopedKey) return undefined;
 
-  if (!snapshotsBySymbol.has(normalizedSymbol)) {
+  if (!snapshotsBySymbol.has(scopedKey)) {
     snapshotsBySymbol.set(
-      normalizedSymbol,
-      seedSnapshotCachedVolume(getStateQuote(normalizedSymbol), normalizedSymbol),
+      scopedKey,
+      getStateQuote(normalizedSymbol),
     );
   }
 
-  return snapshotsBySymbol.get(normalizedSymbol);
+  return snapshotsBySymbol.get(scopedKey);
 };
 
 const subscribeSnapshot = (symbol: string, listener: SnapshotListener): (() => void) => {
-  const keys = getSnapshotKeys(symbol);
+  const keys = getSnapshotKeys(symbol)
+    .map(scopeQuoteSnapshotKey)
+    .filter(Boolean);
   if (keys.length === 0) return () => {};
 
   for (const key of keys) {
@@ -273,12 +261,25 @@ export const getLiveQuoteFreshnessAnchorForSymbols = (symbols: string[]): number
 
 export const ingestLiveQuoteTick = (tick: QuoteTickEvent, notifyImmediately = true): void => {
   const symbol = getTickSymbolKey(tick);
-  if (!symbol) return;
+  const scopedKey = scopeQuoteSnapshotKey(symbol);
+  if (!symbol || !scopedKey) return;
 
   const previous = ensureSnapshot(symbol);
-  const next = applyLiveQuoteTickToSnapshot(symbol, previous, tick, ++updateSeq);
-  snapshotsBySymbol.set(symbol, next);
-  scheduleSymbolNotification(symbol, notifyImmediately);
+  const nextUpdateSeq = ++updateSeq;
+  const next = applyLiveQuoteTickToSnapshot(symbol, previous, tick, nextUpdateSeq);
+  snapshotsBySymbol.set(scopedKey, next);
+  if (tick.transport === 'websocket' && next?.updateSeq === nextUpdateSeq) {
+    recordQuoteCacheCommit({
+      sessionKey: getQuoteCacheNamespace(),
+      updateSeq: nextUpdateSeq,
+      sourceTimestampMs: tick.feedTickAt,
+      receivedTimestampMs: tick.receivedAt,
+      receiptMonotonicTimestampMs: tick.receiptMonotonicAt,
+      cacheTimestampMs: Date.now(),
+      cacheMonotonicTimestampMs: quoteLatencyMonotonicNow(),
+    });
+  }
+  scheduleSymbolNotification(scopedKey, notifyImmediately);
 };
 
 const ingestRestQuoteSnapshot = (requestedSymbol: string, payload: unknown): boolean => {
@@ -313,6 +314,9 @@ const ingestRestQuoteSnapshot = (requestedSymbol: string, payload: unknown): boo
       spread: update.spread,
       volume: update.volume,
       digits: update.digits,
+      transport: 'rest_snapshot',
+      tradable: false,
+      degraded: true,
       feedTickAt: timestamp,
       receivedAt: now,
       timestamp,
@@ -332,11 +336,10 @@ const ingestRestQuoteSnapshot = (requestedSymbol: string, payload: unknown): boo
     ...(update.spread !== undefined ? { spread: update.spread } : {}),
     ...(update.volume !== undefined ? { volume: update.volume, volumeSource: 'backend' as const } : {}),
     ...(update.digits !== undefined ? { digits: update.digits } : {}),
+    transport: 'rest_snapshot',
+    tradable: false,
+    degraded: true,
   });
-  rememberBackendVolume(
-    normalizeQuoteSymbolKey(update.rawSymbol ?? update.symbol),
-    normalizeQuoteVolume(update.volume),
-  );
   return true;
 };
 
@@ -365,6 +368,10 @@ const ingestRestQuoteVolumeOnly = (requestedSymbol: string, payload: unknown): v
   }
 
   const symbolKey = normalizeQuoteSymbolKey(update.rawSymbol ?? update.symbol);
+  const scopedKey = scopeQuoteSnapshotKey(symbolKey);
+  if (!scopedKey) {
+    return;
+  }
   const previous = ensureSnapshot(symbolKey);
   if (!previous) {
     return;
@@ -373,14 +380,13 @@ const ingestRestQuoteVolumeOnly = (requestedSymbol: string, payload: unknown): v
     return;
   }
 
-  snapshotsBySymbol.set(symbolKey, {
+  snapshotsBySymbol.set(scopedKey, {
     ...previous,
     volume,
     volumeSource: 'backend',
     updateSeq: ++updateSeq,
   });
-  rememberBackendVolume(symbolKey, volume);
-  scheduleSymbolNotification(symbolKey);
+  scheduleSymbolNotification(scopedKey);
 
   // Mirror onto an existing tradingState quote so other consumers see volume,
   // but never create a price-less quote from a volume-only update.
@@ -425,26 +431,26 @@ const needsRestQuoteSnapshot = (symbol: string, now = Date.now()): boolean => {
   if (isRestQuotePriceStale(symbol, now)) {
     return true;
   }
-  // Live ticks keep bid/ask fresh but usually carry no volume, and volume comes
-  // only from the REST /quotes snapshot. Keep pulling it until we've seen one
-  // response for this symbol so "Vol: --" fills in promptly on app open instead
-  // of waiting for a live-tick gap to mark the price stale.
-  const key = normalizeQuoteSymbolKey(symbol);
-  return !restPrimedSymbols.has(key) && !hasBackendQuoteVolume(resolveSnapshot(symbol));
+  // A single REST request may backfill display-only volume; it never becomes a
+  // high-frequency live-price loop.
+  return !hasBackendQuoteVolume(resolveSnapshot(symbol));
 };
 
-const fetchRestQuoteSnapshots = async (symbols: string[]): Promise<void> => {
+const fetchRestQuoteSnapshots = async (
+  symbols: string[],
+  requestGeneration = quoteRuntimeGeneration,
+): Promise<void> => {
   if (symbols.length === 0) {
     return;
   }
 
   const requestedKeys = new Set(symbols.flatMap(getSnapshotKeys));
   const symbolsQuery = symbols.map(encodeURIComponent).join(',');
-  const state = useUserPreferences.getState();
-  const isLoggedIn = state.isLoggedIn;
-  if (!isLoggedIn || !isBrokerServiceBaseUrl(state.brokerServerUrl)) {
+  const sessionCapture = captureActiveBrokerSession();
+  if (!sessionCapture) {
     return;
   }
+  const sessionIdentity = getActiveBrokerSessionIdentity(sessionCapture.session);
 
   const response = await apiClient(`/quotes?symbols=${symbolsQuery}`);
   if (!response.ok) {
@@ -452,6 +458,12 @@ const fetchRestQuoteSnapshots = async (symbols: string[]): Promise<void> => {
   }
 
   const payload = await response.json();
+  if (
+    requestGeneration !== quoteRuntimeGeneration ||
+    !isActiveBrokerSessionCurrent(sessionIdentity)
+  ) {
+    return;
+  }
   asQuoteSnapshotArray(payload).forEach((snapshot) => {
     const record = snapshot && typeof snapshot === 'object'
       ? (snapshot as Record<string, unknown>)
@@ -475,24 +487,25 @@ const fetchRestQuoteSnapshots = async (symbols: string[]): Promise<void> => {
 
   // One /quotes response received for the batch — stop letting missing volume
   // force further fetches (price staleness still triggers normal refreshes).
-  for (const key of requestedKeys) {
-    restPrimedSymbols.add(key);
-  }
 };
 
-const useRestQuoteSnapshotFallback = (symbols: string[], active: boolean): void => {
+const useRestQuoteSnapshotRepair = (
+  symbols: string[],
+  active: boolean,
+  cacheNamespace: string,
+): void => {
   const symbolsKey = JSON.stringify(symbols);
 
   useEffect(() => {
-    if (!active || symbols.length === 0) {
+    if (!active || !cacheNamespace || symbols.length === 0) {
       return;
     }
 
     let cancelled = false;
-    let inFlight = false;
+    const requestGeneration = quoteRuntimeGeneration;
 
-    const refreshSnapshots = async () => {
-      if (cancelled || inFlight || areLiveQuoteSnapshotNotificationsPaused()) {
+    const repairSnapshots = async () => {
+      if (cancelled || areLiveQuoteSnapshotNotificationsPaused()) {
         return;
       }
 
@@ -501,31 +514,42 @@ const useRestQuoteSnapshotFallback = (symbols: string[], active: boolean): void 
         return;
       }
 
-      inFlight = true;
       try {
-        await fetchRestQuoteSnapshots(symbolsNeedingFallback);
+        await fetchRestQuoteSnapshots(symbolsNeedingFallback, requestGeneration);
       } catch (error) {
         if (!cancelled) {
-          console.warn('[Quotes REST] Snapshot poll failed', error);
+          console.warn(
+            '[Quotes REST] One-shot snapshot repair failed',
+            redactDiagnosticValue(error),
+          );
         }
-      } finally {
-        inFlight = false;
       }
     };
 
-    void refreshSnapshots();
-    const interval = setInterval(() => {
-      void refreshSnapshots();
-    }, QUOTE_REST_SNAPSHOT_POLL_MS);
+    void repairSnapshots();
+
+    const unsubscribeReconcile = subscribeQuoteSnapshotReconcile((identity) => {
+      const capture = captureActiveBrokerSession();
+      if (
+        cancelled ||
+        !capture ||
+        capture.session.cacheNamespace !== cacheNamespace ||
+        !isActiveBrokerSessionCurrent(identity)
+      ) {
+        return;
+      }
+      void repairSnapshots();
+    });
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      unsubscribeReconcile();
     };
-  }, [active, symbolsKey]);
+  }, [active, cacheNamespace, symbolsKey]);
 };
 
 export function useLiveQuoteSubscription(symbol: string, active: boolean): void {
+  const cacheNamespace = useActiveQuoteCacheNamespace();
   const symbolKeys = useMemo(
     () => getSnapshotKeys(symbol),
     [symbol],
@@ -533,13 +557,15 @@ export function useLiveQuoteSubscription(symbol: string, active: boolean): void 
   const symbolKeysKey = symbolKeys.join('|');
 
   useEffect(() => {
-    if (!active || !symbol || symbolKeys.length === 0) {
+    if (!active || !cacheNamespace || !symbol || symbolKeys.length === 0) {
       return;
     }
 
     symbolKeys.forEach(ensureSnapshot);
-    return quotesWsService.subscribeToSymbol(symbol, ingestLiveQuoteTick);
-  }, [active, symbol, symbolKeysKey]);
+    return quotesWsService.subscribeToSymbol(symbol, (tick) => {
+      ingestLiveQuoteTick({ ...tick, transport: 'websocket' });
+    });
+  }, [active, cacheNamespace, symbol, symbolKeysKey]);
 }
 
 export function useWatchlistLiveQuotes(
@@ -547,6 +573,7 @@ export function useWatchlistLiveQuotes(
   active: boolean,
   options?: { restFallbackActive?: boolean },
 ): string[] {
+  const cacheNamespace = useActiveQuoteCacheNamespace();
   const symbolsKey = JSON.stringify(symbols);
 
   const subscriptionSymbols = useMemo(
@@ -561,7 +588,7 @@ export function useWatchlistLiveQuotes(
   const normalizedSymbolsKey = normalizedSymbols.join('|');
 
   useEffect(() => {
-    if (!active || subscriptionSymbols.length === 0) {
+    if (!active || !cacheNamespace || subscriptionSymbols.length === 0) {
       return;
     }
 
@@ -573,7 +600,7 @@ export function useWatchlistLiveQuotes(
         return;
       }
 
-      ingestLiveQuoteTick(tick, true);
+      ingestLiveQuoteTick({ ...tick, transport: 'websocket' }, true);
     };
 
     const unsubscribers = subscriptionSymbols.map((symbol) =>
@@ -582,36 +609,42 @@ export function useWatchlistLiveQuotes(
     return () => {
       unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
-  }, [active, normalizedSymbolsKey, subscriptionSymbolsKey]);
+  }, [active, cacheNamespace, normalizedSymbolsKey, subscriptionSymbolsKey]);
 
-  useRestQuoteSnapshotFallback(normalizedSymbols, options?.restFallbackActive ?? active);
+  useRestQuoteSnapshotRepair(
+    normalizedSymbols,
+    options?.restFallbackActive ?? active,
+    cacheNamespace,
+  );
 
-  return active ? subscriptionSymbols : [];
+  return active && cacheNamespace ? subscriptionSymbols : [];
 }
 
 export function useLiveQuoteSnapshot(symbol: string, active = true): LiveQuoteSnapshot | undefined {
+  const cacheNamespace = useActiveQuoteCacheNamespace();
   const normalizedSymbol = useMemo(() => normalizeQuoteSymbolKey(symbol), [symbol]);
 
   const subscribe = useCallback(
     (listener: SnapshotListener) => {
-      if (!active) {
+      if (!active || !cacheNamespace) {
         return () => {};
       }
 
       return subscribeSnapshot(normalizedSymbol, listener);
     },
-    [active, normalizedSymbol],
+    [active, cacheNamespace, normalizedSymbol],
   );
 
   const getSnapshot = useCallback(
     () => (normalizedSymbol ? resolveSnapshot(normalizedSymbol) : undefined),
-    [normalizedSymbol],
+    [cacheNamespace, normalizedSymbol],
   );
 
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
 export function useLiveQuoteFreshnessAnchor(symbols: string[], active: boolean): number {
+  const cacheNamespace = useActiveQuoteCacheNamespace();
   const symbolsKey = JSON.stringify(symbols);
   const normalizedSymbols = useMemo(
     () => uniqueQuoteSymbolKeys(symbols),
@@ -621,57 +654,48 @@ export function useLiveQuoteFreshnessAnchor(symbols: string[], active: boolean):
 
   const subscribe = useCallback(
     (listener: SnapshotListener) => {
-      if (!active || normalizedSymbols.length === 0) {
+      if (!active || !cacheNamespace || normalizedSymbols.length === 0) {
         return () => {};
       }
 
       return subscribeLiveQuoteSnapshots(normalizedSymbols, listener);
     },
-    [active, normalizedSymbolsKey],
+    [active, cacheNamespace, normalizedSymbolsKey],
   );
 
   const getSnapshot = useCallback(() => {
-    if (!active || normalizedSymbols.length === 0) {
+    if (!active || !cacheNamespace || normalizedSymbols.length === 0) {
       return 0;
     }
 
     return getLiveQuoteFreshnessAnchorForSymbols(normalizedSymbols);
-  }, [active, normalizedSymbolsKey]);
+  }, [active, cacheNamespace, normalizedSymbolsKey]);
 
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
-// Restore persisted volumes once at module load, then backfill onto any
-// snapshots already created so their rows paint the fallback volume without
-// waiting for a tick or the slow REST response.
-const loadVolumeCache = async (): Promise<void> => {
-  try {
-    const raw = await AsyncStorage.getItem(QUOTE_VOLUME_CACHE_STORAGE_KEY);
-    if (!raw) {
-      return;
-    }
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    for (const [key, value] of Object.entries(parsed)) {
-      const volume = normalizeQuoteVolume(value);
-      if (!key || volume === undefined || cachedVolumeBySymbol.has(key)) {
-        continue;
-      }
-      cachedVolumeBySymbol.set(key, volume);
-    }
-    for (const [key, snapshot] of snapshotsBySymbol) {
-      if (!snapshot || snapshot.cachedVolume !== undefined) {
-        continue;
-      }
-      const cached = cachedVolumeBySymbol.get(key);
-      if (cached === undefined) {
-        continue;
-      }
-      snapshotsBySymbol.set(key, { ...snapshot, cachedVolume: cached, updateSeq: ++updateSeq });
-      scheduleSymbolNotification(key);
-    }
-  } catch {
-    // Ignore a missing/corrupt cache — volume simply falls back to the REST fetch.
+/**
+ * Clears session-scoped quote snapshots, listeners, one-shot REST state, and
+ * pending notification/cache timers without touching the user's watchlist.
+ */
+export const resetLiveQuoteSnapshotRuntimeState = (): void => {
+  quoteRuntimeGeneration += 1;
+  resetQuoteLatencyMetrics();
+  if (notifyAnimationFrame !== null) {
+    cancelAnimationFrame(notifyAnimationFrame);
+    notifyAnimationFrame = null;
   }
+  if (notifyTimer) {
+    clearTimeout(notifyTimer);
+    notifyTimer = null;
+  }
+  snapshotPauseTimers.forEach((timer) => clearTimeout(timer));
+  snapshotPauseTimers.clear();
+  snapshotsBySymbol.clear();
+  listenersBySymbol.clear();
+  pendingNotifySymbols.clear();
+  snapshotNotificationPauseDepth = 0;
+  updateSeq = 0;
 };
 
-void loadVolumeCache();
+// No symbol-only quote cache is restored across broker sessions.

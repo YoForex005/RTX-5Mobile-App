@@ -15,7 +15,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } 
 import { ScrollView, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { quotes, type QuoteItem } from '../../../dev/mock/tradingData';
+import type { QuoteItem } from '../../../dev/mock/tradingData';
 import { useMarketData } from '../../../query/websocket';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useTheme } from '../../../ui/theme/useTheme';
@@ -62,11 +62,17 @@ const finiteOr = (value: number | undefined | null, fallback: number) =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 
 const formatVolume = (volume?: number) => {
-  const safeVolume = finiteOr(volume, 0);
+  if (typeof volume !== 'number' || !Number.isFinite(volume)) return '--';
+  const safeVolume = volume;
   if (safeVolume >= 1_000_000) return `${(safeVolume / 1_000_000).toFixed(2)}M`;
   if (safeVolume >= 1_000) return `${(safeVolume / 1_000).toFixed(1)}K`;
   return safeVolume.toLocaleString();
 };
+
+const formatMarketPrice = (value: number | undefined, digits: number) =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? fmt.price(value, digits)
+    : '--';
 
 const formatTickTime = (timestamp?: number) => {
   if (!timestamp || !Number.isFinite(timestamp)) return '--';
@@ -202,8 +208,19 @@ export function MarketStatisticsInteractiveContent({
 
   const q = useMemo<QuoteItem>(() => {
     const live = liveQuotes[symbol] as Partial<QuoteItem> | undefined;
-    const mock = quotes.find((i) => i.symbol === symbol) ?? quotes[0];
-    const base: QuoteItem = { ...mock, ...live, symbol };
+    const base = {
+      ...(live || {}),
+      symbol,
+      bid: finiteOr(live?.bid, Number.NaN),
+      ask: finiteOr(live?.ask, Number.NaN),
+      changePct: finiteOr(live?.changePct, 0),
+      high: finiteOr(live?.high, Number.NaN),
+      low: finiteOr(live?.low, Number.NaN),
+      contractSize: finiteOr(remoteMeta?.contractSize ?? live?.contractSize, 0),
+      swapLong: finiteOr(live?.swapLong, Number.NaN),
+      swapShort: finiteOr(live?.swapShort, Number.NaN),
+      spread: finiteOr(live?.spread, 0),
+    } as QuoteItem;
     if (remoteMeta) {
       base.contractSize = remoteMeta.contractSize ?? base.contractSize;
     }
@@ -244,8 +261,15 @@ export function MarketStatisticsInteractiveContent({
   const rangePositionPct = clampPercent(sentiment.rangePositionPct);
   const rangePct = bidLow > 0 && bidHigh > bidLow ? ((bidHigh - bidLow) / bidLow) * 100 : 0;
   const latestTickAt = pickLatestTimestamp(q);
-  const marketStatusLabel = q.tradeAllowed === false ? t('Closed') : t('Open');
-  const marketStatusColor = q.tradeAllowed === false ? T.down : T.up;
+  const hasQuotePrice = Number.isFinite(q.bid) && q.bid > 0 && Number.isFinite(q.ask) && q.ask >= q.bid;
+  const marketStatusLabel = !hasQuotePrice
+    ? t('Unavailable')
+    : q.tradeAllowed === false
+      ? t('Closed')
+      : q.transport === 'websocket'
+        ? t('Live')
+        : t('Snapshot');
+  const marketStatusColor = q.tradeAllowed === false || !hasQuotePrice ? T.down : T.up;
   const localMeta = useMemo(() => getMeta(symbol), [symbol]);
   const instrumentName = remoteMeta?.name ?? localMeta.name;
   const instrumentCategory = remoteMeta?.category ?? localMeta.category;
@@ -258,13 +282,13 @@ export function MarketStatisticsInteractiveContent({
   const signedPoints = `${pointsChange >= 0 ? '+' : ''}${pointsChange.toFixed(0)} ${t('pts')}`;
 
   const rows: StatRow[] = useMemo(() => [
-    { label: 'Bid high', value: fmt.price(bidHigh, priceDigits), direction: 'up' },
-    { label: 'Bid low', value: fmt.price(bidLow, priceDigits), direction: 'down' },
-    { label: 'Ask high', value: fmt.price(askHigh, priceDigits), direction: 'up' },
-    { label: 'Ask low', value: fmt.price(askLow, priceDigits), direction: 'down' },
-    { label: 'Open price', value: fmt.price(openPrice, priceDigits), direction: 'neutral' },
-    { label: 'Close price', value: fmt.price(closePrice, priceDigits), direction: closePrice >= openPrice ? 'up' : 'down' },
-    { label: 'Mid price', value: fmt.price(midPrice, priceDigits), direction: 'neutral' },
+    { label: 'Bid high', value: formatMarketPrice(bidHigh, priceDigits), direction: 'up' },
+    { label: 'Bid low', value: formatMarketPrice(bidLow, priceDigits), direction: 'down' },
+    { label: 'Ask high', value: formatMarketPrice(askHigh, priceDigits), direction: 'up' },
+    { label: 'Ask low', value: formatMarketPrice(askLow, priceDigits), direction: 'down' },
+    { label: 'Open price', value: formatMarketPrice(openPrice, priceDigits), direction: 'neutral' },
+    { label: 'Close price', value: formatMarketPrice(closePrice, priceDigits), direction: closePrice >= openPrice ? 'up' : 'down' },
+    { label: 'Mid price', value: formatMarketPrice(midPrice, priceDigits), direction: 'neutral' },
     { label: 'Day Range', value: `${rangePct.toFixed(2)}%`, direction: 'neutral' },
   ], [askHigh, askLow, bidHigh, bidLow, closePrice, midPrice, openPrice, priceDigits, rangePct]);
 
@@ -367,7 +391,7 @@ export function MarketStatisticsInteractiveContent({
                 )}
               </View>
               <Text style={[styles.quoteValue, { color: bidColor }]} numberOfLines={1} adjustsFontSizeToFit>
-                {fmt.price(q.bid, priceDigits)}
+                {formatMarketPrice(q.bid, priceDigits)}
               </Text>
               <View style={styles.quoteMetaRow}>
                 <Text style={styles.quoteMetaLabel}>{t('Low')}</Text>
@@ -388,7 +412,7 @@ export function MarketStatisticsInteractiveContent({
                 )}
               </View>
               <Text style={[styles.quoteValue, { color: askColor }]} numberOfLines={1} adjustsFontSizeToFit>
-                {fmt.price(q.ask, priceDigits)}
+                {formatMarketPrice(q.ask, priceDigits)}
               </Text>
               <View style={styles.quoteMetaRow}>
                 <Text style={styles.quoteMetaLabel}>{t('Low')}</Text>
@@ -494,7 +518,7 @@ export function MarketStatisticsInteractiveContent({
             </View>
             <View style={[styles.rangeValueBlock, styles.rangeValueBlockCenter]}>
               <Text style={styles.rangeLabelSmall}>{t('CURRENT')}</Text>
-              <Text style={[styles.rangeLabelValue, { color: changeAccent }]}>{fmt.price(q.bid, priceDigits)}</Text>
+              <Text style={[styles.rangeLabelValue, { color: changeAccent }]}>{formatMarketPrice(q.bid, priceDigits)}</Text>
             </View>
             <View style={[styles.rangeValueBlock, styles.rangeValueBlockRight]}>
               <Text style={styles.rangeLabelSmall}>{t('HIGH')}</Text>

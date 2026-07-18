@@ -34,7 +34,8 @@ import { useTranslation } from '../../../i18n/useTranslation';
 // Retain the virtualized Journal body before it is selected, after the static
 // sidebar pages have prewarmed. The trade query and journal maintenance below
 // still remain strictly focus-gated by isScreenFocused.
-const JOURNAL_BODY_PREWARM_DELAY_MS = 2_200;
+// Hosted sidebar destination: mount body immediately so first open is never blank.
+const JOURNAL_BODY_PREWARM_DELAY_MS = 0;
 
 type JournalFilter = 'All' | 'Trades' | 'Accounts' | 'Actions' | 'Errors' | 'Notes';
 

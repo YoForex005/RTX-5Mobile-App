@@ -1,4 +1,6 @@
 import { router } from 'expo-router';
+import { useEffect, useRef } from 'react';
+import { Alert } from 'react-native';
 import { BrokersLaunchShell } from '../../src/features/settings/BrokersLaunchShell';
 import {
   brokersLaunchController,
@@ -12,6 +14,10 @@ import {
 } from '../../src/features/settings/brokerDetailLaunchController';
 import type { BrokerDirectoryRow } from '../../src/features/settings/BrokersScreen/brokerDirectoryRows';
 import {
+  SELECTED_BROKER_UNAVAILABLE_MESSAGE,
+  selectedBrokerHealthGate,
+} from '../../src/features/settings/BrokersScreen/selectedBrokerHealthGate';
+import {
   BROKERS_ROUTE_MODULE_CACHE_KEY,
   loadBrokersScreenRoute,
 } from '../../src/features/settings/BrokersScreen/brokersScreenPreload';
@@ -23,17 +29,38 @@ import {
 } from '../../src/utils/navigation';
 
 export default function BrokersRoute() {
+  const routeMountedRef = useRef(true);
+  useEffect(() => {
+    routeMountedRef.current = true;
+    return () => {
+      routeMountedRef.current = false;
+    };
+  }, []);
+
   const handleSelectBroker = (broker: BrokerDirectoryRow) => {
-    const selection = toBrokerDetailLaunchSelection(broker);
-    const launchRevision = showBrokerDetailLaunch(selection);
-    if (brokersLaunchController.isVisible()) {
-      hideBrokersLaunch();
+    if (!broker.selectable) {
+      return;
     }
-    scheduleBrokerDetailLaunchNavigation(launchRevision, () => {
-      router.push({
-        pathname: '/settings/broker-detail',
-        params: selection,
-      });
+    void selectedBrokerHealthGate.run({
+      serverUrl: broker.serverUrl,
+      onAvailable: () => {
+        if (!routeMountedRef.current) return;
+        const selection = toBrokerDetailLaunchSelection(broker);
+        const launchRevision = showBrokerDetailLaunch(selection);
+        if (brokersLaunchController.isVisible()) {
+          hideBrokersLaunch();
+        }
+        scheduleBrokerDetailLaunchNavigation(launchRevision, () => {
+          router.push({
+            pathname: '/settings/broker-detail',
+            params: selection,
+          });
+        });
+      },
+      onUnavailable: () => {
+        if (!routeMountedRef.current) return;
+        Alert.alert(SELECTED_BROKER_UNAVAILABLE_MESSAGE);
+      },
     });
   };
 

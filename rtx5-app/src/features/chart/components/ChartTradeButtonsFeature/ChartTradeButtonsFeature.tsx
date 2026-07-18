@@ -1,8 +1,20 @@
 import { FastPressable as Pressable } from '../../../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { ActivityIndicator, Animated, InputAccessoryView, Platform, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Animated,
+  Easing,
+  InputAccessoryView,
+  Platform,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useLiveSymbolQuote } from '../../../../query/websocket';
+import {
+  resolveSessionQuoteActionAvailability,
+} from '../../../../market/quoteIntegrity';
 import { formatTradeVolume, type TradeVolumeBounds } from '../../../../utils/tradeVolume';
 import type { TradeSide } from '../../../../domain/tradeSide';
 import { getChartTradeAction } from '../../chartTradeActions';
@@ -20,11 +32,12 @@ type FooterLotPickerMode = 'absolute' | 'increase' | 'decrease';
 
 const LOT_ADJUST_HIT_SLOP = { top: 8, bottom: 8, left: 6, right: 6 } as const;
 const LOT_VALUE_HIT_SLOP = { top: 8, bottom: 8, left: 0, right: 0 } as const;
-const TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS = 0;
-const TRADE_BUTTON_PRICE_REPAINT_MS = 160;
+// Frame-rate commits so bid/ask motion is visible while still coalescing bursts.
+const TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS = 16;
 const TRADE_BUTTON_PRICE_TEXT_COLOR = '#FFFFFF';
-const TRADE_BUTTON_VALUE_GLOW_COLOR = 'rgba(255,255,255,0.95)';
-const TRADE_BUTTON_VALUE_GLOW_RADIUS = 8;
+const TRADE_BUTTON_PRICE_UP_FLASH = '#BBF7D0';
+const TRADE_BUTTON_PRICE_DOWN_FLASH = '#FECACA';
+const TRADE_BUTTON_PRICE_FLASH_MS = 220;
 const IOS_LOT_INPUT_ACCESSORY_ID = 'chart-trade-lot-input-accessory';
 
 type ChartTradeButtonsProps = {
@@ -72,27 +85,41 @@ const ChartTradeButtonPriceText = React.memo(function ChartTradeButtonPriceText(
 }) {
   const flashProgress = React.useRef(new Animated.Value(0)).current;
   const previousTextRef = React.useRef<string | null>(null);
+  const [flashColor, setFlashColor] = React.useState(TRADE_BUTTON_PRICE_TEXT_COLOR);
 
   React.useEffect(() => {
     const previousText = previousTextRef.current;
     previousTextRef.current = text;
 
-    if (previousText === null || previousText === text || text === '---') {
+    if (previousText === null || previousText === text || text === '---' || previousText === '---') {
       return;
+    }
+
+    const prev = Number(previousText);
+    const next = Number(text);
+    if (Number.isFinite(prev) && Number.isFinite(next) && next !== prev) {
+      setFlashColor(next > prev ? TRADE_BUTTON_PRICE_UP_FLASH : TRADE_BUTTON_PRICE_DOWN_FLASH);
+    } else {
+      setFlashColor(TRADE_BUTTON_PRICE_TEXT_COLOR);
     }
 
     flashProgress.stopAnimation();
     flashProgress.setValue(1);
     Animated.timing(flashProgress, {
       toValue: 0,
-      duration: TRADE_BUTTON_PRICE_REPAINT_MS,
+      duration: TRADE_BUTTON_PRICE_FLASH_MS,
+      easing: Easing.out(Easing.quad),
       useNativeDriver: false,
-    }).start();
+    }).start(({ finished }) => {
+      if (finished) {
+        setFlashColor(TRADE_BUTTON_PRICE_TEXT_COLOR);
+      }
+    });
   }, [flashProgress, text]);
 
-  const flashShadowRadius = flashProgress.interpolate({
+  const animatedColor = flashProgress.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, TRADE_BUTTON_VALUE_GLOW_RADIUS],
+    outputRange: [TRADE_BUTTON_PRICE_TEXT_COLOR, flashColor],
   });
 
   return (
@@ -100,15 +127,13 @@ const ChartTradeButtonPriceText = React.memo(function ChartTradeButtonPriceText(
       style={[
         baseStyles.actionBtnPriceText,
         {
-          color: TRADE_BUTTON_PRICE_TEXT_COLOR,
+          color: animatedColor,
           opacity: 1,
-          textShadowColor: TRADE_BUTTON_VALUE_GLOW_COLOR,
-          textShadowOffset: { width: 0, height: 0 },
-          textShadowRadius: flashShadowRadius,
         },
       ]}
       numberOfLines={1}
       adjustsFontSizeToFit
+      minimumFontScale={0.7}
       testID={testID}
     >
       {text}
@@ -148,6 +173,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   invalidLotDisplay,
 }: ChartTradeButtonsProps) {
   const latestQuote = useLiveSymbolQuote(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS);
+  const quoteActionAvailability = resolveSessionQuoteActionAvailability(latestQuote);
   const { bid: latestBid, ask: latestAsk } = resolveChartTradeButtonQuote({
     liveBid: latestQuote?.bid,
     liveAsk: latestQuote?.ask,
@@ -219,9 +245,11 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
     lotSize,
     latestBid,
     latestAsk,
+    quoteActionAllowed: quoteActionAvailability.allowed,
+    quoteActionQuote: latestQuote,
     onTradeResult,
   });
-  const tradeControlsDisabled = !isCurrentChartSymbol;
+  const tradeControlsDisabled = !isCurrentChartSymbol || !quoteActionAvailability.allowed;
   // Block trading while the manually-typed lot is invalid (MT5 parity).
   const tradeBlocked = chartTradeActionDisabled || lotInvalid;
 

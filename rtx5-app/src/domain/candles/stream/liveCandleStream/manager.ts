@@ -278,7 +278,13 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
    */
   public extendActiveCandlesFromQuoteTick(
     symbol: string,
-    options: { price: number; time: unknown; volume?: number },
+    options: {
+      price: number;
+      time: unknown;
+      volume?: number;
+      high?: number;
+      low?: number;
+    },
   ): void {
     const normalizedSymbol = normalizeSymbol(symbol);
     if (!normalizedSymbol) {
@@ -291,6 +297,12 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     if (timeSeconds === null) {
       return;
     }
+    const high = Number.isFinite(options.high) && (options.high as number) > 0
+      ? Math.max(options.price, options.high as number)
+      : options.price;
+    const low = Number.isFinite(options.low) && (options.low as number) > 0
+      ? Math.min(options.price, options.low as number)
+      : options.price;
 
     for (const entry of this.entries.values()) {
       if (entry.symbol !== normalizedSymbol) {
@@ -301,6 +313,8 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
         this.makeLiveEvent(entry, {
           type: 'quote_tick_extension',
           price: options.price,
+          high,
+          low,
           time: timeSeconds,
           volume: options.volume,
         }),
@@ -619,12 +633,18 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
 
   private applyQuoteTickExtension(
     entry: StreamEntry,
-    event: { price: number; time: number; volume?: number },
+    event: { price: number; time: number; volume?: number; high?: number; low?: number },
   ): boolean {
     const restTail = entry.historyCandles[entry.historyCandles.length - 1] ?? null;
     const result = applyQuoteTickExtensionToCandleMap(
       entry.liveCandleMap,
-      { price: event.price, time: event.time, volume: event.volume },
+      {
+        price: event.price,
+        high: event.high,
+        low: event.low,
+        time: event.time,
+        volume: event.volume,
+      },
       entry.timeframe,
       {
         historyCutoffTime: entry.historyLastTime,

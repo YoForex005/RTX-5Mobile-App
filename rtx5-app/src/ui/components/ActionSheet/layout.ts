@@ -43,7 +43,12 @@ export function resolveActionSheetMt5EntryTranslateY({
   estimatedTranslateY,
   measuredSheetBodyHeight,
 }: Mt5EntryTranslateInput): number {
-  return Math.max(estimatedTranslateY, measuredSheetBodyHeight + 1);
+  const resolvedTranslateY = normalizeHeight(estimatedTranslateY);
+  if (resolvedTranslateY > 0) {
+    return resolvedTranslateY;
+  }
+
+  return Math.max(1, normalizeHeight(measuredSheetBodyHeight) + 1);
 }
 
 export function resolveActionSheetBottomInset(

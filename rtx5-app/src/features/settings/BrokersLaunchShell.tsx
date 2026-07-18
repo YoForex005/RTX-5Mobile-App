@@ -2,9 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { memo, useEffect, useMemo } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PUBLIC_BROKER_DIRECTORY_BASE_URL } from '../../api/brokerRouting';
 import { useTranslation } from '../../i18n/useTranslation';
-import { useBrokerServers } from '../../query/broker';
+import { useBrokerDirectory } from '../../query/broker';
 import { useUserPreferences } from '../../state/userPreferences';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { useTheme, type ThemeColors } from '../../ui/theme/useTheme';
@@ -12,11 +11,9 @@ import {
   buildBrokerDirectoryRows,
   buildBrokerDomainLogoUrl,
   formatBrokerInitials,
-  resolveBrokerDomain,
   sortBrokerDirectoryRows,
   type BrokerDirectoryRow,
 } from './BrokersScreen/brokerDirectoryRows';
-import { formatServerFromName } from './BrokersScreen/brokerData';
 
 type BrokersLaunchShellProps = Readonly<{
   onBack: () => void;
@@ -24,26 +21,6 @@ type BrokersLaunchShellProps = Readonly<{
   backLatencyLabel?: string;
   dataActive?: boolean;
 }>;
-
-const BROKERS_LAUNCH_FALLBACK_ROWS: readonly BrokerDirectoryRow[] = [
-  { name: 'Achiever Financials LTD', brokerId: 'achiever-financials' },
-  { name: 'Alpha FX Markets', brokerId: 'alphafx' },
-  { name: 'Beta Trade Pro', brokerId: 'betatrade' },
-  { name: 'Delta Pro Trading', brokerId: 'deltapro' },
-  { name: 'Gamma Capital Group', brokerId: 'gammacapital' },
-  { name: 'Grow Trading Academy', brokerId: 'gta_broker' },
-  { name: 'MyProp', brokerId: 'myprop-trade' },
-  { name: 'Omega Global Markets', brokerId: 'omegaglobal' },
-].map((row) => ({
-  ...row,
-  id: `launch-${row.brokerId}`,
-  server: formatServerFromName(row.name),
-  serverUrl: '',
-  logoUrl: `${PUBLIC_BROKER_DIRECTORY_BASE_URL}/brokers/${row.brokerId}/logo`,
-  region: '',
-  protocol: '',
-  domain: resolveBrokerDomain(row.brokerId) ?? resolveBrokerDomain(row.name),
-}));
 
 const brokerLogoPrefetches = new Map<string, Promise<boolean>>();
 
@@ -72,20 +49,25 @@ export const BrokersLaunchShell = memo(function BrokersLaunchShell({
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const isDark = useUserPreferences((state) => state.themeMode) === 'dark';
-  const { data: brokerServers } = useBrokerServers(dataActive);
+  const { data: brokerDirectory } = useBrokerDirectory(dataActive);
   const styles = useMemo(
     () => makeStyles(T, isDark, insets.top),
     [T, insets.top, isDark],
   );
   const previewRows = useMemo(() => {
-    const liveRows = sortBrokerDirectoryRows(buildBrokerDirectoryRows(brokerServers));
-    return liveRows.length > 0
-      ? liveRows.slice(0, BROKERS_LAUNCH_FALLBACK_ROWS.length)
-      : BROKERS_LAUNCH_FALLBACK_ROWS;
-  }, [brokerServers]);
+    const liveRows = sortBrokerDirectoryRows(
+      buildBrokerDirectoryRows(brokerDirectory?.entries),
+    );
+    // A launch shell may render only directory-validated identities. Showing
+    // invented broker rows while discovery is loading would be a UI fallback
+    // that users could mistake for a live universal directory.
+    return liveRows.slice(0, 8);
+  }, [brokerDirectory?.entries]);
+  const isIdentityOnlyDirectory = brokerDirectory?.mode === 'identity_only';
 
   useEffect(() => {
     for (const row of previewRows) {
+      if (!row.selectable) continue;
       prefetchBrokerLogo(row.logoUrl || buildBrokerDomainLogoUrl(row.domain));
     }
   }, [previewRows]);
@@ -117,9 +99,20 @@ export const BrokersLaunchShell = memo(function BrokersLaunchShell({
         <Text style={styles.searchPlaceholder}>{t('Find broker')}</Text>
       </View>
 
+      {isIdentityOnlyDirectory && (
+        <View style={styles.contractWarning} pointerEvents="none" accessibilityRole="alert">
+          <Ionicons name="warning-outline" size={18} color="#F59E0B" />
+          <Text style={styles.contractWarningText}>
+            {t('Broker identities are visible, but connection configuration is pending.')}
+          </Text>
+        </View>
+      )}
+
       <View style={styles.list} pointerEvents={onSelectBroker ? 'auto' : 'none'}>
         {previewRows.map((row) => {
-          const logoUri = row.logoUrl || buildBrokerDomainLogoUrl(row.domain);
+          const logoUri = row.selectable
+            ? row.logoUrl || buildBrokerDomainLogoUrl(row.domain)
+            : '';
           const rowContent = (
             <>
               <View style={styles.avatar}>
@@ -139,19 +132,31 @@ export const BrokersLaunchShell = memo(function BrokersLaunchShell({
                 <View style={styles.brokerIdPill}>
                   <Text style={styles.brokerIdText} numberOfLines={1}>{row.brokerId}</Text>
                 </View>
+                {!row.selectable && (
+                  <Text style={styles.pendingConfigurationText} numberOfLines={2}>
+                    {t('Connection configuration pending')}
+                  </Text>
+                )}
               </View>
               <View style={styles.chevronSpace}>
-                <Ionicons name="chevron-forward" size={20} color={T.textSub} />
+                <Ionicons
+                  name={row.selectable ? 'chevron-forward' : 'lock-closed'}
+                  size={20}
+                  color={row.selectable ? T.textSub : '#F59E0B'}
+                />
               </View>
             </>
           );
 
-          if (onSelectBroker) {
+          if (onSelectBroker && row.selectable) {
             return (
               <FastPressable
                 key={row.brokerId}
                 style={styles.brokerRow}
-                onPress={() => onSelectBroker(row)}
+                onPress={() => {
+                  if (!row.selectable) return;
+                  onSelectBroker(row);
+                }}
                 activateOnPressIn
                 latencyLabel={`brokers.launch.row.${row.brokerId}`}
                 latencyBudgetMs={50}
@@ -165,7 +170,16 @@ export const BrokersLaunchShell = memo(function BrokersLaunchShell({
           }
 
           return (
-            <View key={row.brokerId} style={styles.brokerRow}>
+            <View
+              key={row.brokerId}
+              style={[styles.brokerRow, !row.selectable && styles.brokerRowDisabled]}
+              pointerEvents="none"
+              accessible
+              accessibilityLabel={!row.selectable
+                ? `${row.name}. ${t('Connection configuration pending')}`
+                : row.name}
+              accessibilityState={{ disabled: !row.selectable }}
+            >
               {rowContent}
             </View>
           );
@@ -234,6 +248,26 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       paddingVertical: 6,
       backgroundColor: 'transparent',
     },
+    contractWarning: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginHorizontal: 12,
+      marginBottom: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      gap: 8,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(245,158,11,0.38)' : 'rgba(217,119,6,0.30)',
+      backgroundColor: isDark ? 'rgba(245,158,11,0.10)' : 'rgba(245,158,11,0.08)',
+    },
+    contractWarningText: {
+      flex: 1,
+      color: T.textMuted,
+      fontSize: 12,
+      fontWeight: '600',
+      lineHeight: 17,
+    },
     list: {
       flex: 1,
       paddingHorizontal: 12,
@@ -257,6 +291,11 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       shadowOpacity: isDark ? 0.08 : 0.06,
       shadowRadius: isDark ? 16 : 8,
       elevation: isDark ? 4 : 1,
+    },
+    brokerRowDisabled: {
+      borderColor: isDark ? 'rgba(245,158,11,0.30)' : 'rgba(217,119,6,0.22)',
+      shadowOpacity: 0,
+      elevation: 0,
     },
     avatar: {
       width: 46,
@@ -299,6 +338,13 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       color: '#0A84FF',
       fontSize: 12,
       fontWeight: '700',
+    },
+    pendingConfigurationText: {
+      marginTop: 6,
+      color: '#F59E0B',
+      fontSize: 11,
+      fontWeight: '700',
+      lineHeight: 15,
     },
     chevronSpace: {
       width: 36,

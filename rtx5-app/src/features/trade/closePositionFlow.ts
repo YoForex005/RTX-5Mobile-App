@@ -17,8 +17,19 @@ import {
 } from '../../api/tradingErrors';
 import { appQueryClient } from '../../state/providers/AppProviders';
 import { usePositionsState } from '../../state/positionsState';
-import { useUserPreferences } from '../../state/userPreferences';
 import type { PositionItem } from '../../dev/mock/tradingData';
+import {
+  quoteActionBlockMessage,
+  recordBlockedPriceAction,
+  resolveSessionQuoteActionAvailability,
+  type ExecutableQuoteInput,
+} from '../../market/quoteIntegrity';
+import {
+  captureActiveBrokerSession,
+  getActiveBrokerSessionProvenance,
+  isActiveBrokerSessionProvenanceCurrent,
+} from '../../state/activeBrokerSession';
+import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope';
 
 function isValidCloseTicket(value: unknown): value is string | number {
   return typeof value === 'number'
@@ -46,8 +57,22 @@ const CLOSE_INVALIDATION_KEYS = [
  */
 export function closePositionImmediately(
   position: PositionItem,
-  options?: { resolvedLogin?: string | null },
+  options: Readonly<{
+    quote: ExecutableQuoteInput | null | undefined;
+    resolvedLogin?: string | null;
+  }>,
 ): void {
+  const quoteAvailability = resolveSessionQuoteActionAvailability(options.quote, Date.now());
+  if (!quoteAvailability.allowed) {
+    recordBlockedPriceAction('close_position_flow', quoteAvailability);
+    const feedback = createFrontendTradingError(
+      'Market Data Unavailable',
+      quoteActionBlockMessage(quoteAvailability),
+    );
+    Alert.alert(feedback.title, feedback.message);
+    return;
+  }
+
   const ticketId = position.id;
   if (!isValidCloseTicket(ticketId)) {
     const feedback = createFrontendTradingError(
@@ -58,8 +83,8 @@ export function closePositionImmediately(
     return;
   }
 
-  const accessToken = useUserPreferences.getState().accountDetails?.credentials?.accessToken;
-  if (!accessToken) {
+  const sessionCapture = captureActiveBrokerSession();
+  if (!sessionCapture?.credentials.accessToken) {
     const feedback = createFrontendTradingError(
       'Authentication Error',
       'The app does not have a valid local trading session. Log in again before closing a position.',
@@ -67,6 +92,7 @@ export function closePositionImmediately(
     Alert.alert(feedback.title, feedback.message);
     return;
   }
+  const actionProvenance = getActiveBrokerSessionProvenance(sessionCapture.session);
 
   // Remove the row instantly; restore it if the broker rejects the close.
   const closeSnapshot = { ...position };
@@ -75,18 +101,22 @@ export function closePositionImmediately(
   void positionsApi
     .closePosition(ticketId)
     .then(() => {
+      if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) return;
       const state = usePositionsState.getState();
       state.finishOptimisticClose(ticketId);
 
-      CLOSE_INVALIDATION_KEYS.forEach((key) => {
-        appQueryClient.invalidateQueries({ queryKey: [key] });
-      });
+      void invalidateSessionQueryRoots(
+        appQueryClient,
+        actionProvenance.cacheNamespace,
+        CLOSE_INVALIDATION_KEYS,
+      );
 
-      if (options?.resolvedLogin) {
+      if (options.resolvedLogin) {
         void state.refreshPositions(options.resolvedLogin);
       }
     })
     .catch((error: unknown) => {
+      if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) return;
       const feedback = classifyTradingError(error, { action: 'close-position' });
       usePositionsState.getState().rollbackOptimisticClose(closeSnapshot);
       Alert.alert(feedback.title, feedback.message);

@@ -1,6 +1,6 @@
 import { usePathname, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
-import { BackHandler, StyleSheet, View } from 'react-native';
+import { Alert, BackHandler, StyleSheet, View } from 'react-native';
 import {
   safeRouterBack,
   scheduleBackNavigationAfterVisualFrame,
@@ -14,6 +14,10 @@ import {
   toBrokerDetailLaunchSelection,
 } from './brokerDetailLaunchController';
 import type { BrokerDirectoryRow } from './BrokersScreen/brokerDirectoryRows';
+import {
+  SELECTED_BROKER_UNAVAILABLE_MESSAGE,
+  selectedBrokerHealthGate,
+} from './BrokersScreen/selectedBrokerHealthGate';
 import { warmDemoAccountForm } from './registerScreenPreload';
 
 const BROKERS_LAUNCH_HIDDEN_STYLE = {
@@ -113,33 +117,58 @@ export function BrokersLaunchHost() {
   }, [armBackGuard, finishCommittedBack]);
 
   const selectBroker = useCallback((broker: BrokerDirectoryRow) => {
-    const current = brokersLaunchController.getSnapshot();
-
-    const selection = toBrokerDetailLaunchSelection(broker);
-    const detailRevision = showBrokerDetailLaunch(selection);
-    const pushBrokerDetailRoute = () => {
-      router.push({
-        pathname: '/settings/broker-detail',
-        params: selection,
-      });
-    };
-    // Reveal Broker Detail first; hiding this cover first exposes the retained
-    // tab for one frame and can redirect the user's next tap to the wrong row.
-    if (current.visible) {
-      brokersLaunchController.hide(current.revision);
-    }
-
-    // A very fast row tap can beat the scheduled Brokers push. Preserve the
-    // Brokers route in the back stack, but yield first so the already-visible
-    // Detail cover can paint before cold route construction starts.
-    if (current.visible && !current.navigationStarted) {
-      scheduleBackNavigationAfterVisualFrame(() => {
-        router.push('/settings/brokers');
-        scheduleBrokerDetailLaunchNavigation(detailRevision, pushBrokerDetailRoute);
-      });
+    if (!broker.selectable) {
       return;
     }
-    scheduleBrokerDetailLaunchNavigation(detailRevision, pushBrokerDetailRoute);
+    const selectedLaunchRevision = brokersLaunchController.getSnapshot().revision;
+    const isSelectedPickerStillActive = () => {
+      const current = brokersLaunchController.getSnapshot();
+      return (
+        (current.visible && current.revision === selectedLaunchRevision)
+        || (
+          pathnameRef.current === '/settings/brokers'
+          && !current.visible
+          && current.revision === selectedLaunchRevision + 1
+        )
+      );
+    };
+
+    void selectedBrokerHealthGate.run({
+      serverUrl: broker.serverUrl,
+      onAvailable: () => {
+        if (!isSelectedPickerStillActive()) return;
+        const current = brokersLaunchController.getSnapshot();
+        const selection = toBrokerDetailLaunchSelection(broker);
+        const detailRevision = showBrokerDetailLaunch(selection);
+        const pushBrokerDetailRoute = () => {
+          router.push({
+            pathname: '/settings/broker-detail',
+            params: selection,
+          });
+        };
+        // Reveal Broker Detail first; hiding this cover first exposes the retained
+        // tab for one frame and can redirect the user's next tap to the wrong row.
+        if (current.visible) {
+          brokersLaunchController.hide(current.revision);
+        }
+
+        // A very fast row tap can beat the scheduled Brokers push. Preserve the
+        // Brokers route in the back stack, but yield first so the already-visible
+        // Detail cover can paint before cold route construction starts.
+        if (current.visible && !current.navigationStarted) {
+          scheduleBackNavigationAfterVisualFrame(() => {
+            router.push('/settings/brokers');
+            scheduleBrokerDetailLaunchNavigation(detailRevision, pushBrokerDetailRoute);
+          });
+          return;
+        }
+        scheduleBrokerDetailLaunchNavigation(detailRevision, pushBrokerDetailRoute);
+      },
+      onUnavailable: () => {
+        if (!isSelectedPickerStillActive()) return;
+        Alert.alert(SELECTED_BROKER_UNAVAILABLE_MESSAGE);
+      },
+    });
   }, [router]);
 
   useEffect(

@@ -1,95 +1,107 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import {
   getSecureItemAsync,
   removeSecureItemAsync,
   setSecureItemAsync,
 } from '../utils/secureStorage';
-import { isBrokerServiceBaseUrl, normalizeBrokerServerUrl } from '../api/brokerRouting';
+import {
+  AUTH_CREDENTIAL_BUNDLE_KEY,
+  LEGACY_AUTH_CREDENTIAL_KEYS,
+  LEGACY_ACCESS_TOKEN_KEY,
+  LEGACY_EXPIRES_AT_KEY,
+  LEGACY_FEED_TOKEN_KEYS,
+  LEGACY_REFRESH_TOKEN_KEY,
+  SecureCredentialBundleStore,
+  type LegacyAuthCredentialInput,
+  type SecureAuthCredentialBundle,
+  type SecureAuthCredentialInput,
+} from './secureCredentialBundle';
 
 export const ACTIVE_BROKER_ID_KEY = 'broker_id';
 export const ACTIVE_BROKER_SERVER_URL_KEY = 'server_url';
 export const ACTIVE_BROKER_LOGO_URL_KEY = 'logo_url';
-export const ACCESS_TOKEN_KEY = 'access_token';
-export const REFRESH_TOKEN_KEY = 'refresh_token';
-export const EXPIRES_AT_KEY = 'expires_at';
-export const FEED_BROKER_TOKEN_KEY = 'feed_broker_token';
-export const FEED_BROKER_TOKEN_STORAGE_KEYS = [
-  FEED_BROKER_TOKEN_KEY,
-  'broker_feed_token',
-  'feed_token',
-  'ws_feed_token',
+export const ACCESS_TOKEN_KEY = LEGACY_ACCESS_TOKEN_KEY;
+export const REFRESH_TOKEN_KEY = LEGACY_REFRESH_TOKEN_KEY;
+export const EXPIRES_AT_KEY = LEGACY_EXPIRES_AT_KEY;
+export const FEED_BROKER_TOKEN_KEY = LEGACY_FEED_TOKEN_KEYS[0];
+export const FEED_BROKER_TOKEN_STORAGE_KEYS = LEGACY_FEED_TOKEN_KEYS;
+export { AUTH_CREDENTIAL_BUNDLE_KEY };
+
+const secureCredentialBundleStore = new SecureCredentialBundleStore({
+  getItem: getSecureItemAsync,
+  setItem: setSecureItemAsync,
+  removeItem: removeSecureItemAsync,
+});
+
+const WEB_AUTH_STORAGE_KEYS = [
+  AUTH_CREDENTIAL_BUNDLE_KEY,
+  ...LEGACY_AUTH_CREDENTIAL_KEYS,
 ] as const;
 
-type BrokerSessionInput = {
-  brokerId: string;
-  serverUrl?: string | null;
-  logoUrl?: string | null;
-};
+async function clearLegacyWebAuthStorage(): Promise<void> {
+  if (Platform.OS === 'web') {
+    await AsyncStorage.multiRemove([...WEB_AUTH_STORAGE_KEYS]);
+  }
+}
 
-type AuthTokenInput = {
-  accessToken: string;
-  refreshToken?: string | null;
-  expiresAt: string;
-  feedToken?: string | null;
-};
+async function assertNativeAuthCredentialStorage(): Promise<void> {
+  if (Platform.OS === 'web') {
+    await clearLegacyWebAuthStorage();
+    throw new Error('Secure broker credential storage is unavailable on web.');
+  }
+}
 
-export async function persistSelectedBrokerSession({
-  brokerId,
-  serverUrl,
-  logoUrl,
-}: BrokerSessionInput): Promise<void> {
-  const candidateServerUrl = normalizeBrokerServerUrl(serverUrl);
-  const normalizedServerUrl = isBrokerServiceBaseUrl(candidateServerUrl) ? candidateServerUrl : '';
-  const normalizedLogoUrl = String(logoUrl ?? '').trim();
-  const [storedBrokerId, storedLogoUrl] = normalizedLogoUrl
-    ? ['', '']
-    : await Promise.all([
-        getSecureItemAsync(ACTIVE_BROKER_ID_KEY).catch(() => ''),
-        getSecureItemAsync(ACTIVE_BROKER_LOGO_URL_KEY).catch(() => ''),
-      ]);
-  const shouldKeepStoredLogo =
-    !normalizedLogoUrl &&
-    String(storedBrokerId ?? '').trim().toLowerCase() === String(brokerId ?? '').trim().toLowerCase();
-  const nextLogoUrl = normalizedLogoUrl || (shouldKeepStoredLogo ? String(storedLogoUrl ?? '').trim() : '');
+/**
+ * Removes the pre-epoch route aliases. Authenticated routing is owned by the
+ * versioned active-session manifest and must never be reconstructed by pairing
+ * one of these mutable values with a credential bundle.
+ */
+export async function clearLegacySelectedBrokerSession(): Promise<void> {
   await Promise.all([
-    setSecureItemAsync(ACTIVE_BROKER_ID_KEY, brokerId),
-    setSecureItemAsync(ACTIVE_BROKER_SERVER_URL_KEY, normalizedServerUrl),
-    setSecureItemAsync(ACTIVE_BROKER_LOGO_URL_KEY, nextLogoUrl),
+    removeSecureItemAsync(ACTIVE_BROKER_ID_KEY),
+    removeSecureItemAsync(ACTIVE_BROKER_SERVER_URL_KEY),
+    removeSecureItemAsync(ACTIVE_BROKER_LOGO_URL_KEY),
   ]);
 }
 
-export async function persistAuthSessionTokens({
-  accessToken,
-  refreshToken,
-  expiresAt,
-  feedToken,
-}: AuthTokenInput): Promise<void> {
-  const writes: Array<Promise<void>> = [
-    setSecureItemAsync(ACCESS_TOKEN_KEY, accessToken),
-    setSecureItemAsync(REFRESH_TOKEN_KEY, refreshToken ?? ''),
-    setSecureItemAsync(EXPIRES_AT_KEY, expiresAt),
-  ];
-  const normalizedFeedToken = String(feedToken ?? '').trim();
-  if (normalizedFeedToken) {
-    writes.push(setSecureItemAsync(FEED_BROKER_TOKEN_KEY, normalizedFeedToken));
-  }
-  await Promise.all(writes);
-}
-
-export async function getStoredFeedBrokerToken(): Promise<string> {
-  for (const key of FEED_BROKER_TOKEN_STORAGE_KEYS) {
-    const token = String(await getSecureItemAsync(key).catch(() => '') ?? '').trim();
-    if (token) {
-      return token;
-    }
-  }
-  return '';
+export async function getStoredFeedBrokerToken(expected?: {
+  brokerId?: string | null;
+  accountLogin?: string | number | null;
+}): Promise<string> {
+  await assertNativeAuthCredentialStorage();
+  const bundle = await secureCredentialBundleStore.get(expected);
+  return bundle?.feedToken ?? '';
 }
 
 export async function clearAuthSessionTokens(): Promise<void> {
-  await Promise.all([
-    removeSecureItemAsync(ACCESS_TOKEN_KEY),
-    removeSecureItemAsync(REFRESH_TOKEN_KEY),
-    removeSecureItemAsync(EXPIRES_AT_KEY),
-    ...FEED_BROKER_TOKEN_STORAGE_KEYS.map((key) => removeSecureItemAsync(key)),
-  ]);
+  if (Platform.OS === 'web') {
+    await clearLegacyWebAuthStorage();
+    return;
+  }
+  await secureCredentialBundleStore.clear();
+}
+
+export async function replaceAuthSessionCredentials(
+  input: SecureAuthCredentialInput,
+): Promise<SecureAuthCredentialBundle> {
+  await assertNativeAuthCredentialStorage();
+  return secureCredentialBundleStore.replace(input);
+}
+
+export async function getStoredAuthSessionCredentials(expected?: {
+  brokerId?: string | null;
+  accountLogin?: string | number | null;
+}): Promise<SecureAuthCredentialBundle | null> {
+  await assertNativeAuthCredentialStorage();
+  return secureCredentialBundleStore.get(expected);
+}
+
+export async function migrateLegacyAuthSessionCredentials(input: {
+  brokerId: string;
+  accountLogin: string | number;
+  credentials?: LegacyAuthCredentialInput | null;
+}): Promise<SecureAuthCredentialBundle | null> {
+  await assertNativeAuthCredentialStorage();
+  return secureCredentialBundleStore.migrateLegacy(input);
 }

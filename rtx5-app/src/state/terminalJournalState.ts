@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { resolveTradingLogin } from './tradingLogin';
+import { sanitizeTerminalJournalMessage } from './terminalJournalSecurity';
 
 export type TerminalJournalSource = 'Trades' | 'Accounts' | 'Actions' | 'Terminal' | 'Network' | 'Notes';
 export type TerminalJournalLevel = 'info' | 'success' | 'error';
@@ -208,7 +209,10 @@ export const useTerminalJournalState = create<TerminalJournalState>()(
             createdAt,
             source: entry.source,
             level: entry.level,
-            message: entry.message,
+            // The terminal journal is persisted in AsyncStorage. Treat every
+            // caller message as untrusted backend text and strip credentials
+            // and URL query values before it can reach disk/support exports.
+            message: sanitizeTerminalJournalMessage(entry.message),
             accountLogin: entry.accountLogin,
           };
           return {

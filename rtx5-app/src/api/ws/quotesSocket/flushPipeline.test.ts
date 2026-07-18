@@ -109,3 +109,48 @@ test('batched quote flush recalculates spread and keeps volume backend-owned', (
   assert.equal(quote.volume, 4407);
   assert.equal(quote.volumeSource, 'backend');
 });
+
+test('batched quote flush never injects static mock/spec fields', () => {
+  resetTradingState();
+  const flushState: FlushPipelineState = {
+    flushScheduled: false,
+    flushAnimationFrame: null,
+    flushTimer: null,
+    pendingUpdates: new Map([['EURUSD', {
+      bid: 1.1,
+      ask: 1.1002,
+      transport: 'websocket',
+      tradable: true,
+    }]]),
+  };
+
+  flushUpdates(flushState);
+  const quote = useTradingState.getState().quotes.EURUSD;
+  assert.equal(quote.transport, 'websocket');
+  assert.equal(quote.tradable, true);
+  assert.equal(quote.contractSize, undefined);
+  assert.equal(quote.swapLong, undefined);
+  assert.equal(quote.high, undefined);
+  assert.equal(quote.low, undefined);
+});
+
+test('batched quote flush discards a queued old-epoch update', () => {
+  resetTradingState();
+  const flushState: FlushPipelineState = {
+    flushScheduled: false,
+    flushAnimationFrame: null,
+    flushTimer: null,
+    canCommitPendingUpdates: () => false,
+    pendingUpdates: new Map([['EURUSD', {
+      bid: 1.1,
+      ask: 1.1002,
+      transport: 'websocket',
+      tradable: true,
+    }]]),
+  };
+
+  flushUpdates(flushState);
+
+  assert.deepEqual(useTradingState.getState().quotes, {});
+  assert.equal(flushState.pendingUpdates.size, 0);
+});

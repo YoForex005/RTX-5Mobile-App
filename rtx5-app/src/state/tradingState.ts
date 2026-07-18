@@ -3,7 +3,7 @@
  */
 
 import { create } from 'zustand';
-import { QuoteItem, quotes as mockQuotes } from '../dev/mock/tradingData';
+import type { QuoteItem } from '../dev/mock/tradingData';
 import type { Candle } from '../domain/candles/core/candleTypes';
 import {
   MAX_CANDLE_CACHE_ENTRIES,
@@ -14,8 +14,6 @@ import { sanitizeCandlesForChart } from '../domain/candles/normalization/chartAd
 import { hasQuotePriceChange } from '../utils/quotePriceChange';
 import { calculateQuoteSpreadPoints } from '../utils/quoteSpread';
 import { resolveBackendQuoteVolume } from '../utils/quoteVolume';
-
-const symbolSpecs = new Map(mockQuotes.map((q) => [q.symbol, q]));
 
 const trimCandleCacheEntries = (
   entries: Record<string, Candle[]>,
@@ -85,6 +83,8 @@ type TradingState = {
    * Raw history snapshots should be routed through `state/candleCache.ts`.
    */
   setCandleHistory: (symbol: string, timeframe: string, history: Candle[]) => void;
+  /** Atomically clears every account/session-scoped market-data value. */
+  resetSessionMarketData: () => void;
 };
 
 
@@ -102,7 +102,6 @@ export const useTradingState = create<TradingState>((set) => ({
       }
 
       const existing = state.quotes[normalizedSymbol];
-      const spec = symbolSpecs.get(normalizedSymbol);
       const feedTickAt = normalizeTimestampToMs(
         data.feedTickAt ?? data.lastTickAt ?? (data as Record<string, unknown>).timestamp ?? (data as Record<string, unknown>).time ?? (data as Record<string, unknown>).t,
       );
@@ -115,20 +114,22 @@ export const useTradingState = create<TradingState>((set) => ({
         : existing?.lastPriceChangedAt;
 
       if (!existing) {
-        // We only want to patch existing full quotes or require the caller to provide enough data
-        // For our simplified WebSocket ticks, it usually just sends { symbol, bid, ask }
-        // We will merge it. Note: the actual app structure might require `QuoteItem` to be fully formed.
-        // If a new quote ticks we haven't seen, we'll cast it to `QuoteItem`.
-        const digits = data.digits ?? spec?.digits ?? 5;
+        const bid = Number(data.bid);
+        const ask = Number(data.ask);
+        // Volume/metadata repairs must never manufacture a price-less quote.
+        if (!Number.isFinite(bid) || bid <= 0 || !Number.isFinite(ask) || ask < bid) {
+          return state;
+        }
+
+        const digits = data.digits;
         const volume = resolveBackendQuoteVolume({ incoming: data.volume });
         const lastTickAt =
           feedTickAt ??
           (Number.isFinite(data.bid) && Number.isFinite(data.ask) ? Date.now() : undefined);
         const newQuote = {
-          ...spec,
           ...data,
           symbol: normalizedSymbol,
-          digits,
+          ...(digits === undefined ? {} : { digits }),
           feedTickAt: feedTickAt ?? undefined,
           lastTickAt,
           lastReceivedAt,
@@ -163,10 +164,10 @@ export const useTradingState = create<TradingState>((set) => ({
       const incomingBid = data.bid;
       const incomingAsk = data.ask;
       
-      const prevBidState = incomingBid && incomingBid !== existing.bid ? existing.bid : existing.prevBid;
-      const prevAskState = incomingAsk && incomingAsk !== existing.ask ? existing.ask : existing.prevAsk;
+      const prevBidState = Number.isFinite(incomingBid) && incomingBid !== existing.bid ? existing.bid : existing.prevBid;
+      const prevAskState = Number.isFinite(incomingAsk) && incomingAsk !== existing.ask ? existing.ask : existing.prevAsk;
 
-      const digits = data.digits ?? existing.digits ?? spec?.digits ?? 5;
+      const digits = data.digits ?? existing.digits;
       const volume = resolveBackendQuoteVolume({ incoming: data.volume, previous: existing });
       const lastTickAt =
         feedTickAt ??
@@ -175,11 +176,10 @@ export const useTradingState = create<TradingState>((set) => ({
         calculateQuoteSpreadPoints(data.bid ?? existing.bid, data.ask ?? existing.ask, digits) ??
         existing.spread;
       const updatedQuote = {
-        ...spec,
         ...existing,
         ...data,
         symbol: normalizedSymbol,
-        digits,
+        ...(digits === undefined ? {} : { digits }),
         feedTickAt: feedTickAt ?? undefined,
         lastTickAt,
         lastReceivedAt,
@@ -233,4 +233,17 @@ export const useTradingState = create<TradingState>((set) => ({
       };
     }),
 
+  resetSessionMarketData: () =>
+    set({
+      quotes: {},
+      candles: {},
+      account: null,
+      tickCount: 0,
+    }),
+
 }));
+
+/** Public coordinator seam for atomic logout/account-switch teardown. */
+export const resetSessionMarketData = (): void => {
+  useTradingState.getState().resetSessionMarketData();
+};

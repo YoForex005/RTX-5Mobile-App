@@ -14,6 +14,17 @@ import { resolveEffectiveHistoryDateRange } from '../features/history/historyDat
 import { useResolvedTradingLogin } from '../state/tradingLogin';
 import { useUserPreferences } from '../state/userPreferences';
 import { buildAccountDealsQueryKey, filterDealsByTimeRange, mergeDealHistorySources } from './dealsHistory';
+import {
+  getSessionQueryCacheNamespace,
+  runSessionBoundQuery,
+  useActiveBrokerQuerySession,
+} from './authenticatedQueryScope';
+
+export const DEALS_KEY = 'deals';
+export const ACCOUNT_DEALS_KEY = 'accountDeals';
+
+export const getDealsQueryKey = (cacheNamespace: string, login?: number) =>
+  [DEALS_KEY, cacheNamespace, login] as const;
 
 type PollingQueryOptions = {
   enabled?: boolean;
@@ -89,6 +100,8 @@ const fetchAccountDealsWithLoginFallback = async (
  * Polls every 10 seconds (deals change less often than live positions).
  */
 export function useAccountDealsQuery(options: PollingQueryOptions = {}) {
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
   const resolvedLogin = useResolvedTradingLogin();
   const login = options.login ?? resolvedLogin;
   const historyRange = useUserPreferences((s) => s.historyRange);
@@ -100,11 +113,14 @@ export function useAccountDealsQuery(options: PollingQueryOptions = {}) {
   const from = fromMs != null ? Math.floor(fromMs / 1000) : undefined;
   const to = toMs != null ? Math.floor(toMs / 1000) : undefined;
 
-  const enabled = options.enabled ?? true;
+  const enabled = Boolean(session) && (options.enabled ?? true);
 
   return useQuery({
-    queryKey: buildAccountDealsQueryKey(login, from, to),
-    queryFn: () => fetchAccountDealsWithLoginFallback(login, from, to),
+    queryKey: buildAccountDealsQueryKey(cacheNamespace, login, from, to),
+    queryFn: () => runSessionBoundQuery(
+      cacheNamespace,
+      () => fetchAccountDealsWithLoginFallback(login, from, to),
+    ),
     enabled,
     refetchInterval: resolvePollingRefetchInterval(enabled, 10_000, options.refetchInterval),
     refetchOnMount: options.refetchOnMount,
@@ -126,10 +142,15 @@ export function useDealsQuery(
   login: number | undefined,
   options: PollingQueryOptions = {},
 ) {
-  const enabled = !!login && (options.enabled ?? true);
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
+  const enabled = Boolean(session) && !!login && (options.enabled ?? true);
   return useQuery({
-    queryKey: ['deals', login],
-    queryFn: () => dealsApi.getDeals(login!),
+    queryKey: getDealsQueryKey(cacheNamespace, login),
+    queryFn: () => runSessionBoundQuery(
+      cacheNamespace,
+      () => dealsApi.getDeals(login!),
+    ),
     enabled,
     refetchInterval: resolvePollingRefetchInterval(enabled, 5000, options.refetchInterval),
   });

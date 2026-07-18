@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
+import { dismissBeforeDrawingToolsSelection } from './drawingTools/actionSheetSelection';
 
 const readSource = (relativePath: string) =>
   readFileSync(resolve(process.cwd(), relativePath), 'utf8');
@@ -79,4 +80,53 @@ test('drawing tools action sheet exposes the full supported tool set', () => {
   ]) {
     assert.match(sheetOptions, new RegExp(`\\b${toolDefinition}\\b`));
   }
+});
+
+test('blank drawing search keeps every tool directly selectable on the chart', () => {
+  const drawingSource = readSource('src/features/chart/drawingTools/index.ts');
+  const chartSource = readSource('src/features/chart/ChartScreen.native.tsx');
+  const actionSheetFactory = drawingSource.slice(
+    drawingSource.indexOf('export function createDrawingToolsActionSheetActions'),
+  );
+  const setToolHandler = chartSource.slice(
+    chartSource.indexOf('const handleSetTool = useCallback'),
+    chartSource.indexOf('const handleClearDrawings = useCallback'),
+  );
+  const drawingSheetConfig = chartSource.slice(
+    chartSource.indexOf('const drawingToolsActionSheetConfig'),
+    chartSource.indexOf('const handleOpenDrawingTools'),
+  );
+
+  assert.match(
+    actionSheetFactory,
+    /DRAWING_SHEET_OPTIONS\.map\(\(definition\) => \(\{[\s\S]*onPress:\s*\(\) => config\.onSelectTool\(definition\.tool\)/,
+  );
+  assert.match(chartSource, /onSelectTool:\s*handleSetTool/);
+  assert.match(setToolHandler, /setActiveTool\(tool\)/);
+  assert.match(setToolHandler, /setChartDrawingInputActive\(nextDrawingInputActive\)/);
+  assert.match(setToolHandler, /injectChartScript\(`setDrawingTool\(/);
+  assert.match(drawingSheetConfig, /searchable:\s*true/);
+  assert.match(drawingSheetConfig, /runActionAfterClose:\s*false/);
+});
+
+test('every drawing action dismisses the sheet before applying its selection', () => {
+  const calls: string[] = [];
+  const [wrappedAction] = dismissBeforeDrawingToolsSelection(
+    [{ label: 'Trend Line', onPress: () => calls.push('apply') }],
+    () => calls.push('dismiss'),
+  );
+
+  wrappedAction.onPress?.();
+
+  assert.deepEqual(calls, ['dismiss', 'apply']);
+
+  const chartSource = readSource('src/features/chart/ChartScreen.native.tsx');
+  const drawingActions = chartSource.slice(
+    chartSource.indexOf('const drawingToolsActions = useMemo'),
+    chartSource.indexOf('const drawingToolsVisualKey'),
+  );
+  assert.match(
+    drawingActions,
+    /dismissBeforeDrawingToolsSelection\([\s\S]*createDrawingToolsActionSheetActions\([\s\S]*hideChartActionSheet/,
+  );
 });

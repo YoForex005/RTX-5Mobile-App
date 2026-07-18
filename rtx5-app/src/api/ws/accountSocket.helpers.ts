@@ -1,15 +1,12 @@
 import type { LiveAccountData } from '../../state/liveAccountState';
-
-type AccountDetails = {
-  id: string;
-  credentials?: {
-    accessToken: string;
-  };
-} | null;
+import type {
+  ActiveBrokerSessionCapture,
+  ActiveBrokerSessionIdentity,
+} from '../../state/activeBrokerSession';
 
 export type AccountWsSession = {
-  token: string;
   login: string;
+  identity: ActiveBrokerSessionIdentity;
 };
 
 function toFiniteNumber(value: unknown): number | undefined {
@@ -104,28 +101,27 @@ function extractNestedLiveAccountMetrics(
 }
 
 export function resolveAccountWsSession(
-  accountDetails: AccountDetails,
-  liveLogin?: number,
+  capture: ActiveBrokerSessionCapture | null,
 ): AccountWsSession | null {
-  const token = accountDetails?.credentials?.accessToken?.trim();
-  if (!token) {
+  if (
+    !capture ||
+    !capture.credentials.accessToken.trim() ||
+    !capture.session.tradeWsBase
+  ) {
     return null;
   }
-
-  const persistedLogin = pickFiniteNumber(accountDetails?.id);
-  const resolvedLiveLogin = pickFiniteNumber(liveLogin);
-  const resolvedLogin =
-    persistedLogin !== undefined && persistedLogin >= 100000
-      ? persistedLogin
-      : (resolvedLiveLogin ?? persistedLogin);
-
-  if (resolvedLogin === undefined || resolvedLogin <= 0) {
+  const login = String(capture.session.accountLogin ?? '').trim();
+  if (!login) {
     return null;
   }
 
   return {
-    token,
-    login: String(Math.trunc(resolvedLogin)),
+    login,
+    identity: {
+      brokerId: capture.session.brokerId,
+      accountLogin: login,
+      sessionEpoch: capture.session.sessionEpoch,
+    },
   };
 }
 

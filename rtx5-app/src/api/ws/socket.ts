@@ -1,44 +1,56 @@
-/**
- * Core module: socket.ts
- */
+/** Legacy multi-channel trading socket, isolated to one immutable broker session. */
 
-import { useTradingState } from '../../state/tradingState';
 import NetInfo from '@react-native-community/netinfo';
-import { liveCandleStream } from '../../domain/candles/stream/liveCandleStream';
-import { isCryptoSymbol } from '../../domain/symbols';
-import { useUserPreferences } from '../../state/userPreferences';
+import { AppState } from 'react-native';
+
 import {
-  buildBrokerWsUrl,
-  getBrokerBackendDomainUnavailableMessage,
-  isBrokerServiceBaseUrl,
-  normalizeConfiguredWsUrl,
-} from '../brokerRouting';
+  captureActiveBrokerSession,
+  getActiveBrokerSessionIdentity,
+  isActiveBrokerSessionCurrent,
+  type ActiveBrokerSessionIdentity,
+} from '../../state/activeBrokerSession';
+import { useTradingState } from '../../state/tradingState';
+import { brokerApi } from '../brokerApi';
+import { isSocketAuthenticationFailure } from './socketClosePolicy';
+import { payloadMatchesSocketIdentity } from './socketPayloadIdentity';
+import { redactDiagnosticValue } from '../../utils/securityRedaction';
 
 type SubscriptionMessage = {
   type: 'subscribe' | 'unsubscribe';
-  channel: string; // e.g., 'prices', 'quotes.EURUSD', 'account.900767', 'candles.EURUSD.H1'
+  channel: string;
 };
 
 type WsMessage = SubscriptionMessage | { type: 'ping' | 'get_channels' };
 
+const sameIdentity = (
+  left: ActiveBrokerSessionIdentity | null,
+  right: ActiveBrokerSessionIdentity,
+): boolean => Boolean(
+  left &&
+  left.brokerId === right.brokerId &&
+  left.accountLogin === right.accountLogin &&
+  left.sessionEpoch === right.sessionEpoch,
+);
+
 /**
- * (Legacy) General purpose WebSocket service that manages multi-channel subscriptions.
- * Modern implementations have split into dedicated high-throughput services 
- * (QuotesWebSocketService, CandlesWebSocketService, etc.).
+ * Legacy general-purpose channel service. The endpoint is never derived: it
+ * can connect only to the active session's exact validated tradeWsBase.
  */
 export class WebSocketService {
   private static instance: WebSocketService;
   private ws: WebSocket | null = null;
-  private url = this.resolveSocketUrl();
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
-  private reconnectDelay = 2000;
+  private readonly maxReconnectAttempts = 10;
+  private readonly reconnectDelay = 2000;
   private isConnected = false;
+  private shouldReconnect = false;
+  private isSuspended = AppState.currentState !== 'active';
+  private isResolvingSocketUrl = false;
+  private activeIdentity: ActiveBrokerSessionIdentity | null = null;
   private netInfoUnsubscribe: (() => void) | null = null;
-  
-  // Track active subscriptions so we can resubscribe on reconnect
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private activeSubscriptions: Set<string> = new Set();
-  
+
   private constructor() {}
 
   public static getInstance(): WebSocketService {
@@ -52,186 +64,239 @@ export class WebSocketService {
     return this.isConnected;
   }
 
-  private resolveSocketUrl(): string {
-    const state = useUserPreferences.getState();
-    if (state.isLoggedIn && !isBrokerServiceBaseUrl(state.brokerServerUrl)) {
-      return '';
+  public connect(): void {
+    const capture = captureActiveBrokerSession();
+    if (!capture?.session.tradeWsBase) {
+      this.shouldReconnect = false;
+      console.warn('[WebSocket] Active broker has no validated trading WebSocket endpoint.');
+      return;
     }
-    return normalizeConfiguredWsUrl(
-      process.env.EXPO_PUBLIC_WS_URL,
-      buildBrokerWsUrl(state.brokerServerUrl, '/ws', 'wss://backend.orrnn.com/ws'),
-    );
+    this.shouldReconnect = true;
+    if (this.isSuspended) return;
+    void this.connectForIdentity(getActiveBrokerSessionIdentity(capture.session));
   }
 
-  /**
-   * Dispatches the initial connection sequence and restores active channels if reconnecting.
-   */
-  public connect(): void {
-    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
-      return; // Already connecting or connected
+  private async connectForIdentity(identity: ActiveBrokerSessionIdentity): Promise<void> {
+    if (
+      !this.shouldReconnect ||
+      this.isSuspended ||
+      !isActiveBrokerSessionCurrent(identity) ||
+      this.isResolvingSocketUrl
+    ) {
+      return;
+    }
+    if (
+      (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) &&
+      sameIdentity(this.activeIdentity, identity)
+    ) {
+      return;
     }
 
+    this.isResolvingSocketUrl = true;
+    let wsUrl = '';
     try {
-      this.url = this.resolveSocketUrl();
-      if (!this.url) {
+      wsUrl = await brokerApi.getWebSocketUrl();
+    } catch (error) {
+      this.isResolvingSocketUrl = false;
+      if (!this.isSuspended && this.shouldReconnect && isActiveBrokerSessionCurrent(identity)) {
         console.warn(
-          '[WebSocket]',
-          getBrokerBackendDomainUnavailableMessage(useUserPreferences.getState().brokerId),
+          '[WebSocket] Trading WebSocket URL unavailable.',
+          redactDiagnosticValue(error),
         );
-        this.attemptReconnect();
-        return;
+        this.attemptReconnect(identity);
       }
-      this.ws = new WebSocket(this.url);
+      return;
+    }
+    this.isResolvingSocketUrl = false;
+    if (this.isSuspended || !this.shouldReconnect || !wsUrl || !isActiveBrokerSessionCurrent(identity)) {
+      const current = captureActiveBrokerSession();
+      if (this.shouldReconnect && current?.session.tradeWsBase) this.connect();
+      return;
+    }
 
-      this.ws.onopen = () => {
-        console.log('[WebSocket] Connected to', this.url);
+    if (this.ws) this.teardownSocket();
+    try {
+      const socket = new WebSocket(wsUrl);
+      this.ws = socket;
+      this.activeIdentity = identity;
+
+      socket.onopen = () => {
+        if (this.ws !== socket || this.isSuspended || !isActiveBrokerSessionCurrent(identity)) {
+          socket.close();
+          return;
+        }
         this.isConnected = true;
         this.reconnectAttempts = 0;
-        
-        // Re-establish active subscriptions if this is a reconnect
-        this.activeSubscriptions.forEach(channel => {
-          this.send({ type: 'subscribe', channel });
+        this.activeSubscriptions.forEach((channel) => {
+          this.send({ type: 'subscribe', channel }, identity);
         });
       };
 
-      this.ws.onmessage = (event) => {
+      socket.onmessage = (event) => {
+        if (this.ws !== socket || this.isSuspended || !isActiveBrokerSessionCurrent(identity)) return;
         try {
-          const payload = JSON.parse(event.data as string);
-          this.handleMessage(payload);
-        } catch (e) {
-          console.warn('[WebSocket] Error parsing message', e);
+          this.handleMessage(JSON.parse(event.data as string), identity);
+        } catch (error) {
+          console.warn('[WebSocket] Error parsing message', redactDiagnosticValue(error));
         }
       };
 
-      this.ws.onclose = () => {
-        console.log('[WebSocket] Connection closed');
-        this.isConnected = false;
+      socket.onclose = (event) => {
+        if (this.ws !== socket) return;
         this.ws = null;
-        this.attemptReconnect();
+        this.isConnected = false;
+        this.activeIdentity = null;
+        if (isSocketAuthenticationFailure(event?.code)) {
+          this.shouldReconnect = false;
+          return;
+        }
+        if (isActiveBrokerSessionCurrent(identity)) this.attemptReconnect(identity);
       };
 
-      this.ws.onerror = (error) => {
-        console.error('[WebSocket] Error', error);
+      socket.onerror = () => {
+        if (this.ws === socket && isActiveBrokerSessionCurrent(identity)) {
+          console.warn('[WebSocket] Trading connection error.');
+        }
       };
-    } catch (e) {
-      console.error('[WebSocket] Connection failed', e);
-      this.attemptReconnect();
+    } catch (error) {
+      console.warn(
+        '[WebSocket] Connection initialization failed.',
+        redactDiagnosticValue(error),
+      );
+      this.attemptReconnect(identity);
     }
   }
 
-  /**
-   * Gracefully tears down the connection and clears all active subscription state locally.
-   */
   public disconnect(): void {
-    if (this.ws) {
-      this.activeSubscriptions.clear();
-      this.ws.close();
-      this.ws = null;
-      this.isConnected = false;
-    }
+    this.shouldReconnect = false;
+    this.reconnectAttempts = 0;
+    this.activeSubscriptions.clear();
+    this.clearReconnectTimer();
+    this.clearNetInfoListener();
+    this.teardownSocket();
+  }
+
+  public suspend(): void {
+    if (this.isSuspended) return;
+    this.isSuspended = true;
+    this.clearReconnectTimer();
+    this.clearNetInfoListener();
+    this.teardownSocket();
+  }
+
+  public resume(): void {
+    if (!this.isSuspended) return;
+    this.isSuspended = false;
+    if (!this.shouldReconnect || this.activeSubscriptions.size === 0) return;
+    const capture = captureActiveBrokerSession();
+    if (!capture?.session.tradeWsBase || !capture.credentials.accessToken) return;
+    void this.connectForIdentity(getActiveBrokerSessionIdentity(capture.session));
   }
 
   public subscribe(channel: string): void {
-    if (!this.activeSubscriptions.has(channel)) {
-      this.activeSubscriptions.add(channel);
-      if (this.isConnected) {
-        this.send({ type: 'subscribe', channel });
-      }
+    const normalized = String(channel ?? '').trim();
+    if (normalized === 'prices' || normalized.startsWith('quotes.')) {
+      console.warn('[WebSocket] Quote channels are disabled; executable quotes use /ws/feed only.');
+      return;
+    }
+    if (!normalized || this.activeSubscriptions.has(normalized)) return;
+    this.activeSubscriptions.add(normalized);
+    if (this.isConnected && this.activeIdentity) {
+      this.send({ type: 'subscribe', channel: normalized }, this.activeIdentity);
+    } else {
+      this.connect();
     }
   }
 
   public unsubscribe(channel: string): void {
-    if (this.activeSubscriptions.has(channel)) {
-      this.activeSubscriptions.delete(channel);
-      if (this.isConnected) {
-        this.send({ type: 'unsubscribe', channel });
-      }
+    const normalized = String(channel ?? '').trim();
+    if (!this.activeSubscriptions.delete(normalized)) return;
+    if (this.isConnected && this.activeIdentity) {
+      this.send({ type: 'unsubscribe', channel: normalized }, this.activeIdentity);
     }
   }
 
-  private send(msg: WsMessage): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(msg));
+  private send(message: WsMessage, identity: ActiveBrokerSessionIdentity): void {
+    if (
+      this.ws?.readyState === WebSocket.OPEN &&
+      sameIdentity(this.activeIdentity, identity) &&
+      isActiveBrokerSessionCurrent(identity)
+    ) {
+      this.ws.send(JSON.stringify(message));
     }
   }
 
-  private attemptReconnect(): void {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('[WebSocket] Max reconnect attempts reached.');
+  private attemptReconnect(identity: ActiveBrokerSessionIdentity): void {
+    if (
+      !this.shouldReconnect ||
+      this.isSuspended ||
+      this.reconnectTimer ||
+      !isActiveBrokerSessionCurrent(identity) ||
+      this.reconnectAttempts >= this.maxReconnectAttempts
+    ) {
       return;
     }
 
-    NetInfo.fetch().then((state) => {
-      if (state.isConnected === false) {
-        console.log('[WebSocket] Network offline. Pausing reconnect attempts.');
+    void NetInfo.fetch().then((network) => {
+      if (this.isSuspended || !this.shouldReconnect || !isActiveBrokerSessionCurrent(identity)) return;
+      if (network.isConnected === false) {
         if (!this.netInfoUnsubscribe) {
-          this.netInfoUnsubscribe = NetInfo.addEventListener(newState => {
-            if (newState.isConnected) {
-              console.log('[WebSocket] Network restored. Resuming connection...');
-              if (this.netInfoUnsubscribe) {
-                this.netInfoUnsubscribe();
-                this.netInfoUnsubscribe = null;
-              }
-              this.connect();
-            }
+          this.netInfoUnsubscribe = NetInfo.addEventListener((nextNetwork) => {
+            if (
+              this.isSuspended ||
+              !nextNetwork.isConnected ||
+              !isActiveBrokerSessionCurrent(identity)
+            ) return;
+            this.clearNetInfoListener();
+            void this.connectForIdentity(identity);
           });
         }
         return;
       }
 
-      this.reconnectAttempts++;
+      this.reconnectAttempts += 1;
       const delay = this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1);
-      console.log(`[WebSocket] Reconnecting in ${Math.round(delay)}ms... Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
-      setTimeout(() => this.connect(), delay);
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        if (!this.isSuspended) void this.connectForIdentity(identity);
+      }, delay);
     });
   }
 
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+  }
 
-  // ─── Message Routing ────────────────────────────────────────────────────────
+  private clearNetInfoListener(): void {
+    this.netInfoUnsubscribe?.();
+    this.netInfoUnsubscribe = null;
+  }
 
-  private handleMessage(payload: any) {
-    const { type, channel, data } = payload;
+  private teardownSocket(): void {
+    const socket = this.ws;
+    this.ws = null;
+    this.isConnected = false;
+    this.activeIdentity = null;
+    if (!socket) return;
+    socket.onopen = null;
+    socket.onmessage = null;
+    socket.onerror = null;
+    socket.onclose = null;
+    socket.close();
+  }
+
+  private handleMessage(payload: unknown, identity: ActiveBrokerSessionIdentity): void {
+    if (!sameIdentity(this.activeIdentity, identity) || !isActiveBrokerSessionCurrent(identity)) return;
+    if (!payloadMatchesSocketIdentity(payload, identity)) return;
+    const { type, channel, data } = payload as Record<string, any>;
+    if (type !== 'channel_message' || typeof channel !== 'string') return;
+
     const store = useTradingState.getState();
-
-    if (type === 'channel_message') {
-      // 1. Live Prices
-      if (channel === 'prices' || channel.startsWith('quotes.')) {
-        const bid = typeof data?.bid === 'number' ? data.bid : Number(data?.bid);
-        const ask = typeof data?.ask === 'number' ? data.ask : Number(data?.ask);
-        if (data?.symbol && Number.isFinite(bid) && Number.isFinite(ask) && bid > 0 && ask > 0) {
-          const feedTickTime = data.lastTickAt ?? data.timestamp ?? data.time ?? data.t;
-          const tickTime = feedTickTime ?? Date.now();
-          const candleTickTime =
-            feedTickTime !== undefined && feedTickTime !== null
-              ? feedTickTime
-              : isCryptoSymbol(data.symbol)
-                ? tickTime
-                : null;
-          store.setQuote(data.symbol, {
-            bid,
-            ask,
-            lastTickAt: tickTime,
-            lastReceivedAt: Date.now(),
-          });
-          if (candleTickTime !== null) {
-            const volume = typeof data?.volume === 'number' ? data.volume : Number(data?.volume);
-            liveCandleStream.extendActiveCandlesFromQuoteTick(data.symbol, {
-              price: bid,
-              time: candleTickTime,
-              volume: Number.isFinite(volume) && volume > 0 ? volume : undefined,
-            });
-          }
-        }
-      }
-      
-      // 2. Account Updates
-      if (channel.startsWith('account.')) {
-        store.setAccount(data);
-      }
-      
+    if (channel.startsWith('account.')) {
+      store.setAccount(data);
     }
   }
 }
 
-// Export a singleton instance
 export const wsService = WebSocketService.getInstance();

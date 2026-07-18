@@ -7,11 +7,12 @@
  */
 
 import { loginAPI } from './auth';
-import { extractFeedBrokerToken } from './feedAuth';
 import {
   getTradingAccountTypeFromBackend,
   type TradingAccountType,
 } from '../domain/accountType';
+import { resolveSessionFeedAuth } from './feedAuthContract';
+import type { FeedAuthContext } from '../state/activeBrokerSession';
 
 export interface SignInRequest {
   username: string;
@@ -19,6 +20,7 @@ export interface SignInRequest {
   brokerId: string;
   serverUrl?: string;
   logoUrl?: string;
+  signal?: AbortSignal;
 }
 
 export interface SignInResult {
@@ -33,6 +35,7 @@ export interface SignInResult {
   logoUrl: string;
   accountType: TradingAccountType;
   feedToken?: string;
+  feedAuthContext: FeedAuthContext;
 }
 
 export class SignInError extends Error {
@@ -48,16 +51,16 @@ export async function signInWithCredentials({
   brokerId,
   serverUrl,
   logoUrl,
+  signal,
 }: SignInRequest): Promise<SignInResult> {
   const response: any = await loginAPI({
     username,
     password,
     broker_id: brokerId,
-  }, { serverUrl });
+  }, { serverUrl, signal });
 
   const accessToken = response.access_token ?? response.token;
   const refreshToken = response.refresh_token ?? response.refreshToken ?? '';
-  const feedToken = extractFeedBrokerToken(response);
   const accountLoginRaw =
     response.account_login ??
     response.accountLogin ??
@@ -87,6 +90,9 @@ export async function signInWithCredentials({
   if (accountLoginRaw === undefined || accountLoginRaw === null) {
     throw new SignInError('Login server did not return an account login.');
   }
+  if (String(canonicalBrokerId).trim().toLowerCase() !== brokerId.trim().toLowerCase()) {
+    throw new SignInError('Login response did not match the selected broker.');
+  }
 
   const expiresAtIso = (() => {
     if (typeof response.expires_at === 'number' && response.expires_at > 0) {
@@ -97,6 +103,11 @@ export async function signInWithCredentials({
       typeof response.expires_in === 'number' ? response.expires_in : 86400;
     return new Date(Date.now() + expiresInSec * 1000).toISOString();
   })();
+
+  const sessionFeed = resolveSessionFeedAuth({
+    response,
+    brokerId: String(canonicalBrokerId),
+  });
 
   return {
     accessToken,
@@ -109,6 +120,7 @@ export async function signInWithCredentials({
     serverUrl: serverUrl ?? '',
     logoUrl: logoUrl ?? '',
     accountType,
-    feedToken,
+    ...(sessionFeed.feedToken ? { feedToken: sessionFeed.feedToken } : {}),
+    feedAuthContext: sessionFeed.feedAuthContext,
   };
 }

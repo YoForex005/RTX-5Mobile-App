@@ -14,7 +14,6 @@ import { usePathname, useRouter } from 'expo-router';
 import { ActivityIndicator, Alert, FlatList, Image, Platform, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../ui/components/Screen';
 import { FastPressable } from '../../ui/components/FastPressable';
-import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 
 
 import { useTheme } from '../../ui/theme/useTheme';
@@ -35,6 +34,8 @@ import {
   useTradeNotifications,
 } from '../../state/tradeNotifications';
 import { signInWithCredentials } from '../../api/authSession';
+import { isLoginRequestAbortedError } from '../../api/auth';
+import { redactAuthPayload, redactSensitiveString } from '../../api/authRedaction';
 import { removeSecureItemAsync } from '../../utils/secureStorage';
 import { fmt } from '../../utils/format';
 import { ChangePasswordSheet } from './ChangePasswordSheet';
@@ -43,12 +44,10 @@ import { ActionSheet } from '../../ui/components/ActionSheet';
 
 // ── API Integration: fetches live account + broker data for active card ──
 import {
-  ACCOUNTS_LIST_KEY,
-  ACCOUNT_DETAIL_KEY,
   useAccountDetails,
   useAccounts,
 } from '../../query/accounts';
-import { BROKER_CONFIG_KEY, useBrokerConfig, useBrokerServers } from '../../query/broker';
+import { useBrokerConfig, useBrokerServers } from '../../query/broker';
 import { useHealth } from '../../query/health';
 import { useMt5Status } from '../../query/mt5';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -66,14 +65,7 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { translateAccountCardName } from '../../i18n/translations';
 import { useDeferredActiveFlag } from '../../hooks/useDeferredActiveFlag';
 import { runImmediateAction } from '../../utils/actionLatency';
-import {
-  clearAuthSessionTokens,
-  persistAuthSessionTokens,
-  persistSelectedBrokerSession,
-} from '../../state/brokerSessionStorage';
 import { bootstrapApp } from '../../services/bootstrapApp';
-import { accountWsService } from '../../api/ws/accountSocket';
-import { candlesWsService } from '../../domain/candles/ws/candlesSocket';
 import {
   getTradingAccountBadgeLabel,
   getTradingAccountType,
@@ -82,9 +74,10 @@ import {
 import type { TradingAccount } from '../../api/accounts';
 import { checkBrokerServerHealth, type BrokerServer } from '../../api/broker';
 import {
-  isBrokerServiceBaseUrl,
+  isBrokerServerUrlForApiBase,
   normalizeBrokerServerUrl,
-  resolveBrokerServiceBaseUrl,
+  resolveBrokerEndpointSet,
+  toBrokerServiceRoot,
 } from '../../api/brokerRouting';
 import { hasAuthenticatedAccountSession } from './accountConnectionStatus';
 import {
@@ -101,6 +94,15 @@ import {
   scheduleBrokersLaunchNavigation,
   showBrokersLaunch,
 } from './brokersLaunchController';
+import {
+  authorizeBrokerSessionCommit,
+  cancelBrokerSessionCommitAuthorization,
+  commitBrokerSession,
+  isStaleBrokerSessionCommitError,
+  logoutBrokerSession,
+  type BrokerSessionCommitAuthorization,
+} from '../../services/brokerSessionCoordinator';
+import { getActiveBrokerSessionProvenance } from '../../state/activeBrokerSession';
 
 const ACCOUNTS_SCREEN_DIAGNOSTICS_ENABLED =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_ACCOUNTS_SCREEN === 'true';
@@ -155,28 +157,14 @@ const AccountsActionSheetHost = React.memo(function AccountsActionSheetHost() {
   );
 });
 
-const ACCOUNT_SWITCH_STALE_QUERY_KEYS: ReadonlyArray<readonly unknown[]> = [
-  [ACCOUNTS_LIST_KEY],
-  [ACCOUNT_DETAIL_KEY],
-  [BROKER_CONFIG_KEY],
-  ['positions'],
-  ['ordersByLogin'],
-  ['accountOrders'],
-  ['orders'],
-  ['accountSummary'],
-  ['positionHistory'],
-  ['accountDeals'],
-  ['deals'],
-  ['exposure'],
-  ['transactions'],
-];
 const ACCOUNTS_SCREEN_DATA_DELAY_MS = 650;
 // The sidebar host keeps this screen mounted from boot. Prewarm its visual
 // body and run the account queries once while it is still hidden, so the
 // first "Manage accounts" open shows real content instead of loading UI.
-const ACCOUNTS_BODY_PREWARM_DELAY_MS = 2500;
-const ACCOUNTS_DATA_PREWARM_DELAY_MS = 4000;
-const ACCOUNTS_DATA_PREWARM_WINDOW_MS = 10000;
+// Hosted sidebar destination: body mounts immediately; data still prewarms early.
+const ACCOUNTS_BODY_PREWARM_DELAY_MS = 0;
+const ACCOUNTS_DATA_PREWARM_DELAY_MS = 800;
+const ACCOUNTS_DATA_PREWARM_WINDOW_MS = 15000;
 const ACCOUNT_SWITCH_BROKER_WARM_TTL_MS = 30_000;
 
 const schedulePostAccountSwitchWork = (work: () => void) => {
@@ -279,7 +267,10 @@ const buildBrokerLogoIndex = (brokerServers?: readonly BrokerServer[]): BrokerLo
     addBrokerLogoLookup(byServerName, broker.domain_name, logoUrl);
 
     const serverCandidates = [
-      resolveBrokerServiceBaseUrl(broker),
+      (() => {
+        const resolution = resolveBrokerEndpointSet(broker);
+        return resolution.ok ? resolution.endpoints.apiBase : '';
+      })(),
       broker.server_url,
       broker.market_api_url,
       broker.domains?.services,
@@ -294,6 +285,11 @@ const buildBrokerLogoIndex = (brokerServers?: readonly BrokerServer[]): BrokerLo
       const normalizedServerUrl = normalizeBrokerServerUrl(candidate);
       if (normalizedServerUrl && !byServerUrl.has(normalizedServerUrl)) {
         byServerUrl.set(normalizedServerUrl, logoUrl);
+      }
+      // Index both service root and REST base so saved accounts match either form.
+      const serviceRoot = toBrokerServiceRoot(normalizedServerUrl || candidate);
+      if (serviceRoot && !byServerUrl.has(serviceRoot)) {
+        byServerUrl.set(serviceRoot, logoUrl);
       }
     }
   }
@@ -347,13 +343,6 @@ const isMissingSavedAccountSwitchError = (error: unknown) => {
     normalizedMessage.includes('login not found') ||
     normalizedMessage.includes('user not found')
   );
-};
-
-const removeAccountScopedQueries = (queryClient: QueryClient) => {
-  for (const queryKey of ACCOUNT_SWITCH_STALE_QUERY_KEYS) {
-    queryClient.removeQueries({ queryKey });
-    void queryClient.invalidateQueries({ queryKey });
-  }
 };
 
 type OtherAccountRow = {
@@ -420,14 +409,17 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
   const pathnameRef = React.useRef(pathname);
   const pendingBrokerReturnCloseRef = React.useRef(false);
   const pendingBrokerReturnTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const accountsMountedRef = React.useRef(true);
+  const accountSwitchInFlightRef = React.useRef(false);
+  const activeAccountSwitchAttemptRef = React.useRef<{
+    authorization: BrokerSessionCommitAuthorization;
+    controller: AbortController;
+  } | null>(null);
   pathnameRef.current = pathname;
-  const queryClient = useQueryClient();
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const showAccountsActionSheet = useUIState((s) => s.showAccountsActionSheet);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const isDemoAccount = useUserPreferences((s) => s.isDemoAccount);
-  const userLogin = useUserPreferences((s) => s.login);
-  const userLogout = useUserPreferences((s) => s.logout);
   const savedAccounts = useSavedAccounts((s) => s.accounts);
   const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
   const removeSavedAccount = useSavedAccounts((s) => s.removeAccount);
@@ -875,7 +867,6 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
   }, [router]);
 
   const [connectingKey, setConnectingKey] = React.useState<string | null>(null);
-  const accountSwitchInFlightRef = React.useRef(false);
   const warmedSwitchBrokerAtRef = React.useRef(new Map<string, number>());
   const [expandedAccountKey, setExpandedAccountKey] = React.useState<string | null>(null);
   const [passwordSheetVisible, setPasswordSheetVisible] = React.useState(false);
@@ -884,6 +875,28 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
   const [deleteTarget, setDeleteTarget] = React.useState<DeleteAccountTarget | null>(null);
   const [tradeNotificationsSheetVisible, setTradeNotificationsSheetVisible] = React.useState(false);
   const [brokerLogoFailed, setBrokerLogoFailed] = React.useState<Record<string, boolean>>({});
+
+  React.useEffect(() => {
+    accountsMountedRef.current = true;
+    return () => {
+      accountsMountedRef.current = false;
+      const activeAttempt = activeAccountSwitchAttemptRef.current;
+      activeAttempt?.controller.abort();
+      cancelBrokerSessionCommitAuthorization(activeAttempt?.authorization);
+      activeAccountSwitchAttemptRef.current = null;
+      accountSwitchInFlightRef.current = false;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (isScreenFocused) return;
+    const activeAttempt = activeAccountSwitchAttemptRef.current;
+    activeAttempt?.controller.abort();
+    cancelBrokerSessionCommitAuthorization(activeAttempt?.authorization);
+    activeAccountSwitchAttemptRef.current = null;
+    accountSwitchInFlightRef.current = false;
+    setConnectingKey(null);
+  }, [isScreenFocused]);
 
   /**
    * Callback triggered when a remote broker logo URL fails to load, gracefully falling back to a placeholder icon.
@@ -907,25 +920,38 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
       return;
     }
 
-    const normalizedServerUrl = normalizeBrokerServerUrl(row.serverUrl);
-    if (!isBrokerServiceBaseUrl(normalizedServerUrl)) {
+    const savedServerUrl = normalizeBrokerServerUrl(row.serverUrl);
+    if (!savedServerUrl) {
       return;
     }
+    const endpointSet = (brokerServers ?? [])
+      .filter((broker) => broker.broker_id.trim().toLowerCase() === row.brokerId.trim().toLowerCase())
+      .map(resolveBrokerEndpointSet)
+      .find((resolution) => (
+        resolution.ok
+        && isBrokerServerUrlForApiBase(savedServerUrl, resolution.endpoints.apiBase)
+      ));
+    if (!endpointSet?.ok) {
+      return;
+    }
+    // Handoff: health is {server_url}/health on the service root.
+    const serverUrl = toBrokerServiceRoot(endpointSet.endpoints.apiBase) || savedServerUrl;
 
     const now = Date.now();
-    const lastWarmAt = warmedSwitchBrokerAtRef.current.get(normalizedServerUrl) ?? 0;
+    const lastWarmAt = warmedSwitchBrokerAtRef.current.get(serverUrl) ?? 0;
     if (now - lastWarmAt < ACCOUNT_SWITCH_BROKER_WARM_TTL_MS) {
       return;
     }
 
-    warmedSwitchBrokerAtRef.current.set(normalizedServerUrl, now);
-    void checkBrokerServerHealth(normalizedServerUrl).catch(() => {
-      // A failed warm-up must never block switching, and it remains retryable.
-      if (warmedSwitchBrokerAtRef.current.get(normalizedServerUrl) === now) {
-        warmedSwitchBrokerAtRef.current.delete(normalizedServerUrl);
+    warmedSwitchBrokerAtRef.current.set(serverUrl, now);
+    void checkBrokerServerHealth(serverUrl).catch(() => {
+      // Keep a failed warm-up retryable. The switch path performs its own
+      // mandatory check before credentials are sent.
+      if (warmedSwitchBrokerAtRef.current.get(serverUrl) === now) {
+        warmedSwitchBrokerAtRef.current.delete(serverUrl);
       }
     });
-  }, [isScreenFocused]);
+  }, [brokerServers, isScreenFocused]);
 
   /**
    * Logs the user into the selected saved account.
@@ -934,6 +960,12 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
     if (accountSwitchInFlightRef.current) return;
     accountSwitchInFlightRef.current = true;
     setConnectingKey(row.key);
+    const commitAuthorization = authorizeBrokerSessionCommit();
+    const loginAbortController = new AbortController();
+    activeAccountSwitchAttemptRef.current = {
+      authorization: commitAuthorization,
+      controller: loginAbortController,
+    };
     recordAccountJournalEvent(`account switch requested for broker ${row.brokerId}`, {
       accountLogin: row.login,
     });
@@ -971,37 +1003,67 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
         return;
       }
 
+      const approvedRoutes = (brokerServers ?? [])
+        .filter((broker) => broker.broker_id.trim().toLowerCase() === row.brokerId.trim().toLowerCase())
+        .map((broker) => ({ broker, resolution: resolveBrokerEndpointSet(broker) }))
+        .filter((candidate) => candidate.resolution.ok);
+      const savedServerUrl = normalizeBrokerServerUrl(row.serverUrl);
+      const exactSavedRoute = approvedRoutes.find((candidate) => (
+        candidate.resolution.ok
+        && isBrokerServerUrlForApiBase(savedServerUrl, candidate.resolution.endpoints.apiBase)
+      ));
+      const approvedRoute = exactSavedRoute;
+      if (!approvedRoute?.resolution.ok) {
+        throw new Error(t('The saved broker server no longer matches the broker directory. Select the broker again.'));
+      }
+      const endpoints = approvedRoute.resolution.endpoints;
+      const approvedLogoUrl = approvedRoute.broker.logo_url?.trim() || row.logoUrl;
+      const exactServerUrl = toBrokerServiceRoot(endpoints.apiBase) || savedServerUrl;
+
+      // A warm-up is only a latency optimization. Re-check the exact saved
+      // server before sending credentials so a failed warm-up can never be
+      // bypassed and no alternate broker/server can receive the login.
+      await checkBrokerServerHealth(exactServerUrl);
+
       const result = await signInWithCredentials({
         username: row.login,
         password,
         brokerId: row.brokerId,
-        serverUrl: row.serverUrl,
-        logoUrl: row.logoUrl,
+        serverUrl: exactServerUrl,
+        logoUrl: approvedLogoUrl,
+        signal: loginAbortController.signal,
       });
 
       if (normalizeSwitchLogin(result.accountLogin) !== normalizeSwitchLogin(row.login)) {
         throw new Error(ACCOUNT_SWITCH_ACCOUNT_MISSING_MESSAGE);
       }
 
-      userLogin(
-        result.accountLogin,
-        result.accountName,
-        result.serverName || row.server || result.brokerId,
-        {
-          access_token: result.accessToken,
-          refresh_token: result.refreshToken,
-          expires_at: result.expiresAtIso,
+      const committedSession = await commitBrokerSession({
+        session: {
+          brokerId: endpoints.brokerId,
+          accountLogin: result.accountLogin,
+          apiBase: endpoints.apiBase,
+          feedWsBase: endpoints.feedWsBase,
+          tradeWsBase: endpoints.tradeWsBase,
+          feedStatusUrl: endpoints.feedStatusUrl,
+          servicesDomain: endpoints.servicesDomain,
+          feedAuthContext: result.feedAuthContext,
+          configVersion: endpoints.configVersion,
         },
-        result.brokerId,
-        {
-          serverUrl: result.serverUrl || row.serverUrl,
-          logoUrl: result.logoUrl || row.logoUrl,
+        credentials: {
+          accessToken: result.accessToken,
+          refreshToken: result.refreshToken,
+          expiresAt: result.expiresAtIso,
+          ...(result.feedToken ? { feedToken: result.feedToken } : {}),
+        },
+        account: {
+          name: result.accountName,
+          serverName: result.serverName || row.server || result.brokerId,
+          logoUrl: approvedLogoUrl,
           isDemoAccount: result.accountType === 'demo',
         },
-      );
-      useLiveAccountState.getState().resetMetrics();
-      usePositionsState.getState().clearPositions();
-      removeAccountScopedQueries(queryClient);
+      }, commitAuthorization);
+      const committedProvenance = getActiveBrokerSessionProvenance(committedSession.session);
 
       setSuccessMessage(t('Account switched successfully'));
       recordAccountJournalEvent(`account switched successfully on ${result.brokerId}`, {
@@ -1017,33 +1079,28 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
           name: result.accountName || row.name,
           brokerId: result.brokerId,
           server: result.serverName || row.server,
-          serverUrl: result.serverUrl || row.serverUrl,
-          logoUrl: result.logoUrl || row.logoUrl,
+          serverUrl: exactServerUrl,
+          logoUrl: approvedLogoUrl,
           accountType: result.accountType,
           lastUsedAt: Date.now(),
           hasCredentials: true,
         });
 
-        void Promise.all([
-          persistSelectedBrokerSession({
-            brokerId: result.brokerId,
-            serverUrl: result.serverUrl || row.serverUrl,
-            logoUrl: result.logoUrl || row.logoUrl,
-          }),
-          persistAuthSessionTokens({
-            accessToken: result.accessToken,
-            refreshToken: result.refreshToken,
-            expiresAt: result.expiresAtIso,
-            feedToken: result.feedToken,
-          }),
-        ]).catch((err) => {
-          console.warn('[Accounts] Failed to persist switched account session', err);
-        });
-        void bootstrapApp({ accountLogin: result.accountLogin }).catch((err) => {
-          console.warn('[Accounts] Failed to bootstrap switched account', err);
+        void bootstrapApp({
+          accountLogin: result.accountLogin,
+          expectedProvenance: committedProvenance,
+        }).catch((err) => {
+          console.warn('[Accounts] Failed to bootstrap switched account', redactAuthPayload(err));
         });
       });
     } catch (error: any) {
+      if (
+        !accountsMountedRef.current ||
+        isLoginRequestAbortedError(error) ||
+        isStaleBrokerSessionCommitError(error)
+      ) {
+        return;
+      }
       if (isMissingSavedAccountSwitchError(error)) {
         removeSavedAccount(row.login, row.brokerId);
         removeSavedAccountPassword(row.brokerId, row.login).catch(() => undefined);
@@ -1057,14 +1114,25 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
         );
         return;
       }
-      recordAccountJournalEvent(`account switch failed: ${error?.message || t('Unable to switch account.')}`, {
+      const safeErrorMessage = redactSensitiveString(
+        typeof error?.message === 'string' && error.message.trim()
+          ? error.message
+          : t('Unable to switch account.'),
+      );
+      recordAccountJournalEvent(`account switch failed: ${safeErrorMessage}`, {
         level: 'error',
         accountLogin: row.login,
       });
-      Alert.alert(t('Switch failed'), error?.message || t('Unable to switch account.'));
+      Alert.alert(t('Switch failed'), safeErrorMessage);
     } finally {
+      cancelBrokerSessionCommitAuthorization(commitAuthorization);
+      if (activeAccountSwitchAttemptRef.current?.authorization === commitAuthorization) {
+        activeAccountSwitchAttemptRef.current = null;
+      }
       accountSwitchInFlightRef.current = false;
-      setConnectingKey(null);
+      if (accountsMountedRef.current) {
+        setConnectingKey(null);
+      }
     }
   };
 
@@ -1123,21 +1191,18 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
     // Wipe the login screen's auto-fill credentials so the deleted account's
     // broker id / login id / password do NOT pre-populate on next visit.
     removeSecureItemAsync('rtx5_saved_login').catch(() => undefined);
-    accountWsService.disconnect();
-    candlesWsService.disconnect();
-    useLiveAccountState.getState().resetMetrics();
-    usePositionsState.getState().clearPositions();
-    removeAccountScopedQueries(queryClient);
-    userLogout();
     recordAccountJournalEvent('current account deleted and local session logged out', {
       level: 'success',
       accountLogin: displayLogin,
     });
-    clearAuthSessionTokens().catch(() => undefined);
     // Delete must NOT redirect to /login (that's the logout flow). Go back
     // to the settings tab so the user sees the app in a logged-out state
     // without their old credentials pre-filled anywhere.
-    closeAccountsScreen();
+    void logoutBrokerSession()
+      .catch((error) => {
+        console.warn('[Accounts] Secure logout cleanup failed', redactAuthPayload(error));
+      })
+      .finally(closeAccountsScreen);
   };
 
   const accountsOptionsSheetConfig = React.useMemo<Parameters<typeof showAccountsActionSheet>[0]>(() => ({

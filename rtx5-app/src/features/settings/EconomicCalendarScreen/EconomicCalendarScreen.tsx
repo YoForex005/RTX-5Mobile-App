@@ -45,7 +45,8 @@ const ECON_CALENDAR_IDLE_PREWARM_DELAY_MS = 6000;
 // Mount the retained calendar rows offscreen after the lighter sidebar pages.
 // Live refreshes remain focus-only; this prewarm consumes the existing local
 // fallback/cache and prevents a visible body-load after a drawer selection.
-const ECON_CALENDAR_BODY_PREWARM_DELAY_MS = 2_800;
+// Hosted sidebar destination: mount body immediately so first open is never blank.
+const ECON_CALENDAR_BODY_PREWARM_DELAY_MS = 0;
 
 /**
  * Screen displaying a calendar of upcoming global macroeconomic events and their expected market impact.

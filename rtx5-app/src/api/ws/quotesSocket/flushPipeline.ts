@@ -11,13 +11,11 @@
  * 500-line ceiling.
  */
 import { useTradingState } from '../../../state/tradingState';
-import { quotes as mockQuotes } from '../../../dev/mock/tradingData';
 import { hasQuotePriceChange } from '../../../utils/quotePriceChange';
 import { calculateQuoteSpreadPoints } from '../../../utils/quoteSpread';
 import { resolveBackendQuoteVolume } from '../../../utils/quoteVolume';
 import { normalizeQuoteTickTimestampToMs } from '../quoteTimestamp';
 
-const symbolSpecs = new Map(mockQuotes.map((q) => [q.symbol, q]));
 const QUOTE_STORE_FLUSH_INTERVAL_MS = 16;
 
 export interface FlushPipelineState {
@@ -25,6 +23,7 @@ export interface FlushPipelineState {
   flushAnimationFrame: number | null;
   flushTimer: ReturnType<typeof setTimeout> | null;
   pendingUpdates: Map<string, any>;
+  canCommitPendingUpdates?: () => boolean;
 }
 
 export const scheduleFlush = (state: FlushPipelineState): void => {
@@ -72,20 +71,31 @@ export const cancelFlush = (state: FlushPipelineState): void => {
 
 export const flushUpdates = (state: FlushPipelineState): void => {
   if (state.pendingUpdates.size === 0) return;
+  if (state.canCommitPendingUpdates?.() === false) {
+    state.pendingUpdates.clear();
+    return;
+  }
 
   const updates = state.pendingUpdates;
   state.pendingUpdates = new Map();
   const now = Date.now();
 
   useTradingState.setState((tradingState) => {
+    if (state.canCommitPendingUpdates?.() === false) {
+      return tradingState;
+    }
     const newQuotes = { ...tradingState.quotes };
     let priceChangeCount = 0;
+    let appliedUpdateCount = 0;
 
     updates.forEach((data, symbol) => {
       const bid: number = data.bid;
       const ask: number = data.ask;
+      if (!Number.isFinite(bid) || bid <= 0 || !Number.isFinite(ask) || ask < bid) {
+        return;
+      }
+      appliedUpdateCount += 1;
       const existing = newQuotes[symbol];
-      const spec = symbolSpecs.get(symbol);
       const feedTickAt =
         normalizeQuoteTickTimestampToMs(data.feedTickAt ?? data.lastTickAt ?? data.timestamp ?? data.time ?? data.t);
       const lastReceivedAt =
@@ -102,11 +112,11 @@ export const flushUpdates = (state: FlushPipelineState): void => {
         : existing?.lastPriceChangedAt;
 
       if (!existing) {
-        const digits = data.digits ?? spec?.digits ?? 5;
+        const digits = data.digits;
         const volume = resolveBackendQuoteVolume({ incoming: data.volume });
         const entry: any = {
           symbol,
-          digits,
+          ...(digits === undefined ? {} : { digits }),
           ...(data.digits !== undefined ? { digitsSource: 'backend' } : {}),
           feedTickAt,
           lastTickAt,
@@ -115,8 +125,6 @@ export const flushUpdates = (state: FlushPipelineState): void => {
           bid,
           ask,
         };
-        // Copy spec defaults then server data in one pass
-        if (spec) { const s = spec as any; for (const k in s) { if (entry[k] === undefined) entry[k] = s[k]; } }
         for (const k in data) { if (k !== 'symbol') entry[k] = data[k]; }
         entry.feedTickAt = feedTickAt ?? undefined;
         entry.lastTickAt = lastTickAt;
@@ -134,7 +142,7 @@ export const flushUpdates = (state: FlushPipelineState): void => {
         entry.spread = calculateQuoteSpreadPoints(bid, ask, digits) ?? entry.spread;
         newQuotes[symbol] = entry;
       } else {
-        const digits = data.digits ?? existing.digits ?? spec?.digits ?? 5;
+        const digits = data.digits ?? existing.digits;
         const volume = resolveBackendQuoteVolume({ incoming: data.volume, previous: existing });
 
         // Single object creation — merge existing + server data in one allocation
@@ -147,7 +155,9 @@ export const flushUpdates = (state: FlushPipelineState): void => {
         updated.symbol = symbol;
         updated.bid = bid;
         updated.ask = ask;
-        updated.digits = digits;
+        if (digits !== undefined) {
+          updated.digits = digits;
+        }
         if (data.digits !== undefined) {
           updated.digitsSource = 'backend';
         }
@@ -178,6 +188,6 @@ export const flushUpdates = (state: FlushPipelineState): void => {
     // re-render on every tick — including identical-price heartbeats.
     // priceChangeCount is retained as a hint but not used for gating.
     void priceChangeCount;
-    return { quotes: newQuotes, tickCount: tradingState.tickCount + updates.size };
+    return { quotes: newQuotes, tickCount: tradingState.tickCount + appliedUpdateCount };
   });
 };

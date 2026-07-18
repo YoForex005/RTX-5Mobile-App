@@ -5,12 +5,19 @@
 import { useQuery } from '@tanstack/react-query';
 import {
   getBrokerConfig,
-  getBrokerServers,
+  getBrokerDirectory,
   BrokerConfigResponse,
   BrokerConfigError,
-  type BrokerServer,
+  BrokerDirectoryContractError,
+  type BrokerDirectoryResult,
+  type ValidatedBrokerServer,
 } from '../api/broker';
 import { appQueryClient } from '../state/providers/AppProviders';
+import {
+  getSessionQueryCacheNamespace,
+  runSessionBoundQuery,
+  useActiveBrokerQuerySession,
+} from './authenticatedQueryScope';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TanStack Query hook for GET /broker/config
@@ -27,6 +34,17 @@ import { appQueryClient } from '../state/providers/AppProviders';
 
 export const BROKER_CONFIG_KEY = 'brokerConfig';
 export const BROKER_SERVERS_KEY = 'brokerServers';
+export const BROKER_DIRECTORY_QUERY_VERSION = 4;
+
+const getBrokerDirectoryQueryKey = () => [
+  BROKER_SERVERS_KEY,
+  BROKER_DIRECTORY_QUERY_VERSION,
+] as const;
+
+export const getBrokerConfigQueryKey = (
+  cacheNamespace: string,
+  brokerId?: string,
+) => [BROKER_CONFIG_KEY, cacheNamespace, brokerId] as const;
 
 /**
  * Determines whether a failed broker config request should be retried.
@@ -41,6 +59,10 @@ export const BROKER_SERVERS_KEY = 'brokerServers';
  */
 function shouldRetryBrokerConfig(failureCount: number, error: Error): boolean {
   if (failureCount >= 2) return false; // Max 2 retries
+
+  if (error instanceof BrokerDirectoryContractError) {
+    return false;
+  }
 
   if (error instanceof BrokerConfigError) {
     const { statusCode } = error;
@@ -66,10 +88,15 @@ function shouldRetryBrokerConfig(failureCount: number, error: Error): boolean {
  *                   Defaults to true when brokerId is truthy.
  */
 export function useBrokerConfig(brokerId?: string, enabled?: boolean) {
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
   return useQuery<BrokerConfigResponse, Error>({
-    queryKey: [BROKER_CONFIG_KEY, brokerId],
-    queryFn: () => getBrokerConfig(brokerId),
-    enabled: enabled ?? !!brokerId,
+    queryKey: getBrokerConfigQueryKey(cacheNamespace, brokerId),
+    queryFn: () => runSessionBoundQuery(
+      cacheNamespace,
+      () => getBrokerConfig(brokerId),
+    ),
+    enabled: Boolean(session) && (enabled ?? !!brokerId),
     staleTime: 5 * 60 * 1000,  // 5 minutes — broker config changes rarely
     retry: shouldRetryBrokerConfig,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000), // Exponential backoff: 1s, 2s, 4s... capped at 10s
@@ -83,10 +110,10 @@ export function useBrokerConfig(brokerId?: string, enabled?: boolean) {
  * we filter this list client-side. The directory rarely changes, so we cache
  * it for 5 minutes and re-use the same response across mounts.
  */
-export function useBrokerServers(enabled: boolean = true) {
-  return useQuery<BrokerServer[], Error>({
-    queryKey: [BROKER_SERVERS_KEY],
-    queryFn: () => getBrokerServers(),
+export function useBrokerDirectory(enabled: boolean = true) {
+  return useQuery<BrokerDirectoryResult, Error>({
+    queryKey: getBrokerDirectoryQueryKey(),
+    queryFn: () => getBrokerDirectory(),
     enabled,
     staleTime: 5 * 60 * 1000,
     // Retry transient network blips so a single bad packet doesn't strand the
@@ -96,11 +123,24 @@ export function useBrokerServers(enabled: boolean = true) {
   });
 }
 
+/** Backwards-compatible view containing every validated selectable server. */
+export function useBrokerServers(enabled: boolean = true) {
+  return useQuery<BrokerDirectoryResult, Error, ValidatedBrokerServer[]>({
+    queryKey: getBrokerDirectoryQueryKey(),
+    queryFn: () => getBrokerDirectory(),
+    select: (directory) => [...directory.selectableServers],
+    enabled,
+    staleTime: 5 * 60 * 1000,
+    retry: shouldRetryBrokerConfig,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
+  });
+}
+
 /** Starts the public broker directory request before the user taps Accounts +. */
 export function prefetchBrokerServers() {
-  return appQueryClient.prefetchQuery<BrokerServer[], Error>({
-    queryKey: [BROKER_SERVERS_KEY],
-    queryFn: () => getBrokerServers(),
+  return appQueryClient.prefetchQuery<BrokerDirectoryResult, Error>({
+    queryKey: getBrokerDirectoryQueryKey(),
+    queryFn: () => getBrokerDirectory(),
     staleTime: 5 * 60 * 1000,
     retry: shouldRetryBrokerConfig,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),

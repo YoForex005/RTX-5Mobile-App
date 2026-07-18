@@ -636,11 +636,11 @@ test('sidebar hosts detail destinations directly and shares the fast primary-tab
 
 test('sidebar detail screens prewarm complete retained content before their first reveal', () => {
   const destinationFiles = [
-    ['src/features/settings/JournalScreen/JournalScreen.tsx', 'JOURNAL_BODY_PREWARM_DELAY_MS', '2_200'],
-    ['src/features/settings/EconomicCalendarScreen/EconomicCalendarScreen.tsx', 'ECON_CALENDAR_BODY_PREWARM_DELAY_MS', '2_800'],
-    ['src/features/settings/UserGuideScreen.tsx', 'USER_GUIDE_BODY_PREWARM_DELAY_MS', '1_900'],
-    ['src/features/settings/HelpScreen.tsx', 'HELP_BODY_PREWARM_DELAY_MS', '1_650'],
-    ['src/features/settings/AboutScreen.tsx', 'ABOUT_BODY_PREWARM_DELAY_MS', '1_400'],
+    ['src/features/settings/JournalScreen/JournalScreen.tsx', 'JOURNAL_BODY_PREWARM_DELAY_MS', '0'],
+    ['src/features/settings/EconomicCalendarScreen/EconomicCalendarScreen.tsx', 'ECON_CALENDAR_BODY_PREWARM_DELAY_MS', '0'],
+    ['src/features/settings/UserGuideScreen.tsx', 'USER_GUIDE_BODY_PREWARM_DELAY_MS', '0'],
+    ['src/features/settings/HelpScreen.tsx', 'HELP_BODY_PREWARM_DELAY_MS', '0'],
+    ['src/features/settings/AboutScreen.tsx', 'ABOUT_BODY_PREWARM_DELAY_MS', '0'],
   ] as const;
 
   for (const [file, prewarmConstant, prewarmDelay] of destinationFiles) {

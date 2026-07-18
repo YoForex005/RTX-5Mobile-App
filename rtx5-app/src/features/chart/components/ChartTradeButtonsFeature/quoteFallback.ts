@@ -16,11 +16,13 @@ export type ChartTradeButtonQuoteInput = {
 export function resolveChartTradeButtonQuote({
   liveBid,
   liveAsk,
-  fallbackBid,
-  fallbackAsk,
+  // Candle/snapshot fallbacks are retained in the call shape for compatibility
+  // with chart renderers, but are never eligible for a trade-button price.
+  fallbackBid: _fallbackBid,
+  fallbackAsk: _fallbackAsk,
 }: ChartTradeButtonQuoteInput): { bid: number; ask: number } {
   return {
-    bid: toPositiveFiniteNumber(liveBid) ?? toPositiveFiniteNumber(fallbackBid) ?? 0,
-    ask: toPositiveFiniteNumber(liveAsk) ?? toPositiveFiniteNumber(fallbackAsk) ?? 0,
+    bid: toPositiveFiniteNumber(liveBid) ?? 0,
+    ask: toPositiveFiniteNumber(liveAsk) ?? 0,
   };
 }

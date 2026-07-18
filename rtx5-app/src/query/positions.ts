@@ -5,6 +5,25 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { positionsApi, Position, ClosedPosition } from '../api/positions';
 import { PositionItem } from '../dev/mock/tradingData';
+import {
+  getSessionQueryCacheNamespace,
+  invalidateSessionQueryRoots,
+  runSessionBoundQuery,
+  useActiveBrokerQuerySession,
+} from './authenticatedQueryScope';
+
+export const POSITIONS_KEY = 'positions';
+export const POSITION_HISTORY_KEY = 'positionHistory';
+
+export const getPositionsQueryKey = (
+  cacheNamespace: string,
+  login?: number,
+) => [POSITIONS_KEY, cacheNamespace, login] as const;
+
+export const getPositionHistoryQueryKey = (
+  cacheNamespace: string,
+  login?: number,
+) => [POSITION_HISTORY_KEY, cacheNamespace, login] as const;
 
 type PollingQueryOptions = {
   enabled?: boolean;
@@ -59,10 +78,15 @@ export function usePositionsQuery(
   login: number | undefined,
   options: PollingQueryOptions = {},
 ) {
-  const enabled = !!login && (options.enabled ?? true);
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
+  const enabled = Boolean(session) && !!login && (options.enabled ?? true);
   return useQuery({
-    queryKey: ['positions', login],
-    queryFn: () => positionsApi.getPositions(login!),
+    queryKey: getPositionsQueryKey(cacheNamespace, login),
+    queryFn: () => runSessionBoundQuery(
+      cacheNamespace,
+      () => positionsApi.getPositions(login!),
+    ),
     enabled,
     refetchInterval: resolvePollingRefetchInterval(enabled, 5000, options.refetchInterval),
     select: (data: Position[]) => data.map(mapPositionToItem),
@@ -78,10 +102,15 @@ export function usePositionHistoryQuery(
   login: number | undefined,
   options: PollingQueryOptions = {},
 ) {
-  const enabled = !!login && (options.enabled ?? true);
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
+  const enabled = Boolean(session) && !!login && (options.enabled ?? true);
   return useQuery({
-    queryKey: ['positionHistory', login],
-    queryFn: () => positionsApi.getPositionHistory(login!),
+    queryKey: getPositionHistoryQueryKey(cacheNamespace, login),
+    queryFn: () => runSessionBoundQuery(
+      cacheNamespace,
+      () => positionsApi.getPositionHistory(login!),
+    ),
     enabled,
     refetchInterval: resolvePollingRefetchInterval(enabled, 30000, options.refetchInterval),
     refetchOnMount: options.refetchOnMount,
@@ -94,17 +123,24 @@ export function usePositionHistoryQuery(
  */
 export function useClosePositionMutation() {
   const queryClient = useQueryClient();
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
 
   return useMutation({
-    mutationFn: (ticketId: string | number) => positionsApi.closePosition(ticketId),
+    mutationFn: (ticketId: string | number) => runSessionBoundQuery(
+      cacheNamespace,
+      () => positionsApi.closePosition(ticketId),
+    ),
     onSuccess: () => {
       // Invalidate all caches that could be affected by closing a position
-      queryClient.invalidateQueries({ queryKey: ['positions'] });
-      queryClient.invalidateQueries({ queryKey: ['positionHistory'] });
-      queryClient.invalidateQueries({ queryKey: ['deals'] });
-      queryClient.invalidateQueries({ queryKey: ['accountSummary'] });
-      queryClient.invalidateQueries({ queryKey: ['exposure'] });
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      void invalidateSessionQueryRoots(queryClient, cacheNamespace, [
+        POSITIONS_KEY,
+        POSITION_HISTORY_KEY,
+        'deals',
+        'accountSummary',
+        'exposure',
+        'transactions',
+      ]);
     },
   });
 }

@@ -6,6 +6,8 @@ import {
   cancelRetainedActionSheetPreview,
   commitRetainedActionSheetPreview,
   getRetainedActionSheetVisualSnapshot,
+  parkRetainedActionSheetHostForConfigSwap,
+  registerRetainedActionSheetHostParker,
   registerRetainedActionSheetVisualApplier,
   requestRetainedActionSheetPreview,
   resetRetainedActionSheetVisualControllerForTests,
@@ -124,4 +126,35 @@ test('multiple mounted ActionSheets keep their appliers until each one unregiste
   requestRetainedActionSheetPreview('quotes|tap|BTCUSD');
   assert.equal(firstApplied.at(-1)?.visualKey, 'quotes|tap|EURUSD');
   assert.equal(secondApplied.at(-1)?.visualKey, 'quotes|tap|BTCUSD');
+});
+
+test('a config swap parks only the mounted host that owns the outgoing visual key', () => {
+  const parked: string[] = [];
+  const unregisterFirst = registerRetainedActionSheetHostParker((visualKey) => {
+    if (visualKey !== 'chart.symbolPicker') {
+      return false;
+    }
+    parked.push(`first:${visualKey}`);
+    return true;
+  });
+  registerRetainedActionSheetHostParker((visualKey) => {
+    if (visualKey !== 'trade.bulk') {
+      return false;
+    }
+    parked.push(`second:${visualKey}`);
+    return true;
+  });
+
+  assert.equal(
+    parkRetainedActionSheetHostForConfigSwap('chart.symbolPicker'),
+    true,
+  );
+  assert.deepEqual(parked, ['first:chart.symbolPicker']);
+
+  unregisterFirst();
+  assert.equal(
+    parkRetainedActionSheetHostForConfigSwap('chart.symbolPicker'),
+    false,
+  );
+  assert.deepEqual(parked, ['first:chart.symbolPicker']);
 });

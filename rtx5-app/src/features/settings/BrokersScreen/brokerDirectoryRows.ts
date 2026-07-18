@@ -1,38 +1,43 @@
-import type { BrokerServer } from '../../../api/broker';
+import type { BrokerDirectoryEntry, BrokerServer } from '../../../api/broker';
 import {
   PUBLIC_BROKER_DIRECTORY_BASE_URL,
-  resolveBrokerServiceBaseUrl,
+  isBrokerServerUrlForApiBase,
+  normalizeBrokerServerUrl,
+  resolveBrokerEndpointSet,
 } from '../../../api/brokerRouting';
-import { formatServerFromName } from './brokerData';
 
 const PINNED_BROKER_NAMES = ['MetaQuotes Ltd.'];
 
-export type BrokerDirectoryRow = {
+type BrokerDirectoryRowBase = {
   id: string;
   brokerId: string;
   name: string;
   server: string;
-  serverUrl: string;
   logoUrl: string;
   region: string;
   protocol: string;
-  domain?: string;
 };
 
-// Best-effort domains are used only after a broker does not provide a logo.
-const KNOWN_BROKER_DOMAINS: Record<string, string> = {
-  flexymarkets: 'flexymarkets.com',
-  metaquotes: 'metaquotes.net',
-  alphatrading: 'alphatrading.com',
-  growtradingacademy: 'growtradingacademy.com',
-  gtabroker: 'growtradingacademy.com',
-  myprop: 'myprop.trade',
-  myproptrade: 'myprop.trade',
-  orrnn: 'orrnn.com',
-  testorrnn: 'orrnn.com',
-  achieverfinancials: 'achieverfinancials.com',
-  alphafxmarkets: 'alphafxmarkets.com',
+export type SelectableBrokerDirectoryRow = BrokerDirectoryRowBase & {
+  selectable: true;
+  serverUrl: string;
+  feedStatusUrl: string;
+  domain: string;
 };
+
+export type IdentityOnlyBrokerDirectoryRow = BrokerDirectoryRowBase & {
+  selectable: false;
+  serverUrl: '';
+  feedStatusUrl: '';
+  logoUrl: '';
+  region: '';
+  protocol: '';
+  domain?: never;
+};
+
+export type BrokerDirectoryRow =
+  | SelectableBrokerDirectoryRow
+  | IdentityOnlyBrokerDirectoryRow;
 
 const BROKER_LOGO_KEYS = [
   'logo_url',
@@ -72,11 +77,17 @@ function asUnknownRecord(value: unknown): Record<string, unknown> | null {
 }
 
 export function resolveBrokerDomain(value: string): string | undefined {
-  const key = value.toLowerCase().replace(/[^a-z0-9]/g, '');
-  for (const [needle, domain] of Object.entries(KNOWN_BROKER_DOMAINS)) {
-    if (key.includes(needle)) return domain;
+  const raw = String(value ?? '').trim();
+  if (!raw) return undefined;
+  try {
+    const parsed = new URL(raw.includes('://') ? raw : `https://${raw}`);
+    const hostname = parsed.hostname.trim().replace(/\.$/, '').toLowerCase();
+    return parsed.protocol === 'https:' && hostname.includes('.')
+      ? hostname
+      : undefined;
+  } catch {
+    return undefined;
   }
-  return undefined;
 }
 
 export function normalizeBrokerLogoUrl(logoUrl?: string | null) {
@@ -150,41 +161,80 @@ function isRawNetworkEndpoint(value: string) {
 function formatVisibleServerName(broker: BrokerServer) {
   const server = broker.server?.trim() || '';
   if (!server || isRawNetworkEndpoint(server)) {
-    return formatServerFromName(broker.broker_name);
+    return broker.broker_name?.trim() || broker.broker_id;
   }
 
   return server;
 }
 
 export function buildBrokerDirectoryRows(
-  brokerServers?: readonly BrokerServer[],
+  entries?: readonly BrokerDirectoryEntry[],
 ): BrokerDirectoryRow[] {
-  const rows = (brokerServers ?? []).filter((broker) => broker.enabled !== false);
-  const seen = new Set<string>();
-  const deduped: BrokerServer[] = [];
+  const rowsByBrokerId = new Map<string, BrokerDirectoryRow>();
 
-  for (const broker of rows) {
-    if (seen.has(broker.broker_id)) continue;
-    seen.add(broker.broker_id);
-    deduped.push(broker);
+  for (const entry of entries ?? []) {
+    let row: BrokerDirectoryRow;
+
+    if (entry.kind === 'approved' || entry.kind === 'v2_server') {
+      const broker = entry.server;
+      const resolution = resolveBrokerEndpointSet(broker);
+      const exactServerUrl = normalizeBrokerServerUrl(broker.server_url);
+      // Handoff: selectable rows keep exact directory server_url (service root).
+      // REST apiBase is {server_url}/api/v2 and must match that root.
+      if (resolution.ok && isBrokerServerUrlForApiBase(exactServerUrl, resolution.endpoints.apiBase)) {
+        row = {
+          id: `srv-${broker.id ?? broker.broker_id}`,
+          brokerId: resolution.endpoints.brokerId,
+          name: broker.broker_name,
+          server: formatVisibleServerName(broker),
+          selectable: true,
+          serverUrl: exactServerUrl,
+          feedStatusUrl: resolution.endpoints.feedStatusUrl,
+          logoUrl: resolveBrokerLogoUrl(broker),
+          region: broker.region,
+          protocol: broker.protocol,
+          domain: resolution.endpoints.servicesDomain,
+        };
+      } else {
+        // A malformed runtime value must never gain authority merely because
+        // its discriminator says "approved". Preserve identity only.
+        row = {
+          id: `srv-${broker.id ?? broker.broker_id}`,
+          brokerId: broker.broker_id,
+          name: broker.broker_name,
+          server: broker.broker_name,
+          selectable: false,
+          serverUrl: '',
+          feedStatusUrl: '',
+          logoUrl: '',
+          region: '',
+          protocol: '',
+        };
+      }
+    } else {
+      row = {
+        id: `srv-${entry.id || entry.brokerId}`,
+        brokerId: entry.brokerId,
+        name: entry.brokerName,
+        server: entry.brokerName,
+        selectable: false,
+        serverUrl: '',
+        feedStatusUrl: '',
+        logoUrl: '',
+        region: '',
+        protocol: '',
+      };
+    }
+
+    const brokerKey = row.brokerId.trim().toLowerCase();
+    if (!brokerKey) continue;
+    const existing = rowsByBrokerId.get(brokerKey);
+    if (!existing || (!existing.selectable && row.selectable)) {
+      rowsByBrokerId.set(brokerKey, row);
+    }
   }
 
-  return deduped.map((broker) => ({
-    id: `srv-${broker.id ?? broker.broker_id}`,
-    brokerId: broker.broker_id,
-    name: broker.broker_name,
-    server: formatVisibleServerName(broker),
-    serverUrl: resolveBrokerServiceBaseUrl(broker),
-    logoUrl: resolveBrokerLogoUrl(broker),
-    region: broker.region,
-    protocol: broker.protocol,
-    domain:
-      resolveBrokerDomain(broker.broker_name)
-      ?? resolveBrokerDomain(broker.broker_id)
-      ?? resolveBrokerDomain(broker.domain_name ?? '')
-      ?? resolveBrokerDomain(broker.services_domain ?? '')
-      ?? resolveBrokerDomain(broker.server_domain ?? ''),
-  }));
+  return [...rowsByBrokerId.values()];
 }
 
 export function sortBrokerDirectoryRows(

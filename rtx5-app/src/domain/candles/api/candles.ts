@@ -5,15 +5,22 @@
  * required to render the initial state of the Lightweight Charts.
  */
 
-import { apiClient } from '../../../api/apiClient';
+import { apiJsonClient, commitApiJson } from '../../../api/apiClient';
+import { StaleBrokerSessionError } from '../../../api/brokerApi';
 import {
   buildCandleHistorySearchParams,
   extractCandleHistoryPayload,
   getCandleHistoryRequestTimeframes,
+  resolveCandleHistoryRouteContract,
 } from './candleHistoryQuery';
 import type { CandleHistoryQueryStyle, CandleHistoryRequestOptions } from './candleHistoryQuery';
-import { Candle } from '../../../state/tradingState';
-import { useUserPreferences } from '../../../state/userPreferences';
+import type { Candle } from '../../../state/tradingState';
+import {
+  captureActiveBrokerSession,
+  getActiveBrokerSessionProvenance,
+  isActiveBrokerSessionProvenanceCurrent,
+  type ActiveBrokerSessionProvenance,
+} from '../../../state/activeBrokerSession';
 import { DEFAULT_CANDLE_HISTORY_LIMIT, normalizeCandleSeries, normalizeSymbol, normalizeTimeframeStrict } from '../core/candles';
 import {
   getConfiguredCandlePriceBasis,
@@ -32,8 +39,23 @@ export interface CandleHistoryResponse {
   closedCandles: TrustedHistoryCandle[];
   currentCandle: Candle | null;
   priceBasis: CandlePriceBasis;
+  provenance: ActiveBrokerSessionProvenance;
 }
 export type { CandleHistoryRequestOptions } from './candleHistoryQuery';
+
+export const isCandleHistoryResponseCurrent = (
+  response: CandleHistoryResponse,
+): boolean => isActiveBrokerSessionProvenanceCurrent(response.provenance);
+
+export const commitCandleHistoryResponse = <T>(
+  response: CandleHistoryResponse,
+  commit: (currentResponse: CandleHistoryResponse) => T,
+): T => {
+  if (!isCandleHistoryResponseCurrent(response)) {
+    throw new StaleBrokerSessionError();
+  }
+  return commit(response);
+};
 
 /** 
  * Represents a single attempt to fetch and parse historical candle data.
@@ -47,15 +69,9 @@ type CandleHistoryAttempt = {
 };
 
 type CandleHistoryRoute = {
-  pathPrefix: 'candles' | 'market-data/candles';
+  pathPrefix: string;
   queryStyle: CandleHistoryQueryStyle;
 };
-
-const CANDLE_HISTORY_ROUTES: readonly CandleHistoryRoute[] = [
-  { pathPrefix: 'candles', queryStyle: 'timeframeLimit' },
-  { pathPrefix: 'candles', queryStyle: 'tfCount' },
-  { pathPrefix: 'market-data/candles', queryStyle: 'timeframeLimit' },
-];
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object';
@@ -72,11 +88,8 @@ const isAbortError = (error: unknown): boolean => {
   return name === 'AbortError' || /\babort(?:ed)?\b/i.test(message);
 };
 
-const getStoredAccessToken = (): string | null =>
-  useUserPreferences.getState().accountDetails?.credentials?.accessToken ?? null;
-
 /**
- * Processes a raw HTTP response from the backend candle API.
+ * Processes a parsed response from the backend candle API.
  * 
  * - Parses JSON and extracts the standard payload structure.
  * - Resolves the exact timeframe and price basis returned by the server.
@@ -84,24 +97,26 @@ const getStoredAccessToken = (): string | null =>
  * 
  * @throws Error if the response is not OK or if parsing fails.
  */
-const readCandleHistoryResponse = async (
-  response: Response,
+const readCandleHistoryPayload = (
+  payload: unknown,
+  responseOk: boolean,
+  responseStatus: number,
   requestTimeframe: string,
   count: number,
   currentPriceBasis: CandlePriceBasis,
-): Promise<CandleHistoryAttempt> => {
-  if (!response.ok) {
+): CandleHistoryAttempt => {
+  if (!responseOk) {
     let errorMsg = 'Failed to fetch candle history';
-    try {
-      const errorData = await response.json();
-      errorMsg = errorData.message || errorData.error || errorMsg;
-    } catch (_e) {
-      // Ignored
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      const errorData = payload as Record<string, unknown>;
+      const serverMessage = errorData.message ?? errorData.error;
+      if (typeof serverMessage === 'string' && serverMessage.trim()) {
+        errorMsg = serverMessage.trim();
+      }
     }
-    throw new Error(`API Error ${response.status}: ${errorMsg}`);
+    throw new Error(`API Error ${responseStatus}: ${errorMsg}`);
   }
 
-  const payload = await response.json();
   const extractedPayload = extractCandleHistoryPayload(payload);
   const requestNormalizedTimeframe = normalizeTimeframeStrict(requestTimeframe);
   if (!requestNormalizedTimeframe) {
@@ -133,8 +148,8 @@ const fetchAuthenticatedCandleHistory = async (
   requestOptions: CandleHistoryRequestOptions | undefined,
   currentPriceBasis: CandlePriceBasis,
   route: CandleHistoryRoute,
+  cacheNamespace: string,
 ): Promise<CandleHistoryAttempt> => {
-  const hasStoredAccessToken = Boolean(getStoredAccessToken());
   const params = buildCandleHistorySearchParams(
     requestTimeframe,
     count,
@@ -142,20 +157,26 @@ const fetchAuthenticatedCandleHistory = async (
     route.queryStyle,
   );
   const pathSymbol = encodeURIComponent(requestedSymbol);
-  const response = await apiClient(`/${route.pathPrefix}/${pathSymbol}?${params.toString()}`, {
+  const result = await apiJsonClient<unknown>(`/${route.pathPrefix}/${pathSymbol}?${params.toString()}`, {
     signal: requestOptions?.signal,
-    skipAuth: !hasStoredAccessToken,
   });
 
-  return readCandleHistoryResponse(response, requestTimeframe, count, currentPriceBasis);
+  return commitApiJson(result, cacheNamespace, (payload) =>
+    readCandleHistoryPayload(
+      payload,
+      result.ok,
+      result.status,
+      requestTimeframe,
+      count,
+      currentPriceBasis,
+    ));
 };
 
 /**
  * Fetches historical candlestick data for a given symbol and timeframe.
  *
- * GET /api/v2/candles/{symbol}?timeframe={timeframe}&limit={count}
- * GET /api/v2/candles/{symbol}?tf={timeframe}&count={count}
- * GET /api/v2/market-data/candles/{symbol}?timeframe={timeframe}&limit={count}
+ * Uses the one exact release-configured path and query style. When that
+ * contract is absent, history fails closed instead of probing alternatives.
  *
  * @param symbol    - Trading pair (e.g. 'EURUSD', 'XAUUSD')
  * @param timeframe - Candle period (e.g. 'M1', 'M5', 'H1', 'D1')
@@ -167,6 +188,11 @@ export async function getCandleHistory(
   count: number = DEFAULT_CANDLE_HISTORY_LIMIT,
   options?: AbortSignal | CandleHistoryRequestOptions,
 ): Promise<CandleHistoryResponse> {
+  const sessionCapture = captureActiveBrokerSession();
+  if (!sessionCapture) {
+    throw new Error('No authenticated broker session available for candle history.');
+  }
+  const provenance = getActiveBrokerSessionProvenance(sessionCapture.session);
   const requestedSymbol = normalizeSymbol(symbol);
   const requestedTimeframe = normalizeTimeframeStrict(timeframe);
   if (!requestedSymbol || !requestedTimeframe) {
@@ -175,8 +201,22 @@ export async function getCandleHistory(
   const requestOptions = isAbortSignalLike(options)
     ? { signal: options }
     : options;
+  const expectedCacheNamespace = requestOptions?.cacheNamespace ?? provenance.cacheNamespace;
+  if (
+    !expectedCacheNamespace ||
+    expectedCacheNamespace !== provenance.cacheNamespace ||
+    !isActiveBrokerSessionProvenanceCurrent(provenance)
+  ) {
+    throw new StaleBrokerSessionError();
+  }
 
   const requestTimeframes = getCandleHistoryRequestTimeframes(requestedTimeframe);
+  const route = resolveCandleHistoryRouteContract();
+  if (!route) {
+    throw new Error(
+      'Candle history contract is unconfigured. Set an approved path and query style before requesting history.',
+    );
+  }
 
   let extractedPayload = extractCandleHistoryPayload([]);
   let resolvedTimeframe: string = requestedTimeframe;
@@ -201,26 +241,27 @@ export async function getCandleHistory(
   let foundUsableAttempt = false;
   for (let index = 0; index < requestTimeframes.length && !foundUsableAttempt; index += 1) {
     const requestTimeframe = requestTimeframes[index];
-    for (const route of CANDLE_HISTORY_ROUTES) {
-      try {
-        const attempt = await fetchAuthenticatedCandleHistory(
-          requestedSymbol,
-          requestTimeframe,
-          count,
-          requestOptions,
-          resolvedPriceBasis,
-          route,
-        );
-        if (acceptAttempt(attempt)) {
-          foundUsableAttempt = true;
-          break;
-        }
-      } catch (error) {
-        if (isAbortError(error)) {
-          throw error;
-        }
-        lastHttpError = error instanceof Error ? error : new Error(String(error));
+    try {
+      const attempt = await fetchAuthenticatedCandleHistory(
+        requestedSymbol,
+        requestTimeframe,
+        count,
+        requestOptions,
+        resolvedPriceBasis,
+        route,
+        expectedCacheNamespace,
+      );
+      if (acceptAttempt(attempt)) {
+        foundUsableAttempt = true;
       }
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw error;
+      }
+      if (error instanceof StaleBrokerSessionError) {
+        throw error;
+      }
+      lastHttpError = error instanceof Error ? error : new Error(String(error));
     }
   }
 
@@ -245,6 +286,10 @@ export async function getCandleHistory(
     resolvedPriceBasis,
   );
 
+  if (!isActiveBrokerSessionProvenanceCurrent(provenance)) {
+    throw new StaleBrokerSessionError();
+  }
+
   return {
     symbol: normalizeSymbol(extractedPayload.symbol ?? requestedSymbol),
     timeframe: resolvedTimeframe,
@@ -253,5 +298,6 @@ export async function getCandleHistory(
     closedCandles: closedHistory,
     currentCandle,
     priceBasis: resolvedPriceBasis,
+    provenance,
   };
 }

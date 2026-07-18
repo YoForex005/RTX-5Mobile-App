@@ -41,6 +41,10 @@ export interface HistoryFetchManagerBridge {
 
 import { sanitizeCandlesForChart } from '../../normalization/chartAdapter';
 import { computeHistoryRetryPlan } from './historyRetryPolicy';
+import {
+  captureActiveBrokerSessionProvenance,
+  isActiveBrokerSessionProvenanceCurrent,
+} from '../../../../state/activeBrokerSession';
 
 /**
  * Executes an async fetch of authoritative historical candles from the REST API.
@@ -63,6 +67,8 @@ export const runLoadHistory = (
   if (!manager.entries.has(entry.key)) {
     return;
   }
+  const sessionProvenance = captureActiveBrokerSessionProvenance();
+  if (!sessionProvenance) return;
 
   const isPaginationRequest = Boolean(options?.to);
   // A new load supersedes any pending failure-retry for this entry.
@@ -97,8 +103,14 @@ export const runLoadHistory = (
   const timeframe = entry.timeframe;
   logDebug('history_request', { symbol, timeframe, requestId, to: options?.to });
 
-  void getCandleHistory(symbol, timeframe, limit, { signal: controller.signal, to: options?.to, from: options?.from })
+  void getCandleHistory(symbol, timeframe, limit, {
+    signal: controller.signal,
+    to: options?.to,
+    from: options?.from,
+    cacheNamespace: sessionProvenance.cacheNamespace,
+  })
     .then((history) => {
+      if (!isActiveBrokerSessionProvenanceCurrent(history.provenance)) return;
       const live = manager.entries.get(entry.key);
       if (!live || live.requestId !== requestId || controller.signal.aborted) {
         return;
@@ -153,7 +165,10 @@ export const runLoadHistory = (
       live.historyPageLoading = false;
       live.error = null;
       live.historyRetryAttempt = 0;
-      syncMergedCandleCache(symbol, timeframe, history.closedCandles, { canonical: true });
+      syncMergedCandleCache(symbol, timeframe, history.closedCandles, {
+        canonical: true,
+        provenance: history.provenance,
+      });
 
       const replayEvents = live.bufferedEvents
         .splice(0)
@@ -172,6 +187,7 @@ export const runLoadHistory = (
       });
     })
     .catch((error) => {
+      if (!isActiveBrokerSessionProvenanceCurrent(sessionProvenance)) return;
       const live = manager.entries.get(entry.key);
       if (!live || live.requestId !== requestId || controller.signal.aborted) {
         return;
@@ -256,6 +272,8 @@ export const runPrefetchHistory = (
   if (!normalizedSymbol || !normalizedTimeframe) {
     return Promise.resolve(0);
   }
+  const sessionProvenance = captureActiveBrokerSessionProvenance();
+  if (!sessionProvenance) return Promise.resolve(0);
 
   const key = resolveKey(normalizedSymbol, normalizedTimeframe);
   const activeEntry = manager.entries.get(key);
@@ -271,12 +289,21 @@ export const runPrefetchHistory = (
     return existing;
   }
 
-  const prefetch = getCandleHistory(normalizedSymbol, normalizedTimeframe, INITIAL_HISTORY_LIMIT)
+  const prefetch = getCandleHistory(
+    normalizedSymbol,
+    normalizedTimeframe,
+    INITIAL_HISTORY_LIMIT,
+    { cacheNamespace: sessionProvenance.cacheNamespace },
+  )
     .then((history) => {
+      if (!isActiveBrokerSessionProvenanceCurrent(history.provenance)) return 0;
       const seed = getHistorySeedSnapshot(history);
       const candles = seed.candles;
       candleMemoryCache.set(normalizedSymbol, normalizedTimeframe, candles);
-      syncMergedCandleCache(normalizedSymbol, normalizedTimeframe, history.closedCandles, { canonical: true });
+      syncMergedCandleCache(normalizedSymbol, normalizedTimeframe, history.closedCandles, {
+        canonical: true,
+        provenance: history.provenance,
+      });
 
       const liveEntry = manager.entries.get(key);
       // Do not let an older warm-up result replace history already loaded

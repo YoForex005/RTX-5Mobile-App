@@ -5,8 +5,7 @@
  * on the broker server, returning the Master and Investor passwords.
  */
 
-import { buildActiveApiUrl } from './apiClient';
-import { timedFetch } from '../utils/apiLatency';
+import { brokerApi } from './brokerApi';
 
 /** Request body for POST /api/mt5/account/create */
 export interface CreateMT5AccountRequest {
@@ -46,31 +45,28 @@ export interface CreateMT5AccountResponse {
 export async function createMT5Account(
   payload: CreateMT5AccountRequest,
 ): Promise<CreateMT5AccountResponse> {
-  // Registration is unauthenticated; timing is still recorded.
-  const response = await timedFetch(buildActiveApiUrl('/api/mt5/account/create'), {
+  // Registration is unauthenticated, but the selected broker endpoint and
+  // response body are still bound to the immutable active-session epoch.
+  const response = await brokerApi.getJsonResponse<CreateMT5AccountResponse>('/api/mt5/account/create', {
     method: 'POST',
+    skipAuth: true,
+    skipRefresh: true,
     headers: {
       'Content-Type': 'application/json',
       'accept': 'application/json',
     },
     body: JSON.stringify(payload),
-  }, {
-    label: 'mt5Account.create',
-    method: 'POST',
-    endpoint: '/api/mt5/account/create',
-    source: 'register',
   });
 
   if (!response.ok) {
-    let errorMsg = 'Failed to create account';
-    try {
-      const errorData = await response.json();
-      errorMsg = errorData.message || errorData.error || errorMsg;
-    } catch (e) {
-      // Ignored
-    }
+    const errorData = response.data as unknown as Record<string, unknown>;
+    const errorMsg = typeof errorData?.message === 'string'
+      ? errorData.message
+      : typeof errorData?.error === 'string'
+        ? errorData.error
+        : 'Failed to create account';
     throw new Error(errorMsg);
   }
 
-  return response.json();
+  return response.data;
 }

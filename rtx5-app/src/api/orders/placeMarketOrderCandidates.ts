@@ -1,7 +1,7 @@
 import { normalizeSymbol } from '../../domain/symbols';
 
-export const getAcceptedSymbolCacheKey = (brokerId: string | null | undefined, symbol: string) =>
-  `${brokerId || 'unknown'}:${normalizeSymbol(symbol) || symbol.trim().toUpperCase()}`;
+export const getAcceptedSymbolCacheKey = (cacheNamespace: string, symbol: string) =>
+  `${cacheNamespace}:${normalizeSymbol(symbol) || symbol.trim().toUpperCase()}`;
 
 const pushUniqueSymbol = (candidates: string[], symbol: string | null | undefined) => {
   const clean = (symbol ?? '').trim();
@@ -20,12 +20,19 @@ export function buildMarketOrderSymbolCandidates({
   cachedCatalogSymbol?: string | null;
 }): string[] {
   const candidates: string[] = [];
-  const baseSymbol = normalizeSymbol(callerSymbol);
+  const exactSymbolKey = normalizeSymbol(callerSymbol);
+  const pushExactIdentity = (symbol: string | null | undefined) => {
+    if (normalizeSymbol(symbol ?? '') === exactSymbolKey) {
+      pushUniqueSymbol(candidates, symbol);
+    }
+  };
 
-  pushUniqueSymbol(candidates, acceptedSymbol);
-  pushUniqueSymbol(candidates, callerSymbol);
-  pushUniqueSymbol(candidates, cachedCatalogSymbol);
-  pushUniqueSymbol(candidates, baseSymbol);
+  // Accepted/cache values may preserve broker-authoritative spelling, but they
+  // are only safe candidates when they identify the exact requested instrument.
+  // Never retry a guessed base symbol or a different suffix/alias.
+  pushExactIdentity(acceptedSymbol);
+  pushExactIdentity(callerSymbol);
+  pushExactIdentity(cachedCatalogSymbol);
 
   return candidates;
 }

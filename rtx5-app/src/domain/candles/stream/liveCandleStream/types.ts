@@ -37,11 +37,26 @@ export type BufferedLiveEvent =
   // missing buckets or touches closed history.
   // Backend live_candle snapshots are applied only when the server-candle
   // source mode is explicitly enabled after runtime compatibility proof.
-  | { type: 'quote_tick_extension'; price: number; time: number; volume?: number; order: number };
+  | {
+      type: 'quote_tick_extension';
+      price: number;
+      high?: number;
+      low?: number;
+      time: number;
+      volume?: number;
+      order: number;
+    };
 
 export type UnorderedLiveEvent =
   | { type: 'live_candle'; candle: LiveCandle }
-  | { type: 'quote_tick_extension'; price: number; time: number; volume?: number };
+  | {
+      type: 'quote_tick_extension';
+      price: number;
+      high?: number;
+      low?: number;
+      time: number;
+      volume?: number;
+    };
 
 /**
  * The core state container for a single managed candle stream (e.g. "EURUSD:M1").

@@ -3,7 +3,7 @@ import 'react-native-reanimated';
 import { wrapWithSentry } from '../src/services/sentry';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { PropsWithChildren, useEffect } from 'react';
+import { PropsWithChildren, useEffect, useRef, useState } from 'react';
 import { AppState, Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { ThemeProvider, DarkTheme, DefaultTheme } from '@react-navigation/native';
 import { enableFreeze } from 'react-native-screens';
@@ -28,6 +28,7 @@ import { AboutDetailDestinationHost } from '../src/features/settings/AboutDetail
 import { QuoteInfoLaunchHost } from '../src/features/quotes/QuoteInfoLaunchHost';
 import { HistoryFilterHost } from '../src/features/history/HistoryFilterHost';
 import { TradePositionActionHost } from '../src/features/trade/TradePositionActionHost';
+import { ChartActionLaunchHost } from '../src/features/chart/ChartActionLaunchHost';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
 
@@ -227,6 +228,7 @@ function InnerLayout() {
       <HistoryFilterHost />
       {/* Close / Close By / Modify — retained host (no stack push on open/back). */}
       <TradePositionActionHost />
+      <ChartActionLaunchHost />
       {/* Chart Preferences + nested config rows (sidebar-style instant open/back). */}
       <ChartSettingsHost />
       <ChartConfigDestinationHost />
@@ -237,7 +239,10 @@ function InnerLayout() {
 
 import { brokerRealtimeService } from '../src/api/ws/BrokerRealtimeService';
 import { brokerApi } from '../src/api/brokerApi';
-import { getAccountById, getAccounts } from '../src/api/accounts';
+import { accountWsService } from '../src/api/ws/accountSocket';
+import { wsService } from '../src/api/ws/socket';
+import { candlesWsService } from '../src/domain/candles/ws/candlesSocket';
+import { getAccountById } from '../src/api/accounts';
 import { useLiveAccountState } from '../src/state/liveAccountState';
 import { usePositionsState } from '../src/state/positionsState';
 import { prefetchAccountSummary } from '../src/utils/navigationPrefetch';
@@ -249,7 +254,16 @@ import { OtaUpdateModal } from '../src/ui/components/OtaUpdateModal';
 import { scheduleAfterFirstFrame, scheduleIdleWork } from '../src/utils/startupScheduler';
 import { bootstrapApp } from '../src/services/bootstrapApp';
 import { installGlobalStartupErrorHandlers, logStartupDiagnostic } from '../src/utils/startupDiagnostics';
+import { restoreBrokerSession } from '../src/services/brokerSessionCoordinator';
+import {
+  captureActiveBrokerSession,
+  getActiveBrokerSessionIdentity,
+  isActiveBrokerSessionCurrent,
+} from '../src/state/activeBrokerSession';
+import { redactDiagnosticValue } from '../src/utils/securityRedaction';
+import { installSecurityRedactedConsole } from '../src/utils/securityRedactedConsole';
 
+installSecurityRedactedConsole();
 installGlobalStartupErrorHandlers();
 
 function RootLayout() {
@@ -271,6 +285,39 @@ function RootLayout() {
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const chartSymbol = useUserPreferences((s) => s.chartSymbol);
   const chartTimeframe = useUserPreferences((s) => s.chartTimeframe);
+  const [sessionRestoreComplete, setSessionRestoreComplete] = useState(false);
+  const sessionRestoreStartedRef = useRef(false);
+  const lifecycleResumeEpochRef = useRef(0);
+
+  useEffect(() => {
+    if (!hasHydrated || sessionRestoreStartedRef.current) {
+      return;
+    }
+    sessionRestoreStartedRef.current = true;
+    let cancelled = false;
+    logStartupDiagnostic('auth.atomicRestore.started', {});
+    void restoreBrokerSession()
+      .then((result) => {
+        logStartupDiagnostic('auth.atomicRestore.completed', { status: result.status });
+      })
+      .catch((error) => {
+        // The coordinator advances the epoch and clears runtime state before a
+        // restore can fail. Keep startup fail-closed and show the login shell.
+        useUserPreferences.getState().logout();
+        console.warn(
+          '[Session] Secure broker session restore failed',
+          redactDiagnosticValue(error),
+        );
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSessionRestoreComplete(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasHydrated]);
 
   useEffect(() => {
     logStartupDiagnostic('root.mounted', {
@@ -283,7 +330,7 @@ function RootLayout() {
   }, []);
 
   useEffect(() => {
-    if (!hasHydrated) {
+    if (!hasHydrated || !sessionRestoreComplete) {
       logStartupDiagnostic('storage.restore.waiting', { store: 'userPreferences' });
       return;
     }
@@ -309,9 +356,81 @@ function RootLayout() {
       cancelled = true;
       cancelCacheHydration();
     };
-  }, [hasHydrated, chartSymbol, chartTimeframe]);
+  }, [hasHydrated, sessionRestoreComplete, chartSymbol, chartTimeframe]);
 
   useEffect(() => {
+    if (!sessionRestoreComplete || !isLoggedIn) return;
+
+    const suspendSocketDemand = () => {
+      lifecycleResumeEpochRef.current += 1;
+      brokerRealtimeService.suspend();
+      accountWsService.suspend();
+      candlesWsService.suspend();
+      wsService.suspend();
+    };
+
+    const resumeSocketDemand = () => {
+      const resumeEpoch = lifecycleResumeEpochRef.current + 1;
+      lifecycleResumeEpochRef.current = resumeEpoch;
+      const capture = captureActiveBrokerSession();
+      if (!capture) return;
+      const identity = getActiveBrokerSessionIdentity(capture.session);
+
+      void brokerApi.getValidAccessToken(false)
+        .then((accessToken) => {
+          if (
+            !accessToken ||
+            lifecycleResumeEpochRef.current !== resumeEpoch ||
+            AppState.currentState !== 'active' ||
+            !isActiveBrokerSessionCurrent(identity)
+          ) {
+            return;
+          }
+
+          brokerRealtimeService.resume();
+          accountWsService.resume();
+          candlesWsService.resume();
+          wsService.resume();
+          return bootstrapApp({ accountLogin: identity.accountLogin });
+        })
+        .catch((error) => {
+          console.warn(
+            '[Lifecycle] Failed to validate broker session on foreground:',
+            redactDiagnosticValue(error),
+          );
+        });
+    };
+
+    if (AppState.currentState !== 'active') {
+      suspendSocketDemand();
+    } else {
+      // A native cold start can report a non-active state while singleton
+      // services initialize, then become active before this effect mounts.
+      // Session restore has already completed, so release retained demand now.
+      brokerRealtimeService.resume();
+      accountWsService.resume();
+      candlesWsService.resume();
+      wsService.resume();
+    }
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active') {
+        suspendSocketDemand();
+        return;
+      }
+      resumeSocketDemand();
+    });
+
+    return () => {
+      lifecycleResumeEpochRef.current += 1;
+      subscription.remove();
+    };
+  }, [sessionRestoreComplete, isLoggedIn]);
+
+  useEffect(() => {
+    if (!sessionRestoreComplete) {
+      return;
+    }
     if (isLoggedIn) {
       logStartupDiagnostic('auth.restore.started', {
         hasAccountDetails: Boolean(accountDetails),
@@ -328,33 +447,6 @@ function RootLayout() {
 
         let mt5LoginNumber = Number(accountDetails.id);
 
-        // AUTO-MIGRATE LEGACY SESSIONS:
-        // If id < 100000, it's a legacy database user_id (e.g. 92) instead of an Orrnn login (e.g. 200074).
-        // We fetch the user's accounts list to find their true Orrnn login without forcing them to log out.
-        if (mt5LoginNumber < 100000) {
-          try {
-            const accounts = await getAccounts();
-            if (accounts.length > 0) {
-              mt5LoginNumber = accounts[0].login;
-              if (cancelled) return;
-              // Silently update the persisted Zustand session so it doesn't happen again
-              useUserPreferences.getState().login(
-                String(mt5LoginNumber),
-                accounts[0].name || accountDetails.name,
-                accountDetails.server,
-                {
-                  access_token: accountDetails.credentials?.accessToken || '',
-                  refresh_token: accountDetails.credentials?.refreshToken || '',
-                  expires_at: accountDetails.credentials?.expiresAt || ''
-                }
-              );
-            }
-          } catch (e) {
-            if (cancelled) return;
-            console.warn('[Session Migration] Failed to auto-migrate old session:', e);
-          }
-        }
-
         if (cancelled) return;
         if (Number.isFinite(mt5LoginNumber) && mt5LoginNumber > 0) {
           const mt5Login = String(mt5LoginNumber);
@@ -365,7 +457,10 @@ function RootLayout() {
           brokerRealtimeService.connect();
           void bootstrapApp({ accountLogin: mt5Login }).catch((error) => {
             if (!cancelled) {
-              console.warn('[Bootstrap] Initial dashboard load failed:', error);
+              console.warn(
+                '[Bootstrap] Initial dashboard load failed:',
+                redactDiagnosticValue(error),
+              );
             }
           });
 
@@ -386,7 +481,6 @@ function RootLayout() {
               const acct = await getAccountById(mt5LoginNumber);
               if (cancelled) return;
               useUserPreferences.getState().updateAccountDetails({
-                id: String(acct.login),
                 name: acct.name || `Account ${acct.login}`,
               });
               useLiveAccountState.getState().updateMetrics({
@@ -404,7 +498,10 @@ function RootLayout() {
               useUserPreferences.getState().setIsDemoAccount(isDemo);
             } catch (e) {
               if (cancelled) return;
-              console.warn('[Hydration Error] Failed to fetch initial account metrics:', e);
+              console.warn(
+                '[Hydration Error] Failed to fetch initial account metrics:',
+                redactDiagnosticValue(e),
+              );
             }
           }, { delayMs: 5000, timeoutMs: 6000 }));
         }
@@ -418,37 +515,16 @@ function RootLayout() {
     } else {
       brokerRealtimeService.disconnect();
     }
-  }, [isLoggedIn, accountDetails?.id]);
+  }, [sessionRestoreComplete, isLoggedIn, accountDetails?.id]);
 
   useEffect(() => {
-    if (!isLoggedIn) return;
-
-    const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState !== 'active') {
-        return;
-      }
-
-      void brokerApi.getValidAccessToken(false)
-        .then(() => {
-          brokerRealtimeService.reconnect();
-          return bootstrapApp();
-        })
-        .catch((error) => {
-          console.warn('[Lifecycle] Failed to refresh broker session on foreground:', error);
-        });
-    });
-
-    return () => subscription.remove();
-  }, [isLoggedIn]);
-
-  useEffect(() => {
-    if (hasHydrated && fontsReady) {
+    if (hasHydrated && sessionRestoreComplete && fontsReady) {
       // Small timeout allows SafeAreaProvider to measure insets on Android
       setTimeout(() => {
         void SplashScreen.hideAsync();
       }, 100);
     }
-  }, [hasHydrated, fontsReady]);
+  }, [hasHydrated, sessionRestoreComplete, fontsReady]);
 
   // Hard safety net: never let the native splash stay up indefinitely, even if
   // hydration or font loading wedges on some unexpected path. Reveals the
@@ -463,7 +539,7 @@ function RootLayout() {
   return (
     <ErrorBoundary>
       <AppProviders>
-        {hasHydrated && fontsReady ? <InnerLayout /> : <StartupLogoScreen />}
+        {hasHydrated && sessionRestoreComplete && fontsReady ? <InnerLayout /> : <StartupLogoScreen />}
         <OtaUpdateModal {...otaUpdatePrompt} />
       </AppProviders>
     </ErrorBoundary>

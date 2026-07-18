@@ -75,16 +75,19 @@ test('mock WebSocket quote stream isolates symbols and pauses while disconnected
   const unsubscribeEurUsd = stream.subscribe('EURUSDm', (tick) => eurusdTicks.push(tick.timestamp));
   stream.subscribe('GBPUSD', (tick) => gbpusdTicks.push(tick.timestamp));
 
-  assert.equal(stream.emit({ symbol: 'EURUSD', bid: 1.1, ask: 1.1001, timestamp: 100 }), 1);
+  assert.equal(stream.emit({ symbol: 'EURUSD', bid: 1.1, ask: 1.1001, timestamp: 99 }), 0);
+  assert.deepEqual(eurusdTicks, []);
+
+  assert.equal(stream.emit({ symbol: 'EURUSDm', bid: 1.1, ask: 1.1001, timestamp: 100 }), 1);
   assert.deepEqual(eurusdTicks, [100]);
   assert.deepEqual(gbpusdTicks, []);
 
   stream.disconnect();
-  assert.equal(stream.emit({ symbol: 'EURUSD', bid: 1.2, ask: 1.2001, timestamp: 101 }), 0);
+  assert.equal(stream.emit({ symbol: 'EURUSDm', bid: 1.2, ask: 1.2001, timestamp: 101 }), 0);
   stream.reconnect();
   unsubscribeEurUsd();
 
-  assert.equal(stream.emit({ symbol: 'EURUSD', bid: 1.3, ask: 1.3001, timestamp: 102 }), 0);
+  assert.equal(stream.emit({ symbol: 'EURUSDm', bid: 1.3, ask: 1.3001, timestamp: 102 }), 0);
   assert.deepEqual(eurusdTicks, [100]);
 });
 

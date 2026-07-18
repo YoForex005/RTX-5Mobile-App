@@ -1,3 +1,5 @@
+import { redactSensitiveString } from './securityRedaction';
+
 const stringifyFallback = (value: unknown): string => {
   try {
     return String(value);
@@ -18,15 +20,19 @@ const safeStringify = (value: unknown): string => {
 export const serializeStartupError = (error: unknown) => {
   if (error instanceof Error) {
     return {
-      name: error.name,
-      message: error.message,
-      stack: error.stack ?? null,
+      name: redactSensitiveString(error.name),
+      message: redactSensitiveString(error.message),
+      stack: error.stack ? redactSensitiveString(error.stack) : null,
     };
   }
 
   return {
     name: 'NonError',
-    message: typeof error === 'string' ? error : safeStringify(error),
+    message: redactSensitiveString(
+      typeof error === 'string'
+        ? error
+        : safeStringify(error),
+    ),
     stack: null,
   };
 };

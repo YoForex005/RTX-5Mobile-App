@@ -41,12 +41,37 @@ const withEnv = (nextEnv: Record<string, string | undefined>, run: () => void): 
   }
 };
 
-test('active candle source defaults to broker server candles for webterminal parity', () => {
+test('active candle source defaults to quote-built candles until a server contract is proven', () => {
   withEnv(
     {
       EXPO_PUBLIC_CANDLE_SOURCE_MODE: undefined,
       EXPO_PUBLIC_ENABLE_SERVER_CANDLE_STREAMS: undefined,
       EXPO_PUBLIC_SERVER_CANDLES_PROVEN_COMPATIBLE: undefined,
+      EXPO_PUBLIC_DISABLE_SERVER_CANDLE_STREAMS: undefined,
+    },
+    () => {
+      assert.equal(getActiveCandleSourceMode(), 'quote');
+      assert.equal(shouldUseServerCandleStream(), false);
+      assert.equal(shouldRouteBackendCandlePayloads(), false);
+    },
+  );
+});
+
+test('server candle mode requires both an explicit request and proven compatibility', () => {
+  withEnv(
+    {
+      EXPO_PUBLIC_CANDLE_SOURCE_MODE: 'server',
+      EXPO_PUBLIC_ENABLE_SERVER_CANDLE_STREAMS: undefined,
+      EXPO_PUBLIC_SERVER_CANDLES_PROVEN_COMPATIBLE: undefined,
+      EXPO_PUBLIC_DISABLE_SERVER_CANDLE_STREAMS: undefined,
+    },
+    () => assert.equal(getActiveCandleSourceMode(), 'quote'),
+  );
+
+  withEnv(
+    {
+      EXPO_PUBLIC_CANDLE_SOURCE_MODE: 'server',
+      EXPO_PUBLIC_SERVER_CANDLES_PROVEN_COMPATIBLE: 'true',
       EXPO_PUBLIC_DISABLE_SERVER_CANDLE_STREAMS: undefined,
     },
     () => {

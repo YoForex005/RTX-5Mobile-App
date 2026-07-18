@@ -1,7 +1,7 @@
 import { normalizeQuoteTickTimestampToMs } from '../../api/ws/quoteTimestamp';
 import type { QuoteTickEvent } from '../../api/ws/quoteTickNormalizer';
 import { normalizeSymbol } from '../../domain/symbols';
-import { quotes as mockQuotes, type QuoteItem } from '../../dev/mock/tradingData';
+import type { QuoteItem } from '../../dev/mock/tradingData';
 import { hasQuotePriceChange } from '../../utils/quotePriceChange';
 import { calculateQuoteSpreadPoints } from '../../utils/quoteSpread';
 import { resolveBackendQuoteVolume } from '../../utils/quoteVolume';
@@ -19,10 +19,6 @@ export type LiveQuoteSnapshot = Partial<QuoteItem> & {
   // from volume/volumeSource so it never feeds the refetch logic.
   cachedVolume?: number;
 };
-
-const quoteSpecBySymbol = new Map(
-  mockQuotes.map((quote) => [normalizeSymbol(quote.symbol), quote]),
-);
 
 const toFiniteNumber = (value: unknown): number | undefined => {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -42,9 +38,8 @@ const resolveDigits = (
   bid: number,
   tickDigits?: number,
   previousDigits?: number,
-  specDigits?: number,
 ): number => {
-  const candidate = toFiniteNumber(tickDigits) ?? toFiniteNumber(previousDigits) ?? toFiniteNumber(specDigits);
+  const candidate = toFiniteNumber(tickDigits) ?? toFiniteNumber(previousDigits);
   if (candidate !== undefined) {
     return Math.max(0, Math.min(8, Math.floor(candidate)));
   }
@@ -118,14 +113,12 @@ export const buildInitialLiveQuoteSnapshot = (
     return undefined;
   }
 
-  const spec = quoteSpecBySymbol.get(symbol);
-  if (!spec && !liveQuote) {
+  if (!liveQuote) {
     return undefined;
   }
 
   const merged = {
-    ...(spec || {}),
-    ...(liveQuote || {}),
+    ...liveQuote,
     symbol,
   };
   // Spread is a display calculation from bid/ask; volume is backend-owned.
@@ -161,27 +154,25 @@ export const applyLiveQuoteTickToSnapshot = (
     return previous;
   }
 
-  const spec = quoteSpecBySymbol.get(symbol);
-  const base = previous ?? buildInitialLiveQuoteSnapshot(symbol);
+  const base = previous;
   const receivedAt = normalizeQuoteTickTimestampToMs(tick.receivedAt) ?? now;
   const feedTickAt = normalizeQuoteTickTimestampToMs(tick.feedTickAt ?? tick.timestamp);
   const lastTickAt = feedTickAt ?? receivedAt;
-  const digits = resolveDigits(symbol, bid, tick.digits, base?.digits, spec?.digits);
+  const digits = resolveDigits(symbol, bid, tick.digits, base?.digits);
   const bidChanged = base?.bid !== bid;
   const askChanged = base?.ask !== ask;
   const priceChanged = hasQuotePriceChange(base, tick);
   const previousClose = toFiniteNumber(tick.previousClose);
   const dailyOpen = toFiniteNumber(tick.dailyOpen);
-  const open = dailyOpen ?? toFiniteNumber(tick.open) ?? base?.open ?? spec?.open;
-  const high = toFiniteNumber(tick.high) ?? base?.high ?? spec?.high;
-  const low = toFiniteNumber(tick.low) ?? base?.low ?? spec?.low;
+  const open = dailyOpen ?? toFiniteNumber(tick.open) ?? base?.open;
+  const high = toFiniteNumber(tick.high) ?? base?.high;
+  const low = toFiniteNumber(tick.low) ?? base?.low;
   // Live tick volume is optional. If the feed omits it, keep only a previous
   // backend-sourced value; never replace it with built-in quote defaults.
   const volume = resolveBackendQuoteVolume({ incoming: tick.volume, previous: base });
-  const spread = calculateQuoteSpreadPoints(bid, ask, digits) ?? base?.spread ?? spec?.spread ?? 0;
+  const spread = calculateQuoteSpreadPoints(bid, ask, digits) ?? base?.spread ?? 0;
 
   return {
-    ...(spec || {}),
     ...(base || {}),
     symbol,
     bid,
@@ -193,7 +184,7 @@ export const applyLiveQuoteTickToSnapshot = (
     high,
     low,
     open,
-    close: toFiniteNumber(tick.last) ?? base?.close ?? spec?.close,
+    close: toFiniteNumber(tick.last) ?? base?.close,
     volume,
     volumeSource: volume === undefined ? undefined : 'backend',
     changePct: resolveChangePct(tick, bid, base),
@@ -205,8 +196,13 @@ export const applyLiveQuoteTickToSnapshot = (
     dailyOpen,
     source: tick.source ?? base?.source,
     authority: tick.authority ?? base?.authority,
+    transport: tick.transport,
     stale: tick.stale,
-    tradable: tick.tradable ?? base?.tradable,
+    tradable: tick.tradable,
+    degraded: tick.degraded,
+    degradationReason: tick.degradationReason,
+    sequence: tick.sequence,
+    tickId: tick.tickId,
     ageMs: tick.ageMs,
     ageSec: tick.ageSec,
     updateSeq,

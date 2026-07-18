@@ -9,7 +9,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View, TextInput, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
@@ -21,6 +21,7 @@ import { resolveTradingLogin } from '../../state/tradingLogin';
 import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 import { useTranslation } from '../../i18n/useTranslation';
 import { safeRouterBack } from '../../utils/navigation';
+import { scheduleChartActionLaunchCovered } from './chartActionLaunchController';
 
 // Format helpers — return "—" when an input is missing so the UI never shows
 // a misleading hardcoded number.
@@ -33,13 +34,41 @@ const fmtPipValue = (n: number | undefined, currency: string) =>
  * A fully featured trading calculator tool. Allows the user to simulate trades, calculating required margin, pip value, spread cost, and projected profits based on lot size and entry/exit prices.
  */
 export function ChartTradingCalculatorScreen() {
-  const { symbol } = useLocalSearchParams<{ symbol: string }>();
+  const { launchRevision, symbol } = useLocalSearchParams<{
+    launchRevision?: string;
+    symbol: string;
+  }>();
   const T = useTheme();
   const { t } = useTranslation();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const isScreenFocused = useIsFocused();
+  const parsedLaunchRevision = Number(launchRevision);
+  const resolvedLaunchRevision = Number.isFinite(parsedLaunchRevision)
+    ? parsedLaunchRevision
+    : undefined;
+  const launchBodyLaidOutRef = useRef(false);
+  const scheduledCoverageRevisionRef = useRef<number | null>(null);
+  const scheduleLaunchCoverageIfReady = useCallback(() => {
+    if (
+      !isScreenFocused
+      || resolvedLaunchRevision === undefined
+      || !launchBodyLaidOutRef.current
+      || scheduledCoverageRevisionRef.current === resolvedLaunchRevision
+    ) {
+      return;
+    }
+    scheduledCoverageRevisionRef.current = resolvedLaunchRevision;
+    scheduleChartActionLaunchCovered('calculator', resolvedLaunchRevision);
+  }, [isScreenFocused, resolvedLaunchRevision]);
+  const handleLaunchBodyLayout = useCallback(() => {
+    launchBodyLaidOutRef.current = true;
+    scheduleLaunchCoverageIfReady();
+  }, [scheduleLaunchCoverageIfReady]);
+  useEffect(() => {
+    scheduleLaunchCoverageIfReady();
+  }, [scheduleLaunchCoverageIfReady]);
 
   const currentSymbol = symbol || 'XAU/USD';
 
@@ -118,7 +147,11 @@ export function ChartTradingCalculatorScreen() {
   const commission = 0; // Not returned by calculators API; broker may charge separately
 
   return (
-    <Screen style={styles.screen}>
+    <Screen
+      collapsable={false}
+      onLayout={handleLaunchBodyLayout}
+      style={styles.screen}
+    >
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
         <View style={styles.headerRow}>
           <Pressable onPress={() => safeRouterBack(router, '/(tabs)/chart')} hitSlop={16} style={styles.headerBackBtn}>

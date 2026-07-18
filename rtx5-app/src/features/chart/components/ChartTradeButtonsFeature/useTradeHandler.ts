@@ -11,6 +11,12 @@ import { useUserPreferences } from '../../../../state/userPreferences';
 import { runCriticalTradeAction } from '../../../../utils/actionLatency';
 import { getApiLatencyNow } from '../../../../utils/apiLatency';
 import type { TradeSide } from '../../../../domain/tradeSide';
+import {
+  quoteActionBlockMessage,
+  recordBlockedPriceAction,
+  resolveSessionQuoteActionAvailability,
+  type ExecutableQuoteInput,
+} from '../../../../market/quoteIntegrity';
 import { buildChartMarketOrderPayload, getChartTradeAction } from '../../chartTradeActions';
 import { validateChartTradeProtectionLevels } from '../../chartTradeOrderUtils';
 import {
@@ -24,6 +30,8 @@ import {
   scheduleOrderTicketLaunchNavigation,
   showOrderTicketLaunch,
 } from '../../../trade/orderTicketLaunchController';
+import { redactDiagnosticValue } from '../../../../utils/securityRedaction';
+import { resolveBrokerExecutionEvidence } from '../../../../api/orders/executionEvidence';
 
 const CHART_TRADE_DIAGNOSTICS_ENABLED =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CHART_TRADE === 'true';
@@ -32,13 +40,13 @@ const CHART_TRADE_QUEUE_RETRY_MS = 50;
 
 const logChartTradeDiagnostic = (...args: Parameters<typeof console.log>) => {
   if (CHART_TRADE_DIAGNOSTICS_ENABLED) {
-    console.log(...args);
+    console.log(...args.map(redactDiagnosticValue));
   }
 };
 
 const warnChartTradeDiagnostic = (...args: Parameters<typeof console.warn>) => {
   if (CHART_TRADE_DIAGNOSTICS_ENABLED) {
-    console.warn(...args);
+    console.warn(...args.map(redactDiagnosticValue));
   }
 };
 
@@ -53,6 +61,7 @@ type TradeFeedback = {
   price?: number;
   volume?: number;
   executedAt?: string;
+  executionConfirmed?: boolean;
 };
 
 type QueuedChartTrade = {
@@ -64,8 +73,6 @@ type QueuedChartTrade = {
   comment: string;
   stopLossPrice?: number;
   takeProfitPrice?: number;
-  latestBid: number;
-  latestAsk: number;
   queuedAtMs: number;
 };
 
@@ -79,6 +86,8 @@ export type TradeHandlerOptions = {
   lotSize: number;
   latestBid: number;
   latestAsk: number;
+  quoteActionAllowed: boolean;
+  quoteActionQuote?: ExecutableQuoteInput;
   onTradeResult?: (feedback: TradeFeedback) => void;
 };
 
@@ -92,6 +101,8 @@ export function useTradeHandler({
   lotSize,
   latestBid,
   latestAsk,
+  quoteActionAllowed,
+  quoteActionQuote,
   onTradeResult,
 }: TradeHandlerOptions) {
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
@@ -104,6 +115,8 @@ export function useTradeHandler({
   const tradeQueueRef = React.useRef<QueuedChartTrade[]>([]);
   const tradeQueueDrainTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const nextTradeQueueIdRef = React.useRef(1);
+  const quoteActionQuoteRef = React.useRef<ExecutableQuoteInput | undefined>(quoteActionQuote);
+  quoteActionQuoteRef.current = quoteActionQuote;
   const isCurrentChartSymbol = currentChartSymbol === symbol;
 
   React.useEffect(() => () => {
@@ -194,6 +207,19 @@ export function useTradeHandler({
       return;
     }
 
+    const currentQuoteAvailability = resolveSessionQuoteActionAvailability(quoteActionQuoteRef.current);
+    if (!currentQuoteAvailability.allowed) {
+      recordBlockedPriceAction('chart_queued_trade', currentQuoteAvailability);
+      tradeQueueRef.current = [];
+      onTradeResult?.({
+        visible: true,
+        type: 'error',
+        title: 'Market Data Unavailable',
+        message: quoteActionBlockMessage(currentQuoteAvailability),
+      });
+      return;
+    }
+
     const queuedTrade = tradeQueueRef.current.shift();
     if (!queuedTrade) {
       return;
@@ -257,18 +283,36 @@ export function useTradeHandler({
           remainingQueue: tradeQueueRef.current.length,
           rawResponse: data,
         });
-        const ticket = data?.position_ticket || data?.order_ticket || data?.ticket || 'Confirmed';
-        const execPrice = action.side === 'buy' ? queuedTrade.latestAsk : queuedTrade.latestBid;
-        onTradeResult?.({
-          visible: true,
-          type: 'success',
-          side: action.side,
-          symbol: queuedTrade.symbol,
-          ticket: String(ticket),
-          price: execPrice,
-          volume: queuedTrade.volume,
-          executedAt: new Date().toLocaleTimeString(),
-        });
+        const executionEvidence = resolveBrokerExecutionEvidence(data);
+        onTradeResult?.(executionEvidence.confirmed
+          ? {
+            visible: true,
+            type: 'success',
+            executionConfirmed: true,
+            title: 'Order Executed',
+            side: action.side,
+            symbol: queuedTrade.symbol,
+            ticket: String(executionEvidence.ticket),
+            price: executionEvidence.executionPrice,
+            volume: queuedTrade.volume,
+            executedAt: new Date().toLocaleTimeString(),
+          }
+          : {
+            visible: true,
+            type: 'success',
+            executionConfirmed: false,
+            title: 'Order Submitted — Confirmation Pending',
+            message: 'The broker accepted the request but did not return both a ticket and execution price. Verify it in Positions or Orders before acting on it.',
+            side: action.side,
+            symbol: queuedTrade.symbol,
+            ...(executionEvidence.ticket !== undefined
+              ? { ticket: String(executionEvidence.ticket) }
+              : {}),
+            ...(executionEvidence.executionPrice !== undefined
+              ? { price: executionEvidence.executionPrice }
+              : {}),
+            volume: queuedTrade.volume,
+          });
         releaseTradeTapLock();
         scheduleProcessNextQueuedTrade();
       },
@@ -317,6 +361,19 @@ export function useTradeHandler({
         ignored: true,
         reason: 'stale-symbol',
         timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    const currentQuoteAvailability = resolveSessionQuoteActionAvailability(quoteActionQuoteRef.current);
+    if (!currentQuoteAvailability.allowed) {
+      recordBlockedPriceAction('chart_quick_trade', currentQuoteAvailability);
+      onTradeResult?.({
+        visible: true,
+        type: 'error',
+        title: 'Market Data Unavailable',
+        message: quoteActionBlockMessage(currentQuoteAvailability),
+        side: action.side,
       });
       return;
     }
@@ -490,8 +547,6 @@ export function useTradeHandler({
       comment: trimmedComment,
       ...(hasStopLossPrice ? { stopLossPrice: normalizedStopLossPrice } : {}),
       ...(hasTakeProfitPrice ? { takeProfitPrice: normalizedTakeProfitPrice } : {}),
-      latestBid,
-      latestAsk,
       queuedAtMs: getApiLatencyNow(),
     };
     const pendingTradeCount = tradeQueueRef.current.length + (tradeTapLockRef.current ? 1 : 0);
@@ -532,8 +587,8 @@ export function useTradeHandler({
 
   const isChartTradeActionBusy = (side: TradeSide) => activeSide === side && tradeTapLockRef.current;
   const isChartTradeActionVisuallyLocked = (side: TradeSide) =>
-    !isCurrentChartSymbol || activeSide === side;
-  const chartTradeActionDisabled = !isCurrentChartSymbol;
+    !isCurrentChartSymbol || !quoteActionAllowed || activeSide === side;
+  const chartTradeActionDisabled = !isCurrentChartSymbol || !quoteActionAllowed;
 
   return {
     handleTrade,

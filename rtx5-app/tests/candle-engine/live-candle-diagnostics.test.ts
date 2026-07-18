@@ -42,7 +42,7 @@ test('canonical live stream exposes safe REST history prefetch for fast timefram
   assert.match(source, /const INITIAL_VIEWPORT_HISTORY_LIMIT = 120/);
   assert.match(source, /const INITIAL_HISTORY_LIMIT = Math\.min\(INITIAL_VIEWPORT_HISTORY_LIMIT, MAX_CANDLE_SERIES_LENGTH\)/);
   assert.match(source, /public async prefetchHistory\(symbol: string, timeframe: string\): Promise<number>/);
-  assert.match(source, /getCandleHistory\(normalizedSymbol, normalizedTimeframe, INITIAL_HISTORY_LIMIT\)/);
+  assert.match(source, /getCandleHistory\([\s\S]*normalizedSymbol,[\s\S]*normalizedTimeframe,[\s\S]*INITIAL_HISTORY_LIMIT,[\s\S]*cacheNamespace: sessionProvenance\.cacheNamespace/);
   assert.match(source, /slice\(-INITIAL_HISTORY_LIMIT\)/);
   assert.match(source, /renderHistoryLimit: INITIAL_HISTORY_LIMIT/);
   assert.match(source, /entry\.renderHistoryLimit = INITIAL_HISTORY_LIMIT/);
@@ -52,7 +52,7 @@ test('canonical live stream exposes safe REST history prefetch for fast timefram
   assert.match(source, /void pendingPrefetch\.then\(\(\) => \{/);
   assert.match(source, /live\.historyCandles\.length > 0[\s\S]*runLoadHistory\(this, live, INITIAL_HISTORY_LIMIT\)/);
   assert.match(source, /candleMemoryCache\.set\(normalizedSymbol, normalizedTimeframe, candles\)/);
-  assert.match(source, /syncMergedCandleCache\(normalizedSymbol, normalizedTimeframe, history\.closedCandles, \{ canonical: true \}\)/);
+  assert.match(source, /syncMergedCandleCache\(normalizedSymbol, normalizedTimeframe, history\.closedCandles, \{[\s\S]*provenance: history\.provenance/);
 });
 
 test('canonical live stream keeps pagination windows bounded to the selected timeframe', () => {
@@ -169,7 +169,7 @@ test('canonical live stream commits one fresh history plus backend live candle s
   assert.match(source, /buildFreshHistoryLiveCandleSeries\(/);
   assert.match(source, /closedHistoryLastTime: entry\.historyLastTime/);
   assert.match(source, /candleMemoryCache\.set\(entry\.symbol, entry\.timeframe, safeNextCandles\)/);
-  assert.match(source, /syncMergedCandleCache\(symbol, timeframe, history\.closedCandles, \{ canonical: true \}\)/);
+  assert.match(source, /syncMergedCandleCache\(symbol, timeframe, history\.closedCandles, \{[\s\S]*provenance: history\.provenance/);
   assert.doesNotMatch(source, /syncMergedCandleCache\(entry\.symbol, entry\.timeframe, nextCandles, \{ canonical: true \}\)/);
   assert.doesNotMatch(source, /materializeCandleMap\(entry\.candleMap/);
 });

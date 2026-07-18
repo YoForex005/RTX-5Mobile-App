@@ -9,35 +9,70 @@
  */
 
 import { brokerApi } from '../../../../api/brokerApi';
+import { AppState } from 'react-native';
 import { liveCandleStream as liveCandlesEngine } from '../../stream/liveCandleStream';
 import {
   createCandleChannel,
   extractCandlePayloadContext,
   getCandlePayloadItems,
   hasBackendCandleShape,
+  resolveCandlesWsUrl,
 } from '../candlesSocketProtocol';
 import type { CandleStreamEvent } from '../../core/candles';
 import { normalizeSymbol, normalizeTimeframeStrict } from '../../core/candles';
 import type { Candle } from '../../../../state/tradingState';
-import { useUserPreferences } from '../../../../state/userPreferences';
 import { createSubscriptionKey } from './authToken';
 import type { ArrayListener, StreamListener, SubscriptionState, TickListener } from './types';
+import {
+  captureActiveBrokerSession,
+  getActiveBrokerSessionIdentity,
+  isActiveBrokerSessionCurrent,
+  subscribeActiveBrokerSession,
+  type ActiveBrokerSessionIdentity,
+} from '../../../../state/activeBrokerSession';
+import { isSocketAuthenticationFailure } from '../../../../api/ws/socketClosePolicy';
+import { payloadMatchesSocketIdentity } from '../../../../api/ws/socketPayloadIdentity';
+import {
+  hasStableConnectionSucceeded,
+  resolveFullJitterBackoffMs,
+} from '../../../../api/ws/reconnectBackoff';
+import {
+  redactDiagnosticValue,
+  redactSensitiveString,
+} from '../../../../utils/securityRedaction';
 
-const redactCandleSocketUrl = (url: string): string =>
-  url.replace(/([?&]token=)[^&]*/i, '$1***');
+const RECONNECT_BASE_MS = 1_000;
+const RECONNECT_CAP_MS = 30_000;
+const STABLE_CONNECTION_MS = 10_000;
+
+const redactCandleSocketUrl = (url: string): string => redactSensitiveString(url);
+
+const sameIdentity = (
+  left: ActiveBrokerSessionIdentity | null,
+  right: ActiveBrokerSessionIdentity,
+): boolean => Boolean(
+  left &&
+  left.brokerId === right.brokerId &&
+  left.accountLogin === right.accountLogin &&
+  left.sessionEpoch === right.sessionEpoch,
+);
 
 export class CandlesWebSocketService {
   private static instance: CandlesWebSocketService;
 
   private ws: WebSocket | null = null;
   private url = '';
-  private activeBrokerId = '';
+  private activeIdentity: ActiveBrokerSessionIdentity | null = null;
   private isResolvingSocketUrl = false;
   private tokenWatcherUnsubscribe: (() => void) | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private stableConnectionTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
   private manualDisconnect = false;
+  private isSuspended = AppState.currentState !== 'active';
   private isConnected = false;
+  private connectedAt = 0;
+  private acceptedPayloadCount = 0;
 
   private subscriptions = new Map<string, SubscriptionState>();
   private tickListeners: Set<TickListener> = new Set();
@@ -53,48 +88,54 @@ export class CandlesWebSocketService {
     return CandlesWebSocketService.instance;
   }
 
-  private async resolveSocketUrlAsync(): Promise<string> {
-    const state = useUserPreferences.getState();
-    if (!state.isLoggedIn) {
-      return '';
-    }
-    return brokerApi.getWebSocketUrl();
-  }
-
   /**
    * Establishes the WebSocket connection and resubscribes all active candle channels.
    */
   public connect(): void {
+    this.manualDisconnect = false;
+    if (this.isSuspended) {
+      return;
+    }
     void this.connectAsync();
   }
 
   private async connectAsync(): Promise<void> {
-    if (this.subscriptions.size === 0) {
+    if (this.isSuspended || this.subscriptions.size === 0) {
       return;
     }
     if (this.isResolvingSocketUrl) {
       return;
     }
 
-    const brokerId = this.resolveConnectionBrokerId();
+    const capture = captureActiveBrokerSession();
+    if (!capture || !resolveCandlesWsUrl(capture.session.tradeWsBase)) {
+      console.warn('[Candles WS] Active broker has no validated trading WebSocket endpoint.');
+      return;
+    }
+    const identity = getActiveBrokerSessionIdentity(capture.session);
     this.isResolvingSocketUrl = true;
     let nextUrl = '';
     try {
-      nextUrl = await this.resolveSocketUrlAsync();
+      nextUrl = await brokerApi.getWebSocketUrl();
     } catch (error) {
       this.isResolvingSocketUrl = false;
-      console.warn('[Candles WS] Failed to resolve broker candle websocket URL.', error);
-      this.scheduleReconnect();
+      console.warn(
+        '[Candles WS] Failed to resolve broker candle websocket URL.',
+        redactDiagnosticValue(error),
+      );
+      if (isActiveBrokerSessionCurrent(identity)) {
+        this.scheduleReconnect(identity);
+      }
       return;
     }
     this.isResolvingSocketUrl = false;
-    if (!nextUrl) {
-      if (this.url !== nextUrl) {
-        this.url = nextUrl;
-        this.tearDownSocketSafe();
-      }
-      console.warn('[Candles WS] Authenticated broker candle websocket unavailable. Waiting for broker session.');
-      this.scheduleReconnect();
+    if (
+      !isActiveBrokerSessionCurrent(identity) ||
+      this.isSuspended ||
+      this.manualDisconnect ||
+      this.subscriptions.size === 0 ||
+      !nextUrl
+    ) {
       return;
     }
 
@@ -102,7 +143,7 @@ export class CandlesWebSocketService {
     // it down so the next connection uses the current broker URL/auth mode.
     if (
       (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) &&
-      (this.activeBrokerId !== brokerId || this.url !== nextUrl)
+      (!sameIdentity(this.activeIdentity, identity) || this.url !== nextUrl)
     ) {
       this.url = nextUrl;
       this.tearDownSocketSafe();
@@ -128,44 +169,81 @@ export class CandlesWebSocketService {
     }
 
     try {
-      this.activeBrokerId = brokerId;
+      this.activeIdentity = identity;
       const wsUrl = this.url;
-      this.ws = new WebSocket(wsUrl);
-      this.ws.onopen = () => {
+      const socket = new WebSocket(wsUrl);
+      this.ws = socket;
+      socket.onopen = () => {
+        if (
+          this.ws !== socket ||
+          this.isSuspended ||
+          !isActiveBrokerSessionCurrent(identity)
+        ) {
+          socket.close();
+          return;
+        }
         this.isConnected = true;
-        this.reconnectAttempts = 0;
+        this.connectedAt = Date.now();
+        this.acceptedPayloadCount = 0;
+        this.startStableConnectionTimer(socket, identity);
         this.sendSubscriptions();
       };
-      this.ws.onmessage = (event) => {
+      socket.onmessage = (event) => {
+        if (this.ws !== socket || !isActiveBrokerSessionCurrent(identity)) return;
         try {
-          this.handlePayload(JSON.parse(event.data as string));
+          const accepted = this.handlePayload(JSON.parse(event.data as string), identity);
+          if (accepted) {
+            this.acceptedPayloadCount += 1;
+            if (hasStableConnectionSucceeded({
+              connectedAt: this.connectedAt,
+              now: Date.now(),
+              acceptedPayloadCount: this.acceptedPayloadCount,
+              stableAfterMs: STABLE_CONNECTION_MS,
+            })) {
+              this.markConnectionHealthy();
+            }
+          }
         } catch (error) {
-          console.warn('[Candles WS] Parse error', error);
+          console.warn('[Candles WS] Parse error', redactDiagnosticValue(error));
         }
       };
-      this.ws.onclose = (event) => {
+      socket.onclose = (event) => {
+        if (this.ws !== socket) return;
+        this.clearStableConnectionTimer();
         this.isConnected = false;
         this.ws = null;
+        this.activeIdentity = null;
+        this.connectedAt = 0;
+        this.acceptedPayloadCount = 0;
+        if (!isActiveBrokerSessionCurrent(identity)) return;
+        if (isSocketAuthenticationFailure(event?.code)) {
+          this.manualDisconnect = true;
+          this.clearReconnectTimer();
+          return;
+        }
         if (!this.manualDisconnect && this.subscriptions.size > 0) {
           console.warn('[Candles WS] closed', {
             code: event?.code,
-            reason: event?.reason,
+            reason: redactSensitiveString(String(event?.reason ?? '')),
             socketUrl: redactCandleSocketUrl(wsUrl),
           });
         }
         if (!this.manualDisconnect && this.subscriptions.size > 0) {
-          this.scheduleReconnect();
+          this.scheduleReconnect(identity);
         }
       };
-      this.ws.onerror = () => {
+      socket.onerror = () => {
+        if (this.ws !== socket || !isActiveBrokerSessionCurrent(identity)) return;
         console.warn('[Candles WS] connection error', {
-          readyState: this.ws?.readyState,
+          readyState: socket.readyState,
           socketUrl: redactCandleSocketUrl(wsUrl),
         });
       };
     } catch (error) {
-      console.warn('[Candles WS] connection failed', error);
-      this.scheduleReconnect();
+      console.warn('[Candles WS] connection failed', redactDiagnosticValue(error));
+      if (isActiveBrokerSessionCurrent(identity)) {
+        this.scheduleReconnect(identity);
+      }
     }
   }
 
@@ -176,6 +254,7 @@ export class CandlesWebSocketService {
   public disconnect(): void {
     this.manualDisconnect = true;
     this.clearReconnectTimer();
+    this.clearStableConnectionTimer();
     if (typeof this.stopTokenWatcher === 'function') {
       try {
         this.stopTokenWatcher();
@@ -186,9 +265,28 @@ export class CandlesWebSocketService {
     }
     this.subscriptions.clear();
     this.candleCache = [];
-    this.activeBrokerId = '';
+    this.activeIdentity = null;
 
     this.tearDownSocketSafe();
+  }
+
+  /** Stop network work while retaining consumer counts, listeners, and candles. */
+  public suspend(): void {
+    if (this.isSuspended) return;
+    this.isSuspended = true;
+    this.clearReconnectTimer();
+    this.clearStableConnectionTimer();
+    this.tearDownSocketSafe();
+  }
+
+  /** Revalidate the active immutable session, then restore existing demand. */
+  public resume(): void {
+    if (!this.isSuspended) return;
+    this.isSuspended = false;
+    if (this.manualDisconnect || this.subscriptions.size === 0) return;
+    const capture = captureActiveBrokerSession();
+    if (!capture || !resolveCandlesWsUrl(capture.session.tradeWsBase)) return;
+    this.connect();
   }
 
   /**
@@ -204,8 +302,12 @@ export class CandlesWebSocketService {
       } catch (_error) {}
     }
     const socket = this.ws;
+    this.clearStableConnectionTimer();
     this.ws = null;
     this.isConnected = false;
+    this.activeIdentity = null;
+    this.connectedAt = 0;
+    this.acceptedPayloadCount = 0;
     if (!socket) {
       return;
     }
@@ -317,14 +419,22 @@ export class CandlesWebSocketService {
    * Processes all incoming WebSocket messages. Routes them to the correct candle stream
    * based on explicit channel metadata or payload context.
    */
-  private handlePayload(payload: unknown): void {
+  private handlePayload(payload: unknown, identity: ActiveBrokerSessionIdentity): boolean {
+    if (
+      !isActiveBrokerSessionCurrent(identity) ||
+      !sameIdentity(this.activeIdentity, identity) ||
+      !payloadMatchesSocketIdentity(payload, identity)
+    ) {
+      return false;
+    }
     const items = getCandlePayloadItems(payload);
     if (items.length === 0) {
-      return;
+      return false;
     }
 
     const outerContext = extractCandlePayloadContext(payload);
     const states = Array.from(this.subscriptions.values());
+    let accepted = false;
 
     for (const item of items) {
       if (!hasBackendCandleShape(item)) {
@@ -337,6 +447,7 @@ export class CandlesWebSocketService {
 
       if (symbol && tf) {
         liveCandlesEngine.ingestLiveCandle(item, symbol, tf);
+        accepted = true;
         continue;
       }
 
@@ -351,8 +462,10 @@ export class CandlesWebSocketService {
       // pollute other symbols/timeframes.
       if (candidates.length === 1) {
         liveCandlesEngine.ingestLiveCandle(item, candidates[0].symbol, candidates[0].tf);
+        accepted = true;
       }
     }
+    return accepted;
   }
 
   private handleEngineUpdate(state: SubscriptionState): void {
@@ -470,16 +583,30 @@ export class CandlesWebSocketService {
     }
   }
 
-  private scheduleReconnect(): void {
-    if (this.reconnectTimer) {
+  private scheduleReconnect(identity: ActiveBrokerSessionIdentity): void {
+    if (
+      this.isSuspended ||
+      this.manualDisconnect ||
+      this.reconnectTimer ||
+      !isActiveBrokerSessionCurrent(identity)
+    ) {
       return;
     }
 
+    const delay = resolveFullJitterBackoffMs({
+      attempt: this.reconnectAttempts,
+      baseMs: RECONNECT_BASE_MS,
+      capMs: RECONNECT_CAP_MS,
+    });
     this.reconnectAttempts += 1;
-    const delay = Math.min(30_000, 1000 * 2 ** Math.min(this.reconnectAttempts, 5));
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      if (!this.manualDisconnect && this.subscriptions.size > 0) {
+      if (
+        !this.manualDisconnect &&
+        !this.isSuspended &&
+        this.subscriptions.size > 0 &&
+        isActiveBrokerSessionCurrent(identity)
+      ) {
         this.connect();
       }
     }, delay);
@@ -492,19 +619,19 @@ export class CandlesWebSocketService {
     }
   }
 
-  private resolveConnectionBrokerId(): string {
-    const state = useUserPreferences.getState();
-    return state.isLoggedIn ? String(state.brokerId || '').trim() : '';
-  }
-
   private teardownSocket(): void {
+    this.clearStableConnectionTimer();
+    this.connectedAt = 0;
+    this.acceptedPayloadCount = 0;
     if (!this.ws) {
       this.isConnected = false;
+      this.activeIdentity = null;
       return;
     }
     const socket = this.ws;
     this.ws = null;
     this.isConnected = false;
+    this.activeIdentity = null;
     socket.onopen = null;
     socket.onmessage = null;
     socket.onerror = null;
@@ -514,31 +641,62 @@ export class CandlesWebSocketService {
     } catch (_error) {}
   }
 
-  // Watch broker identity and URL so account/broker switches resubscribe the
-  // public candle stream to the correct backend service.
+  private startStableConnectionTimer(
+    socket: WebSocket,
+    identity: ActiveBrokerSessionIdentity,
+  ): void {
+    this.clearStableConnectionTimer();
+    this.stableConnectionTimer = setTimeout(() => {
+      this.stableConnectionTimer = null;
+      if (
+        this.ws === socket &&
+        socket.readyState === WebSocket.OPEN &&
+        !this.isSuspended &&
+        isActiveBrokerSessionCurrent(identity) &&
+        hasStableConnectionSucceeded({
+          connectedAt: this.connectedAt,
+          now: Date.now(),
+          acceptedPayloadCount: this.acceptedPayloadCount,
+          stableAfterMs: STABLE_CONNECTION_MS,
+        })
+      ) {
+        this.markConnectionHealthy();
+      }
+    }, STABLE_CONNECTION_MS);
+  }
+
+  private clearStableConnectionTimer(): void {
+    if (this.stableConnectionTimer) {
+      clearTimeout(this.stableConnectionTimer);
+      this.stableConnectionTimer = null;
+    }
+  }
+
+  private markConnectionHealthy(): void {
+    this.reconnectAttempts = 0;
+    this.connectedAt = 0;
+    this.acceptedPayloadCount = 0;
+    this.clearStableConnectionTimer();
+  }
+
+  // Credential refreshes and broker/account transitions must never leave the
+  // old socket alive. The coordinator may also disconnect explicitly; this
+  // watcher is a synchronous isolation backstop.
   private startTokenWatcher(): void {
     if (this.tokenWatcherUnsubscribe) {
       return;
     }
     try {
-      this.tokenWatcherUnsubscribe = useUserPreferences.subscribe((state, prevState) => {
-        const nextBrokerId = state.brokerId;
-        const prevBrokerId = prevState.brokerId;
-        const nextServerUrl = state.brokerServerUrl;
-        const prevServerUrl = prevState.brokerServerUrl;
-        if (nextBrokerId === prevBrokerId && nextServerUrl === prevServerUrl) {
-          return;
-        }
+      this.tokenWatcherUnsubscribe = subscribeActiveBrokerSession((event) => {
         if (this.subscriptions.size === 0) {
           return;
         }
-        // Tear down and reconnect under the new broker. `connect()` will
-        // re-establish the socket, then `sendSubscriptions()` will re-subscribe
-        // every active (symbol, timeframe) channel.
         this.tearDownSocketSafe();
         this.clearReconnectTimer();
         this.reconnectAttempts = 0;
-        this.connect();
+        if (!this.isSuspended && event.activeSession?.tradeWsBase) {
+          this.connect();
+        }
       });
     } catch (_error) {
       this.tokenWatcherUnsubscribe = null;

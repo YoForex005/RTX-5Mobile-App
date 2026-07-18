@@ -3,14 +3,14 @@ import test from 'node:test';
 
 import { buildMarketOrderSymbolCandidates } from './placeMarketOrderCandidates.ts';
 
-test('market order symbol candidates prefer the last accepted broker symbol', () => {
+test('market order symbol candidates reject accepted and catalog aliases with different suffixes', () => {
   assert.deepEqual(
     buildMarketOrderSymbolCandidates({
       callerSymbol: 'XAUUSDm',
       acceptedSymbol: 'XAUUSD.pro',
       cachedCatalogSymbol: 'XAUUSD.c',
     }),
-    ['XAUUSD.pro', 'XAUUSDm', 'XAUUSD.c', 'XAUUSD'],
+    ['XAUUSDm'],
   );
 });
 
@@ -21,6 +21,17 @@ test('market order symbol candidates dedupe exact and normalized matches', () =>
       cachedCatalogSymbol: 'EURUSD',
     }),
     ['EURUSD'],
+  );
+});
+
+test('market order symbol candidates keep broker-authoritative spelling for the same exact key', () => {
+  assert.deepEqual(
+    buildMarketOrderSymbolCandidates({
+      callerSymbol: 'eurusd.pro',
+      acceptedSymbol: 'EURUSD.PRO',
+      cachedCatalogSymbol: 'EURUSD.pro',
+    }),
+    ['EURUSD.PRO', 'eurusd.pro', 'EURUSD.pro'],
   );
 });
 

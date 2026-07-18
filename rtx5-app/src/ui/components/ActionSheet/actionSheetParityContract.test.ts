@@ -58,6 +58,8 @@ test('ActionSheet surfaces use the shared instant Quotes-style sheet contract', 
   assert.match(actionSheetSource, /activateOnTouchStart=\{activateInlineActionOnTouchStart\}/);
   assert.match(tabsLayoutSource, /presentation=\{activeConfig\?\.presentation\}/);
   assert.match(tabsLayoutSource, /showActionIcons=\{activeConfig\?\.showActionIcons\}/);
+  assert.match(tabsLayoutSource, /deferOffscreenActions=\{activeConfig\?\.deferOffscreenActions\}/);
+  assert.match(tabsLayoutSource, /maximumVisibleActionRows=\{activeConfig\?\.maximumVisibleActionRows\}/);
   assert.match(tabsLayoutSource, /androidKeyboardAvoidance=\{activeConfig\?\.androidKeyboardAvoidance\}/);
   assert.match(tabsLayoutSource, /entryMotion=\{activeConfig\?\.entryMotion\}/);
   assert.match(tabsLayoutSource, /visualKey=\{activeConfig\?\.visualKey\}/);
@@ -66,6 +68,8 @@ test('ActionSheet surfaces use the shared instant Quotes-style sheet contract', 
   assert.match(uiStateSource, /showActionSheet: \(config\) => set\(\{ actionSheet: withInstantActionSheetOpen\(config\) \}\)/);
   assert.match(uiStateSource, /config\.instantOpen === true \? config : \{ \.\.\.config, instantOpen: true \}/);
   assert.match(uiStateSource, /entryMotion\?: 'instant' \| 'mt5Slide' \| 'standard'/);
+  assert.match(uiStateSource, /deferOffscreenActions\?: boolean/);
+  assert.match(uiStateSource, /maximumVisibleActionRows\?: number/);
   assert.match(actionSheetSource, /registerRetainedActionSheetVisualApplier/);
   assert.match(actionSheetSource, /retainedSnapshot\.mode === 'preview'[\s\S]*overlayOpacity\.setValue\(0\)[\s\S]*pointerEvents: 'none'[\s\S]*return true/);
   assert.match(actionSheetSource, /retainedSnapshot\.mode === 'committed'/);

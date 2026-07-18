@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 
-import { appendFeedAuthToWsUrl, extractFeedBrokerToken, redactFeedAuthFromWsUrl } from './feedAuth';
+import {
+  appendFeedAuthToWsUrl,
+  extractFeedBrokerToken,
+  resolveConfiguredFeedBrokerToken,
+  resolveConfiguredFeedBrokerTokenForBroker,
+  redactFeedAuthFromWsUrl,
+} from './feedAuth';
 
 test('extractFeedBrokerToken reads common response fields and nested feed auth', () => {
   assert.equal(
@@ -20,14 +24,28 @@ test('extractFeedBrokerToken reads common response fields and nested feed auth',
   );
 });
 
-test('feed auth builds and redacts the MyProp query-auth URL without env secrets', () => {
-  const source = readFileSync(resolve(process.cwd(), 'src/api/feedAuth.ts'), 'utf8');
-
-  const url = appendFeedAuthToWsUrl('wss://services.myprop.trade/ws/feed', 'myprop-trade', 'feed-secret');
-  assert.equal(url, 'wss://services.myprop.trade/ws/feed?broker_id=myprop-trade&token=feed-secret');
-  assert.equal(
-    redactFeedAuthFromWsUrl(url),
-    'wss://services.myprop.trade/ws/feed?broker_id=myprop-trade&token=***',
+test('appendFeedAuthToWsUrl adds broker_id and token while replacing stale auth params', () => {
+  const nextUrl = appendFeedAuthToWsUrl(
+    'wss://services.myprop.trade/ws/feed?broker_id=old&token=stale&foo=1',
+    'myprop-trade',
+    'env-feed-token',
   );
-  assert.doesNotMatch(source, /process\.env|EXPO_PUBLIC_FEED_BROKER_TOKEN/);
+  const parsed = new URL(nextUrl);
+
+  assert.equal(`${parsed.protocol}//${parsed.host}${parsed.pathname}`, 'wss://services.myprop.trade/ws/feed');
+  assert.equal(parsed.searchParams.get('foo'), '1');
+  assert.equal(parsed.searchParams.get('broker_id'), 'myprop-trade');
+  assert.equal(parsed.searchParams.get('token'), 'env-feed-token');
+});
+
+test('redactFeedAuthFromWsUrl hides only the token value', () => {
+  assert.equal(
+    redactFeedAuthFromWsUrl('wss://services.myprop.trade/ws/feed?broker_id=myprop-trade&token=secret&foo=1'),
+    'wss://services.myprop.trade/ws/feed?broker_id=myprop-trade&token=***&foo=1',
+  );
+});
+
+test('configured feed token helpers are exported for env fallback', () => {
+  assert.equal(typeof resolveConfiguredFeedBrokerToken, 'function');
+  assert.equal(typeof resolveConfiguredFeedBrokerTokenForBroker, 'function');
 });

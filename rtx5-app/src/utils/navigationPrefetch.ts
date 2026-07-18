@@ -1,5 +1,8 @@
 import { getAccountSummary } from '../api/account';
-import { getCandleHistory } from '../domain/candles/api/candles';
+import {
+  commitCandleHistoryResponse,
+  getCandleHistory,
+} from '../domain/candles/api/candles';
 import { fetchInstrumentMeta } from '../api/instruments';
 import {
   CANDLE_HISTORY_QUERY_GC_MS,
@@ -9,36 +12,40 @@ import {
 } from '../domain/candles/core/candles';
 import { normalizeSymbol } from '../domain/symbols';
 import { appQueryClient } from '../state/providers/AppProviders';
-import { useUserPreferences } from '../state/userPreferences';
-import { ACCOUNT_SUMMARY_KEY } from '../query/account';
+import { captureActiveBrokerSession } from '../state/activeBrokerSession';
+import { getAccountSummaryQueryKey } from '../query/account';
+import { runSessionBoundQuery } from '../query/authenticatedQueryScope';
 import { INSTRUMENT_META_QUERY_VERSION } from '../query/instruments';
 import { candleKeys } from '../domain/candles/query/candles';
 import { mergeHistoryIntoCandleCache } from '../domain/candles/state/candleCache';
 
 export function prefetchAccountSummary(login?: string) {
-  if (!login) return;
+  const capture = captureActiveBrokerSession();
+  if (!login || !capture) return;
+  const cacheNamespace = capture.session.cacheNamespace;
 
   void appQueryClient.prefetchQuery({
-    queryKey: [ACCOUNT_SUMMARY_KEY, login],
-    queryFn: () => getAccountSummary(login),
+    queryKey: getAccountSummaryQueryKey(cacheNamespace, login),
+    queryFn: () => runSessionBoundQuery(
+      cacheNamespace,
+      () => getAccountSummary(login),
+    ),
     staleTime: 2_000,
   }).catch(() => {});
 }
 
 export function prefetchInstrument(symbol: string) {
   const normalizedSymbol = normalizeSymbol(symbol);
-  const preferences = useUserPreferences.getState();
-  const brokerId = preferences.brokerId;
-  const accountId = preferences.accountDetails?.id ?? '';
-  const cacheScope = `${brokerId}:${accountId}`;
+  const capture = captureActiveBrokerSession();
+  const cacheNamespace = capture?.session.cacheNamespace ?? '';
 
-  if (!normalizedSymbol) {
+  if (!normalizedSymbol || !capture) {
     return Promise.resolve();
   }
 
   return appQueryClient.prefetchQuery({
-    queryKey: ['instrument', INSTRUMENT_META_QUERY_VERSION, normalizedSymbol, brokerId, accountId],
-    queryFn: () => fetchInstrumentMeta(symbol, cacheScope),
+    queryKey: ['instrument', cacheNamespace, INSTRUMENT_META_QUERY_VERSION, normalizedSymbol],
+    queryFn: () => fetchInstrumentMeta(symbol, cacheNamespace),
     staleTime: 60 * 60_000,
   }).catch(() => {});
 }
@@ -46,17 +53,28 @@ export function prefetchInstrument(symbol: string) {
 export function prefetchChartCandles(symbol: string, timeframe: string) {
   const normalizedSymbol = normalizeSymbol(symbol);
   const normalizedTimeframe = normalizeCandleHistoryTimeframeStrict(timeframe);
+  const capture = captureActiveBrokerSession();
+  const cacheNamespace = capture?.session.cacheNamespace ?? '';
 
-  if (!normalizedSymbol || !normalizedTimeframe) {
+  if (!normalizedSymbol || !normalizedTimeframe || !capture) {
     return Promise.resolve();
   }
 
   return appQueryClient.prefetchQuery({
-    queryKey: candleKeys.history(normalizedSymbol, normalizedTimeframe),
+    queryKey: candleKeys.history(cacheNamespace, normalizedSymbol, normalizedTimeframe),
     queryFn: async () => {
-      const response = await getCandleHistory(normalizedSymbol, normalizedTimeframe, DEFAULT_CANDLE_HISTORY_LIMIT);
-      mergeHistoryIntoCandleCache(normalizedSymbol, normalizedTimeframe, response.candles);
-      return response.candles;
+      const response = await getCandleHistory(
+        normalizedSymbol,
+        normalizedTimeframe,
+        DEFAULT_CANDLE_HISTORY_LIMIT,
+        { cacheNamespace },
+      );
+      return commitCandleHistoryResponse(response, (current) => {
+        mergeHistoryIntoCandleCache(normalizedSymbol, normalizedTimeframe, current.candles, {
+          provenance: current.provenance,
+        });
+        return current.candles;
+      });
     },
     staleTime: 30_000,
     gcTime: CANDLE_HISTORY_QUERY_GC_MS,
@@ -65,20 +83,26 @@ export function prefetchChartCandles(symbol: string, timeframe: string) {
 
 export function prefetchLatestDailyCandle(symbol: string) {
   const normalizedSymbol = normalizeSymbol(symbol);
+  const capture = captureActiveBrokerSession();
+  const cacheNamespace = capture?.session.cacheNamespace ?? '';
 
-  if (!normalizedSymbol) {
+  if (!normalizedSymbol || !capture) {
     return Promise.resolve();
   }
 
   return appQueryClient.prefetchQuery({
-    queryKey: candleKeys.latestDaily(normalizedSymbol),
+    queryKey: candleKeys.latestDaily(cacheNamespace, normalizedSymbol),
     queryFn: async () => {
       const response = await getCandleHistory(
         normalizedSymbol,
         'D1',
         LATEST_DAILY_CANDLE_HISTORY_LIMIT,
+        { cacheNamespace },
       );
-      return response.currentCandle ?? response.candles[response.candles.length - 1] ?? null;
+      return commitCandleHistoryResponse(
+        response,
+        (current) => current.currentCandle ?? current.candles[current.candles.length - 1] ?? null,
+      );
     },
     staleTime: 30_000,
     gcTime: CANDLE_HISTORY_QUERY_GC_MS,

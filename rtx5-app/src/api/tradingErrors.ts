@@ -1,3 +1,5 @@
+import { redactSensitiveString } from '../utils/securityRedaction';
+
 export type TradingAction =
   | 'place-order'
   | 'load-positions'
@@ -281,7 +283,8 @@ export const classifyTradingError = (
   const status = getErrorStatus(error);
   const headers = getErrorHeaders(error);
   const brokerCode = extractDataCode(getErrorData(error));
-  const detail = getErrorMessage(error);
+  const rawDetail = getErrorMessage(error);
+  const detail = rawDetail ? redactSensitiveString(rawDetail) : null;
   const retryAfterSeconds = getRetryAfterSeconds(headers);
 
   if (brokerCode && BROKER_ERROR_MESSAGES[brokerCode]) {

@@ -1,0 +1,99 @@
+import type { FeedAuthContext } from '../state/activeBrokerSession';
+import {
+  feedHealthCanSafelyRetry,
+  type FeedHealthReasonCategory,
+  type FeedHealthState,
+} from './feedHealthState';
+
+export type FeedHealthBannerTone = 'warning' | 'critical';
+
+export type FeedHealthBannerModel = Readonly<{
+  visible: boolean;
+  tone: FeedHealthBannerTone;
+  title: 'Prices Delayed' | 'Market Data Unavailable';
+  brokerLabel: string;
+  reasonLabel: string;
+  lastSuccessAt?: number;
+  canRetry: boolean;
+}>;
+
+const reasonLabels: Record<FeedHealthReasonCategory, string> = {
+  session_unconfigured: 'Broker feed is not configured',
+  credentials_unavailable: 'Feed credentials are unavailable',
+  health_policy_unconfigured: 'Feed health policy is awaiting approval',
+  awaiting_server_health: 'Waiting for broker feed health',
+  awaiting_live_tick: 'Waiting for a live market tick',
+  server_status_incomplete: 'Broker health response is incomplete',
+  server_status_stale: 'Broker health status is outdated',
+  local_tick_stale: 'Live prices have stopped updating',
+  server_degraded: 'Broker feed reports degraded data',
+  transport_interrupted: 'Live connection was interrupted',
+  authentication: 'Broker rejected feed authentication',
+  provider_connectivity: 'Broker market-data provider is offline',
+  market_service: 'Broker market-data service is unavailable',
+  scheduled_market_closed: 'Market is closed on schedule',
+};
+
+/** Login/session-level reasons that are more specific than generic unconfigured. */
+const FEED_AUTH_DISABLED_LABELS = Object.freeze({
+  missing_contract:
+    'Login did not include feed auth contract (feed_auth_context). Re-login after backend fix.',
+  missing_credential:
+    'Feed token missing from login/refresh. Sign in again after backend issues a feed_token.',
+} as const);
+
+const cleanBrokerLabel = (brokerName: string): string => {
+  const value = String(brokerName ?? '').trim();
+  if (!value) return 'Selected broker';
+  return value
+    .split(/[-_\s]+/g)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+};
+
+const resolveReasonLabel = (
+  state: FeedHealthState,
+  feedAuthContext?: FeedAuthContext | null,
+): string => {
+  if (
+    state.reasonCategory === 'session_unconfigured' &&
+    feedAuthContext?.mode === 'disabled_unconfigured'
+  ) {
+    return FEED_AUTH_DISABLED_LABELS[feedAuthContext.reason];
+  }
+  if (
+    state.reasonCategory === 'credentials_unavailable' &&
+    feedAuthContext?.mode === 'disabled_unconfigured' &&
+    feedAuthContext.reason === 'missing_credential'
+  ) {
+    return FEED_AUTH_DISABLED_LABELS.missing_credential;
+  }
+  return reasonLabels[state.reasonCategory];
+};
+
+export const buildFeedHealthBannerModel = (
+  state: FeedHealthState,
+  brokerName: string,
+  feedAuthContext?: FeedAuthContext | null,
+): FeedHealthBannerModel => {
+  const unavailable =
+    state.status === 'disabled_unconfigured' ||
+    state.status === 'auth_failed' ||
+    state.status === 'provider_down' ||
+    state.status === 'market_unavailable';
+
+  // Feed health still drives trade action guards and STALE row state, but the
+  // amber/red "Prices Delayed / Market Data Unavailable" banners are removed
+  // from Quotes, Chart, Trade, Symbol Details, and any other surface that uses
+  // this model. Operators diagnose via Status/Speed and per-row STALE instead.
+  return Object.freeze({
+    visible: false,
+    tone: unavailable ? 'critical' : 'warning',
+    title: unavailable ? 'Market Data Unavailable' : 'Prices Delayed',
+    brokerLabel: cleanBrokerLabel(brokerName),
+    reasonLabel: resolveReasonLabel(state, feedAuthContext),
+    ...(state.lastSuccessAt ? { lastSuccessAt: state.lastSuccessAt } : {}),
+    canRetry: feedHealthCanSafelyRetry(state),
+  });
+};

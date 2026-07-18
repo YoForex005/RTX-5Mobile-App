@@ -14,7 +14,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, {
-  useCallback, useDeferredValue, useEffect, useRef, useMemo, useState,
+  useCallback, useDeferredValue, useEffect, useRef, useMemo, useState, useSyncExternalStore,
 } from 'react';
 import {
   Animated, Easing, FlatList, ScrollView, StyleSheet, Text, TextInput, View, Modal, Platform,
@@ -77,6 +77,11 @@ import {
 import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
 import { useNextFrameValue } from '../../hooks/useNextFrameValue';
 import { MARKET_QUOTE_STALE_AFTER_MS } from '../../market/quotePolicy';
+import {
+  quoteLatencyMonotonicNow,
+  recordQuoteListCommit,
+  recordQuoteRowVisible,
+} from '../../market/quoteLatencyMetrics';
 import { hasDisplayableLiveQuotePrice } from './liveQuoteSnapshot';
 import {
   buildDefaultQuoteWatchlist,
@@ -86,13 +91,40 @@ import {
 } from './quoteWatchlistDefaults';
 import { buildAddSymbolCatalog } from './addSymbolCatalog';
 import {
+  captureActiveBrokerSession,
+  getActiveBrokerSessionIdentity,
+  isActiveBrokerSessionCurrent,
+  subscribeActiveBrokerSession,
+  type FeedAuthContext,
+} from '../../state/activeBrokerSession';
+import {
+  feedHealthAllowsPriceActions,
+  feedHealthStateMatchesIdentity,
+  initialFeedHealthState,
+  type FeedHealthReasonCategory,
+  type FeedHealthIdentity,
+  type FeedHealthState,
+} from '../../market/feedHealthState';
+import { buildFeedHealthBannerModel } from '../../market/feedHealthPresentation';
+import {
+  bindFeedHealthSession,
+  getFeedHealthSnapshot,
+  reportFeedLocalTick,
+  requestFeedHealthRetry,
+  subscribeFeedHealth,
+  unbindFeedHealthSession,
+} from '../../market/feedHealthRuntime';
+import { resolveEffectiveFeedAuthForSession } from '../../api/feedAuthContract';
+import {
   areLiveQuoteSnapshotNotificationsPaused,
-  getLiveQuoteFreshnessAnchorForSymbols,
   pauseLiveQuoteSnapshotNotifications,
-  subscribeLiveQuoteSnapshots,
   useLiveQuoteSnapshot,
   useWatchlistLiveQuotes,
 } from './useLiveQuotes';
+import {
+  getQuoteRowFreshnessRefreshDelayMs,
+  resolveQuoteRowFreshness,
+} from './quoteRowFreshness';
 
 /* ───── Helpers ───── */
 
@@ -106,6 +138,16 @@ const QUOTE_SHEET_OPEN_FEED_PAUSE_MS = 15_000;
 const QUOTE_SHEET_OPTION_FEED_PAUSE_MS = 900;
 const QUOTE_SHEET_ROUTE_FEED_PAUSE_MS = 2_500;
 const QUOTE_SHEET_PRESS_CANCEL_MOVE_PX = 10;
+
+const subscribeActiveBrokerCapture = (listener: () => void): (() => void) =>
+  subscribeActiveBrokerSession(() => listener());
+
+const unavailableFeedStateForIdentity = (
+  identity: FeedHealthIdentity | null,
+): FeedHealthState => Object.freeze({
+  ...initialFeedHealthState,
+  identity,
+});
 
 type QuoteSheetPressPoint = {
   x: number;
@@ -256,6 +298,75 @@ function getQuotesPalette(T: ThemeColors, isDark: boolean): QuotesPalette {
   };
 }
 
+type FeedHealthBannerProps = Readonly<{
+  state: FeedHealthState;
+  brokerName: string;
+  feedAuthContext?: FeedAuthContext | null;
+  T: ThemeColors;
+  onRetry: () => void;
+}>;
+
+const FeedHealthBanner = React.memo(function FeedHealthBanner({
+  state,
+  brokerName,
+  feedAuthContext,
+  T,
+  onRetry,
+}: FeedHealthBannerProps) {
+  const { t } = useTranslation();
+  const model = useMemo(
+    () => buildFeedHealthBannerModel(state, brokerName, feedAuthContext),
+    [brokerName, feedAuthContext, state],
+  );
+
+  if (!model.visible) return null;
+
+  const critical = model.tone === 'critical';
+  const accent = critical ? '#EF4444' : '#F59E0B';
+  const background = critical ? 'rgba(239,68,68,0.10)' : 'rgba(245,158,11,0.10)';
+  const lastSuccess = model.lastSuccessAt
+    ? new Date(model.lastSuccessAt).toLocaleString()
+    : t('No successful live update yet');
+
+  return (
+    <View
+      accessibilityRole="alert"
+      style={[s.feedHealthBanner, { backgroundColor: background, borderColor: accent }]}
+    >
+      <View style={s.feedHealthIconWrap}>
+        <Ionicons
+          name={critical ? 'cloud-offline-outline' : 'time-outline'}
+          size={20}
+          color={accent}
+        />
+      </View>
+      <View style={s.feedHealthCopy}>
+        <Text style={[s.feedHealthTitle, { color: T.text }]}>
+          {t(model.title)} · {model.brokerLabel}
+        </Text>
+        <Text style={[s.feedHealthReason, { color: T.textSub }]}>
+          {t(model.reasonLabel)}
+        </Text>
+        <Text style={[s.feedHealthLastSuccess, { color: T.textMuted }]}>
+          {t('Last success')}: {lastSuccess}
+        </Text>
+      </View>
+      {model.canRetry ? (
+        <FastPressable
+          accessibilityRole="button"
+          accessibilityLabel={t('Retry market data')}
+          activateOnPressIn
+          latencyLabel="quotes.feedHealth.retry"
+          onPress={onRetry}
+          style={[s.feedHealthRetry, { borderColor: accent }]}
+        >
+          <Text style={[s.feedHealthRetryText, { color: accent }]}>{t('Retry')}</Text>
+        </FastPressable>
+      ) : null}
+    </View>
+  );
+});
+
 /* ───── Animated Theme Rotation ───── */
 
 function interpolateThemeColor(
@@ -347,6 +458,8 @@ const QuoteCard = React.memo(function QuoteCard({
   cardBackground,
   viewMode,
   liveUpdatesActive = true,
+  feedActionsAllowed,
+  feedHealthReason,
   onPress,
   onPressIn,
   onPressOut,
@@ -361,6 +474,8 @@ const QuoteCard = React.memo(function QuoteCard({
   cardBackground: AnimatedColorValue | string;
   viewMode: 'list' | 'table' | 'edit';
   liveUpdatesActive?: boolean;
+  feedActionsAllowed: boolean;
+  feedHealthReason: FeedHealthReasonCategory;
   onPress?: (event: GestureResponderEvent) => void;
   onPressIn?: (event: GestureResponderEvent) => void;
   onPressOut?: (event: GestureResponderEvent) => void;
@@ -374,6 +489,44 @@ const QuoteCard = React.memo(function QuoteCard({
   const liveSymbol = feedSymbol ?? symbol;
   const liveItem = useLiveQuoteSnapshot(liveSymbol, liveUpdatesActive);
   const noData = !hasDisplayableLiveQuotePrice(liveItem);
+  const latencySessionKey = captureActiveBrokerSession()?.session.cacheNamespace ?? '';
+  const [freshnessEvaluationNow, setFreshnessEvaluationNow] = useState(() => Date.now());
+  const rowFreshness = resolveQuoteRowFreshness(
+    liveItem,
+    { actionsAllowed: feedActionsAllowed, reasonCategory: feedHealthReason },
+    Math.max(freshnessEvaluationNow, Date.now()),
+  );
+
+  useEffect(() => {
+    if (!liveUpdatesActive || !liveItem) return;
+    const refreshDelayMs = getQuoteRowFreshnessRefreshDelayMs(liveItem, Date.now());
+    if (refreshDelayMs === null) return;
+    const timer = setTimeout(() => setFreshnessEvaluationNow(Date.now()), refreshDelayMs);
+    return () => clearTimeout(timer);
+  }, [liveItem, liveUpdatesActive]);
+
+  useEffect(() => {
+    const currentUpdateSeq = liveItem?.updateSeq;
+    if (!liveUpdatesActive || typeof currentUpdateSeq !== 'number') {
+      return;
+    }
+
+    const recordVisibleFrame = () => {
+      recordQuoteRowVisible({
+        sessionKey: latencySessionKey,
+        updateSeq: currentUpdateSeq,
+        visibleMonotonicTimestampMs: quoteLatencyMonotonicNow(),
+      });
+    };
+
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      const frameId = globalThis.requestAnimationFrame(recordVisibleFrame);
+      return () => globalThis.cancelAnimationFrame?.(frameId);
+    }
+
+    const timer = setTimeout(recordVisibleFrame, 0);
+    return () => clearTimeout(timer);
+  }, [latencySessionKey, liveItem?.updateSeq, liveUpdatesActive]);
 
   if (!isSimpleMode && noData && (!liveItem || typeof liveItem.bid !== 'number' || typeof liveItem.ask !== 'number')) {
     const cardBorder = isDark ? QUOTES_DARK_BORDER : T.border;
@@ -468,11 +621,17 @@ const QuoteCard = React.memo(function QuoteCard({
   const POSITIVE = T.trading.profit;
   const NEGATIVE = T.trading.loss;
   const color = isUp ? POSITIVE : NEGATIVE;
+  // Card chrome always uses the Quotes surface palette (light #FFFFFF / dark #1E1E1E
+  // via cardBackground + normal border). STALE/DELAYED is badge-only — do not wash
+  // the whole card amber when weekend FX or delayed ticks arrive.
   const cardBorder = isDark ? QUOTES_DARK_BORDER : T.border;
   const cardHighlight = isDark ? QUOTES_DARK_CARD_HIGHLIGHT : QUOTES_LIGHT_CARD_HIGHLIGHT;
   const primaryText = isDark ? QUOTES_DARK_PRIMARY_TEXT : T.text;
   const mutedText = isDark ? QUOTES_DARK_MUTED_TEXT : T.textMuted;
   const secondaryText = isDark ? QUOTES_DARK_SUBTLE_TEXT : T.textSub;
+  const hasDelayedPrice = !noData && rowFreshness.status !== 'live';
+  const staleAccent = rowFreshness.status === 'stale' ? '#F59E0B' : '#D97706';
+  const staleBadgeTextColor = isDark ? '#FBBF24' : '#92400E';
 
   const displaySymbol = pairLabel(item.symbol);
   const pct = `${isUp ? '+' : ''}${(item.changePct || 0).toFixed(2)}%`;
@@ -513,8 +672,8 @@ const QuoteCard = React.memo(function QuoteCard({
         ? NEGATIVE
         : color;
 
-  const showBidCaret = !noData && (bidDirection !== 'neutral' || !item.prevBid);
-  const showAskCaret = !noData && (askDirection !== 'neutral' || !item.prevAsk);
+  const showBidCaret = !noData && !hasDelayedPrice && (bidDirection !== 'neutral' || !item.prevBid);
+  const showAskCaret = !noData && !hasDelayedPrice && (askDirection !== 'neutral' || !item.prevAsk);
 
   const bidCaret = bidDirection !== 'neutral' ? bidDirection : isUp ? 'up' : 'down';
   const askCaret = askDirection !== 'neutral' ? askDirection : isUp ? 'up' : 'down';
@@ -567,7 +726,14 @@ const QuoteCard = React.memo(function QuoteCard({
               {displaySymbol}
             </Text>
 
-            {!isSimpleMode && (
+            {hasDelayedPrice ? (
+              <View style={[sc.freshnessBadge, { borderColor: staleAccent }]}>
+                <Ionicons name="time-outline" size={10} color={staleAccent} />
+                <Text style={[sc.freshnessBadgeText, { color: staleBadgeTextColor }]}>
+                  {rowFreshness.label}
+                </Text>
+              </View>
+            ) : !isSimpleMode ? (
               <View style={sc.changePill}>
                 <Text
                   style={[
@@ -578,7 +744,7 @@ const QuoteCard = React.memo(function QuoteCard({
                   {noData ? '--' : pct}
                 </Text>
               </View>
-            )}
+            ) : null}
           </View>
 
           {!isSimpleMode && (
@@ -1726,7 +1892,107 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
   const { t } = useTranslation();
   const isDark = useIsDarkTheme();
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
+  const selectedBrokerId = useUserPreferences((s) => s.brokerId);
+  const accountDetails = useUserPreferences((s) => s.accountDetails);
   const palette = useMemo(() => getQuotesPalette(T, isDark), [T, isDark]);
+  const activeBrokerCapture = useSyncExternalStore(
+    subscribeActiveBrokerCapture,
+    captureActiveBrokerSession,
+    captureActiveBrokerSession,
+  );
+  const feedHealthSnapshot = useSyncExternalStore(
+    subscribeFeedHealth,
+    getFeedHealthSnapshot,
+    getFeedHealthSnapshot,
+  );
+  const activeFeedIdentity = useMemo(
+    () => activeBrokerCapture
+      ? getActiveBrokerSessionIdentity(activeBrokerCapture.session)
+      : null,
+    [activeBrokerCapture],
+  );
+  const scopedFeedHealth = useMemo(() => (
+    activeFeedIdentity && feedHealthStateMatchesIdentity(feedHealthSnapshot, activeFeedIdentity)
+      ? feedHealthSnapshot
+      : unavailableFeedStateForIdentity(activeFeedIdentity)
+  ), [activeFeedIdentity, feedHealthSnapshot]);
+  const scopedFeedActionsAllowed = useMemo(
+    () => feedHealthAllowsPriceActions(scopedFeedHealth),
+    [scopedFeedHealth],
+  );
+  const activeFeedBrokerName =
+    activeFeedIdentity && accountDetails?.id === activeFeedIdentity.accountLogin
+      ? accountDetails.server || activeFeedIdentity.brokerId
+      : activeBrokerCapture?.session.brokerId || selectedBrokerId;
+  const quoteLatencySessionKey = activeBrokerCapture?.session.cacheNamespace ?? '';
+
+  // Aggregate-only proof that row updates remain isolated: this effect counts
+  // committed parent-list renders without subscribing the list to tick metrics.
+  useEffect(() => {
+    recordQuoteListCommit(quoteLatencySessionKey);
+  });
+
+  useEffect(() => {
+    if (!isLoggedIn || !activeBrokerCapture || !activeFeedIdentity) {
+      unbindFeedHealthSession();
+      return;
+    }
+
+    const { session, credentials } = activeBrokerCapture;
+    const effectiveFeed = resolveEffectiveFeedAuthForSession({
+      brokerId: session.brokerId,
+      feedAuthContext: session.feedAuthContext,
+      feedToken: credentials.feedToken,
+    });
+    const feedAuth = effectiveFeed.feedAuthContext;
+    const credentialApproved = feedAuth.mode === 'none'
+      ? true
+      : feedAuth.mode === 'query' && feedAuth.credential === 'feed_token'
+        ? Boolean(effectiveFeed.feedToken)
+        : feedAuth.mode === 'query'
+          ? Boolean(credentials.accessToken)
+          : false;
+    bindFeedHealthSession({
+      identity: activeFeedIdentity,
+      transportConfigured: Boolean(
+        session.feedWsBase &&
+        session.feedStatusUrl &&
+        feedAuth.mode !== 'disabled_unconfigured'
+      ),
+      credentialApproved,
+      // Deliberately omit thresholds. A normalized server policy integration
+      // must provide approved values; this screen never invents defaults.
+    });
+  }, [activeBrokerCapture, activeFeedIdentity, isLoggedIn]);
+
+  useEffect(() => {
+    if (!isLoggedIn || !activeFeedIdentity) return;
+    const listener = (tick: QuoteTickEvent) => {
+      reportFeedLocalTick(activeFeedIdentity, {
+        receivedAt: tick.receivedAt,
+        bid: tick.bid,
+        ask: tick.ask,
+        transport: tick.transport,
+        stale: tick.stale,
+        degraded: tick.degraded,
+      });
+    };
+    quotesWsService.addTickListener(listener);
+    return () => quotesWsService.removeTickListener(listener);
+  }, [activeFeedIdentity, isLoggedIn]);
+
+  const retryActiveFeed = useCallback(() => {
+    if (
+      !activeFeedIdentity ||
+      !isActiveBrokerSessionCurrent(activeFeedIdentity) ||
+      !requestFeedHealthRetry(activeFeedIdentity)
+    ) {
+      return;
+    }
+    // One bounded attempt against the already-validated active endpoint.
+    // The transport owns backoff; retry never selects another broker/fallback.
+    quotesWsService.connect();
+  }, [activeFeedIdentity]);
 
   const {
     animatedFullscreenBackground,
@@ -2024,8 +2290,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     const q = deferredSearch.trim().toLowerCase();
     // Always show every subscribed symbol — never hide a row just because
     // its most recent tick is older than LIVE_SYMBOL_STALE_MS. The row
-    // component already handles the stale/no-data state via the `noData`
-    // flag (line 234), which renders the appropriate placeholder. Hiding
+    // component handles stale/no-data presentation explicitly. Hiding
     // entire rows caused the "only 2 symbols visible after fresh app open"
     // bug: on a cold start, the WebSocket has just connected and only the
     // 1-2 most actively trading symbols have ticked yet, so every quieter
@@ -2536,6 +2801,8 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
         cardBackground={animatedCardBackground}
         viewMode={quoteViewMode}
         liveUpdatesActive={quoteStickyFeedActive}
+        feedActionsAllowed={scopedFeedActionsAllowed}
+        feedHealthReason={scopedFeedHealth.reasonCategory}
         onPressIn={(event) => handleSymbolPressIn(sym, event)}
         onPressOut={() => handleSymbolPressOut(sym)}
         onTouchMove={handleSymbolPressMove}
@@ -2559,6 +2826,8 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     quoteFeedSymbolByDisplay,
     quoteViewMode,
     quoteStickyFeedActive,
+    scopedFeedActionsAllowed,
+    scopedFeedHealth.reasonCategory,
     removeQuoteSymbol,
     syncServerRemove,
   ]);
@@ -2627,6 +2896,15 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
               <TickCounter T={T} palette={palette} active={quoteStickyFeedActive} symbols={quoteFeedSymbols} />
             </View>
           </View>
+          {isLoggedIn ? (
+            <FeedHealthBanner
+              state={scopedFeedHealth}
+              brokerName={activeFeedBrokerName}
+              feedAuthContext={activeBrokerCapture?.session.feedAuthContext ?? null}
+              T={T}
+              onRetry={retryActiveFeed}
+            />
+          ) : null}
           <View
             style={[
               s.searchBar,
@@ -2656,7 +2934,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
           <FlatList
             data={filtered}
             keyExtractor={(sym) => sym}
-            extraData={`${isEditing ? 'edit' : 'view'}:${quoteViewMode}`}
+            extraData={`${isEditing ? 'edit' : 'view'}:${quoteViewMode}:${scopedFeedHealth.status}:${scopedFeedHealth.reasonCategory}:${scopedFeedActionsAllowed ? 'live' : 'blocked'}`}
             renderItem={renderQuoteItem}
             getItemLayout={getQuoteItemLayout}
             style={s.list}
@@ -3027,6 +3305,57 @@ const s = StyleSheet.create({
   subGrey: { fontSize: 12, fontWeight: '500', letterSpacing: 0 },
   subLive: { fontSize: 12, fontWeight: '600', letterSpacing: 0 },
 
+  feedHealthBanner: {
+    minHeight: 82,
+    marginHorizontal: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  feedHealthIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  feedHealthCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  feedHealthTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  feedHealthReason: {
+    marginTop: 3,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  feedHealthLastSuccess: {
+    marginTop: 3,
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  feedHealthRetry: {
+    minWidth: 54,
+    minHeight: 34,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  feedHealthRetryText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
   searchBar: {
     borderWidth: 1,
     borderRadius: 20,
@@ -3157,6 +3486,22 @@ const sc = StyleSheet.create({
     fontWeight: '600',
   },
 
+  freshnessBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+
+  freshnessBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.45,
+  },
+
   cardRow2: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3255,14 +3600,12 @@ function TickCounter({
   // A rolling one-second window prevents a fast feed from being displayed as
   // "1 tps" just because the React timer sampled at the wrong moment.
   const tickTimesRef = useRef<number[]>([]);
-  const snapshotTimesRef = useRef<number[]>([]);
   const lastTickAtRef = useRef(0);
   const symbolsKey = symbols.join('|');
   const trackedSymbols = useMemo(
     () => Array.from(new Set(symbols.map((entry) => normalizeQuoteSymbolKey(entry)).filter(Boolean))),
     [symbolsKey],
   );
-  const latestSnapshotAtRef = useRef(0);
 
   useEffect(() => {
     if (!active || trackedSymbols.length === 0) {
@@ -3292,38 +3635,20 @@ function TickCounter({
 
   useEffect(() => {
     if (!active || trackedSymbols.length === 0) {
-      return;
-    }
-
-    latestSnapshotAtRef.current = getLiveQuoteFreshnessAnchorForSymbols(trackedSymbols);
-
-    return subscribeLiveQuoteSnapshots(trackedSymbols, () => {
-      const receivedAt = Date.now();
-      latestSnapshotAtRef.current = receivedAt;
-      snapshotTimesRef.current.push(receivedAt);
-    });
-  }, [active, trackedSymbols, trackedSymbols.length]);
-
-  useEffect(() => {
-    if (!active || trackedSymbols.length === 0) {
       tickTimesRef.current = [];
-      snapshotTimesRef.current = [];
       lastTickAtRef.current = 0;
-      latestSnapshotAtRef.current = 0;
       setTps(0);
       setHasFreshFeed(false);
       return;
     }
     const readHasFreshFeed = () => {
-      const last = Math.max(lastTickAtRef.current, latestSnapshotAtRef.current);
+      const last = lastTickAtRef.current;
       return last > 0 && Date.now() - last <= LIVE_SYMBOL_STALE_MS;
     };
     // Reset the counter when the symbol set or focus changes so TPS reflects
     // the current window, not a count carried over from a previous session.
     tickTimesRef.current = [];
-    snapshotTimesRef.current = [];
     lastTickAtRef.current = 0;
-    latestSnapshotAtRef.current = getLiveQuoteFreshnessAnchorForSymbols(trackedSymbols);
     setTps(0);
     setHasFreshFeed(readHasFreshFeed());
     const interval = setInterval(() => {
@@ -3333,12 +3658,7 @@ function TickCounter({
 
       const cutoff = Date.now() - QUOTE_SPEED_WINDOW_MS;
       tickTimesRef.current = tickTimesRef.current.filter((time) => time >= cutoff);
-      snapshotTimesRef.current = snapshotTimesRef.current.filter((time) => time >= cutoff);
-      const visibleUpdateCount =
-        tickTimesRef.current.length > 0
-          ? tickTimesRef.current.length
-          : snapshotTimesRef.current.length;
-      setTps(Math.max(0, visibleUpdateCount));
+      setTps(Math.max(0, tickTimesRef.current.length));
       setHasFreshFeed(readHasFreshFeed());
     }, QUOTE_SPEED_SAMPLE_INTERVAL_MS);
     return () => clearInterval(interval);

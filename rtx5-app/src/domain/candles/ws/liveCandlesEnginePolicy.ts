@@ -17,8 +17,22 @@ export const getActiveCandleSourceMode = (): ActiveCandleSourceMode => {
     requestedMode === 'quote' ||
     requestedMode === 'quotes' ||
     isTruthyEnv(process.env.EXPO_PUBLIC_DISABLE_SERVER_CANDLE_STREAMS);
+  if (quoteModeRequested) {
+    return 'quote';
+  }
 
-  return quoteModeRequested ? 'quote' : 'server';
+  const serverModeRequested =
+    requestedMode === 'server' ||
+    requestedMode === 'broker' ||
+    isTruthyEnv(process.env.EXPO_PUBLIC_ENABLE_SERVER_CANDLE_STREAMS);
+  const serverContractProven = isTruthyEnv(
+    process.env.EXPO_PUBLIC_SERVER_CANDLES_PROVEN_COMPATIBLE,
+  );
+
+  // V2 is deliberately fail-closed: quotes build the active candle unless a
+  // release explicitly requests server candles and records that the broker
+  // candle contract has been proven compatible.
+  return serverModeRequested && serverContractProven ? 'server' : 'quote';
 };
 
 export const shouldUseServerCandleStream = (): boolean =>

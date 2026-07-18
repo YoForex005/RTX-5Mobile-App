@@ -4,6 +4,11 @@
 
 import { useMutation } from '@tanstack/react-query';
 import { sendEmail, SendEmailRequest, SendEmailResponse } from '../api/email';
+import {
+  getSessionQueryCacheNamespace,
+  runSessionBoundQuery,
+  useActiveBrokerQuerySession,
+} from './authenticatedQueryScope';
 
 /**
  * TanStack Mutation hook for sending emails via MT5 SMTP.
@@ -15,7 +20,12 @@ import { sendEmail, SendEmailRequest, SendEmailResponse } from '../api/email';
  * ```
  */
 export function useSendEmail() {
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
   return useMutation<SendEmailResponse, Error, SendEmailRequest>({
-    mutationFn: sendEmail,
+    mutationFn: (payload) => runSessionBoundQuery(
+      cacheNamespace,
+      () => sendEmail(payload),
+    ),
   });
 }

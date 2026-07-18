@@ -1,24 +1,26 @@
 import * as SecureStore from 'expo-secure-store';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
 /**
  * Platform-aware Secure Storage Wrapper.
  * 
  * Uses Expo SecureStore (Keychain/Keystore) natively to meet security controls.
- * Falls back to AsyncStorage on Web where SecureStore is not natively supported,
- * preventing 'Cannot read properties of undefined' crashes.
+ * Web deliberately has no fallback: writing credentials to AsyncStorage would
+ * silently downgrade protected secrets to plaintext application storage.
  */
 
 const IOS_SECURE_STORE_WRITE_OPTIONS: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
 };
 
-export const setSecureItemAsync = async (key: string, value: string): Promise<void> => {
+const assertNativeSecureStorage = (): void => {
   if (Platform.OS === 'web') {
-    await AsyncStorage.setItem(key, value);
-    return;
+    throw new Error('Secure credential storage is unavailable on web.');
   }
+};
+
+export const setSecureItemAsync = async (key: string, value: string): Promise<void> => {
+  assertNativeSecureStorage();
   await SecureStore.setItemAsync(
     key,
     value,
@@ -28,9 +30,7 @@ export const setSecureItemAsync = async (key: string, value: string): Promise<vo
 
 export const getSecureItemAsync = async (key: string): Promise<string | null> => {
   try {
-    if (Platform.OS === 'web') {
-      return await AsyncStorage.getItem(key);
-    }
+    assertNativeSecureStorage();
     return await SecureStore.getItemAsync(key);
   } catch (error) {
     console.warn('[SecureStorage] Failed to read secure item', { key, error });
@@ -39,9 +39,6 @@ export const getSecureItemAsync = async (key: string): Promise<string | null> =>
 };
 
 export const removeSecureItemAsync = async (key: string): Promise<void> => {
-  if (Platform.OS === 'web') {
-    await AsyncStorage.removeItem(key);
-    return;
-  }
+  assertNativeSecureStorage();
   await SecureStore.deleteItemAsync(key);
 };

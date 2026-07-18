@@ -6,11 +6,16 @@
  */
 
 import { timedFetch } from '../utils/apiLatency';
-import { apiClient } from './apiClient';
+import { recordMarketDataEvent } from '../market/marketDataTelemetry';
 import {
   PUBLIC_BROKER_DIRECTORY_BASE_URL,
   buildBrokerHealthUrl,
+  ensureBrokerRestApiBase,
+  isBrokerServerUrlForApiBase,
+  toBrokerServiceRoot,
+  containsBlockedTestNetBrokerIp,
   normalizeBrokerServerUrl,
+  resolveBrokerEndpointSet,
 } from './brokerRouting';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -87,9 +92,15 @@ export interface BrokerConfigResponse {
  * broker exposes more than one server (region, demo/live, fallback IPs).
  */
 export interface BrokerServer {
+  directory_source?: 'rich' | 'v2_raw';
   id: number;
   broker_id: string;
   broker_name: string;
+  active?: boolean;
+  license_active?: boolean;
+  licensed?: boolean;
+  config_version?: string | number;
+  schema_version?: string | number;
   server_url?: string;
   market_api_url?: string;
   domain_name?: string;
@@ -100,6 +111,8 @@ export interface BrokerServer {
   feed_url?: string;
   feed_ws_url?: string;
   feed_wss_url?: string;
+  trade_ws_url?: string;
+  trade_wss_url?: string;
   ws_url?: string;
   wss_url?: string;
   domains?: {
@@ -118,6 +131,598 @@ export interface BrokerServer {
   server_port: number;
   enabled?: boolean;
   created_at: number;   // epoch seconds
+}
+
+export type RichValidatedBrokerServer = BrokerServer & {
+  directory_source: 'rich';
+  enabled: true;
+  active: true;
+  config_version: string;
+  schema_version: string;
+  server_url: string;
+  services_domain: string;
+  market_api_url: string;
+  feed_wss_url: string;
+  feed_status_https_url: string;
+};
+
+export type RawV2BrokerServer = BrokerServer & {
+  directory_source: 'v2_raw';
+  enabled: true;
+  server_url: string;
+  market_api_url: string;
+  config_version: string;
+  schema_version: 'broker-directory.v2.raw';
+  services_domain: string;
+  feed_wss_url: string;
+  feed_status_https_url: string;
+};
+
+export type ValidatedBrokerServer =
+  | RichValidatedBrokerServer
+  | RawV2BrokerServer;
+
+/**
+ * Quarantined display metadata from an unversioned legacy directory response.
+ * This shape intentionally cannot carry a URL, token, or routing field.
+ */
+export type BrokerDirectoryIdentity = Readonly<{
+  kind: 'identity_only';
+  id: string;
+  brokerId: string;
+  brokerName: string;
+}>;
+
+export type ApprovedBrokerDirectoryEntry = Readonly<{
+  kind: 'approved';
+  server: RichValidatedBrokerServer;
+}>;
+
+export type RawV2BrokerDirectoryEntry = Readonly<{
+  kind: 'v2_server';
+  server: RawV2BrokerServer;
+}>;
+
+export type BrokerDirectoryEntry =
+  | BrokerDirectoryIdentity
+  | ApprovedBrokerDirectoryEntry
+  | RawV2BrokerDirectoryEntry;
+
+export type BrokerDirectoryResult = Readonly<{
+  mode: 'approved' | 'v2' | 'identity_only';
+  entries: readonly BrokerDirectoryEntry[];
+  approvedServers: readonly RichValidatedBrokerServer[];
+  selectableServers: readonly ValidatedBrokerServer[];
+  warningCode?: string;
+}>;
+
+type BrokerDirectoryEnvelope = {
+  schema_version?: unknown;
+  brokers?: unknown;
+  value?: unknown;
+};
+
+export const SUPPORTED_RICH_BROKER_DIRECTORY_SCHEMA_VERSION =
+  'broker-directory.rich.v1' as const;
+
+export class BrokerDirectorySchemaError extends Error {
+  public readonly code: string;
+  public readonly recordIndex?: number;
+
+  constructor(code: string, message: string, recordIndex?: number) {
+    super(message);
+    this.name = 'BrokerDirectorySchemaError';
+    this.code = code;
+    this.recordIndex = recordIndex;
+  }
+}
+
+/** A deterministic directory-contract failure that query callers must not retry. */
+export class BrokerDirectoryContractError extends Error {
+  public readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = 'BrokerDirectoryContractError';
+    this.code = code;
+  }
+}
+
+const asDirectoryRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+const requiredDirectoryString = (
+  record: Record<string, unknown>,
+  key: string,
+  recordIndex: number,
+): string => {
+  const value = record[key];
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new BrokerDirectorySchemaError(
+      `missing_${key}`,
+      `Broker directory record ${recordIndex} is missing ${key}.`,
+      recordIndex,
+    );
+  }
+  return value.trim();
+};
+
+const requiredDirectoryNumber = (
+  record: Record<string, unknown>,
+  key: string,
+  recordIndex: number,
+): number => {
+  const value = record[key];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new BrokerDirectorySchemaError(
+      `missing_${key}`,
+      `Broker directory record ${recordIndex} is missing ${key}.`,
+      recordIndex,
+    );
+  }
+  return value;
+};
+
+const optionalDirectoryString = (
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined => {
+  const value = record[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+};
+
+const parseDirectoryRecord = (
+  value: unknown,
+  schemaVersion: string,
+  recordIndex: number,
+): RichValidatedBrokerServer => {
+  const record = asDirectoryRecord(value);
+  if (!record) {
+    throw new BrokerDirectorySchemaError(
+      'malformed_record',
+      `Broker directory record ${recordIndex} is not an object.`,
+      recordIndex,
+    );
+  }
+  if (containsBlockedTestNetBrokerIp(record)) {
+    throw new BrokerDirectorySchemaError(
+      'blocked_test_net_endpoint',
+      `Broker directory record ${recordIndex} contains a blocked TEST-NET endpoint.`,
+      recordIndex,
+    );
+  }
+
+  const resolution = resolveBrokerEndpointSet(record);
+  if (!resolution.ok) {
+    throw new BrokerDirectorySchemaError(
+      resolution.code,
+      `Broker directory record ${recordIndex} was rejected: ${resolution.message}`,
+      recordIndex,
+    );
+  }
+
+  const { endpoints } = resolution;
+  // Handoff: persist exact directory server_url (service root). REST is
+  // derived as {server_url}/api/v2 and must match the resolved apiBase.
+  const exactServerUrl = toBrokerServiceRoot(
+    normalizeBrokerServerUrl(optionalDirectoryString(record, 'server_url'))
+      || endpoints.apiBase,
+  );
+  if (!exactServerUrl || !isBrokerServerUrlForApiBase(exactServerUrl, endpoints.apiBase)) {
+    throw new BrokerDirectorySchemaError(
+      'invalid_server_url',
+      `Broker directory record ${recordIndex} must bind server_url to its broker service root.`,
+      recordIndex,
+    );
+  }
+  const domainsRecord = asDirectoryRecord(record.domains);
+  const domains = domainsRecord
+    ? {
+        ...(optionalDirectoryString(domainsRecord, 'admin') ? { admin: optionalDirectoryString(domainsRecord, 'admin') } : {}),
+        ...(optionalDirectoryString(domainsRecord, 'domain_name') ? { domain_name: optionalDirectoryString(domainsRecord, 'domain_name') } : {}),
+        ...(optionalDirectoryString(domainsRecord, 'manager') ? { manager: optionalDirectoryString(domainsRecord, 'manager') } : {}),
+        ...(optionalDirectoryString(domainsRecord, 'server') ? { server: optionalDirectoryString(domainsRecord, 'server') } : {}),
+        ...(optionalDirectoryString(domainsRecord, 'services') ? { services: optionalDirectoryString(domainsRecord, 'services') } : {}),
+        ...(optionalDirectoryString(domainsRecord, 'webterminal') ? { webterminal: optionalDirectoryString(domainsRecord, 'webterminal') } : {}),
+      }
+    : undefined;
+
+  return Object.freeze({
+    directory_source: 'rich' as const,
+    id: requiredDirectoryNumber(record, 'id', recordIndex),
+    broker_id: endpoints.brokerId,
+    broker_name: requiredDirectoryString(record, 'broker_name', recordIndex),
+    enabled: true,
+    active: true,
+    ...(optionalDirectoryString(record, 'status') ? { status: optionalDirectoryString(record, 'status') } : {}),
+    ...(typeof record.license_active === 'boolean' ? { license_active: record.license_active } : {}),
+    ...(typeof record.licensed === 'boolean' ? { licensed: record.licensed } : {}),
+    config_version: endpoints.configVersion,
+    schema_version: schemaVersion,
+    services_domain: endpoints.servicesDomain,
+    // REST base is derived at request time from server_url; keep market_api_url
+    // aligned with the resolved apiBase for rich revalidation only.
+    market_api_url: endpoints.apiBase,
+    feed_wss_url: endpoints.feedWsBase,
+    feed_status_https_url: endpoints.feedStatusUrl,
+    ...(endpoints.tradeWsBase ? { trade_wss_url: endpoints.tradeWsBase } : {}),
+    server_url: exactServerUrl,
+    ...(optionalDirectoryString(record, 'domain_name') ? { domain_name: optionalDirectoryString(record, 'domain_name') } : {}),
+    ...(optionalDirectoryString(record, 'server_domain') ? { server_domain: optionalDirectoryString(record, 'server_domain') } : {}),
+    ...(optionalDirectoryString(record, 'feed_status_url') ? { feed_status_url: optionalDirectoryString(record, 'feed_status_url') } : {}),
+    ...(optionalDirectoryString(record, 'feed_url') ? { feed_url: optionalDirectoryString(record, 'feed_url') } : {}),
+    ...(optionalDirectoryString(record, 'feed_ws_url') ? { feed_ws_url: optionalDirectoryString(record, 'feed_ws_url') } : {}),
+    ...(optionalDirectoryString(record, 'trade_ws_url') ? { trade_ws_url: optionalDirectoryString(record, 'trade_ws_url') } : {}),
+    ...(optionalDirectoryString(record, 'ws_url') ? { ws_url: optionalDirectoryString(record, 'ws_url') } : {}),
+    ...(optionalDirectoryString(record, 'wss_url') ? { wss_url: optionalDirectoryString(record, 'wss_url') } : {}),
+    ...(domains && Object.keys(domains).length > 0 ? { domains } : {}),
+    ...(optionalDirectoryString(record, 'logo_url') ? { logo_url: optionalDirectoryString(record, 'logo_url') } : {}),
+    protocol: optionalDirectoryString(record, 'protocol') ?? '',
+    region: optionalDirectoryString(record, 'region') ?? '',
+    server: optionalDirectoryString(record, 'server') ?? '',
+    server_ip: optionalDirectoryString(record, 'server_ip') ?? '',
+    server_port: requiredDirectoryNumber(record, 'server_port', recordIndex),
+    created_at: requiredDirectoryNumber(record, 'created_at', recordIndex),
+  });
+};
+
+/**
+ * Parses the one explicitly supported rich directory schema. Unversioned or
+ * unknown payloads fail closed; the currently live unversioned response is a
+ * release-contract blocker, not an alternate schema. Invalid rows are rejected
+ * individually so one disabled record cannot hide unrelated approved brokers.
+ */
+export function parseBrokerDirectoryPayload(payload: unknown): RichValidatedBrokerServer[] {
+  const envelope = asDirectoryRecord(payload) as BrokerDirectoryEnvelope | null;
+  if (!envelope) {
+    recordMarketDataEvent('directory_schema_result', {
+      accepted: false,
+      reason: 'missing_schema_version',
+      topLevel: Array.isArray(payload) ? 'array' : typeof payload,
+    });
+    throw new BrokerDirectorySchemaError(
+      'missing_schema_version',
+      'Broker directory response must be a versioned object envelope.',
+    );
+  }
+  const schemaVersion =
+    (typeof envelope.schema_version === 'string' || typeof envelope.schema_version === 'number')
+      ? String(envelope.schema_version).trim()
+      : '';
+  if (!schemaVersion) {
+    recordMarketDataEvent('directory_schema_result', {
+      accepted: false,
+      reason: 'missing_schema_version',
+    });
+    throw new BrokerDirectorySchemaError(
+      'missing_schema_version',
+      'Broker directory response is missing schema_version.',
+    );
+  }
+  if (schemaVersion !== SUPPORTED_RICH_BROKER_DIRECTORY_SCHEMA_VERSION) {
+    recordMarketDataEvent('directory_schema_result', {
+      accepted: false,
+      reason: 'unsupported_schema_version',
+      schemaVersion,
+    });
+    throw new BrokerDirectorySchemaError(
+      'unsupported_schema_version',
+      `Broker directory schema "${schemaVersion}" is not approved by this mobile build.`,
+    );
+  }
+
+  const hasBrokers = Array.isArray(envelope.brokers);
+  const hasValue = Array.isArray(envelope.value);
+  if (hasBrokers && hasValue) {
+    throw new BrokerDirectorySchemaError(
+      'ambiguous_directory_records',
+      'Broker directory response contains multiple record collections.',
+    );
+  }
+  const rows = hasBrokers ? envelope.brokers : null;
+  if (!Array.isArray(rows)) {
+    throw new BrokerDirectorySchemaError(
+      'missing_directory_records',
+      'Broker directory response is missing its brokers array.',
+    );
+  }
+
+  const accepted: RichValidatedBrokerServer[] = [];
+  const rejected: BrokerDirectorySchemaError[] = [];
+  rows.forEach((row, index) => {
+    try {
+      accepted.push(parseDirectoryRecord(row, schemaVersion, index));
+    } catch (error) {
+      if (error instanceof BrokerDirectorySchemaError) {
+        rejected.push(error);
+        return;
+      }
+      throw error;
+    }
+  });
+
+  if (accepted.length === 0 && rejected.length > 0) {
+    recordMarketDataEvent('directory_schema_result', {
+      accepted: false,
+      reason: rejected[0].code,
+      rejectedCount: rejected.length,
+    });
+    throw rejected[0];
+  }
+  recordMarketDataEvent('directory_schema_result', {
+    accepted: true,
+    schemaVersion,
+    acceptedCount: accepted.length,
+    rejectedCount: rejected.length,
+  });
+  return accepted;
+}
+
+const LEGACY_IDENTITY_ONLY_WARNING_CODE = 'legacy_directory_identity_only';
+
+const requiredLegacyIdentityString = (
+  record: Record<string, unknown>,
+  key: 'broker_id' | 'broker_name',
+  recordIndex: number,
+): string => {
+  const value = record[key];
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new BrokerDirectorySchemaError(
+      `missing_${key}`,
+      `Legacy broker directory record ${recordIndex} is missing ${key}.`,
+      recordIndex,
+    );
+  }
+  return value.trim();
+};
+
+const requiredLegacyIdentityId = (
+  record: Record<string, unknown>,
+  recordIndex: number,
+): string => {
+  const value = record.id;
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim();
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+  throw new BrokerDirectorySchemaError(
+    'missing_id',
+    `Legacy broker directory record ${recordIndex} is missing id.`,
+    recordIndex,
+  );
+};
+
+const RAW_V2_SCHEMA_VERSION = 'broker-directory.v2.raw' as const;
+
+const parseRawV2BrokerDirectory = (
+  rows: readonly unknown[],
+): BrokerDirectoryResult => {
+  const accepted: RawV2BrokerServer[] = [];
+  const rejected: BrokerDirectorySchemaError[] = [];
+  let blockedTestNetCount = 0;
+
+  rows.forEach((value, recordIndex) => {
+    const record = asDirectoryRecord(value);
+    if (!record) {
+      rejected.push(new BrokerDirectorySchemaError(
+        'malformed_record',
+        `Broker directory record ${recordIndex} is not an object.`,
+        recordIndex,
+      ));
+      return;
+    }
+    if (record.enabled === false) return;
+    if (Object.prototype.hasOwnProperty.call(record, 'active') && record.active !== true) return;
+    if (containsBlockedTestNetBrokerIp(record)) {
+      blockedTestNetCount += 1;
+      return;
+    }
+
+    try {
+      const id = requiredDirectoryNumber(record, 'id', recordIndex);
+      const createdAt = requiredDirectoryNumber(record, 'created_at', recordIndex);
+      const server = requiredDirectoryString(record, 'server', recordIndex);
+      const serverIp = requiredDirectoryString(record, 'server_ip', recordIndex);
+      const protocol = requiredDirectoryString(record, 'protocol', recordIndex);
+      requiredDirectoryString(record, 'server_url', recordIndex);
+      requiredDirectoryString(record, 'feed_wss_url', recordIndex);
+      requiredDirectoryString(record, 'feed_status_https_url', recordIndex);
+      if (protocol.toLowerCase() !== 'https') {
+        throw new BrokerDirectorySchemaError(
+          'invalid_protocol',
+          `Broker directory record ${recordIndex} must declare HTTPS protocol.`,
+          recordIndex,
+        );
+      }
+      const localConfigVersion = `v2:${id}:${createdAt}`;
+      const candidate = {
+        ...record,
+        directory_source: 'v2_raw' as const,
+        config_version: localConfigVersion,
+      };
+      const resolution = resolveBrokerEndpointSet(candidate);
+      if (!resolution.ok) {
+        throw new BrokerDirectorySchemaError(
+          resolution.code,
+          `Broker directory record ${recordIndex} was rejected: ${resolution.message}`,
+          recordIndex,
+        );
+      }
+
+      const { endpoints } = resolution;
+      // Handoff contract: store directory server_url exactly as the service root.
+      // REST/login uses {server_url}/api/v2 via ensureBrokerRestApiBase.
+      const exactServerUrl = toBrokerServiceRoot(endpoints.apiBase);
+      if (!exactServerUrl || !isBrokerServerUrlForApiBase(exactServerUrl, endpoints.apiBase)) {
+        throw new BrokerDirectorySchemaError(
+          'invalid_server_url',
+          `Broker directory record ${recordIndex} must bind server_url to its broker service root.`,
+          recordIndex,
+        );
+      }
+      accepted.push(Object.freeze({
+        directory_source: 'v2_raw' as const,
+        id,
+        broker_id: endpoints.brokerId,
+        broker_name: requiredDirectoryString(record, 'broker_name', recordIndex),
+        enabled: true as const,
+        ...(typeof record.active === 'boolean' ? { active: record.active } : {}),
+        ...(typeof record.license_active === 'boolean' ? { license_active: record.license_active } : {}),
+        ...(typeof record.licensed === 'boolean' ? { licensed: record.licensed } : {}),
+        config_version: endpoints.configVersion,
+        schema_version: RAW_V2_SCHEMA_VERSION,
+        server_url: exactServerUrl,
+        // Not used for routing (server_url is authority). Kept as derived REST
+        // base for any rich-style revalidation of the same host.
+        market_api_url: ensureBrokerRestApiBase(exactServerUrl),
+        services_domain: endpoints.servicesDomain,
+        feed_wss_url: endpoints.feedWsBase,
+        feed_status_https_url: endpoints.feedStatusUrl,
+        ...(endpoints.tradeWsBase ? { trade_wss_url: endpoints.tradeWsBase } : {}),
+        ...(optionalDirectoryString(record, 'logo_url') ? { logo_url: optionalDirectoryString(record, 'logo_url') } : {}),
+        protocol: 'https',
+        region: optionalDirectoryString(record, 'region') ?? '',
+        server,
+        server_ip: serverIp,
+        server_port: requiredDirectoryNumber(record, 'server_port', recordIndex),
+        created_at: createdAt,
+      }));
+    } catch (error) {
+      if (error instanceof BrokerDirectorySchemaError) {
+        rejected.push(error);
+        return;
+      }
+      throw error;
+    }
+  });
+
+  if (accepted.length === 0 && rejected.length > 0) {
+    throw rejected[0];
+  }
+
+  const selectableServers = Object.freeze(accepted) as readonly RawV2BrokerServer[];
+  const entries = Object.freeze(selectableServers.map((server): RawV2BrokerDirectoryEntry => (
+    Object.freeze({ kind: 'v2_server', server })
+  )));
+  const approvedServers = Object.freeze([]) as readonly RichValidatedBrokerServer[];
+
+  recordMarketDataEvent('directory_schema_result', {
+    accepted: true,
+    mode: 'v2',
+    acceptedCount: selectableServers.length,
+    rejectedCount: rejected.length,
+    blockedTestNetCount,
+  });
+
+  return Object.freeze({
+    mode: 'v2',
+    entries,
+    approvedServers,
+    selectableServers,
+  });
+};
+
+const parseLegacyBrokerDirectoryIdentities = (
+  rows: readonly unknown[],
+): BrokerDirectoryResult => {
+  const accepted: BrokerDirectoryIdentity[] = [];
+  const rejected: BrokerDirectorySchemaError[] = [];
+
+  rows.forEach((value, recordIndex) => {
+    const record = asDirectoryRecord(value);
+    if (!record) {
+      rejected.push(new BrokerDirectorySchemaError(
+        'malformed_record',
+        `Legacy broker directory record ${recordIndex} is not an object.`,
+        recordIndex,
+      ));
+      return;
+    }
+    // An explicit backend disable is safe to honor for display. Missing
+    // approval is still never upgraded into routing authority.
+    if (record.enabled === false) return;
+
+    try {
+      // Deliberately copy only display identity. Every endpoint-like field in
+      // the legacy object is discarded so it can never become routing authority.
+      accepted.push(Object.freeze({
+        kind: 'identity_only',
+        id: requiredLegacyIdentityId(record, recordIndex),
+        brokerId: requiredLegacyIdentityString(record, 'broker_id', recordIndex),
+        brokerName: requiredLegacyIdentityString(record, 'broker_name', recordIndex),
+      }));
+    } catch (error) {
+      if (error instanceof BrokerDirectorySchemaError) {
+        rejected.push(error);
+        return;
+      }
+      throw error;
+    }
+  });
+
+  if (accepted.length === 0 && rejected.length > 0) {
+    throw rejected[0];
+  }
+
+  const entries = Object.freeze(accepted);
+  const approvedServers = Object.freeze([]) as readonly RichValidatedBrokerServer[];
+  const selectableServers = Object.freeze([]) as readonly ValidatedBrokerServer[];
+
+  recordMarketDataEvent('directory_schema_result', {
+    accepted: false,
+    identityDisplayAccepted: true,
+    mode: 'identity_only',
+    reason: LEGACY_IDENTITY_ONLY_WARNING_CODE,
+    identityCount: entries.length,
+    rejectedCount: rejected.length,
+  });
+
+  return Object.freeze({
+    mode: 'identity_only',
+    entries,
+    approvedServers,
+    selectableServers,
+    warningCode: LEGACY_IDENTITY_ONLY_WARNING_CODE,
+  });
+};
+
+/**
+ * Parses either the approved rich contract or a quarantined legacy listing.
+ * Legacy records can populate a read-only broker-name list, but they never
+ * populate `approvedServers` and therefore cannot authorize any connection.
+ */
+export function parseBrokerDirectoryListingPayload(payload: unknown): BrokerDirectoryResult {
+  if (Array.isArray(payload)) {
+    return parseRawV2BrokerDirectory(payload);
+  }
+
+  const envelope = asDirectoryRecord(payload);
+  const hasSchemaVersion = envelope
+    ? Object.prototype.hasOwnProperty.call(envelope, 'schema_version')
+    : false;
+  if (envelope && !hasSchemaVersion && Array.isArray(envelope.value)) {
+    return parseLegacyBrokerDirectoryIdentities(envelope.value);
+  }
+
+  // Unknown/unversioned envelopes and unsupported versions retain the strict
+  // parser's fail-closed behavior.
+  const approvedServers = Object.freeze([
+    ...parseBrokerDirectoryPayload(payload),
+  ]) as readonly RichValidatedBrokerServer[];
+  const entries = Object.freeze(approvedServers.map((server): ApprovedBrokerDirectoryEntry => (
+    Object.freeze({ kind: 'approved', server })
+  )));
+
+  return Object.freeze({
+    mode: 'approved',
+    entries,
+    approvedServers,
+    selectableServers: approvedServers,
+  });
 }
 
 /**
@@ -199,6 +804,10 @@ export async function getBrokerConfig(brokerId?: string): Promise<BrokerConfigRe
   let response: Response;
 
   try {
+    // Keep the directory schema parser importable in a plain Node test/runtime;
+    // the React Native auth client is loaded only when this authenticated API
+    // function actually runs.
+    const { apiClient } = await import('./apiClient');
     response = await apiClient(endpoint);
   } catch (networkError) {
     // Network-level failures (DNS, timeout, connection refused)
@@ -239,8 +848,14 @@ export async function getBrokerConfig(brokerId?: string): Promise<BrokerConfigRe
  * Brokers screen so users can search for a broker by name (e.g. "Flexy",
  * "MetaQuotes") and pick which server to log in / register against.
  */
-export async function getBrokerServers(): Promise<BrokerServer[]> {
+export async function getBrokerDirectory(): Promise<BrokerDirectoryResult> {
   let response: Response;
+  if (!PUBLIC_BROKER_DIRECTORY_BASE_URL) {
+    throw new BrokerConfigError(
+      0,
+      'Broker directory is not configured for this release.',
+    );
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), BROKER_SERVERS_TIMEOUT_MS);
   try {
@@ -282,17 +897,42 @@ export async function getBrokerServers(): Promise<BrokerServer[]> {
     throw new BrokerConfigError(response.status, fullMessage);
   }
 
-  const data = await response.json();
-  if (Array.isArray(data)) {
-    return data as BrokerServer[];
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch {
+    throw new BrokerDirectoryContractError(
+      'invalid_json',
+      'Broker directory returned invalid JSON.',
+    );
   }
-  return Array.isArray(data?.value) ? (data.value as BrokerServer[]) : [];
+
+  try {
+    return parseBrokerDirectoryListingPayload(data);
+  } catch (error) {
+    if (error instanceof BrokerDirectoryContractError) {
+      throw error;
+    }
+    if (error instanceof BrokerDirectorySchemaError) {
+      throw new BrokerDirectoryContractError(
+        error.code,
+        `Broker directory contract rejected (${error.code}): ${error.message}`,
+      );
+    }
+    throw error;
+  }
+}
+
+/** Returns every validated selectable server from rich or configured raw-v2 data. */
+export async function getBrokerServers(): Promise<ValidatedBrokerServer[]> {
+  const directory = await getBrokerDirectory();
+  return [...directory.selectableServers];
 }
 
 export async function checkBrokerServerHealth(serverUrl: string): Promise<void> {
   const healthUrl = buildBrokerHealthUrl(serverUrl);
   if (!healthUrl) {
-    throw new BrokerConfigError(0, 'Broker server URL is missing. Please select a broker from the list.');
+    throw new BrokerConfigError(0, 'Selected broker is unavailable');
   }
 
   let response: Response;
@@ -310,9 +950,9 @@ export async function checkBrokerServerHealth(serverUrl: string): Promise<void> 
     });
   } catch (networkError) {
     if (networkError instanceof Error && networkError.name === 'AbortError') {
-      throw new BrokerConfigError(0, 'Broker health check timed out. Please try again in a moment.');
+      throw new BrokerConfigError(0, 'Selected broker is unavailable');
     }
-    throw new BrokerConfigError(0, 'Broker temporarily unavailable');
+    throw new BrokerConfigError(0, 'Selected broker is unavailable');
   } finally {
     clearTimeout(timeout);
   }
@@ -320,7 +960,7 @@ export async function checkBrokerServerHealth(serverUrl: string): Promise<void> 
   if (!response.ok) {
     throw new BrokerConfigError(
       response.status,
-      `Broker temporarily unavailable (${normalizeBrokerServerUrl(serverUrl)})`,
+      'Selected broker is unavailable',
     );
   }
 }

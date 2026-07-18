@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { useTradingState } from './tradingState.ts';
+import { resetSessionMarketData, useTradingState } from './tradingState.ts';
 
 const resetTradingState = () => {
   useTradingState.setState({
@@ -31,4 +31,37 @@ test('backend quote digits replace stale cached quote precision', () => {
   const quote = useTradingState.getState().quotes.BTCUSD;
   assert.equal(quote.digits, 8);
   assert.equal(quote.digitsSource, 'backend');
+});
+
+test('new quotes require a real bid/ask and never receive static mock fields', () => {
+  resetTradingState();
+  useTradingState.getState().setQuote('EURUSD', { volume: 10 });
+  assert.equal(useTradingState.getState().quotes.EURUSD, undefined);
+
+  useTradingState.getState().setQuote('EURUSD', {
+    bid: 1.1,
+    ask: 1.1002,
+    transport: 'websocket',
+    tradable: true,
+  });
+  const quote = useTradingState.getState().quotes.EURUSD;
+  assert.equal(quote.contractSize, undefined);
+  assert.equal(quote.high, undefined);
+  assert.equal(quote.transport, 'websocket');
+});
+
+test('resetSessionMarketData atomically clears quote, candle, account, and tick state', () => {
+  useTradingState.setState({
+    quotes: { EURUSD: { symbol: 'EURUSD', bid: 1.1, ask: 1.1002 } as any },
+    candles: { 'EURUSD.M1': [{ time: 1, open: 1, high: 1, low: 1, close: 1 }] as any },
+    account: { balance: 10 } as any,
+    tickCount: 7,
+  });
+
+  resetSessionMarketData();
+  const state = useTradingState.getState();
+  assert.deepEqual(state.quotes, {});
+  assert.deepEqual(state.candles, {});
+  assert.equal(state.account, null);
+  assert.equal(state.tickCount, 0);
 });

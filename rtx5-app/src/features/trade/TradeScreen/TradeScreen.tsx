@@ -19,6 +19,7 @@ import { Screen } from '../../../ui/components/Screen';
 import { AppHeader } from '../../../ui/components/AppHeader';
 import { useTranslation } from '../../../i18n/useTranslation';
 import { TradePositionRow } from '../../../ui/components/TradePositionRow';
+import { FastPressable } from '../../../ui/components/FastPressable';
 import { PositionItem } from '../../../dev/mock/tradingData';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useIsDarkTheme } from '../../../state/themeMode';
@@ -39,6 +40,19 @@ import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRou
 import { showTradePositionAction } from '../tradePositionActionHostController';
 import { TradeSummaryHeader } from './SummaryHeader';
 import { makeTradeScreenStyles } from './styles';
+import {
+  captureActiveBrokerSession,
+  getActiveBrokerSessionIdentity,
+  isActiveBrokerSessionCurrent,
+} from '../../../state/activeBrokerSession';
+import {
+  getFeedHealthSnapshot,
+  requestFeedHealthRetry,
+  subscribeFeedHealth,
+} from '../../../market/feedHealthRuntime';
+import { feedHealthStateMatchesIdentity } from '../../../market/feedHealthState';
+import { buildFeedHealthBannerModel } from '../../../market/feedHealthPresentation';
+import { quotesWsService } from '../../../api/ws/quotesSocket';
 
 // Render only the first screenful of trade rows first. This prevents 15-30 open
 // positions from all mounting and subscribing to live quotes before the user scrolls.
@@ -90,7 +104,39 @@ const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused 
   const positionCloseActionColor = isDark ? TRADE_POSITION_CLOSE_ACTION_DARK : TRADE_POSITION_CLOSE_ACTION_LIGHT;
 
   const setChartSymbol = useUserPreferences((s) => s.setChartSymbol);
+  const activeBrokerLabel = useUserPreferences((state) => (
+    state.accountDetails?.server || state.brokerId
+  ));
   const showTradeActionSheet = useUIState((st) => st.showTradeActionSheet);
+  const feedHealth = React.useSyncExternalStore(
+    subscribeFeedHealth,
+    getFeedHealthSnapshot,
+    getFeedHealthSnapshot,
+  );
+  const activeCapture = captureActiveBrokerSession();
+  const activeFeedIdentity = activeCapture
+    ? getActiveBrokerSessionIdentity(activeCapture.session)
+    : null;
+  const feedHealthModel = useMemo(() => {
+    if (!activeFeedIdentity || !feedHealthStateMatchesIdentity(feedHealth, activeFeedIdentity)) {
+      return null;
+    }
+    return buildFeedHealthBannerModel(
+      feedHealth,
+      activeBrokerLabel || activeFeedIdentity.brokerId,
+      activeCapture?.session.feedAuthContext,
+    );
+  }, [activeBrokerLabel, activeCapture?.session.feedAuthContext, activeFeedIdentity, feedHealth]);
+  const retryActiveFeed = useCallback(() => {
+    if (
+      !activeFeedIdentity ||
+      !isActiveBrokerSessionCurrent(activeFeedIdentity) ||
+      !requestFeedHealthRetry(activeFeedIdentity)
+    ) {
+      return;
+    }
+    quotesWsService.connect();
+  }, [activeFeedIdentity]);
 
   const { positions, refreshPositions, hydrateCachedPositions, lastFetchLogin, hydratedLogin, lastError } = usePositionsState(
     useShallow((state) => ({
@@ -354,6 +400,48 @@ const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused 
     <Screen noBottomInset style={s.screen}>
       <AppHeader title={t('Trade')} noBorder />
       {routeBodyReady ? <>
+        {feedHealthModel?.visible ? (
+          <View
+            accessibilityRole="alert"
+            style={[
+              s.marketDataBanner,
+              feedHealthModel.tone === 'critical'
+                ? s.marketDataBannerCritical
+                : s.marketDataBannerWarning,
+            ]}
+          >
+            <Ionicons
+              name={feedHealthModel.tone === 'critical' ? 'cloud-offline-outline' : 'time-outline'}
+              size={18}
+              color={feedHealthModel.tone === 'critical' ? '#EF4444' : '#F59E0B'}
+            />
+            <View style={s.marketDataBannerCopy}>
+              <Text style={[s.marketDataBannerTitle, { color: T.text }]}>
+                {t(feedHealthModel.title)} · {feedHealthModel.brokerLabel}
+              </Text>
+              <Text style={[s.marketDataBannerReason, { color: T.textSub }]}>
+                {t(feedHealthModel.reasonLabel)}
+              </Text>
+              <Text style={[s.marketDataBannerLastSuccess, { color: T.textMuted }]}>
+                {t('Last success')}: {feedHealthModel.lastSuccessAt
+                  ? new Date(feedHealthModel.lastSuccessAt).toLocaleString()
+                  : t('No successful live update yet')}
+              </Text>
+            </View>
+            {feedHealthModel.canRetry ? (
+              <FastPressable
+                accessibilityRole="button"
+                accessibilityLabel={t('Retry market data')}
+                onPress={retryActiveFeed}
+                activateOnPressIn
+                latencyLabel="trade.feedHealth.retry"
+                style={s.marketDataRetry}
+              >
+                <Text style={s.marketDataRetryText}>{t('Retry')}</Text>
+              </FastPressable>
+            ) : null}
+          </View>
+        ) : null}
         <TradeSummaryHeader
         positions={renderablePositions}
         hydratedLogin={hydratedLogin}

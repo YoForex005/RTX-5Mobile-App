@@ -112,8 +112,8 @@ export function useDeferredRouteContentReady(
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    // Eager hidden routes keep only their lightweight real header mounted.
-    // Once focused, their body becomes ready and stays mounted for later taps.
+    // Once the body has been built it stays mounted for retained hosts so
+    // later sidebar/settings taps never flash an empty loading shell.
     if (!active || ready) {
       return undefined;
     }
@@ -122,6 +122,21 @@ export function useDeferredRouteContentReady(
     let cancelFrameWork: (() => void) | null = null;
 
     const markReady = () => {
+      if (cancelled) {
+        return;
+      }
+      // delayMs <= 0: mount body on the next microtask so the first focused
+      // paint already has content (no multi-frame blank "loading" body).
+      // Positive delays still wait two frames after the timer for boot prewarm.
+      if (delayMs <= 0) {
+        const immediate = setTimeout(() => {
+          if (!cancelled) {
+            setReady(true);
+          }
+        }, 0);
+        cancelFrameWork = () => clearTimeout(immediate);
+        return;
+      }
       cancelFrameWork = scheduleDeferredFrameWork(2, () => {
         if (!cancelled) {
           setReady(true);

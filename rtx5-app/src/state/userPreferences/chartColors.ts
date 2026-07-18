@@ -230,7 +230,8 @@ export function resolveChartColorsForTheme(
 
 export const DEFAULT_CHART_DISPLAY_SETTINGS: ChartDisplaySettings = {
   showTicker: true,
-  showOHLC: false,
+  // O/H/L/C under the symbol picker is part of the primary chart header.
+  showOHLC: true,
   showQuickTradingButtons: true,
   // Single visible guide line: live Bid only. Ask stays internal for trading.
   showLivePriceLine: true,

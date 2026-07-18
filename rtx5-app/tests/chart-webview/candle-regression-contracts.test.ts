@@ -118,12 +118,12 @@ test('ignores stale timeframe response', () => {
   );
 });
 
-test('candle gateway history can run without a frontend login gate', () => {
-  assertSourceContains(apiSource, /const hasStoredAccessToken = Boolean\(getStoredAccessToken\(\)\)/, 'API must detect auth without requiring it');
+test('candle gateway history is isolated to one authenticated session epoch', () => {
+  assertSourceContains(apiSource, /const sessionCapture = captureActiveBrokerSession\(\)/, 'API must capture one active session');
   assertSourceContains(
     apiSource,
-    /skipAuth: !hasStoredAccessToken/,
-    'gateway history can be attempted without a frontend login gate',
+    /commitApiJson\(result, cacheNamespace/,
+    'parsed history must be committed only for the captured cache namespace',
   );
   assertSourceContains(
     apiSource,
@@ -142,6 +142,7 @@ test('candle websocket uses the authenticated broker session and selected broker
     /getStoredAccessToken/,
     'candle WS must not assemble account JWTs inside the socket service',
   );
+  assert.doesNotMatch(apiSource, /skipAuth|useUserPreferences/);
   assertSourceContains(
     socketServiceSource,
     /import \{ brokerApi \} from '\.\.\/\.\.\/\.\.\/\.\.\/api\/brokerApi'/,
@@ -149,23 +150,23 @@ test('candle websocket uses the authenticated broker session and selected broker
   );
   assertSourceContains(
     socketServiceSource,
-    /if \(!state\.isLoggedIn\) \{[\s\S]*return '';[\s\S]*\}[\s\S]*return brokerApi\.getWebSocketUrl\(\)/,
-    'candle WS must stay unavailable while logged out and use the selected broker session after login',
+    /const capture = captureActiveBrokerSession\(\)[\s\S]*!capture \|\| !resolveCandlesWsUrl\(capture\.session\.tradeWsBase\)[\s\S]*const identity = getActiveBrokerSessionIdentity\(capture\.session\)/,
+    'candle WS must require the active session exact validated trade endpoint and capture its identity',
   );
   assertSourceContains(
     socketServiceSource,
-    /const wsUrl = this\.url;[\s\S]*this\.ws = new WebSocket\(wsUrl\)/,
-    'candle WS connect path must use the authenticated URL returned by the broker API',
+    /nextUrl = await brokerApi\.getWebSocketUrl\(\)[\s\S]*!isActiveBrokerSessionCurrent\(identity\)[\s\S]*const wsUrl = this\.url;[\s\S]*const socket = new WebSocket\(wsUrl\)/,
+    'candle WS must discard stale session URL resolution before opening the authenticated socket',
   );
   assertSourceContains(
     socketServiceSource,
-    /private startTokenWatcher\(\): void[\s\S]*useUserPreferences\.subscribe[\s\S]*nextBrokerId[\s\S]*nextServerUrl[\s\S]*this\.connect\(\)/,
-    'candle WS must reconnect when the selected broker id or broker URL changes',
+    /private startTokenWatcher\(\): void[\s\S]*subscribeActiveBrokerSession[\s\S]*this\.tearDownSocketSafe\(\)[\s\S]*event\.activeSession\?\.tradeWsBase[\s\S]*this\.connect\(\)/,
+    'candle WS must synchronously drop and reconnect on immutable session transitions',
   );
   assertSourceContains(
     socketServiceSource,
-    /this\.activeBrokerId !== brokerId[\s\S]*this\.tearDownSocketSafe\(\)/,
-    'candle WS must drop a stale-broker connection before opening a new one',
+    /this\.ws !== socket \|\|[\s\S]*!isActiveBrokerSessionCurrent\(identity\)[\s\S]*socket\.close\(\)/,
+    'candle WS callbacks must reject a socket from a stale broker session epoch',
   );
   assert.doesNotMatch(
     socketServiceSource,
@@ -207,8 +208,13 @@ test('prefetch history result does not overwrite a newer authoritative loadHisto
 test('reconnect safe subscription path resubscribes without polluting current symbol or timeframe', () => {
   assertSourceContains(
     socketSource,
-    /this\.ws\.onopen = \(\) => \{[\s\S]*this\.reconnectAttempts = 0[\s\S]*this\.sendSubscriptions\(\)/,
-    'candle socket must resubscribe active subscriptions after reconnect',
+    /socket\.onopen = \(\) => \{[\s\S]*this\.startStableConnectionTimer\(socket, identity\)[\s\S]*this\.sendSubscriptions\(\)/,
+    'candle socket must resubscribe after reconnect without treating open alone as a stable connection',
+  );
+  assertSourceContains(
+    socketSource,
+    /resolveFullJitterBackoffMs\(\{[\s\S]*attempt: this\.reconnectAttempts[\s\S]*isActiveBrokerSessionCurrent\(identity\)/,
+    'reconnect must use full jitter and remain scoped to the captured session identity',
   );
   assertSourceContains(
     socketSource,

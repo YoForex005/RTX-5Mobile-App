@@ -36,12 +36,19 @@ import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useSavedAccounts, setSavedAccountPassword } from '../../state/savedAccounts';
-import { loginAPI } from '../../api/auth';
-import { extractFeedBrokerToken } from '../../api/feedAuth';
+import { isLoginRequestAbortedError, loginAPI } from '../../api/auth';
+
 import { getBrokerConfig, type BrokerServer } from '../../api/broker';
-import { normalizeBrokerServerUrl, resolveBrokerServiceBaseUrl } from '../../api/brokerRouting';
-import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../../query/accounts';
-import { BROKER_CONFIG_KEY, useBrokerServers } from '../../query/broker';
+import {
+  isBrokerServerUrlForApiBase,
+  normalizeBrokerServerUrl,
+  resolveBrokerEndpointSet,
+  type ValidatedBrokerEndpointSet,
+} from '../../api/brokerRouting';
+import { getBrokerConfigQueryKey, useBrokerServers } from '../../query/broker';
+import {
+  invalidateSessionQueryRoots,
+} from '../../query/authenticatedQueryScope';
 import { getTradingAccountTypeFromBackend } from '../../domain/accountType';
 import {
   safeRouterBack,
@@ -53,13 +60,8 @@ import {
   removeSecureItemAsync,
   getSecureItemAsync,
 } from '../../utils/secureStorage';
-import {
-  persistAuthSessionTokens,
-  persistSelectedBrokerSession,
-} from '../../state/brokerSessionStorage';
 import { recordAccountJournalEvent } from '../../state/terminalJournalState';
 import { runImmediateAction } from '../../utils/actionLatency';
-import { formatServerFromName } from './BrokersScreen/brokerData';
 import { BrokerDetailLaunchShell } from './BrokerDetailLaunchShell';
 import {
   brokerDetailLaunchController,
@@ -68,10 +70,23 @@ import {
   scheduleBrokerDetailLaunchCoverRemoval,
 } from './brokerDetailLaunchController';
 import { showBrokersReturnLaunch } from './brokersLaunchController';
+import { redactAuthPayload, redactSensitiveString } from '../../api/authRedaction';
 import {
   scheduleRegisterLaunchNavigation,
   showRegisterLaunch,
 } from './registerLaunchController';
+import {
+  authorizeBrokerSessionCommit,
+  cancelBrokerSessionCommitAuthorization,
+  commitBrokerSession,
+  isStaleBrokerSessionCommitError,
+  type BrokerSessionCommitAuthorization,
+} from '../../services/brokerSessionCoordinator';
+import { resolveSessionFeedAuth } from '../../api/feedAuthContract';
+import {
+  getActiveBrokerSessionProvenance,
+  isActiveBrokerSessionProvenanceCurrent,
+} from '../../state/activeBrokerSession';
 
 const SAVED_LOGIN_KEY = 'rtx5_saved_login';
 const primaryBlue = '#2563EB';
@@ -107,6 +122,7 @@ type ServerOption = {
   brokerSymbol: string;
   serverUrl: string;
   logoUrl: string;
+  endpoints: ValidatedBrokerEndpointSet | null;
 };
 
 type BrokerDetailRouteParams = {
@@ -128,6 +144,25 @@ const normalizeOptionKey = (option: ServerOption) => (
   ].join('|')
 );
 
+const isExactBrokerServerSelection = (
+  left: Pick<ServerOption, 'brokerId' | 'serverUrl'>,
+  right: Pick<ServerOption, 'brokerId' | 'serverUrl'>,
+) => {
+  const leftBrokerId = left.brokerId.trim().toLowerCase();
+  const rightBrokerId = right.brokerId.trim().toLowerCase();
+  const leftServerUrl = normalizeBrokerServerUrl(left.serverUrl);
+  const rightServerUrl = normalizeBrokerServerUrl(right.serverUrl);
+
+  return Boolean(
+    leftBrokerId
+    && rightBrokerId
+    && leftServerUrl
+    && rightServerUrl
+    && leftBrokerId === rightBrokerId
+    && leftServerUrl === rightServerUrl
+  );
+};
+
 const formatBrokerOptionName = (brokerSymbol: string, brokerName: string) => {
   const symbol = brokerSymbol.trim();
   const name = brokerName.trim();
@@ -143,10 +178,17 @@ const buildServerOptionFromBrokerServer = (broker: BrokerServer): ServerOption |
 
   const brokerId = String(broker.broker_id ?? '').trim();
   const brokerName = String(broker.broker_name ?? '').trim() || brokerId;
-  const serverLabel = String(broker.server ?? '').trim() || formatServerFromName(brokerName);
-  const serverUrl = resolveBrokerServiceBaseUrl(broker);
+  const serverLabel = String(broker.server ?? '').trim() || brokerName;
+  const resolution = resolveBrokerEndpointSet(broker);
+  if (!resolution.ok) return null;
+  const exactServerUrl = normalizeBrokerServerUrl(broker.server_url);
 
-  if (!brokerId || !serverLabel) {
+  if (
+    !brokerId
+    || !serverLabel
+    || !exactServerUrl
+    || !isBrokerServerUrlForApiBase(exactServerUrl, resolution.endpoints.apiBase)
+  ) {
     return null;
   }
 
@@ -155,8 +197,9 @@ const buildServerOptionFromBrokerServer = (broker: BrokerServer): ServerOption |
     brokerId,
     brokerName,
     brokerSymbol: brokerId,
-    serverUrl,
+    serverUrl: exactServerUrl,
     logoUrl: String(broker.logo_url ?? '').trim(),
+    endpoints: resolution.endpoints,
   };
 };
 
@@ -267,8 +310,6 @@ function BrokerDetailInteractiveContent({
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
 
-  const persistedLogin = useUserPreferences((s) => s.login);
-  const setBrokerConnection = useUserPreferences((s) => s.setBrokerConnection);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const isDemoAccount = useUserPreferences((s) => s.isDemoAccount);
   const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
@@ -287,17 +328,17 @@ function BrokerDetailInteractiveContent({
   const brokerIdSlug = params.brokerId ? String(params.brokerId) : '';
   const initialServer = params.brokerServer
     ? String(params.brokerServer)
-    : formatServerFromName(brokerName);
+    : brokerName;
   const initialServerUrl = normalizeBrokerServerUrl(
     params.brokerServerUrl ? String(params.brokerServerUrl) : '',
   );
   const initialLogoUrl = params.brokerLogoUrl ? String(params.brokerLogoUrl) : '';
 
-  // The broker_id we send to the API. Default to the broker slug from the
-  // BrokersScreen list; fall back to the server name when no slug is given.
+  // The broker_id must come from the validated directory selection. A display
+  // label is never promoted into an authenticated broker identity.
   const apiBrokerId = brokerIdSlug && !RESERVED_BROKER_IDS.has(brokerIdSlug)
     ? brokerIdSlug
-    : initialServer;
+    : '';
 
   const initialServerOption = useMemo<ServerOption>(() => ({
     label: initialServer,
@@ -306,6 +347,7 @@ function BrokerDetailInteractiveContent({
     brokerSymbol: apiBrokerId,
     serverUrl: initialServerUrl,
     logoUrl: initialLogoUrl,
+    endpoints: null,
   }), [apiBrokerId, brokerName, initialLogoUrl, initialServer, initialServerUrl]);
 
   const serverOptions = useMemo<ServerOption[]>(() => {
@@ -320,13 +362,10 @@ function BrokerDetailInteractiveContent({
       out.push(option);
     };
 
-    if (initialServerOption.label || initialServerOption.brokerId) {
-      pushOption(initialServerOption);
-    }
-
     const directoryOptions = (brokerServers ?? [])
       .map(buildServerOptionFromBrokerServer)
       .filter((option): option is ServerOption => option !== null)
+      .filter((option) => isExactBrokerServerSelection(option, initialServerOption))
       .sort((a, b) => (
         a.brokerName.localeCompare(b.brokerName) ||
         a.label.localeCompare(b.label) ||
@@ -337,6 +376,12 @@ function BrokerDetailInteractiveContent({
       pushOption(option);
     }
 
+    // Route params remain display-only. They can render while discovery is in
+    // flight, but never gain authenticated routing authority.
+    if (out.length === 0 && (initialServerOption.label || initialServerOption.brokerId)) {
+      pushOption(initialServerOption);
+    }
+
     return out;
   }, [brokerServers, initialServerOption]);
 
@@ -344,9 +389,12 @@ function BrokerDetailInteractiveContent({
   const [passwordValue, setPasswordValue] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [savePassword, setSavePassword] = useState(true);
-  const [selectedServer, setSelectedServer] = useState<ServerOption>(
-    serverOptions[0] ?? initialServerOption,
-  );
+  const [selectedServer, setSelectedServer] = useState<ServerOption>(() => (
+    serverOptions.find((option) => (
+      option.endpoints !== null
+      && isExactBrokerServerSelection(option, initialServerOption)
+    )) ?? initialServerOption
+  ));
   const selectedBrokerName = selectedServer.brokerName || brokerName;
   const selectedBrokerSymbol = selectedServer.brokerSymbol || selectedServer.brokerId || apiBrokerId;
   const selectedBrokerDisplayName = formatBrokerOptionName(selectedBrokerSymbol, selectedBrokerName) || t('Broker');
@@ -370,11 +418,36 @@ function BrokerDetailInteractiveContent({
   }>({ visible: false, type: 'success', title: '', message: '' });
   const [forgotPasswordVisible, setForgotPasswordVisible] = useState(false);
   const requestInFlightRef = useRef(false);
+  const brokerLoginMountedRef = useRef(true);
+  const activeBrokerLoginAttemptRef = useRef<{
+    authorization: BrokerSessionCommitAuthorization;
+    controller: AbortController;
+  } | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const passwordInputRef = useRef<TextInput>(null);
   const loginPanelYRef = useRef(0);
   const focusScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loginInputFocusedRef = useRef(false);
+
+  useEffect(() => {
+    brokerLoginMountedRef.current = true;
+    return () => {
+      brokerLoginMountedRef.current = false;
+      const activeAttempt = activeBrokerLoginAttemptRef.current;
+      activeAttempt?.controller.abort();
+      cancelBrokerSessionCommitAuthorization(activeAttempt?.authorization);
+      activeBrokerLoginAttemptRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isScreenFocused) return;
+    const activeAttempt = activeBrokerLoginAttemptRef.current;
+    activeAttempt?.controller.abort();
+    cancelBrokerSessionCommitAuthorization(activeAttempt?.authorization);
+    activeBrokerLoginAttemptRef.current = null;
+    requestInFlightRef.current = false;
+  }, [isScreenFocused]);
 
   const scrollLoginPanelAboveKeyboard = useCallback((delayMs = Platform.OS === 'ios' ? 260 : 220) => {
     if (focusScrollTimerRef.current) {
@@ -428,58 +501,14 @@ function BrokerDetailInteractiveContent({
 
   useEffect(() => {
     setSelectedServer((current) => {
-      const currentKey = normalizeOptionKey(current);
       const matchingOption = serverOptions.find((option) => (
-        normalizeOptionKey(option) === currentKey ||
-        (
-          option.brokerId === current.brokerId &&
-          option.label === current.label &&
-          (!current.serverUrl || option.serverUrl === current.serverUrl)
-        )
+        option.endpoints !== null
+        && isExactBrokerServerSelection(option, current)
       ));
 
       return matchingOption ?? current;
     });
   }, [serverOptions]);
-
-  const getSelectedBrokerConnection = useCallback(() => {
-    const effectiveBrokerId = selectedServer.brokerId || apiBrokerId;
-    const effectiveServerUrl = selectedServer.serverUrl || initialServerUrl;
-    const effectiveLogoUrl = selectedServer.logoUrl || initialLogoUrl;
-
-    if (!effectiveBrokerId || !effectiveServerUrl) return null;
-    return {
-      brokerId: effectiveBrokerId,
-      serverUrl: effectiveServerUrl,
-      logoUrl: effectiveLogoUrl,
-    };
-  }, [
-    apiBrokerId,
-    initialLogoUrl,
-    initialServerUrl,
-    selectedServer.brokerId,
-    selectedServer.logoUrl,
-    selectedServer.serverUrl,
-  ]);
-
-  const syncSelectedBrokerConnection = useCallback(() => {
-    const connection = getSelectedBrokerConnection();
-    if (!connection) return null;
-
-    setBrokerConnection(connection.brokerId, connection.serverUrl, connection.logoUrl);
-    return connection;
-  }, [
-    getSelectedBrokerConnection,
-    setBrokerConnection,
-  ]);
-
-  // Persist once the real broker screen is already mounted. The Demo button
-  // only updates the in-memory selection, so storage can never delay its tap.
-  useEffect(() => {
-    const connection = syncSelectedBrokerConnection();
-    if (!connection) return;
-    void persistSelectedBrokerSession(connection);
-  }, [syncSelectedBrokerConnection]);
 
   // Lazy-load any previously saved login on first focus so returning users
   // see their credentials pre-filled (mirrors the standalone /login screen).
@@ -555,9 +584,10 @@ function BrokerDetailInteractiveContent({
 
     const trimmedLogin = loginValue.trim();
     const trimmedPassword = passwordValue;
-    const effectiveBrokerId = selectedServer.brokerId || apiBrokerId;
-    const effectiveServerUrl = selectedServer.serverUrl || initialServerUrl;
+    const effectiveBrokerId = selectedServer.brokerId.trim();
+    const effectiveServerUrl = normalizeBrokerServerUrl(selectedServer.serverUrl);
     const effectiveLogoUrl = selectedServer.logoUrl || initialLogoUrl;
+    const selectedEndpoints = selectedServer.endpoints;
 
     if (!effectiveBrokerId) {
       setModalState({
@@ -568,7 +598,12 @@ function BrokerDetailInteractiveContent({
       });
       return;
     }
-    if (!effectiveServerUrl) {
+    if (
+      !effectiveServerUrl
+      || !selectedEndpoints
+      || selectedEndpoints.brokerId.trim().toLowerCase() !== effectiveBrokerId.toLowerCase()
+      || !isBrokerServerUrlForApiBase(effectiveServerUrl, selectedEndpoints.apiBase)
+    ) {
       recordAccountJournalEvent('broker detail login blocked: broker server missing', {
         level: 'error',
         accountLogin: trimmedLogin,
@@ -600,18 +635,22 @@ function BrokerDetailInteractiveContent({
     recordAccountJournalEvent(`broker detail login requested for broker ${effectiveBrokerId}`, {
       accountLogin: trimmedLogin,
     });
+    const commitAuthorization = authorizeBrokerSessionCommit();
+    const loginAbortController = new AbortController();
+    activeBrokerLoginAttemptRef.current = {
+      authorization: commitAuthorization,
+      controller: loginAbortController,
+    };
     let didStartSuccessNavigation = false;
     try {
-      console.log('--- LOGIN API URL ---', effectiveServerUrl);
       const response: any = await loginAPI({
         username: trimmedLogin,
         password: trimmedPassword,
         broker_id: effectiveBrokerId,
-      }, { serverUrl: effectiveServerUrl });
+      }, { serverUrl: effectiveServerUrl, signal: loginAbortController.signal });
 
       const accessToken = response.access_token ?? response.token;
       const refreshToken = response.refresh_token ?? response.refreshToken ?? '';
-      const feedToken = extractFeedBrokerToken(response);
       const accountLogin =
         response.account_login ??
         response.accountLogin ??
@@ -653,26 +692,46 @@ function BrokerDetailInteractiveContent({
 
       const canonicalBrokerId =
         response.broker_id || response.brokerId || effectiveBrokerId;
+      if (
+        canonicalBrokerId.trim().toLowerCase()
+        !== selectedEndpoints.brokerId.trim().toLowerCase()
+      ) {
+        throw new Error(t('Login response did not match the selected broker.'));
+      }
       const accountType = getTradingAccountTypeFromBackend(response);
       const effectiveServerName = serverNameFromApi || selectedServer.label || canonicalBrokerId;
       const savedLogin = String(accountLogin);
+      const sessionFeed = resolveSessionFeedAuth({
+        response,
+        brokerId: selectedEndpoints.brokerId,
+      });
 
-      persistedLogin(
-        savedLogin,
-        accountName,
-        effectiveServerName,
-        {
-          access_token: accessToken,
-          refresh_token: refreshToken,
-          expires_at: expiresAtIso,
+      const committedSession = await commitBrokerSession({
+        session: {
+          brokerId: selectedEndpoints.brokerId,
+          accountLogin: savedLogin,
+          apiBase: selectedEndpoints.apiBase,
+          feedWsBase: selectedEndpoints.feedWsBase,
+          tradeWsBase: selectedEndpoints.tradeWsBase,
+          feedStatusUrl: selectedEndpoints.feedStatusUrl,
+          servicesDomain: selectedEndpoints.servicesDomain,
+          feedAuthContext: sessionFeed.feedAuthContext,
+          configVersion: selectedEndpoints.configVersion,
         },
-        canonicalBrokerId,
-        {
-          serverUrl: effectiveServerUrl,
+        credentials: {
+          accessToken,
+          refreshToken,
+          expiresAt: expiresAtIso,
+          ...(sessionFeed.feedToken ? { feedToken: sessionFeed.feedToken } : {}),
+        },
+        account: {
+          name: accountName,
+          serverName: effectiveServerName,
           logoUrl: effectiveLogoUrl,
           isDemoAccount: accountType === 'demo',
         },
-      );
+      }, commitAuthorization);
+      const committedProvenance = getActiveBrokerSessionProvenance(committedSession.session);
       recordAccountJournalEvent(`broker detail login succeeded on ${canonicalBrokerId}`, {
         level: 'success',
         accountLogin: savedLogin,
@@ -680,20 +739,6 @@ function BrokerDetailInteractiveContent({
       router.replace('/(tabs)/quotes');
       didStartSuccessNavigation = true;
       scheduleBrokerDetailPostLoginWork(() => {
-        void Promise.all([
-          persistSelectedBrokerSession({
-            brokerId: canonicalBrokerId,
-            serverUrl: effectiveServerUrl,
-            logoUrl: effectiveLogoUrl,
-          }),
-          persistAuthSessionTokens({
-            accessToken,
-            refreshToken,
-            expiresAt: expiresAtIso,
-            feedToken,
-          }),
-        ]).catch(() => undefined);
-
         upsertSavedAccount({
           login: savedLogin,
           name: accountName,
@@ -707,9 +752,11 @@ function BrokerDetailInteractiveContent({
         });
         setSavedAccountPassword(canonicalBrokerId, savedLogin, trimmedPassword).catch(() => undefined);
 
-        queryClient.invalidateQueries({ queryKey: [ACCOUNTS_LIST_KEY] });
-        queryClient.invalidateQueries({ queryKey: [ACCOUNT_DETAIL_KEY] });
-        queryClient.invalidateQueries({ queryKey: [BROKER_CONFIG_KEY] });
+        void invalidateSessionQueryRoots(
+          queryClient,
+          committedSession.session.cacheNamespace,
+          ['accountsList', 'accountDetail', 'brokerConfig'],
+        );
 
         if (savePassword) {
           void setSecureItemAsync(
@@ -728,15 +775,32 @@ function BrokerDetailInteractiveContent({
 
         // Best-effort: refresh broker config so AccountsScreen shows the
         // correct broker name/server immediately after login.
+        if (!isActiveBrokerSessionProvenanceCurrent(committedProvenance)) return;
         void getBrokerConfig(canonicalBrokerId)
           .then((cfg) => {
-            queryClient.setQueryData([BROKER_CONFIG_KEY, canonicalBrokerId], cfg);
+            if (!isActiveBrokerSessionProvenanceCurrent(committedProvenance)) return;
+            queryClient.setQueryData(
+              getBrokerConfigQueryKey(committedSession.session.cacheNamespace, canonicalBrokerId),
+              cfg,
+            );
           })
           .catch(() => undefined);
       });
     } catch (error: any) {
-      console.error('--- LOGIN ERROR ---', error);
-      recordAccountJournalEvent(`broker detail login failed: ${error?.message || t('Invalid credentials')}`, {
+      if (
+        !brokerLoginMountedRef.current ||
+        isLoginRequestAbortedError(error) ||
+        isStaleBrokerSessionCommitError(error)
+      ) {
+        return;
+      }
+      console.error('--- LOGIN ERROR ---', redactAuthPayload(error));
+      const safeErrorMessage = redactSensitiveString(
+        typeof error?.message === 'string' && error.message.trim()
+          ? error.message
+          : t('Invalid credentials'),
+      );
+      recordAccountJournalEvent(`broker detail login failed: ${safeErrorMessage}`, {
         level: 'error',
         accountLogin: trimmedLogin,
       });
@@ -744,12 +808,18 @@ function BrokerDetailInteractiveContent({
         visible: true,
         type: 'error',
         title: t('Login Failed'),
-        message: error?.message || t('Invalid credentials'),
+        message: safeErrorMessage,
       });
     } finally {
       requestInFlightRef.current = false;
+      cancelBrokerSessionCommitAuthorization(commitAuthorization);
+      if (activeBrokerLoginAttemptRef.current?.authorization === commitAuthorization) {
+        activeBrokerLoginAttemptRef.current = null;
+      }
       if (!didStartSuccessNavigation) {
-        setIsLoading(false);
+        if (brokerLoginMountedRef.current) {
+          setIsLoading(false);
+        }
       }
     }
   };

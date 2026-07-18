@@ -5,6 +5,10 @@ import {
   isBrokerServiceBaseUrl,
 } from './brokerRouting';
 import { timedFetch } from '../utils/apiLatency';
+import {
+  fingerprintMarketDataHost,
+  recordMarketDataEvent,
+} from '../market/marketDataTelemetry';
 
 const AUTH_LOGIN_TIMEOUT_MS = 8000;
 
@@ -58,7 +62,27 @@ export interface LoginRequest {
 
 export type LoginRequestOptions = {
   serverUrl?: string;
+  signal?: AbortSignal;
 };
+
+export class LoginRequestAbortedError extends Error {
+  public readonly code = 'LOGIN_REQUEST_ABORTED';
+
+  constructor() {
+    super('Login request was cancelled.');
+    this.name = 'LoginRequestAbortedError';
+  }
+}
+
+export const isLoginRequestAbortedError = (
+  error: unknown,
+): error is LoginRequestAbortedError =>
+  error instanceof LoginRequestAbortedError ||
+  (
+    Boolean(error) &&
+    typeof error === 'object' &&
+    (error as { code?: unknown }).code === 'LOGIN_REQUEST_ABORTED'
+  );
 
 /** POST /auth/register — request body */
 export interface RegisterRequest {
@@ -127,16 +151,28 @@ export const loginAPI = async (
   options: LoginRequestOptions = {},
 ): Promise<AuthResponse> => {
   const controller = new AbortController();
+  let didCallerAbort = Boolean(options.signal?.aborted);
+  const abortFromCaller = () => {
+    didCallerAbort = true;
+    controller.abort();
+  };
+  if (options.signal?.aborted) {
+    controller.abort();
+  } else {
+    options.signal?.addEventListener('abort', abortFromCaller, { once: true });
+  }
   const timeout = setTimeout(() => {
     controller.abort();
   }, AUTH_LOGIN_TIMEOUT_MS);
 
   let response: Response;
+  let apiHostFingerprint = 'unresolved';
   try {
     if (!isBrokerServiceBaseUrl(options.serverUrl)) {
       throw new Error(getBrokerBackendDomainUnavailableMessage(credentials.broker_id));
     }
     const apiBaseUrl = buildBrokerApiBaseUrl(options.serverUrl);
+    apiHostFingerprint = fingerprintMarketDataHost(apiBaseUrl);
 
     response = await timedFetch(`${apiBaseUrl}/auth/login`, {
       method: 'POST',
@@ -154,11 +190,27 @@ export const loginAPI = async (
     });
   } catch (error) {
     if (controller.signal.aborted || isAbortError(error)) {
+      if (didCallerAbort) {
+        recordMarketDataEvent('auth_outcome', {
+          operation: 'login', outcome: 'cancelled', brokerId: credentials.broker_id,
+          apiHostFingerprint,
+        });
+        throw new LoginRequestAbortedError();
+      }
+      recordMarketDataEvent('auth_outcome', {
+        operation: 'login', outcome: 'timeout', brokerId: credentials.broker_id,
+        apiHostFingerprint,
+      });
       throw new Error('Login request timed out. Please check your connection and try again.');
     }
+    recordMarketDataEvent('auth_outcome', {
+      operation: 'login', outcome: 'request_failed', brokerId: credentials.broker_id,
+      apiHostFingerprint,
+    });
     throw error;
   } finally {
     clearTimeout(timeout);
+    options.signal?.removeEventListener('abort', abortFromCaller);
   }
 
   if (!response.ok) {
@@ -167,10 +219,19 @@ export const loginAPI = async (
       statusCode?: number;
     };
     error.statusCode = response.status;
+    recordMarketDataEvent('auth_outcome', {
+      operation: 'login', outcome: 'rejected', brokerId: credentials.broker_id,
+      apiHostFingerprint, status: response.status,
+    });
     throw error;
   }
 
-  return response.json();
+  const payload = await response.json() as AuthResponse;
+  recordMarketDataEvent('auth_outcome', {
+    operation: 'login', outcome: 'accepted', brokerId: credentials.broker_id,
+    apiHostFingerprint, status: response.status,
+  });
+  return payload;
 };
 
 /**
@@ -200,10 +261,19 @@ export const registerAPI = async (data: RegisterRequest): Promise<AuthResponse> 
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
+    recordMarketDataEvent('auth_outcome', {
+      operation: 'register', outcome: 'rejected', brokerId: data.broker_id,
+      apiHostFingerprint: fingerprintMarketDataHost(API_BASE_URL), status: response.status,
+    });
     throw new Error(extractBackendErrorMessage(errorBody, 'Registration failed'));
   }
 
-  return response.json();
+  const payload = await response.json() as AuthResponse;
+  recordMarketDataEvent('auth_outcome', {
+    operation: 'register', outcome: 'accepted', brokerId: data.broker_id,
+    apiHostFingerprint: fingerprintMarketDataHost(API_BASE_URL), status: response.status,
+  });
+  return payload;
 };
 
 /**

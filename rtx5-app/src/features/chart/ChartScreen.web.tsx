@@ -62,8 +62,17 @@ import {
   HistogramSeries,
 } from 'lightweight-charts';
 import { usePositionsState } from '../../state/positionsState';
+import {
+  captureActiveBrokerSessionProvenance,
+  isActiveBrokerSessionProvenanceCurrent,
+} from '../../state/activeBrokerSession';
 import { TradingSignalDetailsModal } from './TradingSignalDetailsModal';
 import { hasLiveQuoteFeedData, useMarketData } from '../../query/websocket';
+import {
+  quoteActionBlockMessage,
+  recordBlockedPriceAction,
+  resolveSessionQuoteActionAvailability,
+} from '../../market/quoteIntegrity';
 import { LiveClock } from '../../ui/components/LiveClock';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 import { usePositionHistoryQuery } from '../../query/positions';
@@ -220,19 +229,20 @@ const buildVolumeDatum = (
 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
 const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, priceSource, active = true }: any) => {
-  const latestTick = useLiveTick(symbol, undefined, active);
   const liveQuotes = useMarketData([symbol], active);
   const q = liveQuotes[symbol] || {};
   const selectedQuote =
     priceSource === 'ask'
       ? (typeof q.ask === 'number' && q.ask > 0 ? q.ask : null)
       : (typeof q.bid === 'number' && q.bid > 0 ? q.bid : null);
-  const candleClose = latestTick && typeof latestTick.close === 'number' && latestTick.close > 0 ? latestTick.close : null;
-  const currentPrice = selectedQuote ?? candleClose;
+  const currentPrice = selectedQuote;
   if (currentPrice === null) return <View style={styles.priceSection}><Text style={[styles.livePriceText, { fontWeight: '700', opacity: 0.9 }]}>---</Text></View>;
+  const priceLabel = resolveSessionQuoteActionAvailability(q).allowed
+    ? 'LIVE PRICE'
+    : 'DELAYED SNAPSHOT';
   return (
     <View style={styles.priceSection}>
-      <Text style={[styles.symbolText, { textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 2, opacity: 0.9 }]}>PRICE</Text>
+      <Text style={[styles.symbolText, { textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 2, opacity: 0.9 }]}>{priceLabel}</Text>
       <Text style={styles.livePriceText}>{currentPrice.toFixed(displayDecimals)}</Text>
       {(() => {
         const changePct = q.changePct ?? 0;
@@ -253,12 +263,11 @@ const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, priceSour
 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
 const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize, active = true }: any) => {
-  const latestTick = useLiveTick(symbol, undefined, active);
   const liveQuotes = useMarketData([symbol], active);
   const q = liveQuotes[symbol] || {};
-  const latestClose = latestTick?.close ?? 0;
-  const latestBid = typeof q.bid === 'number' && q.bid > 0 ? q.bid : latestClose;
-  const latestAsk = typeof q.ask === 'number' && q.ask > 0 ? q.ask : latestClose;
+  const quoteActionAvailability = resolveSessionQuoteActionAvailability(q);
+  const latestBid = typeof q.bid === 'number' && q.bid > 0 ? q.bid : 0;
+  const latestAsk = typeof q.ask === 'number' && q.ask > 0 ? q.ask : 0;
 
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
   const openOrderMode = useUserPreferences((s) => s.openOrderMode);
@@ -271,6 +280,12 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize,
 
   const handleTrade = (side: TradeSide) => {
     const action = getChartTradeAction(side);
+    const currentQuoteAvailability = resolveSessionQuoteActionAvailability(q);
+    if (!currentQuoteAvailability.allowed) {
+      recordBlockedPriceAction('chart_web_market_order', currentQuoteAvailability);
+      Alert.alert('Market Data Unavailable', quoteActionBlockMessage(currentQuoteAvailability));
+      return;
+    }
     if (tradeTapLockRef.current || isPending) {
       if (shouldLogTradeDiagnostics) {
         console.log('[TRADE-BUTTON-PRESS]', {
@@ -290,8 +305,18 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize,
     };
 
     if (oneClickAccepted) {
+      const actionProvenance = captureActiveBrokerSessionProvenance();
+      if (!actionProvenance) {
+        const feedback = createFrontendTradingError(
+          'Sign In Required',
+          'Please sign in to the active broker account before placing an order.',
+        );
+        Alert.alert(feedback.title, feedback.message);
+        releaseTradeTapLock();
+        return;
+      }
       const tradingLogin = resolveTradingLogin();
-      if (!tradingLogin) {
+      if (!tradingLogin || String(tradingLogin) !== actionProvenance.identity.accountLogin) {
         const feedback = createFrontendTradingError(
           'Account Error',
           'The app could not resolve the active trading account from local state. Select an account and try again.',
@@ -311,27 +336,27 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize,
         payload,
         {
           onSuccess: (data: any) => {
-            const positionTicket = data?.position_ticket || data?.order_ticket || Math.floor(Math.random() * 10000000);
-            const state = usePositionsState.getState();
-            const newPos = {
-              id: String(positionTicket),
-              symbol: symbol,
-              side: action.side,
-              volume: Number(lotSize),
-              openPrice: data?.price || (action.side === 'buy' ? latestAsk : latestBid),
-              currentPrice: action.side === 'buy' ? latestBid : latestAsk,
-              pnl: 0,
-              swap: 0,
-              openTime: new Date().toISOString(),
-              sl: 0,
-              tp: 0,
-              clientCreatedAt: Date.now(),
-            };
-            state.setPositions([newPos as any, ...state.positions]);
-            Alert.alert('Trade Executed', `Successfully placed ${action.side.toUpperCase()} on ${symbol}.\nTicket #${positionTicket}`);
+            if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) {
+              releaseTradeTapLock();
+              return;
+            }
+            const ticketValue = Number(data?.position_ticket ?? data?.order_ticket ?? data?.ticket);
+            const executionPriceValue = Number(data?.price_open ?? data?.price);
+            const confirmationLines = [
+              `Broker accepted ${action.side.toUpperCase()} on ${symbol}.`,
+              ...(Number.isFinite(ticketValue) && ticketValue > 0 ? [`Ticket #${ticketValue}`] : []),
+              ...(Number.isFinite(executionPriceValue) && executionPriceValue > 0
+                ? [`Executed at ${executionPriceValue.toFixed(displayDecimals)}`]
+                : []),
+            ];
+            Alert.alert('Trade Submitted', confirmationLines.join('\n'));
             releaseTradeTapLock();
           },
           onError: (err: any) => {
+            if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) {
+              releaseTradeTapLock();
+              return;
+            }
             const feedback = classifyTradingError(err, { action: 'place-order' });
             Alert.alert(feedback.title, feedback.message);
             releaseTradeTapLock();
@@ -356,8 +381,8 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize,
   return (
     <View style={styles.tradeControlsRow}>
       <Pressable
-        style={[styles.actionBtn, styles.actionBtnSell, isPending && { opacity: 0.5 }]}
-        disabled={isPending}
+        style={[styles.actionBtn, styles.actionBtnSell, (isPending || !quoteActionAvailability.allowed) && { opacity: 0.5 }]}
+        disabled={isPending || !quoteActionAvailability.allowed}
         onPressIn={() => runCriticalTradeAction('chart.web.trade.sell', () => handleTrade('sell'))}
         unstable_pressDelay={0}
         accessibilityRole="button"
@@ -374,8 +399,8 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize,
       <View style={styles.actionSpacer} />
 
       <Pressable
-        style={[styles.actionBtn, styles.actionBtnBuy, isPending && { opacity: 0.5 }]}
-        disabled={isPending}
+        style={[styles.actionBtn, styles.actionBtnBuy, (isPending || !quoteActionAvailability.allowed) && { opacity: 0.5 }]}
+        disabled={isPending || !quoteActionAvailability.allowed}
         onPressIn={() => runCriticalTradeAction('chart.web.trade.buy', () => handleTrade('buy'))}
         unstable_pressDelay={0}
         accessibilityRole="button"

@@ -17,7 +17,7 @@ test('quote-info launch controller prepares both exact shells and tracks route c
   visualEvents.length = 0;
 
   controller.prepare('XAUUSDm');
-  assert.equal(controller.getSnapshot().symbol, 'XAUUSD');
+  assert.equal(controller.getSnapshot().symbol, 'XAUUSDM');
   assert.equal(controller.getSnapshot().phase, 'prepared');
 
   const revision = controller.show('market-statistics', 'XAUUSDm');

@@ -12,6 +12,7 @@ import {
   ScrollView,
   StyleSheet,
   View,
+  type ViewProps,
   ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,9 +28,20 @@ type ScreenProps = PropsWithChildren<{
   style?: ViewStyle;
   /** Skip bottom safe-area padding (e.g. when FlatList handles its own padding) */
   noBottomInset?: boolean;
+  /** Optional native layout acknowledgement for retained route handoffs. */
+  onLayout?: ViewProps['onLayout'];
+  /** Keep a native root when a caller needs a reliable onLayout signal. */
+  collapsable?: boolean;
 }>;
 
-export function Screen({ children, scroll = false, style, noBottomInset = false }: ScreenProps) {
+export function Screen({
+  children,
+  collapsable,
+  noBottomInset = false,
+  onLayout,
+  scroll = false,
+  style,
+}: ScreenProps) {
   const T = useTheme();
   const insets = useSafeAreaInsets();
   const bottomPad = noBottomInset ? 0 : Math.max(insets.bottom, 8);
@@ -37,6 +49,8 @@ export function Screen({ children, scroll = false, style, noBottomInset = false 
   if (scroll) {
     return (
       <KeyboardAvoidingView
+        collapsable={collapsable}
+        onLayout={onLayout}
         style={[styles.safe, { backgroundColor: T.bg }]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
@@ -55,6 +69,8 @@ export function Screen({ children, scroll = false, style, noBottomInset = false 
 
   return (
     <View
+      collapsable={collapsable}
+      onLayout={onLayout}
       style={[
         styles.safe,
         { backgroundColor: T.bg, paddingBottom: bottomPad },

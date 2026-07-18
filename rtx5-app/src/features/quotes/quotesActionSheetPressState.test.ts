@@ -200,8 +200,9 @@ test('quote details keeps real swap values visible', () => {
   const pricingFees = source.slice(pricingFeesStart, instrumentProfileStart);
   assert.match(source, /const resolveDetailNumber = \(\.\.\.values: Array<number \| null \| undefined>\) =>/);
   assert.match(source, /const formatSwapValue = \(value: number \| null \| undefined\) => \{/);
-  assert.match(source, /base\.swapLong = resolveDetailNumber\(remoteMeta\?\.swapLong, base\.swapLong, mock\.swapLong\) \?\? base\.swapLong/);
-  assert.match(source, /base\.swapShort = resolveDetailNumber\(remoteMeta\?\.swapShort, base\.swapShort, mock\.swapShort\) \?\? base\.swapShort/);
+  assert.match(source, /base\.swapLong = resolveDetailNumber\(remoteMeta\?\.swapLong, base\.swapLong\) \?\? Number\.NaN/);
+  assert.match(source, /base\.swapShort = resolveDetailNumber\(remoteMeta\?\.swapShort, base\.swapShort\) \?\? Number\.NaN/);
+  assert.doesNotMatch(source, /mock\.swapLong|mock\.swapShort/);
   assert.match(source, /const swapLong = resolveDetailNumber\(remoteMeta\?\.swapLong, q\.swapLong\)/);
   assert.match(source, /const swapShort = resolveDetailNumber\(remoteMeta\?\.swapShort, q\.swapShort\)/);
   assert.match(pricingFees, /<Row label=\{t\('Swap Long'\)\} value=\{formatSwapValue\(swapLong\)\}/);

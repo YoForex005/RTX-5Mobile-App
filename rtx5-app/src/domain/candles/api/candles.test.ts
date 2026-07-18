@@ -7,6 +7,7 @@ import {
   buildCandleHistorySearchParams,
   extractCandleHistoryPayload,
   getCandleHistoryRequestTimeframes,
+  resolveCandleHistoryRouteContract,
 } from './candleHistoryQuery';
 import {
   CANDLE_HISTORY_TIMEFRAMES,
@@ -101,34 +102,53 @@ test('getCandleHistoryRequestTimeframes requests only the selected backend timef
   assert.deepEqual(getCandleHistoryRequestTimeframes('bad-period'), []);
 });
 
+test('candle history uses one explicit release contract and fails closed otherwise', () => {
+  assert.equal(resolveCandleHistoryRouteContract({}), null);
+  assert.equal(resolveCandleHistoryRouteContract({
+    EXPO_PUBLIC_CANDLE_HISTORY_PATH: '../candles',
+    EXPO_PUBLIC_CANDLE_HISTORY_QUERY_STYLE: 'timeframeLimit',
+  }), null);
+  assert.deepEqual(resolveCandleHistoryRouteContract({
+    EXPO_PUBLIC_CANDLE_HISTORY_PATH: '/market-data/candles/',
+    EXPO_PUBLIC_CANDLE_HISTORY_QUERY_STYLE: 'tfCount',
+  }), {
+    pathPrefix: 'market-data/candles',
+    queryStyle: 'tfCount',
+  });
+});
+
 test('default candle history request fills the chart buffer so M1 includes previous dates', () => {
   assert.equal(DEFAULT_CANDLE_HISTORY_LIMIT, MAX_CANDLE_SERIES_LENGTH);
   assert.equal(MAX_CANDLE_SERIES_LENGTH, 2_500);
   assert.ok(DEFAULT_CANDLE_HISTORY_LIMIT * getTimeframeSeconds('M1') > 24 * 60 * 60);
 });
 
-test('candle history loader requests gateway history without a frontend login gate', () => {
+test('candle history loader binds authenticated JSON parsing to the active session namespace', () => {
   const source = readFileSync(resolve(process.cwd(), 'src/domain/candles/api/candles.ts'), 'utf8');
 
-  assert.match(source, /const hasStoredAccessToken = Boolean\(getStoredAccessToken\(\)\)/);
-  assert.match(source, /skipAuth: !hasStoredAccessToken/);
+  assert.match(source, /const sessionCapture = captureActiveBrokerSession\(\)/);
+  assert.match(source, /const provenance = getActiveBrokerSessionProvenance\(sessionCapture\.session\)/);
+  assert.match(source, /apiJsonClient<unknown>/);
+  assert.match(source, /commitApiJson\(result, cacheNamespace/);
   assert.match(source, /fetchAuthenticatedCandleHistory\(/);
-  assert.match(source, /pathPrefix: 'market-data\/candles'/);
-  assert.match(source, /queryStyle: 'tfCount'/);
+  assert.match(source, /resolveCandleHistoryRouteContract\(\)/);
+  assert.doesNotMatch(source, /CANDLE_HISTORY_ROUTES/);
   assert.match(source, /const pathSymbol = encodeURIComponent\(requestedSymbol\)/);
   assert.doesNotMatch(source, /CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE/);
-  assert.doesNotMatch(source, /throw new Error\([^)]*login/i);
+  assert.doesNotMatch(source, /skipAuth/);
+  assert.doesNotMatch(source, /useUserPreferences/);
   assert.doesNotMatch(source, /PUBLIC_API_V1_BASE_URL/);
   assert.doesNotMatch(source, /fetchPublicCandleHistory/);
   assert.doesNotMatch(source, /candles\.publicHistory/);
 });
 
-test('chart candle surfaces stay visible without a frontend login prompt', () => {
+test('chart candle surfaces start stream and hydration work only for an authenticated live session', () => {
   const hookSource = readFileSync(resolve(process.cwd(), 'src/domain/candles/hooks/useLiveCandles.ts'), 'utf8');
   const nativeChartSource = readFileSync(resolve(process.cwd(), 'src/features/chart/ChartScreen.native.tsx'), 'utf8');
   const webChartSource = readFileSync(resolve(process.cwd(), 'src/features/chart/ChartScreen.web.tsx'), 'utf8');
 
-  assert.match(hookSource, /if \(!active \|\| !normalizedSymbol \|\| !normalizedTimeframe\)/);
+  assert.match(hookSource, /const isLiveActive = active && isLoggedIn/);
+  assert.match(hookSource, /if \(!isLiveActive \|\| !normalizedSymbol \|\| !normalizedTimeframe\)/);
   assert.match(hookSource, /if \(!normalizedSymbol \|\| !normalizedTimeframe\) \{[\s\S]*return emptyCandles/);
   assert.doesNotMatch(hookSource, /hasAuthenticatedCandleSession/);
   assert.match(nativeChartSource, /const chartDataActive = chartRuntimeActive/);

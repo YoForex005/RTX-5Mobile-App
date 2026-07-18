@@ -19,10 +19,11 @@ const dealIdentity = (deal: Deal) => {
 };
 
 export const buildAccountDealsQueryKey = (
+  cacheNamespace: string,
   login: number | undefined,
   from?: number,
   to?: number,
-) => ['accountDeals', login ?? 'session', from ?? null, to ?? null] as const;
+) => ['accountDeals', cacheNamespace, login ?? 'session', from ?? null, to ?? null] as const;
 
 export const mergeDealHistorySources = (
   accountDeals: Deal[],

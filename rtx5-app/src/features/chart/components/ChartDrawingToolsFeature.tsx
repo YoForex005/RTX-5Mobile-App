@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { ScrollView, StyleSheet, View, Platform } from 'react-native';
 import { ActionSheet } from '../../../ui/components/ActionSheet';
+import { useTranslation } from '../../../i18n/useTranslation';
 import {
   TvRadialPlus,
 } from './ChartToolbarIcons';
@@ -324,15 +325,25 @@ export function ChartDrawingToolsActionSheet({
   stickyDrawingMode,
   visible,
 }: ChartDrawingToolsActionSheetProps) {
+  const { t } = useTranslation();
+
   return (
     <ActionSheet
       visible={visible}
       onClose={onClose}
+      title={t('Drawing Tools')}
+      searchable
+      searchPlaceholder={t('Search drawing tools...')}
+      compactText
       presentation="mt5Plain"
       showActionIcons
+      deferOffscreenActions
+      maximumVisibleActionRows={12}
       minimumTopInset={minimumTopInset}
-      detent="adaptive"
+      detent="large"
       instantOpen
+      entryMotion="mt5Slide"
+      keepFullHeightOnKeyboard
       actions={createDrawingToolsActionSheetActions({
         chartHideAll,
         chartLockAll,

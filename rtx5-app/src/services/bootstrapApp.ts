@@ -1,14 +1,25 @@
-import { brokerApi } from '../api/brokerApi';
+import {
+  brokerApi,
+  StaleBrokerSessionError,
+  type BrokerApiJsonResponse,
+} from '../api/brokerApi';
 import { appQueryClient } from '../state/providers/AppProviders';
 import { useLiveAccountState } from '../state/liveAccountState';
 import { usePositionsState } from '../state/positionsState';
 import { useTradingState } from '../state/tradingState';
 import { useUserPreferences } from '../state/userPreferences';
-import { resolveTradingLoginString } from '../state/tradingLogin';
-import { ACCOUNTS_LIST_KEY } from '../query/accounts';
+import { getAccountsListQueryKey } from '../query/accounts';
+import { getOrdersByLoginQueryKey } from '../query/orders';
 import { brokerRealtimeService } from '../api/ws/BrokerRealtimeService';
 import { buildAccountDetailPath } from '../api/accountsRoutes';
-import type { InstrumentContractSpec } from '../domain/account/equity';
+import { redactDiagnosticValue } from '../utils/securityRedaction';
+import {
+  captureActiveBrokerSession,
+  getActiveBrokerSessionProvenance,
+  isActiveBrokerSessionProvenanceCurrent,
+  type ActiveBrokerSessionProvenance,
+} from '../state/activeBrokerSession';
+import { recordMarketDataEvent } from '../market/marketDataTelemetry';
 
 type BootstrapResult = {
   me: unknown;
@@ -31,18 +42,50 @@ const unwrapArray = (value: unknown): unknown[] => {
   return [];
 };
 
+type BootstrapOptions = {
+  accountLogin?: string | number;
+  expectedProvenance?: ActiveBrokerSessionProvenance;
+};
+
+const emptyBootstrapResult = (): BootstrapResult => ({
+  me: null,
+  accounts: null,
+  positions: null,
+  orders: null,
+  instruments: null,
+  marketStatus: null,
+});
+
 const unwrapAccountRows = (value: unknown): unknown[] => {
   const rows = unwrapArray(value);
   if (rows.length > 0) return rows;
   return value && typeof value === 'object' && !Array.isArray(value) ? [value] : [];
 };
 
-const requestJson = async <T>(endpoint: string): Promise<T | null> => {
+const requestJson = async <T>(endpoint: string): Promise<BrokerApiJsonResponse<T> | null> => {
   try {
-    return await brokerApi.getJson<T>(endpoint);
+    const result = await brokerApi.getJsonResponse<T>(endpoint);
+    if (!result.ok) {
+      throw { response: { status: result.status, data: result.data } };
+    }
+    return result;
   } catch (error) {
-    console.warn(`[Bootstrap] ${endpoint} failed`, error);
+    console.warn(`[Bootstrap] ${endpoint} failed`, redactDiagnosticValue(error));
     return null;
+  }
+};
+
+const commitBootstrapResponse = <T, R>(
+  result: BrokerApiJsonResponse<T> | null,
+  cacheNamespace: string,
+  commit: (data: T) => R,
+): R | null => {
+  if (!result) return null;
+  try {
+    return brokerApi.commitJsonResponse(result, cacheNamespace, commit);
+  } catch (error) {
+    if (error instanceof StaleBrokerSessionError) return null;
+    throw error;
   }
 };
 
@@ -88,9 +131,50 @@ const updateAccountMetricsFromBootstrap = (accounts: unknown, accountLogin: stri
   }
 };
 
-export async function bootstrapApp(options: { accountLogin?: string | number } = {}): Promise<BootstrapResult> {
-  const accountLogin = options.accountLogin ? String(options.accountLogin) : resolveTradingLoginString();
-  const encodedAccountLogin = accountLogin ? encodeURIComponent(accountLogin) : '';
+export async function bootstrapApp(options: BootstrapOptions = {}): Promise<BootstrapResult> {
+  const sessionCapture = captureActiveBrokerSession();
+  if (!sessionCapture) {
+    recordMarketDataEvent('bootstrap_gate', { outcome: 'blocked', reason: 'no_active_session' });
+    return emptyBootstrapResult();
+  }
+
+  const activeProvenance = getActiveBrokerSessionProvenance(sessionCapture.session);
+  if (
+    options.expectedProvenance &&
+    (
+      options.expectedProvenance.cacheNamespace !== activeProvenance.cacheNamespace ||
+      !isActiveBrokerSessionProvenanceCurrent(options.expectedProvenance)
+    )
+  ) {
+    recordMarketDataEvent('bootstrap_gate', {
+      outcome: 'blocked', reason: 'stale_provenance',
+      brokerId: sessionCapture.session.brokerId,
+      sessionEpoch: sessionCapture.session.sessionEpoch,
+    });
+    return emptyBootstrapResult();
+  }
+
+  const requestedAccountLogin = options.accountLogin === undefined || options.accountLogin === null
+    ? sessionCapture.session.accountLogin
+    : String(options.accountLogin).trim();
+  if (!requestedAccountLogin || requestedAccountLogin !== sessionCapture.session.accountLogin) {
+    recordMarketDataEvent('bootstrap_gate', {
+      outcome: 'blocked', reason: 'account_mismatch',
+      brokerId: sessionCapture.session.brokerId,
+      sessionEpoch: sessionCapture.session.sessionEpoch,
+    });
+    return emptyBootstrapResult();
+  }
+
+  recordMarketDataEvent('bootstrap_gate', {
+    outcome: 'started',
+    brokerId: sessionCapture.session.brokerId,
+    sessionEpoch: sessionCapture.session.sessionEpoch,
+  });
+
+  const accountLogin = requestedAccountLogin;
+  const encodedAccountLogin = encodeURIComponent(accountLogin);
+  const cacheNamespace = sessionCapture.session.cacheNamespace;
 
   const state = useUserPreferences.getState();
   if (state.isLoggedIn && state.accountDetails?.credentials?.accessToken) {
@@ -99,49 +183,53 @@ export async function bootstrapApp(options: { accountLogin?: string | number } =
 
   // Start startup requests together and apply each result as soon as it lands.
   // This keeps quotes/account/positions from waiting on a slower endpoint.
-  const mePromise = requestJson('/auth/me');
+  const mePromise = requestJson('/auth/me').then((result) =>
+    commitBootstrapResponse(result, cacheNamespace, (data) => data));
   const accountsPromise = accountLogin
-    ? requestJson(buildAccountDetailPath(accountLogin)).then((accounts) => {
-      if (accounts) {
-        appQueryClient.setQueryData([ACCOUNTS_LIST_KEY], unwrapAccountRows(accounts));
+    ? requestJson(buildAccountDetailPath(accountLogin)).then((result) =>
+      commitBootstrapResponse(result, cacheNamespace, (accounts) => {
+        appQueryClient.setQueryData(
+          getAccountsListQueryKey(cacheNamespace),
+          unwrapAccountRows(accounts),
+        );
         updateAccountMetricsFromBootstrap(accounts, accountLogin);
-      }
-      return accounts;
-    })
+        return accounts;
+      }))
     : Promise.resolve(null);
   const positionsPromise = accountLogin
-    ? requestJson(`/positions/${encodedAccountLogin}`).then((positions) => {
-      if (positions) {
+    ? requestJson(`/positions/${encodedAccountLogin}`).then((result) =>
+      commitBootstrapResponse(result, cacheNamespace, (positions) => {
         const resolvedRows = unwrapArray(positions);
         usePositionsState.getState().applyPositionsSnapshot(resolvedRows, accountLogin, {
           preserveMissingExisting: false,
         });
-      }
-      return positions;
-    })
+        return positions;
+      }))
     : Promise.resolve(null);
   const ordersPromise = accountLogin
-    ? requestJson(`/orders/${encodedAccountLogin}`).then((orders) => {
-      if (orders) {
-        appQueryClient.setQueryData(['orders', accountLogin], unwrapArray(orders));
-      }
-      return orders;
-    })
+    ? requestJson(`/orders/${encodedAccountLogin}`).then((result) =>
+      commitBootstrapResponse(result, cacheNamespace, (orders) => {
+        appQueryClient.setQueryData(
+          getOrdersByLoginQueryKey(cacheNamespace, Number(accountLogin)),
+          unwrapArray(orders),
+        );
+        return orders;
+      }))
     : Promise.resolve(null);
-  const instrumentsPromise = requestJson('/instruments?favorites=true').then((instruments) => {
-    if (instruments) {
-      const instrumentRows = unwrapArray(instruments) as InstrumentContractSpec[];
-      brokerRealtimeService.setInstrumentSpecs(instrumentRows);
-      appQueryClient.setQueryData(['instruments', 'favorites'], instrumentRows);
-    }
-    return instruments;
-  });
-  const marketStatusPromise = requestJson('/market/status').then((marketStatus) => {
-    if (marketStatus) {
-      appQueryClient.setQueryData(['marketStatus'], marketStatus);
-    }
-    return marketStatus;
-  });
+  const instrumentsPromise = requestJson('/instruments?favorites=true').then((result) =>
+    commitBootstrapResponse(result, cacheNamespace, (instruments) => {
+      const instrumentRows = unwrapArray(instruments);
+      appQueryClient.setQueryData(
+        ['instruments', cacheNamespace, 'favorites'],
+        instrumentRows,
+      );
+      return instruments;
+    }));
+  const marketStatusPromise = requestJson('/market/status').then((result) =>
+    commitBootstrapResponse(result, cacheNamespace, (marketStatus) => {
+      appQueryClient.setQueryData(['marketStatus', cacheNamespace], marketStatus);
+      return marketStatus;
+    }));
 
   const [
     me,
@@ -158,6 +246,14 @@ export async function bootstrapApp(options: { accountLogin?: string | number } =
     instrumentsPromise,
     marketStatusPromise,
   ]);
+
+  recordMarketDataEvent('bootstrap_gate', {
+    outcome: 'completed',
+    brokerId: sessionCapture.session.brokerId,
+    sessionEpoch: sessionCapture.session.sessionEpoch,
+    completedSnapshots: [me, accounts, positions, orders, instruments, marketStatus]
+      .filter((value) => value !== null).length,
+  });
 
   return {
     me,

@@ -6,38 +6,46 @@ import {
   resolveAccountWsSession,
 } from './accountSocket.helpers.ts';
 
-test('resolveAccountWsSession prefers the resolved live MT5 login over legacy persisted ids', () => {
+const activeCapture = (overrides: Record<string, unknown> = {}) => ({
+  session: {
+    brokerId: 'broker-a',
+    accountLogin: '200101',
+    apiBase: 'https://services.broker-a.example/api/v2',
+    feedWsBase: 'wss://services.broker-a.example/ws/feed',
+    tradeWsBase: 'wss://services.broker-a.example/ws/v2',
+    feedStatusUrl: 'https://services.broker-a.example/ws/feed/status',
+    servicesDomain: 'services.broker-a.example',
+    feedAuthContext: { mode: 'none' as const },
+    cacheNamespace: 'broker-a:200101:7',
+    sessionEpoch: 7,
+    configVersion: 'v1',
+    ...overrides,
+  },
+  credentials: {
+    accessToken: 'jwt-token',
+    refreshToken: 'refresh-token',
+    expiresAt: '2099-01-01T00:00:00.000Z',
+  },
+});
+
+test('resolveAccountWsSession uses the immutable active account identity', () => {
   const session = resolveAccountWsSession(
-    {
-      id: '92',
-      credentials: {
-        accessToken: 'jwt-token',
-      },
-    },
-    200074,
+    activeCapture(),
   );
 
   assert.deepEqual(session, {
-    token: 'jwt-token',
-    login: '200074',
+    login: '200101',
+    identity: {
+      brokerId: 'broker-a',
+      accountLogin: '200101',
+      sessionEpoch: 7,
+    },
   });
 });
 
-test('resolveAccountWsSession prefers the persisted MT5 login when live state is stale', () => {
-  const session = resolveAccountWsSession(
-    {
-      id: '200101',
-      credentials: {
-        accessToken: 'jwt-token',
-      },
-    },
-    200074,
-  );
-
-  assert.deepEqual(session, {
-    token: 'jwt-token',
-    login: '200101',
-  });
+test('resolveAccountWsSession fails closed without an explicit trading websocket', () => {
+  assert.equal(resolveAccountWsSession(activeCapture({ tradeWsBase: undefined })), null);
+  assert.equal(resolveAccountWsSession(null), null);
 });
 
 test('extractLiveAccountMetrics normalizes backend account aliases', () => {

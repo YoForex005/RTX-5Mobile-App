@@ -77,7 +77,7 @@ test('normalizes backend live candle symbol and timeframe metadata', () => {
       volume: '5',
     }),
     {
-      symbol: 'EURUSD',
+      symbol: 'EURUSDM',
       timeframe: 'M1',
       time: 1_713_744_000,
       open: 1.234,

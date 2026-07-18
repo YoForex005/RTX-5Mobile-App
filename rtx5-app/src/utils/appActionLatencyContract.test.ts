@@ -219,13 +219,14 @@ test('chart trade one-click and ticket paths keep heavy work out of the tap pain
 
   assert.match(ordersSource, /const TRADE_POST_SUCCESS_REFRESH_DELAY_MS = 250/);
   assert.match(ordersSource, /export const usePlaceOrderExecutor = \(\) => \{/);
-  assert.match(ordersSource, /submitPlaceOrderWithCacheUpdate\(queryClient, payload\)/);
+  assert.match(ordersSource, /submitPlaceOrderWithCacheUpdate\(queryClient, payload, cacheNamespace\)/);
   assert.match(ordersSource, /const scheduleTradePostSuccessRefresh = \(work: \(\) => void\) => \{[\s\S]*setTimeout\(work, TRADE_POST_SUCCESS_REFRESH_DELAY_MS\)/);
   assert.match(
     ordersSource,
-    /state\.upsertPosition\(newPos\);[\s\S]*scheduleTradePostSuccessRefresh\(\(\) => \{[\s\S]*refreshPositions\(mt5Login\)[\s\S]*queryClient\.invalidateQueries\(\{ queryKey: \['positions'\] \}\)/,
+    /state\.upsertPosition\(newPos\);[\s\S]*scheduleTradePostSuccessRefresh\(\(\) => \{[\s\S]*refreshPositions\(mt5Login\)[\s\S]*invalidateSessionQueryRoots\(queryClient, cacheNamespace, \[[\s\S]*'positions'/,
   );
-  assert.match(chartTradeHandlerSource, /const chartTradeActionDisabled = !isCurrentChartSymbol;/);
+  assert.match(chartTradeHandlerSource, /const chartTradeActionDisabled = !isCurrentChartSymbol \|\| !quoteActionAllowed;/);
+  assert.match(chartTradeHandlerSource, /resolveSessionQuoteActionAvailability\(quoteActionQuoteRef\.current\)/);
   assert.match(chartTradeHandlerSource, /import \{ usePlaceOrderExecutor \} from '..\/..\/..\/..\/query\/orders'/);
   assert.match(chartTradeHandlerSource, /import \{ getApiLatencyNow \} from '..\/..\/..\/..\/utils\/apiLatency'/);
   assert.match(chartTradeHandlerSource, /const placeOrder = usePlaceOrderExecutor\(\);/);
@@ -278,7 +279,7 @@ test('trade buy/sell success feedback uses the shared popup without device vibra
   assert.match(ticketSource, /Market BUY\/SELL executions and broker rejections share the same detailed popup/);
   assert.match(
     ticketSource,
-    /const successFeedback: TradeFeedbackState = \{[\s\S]*visible:\s*true,[\s\S]*type:\s*'success'[\s\S]*side:\s*requestedSide[\s\S]*symbol:\s*displaySymbol[\s\S]*volume,[\s\S]*executedAt:\s*new Date\(\)\.toLocaleTimeString\(\)[\s\S]*if \(positionTicket\) \{[\s\S]*successFeedback\.ticket = String\(positionTicket\);[\s\S]*if \(Number\.isFinite\(executionPrice\)\) \{[\s\S]*successFeedback\.price = executionPrice;[\s\S]*showModal\(successFeedback\)/,
+    /const successFeedback: TradeFeedbackState = executionEvidence\.confirmed[\s\S]*executionConfirmed:\s*true,[\s\S]*side:\s*requestedSide[\s\S]*symbol:\s*displaySymbol[\s\S]*executedAt:\s*new Date\(\)\.toLocaleTimeString\(\)[\s\S]*executionConfirmed:\s*false,[\s\S]*Confirmation Pending[\s\S]*if \(positionTicket\) \{[\s\S]*successFeedback\.ticket = String\(positionTicket\);[\s\S]*if \(executionPrice !== undefined\) \{[\s\S]*successFeedback\.price = executionPrice;[\s\S]*showModal\(successFeedback\)/,
   );
   assert.doesNotMatch(ticketSource, /showTradeConfirmation\(\{ side: requestedSide/);
   assert.match(ticketSource, /showTradeConfirmation\(\{ side: pendingSideValue, symbol, volume \}\)/);
@@ -288,7 +289,7 @@ test('trade buy/sell success feedback uses the shared popup without device vibra
     feedbackModalSource,
     /<Modal[\s\S]*visible=\{state\.visible\}[\s\S]*transparent[\s\S]*animationType="none"[\s\S]*presentationStyle="overFullScreen"[\s\S]*statusBarTranslucent[\s\S]*onRequestClose=\{onClose\}[\s\S]*<View style=\{tfmStyles\.overlay\}/,
   );
-  assert.match(feedbackModalSource, /const successTitle = sideLabel[\s\S]*`\$\{sideLabel\} Order Executed`[\s\S]*["']Order Executed["']/);
+  assert.match(feedbackModalSource, /const confirmedSuccessTitle = sideLabel[\s\S]*`\$\{sideLabel\} Order Executed`[\s\S]*["']Order Executed["'][\s\S]*const successTitle = isUnconfirmedSubmission/);
   assert.match(feedbackModalSource, /const successSummaryText = \[state\.symbol, volumeLabel\]\.filter\(Boolean\)\.join\(' - '\)/);
   assert.match(feedbackModalSource, /tfmStyles\.successSummary[\s\S]*tfmStyles\.executionRow[\s\S]*tfmStyles\.executionPrice[\s\S]*Done/);
   assert.doesNotMatch(feedbackModalSource, /tfmStyles\.detailsGrid|View Position|router\.push\('\/trade'\)/);
@@ -411,7 +412,7 @@ test('action destination routes are warmed in non-blocking batches', () => {
   assert.match(brokersLaunchHostSource, /if \(pathname !== '\/settings\/brokers'\) return;[\s\S]*const pendingRevision = pendingBackRevisionRef\.current;[\s\S]*if \(pendingRevision === null\) return;[\s\S]*finishCommittedBack\(pendingRevision\)/);
   assert.match(brokersLaunchHostSource, /const closeLaunch = useCallback\(\(\) => \{[\s\S]*if \(!navigationStarted\) \{[\s\S]*showSidebarDestination\('accounts', 'route-sync'\);[\s\S]*brokersLaunchController\.hide\(currentSnapshot\.revision\);[\s\S]*return;[\s\S]*if \(pathnameRef\.current !== '\/settings\/brokers'\) \{[\s\S]*pendingBackRevisionRef\.current = currentSnapshot\.revision;[\s\S]*return;[\s\S]*finishCommittedBack\(currentSnapshot\.revision\)/);
   assert.doesNotMatch(brokersLaunchHostSource, /router\.canGoBack\(\)|popRouteWhenReady/);
-  assert.match(brokersLaunchHostSource, /const selectBroker = useCallback\(\(broker: BrokerDirectoryRow\) => \{[\s\S]*showBrokerDetailLaunch\(selection\)[\s\S]*const pushBrokerDetailRoute = \(\) => \{[\s\S]*pathname: '\/settings\/broker-detail'[\s\S]*scheduleBrokerDetailLaunchNavigation\(detailRevision, pushBrokerDetailRoute\)/);
+  assert.match(brokersLaunchHostSource, /const selectBroker = useCallback\(\(broker: BrokerDirectoryRow\) => \{[\s\S]*if \(!broker\.selectable\) \{[\s\S]*return;[\s\S]*showBrokerDetailLaunch\(selection\)[\s\S]*const pushBrokerDetailRoute = \(\) => \{[\s\S]*pathname: '\/settings\/broker-detail'[\s\S]*scheduleBrokerDetailLaunchNavigation\(detailRevision, pushBrokerDetailRoute\)/);
   const brokersHostSelectStart = brokersLaunchHostSource.indexOf('const selectBroker =');
   const brokersHostSelectEnd = brokersLaunchHostSource.indexOf('\n  useEffect(', brokersHostSelectStart);
   const brokersHostSelectSource = brokersLaunchHostSource.slice(brokersHostSelectStart, brokersHostSelectEnd);
@@ -431,7 +432,7 @@ test('action destination routes are warmed in non-blocking batches', () => {
   const brokersRouteSelectSource = brokersRouteSource.slice(brokersRouteSelectStart, brokersRouteSelectEnd);
   assert.notEqual(brokersRouteSelectStart, -1);
   assert.notEqual(brokersRouteSelectEnd, -1);
-  assert.match(brokersRouteSelectSource, /showBrokerDetailLaunch\(selection\)[\s\S]*if \(brokersLaunchController\.isVisible\(\)\) \{\s*hideBrokersLaunch\(\);\s*\}/);
+  assert.match(brokersRouteSelectSource, /if \(!broker\.selectable\) \{[\s\S]*return;[\s\S]*showBrokerDetailLaunch\(selection\)[\s\S]*if \(brokersLaunchController\.isVisible\(\)\) \{\s*hideBrokersLaunch\(\);\s*\}/);
   assert.ok(
     brokersRouteSelectSource.indexOf('showBrokerDetailLaunch(selection)')
       < brokersRouteSelectSource.indexOf('hideBrokersLaunch()'),
@@ -446,15 +447,16 @@ test('action destination routes are warmed in non-blocking batches', () => {
   assert.equal((brokersLaunchHostSource.match(/<BrokersLaunchShell/g) ?? []).length, 1);
   assert.doesNotMatch(brokersLaunchHostSource, /react-native-reanimated|<Animated\.View|brokers-launch-react-host/);
   assert.match(brokersLaunchShellSource, /testID="brokers-launch-shell"/);
-  assert.match(brokersLaunchShellSource, /BROKERS_LAUNCH_FALLBACK_ROWS[\s\S]*Achiever Financials LTD[\s\S]*Omega Global Markets/);
-  assert.match(brokersLaunchShellSource, /PUBLIC_BROKER_DIRECTORY_BASE_URL/);
+  assert.doesNotMatch(brokersLaunchShellSource, /BROKERS_LAUNCH_FALLBACK_ROWS|Achiever Financials LTD|Omega Global Markets/);
+  assert.match(brokersLaunchShellSource, /return liveRows\.slice\(0, 8\)/);
+  assert.doesNotMatch(brokersLaunchShellSource, /PUBLIC_BROKER_DIRECTORY_BASE_URL/);
   assert.match(brokersLaunchShellSource, /dataActive\?: boolean/);
-  assert.match(brokersLaunchShellSource, /useBrokerServers\(dataActive\)/);
+  assert.match(brokersLaunchShellSource, /useBrokerDirectory\(dataActive\)/);
   assert.match(brokersLaunchHostSource, /<BrokersLaunchShell[\s\S]*dataActive=\{false\}/);
-  assert.match(brokersLaunchShellSource, /sortBrokerDirectoryRows\(buildBrokerDirectoryRows\(brokerServers\)\)/);
+  assert.match(brokersLaunchShellSource, /sortBrokerDirectoryRows\([\s\S]*buildBrokerDirectoryRows\(brokerDirectory\?\.entries\)/);
   assert.match(brokersLaunchShellSource, /Image\.prefetch\(logoUrl\)/);
   assert.match(brokersLaunchShellSource, /onSelectBroker\?: \(broker: BrokerDirectoryRow\) => void/);
-  assert.match(brokersLaunchShellSource, /onPress=\{\(\) => onSelectBroker\(row\)\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel=\{`brokers\.launch\.row\.\$\{row\.brokerId\}`\}/);
+  assert.match(brokersLaunchShellSource, /if \(onSelectBroker && row\.selectable\)[\s\S]*onPress=\{\(\) => \{[\s\S]*if \(!row\.selectable\) return;[\s\S]*onSelectBroker\(row\)[\s\S]*activateOnPressIn[\s\S]*latencyLabel=\{`brokers\.launch\.row\.\$\{row\.brokerId\}`\}/);
   assert.match(brokersLaunchShellSource, /<Image[\s\S]*source=\{\{ uri: logoUri, cache: 'force-cache' \}\}[\s\S]*fadeDuration=\{0\}/);
   assert.doesNotMatch(brokersLaunchShellSource, /row\.initials|styles\.avatarText/);
   assert.doesNotMatch(brokersLaunchShellSource, /SKELETON_ROWS|Skeleton|ActivityIndicator|Loading brokers/);
@@ -656,6 +658,8 @@ test('global action sheet actions avoid selecting rows while scrolling', () => {
   assert.match(source, /const ACTION_SHEET_ROW_PRESS_CANCEL_MOVE_PX = 10/);
   assert.match(source, /type ActionSheetPressGesture = \{[\s\S]*start: ActionSheetPressPoint \| null;[\s\S]*cancelled: boolean;[\s\S]*\}/);
   assert.match(source, /activateOnPressIn\?: boolean/);
+  assert.match(source, /deferCloseCommitForVisualHandoff\?: boolean/);
+  assert.match(uiStateSource, /deferCloseCommitForVisualHandoff\?: boolean/);
   assert.match(source, /textColor\?: string/);
   assert.match(uiStateSource, /textColor\?: string/);
   assert.match(source, /action\.textColor && !isVisuallyMuted && \{ color: action\.textColor \}/);
@@ -666,11 +670,11 @@ test('global action sheet actions avoid selecting rows while scrolling', () => {
   assert.match(source, /const recordActionRowPressStart = useCallback\(\(event: GestureResponderEvent\) => \{[\s\S]*start: getActionSheetPressPoint\(event\),[\s\S]*cancelled: false/);
   assert.match(source, /const cancelActionRowPressForScroll = useCallback\(\(\) => \{[\s\S]*cancelled: true/);
   assert.match(source, /const recordActionRowPressMove = useCallback\(\(event: GestureResponderEvent\) => \{[\s\S]*hasActionSheetPressMovedBeyondThreshold\(gesture\.start, getActionSheetPressPoint\(event\)\)[\s\S]*cancelled: true/);
-  assert.match(source, /const handleActionRowPress = useCallback\(\(actionPress\?: \(\) => void\) => \{[\s\S]*if \(gesture\.cancelled\) \{[\s\S]*return;[\s\S]*\}[\s\S]*handleActionPress\(actionPress\)/);
+  assert.match(source, /const handleActionRowPress = useCallback\(\([\s\S]*actionPress\?: \(\) => void,[\s\S]*deferCloseCommitForVisualHandoff = false,[\s\S]*if \(gesture\.cancelled\) \{[\s\S]*return;[\s\S]*\}[\s\S]*handleActionPress\(actionPress, deferCloseCommitForVisualHandoff\)/);
   assert.match(source, /onPressIn=\{recordActionRowPressStart\}/);
   assert.match(source, /onTouchMove=\{recordActionRowPressMove\}/);
   assert.match(source, /const isActiveDisabled = action\.disabled \|\| action\.selected === true/);
-  assert.match(source, /onPress=\{isActiveDisabled \? undefined : \(\) => handleActionRowPress\(action\.onPress\)\}/);
+  assert.match(source, /onPress=\{isActiveDisabled \? undefined : \(\) => handleActionRowPress\([\s\S]*action\.onPress,[\s\S]*action\.deferCloseCommitForVisualHandoff/);
   assert.match(source, /activateOnPressIn=\{action\.activateOnPressIn === true && !isActiveDisabled/);
   assert.match(source, /onScrollBeginDrag=\{cancelActionRowPressForScroll\}/);
   assert.match(source, /onMomentumScrollBegin=\{cancelActionRowPressForScroll\}/);
@@ -682,14 +686,16 @@ test('global action sheet actions avoid selecting rows while scrolling', () => {
   assert.match(source, /data=\{filteredActions\}/);
   assert.match(source, /initialNumToRender=\{initialActionRowsToRender\}/);
   assert.match(source, /maxToRenderPerBatch=\{Math\.max\(4, Math\.min\(8, initialActionRowsToRender\)\)\}/);
-  assert.match(source, /windowSize=\{3\}/);
-  assert.match(source, /removeClippedSubviews=\{Platform\.OS === 'android'\}/);
+  assert.match(source, /windowSize=\{activeDeferOffscreenActions \? 1 : 3\}/);
+  assert.match(source, /removeClippedSubviews=\{[\s\S]*Platform\.OS === 'android'[\s\S]*!\(activeDeferOffscreenActions && hasVariableActionRowHeights\)/);
   assert.match(source, /activateOnPressIn/);
   assert.match(source, /pointerEvents="box-none"/);
   assert.doesNotMatch(source, /traceUiInteraction/);
   assert.match(uiStateSource, /showActionSheet: \(config\) => set\(\{ actionSheet: withInstantActionSheetOpen\(config\) \}\)/);
   assert.match(uiStateSource, /config\.instantOpen === true \? config : \{ \.\.\.config, instantOpen: true \}/);
   assert.match(dismissSource, /const ACTION_SHEET_DISMISS_SETTLE_FRAMES = 1/);
+  assert.match(dismissSource, /const ACTION_SHEET_VISUAL_HANDOFF_CLOSE_FRAMES = 2/);
+  assert.match(source, /scheduleActionSheetVisualHandoffCloseCommit\(\(\) => \{[\s\S]*onClose\(\)/);
 });
 
 test('bottom-sheet style dropdowns avoid native slide animations on open', () => {
@@ -1078,7 +1084,9 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   assert.match(brokersSource, /latencyLabel="brokers\.custom"/);
   assert.match(brokersSource, /const isScreenFocused = useIsFocused\(\)/);
   assert.match(brokersSource, /const coveredLaunchRevisionRef = useRef<number \| null>\(null\)/);
-  assert.match(brokersSource, /useLayoutEffect\(\(\) => \{[\s\S]*brokerRecords\.length === 0[\s\S]*const launchSnapshot = brokersLaunchController\.getSnapshot\(\);[\s\S]*!launchSnapshot\.visible[\s\S]*coveredLaunchRevisionRef\.current === launchSnapshot\.revision[\s\S]*coveredLaunchRevisionRef\.current = launchSnapshot\.revision;[\s\S]*hideSidebarDestination\(\);[\s\S]*scheduleBrokersLaunchCoverRemoval\(launchSnapshot\.revision\);[\s\S]*\}, \[brokerRecords\.length, isScreenFocused\]\)/);
+  assert.doesNotMatch(brokersSource, /directoryQuerySettled|brokerRecords\.length === 0/);
+  assert.match(brokersSource, /useLayoutEffect\(\(\) => \{[\s\S]*if \(!isScreenFocused\)[\s\S]*const launchSnapshot = brokersLaunchController\.getSnapshot\(\);[\s\S]*!launchSnapshot\.visible[\s\S]*coveredLaunchRevisionRef\.current === launchSnapshot\.revision[\s\S]*coveredLaunchRevisionRef\.current = launchSnapshot\.revision;[\s\S]*hideSidebarDestination\(\);[\s\S]*scheduleBrokersLaunchCoverRemoval\(launchSnapshot\.revision\);[\s\S]*\}, \[isScreenFocused\]\)/);
+  assert.doesNotMatch(brokersSource, /brokerRecords\.length === 0/);
   assert.doesNotMatch(brokersSource, /routePaintReady|useDeferredRouteContentReady/);
   assert.doesNotMatch(brokersSource, /preloadBrokerDetailScreen|preloadRegisterScreen/);
   assert.match(brokersSource, /BackHandler\.addEventListener\('hardwareBackPress',[\s\S]*handleBack\(\);[\s\S]*return true/);
@@ -1100,16 +1108,16 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   assert.match(brokersSource, /type BrokerPressGesture = \{[\s\S]*start: BrokerPressPoint \| null;[\s\S]*handled: boolean;[\s\S]*cancelled: boolean;[\s\S]*selection: BrokerDetailLaunchSelection \| null;[\s\S]*\}/);
   assert.match(brokersSource, /const brokerPressGestureRef = useRef<BrokerPressGesture>\(\{[\s\S]*start: null,[\s\S]*handled: false,[\s\S]*cancelled: false,[\s\S]*selection: null,[\s\S]*\}\)/);
   assert.match(brokersSource, /function hasBrokerPressMovedBeyondThreshold\(start: BrokerPressPoint, end: BrokerPressPoint\)[\s\S]*BROKER_ROW_PRESS_CANCEL_MOVE_PX \* BROKER_ROW_PRESS_CANCEL_MOVE_PX/);
-  assert.match(brokersSource, /const recordBrokerRowPressStart = \(broker: BrokerRow, event: GestureResponderEvent\) => \{[\s\S]*const selection = toBrokerDetailLaunchSelection\(broker\);[\s\S]*prepareBrokerDetailLaunch\(selection\);[\s\S]*start: getBrokerPressPoint\(event\),[\s\S]*handled: false,[\s\S]*cancelled: false,[\s\S]*selection,/);
+  assert.match(brokersSource, /const recordBrokerRowPressStart = \(broker: BrokerRow, event: GestureResponderEvent\) => \{[\s\S]*if \(!broker\.selectable\) \{[\s\S]*cancelled: true,[\s\S]*selection: null,[\s\S]*return;[\s\S]*const selection = toBrokerDetailLaunchSelection\(broker\);[\s\S]*start: getBrokerPressPoint\(event\),[\s\S]*handled: false,[\s\S]*cancelled: false,[\s\S]*selection,/);
   const brokerPressStart = brokersSource.indexOf('const recordBrokerRowPressStart =');
   const brokerPressCancel = brokersSource.indexOf('const cancelBrokerRowPressForScroll =', brokerPressStart);
   assert.doesNotMatch(
     brokersSource.slice(brokerPressStart, brokerPressCancel),
-    /preloadBrokerDetailScreen/,
+    /preloadBrokerDetailScreen|prepareBrokerDetailLaunch/,
   );
   assert.match(brokersSource, /const cancelBrokerRowPressForScroll = \(\) => \{[\s\S]*cancelled: true,[\s\S]*selection: null/);
   assert.match(brokersSource, /const recordBrokerRowPressMove = \(event: GestureResponderEvent\) => \{[\s\S]*hasBrokerPressMovedBeyondThreshold\(gesture\.start, current\)[\s\S]*cancelBrokerRowPressForScroll\(\)/);
-  assert.match(brokersSource, /const handleBrokerRowPress = \(broker: BrokerRow, event: GestureResponderEvent\) => \{[\s\S]*const preparedSelection = brokerPressGestureRef\.current\.selection;[\s\S]*shouldIgnoreBrokerRowPress\(event\)[\s\S]*openBrokerDetail\(preparedSelection \?\? toBrokerDetailLaunchSelection\(broker\)\)/);
+  assert.match(brokersSource, /const handleBrokerRowPress = \(broker: BrokerRow, event: GestureResponderEvent\) => \{[\s\S]*if \(!broker\.selectable\) \{[\s\S]*return;[\s\S]*shouldIgnoreBrokerRowPress\(event\)[\s\S]*const selection = toBrokerDetailLaunchSelection\(broker\);[\s\S]*selectedBrokerHealthGate\.run\(\{[\s\S]*serverUrl: broker\.serverUrl,[\s\S]*onAvailable: \(\) => \{[\s\S]*openBrokerDetail\(selection\)[\s\S]*onUnavailable: \(\) => \{[\s\S]*Alert\.alert\(SELECTED_BROKER_UNAVAILABLE_MESSAGE\)/);
   assert.match(brokersSource, /const openBrokerDetail = \(selection: BrokerDetailLaunchSelection\) => \{[\s\S]*showBrokerDetailLaunch\(selection\)[\s\S]*if \(brokersLaunchController\.isVisible\(\)\) \{\s*hideBrokersLaunch\(\);\s*\}[\s\S]*scheduleBrokerDetailLaunchNavigation\(launchRevision, \(\) => \{[\s\S]*routerInstance\.push/);
   const openBrokerDetailStart = brokersSource.indexOf('const openBrokerDetail =');
   const recordBrokerPressStart = brokersSource.indexOf('const recordBrokerRowPressStart =', openBrokerDetailStart);
@@ -1129,7 +1137,11 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   assert.equal((brokerRowsSource.match(/onPress=\{\(event\) => handleBrokerRowPress\(item, event\)\}/g) ?? []).length, 1);
   assert.doesNotMatch(brokerRowsSource, /onPress=\{\(\) => handleSelectBroker\(item\)\}/);
   assert.match(brokerRowsSource, /latencyLabel=\{`brokers\.row\.\$\{item\.brokerId\}`\}/);
-  assert.match(brokerRowsSource, /<View[\s\S]*style=\{styles\.selectBtn\}[\s\S]*pointerEvents="none"[\s\S]*<Ionicons name="chevron-forward"/);
+  const brokerCardStart = brokersSource.indexOf('function BrokerDirectoryCardContent');
+  const brokerCardEnd = brokersSource.indexOf('function BrokerAvatar', brokerCardStart);
+  const brokerCardSource = brokersSource.slice(brokerCardStart, brokerCardEnd);
+  assert.match(brokerCardSource, /style=\{styles\.selectBtn\} pointerEvents="none"/);
+  assert.match(brokerCardSource, /name=\{broker\.selectable \? 'chevron-forward' : 'lock-closed'\}/);
   assert.doesNotMatch(brokerRowsSource, /latencyLabel=\{`brokers\.info\.\$\{item\.brokerId\}`\}/);
   assert.doesNotMatch(brokerRowsSource, /activateOnPressIn|activateOnTouchStart/);
   assert.doesNotMatch(brokersSource, /traceUiInteraction/);
@@ -1244,7 +1256,9 @@ test('trade ticket execution actions use the immediate fast press path', () => {
   assert.match(source, /const routeQueriesActive = isScreenFocused && routeDataReady/);
   assert.match(source, /useMarketSymbols\(routeQueriesActive \|\| symbolPickerOpen\)/);
   assert.match(source, /useInstrumentMeta\(symbol, routeQueriesActive\)/);
-  assert.match(source, /useLiveTick\(symbol, undefined, routeQueriesActive\)/);
+  assert.match(source, /useLiveQuoteSubscription\(symbol, routeQueriesActive\)/);
+  assert.match(source, /const liveQuote = useLiveQuoteSnapshot\(symbol, isScreenFocused\)/);
+  assert.match(source, /resolveSessionQuoteActionAvailability\(/);
   assert.match(source, /useAccountSummary\(loginStr, \{ enabled: routeQueriesActive \}\)/);
   assert.match(source, /if \(!routeQueriesActive\) return null/);
   assert.match(source, /heavyContentReady \? \([\s\S]*<LiveOrderTickExecutionGraph/);
@@ -1292,7 +1306,7 @@ test('close position actions use the immediate trade path', () => {
   // The row's X closes the position immediately (optimistic) instead of opening the Close Position screen.
   assert.match(rowSource, /import \{ closePositionImmediately \} from '\.\.\/\.\.\/\.\.\/features\/trade\/closePositionFlow'/);
   assert.match(rowSource, /import \{ showTradePositionAction \} from '\.\.\/\.\.\/\.\.\/features\/trade\/tradePositionActionHostController'/);
-  assert.match(rowSource, /onClose=\{\(\) => runOverlayAction\(\(\) => closePositionImmediately\(item, \{ resolvedLogin: tradingLogin \}\)\)\}/);
+  assert.match(rowSource, /onClose=\{\(\) => runOverlayAction\(\(\) => closePositionImmediately\(item, \{[\s\S]*quote: liveQuote,[\s\S]*resolvedLogin: tradingLogin,[\s\S]*\}\)\)\}/);
   assert.match(rowSource, /showTradePositionAction\(destination, item\.id\)/);
   assert.match(rowSource, /onCloseBy=\{\(\) => runOverlayAction\(\(\) => openPositionAction\('close-by'\)\)\}/);
   assert.doesNotMatch(rowSource, /router\.push\(\{ pathname: '\/trade\/close-by'/);

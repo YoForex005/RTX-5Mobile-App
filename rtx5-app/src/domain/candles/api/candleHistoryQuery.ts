@@ -7,6 +7,8 @@ import { asRecord } from '../core/candleUtils';
 /** Options for paginating historical candle requests. */
 export type CandleHistoryRequestOptions = {
   signal?: AbortSignal;
+  /** Immutable active-session namespace captured by the caller/query key. */
+  cacheNamespace?: string;
   /** Unix timestamp in seconds. JavaScript milliseconds are accepted and normalized at the service boundary. */
   from?: number;
   /** Unix timestamp in seconds. JavaScript milliseconds are accepted and normalized at the service boundary. */
@@ -14,6 +16,34 @@ export type CandleHistoryRequestOptions = {
 };
 
 export type CandleHistoryQueryStyle = 'timeframeLimit' | 'tfCount';
+
+export type CandleHistoryRouteContract = Readonly<{
+  pathPrefix: string;
+  queryStyle: CandleHistoryQueryStyle;
+}>;
+
+/**
+ * Reads one release-configured candle-history contract. No path or query shape
+ * is selected by trial requests; absent/invalid configuration fails closed.
+ */
+export const resolveCandleHistoryRouteContract = (
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): CandleHistoryRouteContract | null => {
+  const pathPrefix = String(env.EXPO_PUBLIC_CANDLE_HISTORY_PATH ?? '')
+    .trim()
+    .replace(/^\/+|\/+$/g, '');
+  const queryStyle = String(env.EXPO_PUBLIC_CANDLE_HISTORY_QUERY_STYLE ?? '').trim();
+  if (
+    !pathPrefix ||
+    pathPrefix.includes('..') ||
+    pathPrefix.includes('//') ||
+    !/^[A-Za-z0-9][A-Za-z0-9/_-]*$/.test(pathPrefix) ||
+    (queryStyle !== 'timeframeLimit' && queryStyle !== 'tfCount')
+  ) {
+    return null;
+  }
+  return Object.freeze({ pathPrefix, queryStyle });
+};
 
 /** The normalized shape extracted from various possible backend JSON responses. */
 export type ExtractedCandleHistoryPayload = {

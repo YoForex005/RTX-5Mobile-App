@@ -7,7 +7,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -20,7 +20,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePositionsState } from '../../state/positionsState';
 import { useUserPreferences } from '../../state/userPreferences';
-import { useTradingState } from '../../state/tradingState';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { positionsApi } from '../../api/positions';
 import { appQueryClient } from '../../state/providers/AppProviders';
@@ -38,6 +37,22 @@ import {
   createFrontendTradingError,
   formatTradingErrorFeedback,
 } from '../../api/tradingErrors';
+import { useLiveSymbolQuotes } from '../../query/websocket';
+import {
+  resolveSessionQuoteActionAvailability,
+  quoteActionBlockMessage,
+  recordBlockedPriceAction,
+  type QuoteActionAvailability,
+} from '../../market/quoteIntegrity';
+import {
+  getFeedHealthSnapshot,
+  subscribeFeedHealth,
+} from '../../market/feedHealthRuntime';
+import {
+  captureActiveBrokerSessionProvenance,
+  isActiveBrokerSessionProvenanceCurrent,
+} from '../../state/activeBrokerSession';
+import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope';
 
 const CANVAS_DARK = '#121212';
 const CARD_DARK = '#1E1E1E';
@@ -56,7 +71,6 @@ export function BulkOperationScreen() {
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const { t } = useTranslation();
   const positions = usePositionsState((s) => s.positions);
-  const quotes = useTradingState((s) => s.quotes);
   const resolvedLogin = resolveTradingLoginString();
   const screenBg = isDark ? CANVAS_DARK : T.bg;
 
@@ -73,6 +87,37 @@ export function BulkOperationScreen() {
   const affectedPositions = useMemo(
     () => filterPositionsForBulk(positions, mode),
     [positions, mode]
+  );
+  const affectedSymbols = useMemo(
+    () => Array.from(new Set(affectedPositions.map((position) => position.symbol))),
+    [affectedPositions],
+  );
+  const quotes = useLiveSymbolQuotes(affectedSymbols, affectedSymbols.length > 0, 0);
+  const feedHealth = useSyncExternalStore(
+    subscribeFeedHealth,
+    getFeedHealthSnapshot,
+    getFeedHealthSnapshot,
+  );
+  const [quoteFreshnessNow, setQuoteFreshnessNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (affectedSymbols.length === 0) return;
+    const timer = setInterval(() => setQuoteFreshnessNow(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, [affectedSymbols.length]);
+
+  const resolveBulkQuoteBlock = useCallback((now = Date.now()): QuoteActionAvailability | null => {
+    for (const position of affectedPositions) {
+      const availability = resolveSessionQuoteActionAvailability(quotes[position.symbol], now);
+      if (!availability.allowed) {
+        return availability;
+      }
+    }
+    return null;
+  }, [affectedPositions, quotes]);
+  const bulkQuoteBlock = useMemo(
+    () => resolveBulkQuoteBlock(quoteFreshnessNow),
+    [feedHealth, quoteFreshnessNow, resolveBulkQuoteBlock],
   );
 
   const totalPnl = useMemo(
@@ -97,6 +142,21 @@ export function BulkOperationScreen() {
       return;
     }
 
+    const currentQuoteBlock = resolveBulkQuoteBlock();
+    if (currentQuoteBlock) {
+      recordBlockedPriceAction('bulk_position_operation', currentQuoteBlock);
+      setStatusError(true);
+      setStatusMessage(
+        formatTradingErrorFeedback(
+          createFrontendTradingError(
+            t('Market Data Unavailable'),
+            t(quoteActionBlockMessage(currentQuoteBlock)),
+          ),
+        ),
+      );
+      return;
+    }
+
     const accountDetails = useUserPreferences.getState().accountDetails;
     if (!accountDetails?.credentials?.accessToken) {
       setStatusError(true);
@@ -110,6 +170,8 @@ export function BulkOperationScreen() {
       );
       return;
     }
+    const actionProvenance = captureActiveBrokerSessionProvenance();
+    if (!actionProvenance) return;
 
     runningRef.current = true;
     setIsRunning(true);
@@ -127,6 +189,10 @@ export function BulkOperationScreen() {
     const results = await Promise.allSettled(
       snapshots.map((position) => positionsApi.closePosition(position.id)),
     );
+    if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) {
+      runningRef.current = false;
+      return;
+    }
 
     const latest = usePositionsState.getState();
     let failed = 0;
@@ -140,14 +206,11 @@ export function BulkOperationScreen() {
       }
     });
 
-    appQueryClient.invalidateQueries({ queryKey: ['positionHistory'] });
-    appQueryClient.invalidateQueries({ queryKey: ['accountDeals'] });
-    appQueryClient.invalidateQueries({ queryKey: ['deals'] });
-    appQueryClient.invalidateQueries({ queryKey: ['positions'] });
-    appQueryClient.invalidateQueries({ queryKey: ['ordersByLogin'] });
-    appQueryClient.invalidateQueries({ queryKey: ['accountSummary'] });
-    appQueryClient.invalidateQueries({ queryKey: ['exposure'] });
-    appQueryClient.invalidateQueries({ queryKey: ['transactions'] });
+    void invalidateSessionQueryRoots(
+      appQueryClient,
+      actionProvenance.cacheNamespace,
+      ['positionHistory', 'accountDeals', 'deals', 'positions', 'ordersByLogin', 'accountSummary', 'exposure', 'transactions'],
+    );
 
     if (resolvedLogin) {
       void latest.refreshPositions(resolvedLogin);
@@ -156,14 +219,14 @@ export function BulkOperationScreen() {
     if (failed > 0) {
       const feedback = classifyTradingError(
         new Error(`${failed} of ${snapshots.length} closes failed`),
-        { action: 'close' },
+        { action: 'close-position' },
       );
       Alert.alert(feedback.title, t('Some positions could not be closed. Check Trade and try again.'));
     }
 
     runningRef.current = false;
     setIsRunning(false);
-  }, [affectedPositions, resolvedLogin, t]);
+  }, [affectedPositions, resolveBulkQuoteBlock, resolvedLogin, t]);
 
   return (
     <View style={[styles.root, { backgroundColor: screenBg }]}>
@@ -288,12 +351,21 @@ export function BulkOperationScreen() {
               {statusMessage}
             </Text>
           </View>
+        ) : bulkQuoteBlock && affectedPositions.length > 0 ? (
+          <View style={[styles.statusBox, styles.statusBoxError]}>
+            <Text style={[styles.statusText, styles.statusTextError]}>
+              {t(quoteActionBlockMessage(bulkQuoteBlock))}
+            </Text>
+          </View>
         ) : null}
 
         <Pressable
-          style={[styles.executeButton, (affectedPositions.length === 0 || isRunning) && styles.executeDisabled]}
+          style={[
+            styles.executeButton,
+            (affectedPositions.length === 0 || isRunning || Boolean(bulkQuoteBlock)) && styles.executeDisabled,
+          ]}
           onPress={() => { void handleExecute(); }}
-          disabled={affectedPositions.length === 0 || isRunning}
+          disabled={affectedPositions.length === 0 || isRunning || Boolean(bulkQuoteBlock)}
           activateOnPressIn
           latencyLabel="bulk.execute"
           latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}

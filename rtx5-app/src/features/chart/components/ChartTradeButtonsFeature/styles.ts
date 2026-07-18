@@ -100,9 +100,18 @@ export const baseStyles = StyleSheet.create({
   },
   actionBtnLabelTitle: { color: '#FFFFFF', fontSize: 8, fontWeight: '600', letterSpacing: 0.2 },
   actionBtnPriceText: {
-    width: '100%', color: '#FFFFFF', fontSize: 17, lineHeight: 20,
-    fontWeight: '700', fontVariant: ['tabular-nums'], textAlign: 'right',
-    paddingRight: 6, includeFontPadding: false,
+    width: '100%',
+    color: '#FFFFFF',
+    fontSize: 16,
+    lineHeight: 19,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+    textAlign: 'center',
+    paddingHorizontal: 4,
+    includeFontPadding: false,
+    textShadowColor: 'rgba(0,0,0,0.35)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 1.5,
   },
 });
 

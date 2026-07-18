@@ -58,7 +58,7 @@ test('about exposes privacy policy and account deletion from the app', () => {
   assert.match(aboutScreenSource, /handleOpenPrivacyPolicy\(\)/);
   assert.match(aboutScreenSource, /pathname: '\/settings\/legal'/);
   assert.match(aboutScreenSource, /case 'account-deletion':/);
-  assert.match(aboutScreenSource, /router\.push\('\/settings\/account-deletion'\)/);
+  assert.match(aboutScreenSource, /showAboutDetailDestination\('account-deletion'\)/);
   assert.match(accountDeletionRouteSource, /<DeveloperContactRequestScreen mode="account-deletion" \/>/);
   assert.match(layoutSource, /<Stack\.Screen name='settings\/account-deletion'/);
   assert.match(aboutScreenSource, /buildAccountDeletionRequestMessage\(\{/);

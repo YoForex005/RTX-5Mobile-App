@@ -55,21 +55,26 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.match(marketDataSource, /useMarketData\(symbols: string\[\] = \[\], active = true\)/);
   assert.match(marketDataSource, /export function useLiveSymbolQuote\([\s\S]*symbol: string,[\s\S]*active = true,[\s\S]*commitIntervalMs = LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS/);
   assert.match(marketDataSource, /const LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS = 16/);
+  assert.match(marketDataSource, /const activeSession = useActiveBrokerQuerySession\(\)/);
+  assert.match(marketDataSource, /const isActive = active && isLoggedIn && Boolean\(activeSession\)/);
   assert.match(marketDataSource, /if \(safeCommitIntervalMs === 0\) \{[\s\S]*commit\(\);[\s\S]*return;[\s\S]*\}/);
   assert.match(marketDataSource, /safeCommitIntervalMs <= 16[\s\S]*globalThis\.requestAnimationFrame/);
   assert.match(marketDataSource, /if \(safeCommitIntervalMs <= 16\) \{[\s\S]*updateLiveQuote\(\);[\s\S]*\} else \{[\s\S]*React\.startTransition\(updateLiveQuote\)/);
-  assert.match(marketDataSource, /if \(!isActive \|\| !normalizedSymbol\)/);
+  assert.match(marketDataSource, /if \(!isActive \|\| !activeSession \|\| !normalizedSymbol\)/);
   assert.doesNotMatch(marketDataSource, /skipAuth: true/);
-  assert.match(marketSymbolsSource, /const isLoggedIn = useUserPreferences\(\(state\) => state\.isLoggedIn\)/);
-  assert.match(marketSymbolsSource, /const accountScope = accountId \|\| 'none'/);
-  assert.match(marketSymbolsSource, /const isEnabled = enabled && isLoggedIn/);
+  assert.match(marketSymbolsSource, /useActiveBrokerQuerySession/);
+  assert.match(marketSymbolsSource, /const cacheNamespace = getSessionQueryCacheNamespace\(session\)/);
+  assert.match(marketSymbolsSource, /const isEnabled = enabled && Boolean\(session\)/);
+  assert.match(marketSymbolsSource, /queryKey: \['market', cacheNamespace, 'symbols', 'instrument-catalog-v3'\]/);
   assert.doesNotMatch(marketSymbolsSource, /skipAuth: true/);
   assert.match(marketSymbolsSource, /enabled: isEnabled/);
-  assert.match(marketSymbolsSource, /placeholderData: \(previousData\) => previousData/);
-  assert.match(instrumentsSource, /const isEnabled = enabled && isLoggedIn && !!normalizedSymbol/);
+  assert.match(marketSymbolsSource, /commitApiJson\(result, cacheNamespace,/);
+  assert.match(instrumentsSource, /const cacheNamespace = getSessionQueryCacheNamespace\(session\)/);
+  assert.match(instrumentsSource, /const isEnabled = enabled && Boolean\(session\) && !!normalizedSymbol/);
+  assert.match(instrumentsSource, /queryKey: \['instrument', cacheNamespace, INSTRUMENT_META_QUERY_VERSION, normalizedSymbol\]/);
   assert.match(instrumentsSource, /enabled: isEnabled/);
-  assert.match(alertsSource, /const enabled = \(options\.enabled \?\? true\) && isLoggedIn/);
-  assert.match(marketStatusSource, /const isEnabled = enabled && isLoggedIn && !!symbol/);
+  assert.match(alertsSource, /const enabled = Boolean\(session\) && \(options\.enabled \?\? true\) && isLoggedIn/);
+  assert.match(marketStatusSource, /const isEnabled = enabled && isLoggedIn && Boolean\(session\) && !!symbol/);
   assert.match(marketStatusSource, /refetchInterval: isEnabled \? 30_000 : false/);
   assert.match(registerSource, /const isScreenFocused = useIsFocused\(\)/);
   assert.match(registerSource, /const registerDataActive = useDeferredActiveFlag\(\s*isScreenFocused && firstPaintReady,\s*REGISTER_ROUTE_DATA_DELAY_MS,\s*\)/);
@@ -112,7 +117,7 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.doesNotMatch(chartSource, /const chartSurfaceReady = useDeferredActiveFlag\(/);
   assert.match(chartSource, /useLiveSymbolQuote\(chartSymbol, chartRuntimeActive, CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS\)/);
   assert.doesNotMatch(chartLiveHeadersSource, /useMarketData|useLiveTick/);
-  assert.match(chartTradeButtonsSource, /const TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS = 0/);
+  assert.match(chartTradeButtonsSource, /const TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS = 16/);
   assert.match(chartTradeButtonsSource, /useLiveSymbolQuote\(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS\)/);
   assert.match(chartSource, /useMarketSymbols\(chartRuntimeActive\)/);
   assert.match(chartSource, /useInstrumentMeta\(chartSymbol, chartRuntimeActive\)/);
@@ -151,7 +156,7 @@ test('settings, trade, and history screens pause work when another screen is foc
   // A BOUNDED boot prewarm window may fill the caches once while hidden so the
   // first open shows real content; it must switch itself off so focus remains
   // the only long-lived activator of these queries.
-  assert.match(accountsSource, /const ACCOUNTS_DATA_PREWARM_WINDOW_MS = 10000/);
+  assert.match(accountsSource, /const ACCOUNTS_DATA_PREWARM_WINDOW_MS = 15000/);
   assert.match(accountsSource, /setDataPrewarmWindowActive\(false\),?\s*\)?,?\s*ACCOUNTS_DATA_PREWARM_DELAY_MS \+ ACCOUNTS_DATA_PREWARM_WINDOW_MS/);
   assert.match(accountsSource, /const screenDataActive = focusDataActive \|\| \(isLoggedIn && dataPrewarmWindowActive\)/);
   assert.match(accountsSource, /useAccounts\(screenDataActive\)/);
@@ -245,7 +250,7 @@ test('settings, trade, and history screens pause work when another screen is foc
   assert.match(calendarSource, /const \[dataEvents, setDataEvents\] = useState<EconomicEvent\[\]>\(initialEvents\)/);
   assert.match(calendarSource, /if \(!isScreenFocused\) \{[\s\S]*return;[\s\S]*\}/);
   assert.doesNotMatch(calendarSource, /CALENDAR_INITIAL_DATA_DELAY_MS|calendarDataReady/);
-  assert.match(calendarSource, /const ECON_CALENDAR_BODY_PREWARM_DELAY_MS = 2_800/);
+  assert.match(calendarSource, /const ECON_CALENDAR_BODY_PREWARM_DELAY_MS = 0/);
   assert.match(calendarSource, /const routeBodyReady = useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : ECON_CALENDAR_BODY_PREWARM_DELAY_MS,\s*\)/);
   assert.doesNotMatch(calendarSource, /useDeferredRouteContentReady\(0, isScreenFocused\)/);
   // One bounded idle prewarm is the only work the hidden calendar shell may do:
@@ -256,10 +261,12 @@ test('settings, trade, and history screens pause work when another screen is foc
   assert.match(calendarSource, /\}, ECON_CALENDAR_IDLE_PREWARM_DELAY_MS\);\s*return \(\) => clearTimeout\(prewarmTimer\);/);
 
   assert.match(healthSource, /export function useHealth\(enabled = true\)/);
-  assert.match(healthSource, /refetchInterval: enabled \? 30000 : false/);
+  assert.match(healthSource, /const isEnabled = enabled && Boolean\(session\)/);
+  assert.match(healthSource, /refetchInterval: isEnabled \? 30000 : false/);
   assert.match(mt5Source, /export function useMt5Status\(enabled = true\)/);
-  assert.match(mt5Source, /refetchInterval: enabled \? 30000 : false/);
-  assert.match(accountsQuerySource, /const isEnabled = enabled \?\? true/);
+  assert.match(mt5Source, /const isEnabled = enabled && Boolean\(session\)/);
+  assert.match(mt5Source, /refetchInterval: isEnabled \? 30000 : false/);
+  assert.match(accountsQuerySource, /const isEnabled = Boolean\(session\) && \(enabled \?\? true\)/);
   assert.match(accountsQuerySource, /refetchInterval: isEnabled \? 10 \* 1000 : false/);
   assert.match(accountsQuerySource, /refetchInterval: isEnabled \? 30 \* 1000 : false/);
 });
@@ -293,7 +300,7 @@ test('high-volume diagnostics are disabled unless explicitly requested', () => {
   assert.match(positionsApiSource, /logPositionsApiDiagnostic\('\[PositionsAPI\] GET'/);
   assert.doesNotMatch(positionsApiSource, /console\.log\('\[PositionsAPI\]/);
   assert.match(positionsStateSource, /EXPO_PUBLIC_DEBUG_POSITIONS_STATE === 'true'/);
-  assert.match(positionsStateSource, /positionsRateLimitUntilByLogin/);
+  assert.match(positionsStateSource, /positionsRateLimitUntilByNamespace/);
   assert.match(positionsStateSource, /state\.isLoading && state\.lastFetchLogin === accountLogin/);
   assert.match(accountWsSource, /EXPO_PUBLIC_DEBUG_ACCOUNT_WS === 'true'/);
   assert.match(accountWsSource, /logAccountWsDiagnostic\('\[Account WS\] Connected'\)/);

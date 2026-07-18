@@ -19,6 +19,11 @@ import {
   isTrustedHistoryCandle,
   splitRestHistoryCandles,
 } from '../core/candleProvenance';
+import {
+  captureActiveBrokerSessionProvenance,
+  isActiveBrokerSessionProvenanceCurrent,
+  type ActiveBrokerSessionProvenance,
+} from '../../../state/activeBrokerSession';
 
 /**
  * Strict equality check for two candle objects, comparing all core OHLCV values.
@@ -66,6 +71,16 @@ const normalizeCandleKey = (symbol: string, timeframe: string) => {
 
 type SyncMergedCandleCacheOptions = {
   canonical?: boolean;
+  provenance?: ActiveBrokerSessionProvenance;
+};
+
+const resolveCurrentCandleCacheProvenance = (
+  provided?: ActiveBrokerSessionProvenance,
+): ActiveBrokerSessionProvenance | null => {
+  const provenance = provided ?? captureActiveBrokerSessionProvenance();
+  return provenance && isActiveBrokerSessionProvenanceCurrent(provenance)
+    ? provenance
+    : null;
 };
 
 /**
@@ -97,8 +112,10 @@ export const syncMergedCandleCache = (
   symbol: string,
   timeframe: string,
   candles: Candle[],
-  _options?: SyncMergedCandleCacheOptions,
+  options?: SyncMergedCandleCacheOptions,
 ): boolean => {
+  const provenance = resolveCurrentCandleCacheProvenance(options?.provenance);
+  if (!provenance) return false;
   const normalized = normalizeCandleKey(symbol, timeframe);
   if (!normalized) {
     return false;
@@ -114,8 +131,9 @@ export const syncMergedCandleCache = (
     return false;
   }
 
+  if (!isActiveBrokerSessionProvenanceCurrent(provenance)) return false;
   useTradingState.getState().setCandleHistory(normalized.symbol, normalized.timeframe, nextCandles);
-  persistCanonicalCandleCache(normalized.symbol, normalized.timeframe, nextCandles);
+  persistCanonicalCandleCache(normalized.symbol, normalized.timeframe, nextCandles, provenance);
   return true;
 };
 
@@ -127,7 +145,10 @@ export const mergeHistoryIntoCandleCache = (
   symbol: string,
   timeframe: string,
   historyCandles: Candle[],
+  options?: SyncMergedCandleCacheOptions,
 ): Candle[] => {
+  const provenance = resolveCurrentCandleCacheProvenance(options?.provenance);
+  if (!provenance) return [];
   const normalized = normalizeCandleKey(symbol, timeframe);
   if (!normalized) {
     return [];
@@ -136,8 +157,9 @@ export const mergeHistoryIntoCandleCache = (
   const nextCandles = buildClosedHistoryCacheSeries(historyCandles, normalized.timeframe);
   const currentCandles = useTradingState.getState().candles[normalized.key] ?? [];
   if (!areSeriesEqual(currentCandles, nextCandles)) {
+    if (!isActiveBrokerSessionProvenanceCurrent(provenance)) return [];
     useTradingState.getState().setCandleHistory(normalized.symbol, normalized.timeframe, nextCandles);
-    persistCanonicalCandleCache(normalized.symbol, normalized.timeframe, nextCandles);
+    persistCanonicalCandleCache(normalized.symbol, normalized.timeframe, nextCandles, provenance);
   }
 
   return nextCandles;

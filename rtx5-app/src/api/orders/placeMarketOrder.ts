@@ -7,7 +7,8 @@
  * Uses a DB transaction for atomicity. Rejected if market data returns
  * zero or negative prices. SL/TP values are validated server-side.
  */
-import { apiClient, decodeBrokerIdFromToken } from '../apiClient';
+import { apiClient } from '../apiClient';
+import { StaleBrokerSessionError } from '../brokerApi';
 import { assertTradeSide } from '../../domain/tradeSide';
 import { createTradingApiError } from '../tradingErrors';
 import {
@@ -15,11 +16,16 @@ import {
   recordMarketOrderJournalRequest,
   recordMarketOrderJournalSuccess,
 } from '../../state/terminalJournalState';
-import { useUserPreferences } from '../../state/userPreferences';
+import {
+  captureActiveBrokerSession,
+  getActiveBrokerSessionIdentity,
+  isActiveBrokerSessionCurrent,
+} from '../../state/activeBrokerSession';
 import { getApiLatencyNow, recordApiLatency } from '../../utils/apiLatency';
 import { resolveBrokerSymbol, resolveBrokerSymbolFromCache } from './symbolResolver';
 import { buildMarketOrderSymbolCandidates, getAcceptedSymbolCacheKey } from './placeMarketOrderCandidates';
 import type { PlaceOrderPayload, PlaceOrderResponse } from './types';
+import { redactDiagnosticValue } from '../../utils/securityRedaction';
 
 const acceptedOrderSymbolCache = new Map<string, string>();
 const ORDER_DIAGNOSTICS_ENABLED =
@@ -27,21 +33,36 @@ const ORDER_DIAGNOSTICS_ENABLED =
 
 const logOrderDiagnostic = (...args: Parameters<typeof console.log>) => {
   if (ORDER_DIAGNOSTICS_ENABLED) {
-    console.log(...args);
+    console.log(...args.map(redactDiagnosticValue));
   }
 };
 
 const warnOrderDiagnostic = (...args: Parameters<typeof console.warn>) => {
   if (ORDER_DIAGNOSTICS_ENABLED) {
-    console.warn(...args);
+    console.warn(...args.map(redactDiagnosticValue));
   }
 };
 
 export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<PlaceOrderResponse> => {
+  const sessionCapture = captureActiveBrokerSession();
+  if (!sessionCapture) throw new StaleBrokerSessionError();
+  const sessionIdentity = getActiveBrokerSessionIdentity(sessionCapture.session);
+  const cacheNamespace = sessionCapture.session.cacheNamespace;
+  const assertOrderSessionCurrent = () => {
+    if (!isActiveBrokerSessionCurrent(sessionIdentity)) {
+      throw new StaleBrokerSessionError();
+    }
+  };
+
   // V2 contract requires `login` (integer), not `account_login`.
   const { account_login, ...rest } = payload;
   const loginInt =
     typeof account_login === 'string' ? parseInt(account_login, 10) : account_login;
+  if (String(loginInt) !== sessionCapture.session.accountLogin) {
+    throw createTradingApiError(403, {
+      message: 'Order account does not match the active broker session.',
+    });
+  }
 
   // Symbol routing must stay out of the tap-to-POST critical path. The first
   // attempt uses already-known local data. A network /instruments lookup is
@@ -81,13 +102,7 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
     orderBody.magic = restWithoutBroker.magic;
   }
 
-  const state = useUserPreferences.getState();
-  const currentToken = state.accountDetails?.credentials?.accessToken;
-  const jwtBrokerId = decodeBrokerIdFromToken(currentToken);
-  logOrderDiagnostic('[RTX5 Order] JWT broker_id:', jwtBrokerId, '| stored brokerId:', state.brokerId);
-  if (!jwtBrokerId) {
-    warnOrderDiagnostic('[RTX5 Order] JWT missing broker_id; apiClient will recover on 401/403 if saved credentials are available');
-  }
+  logOrderDiagnostic('[RTX5 Order] active broker session:', sessionCapture.session.brokerId);
   logOrderDiagnostic('[TRADE-PAYLOAD]', {
     symbol: callerSymbol,
     side: requestedSide,
@@ -128,6 +143,7 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
   };
 
   const sendOrder = async (symbolToSend: string): Promise<Attempt> => {
+    assertOrderSessionCurrent();
     const body = { ...orderBody, symbol: symbolToSend };
     logOrderDiagnostic('[RTX5 Order] POST /orders body:', JSON.stringify(body));
     const startedAtMs = getApiLatencyNow();
@@ -139,6 +155,7 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
         body: JSON.stringify(body),
       });
       const raw = await response.json().catch(() => ({}));
+      assertOrderSessionCurrent();
       const inner = unwrap(raw);
       const bodyStatus = typeof inner?.status === 'string' ? inner.status.toLowerCase() : '';
       const graceful = response.ok && ['rejected', 'failed', 'error'].includes(bodyStatus);
@@ -194,11 +211,11 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
     );
   };
 
-  const brokerCacheKey = getAcceptedSymbolCacheKey(jwtBrokerId || state.brokerId, callerSymbol);
+  const brokerCacheKey = getAcceptedSymbolCacheKey(cacheNamespace, callerSymbol);
   const candidates = buildMarketOrderSymbolCandidates({
     callerSymbol,
     acceptedSymbol: acceptedOrderSymbolCache.get(brokerCacheKey) ?? null,
-    cachedCatalogSymbol: resolveBrokerSymbolFromCache(callerSymbol),
+    cachedCatalogSymbol: resolveBrokerSymbolFromCache(callerSymbol, cacheNamespace),
   });
 
   let accepted: Attempt | null = null;
@@ -231,7 +248,8 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
   }
 
   if (!accepted && lastBad && isMarketDataMiss(lastBad)) {
-    const catalogSymbol = await resolveBrokerSymbol(callerSymbol);
+    const catalogSymbol = await resolveBrokerSymbol(callerSymbol, cacheNamespace);
+    assertOrderSessionCurrent();
     if (catalogSymbol && !candidates.includes(catalogSymbol)) {
       const attempt = await sendOrder(catalogSymbol);
       if (attempt.ok) {
@@ -270,6 +288,7 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
     throw error;
   }
 
+  assertOrderSessionCurrent();
   acceptedOrderSymbolCache.set(brokerCacheKey, accepted.symbol);
   const finalData = unwrap(accepted.body);
 
@@ -307,3 +326,7 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
   );
   return finalData;
 };
+
+export function resetAcceptedMarketOrderSymbolCache(): void {
+  acceptedOrderSymbolCache.clear();
+}

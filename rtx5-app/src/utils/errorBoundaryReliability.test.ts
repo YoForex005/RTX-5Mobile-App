@@ -27,12 +27,13 @@ test('error boundary reload remounts the crashed subtree through the fast press 
   assert.match(source, /accessibilityRole="button"/);
 });
 
-test('persisted auth restore rejects half sessions without an access token', () => {
+test('persisted auth restore requires a broker-bound secure credential bundle', () => {
   const source = readSource('src/state/userPreferences/store.ts');
 
-  assert.match(source, /const accessToken = asString\(credentials\.accessToken\)/);
-  assert.match(source, /if \(!accessToken\) \{\s*return null;\s*\}/);
-  assert.match(source, /const isLoggedIn = asBoolean\(state\.isLoggedIn, false\) && accountDetails !== null/);
+  assert.match(source, /sanitizePreferenceAuthStorageValue\(parsed\)/);
+  assert.match(source, /migrateLegacyAuthSessionCredentials\(\{/);
+  assert.match(source, /failClosedPersistedAuthState\(persistedStorageValue\)/);
+  assert.match(source, /Boolean\(accountDetails\?\.credentials\?\.accessToken\)/);
 });
 
 test('secure storage reads fail closed during startup restore', () => {
@@ -43,6 +44,8 @@ test('secure storage reads fail closed during startup restore', () => {
   assert.match(source, /try \{[\s\S]*SecureStore\.getItemAsync\(key\)/);
   assert.match(source, /console\.warn\('\[SecureStorage\] Failed to read secure item'/);
   assert.match(source, /return null;/);
+  assert.doesNotMatch(source, /import AsyncStorage|from '@react-native-async-storage\/async-storage'/);
+  assert.match(source, /Secure credential storage is unavailable on web/);
 });
 
 test('secondary persisted stores normalize valid-but-invalid shapes before hydration', () => {
@@ -67,7 +70,7 @@ test('startup diagnostics stringify non-error throws without throwing again', ()
   assert.match(source, /const stringifyFallback = \(value: unknown\): string => \{/);
   assert.match(source, /const serialized = JSON\.stringify\(value\)/);
   assert.match(source, /return '\[Unserializable value\]'/);
-  assert.match(source, /message: typeof error === 'string' \? error : safeStringify\(error\)/);
+  assert.match(source, /message: redactSensitiveString\([\s\S]*safeStringify\(error\)/);
 
   const circular: { self?: unknown; toString: () => string } = {
     toString: () => {
@@ -81,4 +84,18 @@ test('startup diagnostics stringify non-error throws without throwing again', ()
     message: '[Unserializable value]',
     stack: null,
   });
+});
+
+test('startup diagnostics redact credential-bearing error text and stacks', () => {
+  const error = new Error('request failed Authorization: Bearer secret-token?token=query-secret');
+  error.stack = 'Error: feed?sig=stack-secret';
+
+  const serialized = serializeStartupError(error);
+  assert.doesNotMatch(serialized.message, /secret-token|query-secret/);
+  assert.doesNotMatch(serialized.stack ?? '', /stack-secret/);
+  assert.match(serialized.message, /\[redacted\]/);
+
+  const diagnosticsSource = readSource('src/utils/startupDiagnostics.ts');
+  assert.match(diagnosticsSource, /redactDiagnosticValue\(\{/);
+  assert.match(diagnosticsSource, /redactSensitiveString\(event\)/);
 });

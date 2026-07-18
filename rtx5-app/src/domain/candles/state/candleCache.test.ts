@@ -4,6 +4,13 @@ import test, { afterEach, beforeEach } from 'node:test';
 import { Candle, useTradingState } from '../../../state/tradingState';
 import { mergeHistoryIntoCandleCache, syncMergedCandleCache } from './candleCache';
 import type { TrustedHistoryCandle } from '../core/candleProvenance';
+import { resetPersistedCandleCacheSession } from './persistedCandleCache';
+import {
+  __resetActiveBrokerSessionForTests,
+  activateBrokerSession,
+  beginActiveBrokerSessionTransition,
+  captureActiveBrokerSessionProvenance,
+} from '../../../state/activeBrokerSession';
 
 type BackendLiveCandle = Candle & { source: 'live_candle'; closed: false };
 
@@ -24,11 +31,28 @@ const makeCandle = (time: number, close: number = 1.1): Candle => ({
 });
 
 beforeEach(() => {
+  __resetActiveBrokerSessionForTests();
+  activateBrokerSession(beginActiveBrokerSessionTransition(), {
+    brokerId: 'broker-a',
+    accountLogin: '10001',
+    apiBase: 'https://services.broker-a.example/api/v2',
+    feedWsBase: 'wss://services.broker-a.example/ws/feed',
+    feedStatusUrl: 'https://services.broker-a.example/ws/feed/status',
+    servicesDomain: 'services.broker-a.example',
+    feedAuthContext: { mode: 'none' },
+    configVersion: 'cfg-1',
+  }, {
+    accessToken: 'access-a',
+    refreshToken: '',
+    expiresAt: '2099-01-01T00:00:00.000Z',
+  });
   resetCandleCache();
 });
 
 afterEach(() => {
+  resetPersistedCandleCacheSession();
   resetCandleCache();
+  __resetActiveBrokerSessionForTests();
 });
 
 test('mergeHistoryIntoCandleCache stores only trusted closed REST history', () => {
@@ -125,4 +149,20 @@ test('syncMergedCandleCache is stable for unchanged trusted history', () => {
 
   assert.equal(syncMergedCandleCache('EURUSD', 'M1', trusted, { canonical: true }), true);
   assert.equal(syncMergedCandleCache('EURUSD', 'M1', trusted, { canonical: true }), false);
+});
+
+test('history from an old session provenance cannot write the new session candle cache', () => {
+  const provenance = captureActiveBrokerSessionProvenance();
+  assert.ok(provenance);
+  beginActiveBrokerSessionTransition();
+
+  const result = mergeHistoryIntoCandleCache(
+    'EURUSD',
+    'M1',
+    [makeCandle(60), makeCandle(120), makeCandle(180)],
+    { provenance },
+  );
+
+  assert.deepEqual(result, []);
+  assert.equal(useTradingState.getState().candles['EURUSD.M1'], undefined);
 });

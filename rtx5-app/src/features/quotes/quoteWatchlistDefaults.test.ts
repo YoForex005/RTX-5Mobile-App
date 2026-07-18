@@ -7,10 +7,10 @@ import {
   resolveQuoteFeedSymbols,
 } from './quoteWatchlistDefaults';
 
-test('resolveQuoteFeedSymbols maps persisted display symbols to broker feed symbols', () => {
+test('resolveQuoteFeedSymbols never guesses suffixed broker instruments from base symbols', () => {
   assert.deepEqual(
     resolveQuoteFeedSymbols(['BTCUSD', 'GBPUSD', 'XAUUSD'], ['BTCUSDm', 'GBPUSD.c', 'XAUUSDm']),
-    ['BTCUSDm', 'GBPUSD.c', 'XAUUSDm'],
+    ['BTCUSD', 'GBPUSD', 'XAUUSD'],
   );
 });
 
@@ -56,10 +56,10 @@ test('resolveQuoteFeedSymbols normalizes persisted lowercase symbols before mark
   );
 });
 
-test('buildDefaultQuoteWatchlist keeps curated defaults using available raw feed symbols', () => {
+test('buildDefaultQuoteWatchlist keeps only exact curated identities available from the broker', () => {
   assert.deepEqual(
     buildDefaultQuoteWatchlist(['BTCUSDm', 'XAUUSDm', 'GBPUSD.c', 'EURUSD', 'USDJPY']),
-    ['EURUSD', 'GBPUSD.c', 'USDJPY', 'XAUUSDm', 'BTCUSDm'],
+    ['EURUSD', 'USDJPY'],
   );
 });
 

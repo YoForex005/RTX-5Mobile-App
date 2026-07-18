@@ -24,7 +24,12 @@ const readSource = (relativePath: string): string => {
   const folderPath = filePath.replace(/\.tsx?$/, '');
   if (existsSync(folderPath) && statSync(folderPath).isDirectory()) {
     return readdirSync(folderPath)
-      .filter((entry) => entry.endsWith('.ts') || entry.endsWith('.tsx'))
+      .filter(
+        (entry) =>
+          (entry.endsWith('.ts') || entry.endsWith('.tsx')) &&
+          !entry.endsWith('.test.ts') &&
+          !entry.endsWith('.test.tsx'),
+      )
       .map((entry) => readFileSync(join(folderPath, entry), 'utf8'))
       .join('\n');
   }
@@ -63,13 +68,20 @@ test('chart trade buttons keep buy and sell press handlers mapped to the matchin
   assert.match(handlerSource, /side: action\.side/);
   assert.match(handlerSource, /const payload = buildChartMarketOrderPayload\(/);
   assert.match(handlerSource, /const placeOrder = usePlaceOrderExecutor\(\);/);
-  assert.match(handlerSource, /tradeTapLockRef\.current \|\| sharedLockSide !== null/);
-  assert.doesNotMatch(handlerSource, /sharedLockSide !== null \|\| isPending/);
+  assert.match(handlerSource, /tradeTapLockRef\.current \|\| openLockSide !== null/);
+  assert.doesNotMatch(handlerSource, /openLockSide !== null \|\| isPending/);
   assert.doesNotMatch(handlerSource, /usePlaceOrderMutation/);
   assert.match(handlerSource, /const currentChartSymbol = useUserPreferences\(\(s\) => s\.chartSymbol\)/);
   assert.match(handlerSource, /const stateChartSymbol = useUserPreferences\.getState\(\)\.chartSymbol/);
   assert.match(handlerSource, /reason: 'stale-symbol'/);
-  assert.match(handlerSource, /const chartTradeActionDisabled = !isCurrentChartSymbol;/);
+  assert.match(
+    handlerSource,
+    /const currentQuoteAvailability = resolveSessionQuoteActionAvailability\(quoteActionQuoteRef\.current\)[\s\S]*if \(!currentQuoteAvailability\.allowed\) \{[\s\S]*title: 'Market Data Unavailable'/,
+  );
+  assert.match(
+    handlerSource,
+    /const chartTradeActionDisabled = !isCurrentChartSymbol \|\| !quoteActionAllowed;/,
+  );
   assert.match(
     handlerSource,
     /placeOrder\(payload,[\s\S]*?\}\);\s*releaseTradeTapLock\(CHART_TRADE_TAP_RELEASE_DELAY_MS\);/,
@@ -362,7 +374,7 @@ test('trade buttons keep the busy visual state on only the pressed side', () => 
   );
   assert.match(
     handlerSource,
-    /const isChartTradeActionVisuallyLocked = \(side: TradeSide\) =>[\s\S]*!isCurrentChartSymbol \|\| activeSide === side;/,
+    /const isChartTradeActionVisuallyLocked = \(side: TradeSide\) =>[\s\S]*!isCurrentChartSymbol \|\| !quoteActionAllowed \|\| activeSide === side;/,
   );
   assert.match(handlerSource, /clearActiveTradeSide\(lockedSide, delayMs\);/);
   assert.match(chartSource, /busy: isChartTradeActionBusy\('sell'\)/);
@@ -386,7 +398,8 @@ test('trade feedback modal clearly differentiates buy and sell success popups', 
   const source = readSource('src/ui/components/TradeFeedbackModal.tsx');
 
   assert.match(source, /const sideLabel = state\.side === 'buy' \? 'BUY' : state\.side === 'sell' \? 'SELL' : '';/);
-  assert.match(source, /const successTitle = sideLabel \? `\$\{sideLabel\} Order Executed` : 'Order Executed';/);
+  assert.match(source, /const confirmedSuccessTitle = sideLabel && \(!state\.title \|\| state\.title === 'Order Executed'\)[\s\S]*`\$\{sideLabel\} Order Executed`[\s\S]*state\.title \|\| 'Order Executed';/);
+  assert.match(source, /const successTitle = isUnconfirmedSubmission[\s\S]*state\.title \|\| 'Order Submitted'[\s\S]*confirmedSuccessTitle;/);
   assert.match(source, /const BUY_HEX = '#2563EB';/);
   assert.match(source, /const SELL_HEX = '#DC2626';/);
   assert.match(source, /const accent = isSuccess \? \(isBuy \? BUY_HEX : isSell \? SELL_HEX : SUCCESS_HEX\) : ERR_HEX;/);

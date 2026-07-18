@@ -9,14 +9,31 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchMarketStatus } from '../api/marketStatus';
 import { useUserPreferences } from '../state/userPreferences';
+import {
+  getSessionQueryCacheNamespace,
+  runSessionBoundQuery,
+  useActiveBrokerQuerySession,
+} from './authenticatedQueryScope';
+
+export const MARKET_STATUS_KEY = 'market-status';
+
+export const getMarketStatusQueryKey = (
+  cacheNamespace: string,
+  symbol: string,
+) => [MARKET_STATUS_KEY, cacheNamespace, symbol] as const;
 
 export function useMarketStatus(symbol: string, enabled = true) {
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
   const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
-  const isEnabled = enabled && isLoggedIn && !!symbol;
+  const isEnabled = enabled && isLoggedIn && Boolean(session) && !!symbol;
 
   return useQuery({
-    queryKey: ['market-status', symbol],
-    queryFn: () => fetchMarketStatus(symbol),
+    queryKey: getMarketStatusQueryKey(cacheNamespace, symbol),
+    queryFn: () => runSessionBoundQuery(
+      cacheNamespace,
+      () => fetchMarketStatus(symbol),
+    ),
     enabled: isEnabled,
     refetchInterval: isEnabled ? 30_000 : false,
     retry: 1,

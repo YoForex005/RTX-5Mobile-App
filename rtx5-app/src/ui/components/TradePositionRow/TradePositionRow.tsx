@@ -529,7 +529,10 @@ function TradePositionRowComponent({
             dividerColor={dividerColor}
             overlayActionLocked={overlayActionLocked}
             overlayStyle={overlayStyle}
-            onClose={() => runOverlayAction(() => closePositionImmediately(item, { resolvedLogin: tradingLogin }))}
+            onClose={() => runOverlayAction(() => closePositionImmediately(item, {
+              quote: liveQuote,
+              resolvedLogin: tradingLogin,
+            }))}
             onCloseBy={() => runOverlayAction(() => openPositionAction('close-by'))}
             onModify={() => runOverlayAction(navigateToModifyPosition)}
             onOrderTicket={() => runOverlayAction(navigateToOrderTicket)}

@@ -86,7 +86,8 @@ type DeveloperContactMode = 'contact-developer' | 'account-deletion';
 // About is retained by the root sidebar host. Pre-mount its complete visual
 // body shortly after the primary Trade/Settings tabs so a drawer selection
 // reveals finished content instead of adding rows after the screen appears.
-const ABOUT_BODY_PREWARM_DELAY_MS = 1_400;
+// Hosted sidebar destination: mount body immediately so first open is never blank.
+const ABOUT_BODY_PREWARM_DELAY_MS = 0;
 
 /**
  * Displays information about the app version, copyright, and developer details.

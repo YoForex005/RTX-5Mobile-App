@@ -8,6 +8,7 @@ import type { PositionItem } from '../dev/mock/tradingData';
 import { positionsApi, type Position } from '../api/positions';
 import { appQueryClient } from './providers/AppProviders';
 import { resolveTradingLoginString } from './tradingLogin';
+import { invalidateCurrentSessionQueryRoots } from '../query/authenticatedQueryScope';
 import {
   classifyTradingError,
   createFrontendTradingError,
@@ -22,6 +23,13 @@ import {
   isTerminalPositionUpdate,
   shouldClearPositionsForLoginSwitch,
 } from './positionsState.helpers';
+import {
+  captureActiveBrokerSession,
+  getActiveBrokerSessionIdentity,
+  isActiveBrokerSessionCurrent,
+  subscribeActiveBrokerSession,
+  type ActiveBrokerSessionIdentity,
+} from './activeBrokerSession';
 
 type PositionsState = {
   positions: PositionItem[];
@@ -51,22 +59,40 @@ type PositionsState = {
 const DEBUG_POSITIONS_STATE =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_POSITIONS_STATE === 'true';
 const DEFAULT_RATE_LIMIT_BACKOFF_SECONDS = 30;
-const positionsRateLimitUntilByLogin = new Map<string, number>();
-const OPEN_POSITIONS_CACHE_PREFIX = 'rtx5-open-positions-v1';
+const positionsRateLimitUntilByNamespace = new Map<string, number>();
+const OPEN_POSITIONS_CACHE_PREFIX = 'rtx5-open-positions-v2';
 const OPTIMISTIC_CLOSE_SUPPRESS_MS = 60_000;
 // After a close tap we hide that ticket immediately. This guard stops a stale
 // positions poll from briefly adding the same position back before backend sync.
 const optimisticCloseUntilByPositionId = new Map<string, number>();
 
 type CachedOpenPositionsPayload = {
-  version: 1;
+  version: 2;
+  cacheNamespace: string;
+  brokerId: string;
   accountLogin: string;
+  sessionEpoch: number;
   savedAt: number;
   positions: PositionItem[];
 };
 
-const pendingOpenPositionsCacheWrites = new Map<string, PositionItem[]>();
+type PositionsCacheScope = Readonly<{
+  cacheNamespace: string;
+  brokerId: string;
+  accountLogin: string;
+  sessionEpoch: number;
+  identity: ActiveBrokerSessionIdentity;
+  resetGeneration: number;
+}>;
+
+type PendingOpenPositionsCacheWrite = Readonly<{
+  scope: PositionsCacheScope;
+  positions: PositionItem[];
+}>;
+
+const pendingOpenPositionsCacheWrites = new Map<string, PendingOpenPositionsCacheWrite>();
 let openPositionsCacheWriteTimer: ReturnType<typeof setTimeout> | null = null;
+let positionsCacheResetGeneration = 0;
 
 const logPositionsStateDiagnostic = (...args: Parameters<typeof console.log>) => {
   if (DEBUG_POSITIONS_STATE) {
@@ -80,8 +106,40 @@ const warnPositionsStateDiagnostic = (...args: Parameters<typeof console.warn>) 
   }
 };
 
-const getOpenPositionsCacheKey = (accountLogin: string): string =>
-  `${OPEN_POSITIONS_CACHE_PREFIX}:${accountLogin}`;
+const getOpenPositionsCacheKey = (cacheNamespace: string): string =>
+  `${OPEN_POSITIONS_CACHE_PREFIX}:${encodeURIComponent(cacheNamespace)}`;
+
+const capturePositionsCacheScope = (
+  accountLogin?: string | null,
+): PositionsCacheScope | null => {
+  const capture = captureActiveBrokerSession();
+  if (!capture) {
+    return null;
+  }
+
+  const normalizedLogin = String(accountLogin ?? capture.session.accountLogin).trim();
+  if (!normalizedLogin || normalizedLogin !== capture.session.accountLogin) {
+    return null;
+  }
+
+  return Object.freeze({
+    cacheNamespace: capture.session.cacheNamespace,
+    brokerId: capture.session.brokerId,
+    accountLogin: capture.session.accountLogin,
+    sessionEpoch: capture.session.sessionEpoch,
+    identity: getActiveBrokerSessionIdentity(capture.session),
+    resetGeneration: positionsCacheResetGeneration,
+  });
+};
+
+const isPositionsCacheScopeCurrent = (scope: PositionsCacheScope): boolean => {
+  const capture = captureActiveBrokerSession();
+  return (
+    scope.resetGeneration === positionsCacheResetGeneration &&
+    capture?.session.cacheNamespace === scope.cacheNamespace &&
+    isActiveBrokerSessionCurrent(scope.identity)
+  );
+};
 
 const resolvePositionId = (value: unknown): string | null => {
   if (!value || typeof value !== 'object') {
@@ -161,8 +219,13 @@ const flushOpenPositionsCacheWrites = () => {
   const writes = Array.from(pendingOpenPositionsCacheWrites.entries());
   pendingOpenPositionsCacheWrites.clear();
 
-  writes.forEach(([accountLogin, positions]) => {
-    const key = getOpenPositionsCacheKey(accountLogin);
+  writes.forEach(([, pendingWrite]) => {
+    const { scope, positions } = pendingWrite;
+    if (!isPositionsCacheScopeCurrent(scope)) {
+      return;
+    }
+
+    const key = getOpenPositionsCacheKey(scope.cacheNamespace);
     if (positions.length === 0) {
       void AsyncStorage.removeItem(key).catch((error) => {
         warnPositionsStateDiagnostic('[PositionsState] Failed to clear cached positions', error);
@@ -171,8 +234,11 @@ const flushOpenPositionsCacheWrites = () => {
     }
 
     const payload: CachedOpenPositionsPayload = {
-      version: 1,
-      accountLogin,
+      version: 2,
+      cacheNamespace: scope.cacheNamespace,
+      brokerId: scope.brokerId,
+      accountLogin: scope.accountLogin,
+      sessionEpoch: scope.sessionEpoch,
       savedAt: Date.now(),
       positions: positions.map(clonePositionForCache),
     };
@@ -183,11 +249,15 @@ const flushOpenPositionsCacheWrites = () => {
 };
 
 const scheduleOpenPositionsCacheWrite = (accountLogin: string | null | undefined, positions: PositionItem[]) => {
-  if (!accountLogin) {
+  const scope = capturePositionsCacheScope(accountLogin);
+  if (!scope) {
     return;
   }
 
-  pendingOpenPositionsCacheWrites.set(accountLogin, normalizeCachedPositions(positions));
+  pendingOpenPositionsCacheWrites.set(scope.cacheNamespace, {
+    scope,
+    positions: normalizeCachedPositions(positions),
+  });
   if (openPositionsCacheWriteTimer) {
     return;
   }
@@ -195,21 +265,24 @@ const scheduleOpenPositionsCacheWrite = (accountLogin: string | null | undefined
   openPositionsCacheWriteTimer = setTimeout(flushOpenPositionsCacheWrites, 250);
 };
 
-const readCachedOpenPositions = async (accountLogin: string): Promise<PositionItem[]> => {
+const readCachedOpenPositions = async (scope: PositionsCacheScope): Promise<PositionItem[]> => {
   try {
-    const rawValue = await AsyncStorage.getItem(getOpenPositionsCacheKey(accountLogin));
-    if (!rawValue) {
+    const rawValue = await AsyncStorage.getItem(getOpenPositionsCacheKey(scope.cacheNamespace));
+    if (!rawValue || !isPositionsCacheScopeCurrent(scope)) {
       return [];
     }
 
-    const payload = JSON.parse(rawValue) as Partial<CachedOpenPositionsPayload> | PositionItem[];
-    const rawPositions = Array.isArray(payload)
-      ? payload
-      : payload.accountLogin === accountLogin
-        ? payload.positions
-        : [];
+    const payload = JSON.parse(rawValue) as Partial<CachedOpenPositionsPayload>;
+    const payloadMatchesScope =
+      payload.version === 2 &&
+      payload.cacheNamespace === scope.cacheNamespace &&
+      payload.brokerId === scope.brokerId &&
+      payload.accountLogin === scope.accountLogin &&
+      payload.sessionEpoch === scope.sessionEpoch;
 
-    return normalizeCachedPositions(rawPositions);
+    return payloadMatchesScope
+      ? normalizeCachedPositions(payload.positions)
+      : [];
   } catch (error) {
     warnPositionsStateDiagnostic('[PositionsState] Failed to hydrate cached positions', error);
     return [];
@@ -337,10 +410,12 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
 
         // A position was closed (SL/TP hit, server-side close, etc.).
         // Invalidate history caches so the History tab shows it immediately.
-        appQueryClient.invalidateQueries({ queryKey: ['positionHistory'] });
-        appQueryClient.invalidateQueries({ queryKey: ['accountDeals'] });
-        appQueryClient.invalidateQueries({ queryKey: ['deals'] });
-        appQueryClient.invalidateQueries({ queryKey: ['accountSummary'] });
+        void invalidateCurrentSessionQueryRoots(appQueryClient, [
+          'positionHistory',
+          'accountDeals',
+          'deals',
+          'accountSummary',
+        ]);
 
         const nextPositions = state.positions.filter((position) => position.id !== existing.id);
         scheduleOpenPositionsCacheWrite(accountLogin, nextPositions);
@@ -395,6 +470,11 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
       return;
     }
 
+    const cacheScope = capturePositionsCacheScope(normalizedLogin);
+    if (!cacheScope) {
+      return;
+    }
+
     // Guard before the async cache read: if the app already knows a different
     // account is active, never hydrate rows from the requested login.
     const activeLogin = resolveTradingLoginString();
@@ -407,12 +487,19 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
       return;
     }
 
-    const cachedPositions = await readCachedOpenPositions(normalizedLogin);
+    const cachedPositions = await readCachedOpenPositions(cacheScope);
+    if (!isPositionsCacheScopeCurrent(cacheScope)) {
+      return;
+    }
+
     set((latestState) => {
       // Guard again after AsyncStorage returns. The active account may have
       // changed while the cache read was in flight.
       const latestActiveLogin = resolveTradingLoginString();
-      if (latestActiveLogin && latestActiveLogin !== normalizedLogin) {
+      if (
+        !isPositionsCacheScopeCurrent(cacheScope) ||
+        (latestActiveLogin && latestActiveLogin !== normalizedLogin)
+      ) {
         return {};
       }
 
@@ -443,68 +530,100 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
   },
 
   refreshPositions: async (accountLogin: string) => {
+    const cacheScope = capturePositionsCacheScope(accountLogin);
+    if (!cacheScope) {
+      return;
+    }
+
     const state = get();
     if (state.isLoading && state.lastFetchLogin === accountLogin) {
       return;
     }
 
-    const rateLimitUntilMs = positionsRateLimitUntilByLogin.get(accountLogin) ?? 0;
+    const rateLimitUntilMs = positionsRateLimitUntilByNamespace.get(cacheScope.cacheNamespace) ?? 0;
     if (rateLimitUntilMs > Date.now()) {
       if (state.hydratedLogin !== accountLogin) {
-        const cachedPositions = await readCachedOpenPositions(accountLogin);
+        const cachedPositions = await readCachedOpenPositions(cacheScope);
+        if (!isPositionsCacheScopeCurrent(cacheScope)) {
+          return;
+        }
         set((latestState) => ({
-          positions: shouldClearPositionsForLoginSwitch(latestState.lastFetchLogin, accountLogin)
-            ? cachedPositions
-            : dedupePositionsById([...latestState.positions, ...cachedPositions]),
-          lastFetchLogin: accountLogin,
-          hydratedLogin: accountLogin,
+          ...(isPositionsCacheScopeCurrent(cacheScope)
+            ? {
+                positions: shouldClearPositionsForLoginSwitch(latestState.lastFetchLogin, accountLogin)
+                  ? cachedPositions
+                  : dedupePositionsById([...latestState.positions, ...cachedPositions]),
+                lastFetchLogin: accountLogin,
+                hydratedLogin: accountLogin,
+              }
+            : {}),
         }));
       }
       return;
     }
 
-      set((state) => ({
-        isLoading: true,
-        lastFetchLogin: accountLogin,
-        lastError: null,
-        // Drop old-account positions immediately so the chart never keeps
-        // drawing stale trades while a new account fetch is in flight.
-        positions: shouldClearPositionsForLoginSwitch(state.lastFetchLogin, accountLogin)
-          ? []
-          : state.positions,
-        positionSnapshots: shouldClearPositionsForLoginSwitch(state.lastFetchLogin, accountLogin)
-          ? {}
-          : state.positionSnapshots,
-        hydratedLogin: shouldClearPositionsForLoginSwitch(state.lastFetchLogin, accountLogin)
-          ? null
-          : state.hydratedLogin,
-      }));
+    set((latestState) =>
+      isPositionsCacheScopeCurrent(cacheScope)
+        ? {
+            isLoading: true,
+            lastFetchLogin: accountLogin,
+            lastError: null,
+            // Drop old-account positions immediately so the chart never keeps
+            // drawing stale trades while a new account fetch is in flight.
+            positions: shouldClearPositionsForLoginSwitch(latestState.lastFetchLogin, accountLogin)
+              ? []
+              : latestState.positions,
+            positionSnapshots: shouldClearPositionsForLoginSwitch(latestState.lastFetchLogin, accountLogin)
+              ? {}
+              : latestState.positionSnapshots,
+            hydratedLogin: shouldClearPositionsForLoginSwitch(latestState.lastFetchLogin, accountLogin)
+              ? null
+              : latestState.hydratedLogin,
+          }
+        : {},
+    );
 
     if (state.hydratedLogin !== accountLogin) {
-      const cachedPositions = await readCachedOpenPositions(accountLogin);
+      const cachedPositions = await readCachedOpenPositions(cacheScope);
+      if (!isPositionsCacheScopeCurrent(cacheScope)) {
+        return;
+      }
       set((latestState) => ({
-        positions: shouldClearPositionsForLoginSwitch(latestState.lastFetchLogin, accountLogin)
-          ? cachedPositions
-          : dedupePositionsById([...latestState.positions, ...cachedPositions]),
-        hydratedLogin: accountLogin,
+        ...(isPositionsCacheScopeCurrent(cacheScope)
+          ? {
+              positions: shouldClearPositionsForLoginSwitch(latestState.lastFetchLogin, accountLogin)
+                ? cachedPositions
+                : dedupePositionsById([...latestState.positions, ...cachedPositions]),
+              hydratedLogin: accountLogin,
+            }
+          : {}),
       }));
     }
 
     try {
+      if (!isPositionsCacheScopeCurrent(cacheScope)) {
+        return;
+      }
+
       const login = parseInt(accountLogin, 10);
       if (Number.isNaN(login)) {
         warnPositionsStateDiagnostic('[PositionsState] Invalid account login:', accountLogin);
-        set({
-          isLoading: false,
-          lastError: createFrontendTradingError(
-            'Account Error',
-            `The app could not resolve a valid trading account login from local state: ${accountLogin}.`,
-          ),
-        });
+        if (isPositionsCacheScopeCurrent(cacheScope)) {
+          set({
+            isLoading: false,
+            lastError: createFrontendTradingError(
+              'Account Error',
+              `The app could not resolve a valid trading account login from local state: ${accountLogin}.`,
+            ),
+          });
+        }
         return;
       }
 
       const data = await positionsApi.getPositions(login);
+      if (!isPositionsCacheScopeCurrent(cacheScope)) {
+        return;
+      }
 
       let positionsArray: Position[];
       if (Array.isArray(data)) {
@@ -542,6 +661,9 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
       logPositionsStateDiagnostic('[PositionsState] Fetched', positionsArray.length, 'open positions for login', login);
 
       set((state) => {
+        if (!isPositionsCacheScopeCurrent(cacheScope)) {
+          return {};
+        }
         const nextPositions = buildMergedPositions(state.positions, positionsArray);
         scheduleOpenPositionsCacheWrite(accountLogin, nextPositions);
         return {
@@ -552,10 +674,16 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
         };
       });
     } catch (e) {
+      if (!isPositionsCacheScopeCurrent(cacheScope)) {
+        return;
+      }
       const feedback = classifyTradingError(e, { action: 'load-positions' });
       if (feedback.kind === 'rate-limit') {
         const retryAfterSeconds = feedback.retryAfterSeconds ?? getRetryAfterSeconds(e) ?? DEFAULT_RATE_LIMIT_BACKOFF_SECONDS;
-        positionsRateLimitUntilByLogin.set(accountLogin, Date.now() + retryAfterSeconds * 1000);
+        positionsRateLimitUntilByNamespace.set(
+          cacheScope.cacheNamespace,
+          Date.now() + retryAfterSeconds * 1000,
+        );
       } else {
         warnPositionsStateDiagnostic('[PositionsState] Failed to fetch positions', e);
       }
@@ -566,3 +694,33 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
     }
   },
 }));
+
+/**
+ * Cancels deferred cache work and removes all position data tied to the prior
+ * broker session. Already-started storage operations are harmless because
+ * their key is namespaced and their captured identity cannot hydrate again.
+ */
+export const resetPositionsSessionState = (): void => {
+  positionsCacheResetGeneration += 1;
+  if (openPositionsCacheWriteTimer) {
+    clearTimeout(openPositionsCacheWriteTimer);
+    openPositionsCacheWriteTimer = null;
+  }
+  pendingOpenPositionsCacheWrites.clear();
+  positionsRateLimitUntilByNamespace.clear();
+  optimisticCloseUntilByPositionId.clear();
+  usePositionsState.setState({
+    positions: [],
+    positionSnapshots: {},
+    isLoading: false,
+    lastFetchLogin: null,
+    hydratedLogin: null,
+    lastError: null,
+  });
+};
+
+subscribeActiveBrokerSession((event) => {
+  if (event.type === 'transition') {
+    resetPositionsSessionState();
+  }
+});

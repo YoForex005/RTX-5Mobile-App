@@ -15,7 +15,6 @@ import { useUserPreferences } from '../../state/userPreferences';
 import { positionsApi } from '../../api/positions';
 import { appQueryClient } from '../../state/providers/AppProviders';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
-import { useTradingState } from '../../state/tradingState';
 import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
@@ -30,6 +29,13 @@ import {
   formatTradingErrorFeedback,
 } from '../../api/tradingErrors';
 import { hideTradePositionActionHost } from './tradePositionActionHostController';
+import { useExecutableQuote } from '../quotes/useExecutableQuote';
+import { quoteActionBlockMessage, recordBlockedPriceAction } from '../../market/quoteIntegrity';
+import {
+  captureActiveBrokerSessionProvenance,
+  isActiveBrokerSessionProvenanceCurrent,
+} from '../../state/activeBrokerSession';
+import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope';
 
 const CANVAS_DARK = '#121212';
 const CARD_DARK = '#1E1E1E';
@@ -72,16 +78,6 @@ export function CloseByScreen({
     positionId ? s.positionSnapshots[Array.isArray(positionId) ? positionId[0] : positionId] : undefined
   );
   const resolvedLogin = resolveTradingLoginString();
-  const quotes = useTradingState((s) => s.quotes);
-
-  const getLivePrice = (p: any) => {
-    if (!p) return 0;
-    return resolveLivePositionPrice(p, quotes[p.symbol]);
-  };
-  const getLivePnl = (p: any) => {
-    if (!p) return 0;
-    return resolveLivePositionPnl(p, quotes[p.symbol]);
-  };
 
   const sourcePosition = useMemo(
     () => findPositionById(positions, positionId) ?? primedPosition,
@@ -91,6 +87,23 @@ export function CloseByScreen({
     () => positionPairCandidates(positions, sourcePosition),
     [positions, sourcePosition]
   );
+  const {
+    quote: executableQuote,
+    availability: quoteAvailability,
+    getCurrentAvailability,
+  } = useExecutableQuote(
+    sourcePosition?.symbol ?? '',
+    themeActive && Boolean(sourcePosition?.symbol),
+  );
+
+  const getLivePrice = (position: typeof sourcePosition) => {
+    if (!position) return 0;
+    return resolveLivePositionPrice(position, executableQuote);
+  };
+  const getLivePnl = (position: typeof sourcePosition) => {
+    if (!position) return 0;
+    return resolveLivePositionPnl(position, executableQuote);
+  };
 
   const [selectedPairId, setSelectedPairId] = useState<string>('');
 
@@ -142,6 +155,20 @@ export function CloseByScreen({
   const handleSubmit = useCallback(async () => {
     if (!sourcePosition || !selectedPair || actionLockRef.current || isClosing) return;
 
+    const currentQuoteAvailability = getCurrentAvailability();
+    if (!currentQuoteAvailability.allowed) {
+      recordBlockedPriceAction('close_by', currentQuoteAvailability);
+      setCloseError(
+        formatTradingErrorFeedback(
+          createFrontendTradingError(
+            t('Market Data Unavailable'),
+            t(quoteActionBlockMessage(currentQuoteAvailability)),
+          ),
+        ),
+      );
+      return;
+    }
+
     actionLockRef.current = true;
     setActionLocked(true);
 
@@ -154,6 +181,11 @@ export function CloseByScreen({
           ),
         ),
       );
+      releaseActionLock();
+      return;
+    }
+    const actionProvenance = captureActiveBrokerSessionProvenance();
+    if (!actionProvenance) {
       releaseActionLock();
       return;
     }
@@ -170,22 +202,21 @@ export function CloseByScreen({
 
     void positionsApi.closePosition(sourcePosition.id, selectedPair.id)
       .then(() => {
+        if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) return;
         const latestState = usePositionsState.getState();
         latestState.finishOptimisticClose(sourcePosition.id);
         latestState.finishOptimisticClose(selectedPair.id);
-        appQueryClient.invalidateQueries({ queryKey: ['positionHistory'] });
-        appQueryClient.invalidateQueries({ queryKey: ['accountDeals'] });
-        appQueryClient.invalidateQueries({ queryKey: ['deals'] });
-        appQueryClient.invalidateQueries({ queryKey: ['positions'] });
-        appQueryClient.invalidateQueries({ queryKey: ['ordersByLogin'] });
-        appQueryClient.invalidateQueries({ queryKey: ['accountSummary'] });
-        appQueryClient.invalidateQueries({ queryKey: ['exposure'] });
-        appQueryClient.invalidateQueries({ queryKey: ['transactions'] });
+        void invalidateSessionQueryRoots(
+          appQueryClient,
+          actionProvenance.cacheNamespace,
+          ['positionHistory', 'accountDeals', 'deals', 'positions', 'ordersByLogin', 'accountSummary', 'exposure', 'transactions'],
+        );
         if (resolvedLogin) {
           void latestState.refreshPositions(resolvedLogin);
         }
       })
       .catch((error: any) => {
+        if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) return;
         const feedback = classifyTradingError(error, { action: 'close-by' });
         const message = formatTradingErrorFeedback(feedback);
         const latestState = usePositionsState.getState();
@@ -198,7 +229,7 @@ export function CloseByScreen({
         setIsClosing(false);
         releaseActionLock();
       });
-  }, [accountDetails?.credentials?.accessToken, isClosing, leaveScreen, releaseActionLock, resolvedLogin, selectedPair, sourcePosition, t]);
+  }, [accountDetails?.credentials?.accessToken, getCurrentAvailability, isClosing, leaveScreen, releaseActionLock, resolvedLogin, selectedPair, sourcePosition, t]);
 
   if (hosted && !hostedActive) {
     return <View style={[styles.root, { backgroundColor: screenBg }]} />;
@@ -330,14 +361,32 @@ export function CloseByScreen({
               {closeError ?? t('Close-by request completed successfully.')}
             </Text>
           </View>
+        ) : !quoteAvailability.allowed ? (
+          <View style={[styles.statusBox, styles.statusBoxError]}>
+            <Text style={[styles.statusText, styles.statusTextError]}>
+              {t(quoteActionBlockMessage(quoteAvailability))}
+            </Text>
+          </View>
         ) : null}
 
         <Pressable
           style={[
             styles.submitButton,
-            (!activePairId || candidates.length === 0 || isClosing || actionLocked) && styles.submitDisabled,
+            (
+              !activePairId ||
+              candidates.length === 0 ||
+              isClosing ||
+              actionLocked ||
+              !quoteAvailability.allowed
+            ) && styles.submitDisabled,
           ]}
-          disabled={!activePairId || candidates.length === 0 || isClosing || actionLocked}
+          disabled={
+            !activePairId ||
+            candidates.length === 0 ||
+            isClosing ||
+            actionLocked ||
+            !quoteAvailability.allowed
+          }
           onPress={() => { void handleSubmit(); }}
           activateOnPressIn
           latencyLabel="closeBy.submit"

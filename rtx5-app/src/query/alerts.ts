@@ -8,10 +8,19 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { alertsApi, CreateAlertPayload } from '../api/alerts';
+import { alertsApi, type CreateAlertPayload } from '../api/alerts';
 import { useUserPreferences } from '../state/userPreferences';
+import {
+  getSessionQueryCacheNamespace,
+  invalidateSessionQueryRoots,
+  runSessionBoundQuery,
+  useActiveBrokerQuerySession,
+} from './authenticatedQueryScope';
 
-const ALERTS_KEY = ['alerts'] as const;
+export const ALERTS_KEY = 'alerts';
+
+export const getAlertsQueryKey = (cacheNamespace: string) =>
+  [ALERTS_KEY, cacheNamespace] as const;
 
 type PollingQueryOptions = {
   enabled?: boolean;
@@ -33,11 +42,16 @@ const resolvePollingRefetchInterval = (
  * Polls every 30 seconds to pick up newly triggered alerts.
  */
 export function useAlertsQuery(options: PollingQueryOptions = {}) {
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
   const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
-  const enabled = (options.enabled ?? true) && isLoggedIn;
+  const enabled = Boolean(session) && (options.enabled ?? true) && isLoggedIn;
   return useQuery({
-    queryKey: ALERTS_KEY,
-    queryFn: () => alertsApi.getAlerts(),
+    queryKey: getAlertsQueryKey(cacheNamespace),
+    queryFn: () => runSessionBoundQuery(
+      cacheNamespace,
+      () => alertsApi.getAlerts(),
+    ),
     enabled,
     refetchInterval: resolvePollingRefetchInterval(enabled, 30_000, options.refetchInterval),
   });
@@ -53,10 +67,15 @@ export function useAlertsQuery(options: PollingQueryOptions = {}) {
  */
 export function useCreateAlertMutation() {
   const queryClient = useQueryClient();
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
   return useMutation({
-    mutationFn: (payload: CreateAlertPayload) => alertsApi.createAlert(payload),
+    mutationFn: (payload: CreateAlertPayload) => runSessionBoundQuery(
+      cacheNamespace,
+      () => alertsApi.createAlert(payload),
+    ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ALERTS_KEY });
+      void invalidateSessionQueryRoots(queryClient, cacheNamespace, [ALERTS_KEY]);
     },
   });
 }
@@ -72,10 +91,15 @@ export function useCreateAlertMutation() {
  */
 export function useDeleteAlertMutation() {
   const queryClient = useQueryClient();
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
   return useMutation({
-    mutationFn: (id: number) => alertsApi.deleteAlert(id),
+    mutationFn: (id: number) => runSessionBoundQuery(
+      cacheNamespace,
+      () => alertsApi.deleteAlert(id),
+    ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ALERTS_KEY });
+      void invalidateSessionQueryRoots(queryClient, cacheNamespace, [ALERTS_KEY]);
     },
   });
 }

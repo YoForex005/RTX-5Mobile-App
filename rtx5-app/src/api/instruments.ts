@@ -1,4 +1,4 @@
-import { apiClient } from './apiClient';
+import { apiJsonClient, commitApiJson } from './apiClient';
 import { normalizeQuoteSymbolKey, normalizeSymbol } from '../domain/symbols';
 import {
   cacheInstrumentMeta,
@@ -16,34 +16,41 @@ export {
   primeInstrumentMetaCacheFromCatalogPayload,
 };
 
-export async function fetchInstrumentMeta(symbol: string, cacheScope?: string): Promise<InstrumentMetaDTO> {
+export async function fetchInstrumentMeta(
+  symbol: string,
+  cacheNamespace: string,
+): Promise<InstrumentMetaDTO> {
+  if (!cacheNamespace) {
+    throw new Error('Instrument metadata requires an active session cache namespace.');
+  }
   const exactSymbol = normalizeQuoteSymbolKey(symbol);
   const normalizedSymbol = normalizeSymbol(symbol);
   const candidates = Array.from(new Set([exactSymbol, normalizedSymbol].filter(Boolean)));
   let firstError: Error | null = null;
 
   for (const candidate of candidates) {
-    const res = await apiClient(`/instruments/${encodeURIComponent(candidate)}`);
-    if (!res.ok) {
+    const result = await apiJsonClient<unknown>(`/instruments/${encodeURIComponent(candidate)}`);
+    if (!result.ok) {
       firstError ??= new Error(`Failed to fetch metadata for ${candidate}`);
       continue;
     }
 
-    const data = await res.json();
-    const meta = normalizeInstrumentMetaPayload(data, candidate);
-    cacheInstrumentMeta(meta, cacheScope);
-    return meta;
+    return commitApiJson(result, cacheNamespace, (data) => {
+      const meta = normalizeInstrumentMetaPayload(data, candidate);
+      cacheInstrumentMeta(meta, cacheNamespace);
+      return meta;
+    });
   }
 
-  const catalogRes = await apiClient('/instruments');
-  if (catalogRes.ok) {
-    const catalog = await catalogRes.json();
-    primeInstrumentMetaCacheFromCatalogPayload(catalog, cacheScope);
-    const catalogMeta = findInstrumentMetaInCatalogPayload(catalog, symbol);
-    if (catalogMeta) {
-      cacheInstrumentMeta(catalogMeta, cacheScope);
-      return catalogMeta;
-    }
+  const catalogResult = await apiJsonClient<unknown>('/instruments');
+  if (catalogResult.ok) {
+    const catalogMeta = commitApiJson(catalogResult, cacheNamespace, (catalog) => {
+      primeInstrumentMetaCacheFromCatalogPayload(catalog, cacheNamespace);
+      const meta = findInstrumentMetaInCatalogPayload(catalog, symbol);
+      if (meta) cacheInstrumentMeta(meta, cacheNamespace);
+      return meta;
+    });
+    if (catalogMeta) return catalogMeta;
   }
 
   throw firstError ?? new Error(`Failed to fetch metadata for ${normalizedSymbol || exactSymbol || symbol}`);

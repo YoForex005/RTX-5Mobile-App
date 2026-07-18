@@ -31,7 +31,8 @@ import {
 // The retained sidebar host mounts Help offscreen. Build its static FAQ body
 // before the first selection, after About, while keeping every interactive or
 // focus-only effect governed by isScreenFocused.
-const HELP_BODY_PREWARM_DELAY_MS = 1_650;
+// Hosted sidebar destination: mount body immediately so first open is never blank.
+const HELP_BODY_PREWARM_DELAY_MS = 0;
 
 /**
  * Provides support resources, FAQs, and contact methods for users needing assistance.

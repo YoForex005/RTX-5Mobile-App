@@ -303,13 +303,18 @@ test('webview bridge: objects navigation flushes current drawing records first',
   );
   assertSourceContains(
     source,
-    /const requestChartDrawingSyncForObjects = useCallback\(\(\) => \{[\s\S]*publishSerializedDrawings\(\)[\s\S]*DRAWINGS_SYNCED_FOR_OBJECTS[\s\S]*\}, \[chartCanvasReady, webViewReady\]\)/,
-    'native chart must request current WebView drawings and wait for an ack before navigation',
+    /const requestChartDrawingSyncForObjects = useCallback\(\(onReady: \(\) => void\) => \{[\s\S]*pendingObjectsDrawingSyncRef\.current = \{ onReady, requestId \}[\s\S]*publishSerializedDrawings\(\)[\s\S]*DRAWINGS_SYNCED_FOR_OBJECTS[\s\S]*requestId: \$\{requestId\}[\s\S]*pendingRequest\.requestId !== requestId[\s\S]*pendingRequest\.onReady\(\)[\s\S]*\}, \[chartCanvasReady, webViewReady\]\)/,
+    'native chart must request current WebView drawings and guard both ack and fallback by request id',
   );
   assertSourceContains(
     source,
-    /msg\.type === 'DRAWINGS_SYNCED_FOR_OBJECTS'[\s\S]*pendingObjectsDrawingSyncRef\.current[\s\S]*router\.push\('\/chart\/objects'\)/,
-    'Objects screen navigation must happen after the WebView confirms drawing publication',
+    /msg\.type === 'DRAWINGS_SYNCED_FOR_OBJECTS'[\s\S]*Number\(msg\.requestId\) === pendingRequest\.requestId[\s\S]*pendingObjectsDrawingSyncRef\.current = null[\s\S]*pendingRequest\.onReady\(\)/,
+    'matching drawing publication acknowledgement must release the guarded Objects navigation callback',
+  );
+  assertSourceContains(
+    source,
+    /showChartActionLaunch\('objects', chartSymbol\)[\s\S]*scheduleChartActionLaunchNavigation\(launchRevision[\s\S]*pathname: '\/chart\/objects'[\s\S]*requestChartDrawingSyncForObjects\(navigateToObjects\)/,
+    'Objects must reveal its retained cover before drawing sync and navigate only through the revision guard',
   );
 });
 

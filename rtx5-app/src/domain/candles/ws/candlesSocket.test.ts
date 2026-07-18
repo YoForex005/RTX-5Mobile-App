@@ -10,58 +10,19 @@ import {
 } from './candlesSocketProtocol';
 import { normalizeLiveCandle } from '../normalization/candleNormalizer';
 
-test('resolveCandlesWsUrl resolves the broker candle channel websocket', () => {
-  assert.equal(resolveCandlesWsUrl(undefined), 'wss://backend.orrnn.com/ws/v2');
+test('resolveCandlesWsUrl accepts only an exact validated trading websocket', () => {
+  assert.equal(resolveCandlesWsUrl(undefined), '');
   assert.equal(
-    resolveCandlesWsUrl('wss://backend.orrnn.com/ws/v2'),
-    'wss://backend.orrnn.com/ws/v2',
+    resolveCandlesWsUrl('wss://services.alpha-broker.com/ws/v2'),
+    'wss://services.alpha-broker.com/ws/v2',
   );
-  assert.equal(
-    resolveCandlesWsUrl('wss://backend.orrnn.com/ws/v2?token=***'),
-    'wss://backend.orrnn.com/ws/v2?token=***',
-  );
+  assert.equal(resolveCandlesWsUrl('wss://services.alpha-broker.com/ws/v2?token=redacted'), '');
 });
 
-test('resolveCandlesWsUrl keeps configured websocket overrides safe for iOS', () => {
-  assert.equal(
-    resolveCandlesWsUrl('ws://testbrokerbackend.orrnn.com/ws/v2'),
-    'wss://testbrokerbackend.orrnn.com/ws/v2',
-  );
-  assert.equal(
-    resolveCandlesWsUrl('http://testbrokerbackend.orrnn.com/ws/v2?token=***'),
-    'wss://testbrokerbackend.orrnn.com/ws/v2?token=***',
-  );
-  assert.equal(
-    resolveCandlesWsUrl('ws://69.197.178.27:8090/ws/v2'),
-    'wss://backend.orrnn.com/ws/v2',
-  );
-});
-
-test('resolveCandlesWsUrl derives broker candle sockets from secure service domains only', () => {
-  assert.equal(
-    resolveCandlesWsUrl(undefined, 'https://testbrokerbackend.orrnn.com:443/api/v2'),
-    'wss://testbrokerbackend.orrnn.com/ws/v2',
-  );
-  assert.equal(
-    resolveCandlesWsUrl(undefined, 'http://69.197.178.27:8090'),
-    'wss://backend.orrnn.com/ws/v2',
-  );
-});
-
-test('resolveCandlesWsUrl can require logged-in broker candle sockets without shared fallback', () => {
-  assert.equal(
-    resolveCandlesWsUrl(undefined, 'https://testbrokerbackend.orrnn.com:443/api/v2', {
-      requireBrokerUrl: true,
-    }),
-    'wss://testbrokerbackend.orrnn.com/ws/v2',
-  );
-  assert.equal(
-    resolveCandlesWsUrl(undefined, 'http://69.197.178.27:8090', {
-      requireBrokerUrl: true,
-    }),
-    '',
-  );
-  assert.equal(resolveCandlesWsUrl(undefined, '', { requireBrokerUrl: true }), '');
+test('resolveCandlesWsUrl rejects cleartext, raw-IP, and REST origins without synthesis', () => {
+  assert.equal(resolveCandlesWsUrl('ws://services.alpha-broker.com/ws/v2'), '');
+  assert.equal(resolveCandlesWsUrl('wss://69.197.178.27/ws/v2'), '');
+  assert.equal(resolveCandlesWsUrl('https://services.alpha-broker.com/api/v2'), '');
 });
 
 test('resolveCandleWsTimeframe maps app timeframes to backend live-channel tokens', () => {
@@ -74,9 +35,9 @@ test('resolveCandleWsTimeframe maps app timeframes to backend live-channel token
   assert.equal(resolveCandleWsTimeframe('bad'), null);
 });
 
-test('createCandleChannel normalizes symbols and uses backend websocket timeframe tokens', () => {
-  assert.equal(createCandleChannel('EURUSD.c', 'M1'), 'candles.EURUSD.1m');
-  assert.equal(createCandleChannel('XAUUSDm', 'H1'), 'candles.XAUUSD.1h');
+test('createCandleChannel preserves exact broker symbols and uses backend websocket timeframe tokens', () => {
+  assert.equal(createCandleChannel('EURUSD.c', 'M1'), 'candles.EURUSD.C.1m');
+  assert.equal(createCandleChannel('XAUUSDm', 'H1'), 'candles.XAUUSDM.1h');
 });
 
 test('extractCandlePayloadContext parses v2 candle channels', () => {

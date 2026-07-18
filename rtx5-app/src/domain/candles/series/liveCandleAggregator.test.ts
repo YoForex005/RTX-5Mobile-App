@@ -251,6 +251,29 @@ test('same-price no-volume heartbeat does not open future candle buckets', () =>
   });
 });
 
+test('quote tick high/low span expands candle wicks beyond close-only line', () => {
+  const candleMap = buildEmptyMap();
+  const first = applyQuoteTickExtensionToCandleMap(
+    candleMap,
+    { price: 1.1000, high: 1.1005, low: 1.0995, time: BUCKET + 1, volume: 1 },
+    TIMEFRAME,
+    { historyCutoffTime: BUCKET - 60 },
+  );
+  const second = applyQuoteTickExtensionToCandleMap(
+    candleMap,
+    { price: 1.1002, high: 1.1010, low: 1.0990, time: BUCKET + 2, volume: 1 },
+    TIMEFRAME,
+    { historyCutoffTime: BUCKET - 60 },
+  );
+
+  assert.equal(first.ignored, false);
+  assert.equal(second.ignored, false);
+  assert.equal(candleMap.get(BUCKET)?.open, 1.1000);
+  assert.equal(candleMap.get(BUCKET)?.high, 1.1010);
+  assert.equal(candleMap.get(BUCKET)?.low, 1.0990);
+  assert.equal(candleMap.get(BUCKET)?.close, 1.1002);
+});
+
 test('stale non-closing server candle cannot overwrite fresher quote-driven active candle', () => {
   const candleMap = buildEmptyMap();
   applyQuoteTickExtensionToCandleMap(
@@ -287,4 +310,36 @@ test('stale non-closing server candle cannot overwrite fresher quote-driven acti
     close: 1.0818,
     volume: 1,
   });
+});
+
+test('stale closing server candle cannot overwrite fresher quote-driven active candle', () => {
+  const candleMap = buildEmptyMap();
+  applyQuoteTickExtensionToCandleMap(
+    candleMap,
+    { price: 1.0818, time: BUCKET + 20, volume: 1 },
+    TIMEFRAME,
+    { historyCutoffTime: BUCKET - 60 },
+  );
+
+  const delayed = applyLiveCandleToCandleMap(
+    candleMap,
+    {
+      time: BUCKET,
+      updateTime: BUCKET + 10,
+      open: 1.0800,
+      high: 1.0805,
+      low: 1.0798,
+      close: 1.0801,
+      volume: 10,
+      closed: true,
+    },
+    TIMEFRAME,
+    { historyCutoffTime: BUCKET - 60 },
+  );
+
+  assert.equal(delayed.ignored, true);
+  assert.equal(delayed.changed, false);
+  assert.equal(delayed.reason, 'stale_server_candle_after_quote');
+  assert.equal(candleMap.get(BUCKET)?.close, 1.0818);
+  assert.equal(candleMap.get(BUCKET)?.closed, false);
 });

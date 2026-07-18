@@ -64,6 +64,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Test
+        run: npm test
+
       - name: Check EAS environment
         run: node ./scripts/ota/check-eas-env.js ${{ inputs.channel }}
 

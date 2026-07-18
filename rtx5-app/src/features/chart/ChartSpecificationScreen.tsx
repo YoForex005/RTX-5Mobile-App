@@ -9,7 +9,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
-import React, { useMemo, useEffect, useState } from 'react';
+import React, { useCallback, useMemo, useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
@@ -21,6 +21,7 @@ import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 import { safeRouterBack } from '../../utils/navigation';
 import { resolveTradeVolumeBounds } from '../../utils/tradeVolume';
 import { ChartTradingHoursModal } from './ChartTradingHoursModal';
+import { scheduleChartActionLaunchCovered } from './chartActionLaunchController';
 
 // Format helpers — show "—" when the broker hasn't returned a value yet so the
 // UI never displays a misleading hardcoded number.
@@ -61,13 +62,41 @@ function fmtCountdown(totalSecs: number): string {
 }
 
 export function ChartSpecificationScreen() {
-  const { symbol } = useLocalSearchParams<{ symbol: string }>();
+  const { launchRevision, symbol } = useLocalSearchParams<{
+    launchRevision?: string;
+    symbol: string;
+  }>();
   const { t } = useTranslation();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const isScreenFocused = useIsFocused();
+  const parsedLaunchRevision = Number(launchRevision);
+  const resolvedLaunchRevision = Number.isFinite(parsedLaunchRevision)
+    ? parsedLaunchRevision
+    : undefined;
+  const launchBodyLaidOutRef = useRef(false);
+  const scheduledCoverageRevisionRef = useRef<number | null>(null);
+  const scheduleLaunchCoverageIfReady = useCallback(() => {
+    if (
+      !isScreenFocused
+      || resolvedLaunchRevision === undefined
+      || !launchBodyLaidOutRef.current
+      || scheduledCoverageRevisionRef.current === resolvedLaunchRevision
+    ) {
+      return;
+    }
+    scheduledCoverageRevisionRef.current = resolvedLaunchRevision;
+    scheduleChartActionLaunchCovered('specification', resolvedLaunchRevision);
+  }, [isScreenFocused, resolvedLaunchRevision]);
+  const handleLaunchBodyLayout = useCallback(() => {
+    launchBodyLaidOutRef.current = true;
+    scheduleLaunchCoverageIfReady();
+  }, [scheduleLaunchCoverageIfReady]);
+  useEffect(() => {
+    scheduleLaunchCoverageIfReady();
+  }, [scheduleLaunchCoverageIfReady]);
 
   const [showTradingHoursModal, setShowTradingHoursModal] = useState(false);
 
@@ -117,7 +146,11 @@ export function ChartSpecificationScreen() {
   ];
 
   return (
-    <Screen style={styles.screen}>
+    <Screen
+      collapsable={false}
+      onLayout={handleLaunchBodyLayout}
+      style={styles.screen}
+    >
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
         <View style={styles.headerRow}>
           <Pressable onPress={() => safeRouterBack(router, '/(tabs)/chart')} hitSlop={16} style={styles.headerBackBtn}>

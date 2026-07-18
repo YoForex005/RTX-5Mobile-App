@@ -21,12 +21,31 @@ function mockFetch(t: { after: (fn: () => void) => void }, implementation: typeo
 test('sanitizeApiLatencyEndpoint strips host and redacts sensitive query values', () => {
   assert.equal(
     sanitizeApiLatencyEndpoint('https://backend.orrnn.com/api/v2/auth/login?token=%5Bredacted-fixture%5D&symbol=BTCUSD'),
-    '/api/v2/auth/login?token=%5Bredacted%5D&symbol=BTCUSD',
+    '/api/v2/auth/login?token=[redacted]&symbol=[redacted]',
   );
   assert.equal(
     sanitizeApiLatencyEndpoint('/orders?password=1234&ticket=42'),
-    '/orders?password=%5Bredacted%5D&ticket=42',
+    '/orders?password=[redacted]&ticket=[redacted]',
   );
+  assert.equal(
+    sanitizeApiLatencyEndpoint('/feed?sig=backend-declared-secret&instrument=EURUSD'),
+    '/feed?sig=[redacted]&instrument=[redacted]',
+  );
+});
+
+test('recordApiLatency redacts credential-bearing URLs from error messages', () => {
+  clearApiLatencySamples();
+  const sample = recordApiLatency({
+    label: 'feed.failure',
+    endpoint: '/feed?sig=secret-value',
+    durationMs: 10,
+    error: new Error('failed wss://services.example/ws/feed?sig=secret-value&symbol=XAUUSD Authorization: Bearer access-secret'),
+  });
+
+  assert.doesNotMatch(sample.endpoint, /secret-value/);
+  assert.doesNotMatch(sample.error ?? '', /secret-value|access-secret|XAUUSD/);
+  assert.match(sample.error ?? '', /sig=\[redacted\]/);
+  assert.match(sample.error ?? '', /Authorization: \[redacted\]/);
 });
 
 test('recordApiLatency stores newest samples first and caps the in-memory buffer', () => {

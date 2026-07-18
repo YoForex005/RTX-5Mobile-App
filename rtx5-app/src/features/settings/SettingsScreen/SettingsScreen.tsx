@@ -32,7 +32,6 @@ import { FastPressable } from '../../../ui/components/FastPressable';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { recordAccountJournalEvent } from '../../../state/terminalJournalState';
 import { useThemeMode } from '../../../state/themeMode';
-import { clearAuthSessionTokens } from '../../../state/brokerSessionStorage';
 import { useUIState } from '../../../state/uiState';
 import { fmt } from '../../../utils/format';
 import { GDark, GLight } from '../../../ui/theme/glass';
@@ -43,8 +42,6 @@ import { useBrokerConfig } from '../../../query/broker';
 import { useAccountDetails } from '../../../query/accounts';
 import { resolveAppDisplayVersion } from '../../../config/appDisplayVersion';
 import { getConfiguredSupportEmail } from '../../../config/legalLinks';
-import { accountWsService } from '../../../api/ws/accountSocket';
-import { candlesWsService } from '../../../domain/candles/ws/candlesSocket';
 import { buildHelpMailto } from '../helpViewModel';
 import { hasAuthenticatedAccountSession } from '../accountConnectionStatus';
 import { SettingRow } from './SettingRow';
@@ -56,6 +53,7 @@ import {
   showSidebarDestination,
   type SidebarHostDestination,
 } from '../../../ui/components/sidebarDestinationHostController';
+import { logoutBrokerSession } from '../../../services/brokerSessionCoordinator';
 
 const SETTINGS_ROUTE_LOCK_MS = 1800;
 const SETTINGS_ROUTE_PREFETCH_DELAY_MS = 0;
@@ -242,7 +240,6 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
 
   void activeAccount;
 
-  const logout = useUserPreferences((s) => s.logout);
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const routeLockRef = useRef(false);
@@ -262,16 +259,17 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
           text: t('Logout'),
           style: 'destructive',
           onPress: () => {
-            accountWsService.disconnect();
-            candlesWsService.disconnect();
-            useLiveAccountState.getState().resetMetrics();
-            logout();
-            recordAccountJournalEvent('logged out from current account', {
-              level: 'success',
-              accountLogin: accountLoginForJournal,
-            });
-            void clearAuthSessionTokens();
-            router.replace('/login');
+            void logoutBrokerSession()
+              .then(() => {
+                recordAccountJournalEvent('logged out from current account', {
+                  level: 'success',
+                  accountLogin: accountLoginForJournal,
+                });
+              })
+              .catch((error) => {
+                console.warn('[Settings] Secure logout cleanup failed', error);
+              })
+              .finally(() => router.replace('/login'));
           },
         },
       ],

@@ -3,10 +3,15 @@
  *
  * POST /api/v2/orders/pending
  */
-import { apiClient, decodeBrokerIdFromToken } from '../apiClient';
+import { apiClient } from '../apiClient';
+import { StaleBrokerSessionError } from '../brokerApi';
 import { assertTradeSide } from '../../domain/tradeSide';
 import { createTradingApiError } from '../tradingErrors';
-import { useUserPreferences } from '../../state/userPreferences';
+import {
+  captureActiveBrokerSession,
+  getActiveBrokerSessionIdentity,
+  isActiveBrokerSessionCurrent,
+} from '../../state/activeBrokerSession';
 import { getApiLatencyNow, recordApiLatency } from '../../utils/apiLatency';
 import { resolveBrokerSymbol, resolveBrokerSymbolFromCache } from './symbolResolver';
 import { buildMarketOrderSymbolCandidates, getAcceptedSymbolCacheKey } from './placeMarketOrderCandidates';
@@ -15,6 +20,7 @@ import {
   buildPendingOrderRequestBody,
 } from './pendingOrderPayload';
 import type { PlacePendingOrderPayload, PlacePendingOrderResponse } from './types';
+import { redactDiagnosticValue } from '../../utils/securityRedaction';
 
 const acceptedPendingOrderSymbolCache = new Map<string, string>();
 const ORDER_DIAGNOSTICS_ENABLED =
@@ -22,13 +28,23 @@ const ORDER_DIAGNOSTICS_ENABLED =
 
 const logOrderDiagnostic = (...args: Parameters<typeof console.log>) => {
   if (ORDER_DIAGNOSTICS_ENABLED) {
-    console.log(...args);
+    console.log(...args.map(redactDiagnosticValue));
   }
 };
 
 export const placePendingOrder = async (
   payload: PlacePendingOrderPayload,
 ): Promise<PlacePendingOrderResponse> => {
+  const sessionCapture = captureActiveBrokerSession();
+  if (!sessionCapture) throw new StaleBrokerSessionError();
+  const sessionIdentity = getActiveBrokerSessionIdentity(sessionCapture.session);
+  const cacheNamespace = sessionCapture.session.cacheNamespace;
+  const assertOrderSessionCurrent = () => {
+    if (!isActiveBrokerSessionCurrent(sessionIdentity)) {
+      throw new StaleBrokerSessionError();
+    }
+  };
+
   const requestedSide = assertTradeSide(payload.side);
   let orderBody: Record<string, unknown>;
   try {
@@ -41,9 +57,11 @@ export const placePendingOrder = async (
   }
 
   const callerSymbol = String(orderBody.symbol ?? '').trim();
-  const state = useUserPreferences.getState();
-  const currentToken = state.accountDetails?.credentials?.accessToken;
-  const jwtBrokerId = decodeBrokerIdFromToken(currentToken);
+  if (String(orderBody.login ?? '') !== sessionCapture.session.accountLogin) {
+    throw createTradingApiError(403, {
+      message: 'Pending-order account does not match the active broker session.',
+    });
+  }
 
   type Attempt = {
     symbol: string;
@@ -64,6 +82,7 @@ export const placePendingOrder = async (
   };
 
   const sendOrder = async (symbolToSend: string): Promise<Attempt> => {
+    assertOrderSessionCurrent();
     const body = { ...orderBody, symbol: symbolToSend };
     logOrderDiagnostic('[RTX5 Pending Order] POST /orders/pending body:', JSON.stringify(body));
     const startedAtMs = getApiLatencyNow();
@@ -75,6 +94,7 @@ export const placePendingOrder = async (
         body: JSON.stringify(body),
       });
       const raw = await response.json().catch(() => ({}));
+      assertOrderSessionCurrent();
       const inner = unwrap(raw);
       const bodyStatus = typeof inner?.status === 'string' ? inner.status.toLowerCase() : '';
       const graceful = response.ok && ['rejected', 'failed', 'error'].includes(bodyStatus);
@@ -128,11 +148,11 @@ export const placePendingOrder = async (
     );
   };
 
-  const brokerCacheKey = getAcceptedSymbolCacheKey(jwtBrokerId || state.brokerId, callerSymbol);
+  const brokerCacheKey = getAcceptedSymbolCacheKey(cacheNamespace, callerSymbol);
   const candidates = buildMarketOrderSymbolCandidates({
     callerSymbol,
     acceptedSymbol: acceptedPendingOrderSymbolCache.get(brokerCacheKey) ?? null,
-    cachedCatalogSymbol: resolveBrokerSymbolFromCache(callerSymbol),
+    cachedCatalogSymbol: resolveBrokerSymbolFromCache(callerSymbol, cacheNamespace),
   });
 
   let accepted: Attempt | null = null;
@@ -149,7 +169,8 @@ export const placePendingOrder = async (
   }
 
   if (!accepted && lastBad && isSymbolMiss(lastBad)) {
-    const catalogSymbol = await resolveBrokerSymbol(callerSymbol);
+    const catalogSymbol = await resolveBrokerSymbol(callerSymbol, cacheNamespace);
+    assertOrderSessionCurrent();
     if (catalogSymbol && !candidates.includes(catalogSymbol)) {
       const attempt = await sendOrder(catalogSymbol);
       if (attempt.ok) {
@@ -176,6 +197,7 @@ export const placePendingOrder = async (
     throw createTradingApiError(lastBad?.graceful ? 400 : status, body, headers);
   }
 
+  assertOrderSessionCurrent();
   acceptedPendingOrderSymbolCache.set(brokerCacheKey, accepted.symbol);
   const finalData = unwrap(accepted.body);
   if (finalData && typeof finalData === 'object' && finalData.price_open == null && finalData.price != null) {
@@ -183,3 +205,7 @@ export const placePendingOrder = async (
   }
   return finalData;
 };
+
+export function resetAcceptedPendingOrderSymbolCache(): void {
+  acceptedPendingOrderSymbolCache.clear();
+}

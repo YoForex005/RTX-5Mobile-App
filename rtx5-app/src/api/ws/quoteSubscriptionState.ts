@@ -1,4 +1,4 @@
-import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
+import { normalizeQuoteSymbolKey } from '../../domain/symbols';
 
 export const normalizeQuoteTransportSymbol = (symbol: string): string => {
   const compact = symbol.trim().replace(/[\/\s]+/g, '');
@@ -6,9 +6,18 @@ export const normalizeQuoteTransportSymbol = (symbol: string): string => {
     return '';
   }
 
-  const baseSymbol = normalizeSymbol(compact);
-  if (baseSymbol && compact.toUpperCase().startsWith(baseSymbol)) {
-    return `${baseSymbol}${compact.slice(baseSymbol.length)}`;
+  // Uppercase the instrument stem while preserving broker-authoritative suffix
+  // spelling (for example `.c` or trailing `m`). Identity comparisons use the
+  // canonical key elsewhere, but transport must send the broker's exact name.
+  const separatorSuffixStart = compact.search(/[._-]/);
+  const lowercaseSuffixStart = compact.search(/[a-z]/);
+  const suffixStart = separatorSuffixStart > 0
+    ? separatorSuffixStart
+    : lowercaseSuffixStart > 0
+      ? lowercaseSuffixStart
+      : -1;
+  if (suffixStart > 0) {
+    return `${normalizeQuoteSymbolKey(compact.slice(0, suffixStart))}${compact.slice(suffixStart)}`;
   }
 
   return normalizeQuoteSymbolKey(compact);
@@ -20,13 +29,9 @@ export const resolveQuoteTransportSymbols = (symbol: string): string[] => {
     return [];
   }
 
-  const normalizedKey = normalizeQuoteSymbolKey(transportSymbol);
-  const baseSymbol = normalizeSymbol(transportSymbol);
-  const symbols = [transportSymbol];
-  if (baseSymbol && baseSymbol !== normalizedKey) {
-    symbols.push(baseSymbol);
-  }
-  return Array.from(new Set(symbols));
+  // A base symbol is a different broker instrument, not a fallback transport
+  // alias. Subscribe only the exact requested identity.
+  return [transportSymbol];
 };
 
 export const expandQuoteTransportSymbols = (symbols: string[]): string[] =>

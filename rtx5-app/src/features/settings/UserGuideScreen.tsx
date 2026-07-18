@@ -31,7 +31,8 @@ import {
 // User Guide is static and retained. Stagger its offscreen body mount behind
 // the lighter About/Help trees so its first drawer reveal is already complete
 // without concentrating all sidebar work in one startup frame.
-const USER_GUIDE_BODY_PREWARM_DELAY_MS = 1_900;
+// Hosted sidebar destination: mount body immediately so first open is never blank.
+const USER_GUIDE_BODY_PREWARM_DELAY_MS = 0;
 
 /**
  * Displays tutorials, documentation, and user guides on how to use the trading platform.

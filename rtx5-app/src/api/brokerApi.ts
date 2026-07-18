@@ -1,37 +1,34 @@
-import { useUserPreferences } from '../state/userPreferences';
 import {
-  ACCESS_TOKEN_KEY,
-  ACTIVE_BROKER_ID_KEY,
-  ACTIVE_BROKER_LOGO_URL_KEY,
-  ACTIVE_BROKER_SERVER_URL_KEY,
-  EXPIRES_AT_KEY,
-  getStoredFeedBrokerToken,
-  REFRESH_TOKEN_KEY,
-  clearAuthSessionTokens,
-  persistAuthSessionTokens,
-  persistSelectedBrokerSession,
-} from '../state/brokerSessionStorage';
-import { getSecureItemAsync } from '../utils/secureStorage';
+  beginActiveBrokerSessionTransition,
+  captureActiveBrokerSession,
+  getActiveBrokerSessionIdentity,
+  isActiveBrokerSessionCurrent,
+  subscribeActiveBrokerSession,
+  updateActiveBrokerSessionCredentials,
+  type ActiveBrokerSessionCapture,
+  type ActiveBrokerSessionIdentity,
+} from '../state/activeBrokerSession';
 import { timedFetch } from '../utils/apiLatency';
+import { buildApiUrl } from './brokerRouting';
+import { extractFeedBrokerToken, resolveConfiguredFeedBrokerTokenForBroker } from './feedAuth';
+import { resolveEffectiveFeedAuthForSession } from './feedAuthContract';
 import {
-  buildApiUrl,
-  buildBrokerApiBaseUrl,
-  buildBrokerWsUrl,
-  getBrokerBackendDomainUnavailableMessage,
-  isBrokerServiceBaseUrl,
-  normalizeBrokerServerUrl,
-} from './brokerRouting';
-import { appendFeedAuthToWsUrl, extractFeedBrokerToken } from './feedAuth';
+  fingerprintMarketDataHost,
+  recordMarketDataEvent,
+} from '../market/marketDataTelemetry';
 
 const TOKEN_REFRESH_SKEW_MS = 60_000;
 const AUTH_REFRESH_TIMEOUT_MS = 2500;
-const AUTH_REFRESH_FAILURES_BEFORE_LOGOUT = 2;
-const AUTH_REFRESH_FAILURE_WINDOW_MS = 30_000;
-const DEFAULT_BROKER_WS_URL = 'wss://backend.orrnn.com/ws/v2';
-const MYPROP_BROKER_ID = 'myprop-trade';
 const AUTH_SESSION_EXPIRED_MESSAGE = 'Refresh token invalid or expired.';
 const AUTH_SESSION_UNAVAILABLE_MESSAGE = 'No authenticated broker session available.';
-const BROKER_BACKEND_DOMAIN_UNAVAILABLE_CODE = 'BROKER_BACKEND_DOMAIN_UNAVAILABLE';
+const GUARDED_RESPONSE_BODY_READERS = new Set<PropertyKey>([
+  'json',
+  'text',
+  'blob',
+  'arrayBuffer',
+  'formData',
+  'bytes',
+]);
 
 export type BrokerApiRequestInit = RequestInit & {
   _retry?: boolean;
@@ -39,14 +36,13 @@ export type BrokerApiRequestInit = RequestInit & {
   skipRefresh?: boolean;
 };
 
-type BrokerSession = {
-  brokerId: string;
-  serverUrl: string;
-  logoUrl: string;
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: string;
-};
+export type BrokerApiJsonResponse<T> = Readonly<{
+  ok: boolean;
+  status: number;
+  data: T;
+  identity: ActiveBrokerSessionIdentity;
+  cacheNamespace: string;
+}>;
 
 type NormalizedAuthResponse = {
   accessToken: string;
@@ -56,7 +52,25 @@ type NormalizedAuthResponse = {
   feedToken?: string;
 };
 
-const isAuthFailureStatus = (status: number) =>
+type InFlightRequest = {
+  controller: AbortController;
+  removeCallerAbortListener: () => void;
+};
+
+type SessionInvalidationHandler = (
+  identity: ActiveBrokerSessionIdentity,
+) => Promise<void>;
+
+export class StaleBrokerSessionError extends Error {
+  public readonly code = 'STALE_BROKER_SESSION';
+
+  constructor() {
+    super('Broker session changed while the operation was in flight.');
+    this.name = 'StaleBrokerSessionError';
+  }
+}
+
+const isAuthFailureStatus = (status: number): boolean =>
   status === 400 || status === 401 || status === 403;
 
 const isAuthSessionError = (error: unknown): boolean => {
@@ -68,19 +82,9 @@ const isAuthSessionError = (error: unknown): boolean => {
   );
 };
 
-const createUnauthenticatedResponse = (message = AUTH_SESSION_UNAVAILABLE_MESSAGE) =>
+const createUnauthenticatedResponse = (message = AUTH_SESSION_UNAVAILABLE_MESSAGE): Response =>
   new Response(JSON.stringify({ code: 'UNAUTHORIZED', message }), {
     status: 401,
-    headers: { 'Content-Type': 'application/json' },
-  });
-
-const createBrokerDomainUnavailableResponse = (message: string) =>
-  new Response(JSON.stringify({
-    code: BROKER_BACKEND_DOMAIN_UNAVAILABLE_CODE,
-    message,
-    error: message,
-  }), {
-    status: 400,
     headers: { 'Content-Type': 'application/json' },
   });
 
@@ -98,8 +102,10 @@ const normalizeAuthResponse = (
   payload: Record<string, unknown>,
   fallbackRefreshToken: string,
 ): NormalizedAuthResponse => {
-  const accessToken = String(payload.access_token ?? payload.token ?? '');
-  const refreshToken = String(payload.refresh_token ?? payload.refreshToken ?? fallbackRefreshToken ?? '');
+  const accessToken = String(payload.access_token ?? payload.token ?? '').trim();
+  const refreshToken = String(
+    payload.refresh_token ?? payload.refreshToken ?? fallbackRefreshToken ?? '',
+  ).trim();
   const feedToken = extractFeedBrokerToken(payload);
   const rawExpiresAt = payload.expires_at ?? payload.expiresAt;
 
@@ -120,26 +126,47 @@ const normalizeAuthResponse = (
     throw new Error('Refresh response did not include an access token.');
   }
 
+  const brokerId = typeof payload.broker_id === 'string'
+    ? payload.broker_id.trim().toLowerCase()
+    : typeof payload.brokerId === 'string'
+      ? payload.brokerId.trim().toLowerCase()
+      : undefined;
+
   return {
     accessToken,
     refreshToken,
     expiresAt,
-    brokerId: typeof payload.broker_id === 'string'
-      ? payload.broker_id
-      : typeof payload.brokerId === 'string'
-        ? payload.brokerId
-        : undefined,
-    feedToken,
+    ...(brokerId ? { brokerId } : {}),
+    ...(feedToken ? { feedToken } : {}),
   };
+};
+
+const appendQueryCredential = (
+  baseUrl: string,
+  params: ReadonlyArray<readonly [string, string]>,
+): string => {
+  const url = new URL(baseUrl);
+  for (const [key, value] of params) {
+    url.searchParams.set(key, value);
+  }
+  return url.toString();
 };
 
 export class BrokerAPI {
   private static instance: BrokerAPI | null = null;
-  private refreshPromise: Promise<string> | null = null;
-  private sessionInvalidated = false;
-  private consecutiveRefreshAuthFailures = 0;
-  private lastRefreshAuthFailureKey = '';
-  private lastRefreshAuthFailureAt = 0;
+  private readonly refreshPromises = new Map<string, Promise<string>>();
+  private readonly inFlight = new Map<string, Set<AbortController>>();
+  private readonly unsubscribeFromSession: () => void;
+  private sessionInvalidationHandler: SessionInvalidationHandler | null = null;
+
+  constructor() {
+    this.unsubscribeFromSession = subscribeActiveBrokerSession((event) => {
+      if (event.type === 'transition') {
+        this.abortInFlightRequests();
+        this.refreshPromises.clear();
+      }
+    });
+  }
 
   static getInstance(): BrokerAPI {
     if (!BrokerAPI.instance) {
@@ -148,348 +175,501 @@ export class BrokerAPI {
     return BrokerAPI.instance;
   }
 
-  async request(endpoint: string, options: BrokerApiRequestInit = {}): Promise<Response> {
-    const method = (options.method ?? 'GET').toUpperCase();
-    const headers = new Headers(options.headers ?? {});
-    const session = await this.getSession();
-    const shouldAuthenticate = !options.skipAuth;
-    const shouldRequireBrokerBackend = Boolean(
-      useUserPreferences.getState().isLoggedIn ||
-        session.accessToken ||
-        session.refreshToken,
-    );
+  dispose(): void {
+    this.unsubscribeFromSession();
+    this.abortInFlightRequests();
+    this.refreshPromises.clear();
+  }
 
-    if (shouldRequireBrokerBackend && !isBrokerServiceBaseUrl(session.serverUrl)) {
-      return createBrokerDomainUnavailableResponse(
-        getBrokerBackendDomainUnavailableMessage(session.brokerId),
-      );
+  abortInFlightRequests(): void {
+    for (const requests of this.inFlight.values()) {
+      for (const controller of requests) controller.abort();
     }
+    this.inFlight.clear();
+  }
 
-    if (shouldAuthenticate && (!session.accessToken || this.sessionInvalidated)) {
+  /** Registered by the top-level coordinator to include sockets/caches/UI in auth invalidation. */
+  setSessionInvalidationHandler(handler: SessionInvalidationHandler | null): void {
+    this.sessionInvalidationHandler = handler;
+  }
+
+  async request(endpoint: string, options: BrokerApiRequestInit = {}): Promise<Response> {
+    const capture = captureActiveBrokerSession();
+    if (!capture) {
       return createUnauthenticatedResponse();
     }
 
-    let activeToken = session.accessToken;
+    const identity = getActiveBrokerSessionIdentity(capture.session);
+    const request = this.createInFlightRequest(capture, options.signal);
+    try {
+      const response = await this.requestForCapture(endpoint, options, capture, identity, request.controller.signal);
+      this.assertCurrent(identity);
+      return this.bindResponseBodyReaders(response, identity);
+    } catch (error) {
+      if (!isActiveBrokerSessionCurrent(identity)) {
+        throw new StaleBrokerSessionError();
+      }
+      throw error;
+    } finally {
+      request.removeCallerAbortListener();
+      this.unregisterInFlight(capture.session.cacheNamespace, request.controller);
+    }
+  }
+
+  async getJson<T>(endpoint: string, options: BrokerApiRequestInit = {}): Promise<T> {
+    const result = await this.getJsonResponse<T>(endpoint, options);
+    if (!result.ok) {
+      throw { response: { status: result.status, data: result.data } };
+    }
+    return result.data;
+  }
+
+  /**
+   * Parses a response while bound to one broker/account/epoch. Callers that
+   * write a cache after awaiting must use `commitJsonResponse` so a transition
+   * between parse completion and the write is rejected as stale.
+   */
+  async getJsonResponse<T>(
+    endpoint: string,
+    options: BrokerApiRequestInit = {},
+  ): Promise<BrokerApiJsonResponse<T>> {
+    const capture = this.requireCapture();
+    const identity = getActiveBrokerSessionIdentity(capture.session);
+    const response = await this.request(endpoint, options);
+    this.assertCurrent(identity);
+
+    let data: T;
+    try {
+      data = await response.json() as T;
+    } catch (error) {
+      this.assertCurrent(identity);
+      if (response.ok) throw error;
+      data = {} as T;
+    }
+    this.assertCurrent(identity);
+    return Object.freeze({
+      ok: response.ok,
+      status: response.status,
+      data,
+      identity,
+      cacheNamespace: capture.session.cacheNamespace,
+    });
+  }
+
+  /** Performs a synchronous parse/cache commit only if provenance is current. */
+  commitJsonResponse<T, R>(
+    result: BrokerApiJsonResponse<T>,
+    expectedCacheNamespace: string,
+    commit: (data: T) => R,
+  ): R {
+    const capture = this.requireCurrentCapture(result.identity);
+    if (
+      !expectedCacheNamespace ||
+      result.cacheNamespace !== expectedCacheNamespace ||
+      capture.session.cacheNamespace !== expectedCacheNamespace
+    ) {
+      throw new StaleBrokerSessionError();
+    }
+    return commit(result.data);
+  }
+
+  async getValidAccessToken(forceRefresh = false): Promise<string> {
+    const capture = captureActiveBrokerSession();
+    if (!capture) return '';
+    const identity = getActiveBrokerSessionIdentity(capture.session);
+    const token = await this.getValidAccessTokenForCapture(capture, identity, forceRefresh);
+    this.assertCurrent(identity);
+    return token;
+  }
+
+  async getWebSocketUrl(): Promise<string> {
+    const capture = this.requireCapture();
+    const identity = getActiveBrokerSessionIdentity(capture.session);
+    if (!capture.session.tradeWsBase) {
+      throw new Error('The active broker did not provide a validated trading WebSocket endpoint.');
+    }
+    const token = await this.getValidAccessTokenForCapture(capture, identity, false);
+    this.assertCurrent(identity);
+    if (!token) throw new Error(AUTH_SESSION_UNAVAILABLE_MESSAGE);
+    return appendQueryCredential(capture.session.tradeWsBase, [['token', token]]);
+  }
+
+  async getQuoteWebSocketUrl(): Promise<string> {
+    const initialCapture = this.requireCapture();
+    const identity = getActiveBrokerSessionIdentity(initialCapture.session);
+    const effective = resolveEffectiveFeedAuthForSession({
+      brokerId: initialCapture.session.brokerId,
+      feedAuthContext: initialCapture.session.feedAuthContext,
+      feedToken: initialCapture.credentials.feedToken,
+    });
+    const auth = effective.feedAuthContext;
+    if (auth.mode === 'disabled_unconfigured') {
+      throw new Error(
+        auth.reason === 'missing_credential'
+          ? 'The active broker market-data credential is unavailable. Please sign in again.'
+          : 'The active broker market-data authentication contract is not configured.',
+      );
+    }
+    if (auth.mode === 'none') {
+      this.assertCurrent(identity);
+      return initialCapture.session.feedWsBase;
+    }
+
+    let credential = '';
+    if (auth.credential === 'access_token') {
+      credential = await this.getValidAccessTokenForCapture(initialCapture, identity, false);
+    } else {
+      credential = effective.feedToken
+        || this.requireCurrentCapture(identity).credentials.feedToken
+        || resolveConfiguredFeedBrokerTokenForBroker(initialCapture.session.brokerId)
+        || '';
+    }
+    this.assertCurrent(identity);
+    if (!credential) {
+      throw new Error('The active broker market-data credential is unavailable. Please sign in again.');
+    }
+
+    const session = this.requireCurrentCapture(identity).session;
+    const params: Array<readonly [string, string]> = [[auth.tokenQueryParam, credential]];
+    if (auth.brokerIdQueryParam) params.push([auth.brokerIdQueryParam, session.brokerId]);
+    if (auth.accountLoginQueryParam) params.push([auth.accountLoginQueryParam, session.accountLogin]);
+    return appendQueryCredential(session.feedWsBase, params);
+  }
+
+  private async requestForCapture(
+    endpoint: string,
+    options: BrokerApiRequestInit,
+    capture: ActiveBrokerSessionCapture,
+    identity: ActiveBrokerSessionIdentity,
+    signal: AbortSignal,
+  ): Promise<Response> {
+    const method = (options.method ?? 'GET').toUpperCase();
+    const headers = new Headers(options.headers ?? {});
+    const shouldAuthenticate = !options.skipAuth;
+    let activeToken = capture.credentials.accessToken;
+
+    if (shouldAuthenticate && !activeToken) {
+      return createUnauthenticatedResponse();
+    }
     if (shouldAuthenticate && !options.skipRefresh) {
       try {
-        activeToken = await this.getValidAccessTokenForSession(session, false);
+        activeToken = await this.getValidAccessTokenForCapture(capture, identity, false);
       } catch (error) {
         if (isAuthSessionError(error)) {
           return createUnauthenticatedResponse(AUTH_SESSION_EXPIRED_MESSAGE);
         }
         throw error;
       }
+      this.assertCurrent(identity);
     }
 
     if (shouldAuthenticate) {
-      if (!activeToken) {
-        return createUnauthenticatedResponse();
-      }
+      if (!activeToken) return createUnauthenticatedResponse();
       headers.set('Authorization', `Bearer ${activeToken}`);
     }
-    if (!headers.has('accept')) {
-      headers.set('accept', 'application/json');
-    }
+    if (!headers.has('accept')) headers.set('accept', 'application/json');
     if (!headers.has('Content-Type') && options.body && !(options.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json');
     }
 
-    const url = this.buildRequestUrl(endpoint, session.serverUrl, method);
-    const requestConfig: RequestInit = { ...options, headers };
-
+    const url = buildApiUrl(endpoint, capture.session.apiBase);
+    const {
+      _retry: _ignoredRetry,
+      skipAuth: _ignoredSkipAuth,
+      skipRefresh: _ignoredSkipRefresh,
+      signal: _ignoredSignal,
+      ...fetchOptions
+    } = options;
+    const requestConfig: RequestInit = { ...fetchOptions, headers, signal };
     let response = await timedFetch(url, requestConfig, {
       label: `apiClient.${method}`,
       method,
       endpoint,
       source: 'apiClient',
     });
+    this.assertCurrent(identity);
 
     if (response.status === 401 && shouldAuthenticate && !options._retry) {
       let refreshedToken = '';
       try {
-        refreshedToken = await this.getValidAccessTokenForSession(session, true);
+        refreshedToken = await this.getValidAccessTokenForCapture(capture, identity, true);
       } catch (error) {
         if (isAuthSessionError(error)) {
           return createUnauthenticatedResponse(AUTH_SESSION_EXPIRED_MESSAGE);
         }
         throw error;
       }
-      if (!refreshedToken || refreshedToken === activeToken) {
-        return response;
-      }
+      this.assertCurrent(identity);
+      if (!refreshedToken || refreshedToken === activeToken) return response;
 
       const retryHeaders = new Headers(headers);
       retryHeaders.set('Authorization', `Bearer ${refreshedToken}`);
-
-      response = await timedFetch(url, {
-        ...requestConfig,
-        headers: retryHeaders,
-      }, {
+      response = await timedFetch(url, { ...requestConfig, headers: retryHeaders }, {
         label: `apiClient.retryAfterRefresh.${method}`,
         method,
         endpoint,
         source: 'apiClient',
       });
+      this.assertCurrent(identity);
     }
 
     return response;
   }
 
-  async getJson<T>(endpoint: string, options: BrokerApiRequestInit = {}): Promise<T> {
-    const response = await this.request(endpoint, options);
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
-      throw { response: { status: response.status, data: body } };
-    }
-    return response.json() as Promise<T>;
-  }
-
-  private async getValidAccessTokenForSession(
-    session: BrokerSession,
-    forceRefresh = false,
+  private async getValidAccessTokenForCapture(
+    capture: ActiveBrokerSessionCapture,
+    identity: ActiveBrokerSessionIdentity,
+    forceRefresh: boolean,
   ): Promise<string> {
-    if (!session.accessToken) {
-      return '';
-    }
-
-    const expiresAtMs = parseExpiresAtMs(session.expiresAt);
-    const shouldRefresh =
-      forceRefresh ||
-      (Boolean(session.refreshToken) && expiresAtMs > 0 && expiresAtMs - Date.now() < TOKEN_REFRESH_SKEW_MS);
-
-    if (!shouldRefresh) {
-      return session.accessToken;
-    }
-
-    return this.refreshToken(session);
+    const current = this.requireCurrentCapture(identity);
+    if (!current.credentials.accessToken) return '';
+    const expiresAtMs = parseExpiresAtMs(current.credentials.expiresAt);
+    const shouldRefresh = forceRefresh || (
+      Boolean(current.credentials.refreshToken) &&
+      expiresAtMs > 0 &&
+      expiresAtMs - Date.now() < TOKEN_REFRESH_SKEW_MS
+    );
+    if (!shouldRefresh) return current.credentials.accessToken;
+    return this.refreshToken(capture, identity);
   }
 
-  async getValidAccessToken(forceRefresh = false): Promise<string> {
-    return this.getValidAccessTokenForSession(await this.getSession(), forceRefresh);
-  }
+  private refreshToken(
+    capture: ActiveBrokerSessionCapture,
+    identity: ActiveBrokerSessionIdentity,
+  ): Promise<string> {
+    this.assertCurrent(identity);
+    const namespace = capture.session.cacheNamespace;
+    const existing = this.refreshPromises.get(namespace);
+    if (existing) return existing;
 
-  async getWebSocketUrl(): Promise<string> {
-    const session = await this.getSession();
-    this.assertBrokerServiceBaseUrl(session);
-    const token = await this.getValidAccessTokenForSession(session, false);
-    if (!token) {
-      throw new Error(AUTH_SESSION_UNAVAILABLE_MESSAGE);
-    }
-    const baseUrl = buildBrokerWsUrl(session.serverUrl, '/ws/v2', DEFAULT_BROKER_WS_URL);
-    return `${baseUrl}?token=${encodeURIComponent(token)}`;
-  }
-
-  async getQuoteWebSocketUrl(): Promise<string> {
-    const session = await this.getSession();
-    this.assertBrokerServiceBaseUrl(session);
-
-    if (session.brokerId.trim().toLowerCase() !== MYPROP_BROKER_ID) {
-      return this.getWebSocketUrl();
-    }
-
-    const feedToken = await getStoredFeedBrokerToken();
-    if (!feedToken) {
-      throw new Error('MyProp market data feed token is unavailable. Please sign in again.');
-    }
-
-    const baseUrl = buildBrokerWsUrl(session.serverUrl, '/ws/feed', '');
-    if (!baseUrl) {
-      throw new Error(getBrokerBackendDomainUnavailableMessage(session.brokerId));
-    }
-    return appendFeedAuthToWsUrl(baseUrl, session.brokerId, feedToken);
-  }
-
-  async persistSelectedBroker(input: {
-    brokerId: string;
-    serverUrl: string;
-    logoUrl?: string | null;
-  }): Promise<void> {
-    await persistSelectedBrokerSession(input);
-    useUserPreferences.getState().setBrokerConnection(input.brokerId, input.serverUrl, input.logoUrl ?? '');
-  }
-
-  private async refreshToken(session: BrokerSession): Promise<string> {
-    if (this.refreshPromise) {
-      return this.refreshPromise;
-    }
-
-    this.refreshPromise = this.performRefresh(session).finally(() => {
-      this.refreshPromise = null;
+    const promise = this.performRefresh(identity).finally(() => {
+      if (this.refreshPromises.get(namespace) === promise) {
+        this.refreshPromises.delete(namespace);
+      }
     });
-
-    return this.refreshPromise;
+    this.refreshPromises.set(namespace, promise);
+    return promise;
   }
 
-  private async performRefresh(session: BrokerSession): Promise<string> {
-    if (!session.refreshToken) {
+  private async performRefresh(identity: ActiveBrokerSessionIdentity): Promise<string> {
+    const capture = this.requireCurrentCapture(identity);
+    const { session, credentials } = capture;
+    let refreshOutcomeRecorded = false;
+    const recordRefreshOutcome = (
+      outcome: string,
+      extra: Record<string, unknown> = {},
+    ) => {
+      refreshOutcomeRecorded = true;
+      recordMarketDataEvent('refresh_outcome', {
+        outcome,
+        brokerId: session.brokerId,
+        sessionEpoch: identity.sessionEpoch,
+        apiHostFingerprint: fingerprintMarketDataHost(session.apiBase),
+        ...extra,
+      });
+    };
+    if (!credentials.refreshToken) {
+      recordRefreshOutcome('missing_refresh_credential');
       throw new Error('No refresh token available.');
     }
-    this.assertBrokerServiceBaseUrl(session);
 
-    const apiBaseUrl = buildBrokerApiBaseUrl(session.serverUrl);
-    const response = await timedFetch(`${apiBaseUrl}/auth/refresh`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        accept: 'application/json',
-        ...(session.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
-      },
-      body: JSON.stringify({
-        refresh_token: session.refreshToken,
-        ...(session.brokerId ? { broker_id: session.brokerId } : {}),
-      }),
-    }, {
-      label: 'apiClient.refresh',
-      method: 'POST',
-      endpoint: '/auth/refresh',
-      source: 'auth',
-      timeoutMs: AUTH_REFRESH_TIMEOUT_MS,
-    });
+    const request = this.createInFlightRequest(capture);
+    try {
+      const response = await timedFetch(`${session.apiBase}/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          accept: 'application/json',
+          ...(credentials.accessToken
+            ? { Authorization: `Bearer ${credentials.accessToken}` }
+            : {}),
+        },
+        body: JSON.stringify({
+          refresh_token: credentials.refreshToken,
+          broker_id: session.brokerId,
+        }),
+        signal: request.controller.signal,
+      }, {
+        label: 'apiClient.refresh',
+        method: 'POST',
+        endpoint: '/auth/refresh',
+        source: 'auth',
+        timeoutMs: AUTH_REFRESH_TIMEOUT_MS,
+      });
+      this.assertCurrent(identity);
 
-    if (!response.ok) {
-      if (isAuthFailureStatus(response.status)) {
-        this.recordRefreshAuthFailure(session);
-        if (this.consecutiveRefreshAuthFailures >= AUTH_REFRESH_FAILURES_BEFORE_LOGOUT) {
-          await this.invalidateAuthSession();
+      if (!response.ok) {
+        recordRefreshOutcome('rejected', { status: response.status });
+        if (isAuthFailureStatus(response.status)) {
+          await this.invalidateAuthSession(identity);
+          throw new Error(AUTH_SESSION_EXPIRED_MESSAGE);
         }
+        throw new Error(`Token refresh failed with status ${response.status}.`);
+      }
+
+      const payload = await response.json() as Record<string, unknown>;
+      this.assertCurrent(identity);
+      const normalized = normalizeAuthResponse(payload, credentials.refreshToken);
+      if (normalized.brokerId && normalized.brokerId !== session.brokerId) {
+        recordRefreshOutcome('broker_identity_mismatch');
+        await this.invalidateAuthSession(identity);
         throw new Error(AUTH_SESSION_EXPIRED_MESSAGE);
       }
-      throw new Error(`Token refresh failed with status ${response.status}.`);
-    }
+      const feedToken = normalized.feedToken
+        || credentials.feedToken
+        || resolveConfiguredFeedBrokerTokenForBroker(session.brokerId)
+        || undefined;
 
-    const payload = await response.json();
-    const normalized = normalizeAuthResponse(payload, session.refreshToken);
-    const brokerId = normalized.brokerId || session.brokerId;
+      // The current-identity check and queued secure replacement are invoked in
+      // the same turn. A subsequent broker commit queues behind this write.
+      this.assertCurrent(identity);
+      try {
+        const { replaceAuthSessionCredentials } = await import('../state/brokerSessionStorage');
+        this.assertCurrent(identity);
+        await replaceAuthSessionCredentials({
+          brokerId: session.brokerId,
+          accountLogin: session.accountLogin,
+          accessToken: normalized.accessToken,
+          refreshToken: normalized.refreshToken,
+          expiresAt: normalized.expiresAt,
+          feedToken,
+        });
+      } catch (error) {
+        recordRefreshOutcome('secure_storage_failed');
+        if (isActiveBrokerSessionCurrent(identity)) {
+          await this.invalidateAuthSession(identity);
+        }
+        throw error;
+      }
+      this.assertCurrent(identity);
 
-    useUserPreferences.getState().updateTokens(
-      normalized.accessToken,
-      normalized.refreshToken,
-      normalized.expiresAt,
-    );
-    if (brokerId) {
-      useUserPreferences.getState().setBrokerConnection(
-        brokerId,
-        session.serverUrl,
-        session.logoUrl,
-      );
-    }
-
-    await Promise.all([
-      persistSelectedBrokerSession({
-        brokerId,
-        serverUrl: session.serverUrl,
-        logoUrl: session.logoUrl,
-      }),
-      persistAuthSessionTokens({
+      const updated = updateActiveBrokerSessionCredentials(identity, {
         accessToken: normalized.accessToken,
         refreshToken: normalized.refreshToken,
         expiresAt: normalized.expiresAt,
-        feedToken: normalized.feedToken,
-      }),
-    ]);
-
-    this.sessionInvalidated = false;
-    this.resetRefreshAuthFailures();
-    return normalized.accessToken;
-  }
-
-  private recordRefreshAuthFailure(session: BrokerSession): void {
-    const now = Date.now();
-    const failureKey = `${session.brokerId}:${session.refreshToken}`;
-    const sameRecentFailure =
-      this.lastRefreshAuthFailureKey === failureKey &&
-      now - this.lastRefreshAuthFailureAt <= AUTH_REFRESH_FAILURE_WINDOW_MS;
-    this.consecutiveRefreshAuthFailures = sameRecentFailure
-      ? this.consecutiveRefreshAuthFailures + 1
-      : 1;
-    this.lastRefreshAuthFailureKey = failureKey;
-    this.lastRefreshAuthFailureAt = now;
-  }
-
-  private resetRefreshAuthFailures(): void {
-    this.consecutiveRefreshAuthFailures = 0;
-    this.lastRefreshAuthFailureKey = '';
-    this.lastRefreshAuthFailureAt = 0;
-  }
-
-  private async invalidateAuthSession(): Promise<void> {
-    this.sessionInvalidated = true;
-    this.resetRefreshAuthFailures();
-    useUserPreferences.getState().logout();
-    try {
-      await clearAuthSessionTokens();
+        feedToken,
+      });
+      if (!updated) throw new StaleBrokerSessionError();
+      recordRefreshOutcome('accepted', { status: response.status });
+      return normalized.accessToken;
     } catch (error) {
-      console.warn('[BrokerAPI] Failed to clear expired auth tokens', error);
+      if (!refreshOutcomeRecorded) {
+        recordRefreshOutcome(
+          error instanceof StaleBrokerSessionError ? 'stale_session' : 'request_failed',
+        );
+      }
+      if (!isActiveBrokerSessionCurrent(identity) && !(error instanceof Error && isAuthSessionError(error))) {
+        throw new StaleBrokerSessionError();
+      }
+      throw error;
+    } finally {
+      request.removeCallerAbortListener();
+      this.unregisterInFlight(capture.session.cacheNamespace, request.controller);
     }
   }
 
-  private buildRequestUrl(endpoint: string, serverUrl: string, method: string): string {
-    const apiBaseUrl = buildBrokerApiBaseUrl(serverUrl);
-    let url = buildApiUrl(endpoint, apiBaseUrl);
-    if (method === 'GET' && !/^https?:\/\//i.test(endpoint)) {
-      url += url.includes('?') ? `&_t=${Date.now()}` : `?_t=${Date.now()}`;
+  private async invalidateAuthSession(identity: ActiveBrokerSessionIdentity): Promise<void> {
+    if (!isActiveBrokerSessionCurrent(identity)) return;
+    if (this.sessionInvalidationHandler) {
+      await this.sessionInvalidationHandler(identity);
+      return;
     }
-    return url;
+    beginActiveBrokerSessionTransition();
+    try {
+      const { clearAuthSessionTokens } = await import('../state/brokerSessionStorage');
+      await clearAuthSessionTokens();
+    } catch {
+      // The epoch was already advanced and memory credentials were erased.
+      // Secure-storage failures stay fail-closed and are handled by re-login.
+    }
   }
 
-  private assertBrokerServiceBaseUrl(session: BrokerSession): void {
-    if (!isBrokerServiceBaseUrl(session.serverUrl)) {
-      throw new Error(getBrokerBackendDomainUnavailableMessage(session.brokerId));
+  private requireCapture(): ActiveBrokerSessionCapture {
+    const capture = captureActiveBrokerSession();
+    if (!capture) throw new Error(AUTH_SESSION_UNAVAILABLE_MESSAGE);
+    return capture;
+  }
+
+  private requireCurrentCapture(
+    identity: ActiveBrokerSessionIdentity,
+  ): ActiveBrokerSessionCapture {
+    this.assertCurrent(identity);
+    const capture = captureActiveBrokerSession();
+    if (!capture) throw new StaleBrokerSessionError();
+    return capture;
+  }
+
+  private assertCurrent(identity: ActiveBrokerSessionIdentity): void {
+    if (!isActiveBrokerSessionCurrent(identity)) {
+      throw new StaleBrokerSessionError();
     }
   }
 
-  private async getSession(): Promise<BrokerSession> {
-    const state = useUserPreferences.getState();
-    const credentials = state.accountDetails?.credentials;
-    const liveServerUrl = normalizeBrokerServerUrl(state.brokerServerUrl || '');
-    const liveAccessToken = credentials?.accessToken || '';
+  /**
+   * A fetch can finish while its body is still being decoded. Bind all standard
+   * body readers to the request identity so legacy `apiClient(...).json()` call
+   * sites cannot parse an old broker response after an epoch transition.
+   */
+  private bindResponseBodyReaders(
+    response: Response,
+    identity: ActiveBrokerSessionIdentity,
+  ): Response {
+    return new Proxy(response, {
+      get: (target, property) => {
+        if (property === 'clone' && typeof target.clone === 'function') {
+          return () => {
+            this.assertCurrent(identity);
+            const clone = target.clone();
+            this.assertCurrent(identity);
+            return this.bindResponseBodyReaders(clone, identity);
+          };
+        }
 
-    if (state.isLoggedIn && state.brokerId && liveServerUrl && liveAccessToken) {
-      this.sessionInvalidated = false;
-      return {
-        brokerId: state.brokerId,
-        serverUrl: liveServerUrl,
-        logoUrl: state.brokerLogoUrl || '',
-        accessToken: liveAccessToken,
-        refreshToken: credentials?.refreshToken || '',
-        expiresAt: credentials?.expiresAt || '',
-      };
-    }
+        const value = Reflect.get(target, property, target);
+        if (GUARDED_RESPONSE_BODY_READERS.has(property) && typeof value === 'function') {
+          return async (...args: unknown[]) => {
+            this.assertCurrent(identity);
+            try {
+              const body = await Reflect.apply(value, target, args);
+              this.assertCurrent(identity);
+              return body;
+            } catch (error) {
+              this.assertCurrent(identity);
+              throw error;
+            }
+          };
+        }
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+  }
 
-    const shouldLoadStoredAuth =
-      state.isLoggedIn || Boolean(credentials?.accessToken || credentials?.refreshToken);
+  private createInFlightRequest(
+    capture: ActiveBrokerSessionCapture,
+    callerSignal?: AbortSignal | null,
+  ): InFlightRequest {
+    const controller = new AbortController();
+    const abortFromCaller = () => controller.abort();
+    if (callerSignal?.aborted) controller.abort();
+    else callerSignal?.addEventListener('abort', abortFromCaller, { once: true });
 
-    const [
-      storedBrokerId,
-      storedServerUrl,
-      storedLogoUrl,
-      storedAccessToken,
-      storedRefreshToken,
-      storedExpiresAt,
-    ] = await Promise.all([
-      getSecureItemAsync(ACTIVE_BROKER_ID_KEY),
-      getSecureItemAsync(ACTIVE_BROKER_SERVER_URL_KEY),
-      getSecureItemAsync(ACTIVE_BROKER_LOGO_URL_KEY),
-      shouldLoadStoredAuth ? getSecureItemAsync(ACCESS_TOKEN_KEY) : Promise.resolve(null),
-      shouldLoadStoredAuth ? getSecureItemAsync(REFRESH_TOKEN_KEY) : Promise.resolve(null),
-      shouldLoadStoredAuth ? getSecureItemAsync(EXPIRES_AT_KEY) : Promise.resolve(null),
-    ]);
-
-    const accessToken = credentials?.accessToken || storedAccessToken || '';
-    const refreshToken = credentials?.refreshToken || storedRefreshToken || '';
-    if (state.isLoggedIn && accessToken && refreshToken) {
-      this.sessionInvalidated = false;
-    }
-
+    const namespace = capture.session.cacheNamespace;
+    const requests = this.inFlight.get(namespace) ?? new Set<AbortController>();
+    requests.add(controller);
+    this.inFlight.set(namespace, requests);
     return {
-      brokerId: state.brokerId || storedBrokerId || '',
-      serverUrl: normalizeBrokerServerUrl(state.brokerServerUrl || storedServerUrl || ''),
-      logoUrl: state.brokerLogoUrl || storedLogoUrl || '',
-      accessToken,
-      refreshToken,
-      expiresAt: credentials?.expiresAt || storedExpiresAt || '',
+      controller,
+      removeCallerAbortListener: () => callerSignal?.removeEventListener('abort', abortFromCaller),
     };
   }
+
+  private unregisterInFlight(namespace: string, controller: AbortController): void {
+    const requests = this.inFlight.get(namespace);
+    if (!requests) return;
+    requests.delete(controller);
+    if (requests.size === 0) this.inFlight.delete(namespace);
+  }
+
 }
 
 export const brokerApi = BrokerAPI.getInstance();

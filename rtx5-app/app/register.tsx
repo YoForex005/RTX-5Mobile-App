@@ -20,17 +20,16 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useUserPreferences } from '../src/state/userPreferences';
 import { useThemeMode } from '../src/state/themeMode';
 import { useSavedAccounts, setSavedAccountPassword } from '../src/state/savedAccounts';
-import { loginAPI } from '../src/api/auth';
+import { isLoginRequestAbortedError, loginAPI } from '../src/api/auth';
 import { extractFeedBrokerToken } from '../src/api/feedAuth';
 import { getBrokerConfig } from '../src/api/broker';
 import { useTheme, type ThemeColors } from '../src/ui/theme/useTheme';
 import { useDeferredActiveFlag } from '../src/hooks/useDeferredActiveFlag';
 import { useQueryClient } from '@tanstack/react-query';
-import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../src/query/accounts';
-import { BROKER_CONFIG_KEY, useBrokerServers } from '../src/query/broker';
+import { useBrokerServers } from '../src/query/broker';
+import { invalidateSessionQueryRoots } from '../src/query/authenticatedQueryScope';
 import { useTranslation } from '../src/i18n/useTranslation';
 import { getConfiguredPrivacyPolicyUrl, getConfiguredTermsUrl, resolveLegalUrl } from '../src/config/legalLinks';
 import {
@@ -66,11 +65,16 @@ import {
 } from '../src/features/settings/registerLaunchController';
 import { isValidEmail, isValidPhoneNumber } from '../src/utils/contactValidation';
 import { ActionSheet } from '../src/ui/components/ActionSheet';
-import {
-  persistAuthSessionTokens,
-  persistSelectedBrokerSession,
-} from '../src/state/brokerSessionStorage';
 import { recordAccountJournalEvent } from '../src/state/terminalJournalState';
+import {
+  authorizeBrokerSessionCommit,
+  cancelBrokerSessionCommitAuthorization,
+  commitBrokerSession,
+  isStaleBrokerSessionCommitError,
+  type BrokerSessionCommitAuthorization,
+} from '../src/services/brokerSessionCoordinator';
+import { resolveFeedAuthContextFromAuthResponse } from '../src/api/feedAuthContract';
+import { redactAuthPayload, redactSensitiveString } from '../src/api/authRedaction';
 
 type RegisterFieldKey =
   | 'firstName'
@@ -197,7 +201,6 @@ const formatDemoPhoneForSubmission = (dialCode: string, phoneNumber: string) => 
  * Screen for opening a new Demo or Real account. Contains forms for user details, server selection, and account preferences.
  */
 export default function RegisterScreen() {
-  const login = useUserPreferences((s) => s.login);
   const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
   const queryClient = useQueryClient();
   const { t } = useTranslation();
@@ -295,6 +298,11 @@ export default function RegisterScreen() {
   const [showInvestorPassword, setShowInvestorPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const registerSubmitInFlightRef = React.useRef(false);
+  const registerMountedRef = React.useRef(true);
+  const activeRegisterAttemptRef = React.useRef<{
+    authorization: BrokerSessionCommitAuthorization;
+    controller: AbortController;
+  } | null>(null);
   const scrollViewRef = React.useRef<React.ElementRef<typeof ScrollView> | null>(null);
   const fieldYPositionsRef = React.useRef<Partial<Record<RegisterFieldKey, number>>>({});
   const fieldFocusTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -334,10 +342,18 @@ export default function RegisterScreen() {
     demoGroupsError?.message || t('No demo group is available for account creation.');
   const isRegisterButtonDisabled = isLoading || !termsAccepted;
 
-  React.useEffect(() => () => {
-    if (fieldFocusTimerRef.current) {
-      clearTimeout(fieldFocusTimerRef.current);
-    }
+  React.useEffect(() => {
+    registerMountedRef.current = true;
+    return () => {
+      registerMountedRef.current = false;
+      const activeAttempt = activeRegisterAttemptRef.current;
+      activeAttempt?.controller.abort();
+      cancelBrokerSessionCommitAuthorization(activeAttempt?.authorization);
+      activeRegisterAttemptRef.current = null;
+      if (fieldFocusTimerRef.current) {
+        clearTimeout(fieldFocusTimerRef.current);
+      }
+    };
   }, []);
 
   React.useEffect(() => {
@@ -345,6 +361,14 @@ export default function RegisterScreen() {
       registerBackNavigationStartedRef.current = false;
     }
   }, [isScreenFocused]);
+
+  const cancelActiveRegisterAttempt = React.useCallback(() => {
+    const activeAttempt = activeRegisterAttemptRef.current;
+    activeAttempt?.controller.abort();
+    cancelBrokerSessionCommitAuthorization(activeAttempt?.authorization);
+    activeRegisterAttemptRef.current = null;
+    registerSubmitInFlightRef.current = false;
+  }, []);
 
   const handleRegisterRootLayout = React.useCallback(() => {
     if (registerReadyNotifiedRef.current) {
@@ -371,6 +395,7 @@ export default function RegisterScreen() {
   const handleRegisterBack = React.useCallback((event: GestureResponderEvent) => {
     event.preventDefault();
     event.stopPropagation();
+    cancelActiveRegisterAttempt();
 
     if (registerBackNavigationStartedRef.current) {
       return;
@@ -419,7 +444,7 @@ export default function RegisterScreen() {
     scheduleBackNavigationAfterVisualFrame(() => {
       safeRouterBack(router, REGISTER_BACK_FALLBACK_HREF);
     });
-  }, [parsedRegisterLaunchRevision, returnsToBrokerDetail]);
+  }, [cancelActiveRegisterAttempt, parsedRegisterLaunchRevision, returnsToBrokerDetail]);
 
   const handleFieldLayout = React.useCallback((field: RegisterFieldKey) => (event: LayoutChangeEvent) => {
     fieldYPositionsRef.current[field] = event.nativeEvent.layout.y;
@@ -534,9 +559,24 @@ export default function RegisterScreen() {
       return;
     }
 
+    if (!ORRNN_DEMO_BROKER_ID) {
+      recordAccountJournalEvent('demo account registration blocked: demo broker contract missing', { level: 'error' });
+      Alert.alert(t('Error'), t('Demo account service is temporarily unavailable.'));
+      return;
+    }
+
     registerSubmitInFlightRef.current = true;
     setIsLoading(true);
     recordAccountJournalEvent('demo account registration requested');
+    const commitAuthorization = authorizeBrokerSessionCommit();
+    const loginAbortController = new AbortController();
+    activeRegisterAttemptRef.current = {
+      authorization: commitAuthorization,
+      controller: loginAbortController,
+    };
+    const isRegisterAttemptCancelled = () => (
+      loginAbortController.signal.aborted || !registerMountedRef.current
+    );
     try {
       let brokerConfig: any = null;
       try {
@@ -544,6 +584,7 @@ export default function RegisterScreen() {
       } catch (e) {
         // Ignore errors, fall back to the demo broker contract.
       }
+      if (isRegisterAttemptCancelled()) return;
 
       // INTEGRATED: Public demo registration uses
       // POST /api/v1/public/demo-account. This endpoint is intentionally
@@ -564,6 +605,7 @@ export default function RegisterScreen() {
         initial_balance: parsedInitialBalance,
         origin_broker: trimmedOriginBroker || undefined,
       });
+      if (isRegisterAttemptCancelled()) return;
 
       // Use the broker_id from the API response as canonical
       const canonicalBrokerId = response.broker_id || ORRNN_DEMO_BROKER_ID;
@@ -572,13 +614,17 @@ export default function RegisterScreen() {
         const refreshedBrokerServers = await refetchBrokerServers()
           .then((result) => result.data ?? [])
           .catch(() => []);
+        if (isRegisterAttemptCancelled()) return;
         const refreshedDemoAuthRoute = resolveOrrnnDemoBrokerAuthRoute(canonicalBrokerId, refreshedBrokerServers);
         if (refreshedDemoAuthRoute.source === 'broker-directory' || !demoAuthRoute.serverUrl) {
           demoAuthRoute = refreshedDemoAuthRoute;
         }
       }
-      if (!demoAuthRoute.serverUrl) {
+      if (!demoAuthRoute.serverUrl || !demoAuthRoute.endpoints) {
         throw new Error(t('Demo account was created, but the Orrnn broker login server was not found.'));
+      }
+      if (demoAuthRoute.endpoints.brokerId.toLowerCase() !== canonicalBrokerId.toLowerCase()) {
+        throw new Error(t('Demo account response did not match the configured Orrnn broker.'));
       }
 
       const accountName = `${trimmedFirstName} ${trimmedLastName}`.trim();
@@ -587,6 +633,7 @@ export default function RegisterScreen() {
       let sessionRefreshToken = '';
       let sessionExpiresAt = new Date(Date.now() + 86400 * 1000).toISOString();
       let sessionFeedToken = extractFeedBrokerToken(response);
+      let feedAuthContractSource: unknown = response;
 
       if (!sessionToken) {
         // The documented public endpoint returns `api_key`, but current live
@@ -600,10 +647,12 @@ export default function RegisterScreen() {
           broker_id: canonicalBrokerId,
         }, {
           serverUrl: demoAuthRoute.serverUrl,
+          signal: loginAbortController.signal,
         });
         sessionToken = authResponse.access_token ?? authResponse.token ?? '';
         sessionRefreshToken = authResponse.refresh_token ?? authResponse.refreshToken ?? '';
         sessionFeedToken = extractFeedBrokerToken(authResponse) || sessionFeedToken;
+        feedAuthContractSource = authResponse;
         sessionLogin =
           authResponse.account_login ??
           authResponse.accountLogin ??
@@ -622,44 +671,38 @@ export default function RegisterScreen() {
         throw new Error(t('Demo account was created, but the login token was not returned.'));
       }
 
-      // Log the user in right away after successful registration
-      // brokerId is persisted atomically inside login()
-      login(
-        String(sessionLogin),
-        accountName,
-        brokerConfig?.server_name || canonicalBrokerId,
-        {
-          access_token: sessionToken,
-          refresh_token: sessionRefreshToken,
-          expires_at: sessionExpiresAt,
+      const committedSession = await commitBrokerSession({
+        session: {
+          brokerId: demoAuthRoute.endpoints.brokerId,
+          accountLogin: String(sessionLogin),
+          apiBase: demoAuthRoute.endpoints.apiBase,
+          feedWsBase: demoAuthRoute.endpoints.feedWsBase,
+          tradeWsBase: demoAuthRoute.endpoints.tradeWsBase,
+          feedStatusUrl: demoAuthRoute.endpoints.feedStatusUrl,
+          servicesDomain: demoAuthRoute.endpoints.servicesDomain,
+          feedAuthContext: resolveFeedAuthContextFromAuthResponse(
+            feedAuthContractSource,
+            Boolean(sessionFeedToken),
+          ),
+          configVersion: demoAuthRoute.endpoints.configVersion,
         },
-        canonicalBrokerId,
-        {
-          serverUrl: demoAuthRoute.serverUrl,
+        credentials: {
+          accessToken: sessionToken,
+          refreshToken: sessionRefreshToken,
+          expiresAt: sessionExpiresAt,
+          ...(sessionFeedToken ? { feedToken: sessionFeedToken } : {}),
+        },
+        account: {
+          name: accountName,
+          serverName: brokerConfig?.server_name || canonicalBrokerId,
           logoUrl: demoAuthRoute.logoUrl,
           isDemoAccount: true,
         },
-      );
+      }, commitAuthorization);
       recordAccountJournalEvent(`demo account created and signed in on ${canonicalBrokerId}`, {
         level: 'success',
         accountLogin: sessionLogin,
       });
-      void Promise.all([
-        persistSelectedBrokerSession({
-          brokerId: canonicalBrokerId,
-          serverUrl: demoAuthRoute.serverUrl,
-          logoUrl: demoAuthRoute.logoUrl,
-        }),
-        persistAuthSessionTokens({
-          accessToken: sessionToken,
-          refreshToken: sessionRefreshToken,
-          expiresAt: sessionExpiresAt,
-          feedToken: sessionFeedToken,
-        }),
-      ]).catch((err) => {
-        console.warn('[Register] Failed to persist secure broker session', err);
-      });
-
       // Persist the new demo account in the directory + secure-store the
       // master password so the user can switch back to it from the Accounts
       // screen without re-typing credentials.
@@ -676,23 +719,43 @@ export default function RegisterScreen() {
         hasCredentials: true,
       });
       setSavedAccountPassword(canonicalBrokerId, savedLogin, password).catch((err) => {
-        console.warn('[Register] Failed to persist saved-account credential', err);
+        console.warn('[Register] Failed to persist saved-account credential', redactAuthPayload(err));
       });
 
       // Invalidate cached queries
-      queryClient.invalidateQueries({ queryKey: [ACCOUNTS_LIST_KEY] });
-      queryClient.invalidateQueries({ queryKey: [ACCOUNT_DETAIL_KEY] });
-      queryClient.invalidateQueries({ queryKey: [BROKER_CONFIG_KEY] });
+      void invalidateSessionQueryRoots(
+        queryClient,
+        committedSession.session.cacheNamespace,
+        ['accountsList', 'accountDetail', 'brokerConfig'],
+      );
 
       safeRouterBack(router, '/');
     } catch (error: any) {
-      recordAccountJournalEvent(`demo account registration failed: ${error?.message || t('Unable to register account.')}`, {
+      if (
+        !registerMountedRef.current ||
+        isLoginRequestAbortedError(error) ||
+        isStaleBrokerSessionCommitError(error)
+      ) {
+        return;
+      }
+      const safeErrorMessage = redactSensitiveString(
+        typeof error?.message === 'string' && error.message.trim()
+          ? error.message
+          : t('Unable to register account.'),
+      );
+      recordAccountJournalEvent(`demo account registration failed: ${safeErrorMessage}`, {
         level: 'error',
       });
-      Alert.alert(t('Registration Failed'), error.message || t('Unable to register account.'));
+      Alert.alert(t('Registration Failed'), safeErrorMessage);
     } finally {
+      cancelBrokerSessionCommitAuthorization(commitAuthorization);
+      if (activeRegisterAttemptRef.current?.authorization === commitAuthorization) {
+        activeRegisterAttemptRef.current = null;
+      }
       registerSubmitInFlightRef.current = false;
-      setIsLoading(false);
+      if (registerMountedRef.current) {
+        setIsLoading(false);
+      }
     }
   };
 

@@ -9,7 +9,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View, Image, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -25,6 +25,7 @@ import Svg, { Path, Defs, LinearGradient, Stop, Circle } from 'react-native-svg'
 import { useMarketData } from '../../query/websocket';
 import { useLiveCandles } from '../../domain/candles/hooks/useLiveCandles';
 import { safeRouterBack } from '../../utils/navigation';
+import { scheduleChartActionLaunchCovered } from './chartActionLaunchController';
 
 // Performance periods — labels only; values computed dynamically from candle data
 const PERF_LABELS = ['Hour', 'Today', 'Week', 'Month', 'Year'] as const;
@@ -115,13 +116,41 @@ function generateSmoothPath(points: { x: number, y: number }[]) {
 }
 
 export function ChartAnalyticsScreen() {
-  const { symbol } = useLocalSearchParams<{ symbol: string }>();
+  const { launchRevision, symbol } = useLocalSearchParams<{
+    launchRevision?: string;
+    symbol: string;
+  }>();
   const router = useRouter();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const isScreenFocused = useIsFocused();
+  const parsedLaunchRevision = Number(launchRevision);
+  const resolvedLaunchRevision = Number.isFinite(parsedLaunchRevision)
+    ? parsedLaunchRevision
+    : undefined;
+  const launchBodyLaidOutRef = useRef(false);
+  const scheduledCoverageRevisionRef = useRef<number | null>(null);
+  const scheduleLaunchCoverageIfReady = useCallback(() => {
+    if (
+      !isScreenFocused
+      || resolvedLaunchRevision === undefined
+      || !launchBodyLaidOutRef.current
+      || scheduledCoverageRevisionRef.current === resolvedLaunchRevision
+    ) {
+      return;
+    }
+    scheduledCoverageRevisionRef.current = resolvedLaunchRevision;
+    scheduleChartActionLaunchCovered('analytics', resolvedLaunchRevision);
+  }, [isScreenFocused, resolvedLaunchRevision]);
+  const handleLaunchBodyLayout = useCallback(() => {
+    launchBodyLaidOutRef.current = true;
+    scheduleLaunchCoverageIfReady();
+  }, [scheduleLaunchCoverageIfReady]);
+  useEffect(() => {
+    scheduleLaunchCoverageIfReady();
+  }, [scheduleLaunchCoverageIfReady]);
   const { t } = useTranslation();
 
   const currentSymbol = symbol || 'EUR/USD';
@@ -181,7 +210,11 @@ export function ChartAnalyticsScreen() {
 
 
   return (
-    <Screen style={styles.screen}>
+    <Screen
+      collapsable={false}
+      onLayout={handleLaunchBodyLayout}
+      style={styles.screen}
+    >
       <Stack.Screen options={{ headerShown: false }} />
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
         <View style={styles.headerRow}>

@@ -14,7 +14,7 @@ test('normalizeQuoteTickPayload maps bid ask aliases and broker symbol suffixes'
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
-  assert.equal(result.update.symbol, 'XAUUSD');
+  assert.equal(result.update.symbol, 'XAUUSDM');
   assert.equal(result.update.rawSymbol, 'XAUUSDM');
   assert.equal(result.update.bid, 2300.1);
   assert.equal(result.update.ask, 2300.4);
@@ -35,7 +35,7 @@ test('normalizeQuoteTickPayload accepts nested quote objects from transport payl
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
-  assert.equal(result.update.symbol, 'EURUSD');
+  assert.equal(result.update.symbol, 'EURUSD.C');
   assert.equal(result.update.rawSymbol, 'EURUSD.C');
   assert.equal(result.update.bid, 1.085);
   assert.equal(result.update.ask, 1.0852);
@@ -59,14 +59,14 @@ test('normalizeQuoteTickPayload accepts nested payload tick objects and createdA
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
-  assert.equal(result.update.symbol, 'XAUUSD');
+  assert.equal(result.update.symbol, 'XAUUSD.C');
   assert.equal(result.update.rawSymbol, 'XAUUSD.C');
   assert.equal(result.update.bid, 2320.1);
   assert.equal(result.update.ask, 2320.45);
   assert.equal(result.update.timestamp, 1711101965000);
 });
 
-test('normalizeQuoteTickPayload accepts channel-scoped quote tick events without inner symbol', () => {
+test('normalizeQuoteTickPayload rejects channel-scoped quote ticks missing ask', () => {
   const result = normalizeQuoteTickPayload({
     event: 'quote.tick',
     channel: 'quotes.EURUSD',
@@ -78,18 +78,11 @@ test('normalizeQuoteTickPayload accepts channel-scoped quote tick events without
     },
   });
 
-  assert.equal(result.ok, true);
-  if (!result.ok) return;
-
-  assert.equal(result.update.symbol, 'EURUSD');
-  assert.equal(result.update.rawSymbol, 'EURUSD');
-  assert.equal(result.update.bid, 1.07123);
-  assert.equal(result.update.ask, 1.07123);
-  assert.equal(result.update.degraded, true);
-  assert.equal(result.update.degradationReason, 'missing_ask');
-  assert.equal(result.update.timestamp, 1782381600000);
-  assert.equal(result.update.sequence, '991881');
-  assert.equal(result.update.tickId, 'tick-991881');
+  assert.deepEqual(result, {
+    ok: false,
+    reason: 'missing_bid_ask',
+    rawKeys: ['event', 'channel', 'data'],
+  });
 });
 
 test('normalizeQuoteTickPayload accepts nested price envelopes with channel symbol fallback', () => {
@@ -264,7 +257,7 @@ test('normalizeQuoteTickPayload keeps raw broker variants distinct from the base
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
-  assert.equal(result.update.symbol, 'EURUSD');
+  assert.equal(result.update.symbol, 'EURUSD.X1782');
   assert.equal(result.update.rawSymbol, 'EURUSD.X1782');
 });
 

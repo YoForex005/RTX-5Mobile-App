@@ -10,6 +10,7 @@ import { apiClient } from './apiClient';
 const DEBUG_ACCOUNTS_API = process.env.EXPO_PUBLIC_DEBUG_ACCOUNTS_API === 'true';
 import { mapRawAccount, type TradingAccount, type TradingAccountRaw } from './accountsMapper';
 import { ACCOUNTS_LIST_PATH, buildAccountDetailPath } from './accountsRoutes';
+import { redactDiagnosticValue } from '../utils/securityRedaction';
 
 export { mapRawAccount };
 export type { TradingAccount, TradingAccountRaw };
@@ -126,8 +127,8 @@ export async function getAccounts(): Promise<TradingAccount[]> {
   const data: TradingAccountRaw[] = await response.json();
   const mapped = (data || []).map(mapRawAccount);
   if (DEBUG_ACCOUNTS_API) {
-    console.log('[Accounts API] Raw backend response:', JSON.stringify(data, null, 2));
-    console.log('[Accounts API] Mapped accounts:', JSON.stringify(mapped, null, 2));
+    console.log('[Accounts API] Raw backend response:', redactDiagnosticValue(data));
+    console.log('[Accounts API] Mapped accounts:', redactDiagnosticValue(mapped));
   }
   return mapped;
 }

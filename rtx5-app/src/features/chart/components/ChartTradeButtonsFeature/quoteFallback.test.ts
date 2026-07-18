@@ -15,7 +15,7 @@ test('resolveChartTradeButtonQuote prefers live websocket bid and ask', () => {
   );
 });
 
-test('resolveChartTradeButtonQuote uses chart fallback prices while websocket quote is unavailable', () => {
+test('resolveChartTradeButtonQuote rejects candle fallback prices while websocket quote is unavailable', () => {
   assert.deepEqual(
     resolveChartTradeButtonQuote({
       liveBid: undefined,
@@ -23,7 +23,7 @@ test('resolveChartTradeButtonQuote uses chart fallback prices while websocket qu
       fallbackBid: 79595.51,
       fallbackAsk: 79620.51,
     }),
-    { bid: 79595.51, ask: 79620.51 },
+    { bid: 0, ask: 0 },
   );
 });
 

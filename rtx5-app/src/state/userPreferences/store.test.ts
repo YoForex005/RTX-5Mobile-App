@@ -8,7 +8,7 @@ const source = () => readFileSync(resolve(process.cwd(), 'src/state/userPreferen
 test('persisted user preferences are normalized before second-launch hydration reaches UI', () => {
   const storeSource = source();
 
-  assert.match(storeSource, /const PREFERENCES_STORAGE_VERSION = 21/);
+  assert.match(storeSource, /const PREFERENCES_STORAGE_VERSION = 22/);
   assert.match(storeSource, /const CHART_DRAWING_RECORDS_STORAGE_KEY = 'rtx5-chart-drawing-records-v1'/);
   assert.match(storeSource, /normalizePersistedUserPreferencesState/);
   assert.match(storeSource, /quoteSymbols: asStringArray\(state\.quoteSymbols\)/);
@@ -33,10 +33,40 @@ test('persisted user preferences are normalized before second-launch hydration r
   assert.match(storeSource, /persistChartDrawingRecordsBySymbol\(nextRecordsBySymbol\)/);
   assert.match(storeSource, /readChartDrawingRecordsBySymbol\(\)[\s\S]*\.then\(\(storedRecordsBySymbol\) => \{[\s\S]*\.finally\(\(\) => \{[\s\S]*setHasHydrated\(true\)/);
   assert.doesNotMatch(storeSource, /marketNewsSavedIds|setMarketNewsSavedIds|toggleMarketNewsSavedId/);
-  assert.match(storeSource, /isLoggedIn = asBoolean\(state\.isLoggedIn, false\) && accountDetails !== null/);
+  assert.match(storeSource, /Boolean\(accountDetails\?\.credentials\?\.accessToken\)/);
   assert.match(storeSource, /merge: \(persistedState, currentState\) => \(\{/);
   assert.match(storeSource, /Ignoring invalid persisted preferences/);
   assert.match(storeSource, /let preferenceWriteFlushScheduled = false/);
   assert.match(storeSource, /function schedulePreferenceWriteFlush\(\) \{[\s\S]*if \(preferenceWriteFlushScheduled\) return;[\s\S]*preferenceWriteFlushScheduled = true;[\s\S]*setTimeout\(flushPendingPreferenceWrites, 0\)/);
-  assert.match(storeSource, /setItem: \(name, value\) => \{[\s\S]*pendingPreferenceWrites\.set\(name, value\);[\s\S]*schedulePreferenceWriteFlush\(\);[\s\S]*\}/);
+  assert.match(storeSource, /setItem: \(name, value\) => \{[\s\S]*sanitizePreferenceAuthStorageValue\(value\)[\s\S]*pendingPreferenceWrites\.set\([\s\S]*sanitized as StorageValue<PersistedUserPreferencesState>[\s\S]*schedulePreferenceWriteFlush\(\);[\s\S]*\}/);
+});
+
+test('persisted preferences strip credentials and migrate the legacy blob before hydration', () => {
+  const storeSource = source();
+
+  assert.match(storeSource, /sanitizePreferenceAuthStorageValue\(parsed\)/);
+  assert.match(storeSource, /migrateLegacyAuthSessionCredentials\(\{/);
+  assert.match(storeSource, /await AsyncStorage\.setItem\(name, JSON\.stringify\(persistedStorageValue\)\)/);
+  assert.match(storeSource, /AsyncStorage\.removeItem\(name\)/);
+  assert.match(
+    storeSource,
+    /accountDetails: state\.accountDetails[\s\S]*id: state\.accountDetails\.id,[\s\S]*name: state\.accountDetails\.name,[\s\S]*server: state\.accountDetails\.server/,
+  );
+  const partializeStart = storeSource.indexOf('function partializeUserPreferences');
+  const partializeEnd = storeSource.indexOf('\nexport const useUserPreferences', partializeStart);
+  const partializeSource = storeSource.slice(partializeStart, partializeEnd);
+  assert.doesNotMatch(partializeSource, /accessToken|refreshToken|expiresAt|credentials:/);
+});
+
+test('candidate broker setters cannot rebind an authenticated session', () => {
+  const storeSource = source();
+
+  assert.match(
+    storeSource,
+    /setBrokerId: \(id\) =>[\s\S]*set\(\(state\) => state\.isLoggedIn \? state : \{ brokerId: id \}\)/,
+  );
+  assert.match(
+    storeSource,
+    /setBrokerConnection: \(brokerId, serverUrl = '', logoUrl = ''\) =>[\s\S]*if \(state\.isLoggedIn\) \{[\s\S]*return state;/,
+  );
 });

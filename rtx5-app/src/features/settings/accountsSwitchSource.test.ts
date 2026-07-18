@@ -7,20 +7,17 @@ const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 
 
 test('saved account switch promotes the selected account and refreshes account-scoped state', () => {
   const source = readSource('src/features/settings/AccountsScreen.tsx');
+  const coordinatorSource = readSource('src/services/brokerSessionCoordinator.ts');
 
   assert.match(source, /const ACCOUNT_SWITCH_ACCOUNT_MISSING_MESSAGE =\s*'Account does not exist/);
-  assert.match(source, /const ACCOUNT_SWITCH_STALE_QUERY_KEYS: ReadonlyArray<readonly unknown\[]> = \[/);
-  assert.match(source, /\[ACCOUNTS_LIST_KEY\]/);
-  assert.match(source, /\[ACCOUNT_DETAIL_KEY\]/);
-  assert.match(source, /\['positions'\]/);
-  assert.match(source, /\['accountSummary'\]/);
   assert.match(source, /const normalizeSwitchLogin = \(login: string\) => \{/);
-  assert.match(source, /const removeAccountScopedQueries = \(queryClient: QueryClient\) => \{/);
-  assert.match(source, /queryClient\.removeQueries\(\{ queryKey \}\)/);
-  assert.match(source, /queryClient\.invalidateQueries\(\{ queryKey \}\)/);
   assert.match(source, /const accountSwitchInFlightRef = React\.useRef\(false\)/);
   assert.match(source, /const warmSavedAccountBroker = React\.useCallback/);
-  assert.match(source, /checkBrokerServerHealth\(normalizedServerUrl\)\.catch/);
+  assert.match(source, /const savedServerUrl = normalizeBrokerServerUrl\(row\.serverUrl\)/);
+  assert.match(source, /\.map\(resolveBrokerEndpointSet\)[\s\S]*\.find\(\(resolution\) => \([\s\S]*resolution\.ok[\s\S]*isBrokerServerUrlForApiBase\(savedServerUrl, resolution\.endpoints\.apiBase\)/);
+  assert.match(source, /const serverUrl = toBrokerServiceRoot\(endpointSet\.endpoints\.apiBase\) \|\| savedServerUrl/);
+  assert.match(source, /checkBrokerServerHealth\(serverUrl\)\.catch/);
+  assert.doesNotMatch(source, /checkBrokerServerHealth\(endpointSet\.endpoints\.feedStatusUrl\)/);
   assert.match(source, /if \(!isExpanded\) \{[\s\S]*warmSavedAccountBroker\(row\);[\s\S]*setExpandedAccountKey/);
   assert.match(source, /onPressIn=\{\(\) => warmSavedAccountBroker\(row\)\}/);
 
@@ -36,18 +33,37 @@ test('saved account switch promotes the selected account and refreshes account-s
   assert.match(switchBody, /throw new Error\(ACCOUNT_SWITCH_ACCOUNT_MISSING_MESSAGE\)/);
   assert.match(switchBody, /if \(accountSwitchInFlightRef\.current\) return;/);
   assert.match(switchBody, /accountSwitchInFlightRef\.current = true/);
-  assert.match(switchBody, /userLogin\(/);
-  assert.match(switchBody, /isDemoAccount: result\.accountType === 'demo'/);
-  assert.doesNotMatch(switchBody, /setIsDemoAccountFlag/);
-  assert.match(switchBody, /useLiveAccountState\.getState\(\)\.resetMetrics\(\)/);
-  assert.match(switchBody, /usePositionsState\.getState\(\)\.clearPositions\(\)/);
-  assert.match(switchBody, /removeAccountScopedQueries\(queryClient\)/);
+  assert.match(switchBody, /const approvedRoutes = \(brokerServers \?\? \[\]\)[\s\S]*\.map\(\(broker\) => \(\{ broker, resolution: resolveBrokerEndpointSet\(broker\) \}\)\)[\s\S]*\.filter\(\(candidate\) => candidate\.resolution\.ok\)/);
+  assert.match(switchBody, /const exactSavedRoute = approvedRoutes\.find\([\s\S]*isBrokerServerUrlForApiBase\(savedServerUrl, candidate\.resolution\.endpoints\.apiBase\)/);
+  assert.match(switchBody, /const approvedRoute = exactSavedRoute/);
+  assert.doesNotMatch(switchBody, /approvedRoutes\.length === 1 \? approvedRoutes\[0\] : null/);
+  assert.match(switchBody, /The saved broker server no longer matches the broker directory/);
+  assert.match(switchBody, /await checkBrokerServerHealth\(exactServerUrl\);[\s\S]*const result = await signInWithCredentials/);
+  assert.match(switchBody, /serverUrl: exactServerUrl/);
   assert.match(switchBody, /setSuccessMessage\(t\('Account switched successfully'\)\)/);
   assert.match(switchBody, /schedulePostAccountSwitchWork\(\(\) => \{[\s\S]*upsertSavedAccount\(\{/);
-  assert.match(switchBody, /persistSelectedBrokerSession\(\{/);
-  assert.match(switchBody, /persistAuthSessionTokens\(\{/);
-  assert.match(switchBody, /bootstrapApp\(\{ accountLogin: result\.accountLogin \}\)/);
+  assert.match(switchBody, /serverUrl: exactServerUrl,/);
+  assert.match(switchBody, /await commitBrokerSession\(\{[\s\S]*brokerId: endpoints\.brokerId,[\s\S]*apiBase: endpoints\.apiBase,[\s\S]*feedWsBase: endpoints\.feedWsBase,[\s\S]*feedStatusUrl: endpoints\.feedStatusUrl,[\s\S]*servicesDomain: endpoints\.servicesDomain,[\s\S]*configVersion: endpoints\.configVersion/);
+  assert.match(switchBody, /credentials: \{[\s\S]*accessToken: result\.accessToken,[\s\S]*refreshToken: result\.refreshToken,[\s\S]*expiresAt: result\.expiresAtIso/);
+  assert.match(switchBody, /account: \{[\s\S]*isDemoAccount: result\.accountType === 'demo'/);
+  assert.doesNotMatch(switchBody, /persistSelectedBrokerSession|persistAuthSessionTokens|userLogin\(/);
+  assert.match(switchBody, /const commitAuthorization = authorizeBrokerSessionCommit\(\)/);
+  assert.match(switchBody, /signal: loginAbortController\.signal/);
+  assert.match(switchBody, /\}, commitAuthorization\)/);
+  assert.match(switchBody, /const committedProvenance = getActiveBrokerSessionProvenance\(committedSession\.session\)/);
+  assert.match(switchBody, /bootstrapApp\(\{[\s\S]*accountLogin: result\.accountLogin,[\s\S]*expectedProvenance: committedProvenance/);
+  assert.match(switchBody, /isLoginRequestAbortedError\(error\)/);
+  assert.match(switchBody, /isStaleBrokerSessionCommitError\(error\)/);
   assert.match(switchBody, /finally \{[\s\S]*accountSwitchInFlightRef\.current = false;[\s\S]*setConnectingKey\(null\)/);
+
+  // The coordinator owns the epoch-first teardown and cache/query reset; the
+  // screen must not partially mutate the old account before the handoff commits.
+  assert.match(coordinatorSource, /const transition = beginActiveBrokerSessionTransition\(\);[\s\S]*await teardownBrokerSessionRuntime\(\)/);
+  assert.match(coordinatorSource, /resetQuoteRuntimeState\(\)/);
+  assert.match(coordinatorSource, /resetSessionMarketData\(\)/);
+  assert.match(coordinatorSource, /resetPositionsSessionState\(\)/);
+  assert.match(coordinatorSource, /resetPersistedCandleCacheSession\(\)/);
+  assert.match(coordinatorSource, /appQueryClient\.clear\(\)/);
 });
 
 test('saved account switch removes stale entries when the broker reports a missing account', () => {
@@ -79,13 +95,13 @@ test('accounts screen uses broker branding and opens long-press delete for other
   const source = readSource('src/features/settings/AccountsScreen.tsx');
   const savedAccountsSource = readSource('src/state/savedAccounts.ts');
   const userPreferencesSource = readSource('src/state/userPreferences/store.ts');
-  const brokerSessionSource = readSource('src/state/brokerSessionStorage.ts');
+  const activeSessionStorageSource = readSource('src/state/activeBrokerSessionStorage.ts');
 
   assert.doesNotMatch(source, /AppLogo/);
   assert.match(source, /import \{ ActivityIndicator, Alert, FlatList, Image, Platform, StyleSheet, Text, View \} from 'react-native'/);
   // Other-accounts list is virtualized: render the on-screen rows, lazy-render the rest on scroll.
   assert.match(source, /<FlatList[\s\S]*data=\{otherRows\}[\s\S]*initialNumToRender=/);
-  assert.match(source, /import \{ BROKER_CONFIG_KEY, useBrokerConfig, useBrokerServers \} from '\.\.\/\.\.\/query\/broker'/);
+  assert.match(source, /import \{ useBrokerConfig, useBrokerServers \} from '\.\.\/\.\.\/query\/broker'/);
   assert.match(source, /const buildBrokerLogoIndex = \(brokerServers\?: readonly BrokerServer\[\]\): BrokerLogoIndex => \{/);
   assert.match(source, /byBrokerName: Map<string, string>/);
   assert.match(source, /byServerName: Map<string, string>/);
@@ -101,7 +117,7 @@ test('accounts screen uses broker branding and opens long-press delete for other
   assert.match(source, /const nextLogoUrl = activeBrokerLogoUrl \|\| existing\?\.logoUrl \|\| ''/);
   assert.match(savedAccountsSource, /logoUrl: account\.logoUrl \|\| existing\?\.logoUrl/);
   assert.match(userPreferencesSource, /brokerLogoUrl: logoUrl \|\| \(sameBroker \? state\.brokerLogoUrl : ''\) \|\| ''/);
-  assert.match(brokerSessionSource, /const shouldKeepStoredLogo =[\s\S]*ACTIVE_BROKER_LOGO_URL_KEY/);
+  assert.match(activeSessionStorageSource, /createActiveBrokerSessionManifest\([\s\S]*servicesDomain[\s\S]*configVersion/);
   assert.match(source, /function BrokerLogoAvatar\(/);
   assert.match(source, /source=\{\{ uri: logoUri \}\}/);
 

@@ -81,7 +81,9 @@ test('register demo form keeps last name optional and formats phone with selecte
 test('register demo form uses selectable origin broker, read-only currency, and searchable local leverage range', () => {
   const source = readSource('app/register.tsx');
 
-  assert.match(source, /import \{ BROKER_CONFIG_KEY, useBrokerServers \} from '\.\.\/src\/query\/broker'/);
+  assert.match(source, /import \{ useBrokerServers \} from '\.\.\/src\/query\/broker'/);
+  assert.match(source, /invalidateSessionQueryRoots/);
+  assert.doesNotMatch(source, /BROKER_CONFIG_KEY/);
   assert.match(source, /useBrokerServers\(registerDataActive\)/);
   assert.match(source, /const DEMO_LEVERAGE_MIN = 100/);
   assert.match(source, /const DEMO_LEVERAGE_MAX = 20000/);

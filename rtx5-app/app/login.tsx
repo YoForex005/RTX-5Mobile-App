@@ -9,36 +9,46 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useUserPreferences } from '../src/state/userPreferences';
 import { useThemeMode } from '../src/state/themeMode';
 import { useSavedAccounts, setSavedAccountPassword } from '../src/state/savedAccounts';
-import { loginAPI } from '../src/api/auth';
+import { isLoginRequestAbortedError, loginAPI } from '../src/api/auth';
 import { extractFeedBrokerToken } from '../src/api/feedAuth';
-import { redactAuthPayload } from '../src/api/authRedaction';
+import { redactAuthPayload, redactSensitiveString } from '../src/api/authRedaction';
 // Broker config API — validates broker_id before login and provides server_name
 import { checkBrokerServerHealth, getBrokerConfig, type BrokerServer } from '../src/api/broker';
 import {
   getBrokerBackendDomainUnavailableMessage,
-  isBrokerServiceBaseUrl,
+  isBrokerServerUrlForApiBase,
   normalizeBrokerServerUrl,
-  resolveBrokerServiceBaseUrl,
+  resolveBrokerEndpointSet,
+  type ValidatedBrokerEndpointSet,
 } from '../src/api/brokerRouting';
 import { useTheme, type ThemeColors } from '../src/ui/theme/useTheme';
 import { useQueryClient } from '@tanstack/react-query';
-import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../src/query/accounts';
-import { BROKER_CONFIG_KEY, useBrokerServers } from '../src/query/broker';
+import { useBrokerServers, getBrokerConfigQueryKey } from '../src/query/broker';
+import {
+  invalidateSessionQueryRoots,
+} from '../src/query/authenticatedQueryScope';
 import { useTranslation } from '../src/i18n/useTranslation';
 import { getTradingAccountTypeFromBackend } from '../src/domain/accountType';
 import { safeRouterBack } from '../src/utils/navigation';
 import { runImmediateAction } from '../src/utils/actionLatency';
 import { ActionSheet } from '../src/ui/components/ActionSheet';
-import {
-  persistAuthSessionTokens,
-  persistSelectedBrokerSession,
-} from '../src/state/brokerSessionStorage';
 import { bootstrapApp } from '../src/services/bootstrapApp';
 import { recordAccountJournalEvent } from '../src/state/terminalJournalState';
 import { preloadRegisterScreen } from '../src/features/settings/registerScreenPreload';
+import {
+  authorizeBrokerSessionCommit,
+  cancelBrokerSessionCommitAuthorization,
+  commitBrokerSession,
+  isStaleBrokerSessionCommitError,
+  type BrokerSessionCommitAuthorization,
+} from '../src/services/brokerSessionCoordinator';
+import { resolveFeedAuthContextFromAuthResponse } from '../src/api/feedAuthContract';
+import {
+  getActiveBrokerSessionProvenance,
+  isActiveBrokerSessionProvenanceCurrent,
+} from '../src/state/activeBrokerSession';
 
 const LOGIN_SCREEN_COPY = {
   headerTitle: 'Login Account',
@@ -50,23 +60,23 @@ const LOGIN_BUTTON_HIT_SLOP = { top: 12, bottom: 12, left: 12, right: 12 } as co
 const LOGIN_BUTTON_PRESS_RETENTION_OFFSET = { top: 24, bottom: 24, left: 24, right: 24 } as const;
 const LOGIN_SUBMIT_PRESS_GUARD_MS = 350;
 const PINNED_LOGIN_BROKER_NAMES = ['MetaQuotes Ltd.'];
+const DEV_DEFAULT_LOGIN = {
+  brokerId: process.env.EXPO_PUBLIC_TEST_BROKER_ID || '',
+  brokerName: process.env.EXPO_PUBLIC_TEST_BROKER_NAME || '',
+  serverUrl: normalizeBrokerServerUrl(process.env.EXPO_PUBLIC_TEST_BROKER_SERVER_URL || ''),
+  username: process.env.EXPO_PUBLIC_TEST_USERNAME || '',
+  password: process.env.EXPO_PUBLIC_TEST_PASSWORD || '',
+};
 const DEV_LOGIN_PREFILL_ENABLED =
   typeof __DEV__ !== 'undefined' &&
   __DEV__ &&
-  process.env.EXPO_PUBLIC_PREFILL_TEST_LOGIN !== 'false';
-const DEV_DEFAULT_LOGIN = {
-  brokerId: process.env.EXPO_PUBLIC_TEST_BROKER_ID || 'testorrnn',
-  brokerName: process.env.EXPO_PUBLIC_TEST_BROKER_NAME || 'Test Orrnn Broker (Demo)',
-  serverUrl: normalizeBrokerServerUrl(process.env.EXPO_PUBLIC_TEST_BROKER_SERVER_URL || ''),
-  username: process.env.EXPO_PUBLIC_TEST_USERNAME || '900001',
-  password: process.env.EXPO_PUBLIC_TEST_PASSWORD || 'TestPass1234',
-};
-
-const KNOWN_LOGIN_BROKER_DOMAINS: Record<string, string> = {
-  flexymarkets: 'flexymarkets.com',
-  metaquotes: 'metaquotes.net',
-  alphatrading: 'alphatrading.com',
-};
+  process.env.EXPO_PUBLIC_PREFILL_TEST_LOGIN !== 'false' &&
+  Boolean(
+    DEV_DEFAULT_LOGIN.brokerId &&
+    DEV_DEFAULT_LOGIN.serverUrl &&
+    DEV_DEFAULT_LOGIN.username &&
+    DEV_DEFAULT_LOGIN.password,
+  );
 
 type LoginBrokerOption = {
   key: string;
@@ -76,18 +86,11 @@ type LoginBrokerOption = {
   logoUrl: string;
   region: string;
   protocol: string;
+  endpoints: ValidatedBrokerEndpointSet;
   domain?: string;
 };
 
 const normalizeBrokerKey = (brokerId: string) => brokerId.trim().toLowerCase();
-
-const resolveLoginBrokerDomain = (name: string): string | undefined => {
-  const key = name.toLowerCase().replace(/[^a-z0-9]/g, '');
-  for (const [needle, domain] of Object.entries(KNOWN_LOGIN_BROKER_DOMAINS)) {
-    if (key.includes(needle)) return domain;
-  }
-  return undefined;
-};
 
 const formatLoginBrokerInitials = (name: string) => {
   const words = name
@@ -137,17 +140,14 @@ type LoginCredentialsSnapshot = {
   logoUrl: string;
   accountId: string;
   password: string;
+  endpoints: ValidatedBrokerEndpointSet | null;
 };
 
 /**
  * Form screen for entering server credentials (login, password, server selection) to authenticate an account.
  */
 export function AccountLoginScreen() {
-  const login = useUserPreferences((s) => s.login);
   const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
-  // Broker config integration: persist broker_id to Zustand so useBrokerConfig()
-  // can fetch GET /broker/config with the correct broker context app-wide
-  const setBrokerConnection = useUserPreferences((s) => s.setBrokerConnection);
   const queryClient = useQueryClient();
   const screenCopy = LOGIN_SCREEN_COPY;
   const { t } = useTranslation();
@@ -164,6 +164,7 @@ export function AccountLoginScreen() {
   const [brokerPickerOpen, setBrokerPickerOpen] = useState(false);
   const [brokerHealthWarning, setBrokerHealthWarning] = useState('');
   const [isBrokerHealthChecking, setIsBrokerHealthChecking] = useState(false);
+  const [healthVerifiedBrokerServerUrl, setHealthVerifiedBrokerServerUrl] = useState('');
   const [savedCredentialsChecked, setSavedCredentialsChecked] = useState(false);
   const [modalState, setModalState] = useState<{ visible: boolean; type: 'success' | 'error'; title: string; message: string; }>({ visible: false, type: 'success', title: '', message: '' });
   const themeMode = useThemeMode();
@@ -172,6 +173,11 @@ export function AccountLoginScreen() {
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
   const loginRequestInFlightRef = useRef(false);
+  const loginMountedRef = useRef(true);
+  const activeLoginAttemptRef = useRef<{
+    authorization: BrokerSessionCommitAuthorization;
+    controller: AbortController;
+  } | null>(null);
   const loginSubmitPressGuardRef = useRef(false);
   const loginSubmitPressGuardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const brokerIdValueRef = useRef<string | null>(null);
@@ -180,6 +186,7 @@ export function AccountLoginScreen() {
   const accountIdValueRef = useRef<string | null>(null);
   const passwordValueRef = useRef<string | null>(null);
   const brokerHealthProbeRef = useRef(0);
+  const healthVerifiedBrokerServerUrlRef = useRef('');
   const warmedBrokerServerUrlRef = useRef('');
   const hasSavedCredentialsRef = useRef(false);
   const hasAppliedDevDefaultsRef = useRef(false);
@@ -237,42 +244,72 @@ export function AccountLoginScreen() {
     });
   }, [screenCopy.savedLoginKey]);
 
-  useEffect(() => () => {
-    if (loginSubmitPressGuardTimerRef.current) {
-      clearTimeout(loginSubmitPressGuardTimerRef.current);
-      loginSubmitPressGuardTimerRef.current = null;
-    }
+  useEffect(() => {
+    loginMountedRef.current = true;
+    return () => {
+      loginMountedRef.current = false;
+      const activeAttempt = activeLoginAttemptRef.current;
+      activeAttempt?.controller.abort();
+      cancelBrokerSessionCommitAuthorization(activeAttempt?.authorization);
+      activeLoginAttemptRef.current = null;
+      if (loginSubmitPressGuardTimerRef.current) {
+        clearTimeout(loginSubmitPressGuardTimerRef.current);
+        loginSubmitPressGuardTimerRef.current = null;
+      }
+    };
   }, []);
 
-  const probeBrokerHealth = useCallback(async (serverUrl: string) => {
+  const clearBrokerHealthVerification = useCallback(() => {
+    healthVerifiedBrokerServerUrlRef.current = '';
+    setHealthVerifiedBrokerServerUrl('');
+    setIsBrokerHealthChecking(false);
+  }, []);
+
+  const probeBrokerHealth = useCallback(async (serverUrl: string): Promise<boolean> => {
     const normalizedServerUrl = normalizeBrokerServerUrl(serverUrl);
     if (!normalizedServerUrl) {
+      brokerHealthProbeRef.current += 1;
+      clearBrokerHealthVerification();
+      setIsBrokerHealthChecking(false);
       setBrokerHealthWarning('');
-      return;
+      return false;
+    }
+
+    if (healthVerifiedBrokerServerUrlRef.current === normalizedServerUrl) {
+      setBrokerHealthWarning('');
+      return true;
     }
 
     const probeId = brokerHealthProbeRef.current + 1;
     brokerHealthProbeRef.current = probeId;
+    clearBrokerHealthVerification();
     setIsBrokerHealthChecking(true);
     setBrokerHealthWarning('');
 
     try {
       await checkBrokerServerHealth(normalizedServerUrl);
       if (brokerHealthProbeRef.current === probeId) {
+        healthVerifiedBrokerServerUrlRef.current = normalizedServerUrl;
+        setHealthVerifiedBrokerServerUrl(normalizedServerUrl);
         setBrokerHealthWarning('');
+        return true;
       }
     } catch {
       if (brokerHealthProbeRef.current === probeId) {
-        setBrokerHealthWarning(t('Broker temporarily unavailable'));
+        clearBrokerHealthVerification();
+        setBrokerHealthWarning(t('Selected broker is unavailable'));
       }
     } finally {
       if (brokerHealthProbeRef.current === probeId) {
         setIsBrokerHealthChecking(false);
       }
     }
-  }, [t]);
+    return false;
+  }, [clearBrokerHealthVerification, t]);
 
   const updateBrokerId = (value: string) => {
+    brokerHealthProbeRef.current += 1;
+    clearBrokerHealthVerification();
     brokerIdValueRef.current = value;
     setBrokerId(value);
     brokerServerUrlValueRef.current = null;
@@ -283,21 +320,17 @@ export function AccountLoginScreen() {
   };
 
   const selectBrokerOption = useCallback((option: LoginBrokerOption) => {
+    brokerHealthProbeRef.current += 1;
+    clearBrokerHealthVerification();
     brokerIdValueRef.current = option.brokerId;
     brokerServerUrlValueRef.current = option.serverUrl;
     brokerLogoUrlValueRef.current = option.logoUrl;
     setBrokerId(option.brokerId);
     setBrokerServerUrl(option.serverUrl);
     setBrokerLogoUrl(option.logoUrl);
-    setBrokerConnection(option.brokerId, option.serverUrl, option.logoUrl);
-    void persistSelectedBrokerSession({
-      brokerId: option.brokerId,
-      serverUrl: option.serverUrl,
-      logoUrl: option.logoUrl,
-    });
-    warmedBrokerServerUrlRef.current = normalizeBrokerServerUrl(option.serverUrl);
+    warmedBrokerServerUrlRef.current = option.serverUrl;
     void probeBrokerHealth(option.serverUrl);
-  }, [probeBrokerHealth, setBrokerConnection]);
+  }, [clearBrokerHealthVerification, probeBrokerHealth]);
 
   const updateAccountId = (value: string) => {
     accountIdValueRef.current = value;
@@ -344,6 +377,16 @@ export function AccountLoginScreen() {
     const seen = new Set<string>();
     const options: LoginBrokerOption[] = [];
     for (const broker of rows) {
+      const resolution = resolveBrokerEndpointSet(broker);
+      if (!resolution.ok) continue;
+      const exactServerUrl = normalizeBrokerServerUrl(broker.server_url);
+      // Handoff: keep exact directory server_url; REST is {server_url}/api/v2.
+      if (
+        !exactServerUrl
+        || !isBrokerServerUrlForApiBase(exactServerUrl, resolution.endpoints.apiBase)
+      ) {
+        continue;
+      }
       const brokerIdValue = broker.broker_id.trim();
       const key = normalizeBrokerKey(brokerIdValue);
       if (seen.has(key)) continue;
@@ -352,11 +395,14 @@ export function AccountLoginScreen() {
         key,
         brokerId: brokerIdValue,
         brokerName: broker.broker_name?.trim() || brokerIdValue,
-        serverUrl: resolveBrokerServiceBaseUrl(broker),
+        serverUrl: exactServerUrl,
         logoUrl: broker.logo_url?.trim() || '',
         region: broker.region?.trim() || '',
         protocol: broker.protocol?.trim() || '',
-        domain: resolveLoginBrokerDomain(broker.broker_name) ?? resolveLoginBrokerDomain(broker.broker_id),
+        endpoints: resolution.endpoints,
+        // Branding may use the exact host that already passed the rich-record
+        // validator. Never infer a domain from a broker name or identifier.
+        domain: resolution.endpoints.servicesDomain,
       });
     }
     return options;
@@ -391,15 +437,23 @@ export function AccountLoginScreen() {
     if (!savedCredentialsChecked) {
       return;
     }
-    const serverUrl = normalizeBrokerServerUrl(
-      brokerServerUrlValueRef.current || selectedBrokerServerUrl,
-    );
-    if (!isBrokerServiceBaseUrl(serverUrl) || warmedBrokerServerUrlRef.current === serverUrl) {
+    const serverUrl = normalizeBrokerServerUrl(selectedBrokerOption?.serverUrl || '');
+    if (!serverUrl) {
+      brokerHealthProbeRef.current += 1;
+      warmedBrokerServerUrlRef.current = '';
+      clearBrokerHealthVerification();
+      setIsBrokerHealthChecking(false);
+      return;
+    }
+    if (healthVerifiedBrokerServerUrlRef.current !== serverUrl) {
+      clearBrokerHealthVerification();
+    }
+    if (warmedBrokerServerUrlRef.current === serverUrl) {
       return;
     }
     warmedBrokerServerUrlRef.current = serverUrl;
     void probeBrokerHealth(serverUrl);
-  }, [savedCredentialsChecked, selectedBrokerServerUrl, probeBrokerHealth]);
+  }, [savedCredentialsChecked, selectedBrokerOption, clearBrokerHealthVerification, probeBrokerHealth]);
 
   const resolveBrokerSelectionError = useCallback((candidateBrokerId: string, candidateServerUrl = '') => {
     const candidateKey = normalizeBrokerKey(candidateBrokerId);
@@ -411,10 +465,6 @@ export function AccountLoginScreen() {
       if (!matchedBrokerOption.serverUrl) {
         return getBrokerBackendDomainUnavailableMessage(candidateBrokerId);
       }
-      return '';
-    }
-
-    if (isBrokerServiceBaseUrl(normalizeBrokerServerUrl(candidateServerUrl))) {
       return '';
     }
 
@@ -435,7 +485,15 @@ export function AccountLoginScreen() {
     (brokerIdValueRef.current ?? brokerId).trim(),
     brokerServerUrlValueRef.current || selectedBrokerServerUrl,
   );
-  const isLoginSubmitDisabled = isLoading || Boolean(brokerSelectionError);
+  const exactSelectedBrokerServerUrl = normalizeBrokerServerUrl(selectedBrokerOption?.serverUrl || '');
+  const isSelectedBrokerHealthVerified = Boolean(
+    exactSelectedBrokerServerUrl
+    && healthVerifiedBrokerServerUrl === exactSelectedBrokerServerUrl,
+  );
+  const isLoginSubmitDisabled = isLoading
+    || isBrokerHealthChecking
+    || Boolean(brokerSelectionError)
+    || !isSelectedBrokerHealthVerified;
 
   useEffect(() => {
     if (!selectedBrokerOption?.serverUrl) {
@@ -455,13 +513,7 @@ export function AccountLoginScreen() {
     brokerLogoUrlValueRef.current = nextLogoUrl;
     setBrokerServerUrl(nextServerUrl);
     setBrokerLogoUrl(nextLogoUrl);
-    setBrokerConnection(selectedBrokerOption.brokerId, nextServerUrl, nextLogoUrl);
-    void persistSelectedBrokerSession({
-      brokerId: selectedBrokerOption.brokerId,
-      serverUrl: nextServerUrl,
-      logoUrl: nextLogoUrl,
-    });
-  }, [brokerLogoUrl, brokerServerUrl, selectedBrokerOption, setBrokerConnection]);
+  }, [brokerLogoUrl, brokerServerUrl, selectedBrokerOption]);
 
   useEffect(() => {
     if (
@@ -480,18 +532,9 @@ export function AccountLoginScreen() {
     const directoryOption = brokerOptions.find(
       (option) => option.brokerId.toLowerCase() === DEV_DEFAULT_LOGIN.brokerId.toLowerCase(),
     );
-    const defaultOption = {
-      key: normalizeBrokerKey(DEV_DEFAULT_LOGIN.brokerId),
-      brokerId: DEV_DEFAULT_LOGIN.brokerId,
-      brokerName: directoryOption?.brokerName || DEV_DEFAULT_LOGIN.brokerName,
-      serverUrl: directoryOption?.serverUrl || DEV_DEFAULT_LOGIN.serverUrl,
-      logoUrl: directoryOption?.logoUrl || '',
-      region: directoryOption?.region || 'Demo',
-      protocol: directoryOption?.protocol || 'https',
-      domain: directoryOption?.domain ?? resolveLoginBrokerDomain(DEV_DEFAULT_LOGIN.brokerName),
-    };
+    if (!directoryOption) return;
 
-    selectBrokerOption(defaultOption);
+    selectBrokerOption(directoryOption);
     accountIdValueRef.current = DEV_DEFAULT_LOGIN.username;
     passwordValueRef.current = DEV_DEFAULT_LOGIN.password;
     setAccountId(DEV_DEFAULT_LOGIN.username);
@@ -538,12 +581,19 @@ export function AccountLoginScreen() {
     const candidateServerUrl = normalizeBrokerServerUrl(
       brokerServerUrlValueRef.current || selectedBrokerServerUrl,
     );
+    const candidateBrokerId = (brokerIdValueRef.current ?? brokerId).trim();
+    const matchedOption = brokerOptions.find(
+      (option) => option.key === normalizeBrokerKey(candidateBrokerId),
+    );
     return {
-      brokerId: (brokerIdValueRef.current ?? brokerId).trim(),
-      serverUrl: isBrokerServiceBaseUrl(candidateServerUrl) ? candidateServerUrl : '',
+      brokerId: candidateBrokerId,
+      serverUrl: isBrokerServerUrlForApiBase(candidateServerUrl, matchedOption?.endpoints.apiBase)
+        ? candidateServerUrl
+        : '',
       logoUrl: brokerLogoUrlValueRef.current ?? selectedBrokerLogoUrl,
       accountId: (accountIdValueRef.current ?? accountId).trim(),
       password: passwordValueRef.current ?? password,
+      endpoints: matchedOption?.endpoints ?? null,
     };
   };
 
@@ -560,6 +610,7 @@ export function AccountLoginScreen() {
     }
     const normalizedBrokerId = snapshot.brokerId;
     const normalizedServerUrl = snapshot.serverUrl;
+    const selectedEndpoints = snapshot.endpoints;
     const selectedLogoUrl = snapshot.logoUrl;
     const normalizedAccountId = snapshot.accountId;
     const currentPassword = snapshot.password;
@@ -585,7 +636,11 @@ export function AccountLoginScreen() {
       });
       return;
     }
-    if (!normalizedServerUrl) {
+    if (
+      !normalizedServerUrl
+      || !selectedEndpoints
+      || !isBrokerServerUrlForApiBase(normalizedServerUrl, selectedEndpoints.apiBase)
+    ) {
       setIsLoading(false);
       recordAccountJournalEvent('login blocked: broker login server unavailable', {
         level: 'error',
@@ -596,6 +651,22 @@ export function AccountLoginScreen() {
         type: 'error',
         title: t('Error'),
         message: getBrokerBackendDomainUnavailableMessage(normalizedBrokerId),
+      });
+      return;
+    }
+    if (healthVerifiedBrokerServerUrlRef.current !== normalizedServerUrl) {
+      const unavailableMessage = t('Selected broker is unavailable');
+      setIsLoading(false);
+      setBrokerHealthWarning(unavailableMessage);
+      recordAccountJournalEvent('login blocked: selected broker health not verified', {
+        level: 'error',
+        accountLogin: normalizedAccountId,
+      });
+      setModalState({
+        visible: true,
+        type: 'error',
+        title: t('Error'),
+        message: unavailableMessage,
       });
       return;
     }
@@ -614,13 +685,19 @@ export function AccountLoginScreen() {
     recordAccountJournalEvent(`login requested for broker ${normalizedBrokerId}`, {
       accountLogin: normalizedAccountId,
     });
+    const commitAuthorization = authorizeBrokerSessionCommit();
+    const loginAbortController = new AbortController();
+    activeLoginAttemptRef.current = {
+      authorization: commitAuthorization,
+      controller: loginAbortController,
+    };
     let didStartSuccessNavigation = false;
     try {
       const response: any = await loginAPI({
         username: normalizedAccountId,
         password: currentPassword,
         broker_id: normalizedBrokerId,
-      }, { serverUrl: normalizedServerUrl });
+      }, { serverUrl: normalizedServerUrl, signal: loginAbortController.signal });
 
       // ── Defensive response parsing ──
       // The V2 server's spec (AuthTokenResponse) returns `token` + nested
@@ -679,29 +756,39 @@ export function AccountLoginScreen() {
       // validates and returns it, so it's always correct. Falls back to
       // the user-typed value if the response doesn't include it.
       const canonicalBrokerId = response.broker_id || response.brokerId || normalizedBrokerId;
+      if (normalizeBrokerKey(canonicalBrokerId) !== normalizeBrokerKey(selectedEndpoints.brokerId)) {
+        throw new Error(t('Login response did not match the selected broker.'));
+      }
       const accountType = getTradingAccountTypeFromBackend(response);
       const immediateServerName = serverName || canonicalBrokerId;
       const savedLogin = String(accountLogin);
 
-      // brokerId is persisted atomically inside login() to prevent race
-      // conditions with the async Zustand persist middleware. Account type is
-      // included here too so success performs one store update before routing.
-      login(
-        savedLogin,
-        accountName,
-        immediateServerName,
-        {
-          access_token: accessToken,
-          refresh_token: refreshToken ?? '',
-          expires_at: expiresAtIso,
+      const committedSession = await commitBrokerSession({
+        session: {
+          brokerId: selectedEndpoints.brokerId,
+          accountLogin: savedLogin,
+          apiBase: selectedEndpoints.apiBase,
+          feedWsBase: selectedEndpoints.feedWsBase,
+          tradeWsBase: selectedEndpoints.tradeWsBase,
+          feedStatusUrl: selectedEndpoints.feedStatusUrl,
+          servicesDomain: selectedEndpoints.servicesDomain,
+          feedAuthContext: resolveFeedAuthContextFromAuthResponse(response, Boolean(feedToken)),
+          configVersion: selectedEndpoints.configVersion,
         },
-        canonicalBrokerId,
-        {
-          serverUrl: normalizedServerUrl,
+        credentials: {
+          accessToken,
+          refreshToken: refreshToken ?? '',
+          expiresAt: expiresAtIso,
+          ...(feedToken ? { feedToken } : {}),
+        },
+        account: {
+          name: accountName,
+          serverName: immediateServerName,
           logoUrl: selectedLogoUrl,
           isDemoAccount: accountType === 'demo',
         },
-      );
+      }, commitAuthorization);
+      const committedProvenance = getActiveBrokerSessionProvenance(committedSession.session);
       recordAccountJournalEvent(`login succeeded on ${canonicalBrokerId}`, {
         level: 'success',
         accountLogin: savedLogin,
@@ -710,23 +797,11 @@ export function AccountLoginScreen() {
       router.replace('/(tabs)/quotes');
       didStartSuccessNavigation = true;
       schedulePostLoginWork(() => {
-        void Promise.all([
-          persistSelectedBrokerSession({
-            brokerId: canonicalBrokerId,
-            serverUrl: normalizedServerUrl,
-            logoUrl: selectedLogoUrl,
-          }),
-          persistAuthSessionTokens({
-            accessToken,
-            refreshToken: refreshToken ?? '',
-            expiresAt: expiresAtIso,
-            feedToken,
-          }),
-        ]).catch((err) => {
-          console.warn('[Login] Failed to persist secure broker session', err);
-        });
-        void bootstrapApp({ accountLogin: savedLogin }).catch((err) => {
-          console.warn('[Login] Post-login bootstrap failed', err);
+        void bootstrapApp({
+          accountLogin: savedLogin,
+          expectedProvenance: committedProvenance,
+        }).catch((err) => {
+          console.warn('[Login] Post-login bootstrap failed', redactAuthPayload(err));
         });
         // Record this account in the persistent directory and stash the master
         // password securely so the user can one-tap switch back to it later
@@ -743,13 +818,15 @@ export function AccountLoginScreen() {
           hasCredentials: true,
         });
         setSavedAccountPassword(canonicalBrokerId, savedLogin, currentPassword).catch((err) => {
-          console.warn('[Login] Failed to persist saved-account credential', err);
+          console.warn('[Login] Failed to persist saved-account credential', redactAuthPayload(err));
         });
 
         // Refresh session-scoped caches after navigation has started.
-        queryClient.invalidateQueries({ queryKey: [ACCOUNTS_LIST_KEY] });
-        queryClient.invalidateQueries({ queryKey: [ACCOUNT_DETAIL_KEY] });
-        queryClient.invalidateQueries({ queryKey: [BROKER_CONFIG_KEY] });
+        void invalidateSessionQueryRoots(
+          queryClient,
+          committedSession.session.cacheNamespace,
+          ['accountsList', 'accountDetail', 'brokerConfig'],
+        );
 
         // Keep remembered-login storage off the critical route change.
         if (savePassword) {
@@ -767,11 +844,19 @@ export function AccountLoginScreen() {
           removeSecureItemAsync(screenCopy.savedLoginKey);
         }
 
+        if (!isActiveBrokerSessionProvenanceCurrent(committedProvenance)) return;
         void getBrokerConfig(canonicalBrokerId)
           .then((brokerConfig) => {
-            queryClient.setQueryData([BROKER_CONFIG_KEY, canonicalBrokerId], brokerConfig);
+            if (!isActiveBrokerSessionProvenanceCurrent(committedProvenance)) return;
+            queryClient.setQueryData(
+              getBrokerConfigQueryKey(committedSession.session.cacheNamespace, canonicalBrokerId),
+              brokerConfig,
+            );
             if (canonicalBrokerId !== normalizedBrokerId) {
-              queryClient.setQueryData([BROKER_CONFIG_KEY, normalizedBrokerId], brokerConfig);
+              queryClient.setQueryData(
+                getBrokerConfigQueryKey(committedSession.session.cacheNamespace, normalizedBrokerId),
+                brokerConfig,
+              );
             }
             if (brokerConfig.server_name && brokerConfig.server_name !== immediateServerName) {
               upsertSavedAccount({
@@ -788,20 +873,38 @@ export function AccountLoginScreen() {
             }
           })
           .catch((err) => {
-            console.warn('[Login] Broker config refresh failed after login', err);
+            console.warn('[Login] Broker config refresh failed after login', redactAuthPayload(err));
           });
       });
       
     } catch (error: any) {
-      recordAccountJournalEvent(`login failed: ${error?.message || t('Invalid credentials')}`, {
+      if (
+        !loginMountedRef.current ||
+        isLoginRequestAbortedError(error) ||
+        isStaleBrokerSessionCommitError(error)
+      ) {
+        return;
+      }
+      const safeErrorMessage = redactSensitiveString(
+        typeof error?.message === 'string' && error.message.trim()
+          ? error.message
+          : t('Invalid credentials'),
+      );
+      recordAccountJournalEvent(`login failed: ${safeErrorMessage}`, {
         level: 'error',
         accountLogin: normalizedAccountId,
       });
-      setModalState({ visible: true, type: 'error', title: t('Login Failed'), message: error.message || t('Invalid credentials') });
+      setModalState({ visible: true, type: 'error', title: t('Login Failed'), message: safeErrorMessage });
     } finally {
       loginRequestInFlightRef.current = false;
+      cancelBrokerSessionCommitAuthorization(commitAuthorization);
+      if (activeLoginAttemptRef.current?.authorization === commitAuthorization) {
+        activeLoginAttemptRef.current = null;
+      }
       if (!didStartSuccessNavigation) {
-        setIsLoading(false);
+        if (loginMountedRef.current) {
+          setIsLoading(false);
+        }
       }
     }
   };

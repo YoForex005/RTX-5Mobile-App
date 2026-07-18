@@ -4,8 +4,6 @@
  */
 import type { TickPoint } from './types';
 
-export const randomBetween = (min: number, max: number) => min + Math.random() * (max - min);
-
 export const clampValue = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
 
@@ -33,40 +31,13 @@ export const appendTick = (ticks: TickPoint[], nextTick: TickPoint, maxTicks: nu
 
 export const createInitialTickHistory = (
   latestTick: TickPoint,
-  priceDecimals: number,
-  maxTicks: number,
+  _priceDecimals: number,
+  _maxTicks: number,
 ): TickPoint[] => {
   if (!isValidTickPoint(latestTick)) {
     return [];
   }
-
-  const fallbackPoint = Math.pow(10, -Math.max(0, priceDecimals || 0));
-  const spread = Math.max(latestTick.ask - latestTick.bid, fallbackPoint * 3);
-  const movementUnit = Math.max(fallbackPoint, spread / 5);
-  const count = Math.max(2, Math.min(maxTicks, 46));
-  const history: TickPoint[] = [];
-
-  for (let index = 0; index < count - 1; index += 1) {
-    const age = count - 1 - index;
-    const wave =
-      Math.sin(index * 0.63) * 2.2 +
-      Math.sin(index * 0.19) * 1.4 +
-      Math.cos(index * 0.37) * 0.8;
-    const drift = age * 0.08;
-    const bid = Math.max(
-      fallbackPoint,
-      latestTick.bid - (wave + drift) * movementUnit,
-    );
-
-    history.push({
-      time: latestTick.time - age * 450,
-      bid: roundToDecimals(bid, priceDecimals),
-      ask: roundToDecimals(bid + spread, priceDecimals),
-    });
-  }
-
-  history.push(latestTick);
-  return history.filter(isValidTickPoint);
+  return [latestTick];
 };
 
 export const resolveFallbackTickSize = (ticks: TickPoint[], priceDecimals: number) => {
@@ -85,37 +56,4 @@ export const resolveFallbackTickSize = (ticks: TickPoint[], priceDecimals: numbe
   }
 
   return Number.isFinite(minDiff) ? Math.max(fallbackPoint, minDiff) : fallbackPoint;
-};
-
-export const createDemoTick = (
-  seedTick: TickPoint,
-  priceDecimals: number,
-  preferredBid?: number | null,
-  preferredAsk?: number | null,
-): TickPoint => {
-  const fallbackPoint = Math.pow(10, -Math.max(0, priceDecimals || 0));
-  const referenceSpread = isFiniteTickValue(preferredAsk)
-    && isFiniteTickValue(preferredBid)
-    && preferredAsk >= preferredBid
-    ? preferredAsk - preferredBid
-    : seedTick.ask - seedTick.bid;
-  const spreadBase = Math.max(referenceSpread, fallbackPoint * 2);
-  const deltaUnit = Math.max(fallbackPoint, spreadBase / 6);
-  const moveOptions = [-3, -2, -1, 1, 2, 3];
-  const shouldMove = Math.random() > 0.35;
-
-  let nextBid = seedTick.bid;
-  if (shouldMove) {
-    const moveMultiplier = moveOptions[Math.floor(Math.random() * moveOptions.length)];
-    nextBid = seedTick.bid + moveMultiplier * deltaUnit;
-  }
-
-  const spreadNoise = Math.random() > 0.7 ? deltaUnit * (Math.random() > 0.5 ? 1 : -1) * 0.35 : 0;
-  const nextSpread = Math.max(fallbackPoint * 2, spreadBase + spreadNoise);
-
-  return {
-    time: Date.now(),
-    bid: roundToDecimals(nextBid, priceDecimals),
-    ask: roundToDecimals(nextBid + nextSpread, priceDecimals),
-  };
 };

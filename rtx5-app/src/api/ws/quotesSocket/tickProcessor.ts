@@ -17,9 +17,12 @@ import {
 } from '../../../domain/candles/ws/candlesSocketProtocol';
 import { shouldRouteBackendCandlePayloads } from '../../../domain/candles/ws/liveCandlesEnginePolicy';
 import { isCryptoSymbol } from '../../../domain/symbols';
+import { quoteLatencyMonotonicNow } from '../../../market/quoteLatencyMetrics';
+import { recordMarketDataEvent } from '../../../market/marketDataTelemetry';
 import { normalizeQuoteTickPayload } from '../quoteTickNormalizer';
 import { normalizeQuoteTickTimestampToMs } from '../quoteTimestamp';
 import type { QuoteTickEvent } from '../quoteTickNormalizer';
+import type { NormalizedQuoteFeedUpdate } from '../quoteTickNormalizer';
 
 export interface TickProcessorBridge {
   readonly pendingUpdates: Map<string, any>;
@@ -27,6 +30,12 @@ export interface TickProcessorBridge {
   emitSymbolTick(symbol: string, tick: QuoteTickEvent): void;
   shouldStageQuoteUpdate(): boolean;
   logCandleFeed(event: string, details?: Record<string, unknown>, limit?: number): void;
+  acceptNormalizedTick?(
+    raw: unknown,
+    update: NormalizedQuoteFeedUpdate,
+    receivedAt: number,
+  ): boolean;
+  acceptCandlePayload?(raw: unknown): boolean;
 }
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
@@ -157,6 +166,12 @@ const QUOTE_ENVELOPE_CONTEXT_KEYS = [
   'tickId',
   'source_tick_id',
   'sourceTickId',
+  'broker_id',
+  'brokerId',
+  'account_login',
+  'accountLogin',
+  'session_epoch',
+  'sessionEpoch',
 ] as const;
 
 const mergeQuoteEnvelopeContext = (
@@ -189,6 +204,16 @@ const routeBackendCandleUpdates = (bridge: TickProcessorBridge, payload: unknown
     return routedAny;
   }
   if (!isExplicitCandlePayload(payload)) {
+    return false;
+  }
+
+  if (bridge.acceptCandlePayload?.(payload) === false) {
+    recordMarketDataEvent('payload_dropped', {
+      transport: 'quotes_ws',
+      payloadType: 'candle',
+      reason: 'identity_mismatch',
+    });
+    bridge.logCandleFeed('feed_candle_update_dropped_identity_mismatch', undefined, 20);
     return false;
   }
 
@@ -230,30 +255,59 @@ const routeBackendCandleUpdates = (bridge: TickProcessorBridge, payload: unknown
 
 export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
   const receivedAt = Date.now();
+  const receiptMonotonicAt = quoteLatencyMonotonicNow();
   const normalized = normalizeQuoteTickPayload(raw, receivedAt);
   if (!normalized.ok) {
+    recordMarketDataEvent('payload_dropped', {
+      transport: 'quotes_ws',
+      payloadType: 'quote',
+      reason: normalized.reason,
+    });
     bridge.logCandleFeed('tick_dropped_before_store', {
       reason: normalized.reason,
       rawKeys: normalized.rawKeys,
     });
     return false;
   }
+  if (bridge.acceptNormalizedTick?.(raw, normalized.update, receivedAt) === false) {
+    return false;
+  }
 
   const normalizedUpdate = normalized.update;
   const normalizedTimestamp = normalizedUpdate.timestamp;
   const normalizedTimestampMs = normalizeQuoteTickTimestampToMs(normalizedTimestamp);
+  const sourceTimestampMs = normalizedUpdate.timestampSource === 'feed'
+    ? normalizedTimestampMs ?? undefined
+    : undefined;
   const liveListenerTimestamp = normalizedTimestamp ?? receivedAt;
-  const allowReceivedAtCandleExtension =
-    normalizedUpdate.timestampSource === 'received_at' && isCryptoSymbol(normalizedUpdate.symbol);
+  // Quote-driven candles must keep forming on the current bucket. MyProp (and
+  // similar hubs) can attach a lagging feed clock while still streaming prices
+  // (age_ms / stale=true). Using that lagging clock puts the tick behind
+  // historyCutoff and freezes the active candle while only the price line moves.
+  const CANDLE_FEED_TIME_MAX_AGE_MS = 5_000;
+  const feedAgeMs = Number.isFinite(normalizedUpdate.ageMs)
+    ? Number(normalizedUpdate.ageMs)
+    : Number.isFinite(normalizedUpdate.ageSec)
+      ? Number(normalizedUpdate.ageSec) * 1000
+      : sourceTimestampMs !== undefined
+        ? Math.max(0, receivedAt - sourceTimestampMs)
+        : null;
+  const feedTimeTooOld =
+    normalizedUpdate.stale === true ||
+    (feedAgeMs !== null && feedAgeMs > CANDLE_FEED_TIME_MAX_AGE_MS);
   const candleExtensionTimestamp =
-    normalizedUpdate.timestampSource === 'feed' || allowReceivedAtCandleExtension
+    normalizedUpdate.timestampSource === 'feed' &&
+    normalizedTimestamp !== null &&
+    !feedTimeTooOld
       ? normalizedTimestamp
-      : null;
-  if (normalizedUpdate.timestampSource === 'received_at') {
-    bridge.logCandleFeed('tick_timestamp_fallback_received_at', {
+      : receivedAt;
+  if (normalizedUpdate.timestampSource !== 'feed' || feedTimeTooOld) {
+    bridge.logCandleFeed('tick_candle_time_receipt_fallback', {
       symbol: normalizedUpdate.symbol,
-      allowedForCandle: allowReceivedAtCandleExtension,
-      timestamp: normalizedTimestamp,
+      timestampSource: normalizedUpdate.timestampSource,
+      feedAgeMs,
+      stale: normalizedUpdate.stale === true,
+      cryptoSymbol: isCryptoSymbol(normalizedUpdate.symbol),
       rawKeys: normalizedUpdate.rawKeys,
     }, 20);
   }
@@ -280,6 +334,7 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
     ...(normalizedUpdate.tickId === undefined ? {} : { tickId: normalizedUpdate.tickId }),
     ...(normalizedUpdate.source === undefined ? {} : { source: normalizedUpdate.source }),
     ...(normalizedUpdate.authority === undefined ? {} : { authority: normalizedUpdate.authority }),
+    transport: 'websocket',
     ...(normalizedUpdate.stale === undefined ? {} : { stale: normalizedUpdate.stale }),
     ...(normalizedUpdate.tradable === undefined ? {} : { tradable: normalizedUpdate.tradable }),
     ...(normalizedUpdate.ageMs === undefined ? {} : { ageMs: normalizedUpdate.ageMs }),
@@ -288,7 +343,7 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
     ...(normalizedUpdate.degradationReason === undefined
       ? {}
       : { degradationReason: normalizedUpdate.degradationReason }),
-    feedTickAt: normalizedTimestampMs ?? undefined,
+    feedTickAt: sourceTimestampMs,
     lastReceivedAt: receivedAt,
     ...(normalizedTimestamp === null
       ? {}
@@ -320,13 +375,15 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
     tickId: normalizedUpdate.tickId,
     source: normalizedUpdate.source,
     authority: normalizedUpdate.authority,
+    transport: 'websocket',
     stale: normalizedUpdate.stale,
     tradable: normalizedUpdate.tradable,
     ageMs: normalizedUpdate.ageMs,
     ageSec: normalizedUpdate.ageSec,
     degraded: normalizedUpdate.degraded,
     degradationReason: normalizedUpdate.degradationReason,
-    feedTickAt: normalizedTimestampMs ?? undefined,
+    feedTickAt: sourceTimestampMs,
+    receiptMonotonicAt,
     receivedAt,
     timestamp: liveListenerTimestamp,
   };
@@ -335,13 +392,23 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
   // Quotes screen relies on for live bid/ask updates — it doesn't need to
   // wait for the rAF/setTimeout-driven Zustand flush.
   bridge.emitSymbolTick(normalizedUpdate.rawSymbol || normalizedUpdate.symbol, tickEvent);
-  // In legacy quote-candle mode, extend the chart's active candle from ticks.
-  // The webterminal-parity path uses broker /ws/v2 candle channels instead.
-  const tickPriceForCandle = Number.isFinite(normalizedUpdate.bid)
-    ? normalizedUpdate.bid
-    : Number.isFinite(normalizedUpdate.ask)
-      ? normalizedUpdate.ask
-      : null;
+  // Quote-driven active candle: use last when present, otherwise bid for close.
+  // High/low span the full bid/ask quote so the forming bar grows real wicks
+  // instead of looking like a flat line when only one side is sampled.
+  const bidPrice = Number.isFinite(normalizedUpdate.bid) ? normalizedUpdate.bid : null;
+  const askPrice = Number.isFinite(normalizedUpdate.ask) ? normalizedUpdate.ask : null;
+  const lastPrice = Number.isFinite(normalizedUpdate.last) ? Number(normalizedUpdate.last) : null;
+  const tickPriceForCandle = lastPrice ?? bidPrice ?? askPrice;
+  const tickHighForCandle = Math.max(
+    ...[bidPrice, askPrice, lastPrice, tickPriceForCandle].filter(
+      (value): value is number => value !== null && Number.isFinite(value),
+    ),
+  );
+  const tickLowForCandle = Math.min(
+    ...[bidPrice, askPrice, lastPrice, tickPriceForCandle].filter(
+      (value): value is number => value !== null && Number.isFinite(value),
+    ),
+  );
   const useServerCandleStream = shouldRouteBackendCandlePayloads();
   if (
     !useServerCandleStream &&
@@ -351,6 +418,8 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
     try {
       liveCandleStream.extendActiveCandlesFromQuoteTick(normalizedUpdate.symbol, {
         price: tickPriceForCandle,
+        high: tickHighForCandle,
+        low: tickLowForCandle,
         time: candleExtensionTimestamp,
         volume: normalizedUpdate.volume,
       });
@@ -359,20 +428,13 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
       // method on its prototype. Skip silently — the chart still receives
       // backend candle snapshots via the dedicated candle WS.
     }
-  } else if (!useServerCandleStream && tickPriceForCandle !== null) {
-    bridge.logCandleFeed('tick_candle_extension_skipped_missing_feed_time', {
-      symbol: normalizedUpdate.symbol,
-      timestampSource: normalizedUpdate.timestampSource,
-      cryptoSymbol: isCryptoSymbol(normalizedUpdate.symbol),
-      rawKeys: normalizedUpdate.rawKeys,
-    }, 20);
   }
   bridge.logCandleFeed('tick_emitted_to_quote_listeners', {
     symbol: normalizedUpdate.symbol,
     bid: normalizedUpdate.bid,
     ask: normalizedUpdate.ask,
     timestamp: liveListenerTimestamp,
-    feedTickAt: normalizedTimestampMs,
+    feedTickAt: sourceTimestampMs,
     receivedAt,
     rawKeys: normalizedUpdate.rawKeys,
     degraded: normalizedUpdate.degraded,

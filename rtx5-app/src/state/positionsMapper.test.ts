@@ -58,7 +58,7 @@ test('mapPositionToItem builds stable ids for fresh positions without random fal
   assert.equal(mapped.pnl, 15);
 });
 
-test('mapPositionToItem normalizes broker symbols and common live update aliases', () => {
+test('mapPositionToItem preserves broker symbol suffix identity and common live update aliases', () => {
   const mapped = mapPositionToItem({
     ticket: 801,
     symbol: 'XAUUSDm',
@@ -71,7 +71,7 @@ test('mapPositionToItem normalizes broker symbols and common live update aliases
   });
 
   assert.equal(mapped.id, '801');
-  assert.equal(mapped.symbol, 'XAUUSD');
+  assert.equal(mapped.symbol, 'XAUUSDM');
   assert.equal(mapped.side, 'buy');
   assert.equal(mapped.openPrice, 3245.5);
   assert.equal(mapped.currentPrice, 3249.8);

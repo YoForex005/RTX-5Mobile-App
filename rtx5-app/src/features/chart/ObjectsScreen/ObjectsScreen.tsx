@@ -5,8 +5,9 @@ import { FastPressable as Pressable } from '../../../ui/components/FastPressable
  * MetaTrader-style chart objects manager backed by persisted drawing records.
  */
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useIsFocused } from '@react-navigation/native';
+import { router, useLocalSearchParams } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/shallow';
@@ -18,6 +19,7 @@ import { useUIState } from '../../../state/uiState';
 import { useTheme } from '../../../ui/theme/useTheme';
 import { safeRouterBack } from '../../../utils/navigation';
 import { runImmediateAction } from '../../../utils/actionLatency';
+import { scheduleChartActionLaunchCovered } from '../chartActionLaunchController';
 import { TvText, TvTrendLine } from '../components/ChartToolbarIcons';
 import {
   type ChartDrawingKind,
@@ -166,6 +168,7 @@ function StyleStepper({
  * Screen displaying a list of all active drawing objects (trendlines, fibonacci, etc.) on the current chart symbol.
  */
 export function ObjectsScreen() {
+  const { launchRevision } = useLocalSearchParams<{ launchRevision?: string }>();
   const {
     chartSymbol,
     chartLockAll,
@@ -202,6 +205,32 @@ export function ObjectsScreen() {
   const isDark = themeMode === 'dark';
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeObjectsScreenStyles(T, isDark), [T, isDark]);
+  const isScreenFocused = useIsFocused();
+  const parsedLaunchRevision = Number(launchRevision);
+  const resolvedLaunchRevision = Number.isFinite(parsedLaunchRevision)
+    ? parsedLaunchRevision
+    : undefined;
+  const launchBodyLaidOutRef = useRef(false);
+  const scheduledCoverageRevisionRef = useRef<number | null>(null);
+  const scheduleLaunchCoverageIfReady = useCallback(() => {
+    if (
+      !isScreenFocused
+      || resolvedLaunchRevision === undefined
+      || !launchBodyLaidOutRef.current
+      || scheduledCoverageRevisionRef.current === resolvedLaunchRevision
+    ) {
+      return;
+    }
+    scheduledCoverageRevisionRef.current = resolvedLaunchRevision;
+    scheduleChartActionLaunchCovered('objects', resolvedLaunchRevision);
+  }, [isScreenFocused, resolvedLaunchRevision]);
+  const handleLaunchBodyLayout = useCallback(() => {
+    launchBodyLaidOutRef.current = true;
+    scheduleLaunchCoverageIfReady();
+  }, [scheduleLaunchCoverageIfReady]);
+  useEffect(() => {
+    scheduleLaunchCoverageIfReady();
+  }, [scheduleLaunchCoverageIfReady]);
   const [showAddObjectSheet, setShowAddObjectSheet] = useState(false);
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
   const [styleEditorDrawingId, setStyleEditorDrawingId] = useState<string | null>(null);
@@ -1173,7 +1202,11 @@ export function ObjectsScreen() {
     : true;
 
   return (
-    <Screen style={styles.screen}>
+    <Screen
+      collapsable={false}
+      onLayout={handleLaunchBodyLayout}
+      style={styles.screen}
+    >
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 18) + 10 }]}>
         <View style={styles.headerRow}>
           <Pressable

@@ -27,12 +27,27 @@ test('bootstrap applies live data as each startup request resolves', () => {
   assert.ok(promiseAllIndex > marketStatusPromiseIndex);
   assert.match(bootstrapSource, /accountsPromise = accountLogin[\s\S]*requestJson\(buildAccountDetailPath\(accountLogin\)\)[\s\S]*updateAccountMetricsFromBootstrap\(accounts, accountLogin\)/);
   assert.match(bootstrapSource, /positionsPromise = accountLogin[\s\S]*requestJson\(`\/positions\/\$\{encodedAccountLogin\}`\)[\s\S]*applyPositionsSnapshot\(resolvedRows, accountLogin/);
-  assert.match(bootstrapSource, /ordersPromise = accountLogin[\s\S]*requestJson\(`\/orders\/\$\{encodedAccountLogin\}`\)[\s\S]*appQueryClient\.setQueryData\(\['orders', accountLogin\]/);
+  assert.match(bootstrapSource, /ordersPromise = accountLogin[\s\S]*requestJson\(`\/orders\/\$\{encodedAccountLogin\}`\)[\s\S]*getOrdersByLoginQueryKey\(cacheNamespace, Number\(accountLogin\)\)/);
   assert.doesNotMatch(bootstrapSource, /requestJson\('\/accounts'\)/);
   assert.doesNotMatch(bootstrapSource, /requestJson\('\/positions'\)/);
   assert.doesNotMatch(bootstrapSource, /requestJson\('\/orders'\)/);
-  assert.match(bootstrapSource, /instrumentsPromise = requestJson\('\/instruments\?favorites=true'\)\.then\(\(instruments\) => \{[\s\S]*brokerRealtimeService\.setInstrumentSpecs\(instrumentRows\)/);
-  assert.match(bootstrapSource, /marketStatusPromise = requestJson\('\/market\/status'\)\.then\(\(marketStatus\) => \{[\s\S]*appQueryClient\.setQueryData\(\['marketStatus'\], marketStatus\)/);
+  assert.match(bootstrapSource, /instrumentsPromise = requestJson\('\/instruments\?favorites=true'\)\.then\(\(result\) =>[\s\S]*appQueryClient\.setQueryData\([\s\S]*\['instruments', cacheNamespace, 'favorites'\]/);
+  assert.doesNotMatch(bootstrapSource, /setInstrumentSpecs/);
+  assert.match(bootstrapSource, /marketStatusPromise = requestJson\('\/market\/status'\)\.then\(\(result\) =>[\s\S]*appQueryClient\.setQueryData\(\['marketStatus', cacheNamespace\], marketStatus\)/);
+});
+
+test('bootstrap binds every parsed response and cache write to one session namespace', () => {
+  const bootstrapSource = source();
+
+  assert.match(bootstrapSource, /const sessionCapture = captureActiveBrokerSession\(\)/);
+  assert.match(bootstrapSource, /const activeProvenance = getActiveBrokerSessionProvenance\(sessionCapture\.session\)/);
+  assert.match(bootstrapSource, /options\.expectedProvenance\.cacheNamespace !== activeProvenance\.cacheNamespace/);
+  assert.match(bootstrapSource, /!isActiveBrokerSessionProvenanceCurrent\(options\.expectedProvenance\)/);
+  assert.match(bootstrapSource, /requestedAccountLogin !== sessionCapture\.session\.accountLogin/);
+  assert.match(bootstrapSource, /const cacheNamespace = sessionCapture\.session\.cacheNamespace/);
+  assert.match(bootstrapSource, /brokerApi\.getJsonResponse<T>\(endpoint\)/);
+  assert.match(bootstrapSource, /brokerApi\.commitJsonResponse\(result, cacheNamespace, commit\)/);
+  assert.match(bootstrapSource, /error instanceof StaleBrokerSessionError/);
 });
 
 test('bootstrap account metrics accepts common backend account aliases', () => {

@@ -1,6 +1,10 @@
 import Constants from 'expo-constants';
 import type { ErrorInfo } from 'react';
 import * as Sentry from '@sentry/react-native';
+import {
+  redactDiagnosticValue,
+  redactSensitiveString,
+} from '../utils/securityRedaction';
 
 type SentryExpoExtra = {
   sentryDsn?: unknown;
@@ -24,9 +28,17 @@ Sentry.init({
   enableAutoConsoleLogs: false,
   maxBreadcrumbs: 0,
   sendDefaultPii: false,
+  beforeSend: (event) => redactDiagnosticValue(event) as typeof event,
 });
 
 export const wrapWithSentry = Sentry.wrap;
+
+const createRedactedError = (error: Error): Error => {
+  const redacted = new Error(redactSensitiveString(error.message));
+  redacted.name = redactSensitiveString(error.name);
+  redacted.stack = error.stack ? redactSensitiveString(error.stack) : undefined;
+  return redacted;
+};
 
 export const captureErrorBoundaryException = (error: Error, errorInfo: ErrorInfo) => {
   if (!isSentryEnabled) {
@@ -35,8 +47,10 @@ export const captureErrorBoundaryException = (error: Error, errorInfo: ErrorInfo
 
   Sentry.withScope((scope) => {
     scope.setContext('react', {
-      componentStack: errorInfo.componentStack ?? null,
+      componentStack: errorInfo.componentStack
+        ? redactSensitiveString(errorInfo.componentStack)
+        : null,
     });
-    Sentry.captureException(error);
+    Sentry.captureException(createRedactedError(error));
   });
 };

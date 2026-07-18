@@ -73,9 +73,8 @@ module.exports = ({ config }) => {
         'https://superbackend.orrnn.com/api/v2',
       brokerDirectoryBaseUrl:
         process.env.EXPO_PUBLIC_BROKER_DIRECTORY_BASE_URL ??
-        process.env.EXPO_PUBLIC_API_V1_BASE_URL ??
         config.extra?.brokerDirectoryBaseUrl ??
-        'https://superbackend.orrnn.com/api/v1',
+        'https://superbackend.orrnn.com/api/v2',
       gitCommitSha: resolveGitCommitSha(),
       gitDirty: resolveGitDirty(),
       ...(easBuildProfile ? { easBuildProfile } : {}),

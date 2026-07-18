@@ -4,7 +4,8 @@
  * Singleton WebSocket service for live account data.
  *
  * Protocol:
- *   1. Connect to wss://backend.orrnn.com/ws/v2?token=JWT_TOKEN
+ *   1. Connect to the active session's exact validated tradeWsBase using the
+ *      credential URL returned by brokerApi.
  *   2. Subscribe: { "action": "subscribe", "channel": "metrics.LOGIN" }
  *                  { "action": "subscribe", "channel": "positions.LOGIN" }
  *
@@ -13,44 +14,34 @@
  */
 
 import { useLiveAccountState } from '../../state/liveAccountState';
+import { AppState } from 'react-native';
 import { usePositionsState } from '../../state/positionsState';
-import { resolveTradingLogin } from '../../state/tradingLogin';
-import { useUserPreferences } from '../../state/userPreferences';
+import { brokerApi } from '../brokerApi';
+import { isSocketAuthenticationFailure } from './socketClosePolicy';
+import { payloadMatchesSocketIdentity } from './socketPayloadIdentity';
 import {
-  buildBrokerWsUrl,
-  getBrokerBackendDomainUnavailableMessage,
-  isBrokerServiceBaseUrl,
-  normalizeConfiguredWsUrl,
-} from '../brokerRouting';
+  captureActiveBrokerSession,
+  isActiveBrokerSessionCurrent,
+} from '../../state/activeBrokerSession';
 import {
   extractLiveAccountMetrics,
   resolveAccountWsSession,
   type AccountWsSession,
 } from './accountSocket.helpers';
+import { redactDiagnosticValue } from '../../utils/securityRedaction';
 
-const DEFAULT_ACCOUNT_WS_URL = 'wss://backend.orrnn.com/ws/v2';
-const getAccountWsBaseUrl = () => {
-  const state = useUserPreferences.getState();
-  if (state.isLoggedIn && !isBrokerServiceBaseUrl(state.brokerServerUrl)) {
-    return '';
-  }
-  return normalizeConfiguredWsUrl(
-    process.env.EXPO_PUBLIC_ACCOUNT_WS_URL,
-    buildBrokerWsUrl(state.brokerServerUrl, '/ws/v2', DEFAULT_ACCOUNT_WS_URL),
-  );
-};
 const DEBUG_ACCOUNT_WS =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_ACCOUNT_WS === 'true';
 
 const logAccountWsDiagnostic = (...args: Parameters<typeof console.log>) => {
   if (DEBUG_ACCOUNT_WS) {
-    console.log(...args);
+    console.log(...args.map(redactDiagnosticValue));
   }
 };
 
 const warnAccountWsDiagnostic = (...args: Parameters<typeof console.warn>) => {
   if (DEBUG_ACCOUNT_WS) {
-    console.warn(...args);
+    console.warn(...args.map(redactDiagnosticValue));
   }
 };
 
@@ -208,6 +199,17 @@ const isAuthoritativePositionSnapshot = (
   return false;
 };
 
+const sameAccountWsSession = (
+  left: AccountWsSession | null,
+  right: AccountWsSession,
+): boolean => Boolean(
+  left &&
+  left.login === right.login &&
+  left.identity.brokerId === right.identity.brokerId &&
+  left.identity.accountLogin === right.identity.accountLogin &&
+  left.identity.sessionEpoch === right.identity.sessionEpoch,
+);
+
 class AccountWebSocketService {
   private static instance: AccountWebSocketService;
   private ws: WebSocket | null = null;
@@ -215,9 +217,11 @@ class AccountWebSocketService {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private isConnected = false;
   private shouldReconnect = false;
+  private isSuspended = AppState.currentState !== 'active';
   private reconnectAttempts = 0;
   private readonly maxReconnectAttempts = 5;
   private activeSession: AccountWsSession | null = null;
+  private isResolvingSocketUrl = false;
 
   private constructor() {}
 
@@ -229,15 +233,18 @@ class AccountWebSocketService {
   }
 
   public connect(): void {
+    const desiredSession = this.resolveSession();
+    if (!desiredSession) {
+      this.pauseUntilNextLogin();
+      return;
+    }
     this.shouldReconnect = true;
     this.reconnectAttempts = 0;
     this.clearReconnectTimer();
 
-    const desiredSession = this.resolveSession();
     if (
-      desiredSession &&
       this.activeSession &&
-      (desiredSession.login !== this.activeSession.login || desiredSession.token !== this.activeSession.token)
+      !sameAccountWsSession(this.activeSession, desiredSession)
     ) {
       // Account changed: clear stale metrics/positions immediately so the UI
       // does not keep rendering the old account while the new socket boots.
@@ -246,7 +253,8 @@ class AccountWebSocketService {
       this.teardownSocket(false);
     }
 
-    this.doConnect();
+    if (this.isSuspended) return;
+    void this.doConnect();
   }
 
   public disconnect(): void {
@@ -258,45 +266,93 @@ class AccountWebSocketService {
     this.teardownSocket(true);
   }
 
-  private resolveSession(): AccountWsSession | null {
-    return resolveAccountWsSession(
-      useUserPreferences.getState().accountDetails,
-      resolveTradingLogin(),
-    );
+  public suspend(): void {
+    if (this.isSuspended) return;
+    this.isSuspended = true;
+    this.clearReconnectTimer();
+    this.teardownSocket(false);
   }
 
-  private doConnect(): void {
-    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
+  public resume(): void {
+    if (!this.isSuspended) return;
+    this.isSuspended = false;
+    if (!this.shouldReconnect) return;
+    const session = this.resolveSession();
+    if (!session) {
+      this.pauseUntilNextLogin();
+      return;
+    }
+    this.activeSession = session;
+    void this.doConnect();
+  }
+
+  private resolveSession(): AccountWsSession | null {
+    return resolveAccountWsSession(captureActiveBrokerSession());
+  }
+
+  private async doConnect(): Promise<void> {
+    if (
+      this.isSuspended ||
+      this.isResolvingSocketUrl ||
+      this.ws?.readyState === WebSocket.OPEN ||
+      this.ws?.readyState === WebSocket.CONNECTING
+    ) {
       return;
     }
 
     const session = this.resolveSession();
     if (!session) {
-      warnAccountWsDiagnostic('[Account WS] No authenticated MT5 session available. Will retry in 5s.');
-      this.scheduleRetry(5000);
+      this.pauseUntilNextLogin();
       return;
     }
 
-    this.activeSession = session;
-    const wsBaseUrl = getAccountWsBaseUrl();
-    if (!wsBaseUrl) {
-      warnAccountWsDiagnostic(
-        '[Account WS]',
-        getBrokerBackendDomainUnavailableMessage(useUserPreferences.getState().brokerId),
-      );
-      this.scheduleRetry(5000);
+    this.isResolvingSocketUrl = true;
+    let wsUrl = '';
+    try {
+      wsUrl = await brokerApi.getWebSocketUrl();
+    } catch (error) {
+      this.isResolvingSocketUrl = false;
+      if (
+        !this.isSuspended &&
+        isActiveBrokerSessionCurrent(session.identity) &&
+        this.shouldReconnect
+      ) {
+        warnAccountWsDiagnostic('[Account WS] Trading websocket unavailable.', error);
+        this.attemptReconnect(session);
+      }
       return;
     }
-    const wsUrl = `${wsBaseUrl}?token=${encodeURIComponent(session.token)}`;
+    this.isResolvingSocketUrl = false;
+    if (
+      !this.shouldReconnect ||
+      this.isSuspended ||
+      !wsUrl ||
+      !isActiveBrokerSessionCurrent(session.identity)
+    ) {
+      if (this.shouldReconnect && this.resolveSession()) {
+        void this.doConnect();
+      }
+      return;
+    }
+    this.activeSession = session;
 
     try {
-      this.ws = new WebSocket(wsUrl);
+      const socket = new WebSocket(wsUrl);
+      this.ws = socket;
 
-      this.ws.onopen = () => {
+      socket.onopen = () => {
+        if (
+          this.ws !== socket ||
+          this.isSuspended ||
+          !isActiveBrokerSessionCurrent(session.identity)
+        ) {
+          socket.close();
+          return;
+        }
         logAccountWsDiagnostic('[Account WS] Connected');
         this.isConnected = true;
         this.reconnectAttempts = 0;
-        this.startHeartbeat();
+        this.startHeartbeat(session);
         // Different backend deployments still expose either `metrics.LOGIN`
         // or `account.LOGIN` for the same live account-summary stream.
         ['metrics', 'account', 'positions', 'orders', 'deals', 'history'].forEach((channelPrefix) => {
@@ -304,34 +360,57 @@ class AccountWebSocketService {
         });
       };
 
-      this.ws.onmessage = (event) => {
+      socket.onmessage = (event) => {
+        if (
+          this.ws !== socket ||
+          this.isSuspended ||
+          !isActiveBrokerSessionCurrent(session.identity)
+        ) return;
         try {
           const payload = JSON.parse(event.data as string);
-          this.handlePayload(payload);
+          this.handlePayload(payload, session);
         } catch (error) {
           warnAccountWsDiagnostic('[Account WS] Parse error', error);
         }
       };
 
-      this.ws.onclose = () => {
+      socket.onclose = (event) => {
+        if (this.ws !== socket) return;
         logAccountWsDiagnostic('[Account WS] Closed');
         this.stopHeartbeat();
         this.isConnected = false;
         this.ws = null;
-        this.attemptReconnect();
+        if (isSocketAuthenticationFailure(event?.code)) {
+          this.pauseUntilNextLogin();
+          return;
+        }
+        if (isActiveBrokerSessionCurrent(session.identity)) {
+          this.attemptReconnect(session);
+        }
       };
 
-      this.ws.onerror = () => {
-        const state = this.ws?.readyState ?? -1;
+      socket.onerror = () => {
+        if (this.ws !== socket || !isActiveBrokerSessionCurrent(session.identity)) return;
+        const state = socket.readyState;
         warnAccountWsDiagnostic(`[Account WS] Connection error - readyState: ${state}`);
       };
     } catch (error) {
-      console.error('[Account WS] Connection initialization failed', error);
-      this.attemptReconnect();
+      console.error(
+        '[Account WS] Connection initialization failed',
+        redactDiagnosticValue(error),
+      );
+      this.attemptReconnect(session);
     }
   }
 
-  private handlePayload(payload: any): void {
+  private handlePayload(payload: any, session: AccountWsSession): void {
+    if (
+      !isActiveBrokerSessionCurrent(session.identity) ||
+      !sameAccountWsSession(this.activeSession, session) ||
+      !payloadMatchesSocketIdentity(payload, session.identity)
+    ) {
+      return;
+    }
     const payloadRecord = asRecord(payload);
     const channel = typeof payloadRecord?.channel === 'string' ? payloadRecord.channel : '';
     const eventName = normalizeEventName(payloadRecord?.event ?? payloadRecord?.type);
@@ -351,15 +430,11 @@ class AccountWebSocketService {
     }
 
     if (data && (channel.startsWith('positions.') || eventName.startsWith('position'))) {
-      this.handlePositionsPayload(data, getLifecycleHints(payloadRecord ?? {}));
+      this.handlePositionsPayload(data, getLifecycleHints(payloadRecord ?? {}), session.login);
     }
 
     if (eventName === 'order.status' && data) {
-      const orderRecord = asRecord(data);
-      const currentLogin = orderRecord?.login || resolveTradingLogin() || useUserPreferences.getState().accountDetails?.id;
-      if (currentLogin) {
-        void usePositionsState.getState().refreshPositions(String(currentLogin));
-      }
+      void usePositionsState.getState().refreshPositions(session.login);
     }
 
     if (eventName === 'account.snapshot' && data) {
@@ -370,8 +445,11 @@ class AccountWebSocketService {
     }
   }
 
-  private handlePositionsPayload(data: any, parentHints: Record<string, unknown> = {}): void {
-    const accountLogin = this.activeSession ? String(this.activeSession.login) : undefined;
+  private handlePositionsPayload(
+    data: any,
+    parentHints: Record<string, unknown> = {},
+    accountLogin?: string,
+  ): void {
     const snapshot = extractPositionSnapshot(data);
 
     if (snapshot) {
@@ -398,14 +476,18 @@ class AccountWebSocketService {
     }
   }
 
-  private attemptReconnect(): void {
-    if (!this.shouldReconnect) {
+  private attemptReconnect(session: AccountWsSession): void {
+    if (
+      !this.shouldReconnect ||
+      this.isSuspended ||
+      !isActiveBrokerSessionCurrent(session.identity)
+    ) {
       return;
     }
 
-    if (!this.resolveSession()) {
-      warnAccountWsDiagnostic('[Account WS] No valid auth session during reconnect. Retrying in 5s.');
-      this.scheduleRetry(5000);
+    const currentSession = this.resolveSession();
+    if (!currentSession || !sameAccountWsSession(currentSession, session)) {
+      this.pauseUntilNextLogin();
       return;
     }
 
@@ -420,17 +502,24 @@ class AccountWebSocketService {
     logAccountWsDiagnostic(
       `[Account WS] Reconnecting in ${timeout}ms... (Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`,
     );
-    this.scheduleRetry(timeout);
+    this.scheduleRetry(timeout, session);
   }
 
-  private scheduleRetry(timeoutMs: number): void {
-    if (!this.shouldReconnect || this.reconnectTimer) {
+  private scheduleRetry(timeoutMs: number, session: AccountWsSession): void {
+    if (
+      !this.shouldReconnect ||
+      this.isSuspended ||
+      this.reconnectTimer ||
+      !isActiveBrokerSessionCurrent(session.identity)
+    ) {
       return;
     }
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      this.doConnect();
+      if (!this.isSuspended && isActiveBrokerSessionCurrent(session.identity)) {
+        void this.doConnect();
+      }
     }, timeoutMs);
   }
 
@@ -441,9 +530,13 @@ class AccountWebSocketService {
     }
   }
 
-  private startHeartbeat(): void {
+  private startHeartbeat(session: AccountWsSession): void {
     this.stopHeartbeat();
     this.heartbeatInterval = setInterval(() => {
+      if (!isActiveBrokerSessionCurrent(session.identity)) {
+        this.teardownSocket(false);
+        return;
+      }
       this.send({ type: 'ping' });
     }, 15000);
   }
@@ -472,6 +565,15 @@ class AccountWebSocketService {
     if (resetMetrics) {
       useLiveAccountState.getState().resetMetrics();
     }
+  }
+
+  private pauseUntilNextLogin(): void {
+    this.shouldReconnect = false;
+    this.reconnectAttempts = 0;
+    this.activeSession = null;
+    this.isResolvingSocketUrl = false;
+    this.clearReconnectTimer();
+    this.teardownSocket(false);
   }
 }
 

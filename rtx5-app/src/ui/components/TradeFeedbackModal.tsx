@@ -15,6 +15,8 @@ export interface TradeFeedbackState {
   price?: number;
   volume?: number;
   executedAt?: string;
+  /** False means the API accepted the request without complete broker fill evidence. */
+  executionConfirmed?: boolean;
 }
 
 export const TRADE_MODAL_INITIAL: TradeFeedbackState = {
@@ -65,8 +67,14 @@ export const TradeFeedbackModal = React.memo(({
   const isBuy = state.side === 'buy';
   const isSell = state.side === 'sell';
   const isSuccess = state.type === 'success';
+  const isUnconfirmedSubmission = isSuccess && state.executionConfirmed === false;
   const sideLabel = state.side === 'buy' ? 'BUY' : state.side === 'sell' ? 'SELL' : '';
-  const successTitle = sideLabel ? `${sideLabel} Order Executed` : 'Order Executed';
+  const confirmedSuccessTitle = sideLabel && (!state.title || state.title === 'Order Executed')
+    ? `${sideLabel} Order Executed`
+    : state.title || 'Order Executed';
+  const successTitle = isUnconfirmedSubmission
+    ? state.title || 'Order Submitted'
+    : confirmedSuccessTitle;
 
   const BUY_HEX = '#2563EB';
   const BUY_GRADIENT_HEX = '#60A5FA';
@@ -141,7 +149,11 @@ export const TradeFeedbackModal = React.memo(({
 
           <View style={tfmStyles.statusRow}>
             <View style={[tfmStyles.statusIcon, { backgroundColor: accentSoft, borderColor: accent }]}>
-              <Ionicons name={isSuccess ? 'checkmark' : 'close'} size={21} color={accent} />
+              <Ionicons
+                name={isUnconfirmedSubmission ? 'time-outline' : isSuccess ? 'checkmark' : 'close'}
+                size={21}
+                color={accent}
+              />
             </View>
             <View style={tfmStyles.statusTextCol}>
               <Text style={[tfmStyles.statusTitle, { color: textPrimary }]} numberOfLines={1}>
@@ -158,7 +170,14 @@ export const TradeFeedbackModal = React.memo(({
             </Pressable>
           </View>
 
-          {isSuccess ? (
+          {isUnconfirmedSubmission && state.message ? (
+            <View style={[tfmStyles.errorBox, { backgroundColor: accentSoft, borderColor: accent }]}>
+              <Ionicons name="information-circle" size={18} color={accent} style={tfmStyles.errorIcon} />
+              <Text style={[tfmStyles.errorMsg, { color: textPrimary }]}>
+                {state.message}
+              </Text>
+            </View>
+          ) : isSuccess ? (
             <View style={tfmStyles.successSummary}>
               {hasExecutionPrice ? (
                 <View style={[tfmStyles.executionRow, { borderColor: subtleBorder }]}>

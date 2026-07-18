@@ -8,6 +8,11 @@ import {
   CreateMT5AccountRequest,
   CreateMT5AccountResponse,
 } from '../api/mt5Account';
+import {
+  getSessionQueryCacheNamespace,
+  runSessionBoundQuery,
+  useActiveBrokerQuerySession,
+} from './authenticatedQueryScope';
 
 /**
  * TanStack Mutation hook for creating new MT5 trading accounts.
@@ -22,7 +27,12 @@ import {
  * to fetch the available groups to populate the form selection.
  */
 export function useCreateMT5Account() {
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
   return useMutation<CreateMT5AccountResponse, Error, CreateMT5AccountRequest>({
-    mutationFn: createMT5Account,
+    mutationFn: (payload) => runSessionBoundQuery(
+      cacheNamespace,
+      () => createMT5Account(payload),
+    ),
   });
 }

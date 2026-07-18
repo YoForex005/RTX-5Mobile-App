@@ -5,6 +5,7 @@ import { Platform } from 'react-native';
 import { DEFAULT_API_BASE_URL, PUBLIC_BROKER_DIRECTORY_BASE_URL } from '../api/brokerRouting';
 import { APP_DISPLAY_VERSION } from '../config/appDisplayVersion';
 import { serializeStartupError } from './errorSerialization';
+import { redactDiagnosticValue, redactSensitiveString } from './securityRedaction';
 
 export { serializeStartupError } from './errorSerialization';
 
@@ -61,10 +62,10 @@ export const getStartupDiagnostics = () => ({
 });
 
 export function logStartupDiagnostic(event: string, details: Record<string, unknown> = {}) {
-  console.info(`[Startup] ${event}`, {
+  console.info(`[Startup] ${redactSensitiveString(event)}`, redactDiagnosticValue({
     ...getStartupDiagnostics(),
     ...details,
-  });
+  }));
 }
 
 export function logStartupError(
@@ -72,11 +73,11 @@ export function logStartupError(
   error: unknown,
   details: Record<string, unknown> = {},
 ) {
-  console.error(`[Startup] ${event}`, {
+  console.error(`[Startup] ${redactSensitiveString(event)}`, redactDiagnosticValue({
     ...getStartupDiagnostics(),
     ...details,
     error: serializeStartupError(error),
-  });
+  }));
 }
 
 export function installGlobalStartupErrorHandlers() {

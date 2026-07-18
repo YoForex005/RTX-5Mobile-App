@@ -39,6 +39,7 @@ import {
   ChartDrawingToolsSidebar,
 } from './components/ChartDrawingToolsFeature';
 import { createDrawingToolsActionSheetActions } from './drawingTools';
+import { dismissBeforeDrawingToolsSelection } from './drawingTools/actionSheetSelection';
 import {
   TextLevelEditOverlay,
   type TextLevelEditRequest,
@@ -51,6 +52,10 @@ import {
 import { ChartTradeButtons } from './components/ChartTradeButtonsFeature';
 import { LiveOrderTickExecutionGraph } from '../trade/OrderTickExecutionGraph';
 import { Screen } from '../../ui/components/Screen';
+import { BrokerFeedHealthBanner } from '../../market/BrokerFeedHealthBanner';
+import {
+  parkRetainedActionSheetHostForConfigSwap,
+} from '../../ui/components/ActionSheet/retainedActionSheetVisualController';
 import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../ui/components/sidebarDrawerController';
 import { useTranslation } from '../../i18n/useTranslation';
 import {
@@ -63,6 +68,7 @@ import {
 import { registerImmediateThemeVisualApplier, useIsDarkTheme } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
 import { fmt } from '../../utils/format';
+import { redactSensitiveString } from '../../utils/securityRedaction';
 import { useTheme } from '../../ui/theme/useTheme';
 import { resolveBottomTabBarHeight } from '../../ui/layout/bottomTabBar';
 import { useLiveCandles } from '../../domain/candles/hooks/useLiveCandles';
@@ -71,11 +77,17 @@ import { useLiveAccountState } from '../../state/liveAccountState';
 import { useOrdersByLoginQuery } from '../../query/orders';
 import { TradeFeedbackModal, TradeFeedbackState, TRADE_MODAL_INITIAL } from '../../ui/components/TradeFeedbackModal';
 import { ordersApi } from '../../api/orders';
+import { resolveBrokerExecutionEvidence } from '../../api/orders/executionEvidence';
 import { positionsApi } from '../../api/positions';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 
 
 import { usePositionsState } from '../../state/positionsState';
+import {
+  captureActiveBrokerSession,
+  getActiveBrokerSessionIdentity,
+  isActiveBrokerSessionCurrent,
+} from '../../state/activeBrokerSession';
 import { resolveTradingLogin, resolveTradingLoginString } from '../../state/tradingLogin';
 import { prepareOrderTicketLaunch } from '../trade/orderTicketLaunchController';
 import {
@@ -91,6 +103,11 @@ import { useInstrumentMeta } from '../../query/instruments';
 import { useMarketStatus } from '../../query/marketStatus';
 import { WebView } from 'react-native-webview';
 import { hasLiveQuoteFeedData, useLiveSymbolQuote } from '../../query/websocket';
+import {
+  quoteActionBlockMessage,
+  recordBlockedPriceAction,
+  resolveSessionQuoteActionAvailability,
+} from '../../market/quoteIntegrity';
 import { normalizeTimeframe } from '../../domain/candles/core/candles';
 import { sanitizeCandlesForChart } from '../../domain/candles/normalization/chartAdapter';
 import {
@@ -127,6 +144,12 @@ import {
   hideChartConfigDestination,
 } from './chartConfigDestinationController';
 import { showChartSettingsHost } from './chartSettingsHostController';
+import {
+  hideChartActionLaunch,
+  prepareChartActionLaunch,
+  scheduleChartActionLaunchNavigation,
+  showChartActionLaunch,
+} from './chartActionLaunchController';
 import { scheduleAfterFirstFrame, scheduleIdleWork } from '../../utils/startupScheduler';
 import { getDevRefreshKey, hashDevRefreshSource } from '../../dev/devRefreshKey';
 import {
@@ -415,7 +438,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const [chartSurfacePrewarmed, setChartSurfacePrewarmed] = useState(false);
   useEffect(() => {
     if (typeof __DEV__ !== 'undefined' && __DEV__) {
-      console.log('[CHART] screen mounted; surface pre-warm scheduled');
+      if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
+        console.log('[CHART] screen mounted; surface pre-warm scheduled');
+      }
     }
     return scheduleAfterFirstFrame(() => setChartSurfacePrewarmed(true));
   }, []);
@@ -512,6 +537,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       setChartDrawingRecordsForSymbol: state.setChartDrawingRecordsForSymbol,
     })),
   );
+  useEffect(() => {
+    // Keep the retained Chart More shells on the exact symbol before any tap;
+    // the option press can then be a UI-thread visibility flip only.
+    prepareChartActionLaunch(chartSymbol);
+  }, [chartSymbol]);
   const BLUE = T.trading.buy.primary;
   const TEXT_MUTED = T.textMuted;
   const positions = usePositionsState((s) => s.positions);
@@ -821,6 +851,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const [chartExpirationMenuOpen, setChartExpirationMenuOpen] = useState(false);
   const [chartStepperEditor, setChartStepperEditor] = useState<{ kind: 'price' | 'stopLimitPrice' | 'tp' | 'sl' | 'volume' } | null>(null);
   const [chartPendingOrderSubmitting, setChartPendingOrderSubmitting] = useState(false);
+  const [, refreshChartPendingQuoteGuard] = useState(0);
   const [chartTradeStopUnit, setChartTradeStopUnit] = useState<'Price' | 'Pips' | 'Currency'>('Price');
   const [chartTradeSlLocked, setChartTradeSlLocked] = useState(false);
   const [chartTradeTpLocked, setChartTradeTpLocked] = useState(false);
@@ -838,9 +869,28 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const setChartInlineInputActive = useUIState((s) => s.setChartInlineInputActive);
   const setChartTabBarKeyboardLift = useUIState((s) => s.setChartTabBarKeyboardLift);
   const showChartActionSheet = useUIState((s) => s.showChartActionSheet);
+  const hideChartActionSheet = useUIState((s) => s.hideChartActionSheet);
   const preloadScopedActionSheet = useUIState((s) => s.preloadScopedActionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const safeInsets = useSafeAreaInsets();
+  useEffect(() => {
+    if (!showChartTradeSheet || !isPendingChartOrderType(chartTradeOrderType)) {
+      return;
+    }
+
+    // Quote/feed health can become stale without another render. Re-evaluate
+    // the visible pending-order gate while the sheet is open; submission still
+    // performs its own synchronous press-time check below.
+    const timer = setInterval(() => refreshChartPendingQuoteGuard((revision) => revision + 1), 1_000);
+    return () => clearInterval(timer);
+  }, [chartTradeOrderType, showChartTradeSheet]);
+  const chartPendingQuoteAvailability = resolveSessionQuoteActionAvailability(chartLiveQuote, Date.now());
+  const chartPendingLiveBid = chartPendingQuoteAvailability.allowed
+    ? chartPendingQuoteAvailability.bid
+    : 0;
+  const chartPendingLiveAsk = chartPendingQuoteAvailability.allowed
+    ? chartPendingQuoteAvailability.ask
+    : 0;
   const handleOpenSidebar = useCallback(() => {
     openSidebarDrawerImmediately();
     scheduleAfterSidebarOpenVisual(hideActionSheet);
@@ -1127,7 +1177,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
     return () => subscription.remove();
   }, [timeframePickerVisible]);
-  const pendingObjectsDrawingSyncRef = useRef(false);
+  const nextObjectsDrawingSyncRequestIdRef = useRef(0);
+  const pendingObjectsDrawingSyncRef = useRef<{
+    onReady: () => void;
+    requestId: number;
+  } | null>(null);
   const chartViewportRef = useRef<View>(null);
   const chartTapMenuBoundsRef = useRef<ChartTapMenuBounds>({ width: 0, height: 0 });
   const chartTapMenuViewportRef = useRef<ChartTapMenuViewport>({ x: 0, y: 0, width: 0, height: 0 });
@@ -1646,8 +1700,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   );
   const resolveDefaultPendingPrice = useCallback(
     (orderType: ChartOrderType) => {
-      const bid = chartBid > 0 ? chartBid : latestChartClose;
-      const ask = chartAsk > 0 ? chartAsk : bid;
+      const currentQuoteAvailability = resolveSessionQuoteActionAvailability(chartLiveQuote, Date.now());
+      if (!currentQuoteAvailability.allowed) {
+        return 0;
+      }
+
+      const { bid, ask } = currentQuoteAvailability;
       switch (orderType) {
         case 'Buy Limit':
           return roundTradePrice(ask - chartPendingOffset);
@@ -1663,7 +1721,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           return roundTradePrice(ask);
       }
     },
-    [chartAsk, chartBid, chartPendingOffset, latestChartClose, roundTradePrice],
+    [chartLiveQuote, chartPendingOffset, roundTradePrice],
   );
 
   const injectChartScript = useCallback((script: string) => {
@@ -1698,15 +1756,15 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     closeChartTapMenu();
   }, [chartSymbol, chartTimeframe, chartVisualType, isChartExpanded, closeChartTapMenu]);
 
-  const handleSetTool = (tool: string) => {
+  const handleSetTool = useCallback((tool: string) => {
     closeChartTapMenu();
     const nextDrawingInputActive = !chartLockAll && isChartDrawingInputTool(tool);
     setActiveTool(tool);
     setChartDrawingInputActive(nextDrawingInputActive);
     injectChartScript(`setDrawingTool(${JSON.stringify(tool)}, { startDrawing: ${nextDrawingInputActive} });`);
-  };
+  }, [chartLockAll, closeChartTapMenu, injectChartScript, setChartDrawingInputActive]);
 
-  const handleClearDrawings = () => {
+  const handleClearDrawings = useCallback(() => {
     closeChartTapMenu();
     setActiveTool(CHART_NO_DRAWING_TOOL);
     setChartDrawingInputActive(false);
@@ -1716,35 +1774,35 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     lastWebViewDrawingSignatureRef.current = '';
     lastInjectedDrawingSyncRef.current = { signature: '', epoch: -1 };
     injectChartScript('clearDrawings();');
-  };
+  }, [chartSymbol, closeChartTapMenu, injectChartScript, setChartDrawingInputActive]);
 
-  const handleUndoDrawing = () => {
+  const handleUndoDrawing = useCallback(() => {
     closeChartTapMenu();
     allowNextEmptyDrawingSyncRef.current = true;
     injectChartScript('undoDrawingAction();');
-  };
+  }, [closeChartTapMenu, injectChartScript]);
 
-  const handleRedoDrawing = () => {
+  const handleRedoDrawing = useCallback(() => {
     closeChartTapMenu();
     allowNextEmptyDrawingSyncRef.current = true;
     injectChartScript('redoDrawingAction();');
-  };
+  }, [closeChartTapMenu, injectChartScript]);
 
-  const handleToggleStickyMode = () => {
+  const handleToggleStickyMode = useCallback(() => {
     closeChartTapMenu();
     const next = !stickyDrawingMode;
     setStickyDrawingMode(next);
     injectChartScript(`setStayInDrawingMode(${next});`);
-  };
+  }, [closeChartTapMenu, injectChartScript, stickyDrawingMode]);
 
-  const handleToggleMagnetMode = () => {
+  const handleToggleMagnetMode = useCallback(() => {
     closeChartTapMenu();
     const next = !drawingMagnetMode;
     setDrawingMagnetMode(next);
     injectChartScript(`setDrawingMagnetMode(${next});`);
-  };
+  }, [closeChartTapMenu, drawingMagnetMode, injectChartScript]);
 
-  const handleToggleLock = () => {
+  const handleToggleLock = useCallback(() => {
     closeChartTapMenu();
     const next = !chartLockAll;
     setChartLockAll(next);
@@ -1753,19 +1811,19 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       setChartDrawingInputActive(false);
     }
     injectChartScript(`setDrawingsLocked(${next});`);
-  };
+  }, [chartLockAll, closeChartTapMenu, injectChartScript, setChartDrawingInputActive]);
 
-  const handleToggleHide = () => {
+  const handleToggleHide = useCallback(() => {
     closeChartTapMenu();
     const next = !chartHideAll;
     setChartHideAll(next);
     injectChartScript(`setDrawingsHidden(${next});`);
-  };
+  }, [chartHideAll, closeChartTapMenu, injectChartScript]);
 
-  const handleZoomTool = () => {
+  const handleZoomTool = useCallback(() => {
     closeChartTapMenu();
     injectChartScript('zoomChart();');
-  };
+  }, [closeChartTapMenu, injectChartScript]);
 
   const handleToggleVerticalScrollingLock = () => {
     closeChartTapMenu();
@@ -2074,6 +2132,25 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   const commitChartPositionStopLevels = useCallback(
     (positionId: string | number, requestedSlRaw: number, requestedTpRaw: number) => {
+      const quoteAvailability = resolveSessionQuoteActionAvailability(chartLiveQuote, Date.now());
+      if (!quoteAvailability.allowed) {
+        recordBlockedPriceAction('chart_native_price_action', quoteAvailability);
+        setTradeFeedback({
+          visible: true,
+          type: 'error',
+          title: 'Market Data Unavailable',
+          message: quoteActionBlockMessage(quoteAvailability),
+        });
+        return false;
+      }
+
+      const sessionCapture = captureActiveBrokerSession();
+      if (!sessionCapture) {
+        return false;
+      }
+      const sessionIdentity = getActiveBrokerSessionIdentity(sessionCapture.session);
+      const isModifySessionCurrent = () => isActiveBrokerSessionCurrent(sessionIdentity);
+
       const requestedSl = Number.isFinite(requestedSlRaw) && requestedSlRaw > 0 ? roundTradePrice(requestedSlRaw) : 0;
       const requestedTp = Number.isFinite(requestedTpRaw) && requestedTpRaw > 0 ? roundTradePrice(requestedTpRaw) : 0;
       const positionKey = String(positionId);
@@ -2089,10 +2166,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         return false;
       }
 
-      const entryPrice = Number(position.openPrice);
+      const validationReferencePrice = position.side === 'buy'
+        ? quoteAvailability.bid
+        : quoteAvailability.ask;
       const validation = validateChartTradeProtectionLevels({
         side: position.side,
-        entryPrice,
+        entryPrice: validationReferencePrice,
         slEnabled: requestedSl > 0,
         slPrice: requestedSl,
         tpEnabled: requestedTp > 0,
@@ -2105,11 +2184,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         return false;
       }
 
-      const accountState = useUserPreferences.getState();
-      if (!accountState.accountDetails?.credentials?.accessToken) {
+      if (
+        !accountLogin ||
+        String(accountLogin) !== sessionCapture.session.accountLogin ||
+        !isModifySessionCurrent()
+      ) {
         const feedback = createFrontendTradingError(
           'Sign In Required',
-          'Please sign in to your trading account before modifying SL/TP.',
+          'The selected position does not belong to the active broker session.',
         );
         setTradeFeedback({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
         return false;
@@ -2122,7 +2204,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         return true;
       }
 
-      const applyLocalStopPatch = (sl: number, tp: number) => {
+      const applyLocalStopPatch = (sl: number, tp: number): boolean => {
+        if (!isModifySessionCurrent()) return false;
         const modifiedAt = Date.now();
         usePositionsState.setState((state) => {
           const snapshotBase = state.positionSnapshots[positionKey] ?? previousPosition;
@@ -2143,9 +2226,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
             },
           };
         });
+        return true;
       };
 
-      applyLocalStopPatch(requestedSl, requestedTp);
+      if (!applyLocalStopPatch(requestedSl, requestedTp)) {
+        return false;
+      }
 
       void positionsApi
         .modifyPosition(position.id, {
@@ -2153,6 +2239,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           price_tp: requestedTp,
         })
         .then((modifyResult) => {
+          if (!isModifySessionCurrent()) return;
           const readStopValue = (value: unknown, fallback: number) => {
             const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
             return Number.isFinite(parsed) ? parsed : fallback;
@@ -2168,6 +2255,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           void refetchAccountSummary();
         })
         .catch((error) => {
+          if (!isModifySessionCurrent()) return;
           usePositionsState.setState((state) => ({
             positions: state.positions.map((item) =>
               String(item.id) === positionKey ? previousPosition : item,
@@ -2191,7 +2279,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
       return true;
     },
-    [accountLogin, chartPointSize, positions, refetchAccountSummary, refreshPositions, roundTradePrice],
+    [accountLogin, chartLiveQuote, chartPointSize, positions, refetchAccountSummary, refreshPositions, roundTradePrice],
   );
 
   const commitChartTradeSheetStopsForPosition = useCallback(
@@ -2306,13 +2394,24 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         return;
       }
 
+      const currentQuoteAvailability = resolveSessionQuoteActionAvailability(chartLiveQuote, Date.now());
+      if (!currentQuoteAvailability.allowed) {
+        recordBlockedPriceAction('chart_native_market_order', currentQuoteAvailability);
+        const feedback = createFrontendTradingError(
+          'Market Data Unavailable',
+          quoteActionBlockMessage(currentQuoteAvailability),
+        );
+        handleChartTradeResult({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
+        return;
+      }
+
       const side = getChartOrderSide(chartTradeOrderType);
       if (!isPendingChartTradeValid({
         orderType: chartTradeOrderType,
         entryPrice: chartTradePrice,
         stopLimitPrice: chartTradeStopLimitPrice,
-        bid: chartBid,
-        ask: chartAsk,
+        bid: currentQuoteAvailability.bid,
+        ask: currentQuoteAvailability.ask,
         pointSize: chartPointSize,
       })) {
         const feedback = createFrontendTradingError(
@@ -2348,11 +2447,30 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         return;
       }
 
+      const pendingOrderSessionCapture = captureActiveBrokerSession();
+      if (!pendingOrderSessionCapture) {
+        const feedback = createFrontendTradingError(
+          'Sign In Required',
+          'The active broker session is unavailable. Please sign in again before placing orders.',
+        );
+        handleChartTradeResult({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
+        return;
+      }
+      const pendingOrderSessionIdentity = getActiveBrokerSessionIdentity(
+        pendingOrderSessionCapture.session,
+      );
+      const isPendingOrderSessionCurrent = () =>
+        isActiveBrokerSessionCurrent(pendingOrderSessionIdentity);
+
       const tradingLogin = resolveTradingLogin();
-      if (!tradingLogin) {
+      if (
+        !tradingLogin ||
+        String(tradingLogin) !== pendingOrderSessionCapture.session.accountLogin ||
+        !isPendingOrderSessionCurrent()
+      ) {
         const feedback = createFrontendTradingError(
           'No Trading Account',
-          'No active trading account is selected. Open the account menu and choose one, then try again.',
+          'No active trading account is selected for the current broker session. Open the account menu and choose one, then try again.',
         );
         handleChartTradeResult({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
         return;
@@ -2387,6 +2505,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       setChartPendingOrderSubmitting(true);
       try {
         const data = await ordersApi.placePendingOrder(payload);
+        if (!isPendingOrderSessionCurrent()) return;
         if (['rejected', 'failed', 'error'].includes((data.status ?? '').toLowerCase())) {
           const feedback = classifyTradingError(
             { status: 400, data: { message: data.comment || `Server returned status: ${data.status}` } },
@@ -2407,21 +2526,37 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           refetchAccountSummary(),
           refreshPositions(String(tradingLogin)),
         ]);
+        if (!isPendingOrderSessionCurrent()) return;
 
+        const pendingOrderEvidence = resolveBrokerExecutionEvidence(data);
+        const hasBrokerOrderTicket = pendingOrderEvidence.ticket !== undefined;
         handleChartTradeResult({
           visible: true,
           type: 'success',
+          executionConfirmed: false,
+          title: hasBrokerOrderTicket
+            ? 'Pending Order Placed'
+            : 'Pending Order Submitted — Confirmation Pending',
+          message: hasBrokerOrderTicket
+            ? 'The broker returned an order ticket. This pending order has not executed yet.'
+            : 'The broker accepted the request without returning an order ticket. Verify it in Orders before acting on it.',
           side,
           symbol: chartSymbol,
-          ticket: String(data.ticket ?? data.order_ticket ?? data.position_ticket ?? 'Confirmed'),
-          price: Number(data.price_open ?? data.price ?? chartTradePrice),
+          ...(pendingOrderEvidence.ticket !== undefined
+            ? { ticket: String(pendingOrderEvidence.ticket) }
+            : {}),
+          ...(pendingOrderEvidence.executionPrice !== undefined
+            ? { price: pendingOrderEvidence.executionPrice }
+            : {}),
           volume,
-          executedAt: new Date().toLocaleTimeString(),
         });
         snapTradeSheet('collapsed');
       } catch (error: any) {
+        if (!isPendingOrderSessionCurrent()) return;
         const feedback = classifyTradingError(error, { action: 'place-order' });
-        const rawMsg = error?.response?.data?.message || error?.response?.data?.error || error?.data?.message || '';
+        const rawMsg = redactSensitiveString(
+          String(error?.response?.data?.message || error?.response?.data?.error || error?.data?.message || ''),
+        );
         handleChartTradeResult({
           visible: true,
           type: 'error',
@@ -2430,7 +2565,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           side,
         });
       } finally {
-        setChartPendingOrderSubmitting(false);
+        if (isPendingOrderSessionCurrent()) {
+          setChartPendingOrderSubmitting(false);
+        }
       }
     };
 
@@ -2438,8 +2575,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       void submitPendingOrder();
     });
   }, [
-    chartAsk,
-    chartBid,
+    chartLiveQuote,
     chartPendingOrderSubmitting,
     chartPointSize,
     chartSymbol,
@@ -3004,8 +3140,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       orderType: chartTradeOrderType,
       entryPrice: chartTradePrice,
       stopLimitPrice: chartTradeStopLimitPrice,
-      bid: chartBid,
-      ask: chartAsk,
+      bid: chartPendingLiveBid,
+      ask: chartPendingLiveAsk,
       pointSize: chartPointSize,
     });
 
@@ -3014,8 +3150,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         orderType: chartTradeOrderType,
         entryPrice: chartTradePrice,
         stopLimitPrice: chartTradeStopLimitPrice,
-        bid: chartBid,
-        ask: chartAsk,
+        bid: chartPendingLiveBid,
+        ask: chartPendingLiveAsk,
         pointSize: chartPointSize,
         previouslyEnabled: shouldResetFromRawValidity ? rawValidity : previouslyEnabled,
       }),
@@ -3023,8 +3159,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
     pendingTradeValidationConfigKeyRef.current = nextConfigKey;
   }, [
-    chartAsk,
-    chartBid,
+    chartPendingLiveAsk,
+    chartPendingLiveBid,
     chartPointSize,
     chartTradeOrderType,
     chartTradePrice,
@@ -3034,6 +3170,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   const disablePendingTradePlaceButton = isPendingChartOrder
     ? chartPendingOrderSubmitting
+      || !chartPendingQuoteAvailability.allowed
       || !stablePendingTradePlaceButtonEnabled
       || !chartTradeProtectionValidation.valid
     : false;
@@ -3460,12 +3597,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const [chartCanvasReady, setChartCanvasReady] = useState(false);
   const [hasPaintedChartOnce, setHasPaintedChartOnce] = useState(false);
   const [lastPaintedChartDataContextSig, setLastPaintedChartDataContextSig] = useState('');
-  const requestChartDrawingSyncForObjects = useCallback(() => {
+  const requestChartDrawingSyncForObjects = useCallback((onReady: () => void) => {
     if (!webViewRef.current || !webViewReady || !chartCanvasReady) {
       return false;
     }
 
-    pendingObjectsDrawingSyncRef.current = true;
+    const requestId = nextObjectsDrawingSyncRequestIdRef.current + 1;
+    nextObjectsDrawingSyncRequestIdRef.current = requestId;
+    pendingObjectsDrawingSyncRef.current = { onReady, requestId };
     webViewRef.current.injectJavaScript(`
       try {
         if (typeof publishSerializedDrawings === 'function') {
@@ -3473,17 +3612,21 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         }
       } finally {
         if (window.ReactNativeWebView && typeof window.ReactNativeWebView.postMessage === 'function') {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DRAWINGS_SYNCED_FOR_OBJECTS' }));
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'DRAWINGS_SYNCED_FOR_OBJECTS',
+            requestId: ${requestId}
+          }));
         }
       }
       true;
     `);
     setTimeout(() => {
-      if (!pendingObjectsDrawingSyncRef.current) {
+      const pendingRequest = pendingObjectsDrawingSyncRef.current;
+      if (!pendingRequest || pendingRequest.requestId !== requestId) {
         return;
       }
-      pendingObjectsDrawingSyncRef.current = false;
-      router.push('/chart/objects');
+      pendingObjectsDrawingSyncRef.current = null;
+      pendingRequest.onReady();
     }, 700);
     return true;
   }, [chartCanvasReady, webViewReady]);
@@ -3518,20 +3661,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   );
   const chartMetaItems = useMemo(
     () => {
-      if (!chartMetaLastCandle) {
+      if (!chartDisplay.showOHLC) {
         return [];
       }
 
-      const items = chartDisplay.showOHLC
-        ? [
-          { label: 'O', value: formatChartValue(chartMetaLastCandle.open), color: chartMetaNeutralColor },
-          { label: 'H', value: formatChartValue(chartMetaLastCandle.high), color: CHART_OHLC_HIGH_COLOR },
-          { label: 'L', value: formatChartValue(chartMetaLastCandle.low), color: CHART_OHLC_LOW_COLOR },
-          { label: 'C', value: formatChartValue(chartMetaLastCandle.close), color: chartMetaNeutralColor },
-        ]
-        : [];
-
-      return items;
+      // Always reserve the O/H/L/C row when enabled so the header does not
+      // pop in only after the first candle arrives (shows -- until live).
+      return [
+        { label: 'O', value: formatChartValue(chartMetaLastCandle?.open), color: chartMetaNeutralColor },
+        { label: 'H', value: formatChartValue(chartMetaLastCandle?.high), color: CHART_OHLC_HIGH_COLOR },
+        { label: 'L', value: formatChartValue(chartMetaLastCandle?.low), color: CHART_OHLC_LOW_COLOR },
+        { label: 'C', value: formatChartValue(chartMetaLastCandle?.close), color: chartMetaNeutralColor },
+      ];
     },
     [chartDisplay.showOHLC, chartLatestCandleGap, chartMetaLastCandle, chartMetaNeutralColor, formatChartValue],
   );
@@ -3634,6 +3775,43 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const scheduleChartActionSheetContextReset = useCallback(() => {
     scheduleAfterFirstFrame(resetChartActionSheetContext);
   }, [resetChartActionSheetContext]);
+  const pendingChartActionSheetOpenCancelRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => {
+    pendingChartActionSheetOpenCancelRef.current?.();
+    pendingChartActionSheetOpenCancelRef.current = null;
+  }, []);
+  const openChartActionSheetSmoothly = useCallback((
+    config: Parameters<typeof showChartActionSheet>[0],
+  ) => {
+    pendingChartActionSheetOpenCancelRef.current?.();
+    pendingChartActionSheetOpenCancelRef.current = null;
+    const currentUIState = useUIState.getState();
+    const mountedVisualKey =
+      currentUIState.scopedActionSheets.chart?.visualKey
+      ?? currentUIState.preloadedScopedActionSheets.chart?.visualKey
+      ?? config.visualKey;
+    const parked = mountedVisualKey
+      ? parkRetainedActionSheetHostForConfigSwap(mountedVisualKey)
+      : false;
+
+    // Publish the target rows while the native host is still hidden. Giving
+    // this hidden state one rendered frame prevents Android from ever painting
+    // the outgoing sheet's completed pose when the visible config changes.
+    preloadScopedActionSheet('chart', config);
+    if (parked) {
+      // Commit the incoming rows behind a native parent barrier. The shared
+      // ActionSheet releases that barrier first and only then starts its UI-
+      // thread slide. rAF plus a zero-delay task crosses the display boundary;
+      // a plain same-turn show can still beat setNativeProps on Android.
+      pendingChartActionSheetOpenCancelRef.current = scheduleAfterFirstFrame(() => {
+        pendingChartActionSheetOpenCancelRef.current = null;
+        showChartActionSheet(config);
+      });
+      return;
+    }
+
+    showChartActionSheet(config);
+  }, [preloadScopedActionSheet, showChartActionSheet]);
 
   const prefetchChartTimeframeHistory = useCallback((nextSymbol: string, nextTimeframe: string) => {
     return liveCandlesEngine.prefetchHistory(nextSymbol, nextTimeframe);
@@ -3767,13 +3945,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       searchable: true,
       compactText: true,
       presentation: 'mt5Plain',
+      deferOffscreenActions: true,
+      maximumVisibleActionRows: 9,
       detent: 'large',
       instantOpen: true,
-      // Instant (not mt5Slide): sliding from estimated height while the large
-      // searchable list settles reads as a shrinking ghost — same failure as
-      // drawing tools / event filters. Chart more-menu can still use mt5Slide
-      // because its short adaptive body has a stable measured height.
-      entryMotion: 'instant',
+      // The subtitle-aware viewport is stable before reveal, so this can share
+      // the same UI-thread motion as Drawing Tools and the More menu.
+      entryMotion: 'mt5Slide',
       immediateHostHideOnClose: true,
       runActionAfterClose: false,
       visualKey: symbolPickerVisualKey,
@@ -3799,6 +3977,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       ORDER_TICKET_ROUTE_MODULE_CACHE_KEY,
       loadOrderTicketScreenRoute,
     );
+    // Premount heavy chart destinations so More-menu taps open without lag.
+    void preloadDeferredRouteModule('chart.indicators', () =>
+      import('./IndicatorsScreen').then((m) => m.IndicatorsScreen as React.ComponentType),
+    );
+    void preloadDeferredRouteModule('chart.objects', () =>
+      import('./ObjectsScreen').then((m) => m.ObjectsScreen as React.ComponentType),
+    );
+    void preloadDeferredRouteModule('chart.calculator', () =>
+      import('./ChartTradingCalculatorScreen').then((m) => m.ChartTradingCalculatorScreen as React.ComponentType),
+    );
   }, [
     chartSymbol,
     isScreenFocused,
@@ -3808,17 +3996,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   const handleOpenSymbolPicker = useCallback(() => {
     runImmediateAction('chart.symbolPicker.open', () => {
-      // Direct instant open — no retained mt5Slide preview. The retained
-      // preview + slide park was painting a mid-height ghost before the large
-      // searchable sheet committed at full size.
-      showChartActionSheet(symbolPickerActionSheetConfig);
+      openChartActionSheetSmoothly(symbolPickerActionSheetConfig);
       scheduleChartActionSheetContextReset();
       prefetchSymbolPickerHistory();
     });
   }, [
     prefetchSymbolPickerHistory,
+    openChartActionSheetSmoothly,
     scheduleChartActionSheetContextReset,
-    showChartActionSheet,
     symbolPickerActionSheetConfig,
   ]);
 
@@ -3889,14 +4074,27 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   const handleOpenObjectsScreen = useCallback(() => {
     runImmediateAction('chart.objects.open', () => {
+      const launchRevision = showChartActionLaunch('objects', chartSymbol);
+      const navigateToObjects = () => {
+        scheduleChartActionLaunchNavigation(launchRevision, () => {
+          try {
+            router.push({
+              pathname: '/chart/objects',
+              params: { launchRevision: String(launchRevision), symbol: chartSymbol },
+            });
+          } catch {
+            hideChartActionLaunch(launchRevision);
+          }
+        });
+      };
       closeChartTapMenu();
-      if (requestChartDrawingSyncForObjects()) {
+      if (requestChartDrawingSyncForObjects(navigateToObjects)) {
         return;
       }
 
-      router.push('/chart/objects');
+      navigateToObjects();
     });
-  }, [closeChartTapMenu, requestChartDrawingSyncForObjects]);
+  }, [chartSymbol, closeChartTapMenu, requestChartDrawingSyncForObjects]);
 
   const handleOpenSignalDetails = useCallback(() => {
     runImmediateAction('chart.signalDetails.open', () => {
@@ -3906,23 +4104,26 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   }, [closeChartTapMenu]);
 
   const drawingToolsActions = useMemo(
-    () => createDrawingToolsActionSheetActions({
-      chartHideAll,
-      chartLockAll,
-      dangerIconColor: T.trading.sell.primary,
-      drawingMagnetMode,
-      iconColor: TEXT_MUTED,
-      onClearDrawings: handleClearDrawings,
-      onRedoDrawing: handleRedoDrawing,
-      onSelectTool: handleSetTool,
-      onToggleHide: handleToggleHide,
-      onToggleLock: handleToggleLock,
-      onToggleMagnetMode: handleToggleMagnetMode,
-      onToggleStickyMode: handleToggleStickyMode,
-      onUndoDrawing: handleUndoDrawing,
-      onZoomTool: handleZoomTool,
-      stickyDrawingMode,
-    }),
+    () => dismissBeforeDrawingToolsSelection(
+      createDrawingToolsActionSheetActions({
+        chartHideAll,
+        chartLockAll,
+        dangerIconColor: T.trading.sell.primary,
+        drawingMagnetMode,
+        iconColor: TEXT_MUTED,
+        onClearDrawings: handleClearDrawings,
+        onRedoDrawing: handleRedoDrawing,
+        onSelectTool: handleSetTool,
+        onToggleHide: handleToggleHide,
+        onToggleLock: handleToggleLock,
+        onToggleMagnetMode: handleToggleMagnetMode,
+        onToggleStickyMode: handleToggleStickyMode,
+        onUndoDrawing: handleUndoDrawing,
+        onZoomTool: handleZoomTool,
+        stickyDrawingMode,
+      }),
+      hideChartActionSheet,
+    ),
     [
       TEXT_MUTED,
       T.trading.sell.primary,
@@ -3938,6 +4139,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       handleToggleStickyMode,
       handleUndoDrawing,
       handleZoomTool,
+      hideChartActionSheet,
       stickyDrawingMode,
     ],
   );
@@ -3964,38 +4166,53 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   const drawingToolsActionSheetConfig = useMemo<Parameters<typeof showChartActionSheet>[0]>(
     () => ({
+      title: t('Drawing Tools'),
+      searchable: true,
+      searchPlaceholder: t('Search drawing tools...'),
+      compactText: true,
       presentation: 'mt5Plain',
       showActionIcons: true,
+      deferOffscreenActions: true,
+      // Drawing rows are shorter than Symbol Picker rows (they have no
+      // subtitle). Twelve rows gives both searchable sheets the same physical
+      // large-sheet viewport while the remaining tools stay virtualized.
+      maximumVisibleActionRows: 12,
       minimumTopInset: drawingToolsSheetTopInset,
-      // Large fixed floor keeps height stable while FlatList only paints the
-      // first viewport of tools; remaining tools appear on scroll (no shrink).
+      // Keep one More-menu-sized viewport stable while FlatList supplies the
+      // remaining tools only as the user scrolls.
       detent: 'large',
       instantOpen: true,
-      // Instant open (not mt5Slide): slide-from-height while rows settle looks
-      // like a translucent shrinking ghost on this long tool list.
-      entryMotion: 'instant',
+      // Viewport-first rendering keeps the large body stable enough to use the
+      // same UI-thread sheet motion as the short chart More menu.
+      entryMotion: 'mt5Slide',
       // Same direct host hide as symbol picker — avoids replaying a close slide
       // that looked like a second shrink when reopening tools.
       immediateHostHideOnClose: true,
       runActionAfterClose: false,
       visualKey: drawingToolsVisualKey,
+      // Match Symbol Picker: focusing search must not resize or lift the sheet.
+      keepFullHeightOnKeyboard: true,
       actions: drawingToolsActions,
     }),
-    [drawingToolsActions, drawingToolsSheetTopInset, drawingToolsVisualKey],
+    [drawingToolsActions, drawingToolsSheetTopInset, drawingToolsVisualKey, t],
   );
+
+  useEffect(() => {
+    if (!isScreenFocused) return;
+    preloadScopedActionSheet('chart', drawingToolsActionSheetConfig);
+  }, [drawingToolsActionSheetConfig, isScreenFocused, preloadScopedActionSheet]);
 
   const handleOpenDrawingTools = useCallback(() => {
     runImmediateAction('chart.drawingTools.open', () => {
       closeChartTapMenu();
-      // Instant full-size open from memoized config (no retained slide preview).
-      showChartActionSheet(drawingToolsActionSheetConfig);
+      openChartActionSheetSmoothly(drawingToolsActionSheetConfig);
       scheduleChartActionSheetContextReset();
     });
   }, [
     closeChartTapMenu,
     drawingToolsActionSheetConfig,
+    openChartActionSheetSmoothly,
     scheduleChartActionSheetContextReset,
-    showChartActionSheet,
   ]);
 
   const handleOpenSettingsScreen = useCallback(() => {
@@ -4027,25 +4244,58 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
    * Action handler for opening the Trading Calculator screen for the current symbol.
    */
   const handleOpenChartTradingCalculator = useCallback(() => {
-    hideActionSheet();
-    router.push({ pathname: '/chart/calculator', params: { symbol: chartSymbol } });
-  }, [chartSymbol, hideActionSheet]);
+    runImmediateAction('chart.calculator.open', () => {
+      const launchRevision = showChartActionLaunch('calculator', chartSymbol);
+      scheduleChartActionLaunchNavigation(launchRevision, () => {
+        try {
+          router.push({
+            pathname: '/chart/calculator',
+            params: { launchRevision: String(launchRevision), symbol: chartSymbol },
+          });
+        } catch {
+          hideChartActionLaunch(launchRevision);
+        }
+      });
+    });
+  }, [chartSymbol]);
 
   /**
    * Action handler for opening the Analytics screen for the current symbol.
    */
   const handleOpenChartAnalytics = useCallback(() => {
-    hideActionSheet();
-    router.push({ pathname: '/chart/analytics', params: { symbol: chartSymbol } });
-  }, [chartSymbol, hideActionSheet]);
+    runImmediateAction('chart.analytics.open', () => {
+      const launchRevision = showChartActionLaunch('analytics', chartSymbol);
+      scheduleChartActionLaunchNavigation(launchRevision, () => {
+        try {
+          router.push({
+            pathname: '/chart/analytics',
+            params: { launchRevision: String(launchRevision), symbol: chartSymbol },
+          });
+        } catch {
+          hideChartActionLaunch(launchRevision);
+        }
+      });
+    });
+  }, [chartSymbol]);
 
   /**
    * Action handler for opening the Contract Specification screen for the current symbol.
    */
   const handleOpenChartSpecification = useCallback(() => {
-    hideActionSheet();
-    router.push({ pathname: '/chart/specification', params: { symbol: chartSymbol } });
-  }, [chartSymbol, hideActionSheet]);
+    runImmediateAction('chart.specification.open', () => {
+      const launchRevision = showChartActionLaunch('specification', chartSymbol);
+      scheduleChartActionLaunchNavigation(launchRevision, () => {
+        try {
+          router.push({
+            pathname: '/chart/specification',
+            params: { launchRevision: String(launchRevision), symbol: chartSymbol },
+          });
+        } catch {
+          hideChartActionLaunch(launchRevision);
+        }
+      });
+    });
+  }, [chartSymbol]);
 
   const chartTypeIconName =
     chartType === 'candles' || chartType === 'hollow'
@@ -4087,10 +4337,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       {
         label: t('Objects'),
         icon: <TvLayers color={TEXT_MUTED} size={20} />,
-        onPress: () => {
-          hideActionSheet();
-          handleOpenObjectsScreen();
-        },
+        activateOnPressIn: true,
+        deferCloseCommitForVisualHandoff: true,
+        onPress: handleOpenObjectsScreen,
       },
       // Resets the chart's zoom, scale, and scroll state back to the default view
       {
@@ -4108,18 +4357,24 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       {
         label: t('Trading calculator'),
         icon: <Ionicons name="calculator-outline" size={20} color={TEXT_MUTED} />,
+        activateOnPressIn: true,
+        deferCloseCommitForVisualHandoff: true,
         onPress: handleOpenChartTradingCalculator,
       },
       // Navigates to the Analytics screen
       {
         label: t('Analytics'),
         icon: <Ionicons name="analytics-outline" size={20} color={TEXT_MUTED} />,
+        activateOnPressIn: true,
+        deferCloseCommitForVisualHandoff: true,
         onPress: handleOpenChartAnalytics,
       },
       // Navigates to the Contract Specification screen
       {
         label: t('Specification'),
         icon: <Ionicons name="clipboard-outline" size={20} color={TEXT_MUTED} />,
+        activateOnPressIn: true,
+        deferCloseCommitForVisualHandoff: true,
         onPress: handleOpenChartSpecification,
       },
     ],
@@ -4134,7 +4389,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       handleOpenChartTypePicker,
       handleOpenObjectsScreen,
       handleResetChartViewport,
-      hideActionSheet,
       isChartExpanded,
       setChartViewportShowDrawingToolbar,
       setChartViewportShowVolumePane,
@@ -5669,6 +5923,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         </View>
       </View>
 
+      <BrokerFeedHealthBanner
+        compact
+        latencyLabel="chart.feedHealth.retry"
+        style={{ marginHorizontal: 10, marginBottom: 6 }}
+      />
+
       <View
         ref={chartTradeHostRef}
         style={styles.flex1}
@@ -5872,7 +6132,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                         const msg = JSON.parse(event.nativeEvent.data);
                         if (msg.type === 'READY') {
                           if (typeof __DEV__ !== 'undefined' && __DEV__) {
-                            console.log('[CHART] webview READY (surface boot complete)');
+                            if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
+                              console.log('[CHART] webview READY (surface boot complete)');
+                            }
                           }
                           // WebView loaded — reset state and mark ready.
                           // The watchdog + Effect 1 will push initChart as soon as data exists.
@@ -6047,9 +6309,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                             setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
                           }
                         } else if (msg.type === 'DRAWINGS_SYNCED_FOR_OBJECTS') {
-                          if (pendingObjectsDrawingSyncRef.current) {
-                            pendingObjectsDrawingSyncRef.current = false;
-                            router.push('/chart/objects');
+                          const pendingRequest = pendingObjectsDrawingSyncRef.current;
+                          if (
+                            pendingRequest
+                            && Number(msg.requestId) === pendingRequest.requestId
+                          ) {
+                            pendingObjectsDrawingSyncRef.current = null;
+                            pendingRequest.onReady();
                           }
                         } else if (msg.type === 'CHART_TOUCH_STATE') {
                           if (msg.active) {
@@ -6205,10 +6471,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                     isDark={isDark}
                     onDismiss={closeChartTapMenu}
                     onSelectTimeframe={handleTimeframeSelect}
-                    onOpenObjects={() => {
-                      closeChartTapMenu();
-                      router.push('/chart/objects');
-                    }}
+                    onOpenObjects={handleOpenObjectsScreen}
                     onOpenDrawingTools={() => {
                       closeChartTapMenu();
                       handleOpenDrawingTools();
@@ -6461,7 +6724,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                                 useMtPendingTradeSheetLayout && styles.chartTradePriceInputPendingMt,
                               ]}
                             >
-                              {chartTradePrice > 0 ? chartTradePrice.toFixed(displayDecimals) : (chartBid > 0 ? chartBid.toFixed(displayDecimals) : '--')}
+                              {chartTradePrice > 0 ? chartTradePrice.toFixed(displayDecimals) : '--'}
                             </Text>
                             <Pressable
                               style={[
@@ -6913,7 +7176,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         }
         initial={
           chartStepperEditor?.kind === 'price'
-            ? chartTradePrice || chartBid
+            ? chartTradePrice || chartPendingLiveBid
             : chartStepperEditor?.kind === 'stopLimitPrice'
               ? chartTradeStopLimitPrice
               : chartStepperEditor?.kind === 'tp'

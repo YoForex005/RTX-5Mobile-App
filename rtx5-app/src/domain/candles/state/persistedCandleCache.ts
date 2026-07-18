@@ -10,10 +10,18 @@ import {
 } from '../core/candles';
 import type { Candle } from '../../../state/tradingState';
 import { useTradingState } from '../../../state/tradingState';
+import {
+  captureActiveBrokerSession,
+  getActiveBrokerSessionIdentity,
+  isActiveBrokerSessionCurrent,
+  subscribeActiveBrokerSession,
+  type ActiveBrokerSessionIdentity,
+  type ActiveBrokerSessionProvenance,
+} from '../../../state/activeBrokerSession';
 
-const STORAGE_KEY = 'rtx5:chart-candle-cache:v1';
+const STORAGE_KEY_PREFIX = 'rtx5:chart-candle-cache:v2';
 /** Schema version. Bump this if `PersistedCandleCacheEntry` structure changes. */
-const STORAGE_VERSION = 3;
+const STORAGE_VERSION = 4;
 /** Minimum delay between writing to device storage to prevent IO thrashing. */
 const PERSIST_THROTTLE_MS = 5000;
 
@@ -29,15 +37,31 @@ type PersistedCandleCacheEntry = {
 /** The full payload saved to AsyncStorage. */
 type PersistedCandleCacheState = {
   version: typeof STORAGE_VERSION;
+  cacheNamespace: string;
   /** Map of normalized string keys (e.g. "EURUSD.M1") to their cache entries. */
   entries: Record<string, PersistedCandleCacheEntry>;
 };
 
 /** Returns an empty shell for the persistent state. */
-const emptyStorage = (): PersistedCandleCacheState => ({
+const emptyStorage = (cacheNamespace: string): PersistedCandleCacheState => ({
   version: STORAGE_VERSION,
+  cacheNamespace,
   entries: {},
 });
+
+type CandleCacheScope = Readonly<{
+  cacheNamespace: string;
+  identity: ActiveBrokerSessionIdentity;
+  resetGeneration: number;
+}>;
+
+type PendingPersistedCandleWrite = Readonly<{
+  scope: CandleCacheScope;
+  entry: PersistedCandleCacheEntry;
+}>;
+
+const getPersistedCandleStorageKey = (cacheNamespace: string): string =>
+  `${STORAGE_KEY_PREFIX}:${encodeURIComponent(cacheNamespace)}`;
 
 const normalizeCacheKey = (symbol: string, timeframe: string) => {
   const normalizedSymbol = normalizeSymbol(symbol);
@@ -73,15 +97,23 @@ const trimEntries = (entries: Record<string, PersistedCandleCacheEntry>) => {
  * Safely parses the raw JSON string from AsyncStorage into the typed state object.
  * Validates OHLCV structure and silently discards corrupted or outdated entries.
  */
-const parseStorage = (raw: string | null): PersistedCandleCacheState => {
+const parseStorage = (
+  raw: string | null,
+  expectedCacheNamespace: string,
+): PersistedCandleCacheState => {
   if (!raw) {
-    return emptyStorage();
+    return emptyStorage(expectedCacheNamespace);
   }
 
   try {
     const parsed = JSON.parse(raw) as Partial<PersistedCandleCacheState>;
-    if (!parsed.entries || typeof parsed.entries !== 'object') {
-      return emptyStorage();
+    if (
+      parsed.version !== STORAGE_VERSION ||
+      parsed.cacheNamespace !== expectedCacheNamespace ||
+      !parsed.entries ||
+      typeof parsed.entries !== 'object'
+    ) {
+      return emptyStorage(expectedCacheNamespace);
     }
 
     const sanitizedEntries: Record<string, PersistedCandleCacheEntry> = {};
@@ -109,37 +141,108 @@ const parseStorage = (raw: string | null): PersistedCandleCacheState => {
 
     return {
       version: STORAGE_VERSION,
+      cacheNamespace: expectedCacheNamespace,
       entries: trimEntries(sanitizedEntries),
     };
   } catch (error) {
     console.warn('[persistedCandleCache] Failed to parse candle cache', error);
-    return emptyStorage();
+    return emptyStorage(expectedCacheNamespace);
   }
 };
 
 let storageSnapshot: PersistedCandleCacheState | null = null;
 let storageReadPromise: Promise<PersistedCandleCacheState> | null = null;
 let storageWriteQueue: Promise<void> = Promise.resolve();
-const pendingWrites = new Map<string, PersistedCandleCacheEntry>();
+let boundCacheNamespace: string | null = null;
+let candleCacheResetGeneration = 0;
+const pendingWrites = new Map<string, PendingPersistedCandleWrite>();
 const writeTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const lastWriteAt = new Map<string, number>();
 const lastScheduledSignature = new Map<string, string>();
 const hydrationPromises = new Map<string, Promise<Candle[]>>();
 
-const readStorage = async (): Promise<PersistedCandleCacheState> => {
+const clearPersistedCandleCacheRuntime = (): void => {
+  candleCacheResetGeneration += 1;
+  for (const timer of writeTimers.values()) {
+    clearTimeout(timer);
+  }
+  writeTimers.clear();
+  pendingWrites.clear();
+  lastWriteAt.clear();
+  lastScheduledSignature.clear();
+  hydrationPromises.clear();
+  storageSnapshot = null;
+  storageReadPromise = null;
+  storageWriteQueue = Promise.resolve();
+  boundCacheNamespace = null;
+};
+
+const bindPersistedCandleCacheNamespace = (cacheNamespace: string): void => {
+  if (boundCacheNamespace === cacheNamespace) {
+    return;
+  }
+  clearPersistedCandleCacheRuntime();
+  boundCacheNamespace = cacheNamespace;
+};
+
+const captureCandleCacheScope = (
+  expectedProvenance?: ActiveBrokerSessionProvenance,
+): CandleCacheScope | null => {
+  const capture = captureActiveBrokerSession();
+  if (!capture) {
+    return null;
+  }
+
+  if (
+    expectedProvenance &&
+    (
+      expectedProvenance.cacheNamespace !== capture.session.cacheNamespace ||
+      !isActiveBrokerSessionCurrent(expectedProvenance.identity)
+    )
+  ) {
+    return null;
+  }
+
+  bindPersistedCandleCacheNamespace(capture.session.cacheNamespace);
+  return Object.freeze({
+    cacheNamespace: capture.session.cacheNamespace,
+    identity: expectedProvenance?.identity ?? getActiveBrokerSessionIdentity(capture.session),
+    resetGeneration: candleCacheResetGeneration,
+  });
+};
+
+const isCandleCacheScopeCurrent = (scope: CandleCacheScope): boolean => {
+  const capture = captureActiveBrokerSession();
+  return (
+    scope.resetGeneration === candleCacheResetGeneration &&
+    boundCacheNamespace === scope.cacheNamespace &&
+    capture?.session.cacheNamespace === scope.cacheNamespace &&
+    isActiveBrokerSessionCurrent(scope.identity)
+  );
+};
+
+const readStorage = async (
+  scope: CandleCacheScope,
+): Promise<PersistedCandleCacheState> => {
+  if (!isCandleCacheScopeCurrent(scope)) {
+    return emptyStorage(scope.cacheNamespace);
+  }
+
   if (storageSnapshot) {
     return storageSnapshot;
   }
 
   if (!storageReadPromise) {
-    storageReadPromise = AsyncStorage.getItem(STORAGE_KEY)
-      .then(parseStorage)
+    storageReadPromise = AsyncStorage.getItem(getPersistedCandleStorageKey(scope.cacheNamespace))
+      .then((raw) => parseStorage(raw, scope.cacheNamespace))
       .catch((error) => {
         console.warn('[persistedCandleCache] Failed to read candle cache', error);
-        return emptyStorage();
+        return emptyStorage(scope.cacheNamespace);
       })
       .then((state) => {
-        storageSnapshot = state;
+        if (isCandleCacheScopeCurrent(scope)) {
+          storageSnapshot = state;
+        }
         return state;
       });
   }
@@ -152,20 +255,38 @@ const readStorage = async (): Promise<PersistedCandleCacheState> => {
  * Uses a chained Promise queue (`storageWriteQueue`) to ensure atomic writes
  * and prevent data corruption from overlapping saves.
  */
-const flushPersistedEntry = (key: string) => {
-  const entry = pendingWrites.get(key);
-  if (!entry) {
+const flushPersistedEntry = (key: string, scheduledScope: CandleCacheScope) => {
+  const pendingWrite = pendingWrites.get(key);
+  if (
+    !pendingWrite ||
+    pendingWrite.scope.resetGeneration !== scheduledScope.resetGeneration ||
+    pendingWrite.scope.cacheNamespace !== scheduledScope.cacheNamespace
+  ) {
     return;
   }
 
   pendingWrites.delete(key);
+  if (!isCandleCacheScopeCurrent(pendingWrite.scope)) {
+    return;
+  }
+
+  const { entry, scope } = pendingWrite;
   lastWriteAt.set(key, Date.now());
 
   storageWriteQueue = storageWriteQueue
     .then(async () => {
-      const current = await readStorage();
+      if (!isCandleCacheScopeCurrent(scope)) {
+        return;
+      }
+
+      const current = await readStorage(scope);
+      if (!isCandleCacheScopeCurrent(scope)) {
+        return;
+      }
+
       const nextState: PersistedCandleCacheState = {
         version: STORAGE_VERSION,
+        cacheNamespace: scope.cacheNamespace,
         entries: trimEntries({
           ...current.entries,
           [key]: entry,
@@ -173,7 +294,10 @@ const flushPersistedEntry = (key: string) => {
       };
 
       storageSnapshot = nextState;
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+      await AsyncStorage.setItem(
+        getPersistedCandleStorageKey(scope.cacheNamespace),
+        JSON.stringify(nextState),
+      );
     })
     .catch((error) => {
       console.warn('[persistedCandleCache] Failed to write candle cache', error);
@@ -185,7 +309,7 @@ const flushPersistedEntry = (key: string) => {
  * Ensures we don't hammer the device storage when a high-frequency WS stream
  * tries to cache every few seconds.
  */
-const schedulePersistedEntry = (key: string) => {
+const schedulePersistedEntry = (key: string, scope: CandleCacheScope) => {
   if (writeTimers.has(key)) {
     return;
   }
@@ -194,7 +318,7 @@ const schedulePersistedEntry = (key: string) => {
   const delay = Math.max(0, PERSIST_THROTTLE_MS - elapsed);
   const timer = setTimeout(() => {
     writeTimers.delete(key);
-    flushPersistedEntry(key);
+    flushPersistedEntry(key, scope);
   }, delay);
   writeTimers.set(key, timer);
 };
@@ -218,7 +342,13 @@ export const persistCanonicalCandleCache = (
   symbol: string,
   timeframe: string,
   candles: Candle[],
+  provenance?: ActiveBrokerSessionProvenance,
 ): void => {
+  const scope = captureCandleCacheScope(provenance);
+  if (!scope) {
+    return;
+  }
+
   const normalized = normalizeCacheKey(symbol, timeframe);
   if (!normalized || candles.length === 0) {
     return;
@@ -236,12 +366,15 @@ export const persistCanonicalCandleCache = (
 
   lastScheduledSignature.set(normalized.key, signature);
   pendingWrites.set(normalized.key, {
-    symbol: normalized.symbol,
-    timeframe: normalized.timeframe,
-    updatedAt: Date.now(),
-    candles: safeCandles,
+    scope,
+    entry: {
+      symbol: normalized.symbol,
+      timeframe: normalized.timeframe,
+      updatedAt: Date.now(),
+      candles: safeCandles,
+    },
   });
-  schedulePersistedEntry(normalized.key);
+  schedulePersistedEntry(normalized.key, scope);
 };
 
 /**
@@ -254,6 +387,11 @@ export const hydratePersistedCandleCache = async (
   symbol: string,
   timeframe: string,
 ): Promise<Candle[]> => {
+  const scope = captureCandleCacheScope();
+  if (!scope) {
+    return [];
+  }
+
   const normalized = normalizeCacheKey(symbol, timeframe);
   if (!normalized) {
     return [];
@@ -264,8 +402,12 @@ export const hydratePersistedCandleCache = async (
     return existingHydration;
   }
 
-  const hydration = readStorage()
+  const hydration = readStorage(scope)
     .then((state) => {
+      if (!isCandleCacheScopeCurrent(scope)) {
+        return [];
+      }
+
       const entry = state.entries[normalized.key];
       if (!entry || !Array.isArray(entry.candles)) {
         return [];
@@ -273,6 +415,10 @@ export const hydratePersistedCandleCache = async (
 
       const safeCandles = sanitizeCandles(entry.candles, normalized.timeframe);
       if (!isTrustworthyCandleBootstrapSeed(safeCandles, normalized.timeframe)) {
+        return [];
+      }
+
+      if (!isCandleCacheScopeCurrent(scope)) {
         return [];
       }
 
@@ -288,9 +434,27 @@ export const hydratePersistedCandleCache = async (
       return [];
     })
     .finally(() => {
-      hydrationPromises.delete(normalized.key);
+      if (hydrationPromises.get(normalized.key) === hydration) {
+        hydrationPromises.delete(normalized.key);
+      }
     });
 
   hydrationPromises.set(normalized.key, hydration);
   return hydration;
 };
+
+/**
+ * Cancels delayed persistence/hydration work and clears the in-memory candle
+ * state for the broker session being left. Namespaced on-disk data is retained
+ * for a future activation of the same immutable session identity.
+ */
+export const resetPersistedCandleCacheSession = (): void => {
+  clearPersistedCandleCacheRuntime();
+  useTradingState.setState({ candles: {} });
+};
+
+subscribeActiveBrokerSession((event) => {
+  if (event.type === 'transition') {
+    resetPersistedCandleCacheSession();
+  }
+});

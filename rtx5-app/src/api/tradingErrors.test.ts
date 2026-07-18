@@ -51,6 +51,19 @@ test('classifyTradingError keeps retry-after information for rate limiting', () 
   assert.match(feedback.message, /17 seconds/);
 });
 
+test('classifyTradingError redacts secrets before returning UI-safe detail', () => {
+  const feedback = classifyTradingError(
+    createTradingApiError(500, {
+      message: 'upstream https://broker.example/failed?token=secret Authorization: Bearer abc123',
+    }),
+    { action: 'place-order' },
+  );
+
+  assert.doesNotMatch(feedback.message, /secret|abc123/);
+  assert.doesNotMatch(feedback.detail ?? '', /secret|abc123/);
+  assert.match(feedback.message, /\[redacted\]/);
+});
+
 test('frontend trading errors format cleanly for inline banners', () => {
   const feedback = createFrontendTradingError(
     'Account Error',

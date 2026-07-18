@@ -28,7 +28,7 @@ test('settings search results reuse the same routes as settings rows', () => {
   assert.match(source, /item\.action === 'support-email'[\s\S]*void handleEmailSupport\(\)/);
   assert.match(source, /openReadySettingsRoute\(item\.routePath\)/);
   assert.match(source, /const isThemeItem = item\.title === 'Theme'/);
-  assert.match(source, /rightElement=\{[\s\S]*isThemeItem \? \([\s\S]*<Switch[\s\S]*onValueChange=\{\(val\) => setThemeMode\(val \? 'light' : 'dark'\)\}/);
+  assert.match(source, /rightElement=\{[\s\S]*isThemeItem \? \([\s\S]*<Switch[\s\S]*onValueChange=\{\(val\) => applyThemeMode\(val \? 'light' : 'dark'\)\}/);
   assert.match(source, /const routePath = item\.routePath/);
   assert.match(source, /onPress=\{isThemeItem \? toggleThemeMode : routePath \|\| item\.action \? \(\) => handleSearchResultPress\(item\) : undefined\}/);
   assert.match(source, /onPressIn=\{routePath \? \(\) => prepareReadySettingsRoute\(routePath\) : undefined\}/);

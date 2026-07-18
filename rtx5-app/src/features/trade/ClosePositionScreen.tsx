@@ -7,12 +7,11 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
 import { usePositionsState } from '../../state/positionsState';
-import { useTradingState } from '../../state/tradingState';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { positionsApi } from '../../api/positions';
 import { appQueryClient } from '../../state/providers/AppProviders';
@@ -35,6 +34,14 @@ import {
   hideTradePositionActionHost,
   showTradePositionAction,
 } from './tradePositionActionHostController';
+import { useExecutableQuote } from '../quotes/useExecutableQuote';
+import { quoteActionBlockMessage, recordBlockedPriceAction } from '../../market/quoteIntegrity';
+import {
+  captureActiveBrokerSessionProvenance,
+  isActiveBrokerSessionProvenanceCurrent,
+  subscribeActiveBrokerSession,
+} from '../../state/activeBrokerSession';
+import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope';
 
 const CANVAS_DARK = '#121212';
 const CARD_DARK = '#1E1E1E';
@@ -63,6 +70,19 @@ function isRenderableClosePosition(position: PositionItem | undefined): position
     isValidCloseTicket(position.id),
   );
 }
+
+type ScopedStablePosition = Readonly<{
+  position: PositionItem;
+  cacheNamespace: string;
+}>;
+
+const subscribeActiveCacheNamespace = (listener: () => void) =>
+  subscribeActiveBrokerSession(() => listener());
+
+const getActiveCacheNamespaceSnapshot = (): string =>
+  captureActiveBrokerSessionProvenance()?.cacheNamespace ?? '';
+
+const getServerActiveCacheNamespaceSnapshot = (): string => '';
 
 export function ClosePositionScreen({
   hosted = false,
@@ -96,22 +116,48 @@ export function ClosePositionScreen({
     () => findPositionById(positions, positionId) ?? primedPosition,
     [positions, positionId, primedPosition]
   );
-  const [stablePosition, setStablePosition] = useState<PositionItem | null>(
-    isRenderableClosePosition(resolvedPosition) ? resolvedPosition : null,
+  const activeCacheNamespace = useSyncExternalStore(
+    subscribeActiveCacheNamespace,
+    getActiveCacheNamespaceSnapshot,
+    getServerActiveCacheNamespaceSnapshot,
+  );
+  const [stablePosition, setStablePosition] = useState<ScopedStablePosition | null>(() =>
+    isRenderableClosePosition(resolvedPosition) && activeCacheNamespace
+      ? { position: resolvedPosition, cacheNamespace: activeCacheNamespace }
+      : null,
   );
   useEffect(() => {
-    if (isRenderableClosePosition(resolvedPosition)) {
-      setStablePosition(resolvedPosition);
-    }
-  }, [resolvedPosition]);
-  const position = isRenderableClosePosition(resolvedPosition)
-    ? resolvedPosition
-    : stablePosition;
+    setStablePosition((current) => {
+      if (!activeCacheNamespace) {
+        return null;
+      }
+      // A session transition invalidates the retained ticket immediately. Do
+      // not bind a still-rendered old position to the newly active session.
+      if (current && current.cacheNamespace !== activeCacheNamespace) {
+        return null;
+      }
+      if (isRenderableClosePosition(resolvedPosition)) {
+        return {
+          position: resolvedPosition,
+          cacheNamespace: activeCacheNamespace,
+        };
+      }
+      return current;
+    });
+  }, [activeCacheNamespace, resolvedPosition]);
+  const position = stablePosition?.cacheNamespace === activeCacheNamespace
+    ? stablePosition.position
+    : null;
+  const positionCacheNamespace = position ? stablePosition?.cacheNamespace ?? '' : '';
   const resolvedLogin = resolveTradingLoginString();
 
-  const quotes = useTradingState((s) => s.quotes);
-  const livePrice = position ? resolveLivePositionPrice(position, quotes[position.symbol]) : 0;
-  const livePnl = position ? resolveLivePositionPnl(position, quotes[position.symbol]) : 0;
+  const {
+    quote: executableQuote,
+    availability: quoteAvailability,
+    getCurrentAvailability,
+  } = useExecutableQuote(position?.symbol ?? '', themeActive && Boolean(position?.symbol));
+  const livePrice = position ? resolveLivePositionPrice(position, executableQuote) : 0;
+  const livePnl = position ? resolveLivePositionPnl(position, executableQuote) : 0;
 
   useEffect(() => {
     if (!position && resolvedLogin) {
@@ -169,6 +215,20 @@ export function ClosePositionScreen({
       return;
     }
 
+    const currentQuoteAvailability = getCurrentAvailability();
+    if (!currentQuoteAvailability.allowed) {
+      recordBlockedPriceAction('close_position', currentQuoteAvailability);
+      setCloseError(
+        formatTradingErrorFeedback(
+          createFrontendTradingError(
+            t('Market Data Unavailable'),
+            t(quoteActionBlockMessage(currentQuoteAvailability)),
+          ),
+        ),
+      );
+      return;
+    }
+
     actionLockRef.current = true;
     setActionLocked(true);
 
@@ -199,6 +259,25 @@ export function ClosePositionScreen({
       releaseActionLock();
       return;
     }
+    const actionProvenance = captureActiveBrokerSessionProvenance();
+    if (
+      !actionProvenance ||
+      !positionCacheNamespace ||
+      positionCacheNamespace !== actionProvenance.cacheNamespace ||
+      !resolvedLogin ||
+      resolvedLogin !== actionProvenance.identity.accountLogin
+    ) {
+      setCloseError(
+        formatTradingErrorFeedback(
+          createFrontendTradingError(
+            t('Position Session Changed'),
+            t('The active broker account changed. Return to Trade and select the position again.'),
+          ),
+        ),
+      );
+      releaseActionLock();
+      return;
+    }
 
     setIsClosing(true);
     setCloseError(null);
@@ -209,22 +288,21 @@ export function ClosePositionScreen({
 
     void positionsApi.closePosition(ticketId)
       .then(() => {
+        if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) return;
         const state = usePositionsState.getState();
         state.finishOptimisticClose(ticketId);
-        appQueryClient.invalidateQueries({ queryKey: ['positionHistory'] });
-        appQueryClient.invalidateQueries({ queryKey: ['accountDeals'] });
-        appQueryClient.invalidateQueries({ queryKey: ['deals'] });
-        appQueryClient.invalidateQueries({ queryKey: ['positions'] });
-        appQueryClient.invalidateQueries({ queryKey: ['ordersByLogin'] });
-        appQueryClient.invalidateQueries({ queryKey: ['accountSummary'] });
-        appQueryClient.invalidateQueries({ queryKey: ['exposure'] });
-        appQueryClient.invalidateQueries({ queryKey: ['transactions'] });
+        void invalidateSessionQueryRoots(
+          appQueryClient,
+          actionProvenance.cacheNamespace,
+          ['positionHistory', 'accountDeals', 'deals', 'positions', 'ordersByLogin', 'accountSummary', 'exposure', 'transactions'],
+        );
         if (resolvedLogin) {
           void state.refreshPositions(resolvedLogin);
         }
       })
       .catch((error: any) => {
-        const feedback = classifyTradingError(error, { action: 'close' });
+        if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) return;
+        const feedback = classifyTradingError(error, { action: 'close-position' });
         usePositionsState.getState().rollbackOptimisticClose(closeSnapshot);
         setCloseError(formatTradingErrorFeedback(feedback));
         Alert.alert(feedback.title, feedback.message);
@@ -233,7 +311,7 @@ export function ClosePositionScreen({
         setIsClosing(false);
         releaseActionLock();
       });
-  }, [isClosing, leaveScreen, position, releaseActionLock, resolvedLogin, t]);
+  }, [getCurrentAvailability, isClosing, leaveScreen, position, positionCacheNamespace, releaseActionLock, resolvedLogin, t]);
 
   // Hosted inactive layers skip paint work while another action is visible.
   if (hosted && !hostedActive) {
@@ -324,12 +402,21 @@ export function ClosePositionScreen({
               {closeError ?? t('Close order submitted. Position closed successfully.')}
             </Text>
           </View>
+        ) : !quoteAvailability.allowed ? (
+          <View style={[styles.statusBox, styles.statusBoxError]}>
+            <Text style={[styles.statusText, styles.statusTextError]}>
+              {t(quoteActionBlockMessage(quoteAvailability))}
+            </Text>
+          </View>
         ) : null}
 
         <View style={styles.buttonStack}>
           <Pressable
-            style={[styles.primaryBtn, (isClosing || actionLocked) && styles.btnDisabled]}
-            disabled={isClosing || actionLocked}
+            style={[
+              styles.primaryBtn,
+              (isClosing || actionLocked || !quoteAvailability.allowed) && styles.btnDisabled,
+            ]}
+            disabled={isClosing || actionLocked || !quoteAvailability.allowed}
             onPress={() => { void handleClosePosition(); }}
             activateOnPressIn
             latencyLabel="closePosition.submit"

@@ -24,26 +24,26 @@ import {
   recordModifyPositionJournalRequest,
   recordModifyPositionJournalSuccess,
 } from '../../state/terminalJournalState';
-import { rawPositionsFetch } from './payloadHelpers';
 import { getPositionHistory } from './closedHistory';
 import type {
   ClosePositionResponse,
   ModifyPositionPayload,
   Position,
 } from './types';
+import { redactDiagnosticValue } from '../../utils/securityRedaction';
 
 const DEBUG_POSITIONS_API =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_POSITIONS_API === 'true';
 
 const logPositionsApiDiagnostic = (...args: Parameters<typeof console.log>) => {
   if (DEBUG_POSITIONS_API) {
-    console.log(...args);
+    console.log(...args.map(redactDiagnosticValue));
   }
 };
 
 const warnPositionsApiDiagnostic = (...args: Parameters<typeof console.warn>) => {
   if (DEBUG_POSITIONS_API) {
-    console.warn(...args);
+    console.warn(...args.map(redactDiagnosticValue));
   }
 };
 
@@ -69,18 +69,7 @@ export const positionsApi = {
     const url = `/positions/${login}?limit=${limit}&offset=${offset}`;
     logPositionsApiDiagnostic('[PositionsAPI] GET', url);
 
-    let response: Response;
-    try {
-      response = await apiClient(url);
-    } catch (error) {
-      const message = (error as Error)?.message || '';
-      if (message === 'Failed to fetch') {
-        warnPositionsApiDiagnostic('[PositionsAPI] apiClient fetch failed, retrying raw fetch');
-        response = await rawPositionsFetch(url);
-      } else {
-        throw error;
-      }
-    }
+    const response = await apiClient(url);
     logPositionsApiDiagnostic('[PositionsAPI] Response status:', response.status);
 
     if (!response.ok) {

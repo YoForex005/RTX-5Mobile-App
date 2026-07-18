@@ -17,6 +17,7 @@ import { useUserPreferences } from '../../state/userPreferences';
 import { usePositionsState } from '../../state/positionsState';
 import { resolveTradingLogin, resolveTradingLoginString, useResolvedTradingLogin } from '../../state/tradingLogin';
 import { ordersApi } from '../../api/orders';
+import { resolveBrokerExecutionEvidence } from '../../api/orders/executionEvidence';
 import { useAccountSummary } from '../../query/account';
 import { useMarginCalculation } from '../../query/calculators';
 import type { MarginCalcPayload } from '../../api/calculators';
@@ -28,11 +29,17 @@ import {
   safeRouterBack,
   scheduleBackNavigationAfterVisualFrame,
 } from '../../utils/navigation';
-import { useLiveTick } from '../../domain/candles/hooks/useLiveCandles';
-import { useLiveQuoteSnapshot } from '../quotes/useLiveQuotes';
+import {
+  useLiveQuoteSnapshot,
+  useLiveQuoteSubscription,
+} from '../quotes/useLiveQuotes';
 import { normalizeSymbol } from '../../domain/symbols';
 import { normalizeQuoteTickTimestampToMs } from '../../api/ws/quoteTimestamp';
-import { isMarketQuoteStale } from '../../market/quotePolicy';
+import {
+  quoteActionBlockMessage,
+  recordBlockedPriceAction,
+  resolveSessionQuoteActionAvailability,
+} from '../../market/quoteIntegrity';
 import { assertTradeSide, normalizeTradeSide, TRADE_SIDE, type TradeSide } from '../../domain/tradeSide';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 import { TradeFeedbackModal, type TradeFeedbackState } from '../../ui/components/TradeFeedbackModal';
@@ -62,7 +69,13 @@ import {
   type ChartOrderType,
 } from '../chart/chartTradeOrderUtils';
 import { DEFAULT_CHART_SYMBOLS, resolveChartSymbolFullName } from '../chart/chartSymbolMetadata';
+import { redactDiagnosticValue, redactSensitiveString } from '../../utils/securityRedaction';
 import { LiveOrderTickExecutionGraph } from './OrderTickExecutionGraph';
+import {
+  captureActiveBrokerSessionProvenance,
+  isActiveBrokerSessionProvenanceCurrent,
+} from '../../state/activeBrokerSession';
+import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope';
 import {
   resolveOrderTicketDefaultPendingPrice,
   resolveOrderTicketPendingOffset,
@@ -95,6 +108,14 @@ const ORDER_TICKET_FULL_CONTENT_DELAY_MS = 0;
 const ORDER_TICKET_DATA_READY_DELAY_MS = 0;
 const ORDER_TICKET_HEAVY_CONTENT_DELAY_MS = 0;
 const ORDER_TICKET_FALLBACK_LEVERAGE = 100;
+const ORDER_TICKET_DIAGNOSTICS_ENABLED =
+  typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CHART_TRADE === 'true';
+const logOrderTicketDiagnostic = (...args: Parameters<typeof console.log>) => {
+  if (ORDER_TICKET_DIAGNOSTICS_ENABLED) console.log(...args.map(redactDiagnosticValue));
+};
+const warnOrderTicketDiagnostic = (...args: Parameters<typeof console.warn>) => {
+  if (ORDER_TICKET_DIAGNOSTICS_ENABLED) console.warn(...args.map(redactDiagnosticValue));
+};
 
 const isOrderTicketLeverageValue = (value: number | null | undefined): value is number => (
   typeof value === 'number' &&
@@ -402,24 +423,17 @@ function OrderTicketInteractiveContent() {
   }, [tradeVolume, volumeBounds]);
 
   // Live WebSocket pricing drives the BID/ASK buttons and every price preview.
-  const latestTick = useLiveTick(symbol, undefined, routeQueriesActive);
-  const latestClose = latestTick?.close || 0;
   // Seed from the shared watchlist snapshot — the price the user was just
   // looking at on the Quotes screen — so BID/ASK render real values in the
   // first frame instead of "--" while this route's own subscription warms up.
-  const seedQuote = useLiveQuoteSnapshot(symbol, isScreenFocused);
-  const seedBid = typeof seedQuote?.bid === 'number' && seedQuote.bid > 0 ? seedQuote.bid : 0;
-  const seedAsk = typeof seedQuote?.ask === 'number' && seedQuote.ask > 0 ? seedQuote.ask : 0;
-  // Some tick payloads only include close price, so create a conservative ASK
-  // fallback until true bid/ask data arrives.
-  const syntheticAskOffset = symbol.includes('XAU') ? 0.30 : symbol.includes('BTC') ? 25 : 0.00015;
-
-  const BID = (latestTick as any)?.bid || latestClose || seedBid;
-  const ASK = (latestTick as any)?.ask || seedAsk || (BID > 0 ? BID + syntheticAskOffset : 0);
+  useLiveQuoteSubscription(symbol, routeQueriesActive);
+  const liveQuote = useLiveQuoteSnapshot(symbol, isScreenFocused);
+  const BID = typeof liveQuote?.bid === 'number' && liveQuote.bid > 0 ? liveQuote.bid : 0;
+  const ASK = typeof liveQuote?.ask === 'number' && liveQuote.ask > 0 ? liveQuote.ask : 0;
   const tickTimestamp =
-    (latestTick as any)?.timestamp
-    ?? (latestTick as any)?.time
-    ?? (latestTick as any)?.t
+    liveQuote?.feedTickAt
+    ?? liveQuote?.lastTickAt
+    ?? liveQuote?.lastReceivedAt
     ?? null;
   const [quoteFreshnessNow, setQuoteFreshnessNow] = useState(() => Date.now());
   useEffect(() => {
@@ -428,21 +442,25 @@ function OrderTicketInteractiveContent() {
     return () => clearInterval(timer);
   }, [isScreenFocused]);
   const quoteTimeMs = normalizeQuoteTickTimestampToMs(
-    (latestTick as any)?.receivedAt
-      ?? (latestTick as any)?.feedTickAt
-      ?? tickTimestamp
-      ?? seedQuote?.lastReceivedAt
-      ?? seedQuote?.feedTickAt
-      ?? seedQuote?.lastTickAt,
+    liveQuote?.lastReceivedAt
+      ?? liveQuote?.lastTickAt
+      ?? tickTimestamp,
   );
-  const quoteIsUnavailable =
-    BID <= 0 ||
-    ASK <= 0 ||
-    isMarketQuoteStale(
-      { timeMs: quoteTimeMs, stale: (latestTick as any)?.stale ?? seedQuote?.stale },
-      quoteFreshnessNow,
-    ) ||
-    ((latestTick as any)?.tradable ?? seedQuote?.tradable) === false;
+  const quoteActionAvailability = resolveSessionQuoteActionAvailability(
+    liveQuote
+      ? {
+          ...liveQuote,
+          bid: BID,
+          ask: ASK,
+          lastReceivedAt: quoteTimeMs,
+        }
+      : null,
+    quoteFreshnessNow,
+  );
+  const quoteIsUnavailable = !quoteActionAvailability.allowed;
+  const quoteUnavailableMessage = quoteActionBlockMessage(quoteActionAvailability);
+  const resolveCurrentQuoteAvailability = () =>
+    resolveSessionQuoteActionAvailability(liveQuote, Date.now());
   const isMarketExecution = orderType === 'Market Execution';
 
   const loginStr = resolveTradingLoginString();
@@ -713,7 +731,7 @@ function OrderTicketInteractiveContent() {
   const handlePlaceOrder = async (side: TradeSide) => {
     const requestedSide = assertTradeSide(side);
     if (!isMarketExecution) {
-      console.log('[TRADE-BUTTON-PRESS]', {
+      logOrderTicketDiagnostic('[TRADE-BUTTON-PRESS]', {
         symbol,
         buttonPressed: requestedSide,
         displayedLabel: requestedSide === 'buy' ? 'BUY' : 'SELL',
@@ -725,8 +743,20 @@ function OrderTicketInteractiveContent() {
       });
       return;
     }
+    const currentQuoteAvailability = resolveCurrentQuoteAvailability();
+    if (!currentQuoteAvailability.allowed) {
+      recordBlockedPriceAction('order_ticket_market_order', currentQuoteAvailability);
+      showModal({
+        visible: true,
+        type: 'error',
+        title: 'Market Data Unavailable',
+        message: quoteActionBlockMessage(currentQuoteAvailability),
+        side: requestedSide,
+      });
+      return;
+    }
     if (tradeTapLockRef.current || tradeActionLocked || pendingSide !== null) {
-      console.log('[TRADE-BUTTON-PRESS]', {
+      logOrderTicketDiagnostic('[TRADE-BUTTON-PRESS]', {
         symbol,
         buttonPressed: requestedSide,
         displayedLabel: requestedSide === 'buy' ? 'BUY' : 'SELL',
@@ -754,7 +784,7 @@ function OrderTicketInteractiveContent() {
       setPendingSide(null);
     };
 
-    console.log('[TRADE-BUTTON-PRESS]', {
+    logOrderTicketDiagnostic('[TRADE-BUTTON-PRESS]', {
       symbol,
       buttonPressed: requestedSide,
       displayedLabel: requestedSide === 'buy' ? 'BUY' : 'SELL',
@@ -780,6 +810,14 @@ function OrderTicketInteractiveContent() {
         'The app could not resolve the active trading account from local state. Select an account and try again.',
       );
       showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side: requestedSide });
+      releaseTradeTapLock();
+      return;
+    }
+    const marketActionProvenance = captureActiveBrokerSessionProvenance();
+    if (
+      !marketActionProvenance ||
+      marketActionProvenance.identity.accountLogin !== String(tradingLogin)
+    ) {
       releaseTradeTapLock();
       return;
     }
@@ -812,7 +850,7 @@ function OrderTicketInteractiveContent() {
         ...(tpEnabled && tpPrice > 0 ? { price_tp: tpPrice } : {}),
         comment: routeComment?.trim() || '',
       };
-      console.log('[TRADE-PAYLOAD]', {
+      logOrderTicketDiagnostic('[TRADE-PAYLOAD]', {
         symbol: payload.symbol,
         side: payload.side,
         action: payload.side,
@@ -825,7 +863,8 @@ function OrderTicketInteractiveContent() {
       });
 
       const data = await ordersApi.placeMarketOrder(payload);
-      console.log('[TRADE-RESPONSE]', {
+      if (!isActiveBrokerSessionProvenanceCurrent(marketActionProvenance)) return;
+      logOrderTicketDiagnostic('[TRADE-RESPONSE]', {
         requestSide: requestedSide,
         result: data?.status ?? 'success',
         backendSide: data?.side ?? null,
@@ -841,32 +880,46 @@ function OrderTicketInteractiveContent() {
         return;
       }
 
-      const positionTicket = data.position_ticket ?? data.order_ticket;
+      const executionEvidence = resolveBrokerExecutionEvidence(data);
+      const currentPriceValue = Number(data.price_current);
+      const positionTicket = executionEvidence.ticket;
+      const executionPrice = executionEvidence.executionPrice;
+      const confirmedCurrentPrice = Number.isFinite(currentPriceValue) && currentPriceValue > 0
+        ? currentPriceValue
+        : executionPrice;
 
       // Optimistic update: add the position immediately so the trading UI does
-      // not wait for the background positions refresh.
-      const state = usePositionsState.getState();
-      const newPos = {
-        id: String(positionTicket || Math.floor(Math.random() * 10000000)),
-        symbol: symbol,
-        side: requestedSide,
-        volume: volume,
-        openPrice: data.price || (requestedSide === 'buy' ? ASK : BID),
-        currentPrice: data.price || (requestedSide === 'buy' ? ASK : BID),
-        pnl: 0,
-        swap: 0,
-        openTime: new Date().toISOString(),
-        sl: slEnabled ? slPrice : 0,
-        tp: tpEnabled ? tpPrice : 0,
-        clientCreatedAt: Date.now(),
-      };
+      // not wait for the background positions refresh. A backend-confirmed
+      // ticket and execution price are mandatory; live quote values are not
+      // evidence of the broker's actual fill.
+      if (
+        executionEvidence.confirmed &&
+        positionTicket !== undefined &&
+        executionPrice !== undefined &&
+        confirmedCurrentPrice !== undefined
+      ) {
+        const state = usePositionsState.getState();
+        state.upsertPosition({
+          id: String(positionTicket),
+          symbol,
+          side: requestedSide,
+          volume,
+          openPrice: executionPrice,
+          currentPrice: confirmedCurrentPrice,
+          pnl: 0,
+          swap: 0,
+          openTime: new Date().toISOString(),
+          sl: slEnabled ? slPrice : 0,
+          tp: tpEnabled ? tpPrice : 0,
+          clientCreatedAt: Date.now(),
+        });
+      }
 
-      state.upsertPosition(newPos);
-
-      queryClient.invalidateQueries({ queryKey: ['positions'] });
-      queryClient.invalidateQueries({ queryKey: ['accountSummary'] });
-      queryClient.invalidateQueries({ queryKey: ['exposure'] });
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      void invalidateSessionQueryRoots(
+        queryClient,
+        marketActionProvenance.cacheNamespace,
+        ['positions', 'accountSummary', 'exposure', 'transactions'],
+      );
 
       // Refresh positions state from the server in the background.
       const mt5Login = resolveTradingLoginString();
@@ -874,31 +927,45 @@ function OrderTicketInteractiveContent() {
         void syncOpenedPosition(mt5Login, positionTicket);
       }
 
-      const executionPrice = Number(data.price ?? (requestedSide === 'buy' ? ASK : BID));
       const displaySymbol = symbol.replace(/\//g, '');
-      const successFeedback: TradeFeedbackState = {
-        visible: true,
-        type: 'success',
-        title: 'Order Executed',
-        message: `Successfully placed ${requestedSide.toUpperCase()} ${formatTradeVolume(volume, volumeBounds)} lot(s) on ${displaySymbol}`,
-        side: requestedSide,
-        symbol: displaySymbol,
-        volume,
-        executedAt: new Date().toLocaleTimeString(),
-      };
+      const successFeedback: TradeFeedbackState = executionEvidence.confirmed
+        ? {
+          visible: true,
+          type: 'success',
+          executionConfirmed: true,
+          title: 'Order Executed',
+          message: `Successfully placed ${requestedSide.toUpperCase()} ${formatTradeVolume(volume, volumeBounds)} lot(s) on ${displaySymbol}`,
+          side: requestedSide,
+          symbol: displaySymbol,
+          volume,
+          executedAt: new Date().toLocaleTimeString(),
+        }
+        : {
+          visible: true,
+          type: 'success',
+          executionConfirmed: false,
+          title: 'Order Submitted — Confirmation Pending',
+          message: 'The broker accepted the request but did not return both a ticket and execution price. Verify it in Positions or Orders before acting on it.',
+          side: requestedSide,
+          symbol: displaySymbol,
+          volume,
+        };
       if (positionTicket) {
         successFeedback.ticket = String(positionTicket);
       }
-      if (Number.isFinite(executionPrice)) {
+      if (executionPrice !== undefined) {
         successFeedback.price = executionPrice;
       }
       showModal(successFeedback);
     } catch (error: any) {
+      if (!isActiveBrokerSessionProvenanceCurrent(marketActionProvenance)) return;
       const feedback = classifyTradingError(error, { action: 'place-order' });
       // Extract raw server message so we can see the exact rejection reason
-      const rawMsg = (error?.response?.data?.message || error?.response?.data?.error || error?.data?.message || '');
+      const rawMsg = redactSensitiveString(
+        String(error?.response?.data?.message || error?.response?.data?.error || error?.data?.message || ''),
+      );
       const displayMsg = rawMsg ? `${feedback.message}\n\nServer: ${rawMsg}` : feedback.message;
-      console.warn('[TRADE-RESPONSE]', {
+      warnOrderTicketDiagnostic('[TRADE-RESPONSE]', {
         requestSide: requestedSide,
         result: 'error',
         backendSide: error?.response?.data?.side ?? error?.data?.side ?? null,
@@ -940,10 +1007,9 @@ function OrderTicketInteractiveContent() {
   );
 
   const resolveProtectionPriceSeed = useCallback(() => {
-    if (latestClose > 0) return latestClose;
     if (BID > 0 && ASK > 0) return (BID + ASK) / 2;
     return 0;
-  }, [ASK, BID, latestClose]);
+  }, [ASK, BID]);
 
   const adjustStopLoss = useCallback(
     (direction: -1 | 1) => {
@@ -974,6 +1040,19 @@ function OrderTicketInteractiveContent() {
   // type so the backend can create the correct pending order.
   const handlePlacePendingOrder = async () => {
     if (isMarketExecution) return;
+    const currentQuoteAvailability = resolveCurrentQuoteAvailability();
+    if (!currentQuoteAvailability.allowed) {
+      const pendingSideValue = getChartOrderSide(orderType);
+      recordBlockedPriceAction('order_ticket_pending_order', currentQuoteAvailability);
+      showModal({
+        visible: true,
+        type: 'error',
+        title: 'Market Data Unavailable',
+        message: quoteActionBlockMessage(currentQuoteAvailability),
+        side: pendingSideValue,
+      });
+      return;
+    }
     if (tradeTapLockRef.current || tradeActionLocked || pendingSide !== null) return;
 
     const pendingSideValue = getChartOrderSide(orderType);
@@ -1005,6 +1084,14 @@ function OrderTicketInteractiveContent() {
       releaseLock();
       return;
     }
+    const pendingActionProvenance = captureActiveBrokerSessionProvenance();
+    if (
+      !pendingActionProvenance ||
+      pendingActionProvenance.identity.accountLogin !== String(tradingLogin)
+    ) {
+      releaseLock();
+      return;
+    }
 
     try {
       const brokerIdForOrder = brokerId || undefined;
@@ -1022,9 +1109,10 @@ function OrderTicketInteractiveContent() {
         type: orderType.toLowerCase().replace(/\s+/g, '_'),
       };
 
-      console.log('[PENDING-ORDER-PAYLOAD]', payload);
+      logOrderTicketDiagnostic('[PENDING-ORDER-PAYLOAD]', payload);
 
       const data = await ordersApi.placePendingOrder(payload);
+      if (!isActiveBrokerSessionProvenanceCurrent(pendingActionProvenance)) return;
 
       if (['rejected', 'failed', 'error'].includes((data.status ?? '').toLowerCase())) {
         const feedback = classifyTradingError(
@@ -1035,14 +1123,35 @@ function OrderTicketInteractiveContent() {
         return;
       }
 
-      // Invalidate order queries so the chart overlay can pick up the new order.
-      queryClient.invalidateQueries({ queryKey: ['ordersByLogin'] });
-      queryClient.invalidateQueries({ queryKey: ['accountOrders'] });
+      const pendingOrderEvidence = resolveBrokerExecutionEvidence(data);
 
-      showTradeConfirmation({ side: pendingSideValue, symbol, volume });
+      // Invalidate order queries so the chart overlay can pick up the new order.
+      void invalidateSessionQueryRoots(
+        queryClient,
+        pendingActionProvenance.cacheNamespace,
+        ['ordersByLogin', 'accountOrders'],
+      );
+
+      if (pendingOrderEvidence.ticket !== undefined) {
+        showTradeConfirmation({ side: pendingSideValue, symbol, volume });
+      } else {
+        showModal({
+          visible: true,
+          type: 'success',
+          executionConfirmed: false,
+          title: 'Pending Order Submitted — Confirmation Pending',
+          message: 'The broker accepted the request without returning an order ticket. Verify it in Orders before acting on it.',
+          side: pendingSideValue,
+          symbol: symbol.replace(/\//g, ''),
+          volume,
+        });
+      }
     } catch (error: any) {
+      if (!isActiveBrokerSessionProvenanceCurrent(pendingActionProvenance)) return;
       const feedback = classifyTradingError(error, { action: 'place-order' });
-      const rawMsg = error?.response?.data?.message || error?.response?.data?.error || error?.data?.message || '';
+      const rawMsg = redactSensitiveString(
+        String(error?.response?.data?.message || error?.response?.data?.error || error?.data?.message || ''),
+      );
       const displayMsg = rawMsg ? `${feedback.message}\n\nServer: ${rawMsg}` : feedback.message;
       showModal({ visible: true, type: 'error', title: feedback.title, message: displayMsg, side: pendingSideValue });
     } finally {
@@ -1287,6 +1396,13 @@ function OrderTicketInteractiveContent() {
         <InfoRow label={t('Acc. Leverage')} value={leverageDisplay} styles={styles} />
         <View style={styles.hairline} />
 
+        {quoteIsUnavailable ? (
+          <View style={styles.marketDataGuard} accessibilityRole="alert">
+            <Ionicons name="warning-outline" size={18} color={T.trading.sell.primary} />
+            <Text style={styles.marketDataGuardText}>{quoteUnavailableMessage}</Text>
+          </View>
+        ) : null}
+
         {/* Execution buttons: market orders submit immediately; pending orders show trigger controls first. */}
         {isMarketExecution ? (
           <View style={styles.execRow}>
@@ -1426,7 +1542,7 @@ function OrderTicketInteractiveContent() {
                   {confirmation.volumeLabel}
                 </Text>
                 <Text style={styles.tradeConfirmationDone} numberOfLines={1}>
-                  done
+                  placed
                 </Text>
               </View>
             );
@@ -1588,6 +1704,20 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     disclaimer: { alignItems: 'center', marginTop: 12, paddingHorizontal: 16 },
     disclaimerTxt: { color: T.textMuted, fontSize: 12, lineHeight: 16, textAlign: 'center' },
     disclaimerIcons: { flexDirection: 'row', gap: 10 },
+    marketDataGuard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      marginHorizontal: 12,
+      marginTop: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255,59,48,0.45)' : 'rgba(220,38,38,0.35)',
+      backgroundColor: isDark ? 'rgba(255,59,48,0.08)' : 'rgba(220,38,38,0.06)',
+    },
+    marketDataGuardText: { flex: 1, color: SUB, fontSize: 12, lineHeight: 17 },
 
     execRow: { flexDirection: 'row', direction: 'ltr', paddingHorizontal: 12, paddingVertical: 6, gap: 8 },
     execBtn: { flex: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingVertical: 14, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 6 },

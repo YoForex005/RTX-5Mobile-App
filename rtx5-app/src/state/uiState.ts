@@ -29,6 +29,8 @@ type ActionSheetAction = {
   disabled?: boolean;
   /** If true, fires on press-in for tiny non-scroll action groups */
   activateOnPressIn?: boolean;
+  /** Let a retained destination paint before React reconciles the hidden sheet. */
+  deferCloseCommitForVisualHandoff?: boolean;
   /** Callback fired when the user taps this action */
   onPress?: () => void;
   /** Optional leading icon element */
@@ -47,6 +49,10 @@ export type ActionSheetConfig = {
   presentation?: 'default' | 'mt5Plain' | 'mt5TimeframeGrid';
   /** Keep leading action icons visible even in plain presentations */
   showActionIcons?: boolean;
+  /** For long sheets, mount only the opening viewport and render more rows while scrolling. */
+  deferOffscreenActions?: boolean;
+  /** Optional cap for how many fixed-height action rows are visible at once. */
+  maximumVisibleActionRows?: number;
   /** List of buttons to render */
   actions: ActionSheetAction[];
   /** Enable search filtering in the sheet */
@@ -70,10 +76,9 @@ export type ActionSheetConfig = {
   /** Android keyboard avoidance mode for searchable sheets */
   androidKeyboardAvoidance?: 'event' | 'resize';
   /**
-   * Opt-in (symbol picker only): keep the sheet fixed when the search keyboard
-   * opens instead of resizing/rising to clear it. The search box + top results
-   * stay put and the keyboard simply overlays the lower part of the list. Other
-   * sheets must NOT set this so their existing behavior is unchanged.
+   * Opt-in for fixed-height searchable lists such as Symbol Picker and Drawing
+   * Tools. The search box and top results stay put while the keyboard overlays
+   * the lower part of the list. Other sheets keep their existing avoidance.
    */
   keepFullHeightOnKeyboard?: boolean;
 };

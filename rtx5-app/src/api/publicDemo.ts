@@ -1,51 +1,45 @@
 import { timedFetch } from '../utils/apiLatency';
 import {
   type BrokerServiceDiscovery,
-  resolveBrokerServiceBaseUrl,
+  resolveBrokerEndpointSet,
+  type ValidatedBrokerEndpointSet,
 } from './brokerRouting';
 
-const DEFAULT_API_BASE_URL = 'https://backend.orrnn.com/api/v2';
-const DEFAULT_PUBLIC_DEMO_API_BASE_URL = 'https://backend.orrnn.com/api/v1';
-const CONFIGURED_API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL;
 const DEMO_SETUP_TEMPORARILY_UNAVAILABLE_MESSAGE =
   'Demo account service is temporarily unavailable. Please try again in a moment.';
 
-function configuredPositiveNumber(value: string | undefined, fallback: number): number {
+function configuredPositiveNumber(value: string | undefined): number {
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
-export const ORRNN_DEMO_BROKER_ID = process.env.EXPO_PUBLIC_ORRNN_DEMO_BROKER_ID || 'orrnn';
+export const ORRNN_DEMO_BROKER_ID = process.env.EXPO_PUBLIC_ORRNN_DEMO_BROKER_ID || '';
 export const ORRNN_DEMO_INITIAL_BALANCE = configuredPositiveNumber(
   process.env.EXPO_PUBLIC_ORRNN_DEMO_INITIAL_BALANCE,
-  10000,
 );
 export const ORRNN_DEMO_ORIGIN_BROKER =
   process.env.EXPO_PUBLIC_ORRNN_DEMO_ORIGIN_BROKER ||
   process.env.EXPO_PUBLIC_ORIGIN_BROKER ||
-  'orrnn';
+  '';
 export const ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME =
   process.env.EXPO_PUBLIC_ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME ||
-  'Orrnn Global Demo broker';
+  'Configured demo broker';
 export const ORRNN_DEMO_ORIGIN_BROKER_LABEL =
   process.env.EXPO_PUBLIC_ORRNN_DEMO_ORIGIN_BROKER_LABEL ||
-  'Default demo broker';
+  'Demo broker';
 export const TEST_ORRNN_DEMO_ORIGIN_BROKER =
   process.env.EXPO_PUBLIC_TEST_BROKER_ID ||
-  'testorrnn';
+  '';
 export const TEST_ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME =
   process.env.EXPO_PUBLIC_TEST_BROKER_NAME ||
-  'Test Orrnn broker';
+  'Configured test broker';
 export const TEST_ORRNN_DEMO_ORIGIN_BROKER_LABEL =
   process.env.EXPO_PUBLIC_TEST_BROKER_LABEL ||
-  'Test demo broker';
+  'Test broker';
 export const PUBLIC_API_V1_BASE_URL =
-  process.env.EXPO_PUBLIC_API_V1_BASE_URL ||
-  CONFIGURED_API_BASE_URL.replace(/\/api\/v\d+\/?$/, '/api/v1');
+  process.env.EXPO_PUBLIC_API_V1_BASE_URL || '';
 export const PUBLIC_DEMO_API_BASE_URL =
-  process.env.EXPO_PUBLIC_DEMO_API_BASE_URL ||
-  process.env.EXPO_PUBLIC_API_V1_BASE_URL ||
-  DEFAULT_PUBLIC_DEMO_API_BASE_URL;
+  process.env.EXPO_PUBLIC_DEMO_API_BASE_URL || '';
 
 export interface OrrnnDemoStatusResponse {
   service: string;
@@ -85,6 +79,9 @@ export function isOrrnnDemoHealthy(status: OrrnnDemoStatusResponse | null | unde
 }
 
 export async function getOrrnnDemoStatus(): Promise<OrrnnDemoStatusResponse> {
+  if (!PUBLIC_DEMO_API_BASE_URL) {
+    throw new OrrnnDemoApiError(0, DEMO_SETUP_TEMPORARILY_UNAVAILABLE_MESSAGE);
+  }
   let response: Response;
 
   try {
@@ -170,6 +167,7 @@ export type OrrnnDemoBrokerAuthRoute = {
   brokerId: string;
   serverUrl: string;
   logoUrl: string;
+  endpoints: ValidatedBrokerEndpointSet | null;
   source: 'broker-directory' | 'missing';
 };
 
@@ -191,17 +189,20 @@ export function resolveOrrnnDemoBrokerAuthRoute(
       brokerId: routeBrokerId,
       serverUrl: '',
       logoUrl: '',
+      endpoints: null,
       source: 'missing',
     };
   }
 
-  const directServerUrl = resolveBrokerServiceBaseUrl(broker);
+  const resolution = resolveBrokerEndpointSet(broker);
+  const endpoints = resolution.ok ? resolution.endpoints : null;
 
   return {
     brokerId: routeBrokerId,
-    serverUrl: directServerUrl,
+    serverUrl: endpoints?.apiBase ?? '',
     logoUrl: broker.logo_url?.trim() ?? '',
-    source: directServerUrl
+    endpoints,
+    source: endpoints
       ? 'broker-directory'
       : 'missing',
   };
@@ -213,6 +214,9 @@ export function resolveOrrnnDemoBrokerAuthRoute(
  * parameter when creating a new demo account via POST /api/v1/public/demo-account.
  */
 export async function getOrrnnDemoGroups(): Promise<OrrnnDemoGroupsResponse> {
+  if (!PUBLIC_DEMO_API_BASE_URL) {
+    throw new OrrnnDemoApiError(0, DEMO_SETUP_TEMPORARILY_UNAVAILABLE_MESSAGE);
+  }
   let response: Response;
 
   try {
@@ -289,6 +293,9 @@ async function getDemoAccountErrorMessage(response: Response): Promise<string> {
 export async function createOrrnnDemoAccount(
   data: CreateOrrnnDemoAccountRequest,
 ): Promise<OrrnnDemoAccountResponse> {
+  if (!PUBLIC_DEMO_API_BASE_URL) {
+    throw new OrrnnDemoApiError(0, DEMO_SETUP_TEMPORARILY_UNAVAILABLE_MESSAGE);
+  }
   let response: Response;
 
   try {

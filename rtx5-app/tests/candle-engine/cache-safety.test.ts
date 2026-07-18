@@ -13,6 +13,11 @@ import { CandleMemoryCache } from '../../src/domain/candles/stream/candleMemoryC
 import { sanitizeCandlesForChart } from '../../src/domain/candles/normalization/chartAdapter';
 import { useTradingState } from '../../src/state/tradingState';
 import {
+  __resetActiveBrokerSessionForTests,
+  activateBrokerSession,
+  beginActiveBrokerSessionTransition,
+} from '../../src/state/activeBrokerSession';
+import {
   buildContiguousHistory,
   makeCandle,
   makeBackendLiveCandle,
@@ -27,8 +32,28 @@ const resetCandleCache = () => {
   }));
 };
 
-beforeEach(resetCandleCache);
-afterEach(resetCandleCache);
+beforeEach(() => {
+  __resetActiveBrokerSessionForTests();
+  activateBrokerSession(beginActiveBrokerSessionTransition(), {
+    brokerId: 'broker-a',
+    accountLogin: '10001',
+    apiBase: 'https://services.broker-a.example/api/v2',
+    feedWsBase: 'wss://services.broker-a.example/ws/feed',
+    feedStatusUrl: 'https://services.broker-a.example/ws/feed/status',
+    servicesDomain: 'services.broker-a.example',
+    feedAuthContext: { mode: 'none' },
+    configVersion: 'cfg-1',
+  }, {
+    accessToken: 'access-a',
+    refreshToken: '',
+    expiresAt: '2099-01-01T00:00:00.000Z',
+  });
+  resetCandleCache();
+});
+afterEach(() => {
+  resetCandleCache();
+  __resetActiveBrokerSessionForTests();
+});
 
 test('old closed trusted cache can seed the chart when shape and recency are safe', () => {
   const now = secondsUtc(2024, 3, 22, 12, 10, 30);

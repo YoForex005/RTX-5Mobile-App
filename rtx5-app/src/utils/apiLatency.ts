@@ -4,9 +4,11 @@ export type ApiLatencySource =
   | 'publicDemo'
   | 'register'
   | 'broker'
+  | 'brokerDirectory'
   | 'trade'
   | 'candles'
   | 'positions'
+  | 'marketHealth'
   | 'unknown';
 
 export type ApiLatencySample = {
@@ -50,17 +52,6 @@ export const API_FETCH_TIMEOUT_MS = Math.max(
 );
 const API_LATENCY_LOG_OK_RESPONSES =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_API_LATENCY === 'true';
-const SENSITIVE_QUERY_KEYS = new Set([
-  'access_token',
-  'api_key',
-  'authorization',
-  'key',
-  'pass',
-  'password',
-  'refresh_token',
-  'token',
-]);
-
 let samples: ApiLatencySample[] = [];
 
 export const getApiLatencyNow = () =>
@@ -77,8 +68,7 @@ const shouldLogApiLatency = (severity: 'ok' | 'warn' | 'slow') =>
 
 function normalizeError(error: unknown): string | undefined {
   if (!error) return undefined;
-  if (error instanceof Error) return error.message;
-  return String(error);
+  return redactSensitiveString(error instanceof Error ? error.message : String(error));
 }
 
 export function sanitizeApiLatencyEndpoint(endpoint: string | undefined): string {
@@ -86,22 +76,9 @@ export function sanitizeApiLatencyEndpoint(endpoint: string | undefined): string
 
   try {
     const parsed = new URL(endpoint);
-    for (const key of Array.from(parsed.searchParams.keys())) {
-      if (SENSITIVE_QUERY_KEYS.has(key.toLowerCase())) {
-        parsed.searchParams.set(key, '[redacted]');
-      }
-    }
-    return `${parsed.pathname}${parsed.search}`;
+    return redactSensitiveString(`${parsed.pathname}${parsed.search}`);
   } catch (_error) {
-    const [path, query = ''] = endpoint.split('?');
-    if (!query) return path || endpoint;
-    const params = new URLSearchParams(query);
-    for (const key of Array.from(params.keys())) {
-      if (SENSITIVE_QUERY_KEYS.has(key.toLowerCase())) {
-        params.set(key, '[redacted]');
-      }
-    }
-    return `${path}?${params.toString()}`;
+    return redactSensitiveString(endpoint);
   }
 }
 
@@ -244,3 +221,4 @@ export async function timedFetch(
     timedRequest.cleanup();
   }
 }
+import { redactSensitiveString } from './securityRedaction';

@@ -8,7 +8,7 @@ import { buildRestQuoteTickEvent } from './restQuoteTick';
 const readSource = (relativePath: string) =>
   readFileSync(resolve(process.cwd(), relativePath), 'utf8');
 
-test('buildRestQuoteTickEvent normalizes a REST quote snapshot for live chart use', () => {
+test('buildRestQuoteTickEvent marks a REST quote as display-only', () => {
   const receivedAt = 1_764_059_100_000;
   const tick = buildRestQuoteTickEvent(
     'BTCUSD',
@@ -31,6 +31,8 @@ test('buildRestQuoteTickEvent normalizes a REST quote snapshot for live chart us
   assert.equal(tick.volume, 4407);
   assert.equal(tick.receivedAt, receivedAt);
   assert.equal(tick.feedTickAt, Date.parse('2026-05-25T10:40:00.000Z'));
+  assert.equal(tick.transport, 'rest_snapshot');
+  assert.equal(tick.tradable, false);
 });
 
 test('buildRestQuoteTickEvent rejects snapshots without a usable bid/ask pair', () => {
@@ -40,11 +42,14 @@ test('buildRestQuoteTickEvent rejects snapshots without a usable bid/ask pair', 
   );
 });
 
-test('live symbol REST fallback skips polling while a fresh websocket quote is already in state', () => {
+test('live symbol REST repair is one-shot and skips a fresh websocket quote', () => {
   const source = readSource('src/query/websocket.ts');
 
   assert.match(
     source,
     /const liveQuote = useTradingState\.getState\(\)\.quotes\[entry\.symbol\];[\s\S]*if \(isFreshLiveQuote\(liveQuote\)\) \{\s*return;\s*\}/,
   );
+  assert.match(source, /if \(!entry\.attempted\) \{\s*entry\.attempted = true;\s*void fetchRestQuoteSnapshotForEntry\(entry\);\s*\}/);
+  assert.doesNotMatch(source, /setInterval\s*\(/);
+  assert.doesNotMatch(source, /quotes as mockQuotes/);
 });

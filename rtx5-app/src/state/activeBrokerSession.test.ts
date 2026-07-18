@@ -1,0 +1,203 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import {
+  __resetActiveBrokerSessionForTests,
+  activateBrokerSession,
+  beginActiveBrokerSessionTransition,
+  captureActiveBrokerSession,
+  captureActiveBrokerSessionProvenance,
+  getActiveBrokerSessionIdentity,
+  isActiveBrokerSessionCurrent,
+  isActiveBrokerSessionProvenanceCurrent,
+  subscribeActiveBrokerSession,
+  updateActiveBrokerSessionCredentials,
+} from './activeBrokerSession';
+
+const sessionInput = (brokerId = 'broker-a') => ({
+  brokerId,
+  accountLogin: '10001',
+  apiBase: `https://services.${brokerId}.com/api/v2`,
+  feedWsBase: `wss://services.${brokerId}.com/ws/feed`,
+  tradeWsBase: `wss://services.${brokerId}.com/ws/v2`,
+  feedStatusUrl: `https://services.${brokerId}.com/ws/feed/status`,
+  servicesDomain: `services.${brokerId}.com`,
+  feedAuthContext: {
+    mode: 'query' as const,
+    credential: 'feed_token' as const,
+    tokenQueryParam: 'token',
+    brokerIdQueryParam: 'broker_id',
+  },
+  configVersion: 'cfg-1',
+});
+
+const credentials = (accessToken = 'access-a') => ({
+  accessToken,
+  refreshToken: 'refresh-a',
+  expiresAt: '2099-01-01T00:00:00.000Z',
+  feedToken: 'feed-a',
+});
+
+test.beforeEach(() => __resetActiveBrokerSessionForTests());
+
+test('transition invalidates the old session before a new commit', () => {
+  const first = beginActiveBrokerSessionTransition();
+  const capture = activateBrokerSession(first, sessionInput(), credentials());
+  const identity = getActiveBrokerSessionIdentity(capture.session);
+
+  const second = beginActiveBrokerSessionTransition();
+  assert.equal(second.sessionEpoch, first.sessionEpoch + 1);
+  assert.equal(captureActiveBrokerSession(), null);
+  assert.equal(isActiveBrokerSessionCurrent(identity), false);
+});
+
+test('activation commits one immutable identity, endpoint set, and cache namespace', () => {
+  const transition = beginActiveBrokerSessionTransition();
+  const capture = activateBrokerSession(transition, sessionInput('BROKER-A'), credentials());
+
+  assert.equal(Object.isFrozen(capture), true);
+  assert.equal(Object.isFrozen(capture.session), true);
+  assert.equal(Object.isFrozen(capture.credentials), true);
+  assert.equal(capture.session.brokerId, 'broker-a');
+  assert.match(capture.session.cacheNamespace, /^broker-a:10001:[a-z0-9-]+:1$/i);
+  assert.equal(capture.session.sessionEpoch, 1);
+  assert.equal(capture.session.servicesDomain, 'services.broker-a.com');
+  const provenance = captureActiveBrokerSessionProvenance();
+  assert.equal(provenance?.cacheNamespace, capture.session.cacheNamespace);
+  assert.equal(provenance ? isActiveBrokerSessionProvenanceCurrent(provenance) : false, true);
+  beginActiveBrokerSessionTransition();
+  assert.equal(provenance ? isActiveBrokerSessionProvenanceCurrent(provenance) : true, false);
+});
+
+test('cache namespaces remain unique when a cold-start epoch counter repeats', () => {
+  const first = activateBrokerSession(
+    beginActiveBrokerSessionTransition(),
+    sessionInput(),
+    credentials(),
+  );
+  const firstNamespace = first.session.cacheNamespace;
+
+  // A cold process starts its epoch counter from zero. The cache nonce must
+  // still prevent a new authenticated activation from reopening old disk keys.
+  __resetActiveBrokerSessionForTests();
+  const afterRestart = activateBrokerSession(
+    beginActiveBrokerSessionTransition(),
+    sessionInput(),
+    credentials(),
+  );
+
+  assert.equal(first.session.sessionEpoch, afterRestart.session.sessionEpoch);
+  assert.notEqual(firstNamespace, afterRestart.session.cacheNamespace);
+});
+
+test('stale or already-committed transitions cannot activate', () => {
+  const stale = beginActiveBrokerSessionTransition();
+  const current = beginActiveBrokerSessionTransition();
+
+  assert.throws(
+    () => activateBrokerSession(stale, sessionInput(), credentials()),
+    /stale or already committed/,
+  );
+  activateBrokerSession(current, sessionInput(), credentials());
+  assert.throws(
+    () => activateBrokerSession(current, sessionInput(), credentials()),
+    /stale or already committed/,
+  );
+});
+
+test('credential refresh can update only the matching active identity', () => {
+  const capture = activateBrokerSession(
+    beginActiveBrokerSessionTransition(),
+    sessionInput(),
+    credentials(),
+  );
+  const identity = getActiveBrokerSessionIdentity(capture.session);
+
+  assert.equal(updateActiveBrokerSessionCredentials(identity, credentials('access-new')), true);
+  assert.equal(captureActiveBrokerSession()?.credentials.accessToken, 'access-new');
+
+  beginActiveBrokerSessionTransition();
+  assert.equal(updateActiveBrokerSessionCredentials(identity, credentials('stale-write')), false);
+  assert.equal(captureActiveBrokerSession(), null);
+});
+
+test('subscribers observe invalidation before activation', () => {
+  const events: string[] = [];
+  const unsubscribe = subscribeActiveBrokerSession((event) => events.push(event.type));
+
+  const transition = beginActiveBrokerSessionTransition();
+  activateBrokerSession(transition, sessionInput(), credentials());
+  unsubscribe();
+
+  assert.deepEqual(events, ['transition', 'activated']);
+});
+
+test('invalid transport endpoints and feed-auth metadata fail closed', () => {
+  const insecure = beginActiveBrokerSessionTransition();
+  assert.throws(
+    () => activateBrokerSession(
+      insecure,
+      { ...sessionInput(), feedWsBase: 'ws://services.broker-a.com/ws/feed' },
+      credentials(),
+    ),
+    /invalid WSS feed endpoint/,
+  );
+
+  const badParam = beginActiveBrokerSessionTransition();
+  assert.throws(
+    () => activateBrokerSession(
+      badParam,
+      {
+        ...sessionInput(),
+        feedAuthContext: {
+          mode: 'query',
+          credential: 'feed_token',
+          tokenQueryParam: 'token&broker_id',
+        },
+      },
+      credentials(),
+    ),
+    /invalid token query parameter/,
+  );
+});
+
+test('activation rejects missing versions and endpoint hosts outside approved services domain', () => {
+  const missingVersion = beginActiveBrokerSessionTransition();
+  assert.throws(
+    () => activateBrokerSession(
+      missingVersion,
+      { ...sessionInput(), configVersion: '' },
+      credentials(),
+    ),
+    /versioned endpoint provenance/,
+  );
+
+  const mismatchedHost = beginActiveBrokerSessionTransition();
+  assert.throws(
+    () => activateBrokerSession(
+      mismatchedHost,
+      { ...sessionInput(), feedWsBase: 'wss://feed.attacker.example/ws/feed' },
+      credentials(),
+    ),
+    /endpoint host does not match services_domain/,
+  );
+});
+
+test('unconfigured feed auth is explicit and never mistaken for an anonymous feed', () => {
+  const capture = activateBrokerSession(
+    beginActiveBrokerSessionTransition(),
+    {
+      ...sessionInput(),
+      feedAuthContext: {
+        mode: 'disabled_unconfigured',
+        reason: 'missing_contract',
+      },
+    },
+    credentials(),
+  );
+
+  assert.deepEqual(capture.session.feedAuthContext, {
+    mode: 'disabled_unconfigured',
+    reason: 'missing_contract',
+  });
+});

@@ -41,14 +41,14 @@ test('quote subscriptions preserve broker feed symbols before counting and sendi
   assert.deepEqual(active, ['BTCUSDm', 'GBPUSD', 'XAUUSDm']);
 });
 
-test('quote transport expansion subscribes normalized base symbols for broker aliases', () => {
-  assert.deepEqual(resolveQuoteTransportSymbols('GBPUSD.c'), ['GBPUSD.c', 'GBPUSD']);
-  assert.deepEqual(resolveQuoteTransportSymbols('XAUUSDm'), ['XAUUSDm', 'XAUUSD']);
+test('quote transport expansion never subscribes guessed base symbols for broker variants', () => {
+  assert.deepEqual(resolveQuoteTransportSymbols('GBPUSD.c'), ['GBPUSD.c']);
+  assert.deepEqual(resolveQuoteTransportSymbols('XAUUSDm'), ['XAUUSDm']);
   assert.deepEqual(resolveQuoteTransportSymbols('AUDCAD'), ['AUDCAD']);
-  assert.deepEqual(resolveQuoteTransportSymbols('EURUSD.X1782'), ['EURUSD.X1782', 'EURUSD']);
+  assert.deepEqual(resolveQuoteTransportSymbols('EURUSD.X1782'), ['EURUSD.X1782']);
   assert.deepEqual(
     expandQuoteTransportSymbols(['GBPUSD.c', 'GBPUSD', 'XAUUSDm']),
-    ['GBPUSD.c', 'GBPUSD', 'XAUUSDm', 'XAUUSD'],
+    ['GBPUSD.c', 'GBPUSD', 'XAUUSDm'],
   );
 });
 
