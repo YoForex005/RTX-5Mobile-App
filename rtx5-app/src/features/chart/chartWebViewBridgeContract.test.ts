@@ -238,7 +238,7 @@ test('webview bridge: OHLC header follows the latest live candle', () => {
   );
   assertSourceContains(
     source,
-    /label: 'O', value: formatChartValue\(chartMetaLastCandle\.open\)[\s\S]*label: 'H', value: formatChartValue\(chartMetaLastCandle\.high\)[\s\S]*label: 'L', value: formatChartValue\(chartMetaLastCandle\.low\)[\s\S]*label: 'C', value: formatChartValue\(chartMetaLastCandle\.close\)/,
+    /label: 'O', value: formatChartValue\(chartMetaLastCandle\?\.open\)[\s\S]*label: 'H', value: formatChartValue\(chartMetaLastCandle\?\.high\)[\s\S]*label: 'L', value: formatChartValue\(chartMetaLastCandle\?\.low\)[\s\S]*label: 'C', value: formatChartValue\(chartMetaLastCandle\?\.close\)/,
     'O/H/L/C values must stay connected to the selected latest candle fields',
   );
   assert.doesNotMatch(

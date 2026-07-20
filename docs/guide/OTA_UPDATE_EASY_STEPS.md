@@ -215,7 +215,7 @@ Before this works, add this GitHub repository secret:
 EXPO_TOKEN
 ```
 
-Create the token from the Expo account that owns `@chinese-hedger/rtx5-app`, then add it in GitHub:
+Create the token from the Expo account that owns `@yoforex/rtx5-app`, then add it in GitHub:
 
 ```text
 GitHub repository -> Settings -> Secrets and variables -> Actions -> New repository secret

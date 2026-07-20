@@ -345,22 +345,22 @@ test('chart header: OHLC values use theme-aware neutral color plus fixed high lo
   );
   assertSourceContains(
     nativeSource,
-    /\{ label: 'O', value: formatChartValue\(chartMetaLastCandle\.open\), color: chartMetaNeutralColor \}/,
+    /\{ label: 'O', value: formatChartValue\(chartMetaLastCandle\?\.open\), color: chartMetaNeutralColor \}/,
     'O value must use the theme-aware neutral color',
   );
   assertSourceContains(
     nativeSource,
-    /\{ label: 'H', value: formatChartValue\(chartMetaLastCandle\.high\), color: CHART_OHLC_HIGH_COLOR \}/,
+    /\{ label: 'H', value: formatChartValue\(chartMetaLastCandle\?\.high\), color: CHART_OHLC_HIGH_COLOR \}/,
     'H value must stay green regardless of candle direction',
   );
   assertSourceContains(
     nativeSource,
-    /\{ label: 'L', value: formatChartValue\(chartMetaLastCandle\.low\), color: CHART_OHLC_LOW_COLOR \}/,
+    /\{ label: 'L', value: formatChartValue\(chartMetaLastCandle\?\.low\), color: CHART_OHLC_LOW_COLOR \}/,
     'L value must stay red regardless of candle direction',
   );
   assertSourceContains(
     nativeSource,
-    /\{ label: 'C', value: formatChartValue\(chartMetaLastCandle\.close\), color: chartMetaNeutralColor \}/,
+    /\{ label: 'C', value: formatChartValue\(chartMetaLastCandle\?\.close\), color: chartMetaNeutralColor \}/,
     'C value must use the theme-aware neutral color',
   );
   assertSourceContains(

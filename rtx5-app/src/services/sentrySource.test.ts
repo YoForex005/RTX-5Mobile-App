@@ -9,7 +9,6 @@ test('Sentry keeps native crash reporting without syncing JS breadcrumbs to nati
   assert.match(sentrySource, /Sentry\.init\(\{/);
   assert.match(sentrySource, /enabled:\s*isSentryEnabled/);
   assert.match(sentrySource, /enableLogs:\s*false/);
-  assert.match(sentrySource, /enableAutoConsoleLogs:\s*false/);
   assert.match(sentrySource, /maxBreadcrumbs:\s*0/);
   assert.match(sentrySource, /beforeSend:\s*\(event\) => redactDiagnosticValue\(event\)/);
   assert.match(sentrySource, /Sentry\.captureException\(createRedactedError\(error\)\)/);

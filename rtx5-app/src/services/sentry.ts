@@ -25,7 +25,6 @@ Sentry.init({
   dsn: sentryDsn || undefined,
   enabled: isSentryEnabled,
   enableLogs: false,
-  enableAutoConsoleLogs: false,
   maxBreadcrumbs: 0,
   sendDefaultPii: false,
   beforeSend: (event) => redactDiagnosticValue(event) as typeof event,

@@ -685,9 +685,11 @@ test('global action sheet actions avoid selecting rows while scrolling', () => {
   assert.match(source, /const hasIncomingConfig =[\s\S]*actions\.length > 0/);
   assert.match(source, /data=\{filteredActions\}/);
   assert.match(source, /initialNumToRender=\{initialActionRowsToRender\}/);
-  assert.match(source, /maxToRenderPerBatch=\{Math\.max\(4, Math\.min\(8, initialActionRowsToRender\)\)\}/);
-  assert.match(source, /windowSize=\{activeDeferOffscreenActions \? 1 : 3\}/);
-  assert.match(source, /removeClippedSubviews=\{[\s\S]*Platform\.OS === 'android'[\s\S]*!\(activeDeferOffscreenActions && hasVariableActionRowHeights\)/);
+  assert.match(source, /const actionListWindowSize = activeDeferOffscreenActions \? 7 : 3/);
+  assert.match(source, /const actionListMaxToRenderPerBatch = activeDeferOffscreenActions[\s\S]*Math\.max\(12, initialActionRowsToRender\)[\s\S]*Math\.max\(4, Math\.min\(8, initialActionRowsToRender\)\)/);
+  assert.match(source, /maxToRenderPerBatch=\{actionListMaxToRenderPerBatch\}/);
+  assert.match(source, /windowSize=\{actionListWindowSize\}/);
+  assert.match(source, /removeClippedSubviews=\{[\s\S]*Platform\.OS === 'android'[\s\S]*&& !activeDeferOffscreenActions[\s\S]*&& !hasVariableActionRowHeights/);
   assert.match(source, /activateOnPressIn/);
   assert.match(source, /pointerEvents="box-none"/);
   assert.doesNotMatch(source, /traceUiInteraction/);
@@ -1399,7 +1401,7 @@ test('fast action surfaces keep light and dark theme styling wired', () => {
   assert.match(tabsSource, /const themeMode = useThemeMode\(\)/);
   assert.doesNotMatch(tabsSource, /useDeferredThemeMode\(\)/);
   assert.match(actionSheetStyles, /makeActionSheetStyles\(T: ThemeColors, isDark: boolean\)/);
-  assert.match(actionSheetStyles, /backgroundColor: isDark \? 'rgba\(0,0,0,0\.72\)' : 'rgba\(0,0,0,0\.3\)'/);
+  assert.match(actionSheetStyles, /backgroundColor: isDark \? 'rgba\(0,0,0,0\.28\)' : 'rgba\(0,0,0,0\.12\)'/);
   assert.match(settingsStyles, /makeSettingsStyles = \(T: ThemeColors, themeMode: 'light' \| 'dark'\)/);
   assert.match(settingsStyles, /const SETTINGS_DARK_BACKGROUND = '#121212'/);
   assert.match(settingsStyles, /const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E'/);

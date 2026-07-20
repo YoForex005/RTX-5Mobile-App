@@ -11,6 +11,7 @@ if (!allowed.has(environment)) {
 }
 
 const requiredNames = [
+  'EXPO_PUBLIC_APP_ENV',
   'EXPO_PUBLIC_API_BASE_URL',
   'EXPO_PUBLIC_BROKER_DIRECTORY_BASE_URL',
   'EXPO_PUBLIC_DEMO_API_BASE_URL',

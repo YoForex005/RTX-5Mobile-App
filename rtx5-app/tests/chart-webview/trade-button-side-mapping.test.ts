@@ -241,20 +241,24 @@ test('compact footer lot slot paints the full center area in dark theme', () => 
   );
 });
 
-test('compact footer buy and sell prices stay right aligned independently from labels', () => {
+test('compact footer buy and sell prices stay centered independently from labels', () => {
   const buttonSource = readSource('src/features/chart/components/ChartTradeButtonsFeature.tsx');
   const stylesSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/styles.ts');
 
-  assert.doesNotMatch(buttonSource, /TRADE_BUTTON_PRICE_FLASH|ChartTradeButtonPriceFlash|Animated\.View/);
-  assert.match(buttonSource, /const TRADE_BUTTON_PRICE_REPAINT_MS = 160/);
+  assert.doesNotMatch(buttonSource, /ChartTradeButtonPriceFlash|Animated\.View/);
+  assert.match(buttonSource, /const TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS = 16/);
   assert.match(buttonSource, /const TRADE_BUTTON_PRICE_TEXT_COLOR = '#FFFFFF'/);
-  assert.match(buttonSource, /const TRADE_BUTTON_VALUE_GLOW_RADIUS = 8/);
+  assert.match(buttonSource, /const TRADE_BUTTON_PRICE_UP_FLASH = '#BBF7D0'/);
+  assert.match(buttonSource, /const TRADE_BUTTON_PRICE_DOWN_FLASH = '#FECACA'/);
+  assert.match(buttonSource, /const TRADE_BUTTON_PRICE_FLASH_MS = 220/);
   assert.match(buttonSource, /const ChartTradeButtonPriceText = React\.memo/);
   assert.match(buttonSource, /previousTextRef\.current = text/);
+  assert.match(buttonSource, /setFlashColor\(next > prev \? TRADE_BUTTON_PRICE_UP_FLASH : TRADE_BUTTON_PRICE_DOWN_FLASH\)/);
   assert.match(buttonSource, /Animated\.timing\(flashProgress/);
+  assert.match(buttonSource, /duration: TRADE_BUTTON_PRICE_FLASH_MS/);
   assert.match(buttonSource, /useNativeDriver: false/);
-  assert.match(buttonSource, /flashProgress\.interpolate/);
-  assert.match(buttonSource, /textShadowRadius: flashShadowRadius/);
+  assert.match(buttonSource, /const animatedColor = flashProgress\.interpolate/);
+  assert.match(buttonSource, /outputRange: \[TRADE_BUTTON_PRICE_TEXT_COLOR, flashColor\]/);
   assert.match(buttonSource, /opacity: 1/);
   assert.match(
     stylesSource,
@@ -266,11 +270,11 @@ test('compact footer buy and sell prices stay right aligned independently from l
   );
   assert.match(
     stylesSource,
-    /actionBtnPriceText:\s*\{[\s\S]*width:\s*'100%'[\s\S]*textAlign:\s*'right'[\s\S]*paddingRight:\s*6[\s\S]*includeFontPadding:\s*false/,
+    /actionBtnPriceText:\s*\{[\s\S]*width:\s*'100%'[\s\S]*textAlign:\s*'center'[\s\S]*paddingHorizontal:\s*4[\s\S]*includeFontPadding:\s*false/,
   );
   assert.match(
     buttonSource,
-    /<Animated\.Text[\s\S]*color: TRADE_BUTTON_PRICE_TEXT_COLOR[\s\S]*opacity: 1[\s\S]*textShadowRadius: flashShadowRadius[\s\S]*testID=\{testID\}/,
+    /<Animated\.Text[\s\S]*color: animatedColor[\s\S]*opacity: 1[\s\S]*minimumFontScale=\{0\.7\}[\s\S]*testID=\{testID\}/,
   );
 });
 

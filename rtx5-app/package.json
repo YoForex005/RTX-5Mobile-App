@@ -1,6 +1,6 @@
 {
   "name": "rtx5-app",
-  "version": "1.1.10",
+  "version": "1.1.21",
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
@@ -43,10 +43,10 @@
     "@hookform/resolvers": "^5.2.2",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "^11.4.1",
-    "@sentry/react-native": "^8.14.0",
+    "@sentry/react-native": "~7.2.0",
     "@shopify/react-native-skia": "2.2.12",
     "@tanstack/react-query": "^5.90.21",
-    "expo": "~54.0.35",
+    "expo": "~54.0.36",
     "expo-application": "~7.0.8",
     "expo-blur": "~15.0.8",
     "expo-build-properties": "~1.0.10",
@@ -59,7 +59,7 @@
     "expo-secure-store": "~15.0.8",
     "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "~3.0.9",
-    "expo-updates": "~29.0.18",
+    "expo-updates": "~29.0.19",
     "lightweight-charts": "^5.1.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
@@ -81,7 +81,6 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
-    "@types/react-native": "^0.72.8",
     "babel-preset-expo": "^54.0.10",
     "ts-morph": "^28.0.0",
     "typescript": "~5.9.2"

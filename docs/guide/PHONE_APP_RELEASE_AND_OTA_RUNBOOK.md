@@ -5,7 +5,7 @@ Use this file when you want to update the RTX5 mobile app in the future.
 ## Current Setup
 
 - Real app folder: `rtx5-app`
-- Expo project owner: `chinese-hedger`
+- Expo project owner: `yoforex`
 - Expo project slug: `rtx5-app`
 - OTA system: Expo EAS Update through `expo-updates`
 - Runtime version policy: `fingerprint`
