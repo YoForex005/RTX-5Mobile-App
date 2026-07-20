@@ -79,6 +79,7 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
     symbol: callerSymbol,
     side: requestedSide,
     volume: restWithoutBroker.volume,
+    type: 'market',
   };
 
   // Optional order fields are omitted when disabled. Sending zero can make

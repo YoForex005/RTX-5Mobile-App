@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { resolve } from 'node:path';
 
 import { buildMarketOrderSymbolCandidates } from './placeMarketOrderCandidates.ts';
+
+const marketOrderSource = readFileSync(resolve(process.cwd(), 'src/api/orders/placeMarketOrder.ts'), 'utf8');
 
 test('market order symbol candidates reject accepted and catalog aliases with different suffixes', () => {
   assert.deepEqual(
@@ -42,4 +46,13 @@ test('market order symbol candidates do not brute-force hardcoded suffixes', () 
     }),
     ['GBPUSD'],
   );
+});
+
+test('market order request explicitly identifies market execution', () => {
+  const orderBodySource = marketOrderSource.slice(
+    marketOrderSource.indexOf('const orderBody:'),
+    marketOrderSource.indexOf('// Optional order fields'),
+  );
+
+  assert.match(orderBodySource, /type: 'market'/);
 });

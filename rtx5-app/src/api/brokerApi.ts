@@ -12,6 +12,7 @@ import { timedFetch } from '../utils/apiLatency';
 import { buildApiUrl } from './brokerRouting';
 import { extractFeedBrokerToken, resolveConfiguredFeedBrokerTokenForBroker } from './feedAuth';
 import { resolveEffectiveFeedAuthForSession } from './feedAuthContract';
+import { createTradeIdempotencyKey, getTradeIdempotencyAction } from './tradeIdempotency';
 import {
   fingerprintMarketDataHost,
   recordMarketDataEvent,
@@ -345,6 +346,7 @@ export class BrokerAPI {
   ): Promise<Response> {
     const method = (options.method ?? 'GET').toUpperCase();
     const headers = new Headers(options.headers ?? {});
+    const tradeIdempotencyAction = getTradeIdempotencyAction(endpoint, method);
     const shouldAuthenticate = !options.skipAuth;
     let activeToken = capture.credentials.accessToken;
 
@@ -368,8 +370,13 @@ export class BrokerAPI {
       headers.set('Authorization', `Bearer ${activeToken}`);
     }
     if (!headers.has('accept')) headers.set('accept', 'application/json');
-    if (!headers.has('Content-Type') && options.body && !(options.body instanceof FormData)) {
+    if (!headers.has('Content-Type') && (
+      tradeIdempotencyAction || (options.body && !(options.body instanceof FormData))
+    )) {
       headers.set('Content-Type', 'application/json');
+    }
+    if (tradeIdempotencyAction && !headers.has('Idempotency-Key')) {
+      headers.set('Idempotency-Key', createTradeIdempotencyKey(tradeIdempotencyAction));
     }
 
     const url = buildApiUrl(endpoint, capture.session.apiBase);

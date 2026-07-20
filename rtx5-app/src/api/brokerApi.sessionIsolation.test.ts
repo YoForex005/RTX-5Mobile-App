@@ -63,6 +63,54 @@ test('REST request uses only the atomically captured broker endpoint and token',
   api.dispose();
 });
 
+test('trade mutations receive scoped idempotency keys while non-trade calls do not', async () => {
+  activate();
+  const api = new BrokerAPI();
+  const requests: Array<{ url: string; headers: Headers }> = [];
+  globalThis.fetch = (async (input, init) => {
+    requests.push({ url: String(input), headers: new Headers(init?.headers) });
+    return new Response('{}', { status: 200 });
+  }) as typeof globalThis.fetch;
+
+  await api.request('/orders', { method: 'POST', body: '{}' });
+  await api.request('/orders/pending', { method: 'POST', body: '{}' });
+  await api.request('/orders/pending/42', { method: 'PUT', body: '{}' });
+  await api.request('/orders/pending/42', { method: 'DELETE' });
+  await api.request('/positions/12345/close', { method: 'POST', body: '{"mode":"full"}' });
+  await api.request('/positions/12345', { method: 'PUT', body: '{}' });
+
+  const idempotencyKeys = requests.map((request) => request.headers.get('Idempotency-Key'));
+  assert.deepEqual(idempotencyKeys.slice(0, 5).map(Boolean), [true, true, true, true, true]);
+  assert.equal(idempotencyKeys[5], null);
+  assert.equal(new Set(idempotencyKeys.slice(0, 5)).size, 5);
+  assert.match(idempotencyKeys[0] ?? '', /^order-/);
+  assert.match(idempotencyKeys[4] ?? '', /^close-12345-/);
+  requests.slice(0, 5).forEach((request) => {
+    assert.equal(request.headers.get('Authorization'), 'Bearer access-broker-a');
+    assert.equal(request.headers.get('Content-Type'), 'application/json');
+  });
+  api.dispose();
+});
+
+test('trade idempotency preserves a caller-provided retry key', async () => {
+  activate();
+  const api = new BrokerAPI();
+  let capturedKey = '';
+  globalThis.fetch = (async (_input, init) => {
+    capturedKey = new Headers(init?.headers).get('Idempotency-Key') ?? '';
+    return new Response('{}', { status: 200 });
+  }) as typeof globalThis.fetch;
+
+  await api.request('/orders', {
+    method: 'POST',
+    body: '{}',
+    headers: { 'Idempotency-Key': 'order-retry-abc123' },
+  });
+
+  assert.equal(capturedKey, 'order-retry-abc123');
+  api.dispose();
+});
+
 test('epoch transition aborts in-flight work and discards its completion', async () => {
   activate();
   const api = new BrokerAPI();

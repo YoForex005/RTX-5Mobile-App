@@ -25,6 +25,10 @@ import {
   recordModifyPositionJournalSuccess,
 } from '../../state/terminalJournalState';
 import { getPositionHistory } from './closedHistory';
+import {
+  buildClosePositionRequestPayload,
+  type ClosePositionTicketBy,
+} from './closePayload';
 import type {
   ClosePositionResponse,
   ModifyPositionPayload,
@@ -123,23 +127,11 @@ export const positionsApi = {
    */
   closePosition: async (
     ticketId: string | number,
-    ticketBy?: string | number | { ticketBy?: string | number; volume?: number },
+    ticketBy?: ClosePositionTicketBy,
   ): Promise<ClosePositionResponse> => {
-    const closePayload =
-      ticketBy && typeof ticketBy === 'object'
-        ? {
-            ...(ticketBy.ticketBy !== undefined ? { ticket_by: Number(ticketBy.ticketBy) } : {}),
-            ...(typeof ticketBy.volume === 'number' && ticketBy.volume > 0 ? { volume: ticketBy.volume } : {}),
-          }
-        : ticketBy
-          ? { ticket_by: Number(ticketBy) }
-          : undefined;
-    const body = closePayload && Object.keys(closePayload).length > 0
-      ? JSON.stringify(closePayload)
-      : undefined;
-    recordClosePositionJournalRequest(ticketId, closePayload
-      ? { ticketBy: closePayload.ticket_by, volume: closePayload.volume }
-      : undefined);
+    const { body: closePayload, journalPayload } = buildClosePositionRequestPayload(ticketBy);
+    const body = JSON.stringify(closePayload);
+    recordClosePositionJournalRequest(ticketId, journalPayload);
     let failureRecorded = false;
     try {
       const response = await apiClient(`/positions/${ticketId}/close`, {
