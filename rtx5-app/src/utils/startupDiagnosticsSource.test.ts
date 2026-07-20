@@ -21,6 +21,9 @@ test('startup diagnostics expose OTA/build/environment identifiers', () => {
   assert.match(source, /gitCommitSha:/);
   assert.match(source, /gitDirty:/);
   assert.match(appConfig, /gitCommitSha: resolveGitCommitSha\(\)/);
+  assert.match(appConfig, /\.slice\(0, 12\)/);
+  assert.match(appConfig, /if \(process\.env\.EAS_BUILD_GIT_COMMIT_HASH\) \{[\s\S]*return 'false'/);
+  assert.match(appConfig, /process\.env\.EXPO_PUBLIC_APP_ENV/);
   assert.match(appConfig, /apiBaseUrl:/);
   assert.doesNotMatch(source, /FEED_BROKER_TOKEN|SENTRY_AUTH_TOKEN/);
 });

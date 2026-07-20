@@ -31,18 +31,22 @@ const runGitCommand = (command) => {
 };
 
 const resolveGitCommitSha = () =>
-  String(
-    process.env.EAS_BUILD_GIT_COMMIT_HASH ??
-      process.env.GITHUB_SHA ??
-      process.env.RTX5_GIT_COMMIT_SHA ??
-      runGitCommand('git rev-parse --short=12 HEAD') ??
-      '',
-  ).trim();
+  (
+    firstString(
+      process.env.EAS_BUILD_GIT_COMMIT_HASH,
+      process.env.GITHUB_SHA,
+      process.env.RTX5_GIT_COMMIT_SHA,
+      runGitCommand('git rev-parse --short=12 HEAD'),
+    ) ?? ''
+  ).slice(0, 12);
 
 const resolveGitDirty = () => {
   const explicit = String(process.env.RTX5_GIT_DIRTY ?? '').trim();
   if (explicit) {
     return explicit;
+  }
+  if (process.env.EAS_BUILD_GIT_COMMIT_HASH) {
+    return 'false';
   }
   return runGitCommand('git status --short') ? 'true' : 'false';
 };
@@ -51,6 +55,7 @@ module.exports = ({ config }) => {
   const easBuildProfile = firstString(
     process.env.EAS_BUILD_PROFILE,
     process.env.RTX5_EAS_BUILD_PROFILE,
+    process.env.EXPO_PUBLIC_APP_ENV,
     config.extra?.easBuildProfile,
   );
   const expoConfig = {
