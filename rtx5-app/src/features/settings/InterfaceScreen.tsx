@@ -91,8 +91,6 @@ export const InterfaceScreenInner = memo(function InterfaceScreenInner({
 }: {
   isScreenFocused: boolean;
 }) {
-  void isScreenFocused;
-
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
@@ -171,27 +169,31 @@ export const InterfaceScreenInner = memo(function InterfaceScreenInner({
         <View style={{ width: 40 }} />
       </View>
 
-      <Text style={styles.sectionLabel}>{sectionLabel}</Text>
+      {isScreenFocused ? (
+        <>
+          <Text style={styles.sectionLabel}>{sectionLabel}</Text>
 
-      <ScrollView
-        keyboardShouldPersistTaps="always"
-        canCancelContentTouches={false}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {SUPPORTED_LANGUAGES.map((item) => (
-          <LanguageRow
-            key={item.code}
-            code={item.code}
-            nativeName={item.nativeName}
-            englishName={item.englishName}
-            selected={item.code === visualLanguage}
-            styles={styles}
-            accentColor={accentColor}
-            onSelect={handleLanguagePress}
-          />
-        ))}
-      </ScrollView>
+          <ScrollView
+            keyboardShouldPersistTaps="always"
+            canCancelContentTouches={false}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {SUPPORTED_LANGUAGES.map((item) => (
+              <LanguageRow
+                key={item.code}
+                code={item.code}
+                nativeName={item.nativeName}
+                englishName={item.englishName}
+                selected={item.code === visualLanguage}
+                styles={styles}
+                accentColor={accentColor}
+                onSelect={handleLanguagePress}
+              />
+            ))}
+          </ScrollView>
+        </>
+      ) : <View style={styles.inactiveBody} />}
     </Screen>
   );
 });
@@ -216,6 +218,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       backgroundColor: T.glass1,
     },
     headerTitleSpacer: { flex: 1 },
+    inactiveBody: { flex: 1 },
     sectionLabel: {
       fontSize: 12,
       fontWeight: '700',

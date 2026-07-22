@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   feedHealthBlocksSocketConnection,
+  feedHealthAllowsFreshQuoteFallback,
   feedHealthAllowsPriceActions,
   feedHealthCanSafelyRetry,
   initialFeedHealthState,
@@ -139,6 +140,90 @@ test('missing backend-approved thresholds fails closed even with server and tick
   assert.equal(withTick.status, 'stale_or_degraded');
   assert.equal(withTick.reasonCategory, 'health_policy_unconfigured');
   assert.equal(feedHealthAllowsPriceActions(withTick, 30_100), false);
+});
+
+test('fresh websocket quotes can use the compatibility gate when health policy is omitted', () => {
+  const feedIdentity = identity();
+  const withTick = reduceFeedHealth(bind(feedIdentity, null), {
+    type: 'LOCAL_TICK',
+    identity: feedIdentity,
+    receivedAt: 31_000,
+    bid: 10,
+    ask: 11,
+    transport: 'websocket',
+  });
+
+  assert.equal(withTick.reasonCategory, 'health_policy_unconfigured');
+  assert.equal(feedHealthAllowsFreshQuoteFallback(withTick, feedIdentity), true);
+  assert.equal(feedHealthAllowsFreshQuoteFallback(withTick, identity('broker-b')), false);
+});
+
+test('fresh-quote compatibility never bypasses explicit feed or session failures', () => {
+  const feedIdentity = identity();
+  const withTick = reduceFeedHealth(bind(feedIdentity, null), {
+    type: 'LOCAL_TICK',
+    identity: feedIdentity,
+    receivedAt: 32_000,
+    bid: 10,
+    ask: 11,
+    transport: 'websocket',
+  });
+  const interrupted = reduceFeedHealth(withTick, {
+    type: 'SOCKET_CLOSED',
+    identity: feedIdentity,
+  });
+  const missingCredentials = reduceFeedHealth(initialFeedHealthState, {
+    type: 'BIND_SESSION',
+    identity: feedIdentity,
+    transportConfigured: true,
+    credentialApproved: false,
+    thresholds: null,
+  });
+  const scheduledClose = reduceFeedHealth(withTick, {
+    type: 'SERVER_STATUS',
+    identity: feedIdentity,
+    health: healthyServer(32_100, {
+      providerConnected: false,
+      upstreamConnected: false,
+      marketAvailable: false,
+      scheduledMarketClosed: true,
+    }),
+  });
+
+  assert.equal(feedHealthAllowsFreshQuoteFallback(interrupted, feedIdentity), false);
+  assert.equal(feedHealthAllowsFreshQuoteFallback(missingCredentials, feedIdentity), false);
+  assert.equal(feedHealthAllowsFreshQuoteFallback(scheduledClose, feedIdentity), false);
+  assert.equal(feedHealthAllowsFreshQuoteFallback(bind(feedIdentity), feedIdentity), false);
+});
+
+test('confirmed server policy unlocks only after a fresh tradable websocket tick', () => {
+  const withoutPolicy = bind(identity(), null);
+  const withServerPolicy = reduceFeedHealth(withoutPolicy, {
+    type: 'SERVER_STATUS',
+    identity: identity(),
+    health: healthyServer(35_000, { thresholds }),
+  });
+  assert.deepEqual(withServerPolicy.thresholds, thresholds);
+  assert.equal(withServerPolicy.status, 'connecting');
+  assert.equal(feedHealthAllowsPriceActions(withServerPolicy, 35_000), false);
+
+  const healthy = reduceFeedHealth(withServerPolicy, {
+    type: 'LOCAL_TICK',
+    identity: identity(),
+    receivedAt: 35_100,
+    bid: 10,
+    ask: 11,
+    transport: 'websocket',
+  });
+  assert.equal(healthy.status, 'healthy');
+  assert.equal(feedHealthAllowsPriceActions(healthy, 35_500), true);
+
+  const laterStatusWithoutPolicy = reduceFeedHealth(healthy, {
+    type: 'SERVER_STATUS',
+    identity: identity(),
+    health: healthyServer(35_600),
+  });
+  assert.deepEqual(laterStatusWithoutPolicy.thresholds, thresholds);
 });
 
 test('a scheduled market close is not labelled as provider down', () => {

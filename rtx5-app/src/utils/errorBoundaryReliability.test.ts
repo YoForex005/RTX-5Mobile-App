@@ -12,6 +12,12 @@ test('root layout is protected by the app error boundary', () => {
   assert.match(source, /import \{ ErrorBoundary \} from '\.\.\/src\/ui\/components\/ErrorBoundary'/);
   assert.match(source, /<Stack\.Screen name='index' options=\{\{ headerShown: false \}\} \/>/);
   assert.match(source, /<ErrorBoundary>[\s\S]*<InnerLayout \/>[\s\S]*<\/ErrorBoundary>/);
+  // OTA install modal must survive a trading-tree crash (was nested inside ErrorBoundary).
+  assert.match(
+    source,
+    /<\/ErrorBoundary>\s*<OtaUpdateModal \{\.\.\.otaUpdatePrompt\} \/>/,
+  );
+  assert.match(source, /OtaUpdateModal MUST sit outside ErrorBoundary/);
 });
 
 test('error boundary reload remounts the crashed subtree through the fast press path', () => {
@@ -25,6 +31,13 @@ test('error boundary reload remounts the crashed subtree through the fast press 
   assert.match(source, /<React\.Fragment key=\{this\.state\.resetKey\}>/);
   assert.match(source, /latencyLabel="errorBoundary\.restart"/);
   assert.match(source, /accessibilityRole="button"/);
+  // Recovery path for users stuck on a crashed OTA build (e.g. 1.1.28).
+  assert.match(source, /latencyLabel="errorBoundary\.installUpdate"/);
+  assert.match(source, /Install latest update/);
+  assert.match(source, /Updates\.fetchUpdateAsync/);
+  assert.match(source, /Updates\.reloadAsync/);
+  assert.match(source, /Updates\.latestContext\.isUpdatePending/);
+  assert.doesNotMatch(source, /Updates\.isUpdatePending/);
 });
 
 test('persisted auth restore requires a broker-bound secure credential bundle', () => {

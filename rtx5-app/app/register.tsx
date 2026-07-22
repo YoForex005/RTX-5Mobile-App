@@ -903,6 +903,12 @@ export default function RegisterScreen() {
   const heroBackIconColor = T.text;
   const autofillBackgroundColor = isDark ? T.bg : REGISTER_QUOTES_LIGHT_BACKGROUND;
 
+  // This component is also a direct root route, so it may remain mounted below
+  // a newer screen. Keep hook state intact while dropping the full form tree.
+  if (!isScreenFocused) {
+    return null;
+  }
+
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />

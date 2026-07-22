@@ -5,7 +5,7 @@ import test from 'node:test';
 
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
-test('Chart Preferences warms and opens Schema & Colors on the immediate press path', () => {
+test('Chart Preferences opens Schema & Colors on the immediate hosted path without route prefetch', () => {
   const warmupSource = readSource('src/utils/actionRouteWarmup.ts');
   const settingsSource = readSource('src/features/chart/ChartSettingsScreen.tsx');
   const hostSource = readSource('src/features/chart/ChartConfigDestinationHost.tsx');
@@ -15,7 +15,10 @@ test('Chart Preferences warms and opens Schema & Colors on the immediate press p
   const navRowStart = settingsSource.indexOf('function NavRow(');
   const navRowSource = settingsSource.slice(navRowStart, navRowStart + 900);
 
-  assert.match(warmupSource, /'\/chart\/schema-colors'/);
+  assert.doesNotMatch(
+    warmupSource,
+    /ACTION_ROUTE_WARMUP_PATHS|router\.prefetch|'\/chart\/schema-colors'/,
+  );
   // Sidebar-style retained host — no router.push on the tap path for config rows.
   assert.match(
     settingsSource,
@@ -103,7 +106,9 @@ test('Schema & Colors paints a fixed preview shell before enabling live data and
   assert.match(source, /SCHEMA_COLORS_PREVIEW_DELAY_MS = 120/);
   assert.match(source, /useDeferredRouteContentReady\(\s*SCHEMA_COLORS_PREVIEW_DELAY_MS,\s*isScreenFocused,\s*\)/);
   assert.match(source, /const previewActive = previewContentReady && isScreenFocused && !colorEditorOpen/);
-  assert.match(source, /hosted && hostedActive/);
+  // Hosted layers must not inherit useIsFocused() (always true outside a
+  // navigator screen); only hostedActive may activate a hosted instance.
+  assert.match(source, /const isScreenFocused = hosted \? hostedActive : navigationFocused/);
   assert.notEqual(previewHostStart, -1);
   assert.match(previewHostSource, /\{previewContentReady \? \([\s\S]*<LiveChartPreview/);
   assert.match(previewHostSource, /testID="chart-live-preview-placeholder"[\s\S]*style=\{StyleSheet\.absoluteFillObject\}/);

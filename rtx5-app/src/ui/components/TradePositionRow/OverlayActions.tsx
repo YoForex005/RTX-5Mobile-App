@@ -13,7 +13,6 @@ export type OverlayActionsProps = {
   overlayActionLocked: boolean;
   overlayStyle: any;
   onClose: () => void;
-  onCloseBy: () => void;
   onModify: () => void;
   onOrderTicket: () => void;
   onOpenChart: () => void;
@@ -27,7 +26,6 @@ export function OverlayActions({
   overlayActionLocked,
   overlayStyle,
   onClose,
-  onCloseBy,
   onModify,
   onOrderTicket,
   onOpenChart,
@@ -58,22 +56,6 @@ export function OverlayActions({
       >
         <View style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
           <Ionicons name="close" size={20} color={T.down} />
-        </View>
-      </Pressable>
-      <Pressable
-        hitSlop={12}
-        disabled={overlayActionLocked}
-        onPress={onCloseBy}
-        unstable_pressDelay={0}
-        style={({ pressed }) => [
-          styles.actionBtnContainer,
-          styles.actionBtnPressable,
-          overlayActionLocked && styles.actionBtnDisabled,
-          pressed && styles.actionBtnPressed,
-        ]}
-      >
-        <View style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
-          <Ionicons name="swap-horizontal" size={20} color={T.text} />
         </View>
       </Pressable>
       <Pressable

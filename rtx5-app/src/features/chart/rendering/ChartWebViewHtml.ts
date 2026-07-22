@@ -5715,6 +5715,9 @@ export const CH_HTML = `
       // can re-run chart creation if the container had zero dimensions
       // on the first attempt (common on Android light theme first load).
       var _pendingInit = null;
+      var _pendingInitRaf = null;
+      var _pendingInitRetryCount = 0;
+      var MAX_PENDING_INIT_RAF_RETRIES = 60;
       var lastHostViewportSize = { width: 0, height: 0 };
 
       function normalizePositiveViewportSize(width, height) {
@@ -5768,6 +5771,9 @@ export const CH_HTML = `
         // the WebView yet. Defer to the next animation frame — the
         // ResizeObserver will also catch it as a fallback.
         if (w === 0 || h === 0) {
+          if (!_pendingInit) {
+            _pendingInitRetryCount = 0;
+          }
           _pendingInit = {
             opts: opts,
             chartType: chartType,
@@ -5777,22 +5783,35 @@ export const CH_HTML = `
             initSignature: resolvedInitSignature,
             configSig: resolvedConfigSig,
           };
-          requestAnimationFrame(function() {
-            if (_pendingInit) {
-              _doInitChart(
-                _pendingInit.opts,
-                _pendingInit.chartType,
-                _pendingInit.data,
-                _pendingInit.displayDecimals,
-                _pendingInit.showLowerPane,
-                _pendingInit.initSignature,
-                _pendingInit.configSig
-              );
-            }
-          });
+          // Keep this single-flight and bounded. A hidden/zero-sized Android
+          // WebView previously created an endless animation-frame recursion
+          // that could starve React Navigation and continuously allocate.
+          if (_pendingInitRaf === null && _pendingInitRetryCount < MAX_PENDING_INIT_RAF_RETRIES) {
+            _pendingInitRetryCount += 1;
+            _pendingInitRaf = requestAnimationFrame(function() {
+              _pendingInitRaf = null;
+              if (_pendingInit) {
+                var pending = _pendingInit;
+                _doInitChart(
+                  pending.opts,
+                  pending.chartType,
+                  pending.data,
+                  pending.displayDecimals,
+                  pending.showLowerPane,
+                  pending.initSignature,
+                  pending.configSig
+                );
+              }
+            });
+          }
           return;
         }
+        if (_pendingInitRaf !== null) {
+          cancelAnimationFrame(_pendingInitRaf);
+          _pendingInitRaf = null;
+        }
         _pendingInit = null;
+        _pendingInitRetryCount = 0;
 
         if (window._drawingManager) {
           try { window._drawingManager.remove(); } catch (_e) {}
@@ -5819,6 +5838,7 @@ export const CH_HTML = `
         if (_overlayLabelLayer && _overlayLabelLayer.parentNode) {
           try { _overlayLabelLayer.parentNode.removeChild(_overlayLabelLayer); } catch (_e) {}
           _overlayLabelLayer = null;
+          _overlayDomNodesByKey = Object.create(null);
         }
         if (typeof detachChartTapListeners === 'function') {
           try { detachChartTapListeners(); } catch (_e) {}
@@ -6045,6 +6065,15 @@ export const CH_HTML = `
                 upColor: colors.up,
                 downColor: colors.down,
               }));
+            }
+            // Restore Chart Preferences → object descriptions before first paint.
+            if (
+              window._drawingManager &&
+              typeof window._drawingManager.setShowObjectDescriptions === 'function'
+            ) {
+              window._drawingManager.setShowObjectDescriptions(
+                window.__rtx5ShowObjectDescriptions !== false
+              );
             }
           }
         } catch (_dtErr) {}
@@ -7055,6 +7084,28 @@ export const CH_HTML = `
         return Number(price.toFixed(safeDecimals));
       }
 
+      function scheduleMarketPriceScaleDomOnly() {
+        // Quote ticks only need the live price badge/extension. Rebuilding the
+        // entire trade-label layer every tick was residual chart flicker even
+        // after in-place upserts (layout thrash on the overlay layer).
+        if (activeHorizontalScrollGesture || verticalPricePanGestureActive) {
+          return;
+        }
+        if (overlayRefreshRaf) {
+          return;
+        }
+        overlayRefreshRaf = requestAnimationFrame(function() {
+          overlayRefreshRaf = 0;
+          try {
+            refreshMarketPriceScaleDom();
+            var layer = ensureOverlayLabelLayer();
+            if (layer) {
+              renderMoveDirectionOverlayBadge(layer, null);
+            }
+          } catch (_e) {}
+        });
+      }
+
       function setLivePriceLine(price, shouldScheduleRefresh) {
         try {
           var normalizedPrice = normalizeMarketPriceLinePrice(price);
@@ -7069,7 +7120,7 @@ export const CH_HTML = `
             bidPriceLine = removeMarketPriceLine(bidPriceLine);
             askPriceLine = removeMarketPriceLine(askPriceLine);
             ensureMarketPriceBadgesVisible();
-            if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
+            if (shouldScheduleRefresh !== false) scheduleMarketPriceScaleDomOnly();
             return;
           }
           askPriceLine = removeMarketPriceLine(askPriceLine);
@@ -7077,7 +7128,7 @@ export const CH_HTML = `
             try {
               bidPriceLine.applyOptions(makeMarketPriceLineOptions(normalizedPrice, liveColor));
               ensureMarketPriceBadgesVisible();
-              if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
+              if (shouldScheduleRefresh !== false) scheduleMarketPriceScaleDomOnly();
               return;
             } catch (_e) {
               bidPriceLine = removeMarketPriceLine(bidPriceLine);
@@ -7086,7 +7137,7 @@ export const CH_HTML = `
           bidPriceLine = removeMarketPriceLine(bidPriceLine);
           bidPriceLine = createMarketPriceLine(normalizedPrice, liveColor);
           ensureMarketPriceBadgesVisible();
-          if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
+          if (shouldScheduleRefresh !== false) scheduleMarketPriceScaleDomOnly();
         } catch (e) {
           postError('setLivePriceLine', e);
         }
@@ -7192,6 +7243,15 @@ export const CH_HTML = `
           window._drawingManager.setDrawingsHidden(hidden);
         }
       }
+      function setShowObjectDescriptions(enabled) {
+        window.__rtx5ShowObjectDescriptions = enabled !== false;
+        if (
+          window._drawingManager &&
+          typeof window._drawingManager.setShowObjectDescriptions === 'function'
+        ) {
+          window._drawingManager.setShowObjectDescriptions(window.__rtx5ShowObjectDescriptions);
+        }
+      }
       function setStayInDrawingMode(sticky) {
         if (window._drawingManager && typeof window._drawingManager.setStayInDrawingMode === 'function') {
           window._drawingManager.setStayInDrawingMode(sticky);
@@ -7227,6 +7287,10 @@ export const CH_HTML = `
       var _appliedOverlayPayload = { priceLines: [], markers: [] };
       var _overlayResyncTimer = null;
       var _overlayLabelLayer = null;
+      // Stable DOM nodes for trade labels/lines/boxes. Never wipe the whole
+      // overlay layer on quote ticks — that was the visible horizontal blink
+      // (open-trade lines are DOM-only with native lineVisible:false).
+      var _overlayDomNodesByKey = Object.create(null);
       var activeTradeLineDrag = null;
       var pendingTradeLineHold = null;
       var suppressNextChartClickUntil = 0;
@@ -7262,6 +7326,9 @@ export const CH_HTML = `
         }
         _positionLinesArr = [];
         _overlayPriceLinesByDragKey = Object.create(null);
+        // Force a full native recreate after clear so a later same-signature
+        // payload cannot skip recreation against an empty canvas.
+        _lastAppliedOverlayNativeSignature = '';
         activeTradeLineDrag = null;
         cancelPendingTradeLineHold();
         chartTouchInteractionSuspendDepth = 0;
@@ -7280,6 +7347,8 @@ export const CH_HTML = `
         if (_overlayLabelLayer && _overlayLabelLayer.parentNode === el) {
           return _overlayLabelLayer;
         }
+        // Layer was recreated (chart re-init) — drop stale node refs.
+        _overlayDomNodesByKey = Object.create(null);
         el.style.position = 'relative';
         _overlayLabelLayer = document.createElement('div');
         _overlayLabelLayer.className = 'rtx5-overlay-label-layer';
@@ -7295,9 +7364,58 @@ export const CH_HTML = `
       }
 
       function clearOverlayDomLabels() {
-        if (!_overlayLabelLayer) return;
+        if (!_overlayLabelLayer) {
+          _overlayDomNodesByKey = Object.create(null);
+          return;
+        }
         while (_overlayLabelLayer.firstChild) {
           _overlayLabelLayer.removeChild(_overlayLabelLayer.firstChild);
+        }
+        _overlayDomNodesByKey = Object.create(null);
+      }
+
+      function upsertOverlayDomNode(layer, key, className) {
+        if (!layer || !key) return null;
+        var el = _overlayDomNodesByKey[key];
+        if (el && el.parentNode === layer) {
+          if (className && el.className !== className) {
+            el.className = className;
+          }
+          return el;
+        }
+        el = document.createElement('div');
+        el.className = className || '';
+        el.setAttribute('data-rtx5-key', key);
+        layer.appendChild(el);
+        _overlayDomNodesByKey[key] = el;
+        return el;
+      }
+
+      function pruneOverlayDomNodes(liveKeys) {
+        var live = Object.create(null);
+        if (Array.isArray(liveKeys)) {
+          for (var i = 0; i < liveKeys.length; i++) {
+            if (liveKeys[i]) live[liveKeys[i]] = true;
+          }
+        }
+        var keys = Object.keys(_overlayDomNodesByKey);
+        for (var k = 0; k < keys.length; k++) {
+          var key = keys[k];
+          // Market-price badges/extensions manage their own lifecycle via class queries.
+          if (
+            key.indexOf('label:') !== 0 &&
+            key.indexOf('line:') !== 0 &&
+            key.indexOf('box:') !== 0 &&
+            key !== 'move-badge'
+          ) {
+            continue;
+          }
+          if (live[key]) continue;
+          var el = _overlayDomNodesByKey[key];
+          if (el && el.parentNode) {
+            try { el.parentNode.removeChild(el); } catch (_e) {}
+          }
+          delete _overlayDomNodesByKey[key];
         }
       }
 
@@ -7572,7 +7690,7 @@ export const CH_HTML = `
         return lefts;
       }
 
-      function renderAnchoredTradeLine(layer, item) {
+      function renderAnchoredTradeLine(layer, item, nodeKey) {
         if (!layer || !item || item.drawAnchoredTradeLine !== true) {
           return;
         }
@@ -7587,8 +7705,11 @@ export const CH_HTML = `
 
         // Keep the visible open-trade line locked to the same payload and
         // coordinate as the live BUY/SELL lot + P/L text label.
-        var line = document.createElement('div');
-        line.className = 'rtx5-anchored-trade-line';
+        // Upsert in place — never destroy/recreate the line on every quote tick
+        // (that blanked the horizontal trade line and caused the chart blink).
+        var lineKey = nodeKey || ('line:' + (item.id || item.y));
+        var line = upsertOverlayDomNode(layer, lineKey, 'rtx5-anchored-trade-line');
+        if (!line) return;
         line.setAttribute('data-rtx5-role', 'anchored-trade-line');
         line.style.position = 'absolute';
         line.style.left = Math.max(0, Math.round(metrics.leftAxisWidth || 0)) + 'px';
@@ -7601,7 +7722,6 @@ export const CH_HTML = `
           (item.color || '#2962FF');
         line.style.pointerEvents = 'none';
         line.style.zIndex = '7';
-        layer.appendChild(line);
       }
 
       function clearMarketPriceScaleExtensions(layer) {
@@ -7636,8 +7756,15 @@ export const CH_HTML = `
           return;
         }
 
-        var extension = document.createElement('div');
-        extension.className = 'rtx5-market-price-scale-extension';
+        // Reuse the existing extension node so live-price ticks do not flash.
+        var extension = layer.querySelector
+          ? layer.querySelector('.rtx5-market-price-scale-extension')
+          : null;
+        if (!extension) {
+          extension = document.createElement('div');
+          extension.className = 'rtx5-market-price-scale-extension';
+          layer.appendChild(extension);
+        }
         extension.style.position = 'absolute';
         extension.style.left = axisLeft + 'px';
         extension.style.top = Math.round(y) + 'px';
@@ -7646,11 +7773,13 @@ export const CH_HTML = `
         extension.style.background = color || '#2962FF';
         extension.style.pointerEvents = 'none';
         extension.style.zIndex = '8';
-        layer.appendChild(extension);
       }
 
       function renderMarketPriceScaleExtensions(layer) {
-        clearMarketPriceScaleExtensions(layer);
+        if (lastLivePrice === null || typeof lastLivePrice !== 'number' || !isFinite(lastLivePrice)) {
+          clearMarketPriceScaleExtensions(layer);
+          return;
+        }
         renderMarketPriceScaleExtension(layer, lastLivePrice, marketLiveColor);
       }
 
@@ -7723,8 +7852,15 @@ export const CH_HTML = `
         if (!layer || !badge || !axisMetrics) {
           return;
         }
-        var el = document.createElement('div');
-        el.className = 'rtx5-market-price-scale-badge rtx5-market-price-scale-badge-' + badge.role;
+        var roleClass = 'rtx5-market-price-scale-badge-' + badge.role;
+        var el = layer.querySelector
+          ? layer.querySelector('.rtx5-market-price-scale-badge.' + roleClass)
+          : null;
+        if (!el) {
+          el = document.createElement('div');
+          el.className = 'rtx5-market-price-scale-badge ' + roleClass;
+          layer.appendChild(el);
+        }
         el.setAttribute('data-rtx5-role', 'market-price-scale-' + badge.role);
         el.textContent = formatMarketPriceScaleBadgeLabel(badge.price);
         el.style.position = 'absolute';
@@ -7747,19 +7883,19 @@ export const CH_HTML = `
         el.style.overflow = 'hidden';
         el.style.pointerEvents = 'none';
         el.style.zIndex = '14';
-        layer.appendChild(el);
       }
 
       function renderMarketPriceScaleBadges(layer) {
-        clearMarketPriceScaleBadges(layer);
         var axisMetrics = resolveMarketPriceScaleAxisMetrics(layer);
         if (!axisMetrics) {
+          clearMarketPriceScaleBadges(layer);
           return;
         }
         var badges = [
           collectMarketPriceScaleBadge(layer, axisMetrics, lastLivePrice, marketLiveColor, 'live'),
         ].filter(Boolean);
         if (badges.length === 0) {
+          clearMarketPriceScaleBadges(layer);
           return;
         }
         badges.sort(function(left, right) { return left.desiredTop - right.desiredTop; });
@@ -7771,6 +7907,7 @@ export const CH_HTML = `
           }
           badges[i].top = nextTop;
         }
+        // Update live badge(s) in place — do not wipe then recreate (tick flash).
         for (var badgeIndex = 0; badgeIndex < badges.length; badgeIndex++) {
           renderMarketPriceScaleBadge(layer, badges[badgeIndex], axisMetrics);
         }
@@ -7802,7 +7939,7 @@ export const CH_HTML = `
         return rounded;
       }
 
-      function renderMoveDirectionOverlayBadge(layer) {
+      function renderMoveDirectionOverlayBadge(layer, liveKeys) {
         if (!layer || !moveBarsSeries || !series || !_liveBar || !shouldUseMoveBarsPane()) {
           return;
         }
@@ -7840,8 +7977,9 @@ export const CH_HTML = `
         var maxTop = Math.max(minTop, paneBottom - MARKET_PRICE_SCALE_BADGE_HEIGHT);
         var top = Math.max(minTop, Math.min(maxTop, Math.round(y - MARKET_PRICE_SCALE_BADGE_HEIGHT / 2)));
 
-        var el = document.createElement('div');
-        el.className = 'rtx5-move-overlay-badge';
+        var el = upsertOverlayDomNode(layer, 'move-badge', 'rtx5-move-overlay-badge');
+        if (!el) return;
+        if (liveKeys) liveKeys.push('move-badge');
         el.setAttribute('data-rtx5-role', 'move-overlay-value');
         el.textContent = formatMoveDirectionOverlayBadgeLabel(value);
         el.style.position = 'absolute';
@@ -7864,21 +8002,25 @@ export const CH_HTML = `
         el.style.overflow = 'hidden';
         el.style.pointerEvents = 'none';
         el.style.zIndex = '14';
-        layer.appendChild(el);
       }
 
       function refreshOverlayDomLabels(payload) {
         try {
-          clearOverlayDomLabels();
+          // NEVER wipe the whole overlay layer on routine refreshes.
+          // Open-trade horizontal lines are DOM-only (native lineVisible:false).
+          // clearOverlayDomLabels() + rebuild on every quote tick blanked those
+          // lines for a frame — the clear horizontal chart blink after place-order.
           if (!series) {
+            clearOverlayDomLabels();
             clearRightPriceScaleFallbackLabels();
             return;
           }
           renderFallbackRightPriceScaleLabels();
           var layer = ensureOverlayLabelLayer();
           if (!layer) return;
+          var liveOverlayKeys = [];
           refreshMarketPriceScaleDom();
-          renderMoveDirectionOverlayBadge(layer);
+          renderMoveDirectionOverlayBadge(layer, liveOverlayKeys);
           var lines = Array.isArray(payload && payload.priceLines) ? payload.priceLines : [];
           var floatingLabels = [];
           var anchoredLabels = [];
@@ -7925,8 +8067,11 @@ export const CH_HTML = `
           }
           var anchoredLefts = resolveAnchoredOverlayLabelLefts(anchoredLabels, anchoredTops, layer);
 
-          var renderLabel = function(item, top, left) {
-            var label = document.createElement('div');
+          var renderLabel = function(item, top, left, labelKey) {
+            var key = labelKey || ('label:' + (item.id || item.text || top));
+            liveOverlayKeys.push(key);
+            var label = upsertOverlayDomNode(layer, key, 'rtx5-overlay-trade-label');
+            if (!label) return;
             var hasSplitTradeLabel = !!(item.labelSideText && item.labelValueText);
             var isAnchoredTradeLabel = item.drawAnchoredTradeLine === true;
             var labelLeft = typeof left === 'number' && isFinite(left)
@@ -7940,20 +8085,37 @@ export const CH_HTML = `
               labelMaxWidth = Math.min(OVERLAY_ANCHORED_LABEL_LANE_WIDTH, labelMaxWidth);
             }
             if (hasSplitTradeLabel) {
-              var sideSpan = document.createElement('span');
+              var sideSpan = label.childNodes[0];
+              var separatorSpan = label.childNodes[1];
+              var valueSpan = label.childNodes[2];
+              if (
+                !sideSpan || sideSpan.nodeName !== 'SPAN' ||
+                !separatorSpan || separatorSpan.nodeName !== 'SPAN' ||
+                !valueSpan || valueSpan.nodeName !== 'SPAN' ||
+                label.childNodes.length !== 3
+              ) {
+                while (label.firstChild) {
+                  label.removeChild(label.firstChild);
+                }
+                sideSpan = document.createElement('span');
+                separatorSpan = document.createElement('span');
+                valueSpan = document.createElement('span');
+                label.appendChild(sideSpan);
+                label.appendChild(separatorSpan);
+                label.appendChild(valueSpan);
+              }
               sideSpan.textContent = item.labelSideText;
               sideSpan.style.color = item.labelSideColor || item.color;
-              var separatorSpan = document.createElement('span');
               separatorSpan.textContent = ', ';
               separatorSpan.style.color = item.labelSideColor || item.color;
-              var valueSpan = document.createElement('span');
               valueSpan.textContent = item.labelValueText;
               valueSpan.style.color = item.labelValueColor || item.color;
-              label.appendChild(sideSpan);
-              label.appendChild(separatorSpan);
-              label.appendChild(valueSpan);
             } else {
-              label.textContent = item.text;
+              if (label.childNodes.length !== 1 || label.firstChild.nodeType !== 3) {
+                label.textContent = item.text;
+              } else if (label.textContent !== item.text) {
+                label.textContent = item.text;
+              }
             }
             label.style.position = 'absolute';
             label.style.left = labelLeft + 'px';
@@ -7970,20 +8132,21 @@ export const CH_HTML = `
             label.style.textShadow = 'none';
             label.style.zIndex = isAnchoredTradeLabel ? '18' : '11';
             label.style.pointerEvents = 'none';
-            layer.appendChild(label);
           };
 
           for (var labelIndex = 0; labelIndex < floatingLabels.length; labelIndex++) {
             var floatingItem = floatingLabels[labelIndex];
             var floatingTop = tops[labelIndex];
-            renderLabel(floatingItem, floatingTop);
+            renderLabel(floatingItem, floatingTop, null, 'label:float:' + (floatingItem.id || labelIndex));
           }
 
           for (var anchoredIndex = 0; anchoredIndex < anchoredLabels.length; anchoredIndex++) {
             var anchoredItem = anchoredLabels[anchoredIndex];
             var anchoredTop = anchoredTops[anchoredIndex];
-            renderAnchoredTradeLine(layer, anchoredItem);
-            renderLabel(anchoredItem, anchoredTop, anchoredLefts[anchoredIndex]);
+            var lineKey = 'line:' + (anchoredItem.id || anchoredIndex);
+            liveOverlayKeys.push(lineKey);
+            renderAnchoredTradeLine(layer, anchoredItem, lineKey);
+            renderLabel(anchoredItem, anchoredTop, anchoredLefts[anchoredIndex], 'label:anchored:' + (anchoredItem.id || anchoredIndex));
           }
 
           // MT5-parity: render OUTLINED right-axis price box for every
@@ -8018,6 +8181,7 @@ export const CH_HTML = `
               color: pln.color || '#2962FF',
               price: pln.price,
               text: boxKey,
+              id: pln.id,
             });
           }
           positionBoxes.sort(function(left, right) { return left.desiredTop - right.desiredTop; });
@@ -8031,8 +8195,10 @@ export const CH_HTML = `
           }
           for (var bi = 0; bi < positionBoxes.length; bi++) {
             var box = positionBoxes[bi];
-            var boxEl = document.createElement('div');
-            boxEl.className = 'rtx5-position-price-scale-box';
+            var boxNodeKey = 'box:' + (box.id || box.text);
+            liveOverlayKeys.push(boxNodeKey);
+            var boxEl = upsertOverlayDomNode(layer, boxNodeKey, 'rtx5-position-price-scale-box');
+            if (!boxEl) continue;
             boxEl.textContent = box.text;
             boxEl.style.position = 'absolute';
             // MT5 keeps open trade price markers owned by the right price
@@ -8058,20 +8224,52 @@ export const CH_HTML = `
             boxEl.style.fontVariantNumeric = 'tabular-nums';
             boxEl.style.fontFeatureSettings = '"tnum" 1, "lnum" 1';
             boxEl.style.zIndex = '16';
-            layer.appendChild(boxEl);
           }
+          // Drop closed/stale trade nodes only — never blank the whole layer.
+          pruneOverlayDomNodes(liveOverlayKeys);
         } catch (labelErr) {
           postError('refreshOverlayDomLabels', labelErr);
         }
       }
 
-      // ── Robust "nuke and recreate" overlay renderer ──────────────
-      // Matches the proven web version approach: always remove every
-      // existing price line, then create fresh ones from the payload.
-      // The previous incremental approach (track by ID, update-or-create)
-      // silently lost lines when createPriceLine threw inside a
-      // try/catch, and stale _positionLinesMap entries after chart
-      // re-init caused ghost references that blocked new line creation.
+      // Native price-line geometry only. Label/P/L text lives in DOM and can
+      // update every tick without tearing down the lines (avoids blink).
+      function buildOverlayNativeLineSignature(payload) {
+        var lines = payload && Array.isArray(payload.priceLines) ? payload.priceLines : [];
+        var parts = [];
+        for (var i = 0; i < lines.length; i++) {
+          var ln = lines[i];
+          if (!shouldCreateOverlayNativePriceLine(ln)) continue;
+          parts.push([
+            String(ln.id || ''),
+            String(ln.price || ''),
+            String(ln.color || ''),
+            String(ln.lineWidth || 1),
+            String(typeof ln.lineStyle === 'number' ? ln.lineStyle : 0),
+            String(ln.labelPlacement || ''),
+            String(ln.dragKey || ''),
+          ].join(':'));
+        }
+        var markers = payload && Array.isArray(payload.markers) ? payload.markers : [];
+        var markerParts = [];
+        for (var m = 0; m < markers.length; m++) {
+          var mk = markers[m] || {};
+          markerParts.push([
+            String(mk.time || ''),
+            String(mk.position || ''),
+            String(mk.color || ''),
+            String(mk.shape || ''),
+            String(mk.text || ''),
+          ].join(':'));
+        }
+        return parts.join('|') + '##' + markerParts.join('|');
+      }
+
+      var _lastAppliedOverlayNativeSignature = '';
+
+      // Prefer label-only updates when native line geometry is unchanged.
+      // Full nuke/recreate remains the path when lines are added/removed
+      // (new trade, close, SL/TP change) so we never leave ghost lines.
       function applyOverlayPayload(payload) {
         try {
           if (!payload || typeof payload !== 'object') {
@@ -8088,6 +8286,18 @@ export const CH_HTML = `
             _overlayPayload = payload;
             pendingVerticalOverlayApply = true;
             deferVerticalGestureDomWork();
+            return;
+          }
+
+          var nextNativeSignature = buildOverlayNativeLineSignature(payload);
+          var nativeGeometryUnchanged =
+            nextNativeSignature === _lastAppliedOverlayNativeSignature &&
+            _positionLinesArr.length === countOverlayNativePriceLines(payload.priceLines);
+
+          if (nativeGeometryUnchanged) {
+            // Tick P/L label refresh only — keep horizontal candle scale stable.
+            _appliedOverlayPayload = payload;
+            refreshOverlayDomLabels(_appliedOverlayPayload);
             return;
           }
 
@@ -8142,6 +8352,7 @@ export const CH_HTML = `
             }
           }
           _appliedOverlayPayload = payload;
+          _lastAppliedOverlayNativeSignature = nextNativeSignature;
           refreshOverlayDomLabels(_appliedOverlayPayload);
         } catch (e) {
           postError('applyOverlayPayload', e);
@@ -8168,16 +8379,50 @@ export const CH_HTML = `
           deferVerticalGestureDomWork();
           return;
         }
-        // Live BUY/SELL, lot, and P/L label refreshes must not reset the
-        // user-owned vertical chart position.
-        scheduleOverlayPriceScaleLock(false);
         if (activeTradeLineDrag) {
           scheduleTradeLineDragDomRefresh();
           return;
         }
+        // Apply trade/overlay lines without re-fitting the candle price scale.
+        // Re-running scale recovery on every place-order refresh made the
+        // horizontal chart blink and look like it was shrinking (iOS + Android).
         applyOverlayPayload(_overlayPayload);
-        schedulePriceScaleHealthCheck('overlay_update', true, 3);
-        scheduleOverlayVisibleCandleScaleRecovery('overlay_update');
+        // Heal only if the axis collapsed; never force a full visible-range
+        // recovery on routine trade-line updates.
+        schedulePriceScaleHealthCheck('overlay_update', false, 1);
+      }
+
+      // Live P/L text only. Never recreates native price lines or re-fits scale.
+      // RN throttles this path so the horizontal trade-label layer does not blink.
+      function updateOverlayTradeLabels(payload) {
+        try {
+          var nextPayload = payload && typeof payload === 'object'
+            ? payload
+            : { priceLines: [], markers: [] };
+          nextPayload = preserveActiveTradeLineDragPayload(nextPayload);
+          _overlayPayload = nextPayload;
+          if (activeTradeLineDrag) {
+            scheduleTradeLineDragDomRefresh();
+            return;
+          }
+          if (activeHorizontalScrollGesture || verticalPricePanGestureActive) {
+            return;
+          }
+          // Prefer DOM text update only when geometry already matches.
+          var nextNativeSignature = buildOverlayNativeLineSignature(nextPayload);
+          if (
+            nextNativeSignature === _lastAppliedOverlayNativeSignature &&
+            _positionLinesArr.length === countOverlayNativePriceLines(nextPayload.priceLines)
+          ) {
+            _appliedOverlayPayload = nextPayload;
+            refreshOverlayDomLabels(_appliedOverlayPayload);
+            return;
+          }
+          // Geometry drifted (new trade race) — full apply once.
+          applyOverlayPayload(nextPayload);
+        } catch (e) {
+          postError('updateOverlayTradeLabels', e);
+        }
       }
 
       function setPriceLines(lines) {
@@ -8243,12 +8488,14 @@ export const CH_HTML = `
       window.cancelDrawingTextEdit = cancelDrawingTextEdit;
       window.setDrawingsLocked = setDrawingsLocked;
       window.setDrawingsHidden = setDrawingsHidden;
+      window.setShowObjectDescriptions = setShowObjectDescriptions;
       window.setStayInDrawingMode = setStayInDrawingMode;
       window.setDrawingMagnetMode = setDrawingMagnetMode;
       window.setVerticalScrollingLocked = setVerticalScrollingLocked;
       window.setChartAutoScaleEnabled = setChartAutoScaleEnabled;
       window.zoomChart = zoomChart;
       window.setChartOverlays = setChartOverlays;
+      window.updateOverlayTradeLabels = updateOverlayTradeLabels;
       window.setPriceLines = setPriceLines;
       window.updatePositionLines = updatePositionLines;
       window.resizeChartViewport = resizeChartViewport;

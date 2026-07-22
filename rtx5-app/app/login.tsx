@@ -58,7 +58,7 @@ const LOGIN_SCREEN_COPY = {
 const LOGIN_TOUCH_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 8 } as const;
 const LOGIN_BUTTON_HIT_SLOP = { top: 12, bottom: 12, left: 12, right: 12 } as const;
 const LOGIN_BUTTON_PRESS_RETENTION_OFFSET = { top: 24, bottom: 24, left: 24, right: 24 } as const;
-const LOGIN_SUBMIT_PRESS_GUARD_MS = 350;
+const LOGIN_SUBMIT_PRESS_GUARD_MS = 120;
 const PINNED_LOGIN_BROKER_NAMES = ['MetaQuotes Ltd.'];
 const DEV_DEFAULT_LOGIN = {
   brokerId: process.env.EXPO_PUBLIC_TEST_BROKER_ID || '',
@@ -275,14 +275,17 @@ export function AccountLoginScreen() {
       return false;
     }
 
+    // Already verified for this host — never clear the green light or block LOGIN.
     if (healthVerifiedBrokerServerUrlRef.current === normalizedServerUrl) {
       setBrokerHealthWarning('');
+      setIsBrokerHealthChecking(false);
       return true;
     }
 
     const probeId = brokerHealthProbeRef.current + 1;
     brokerHealthProbeRef.current = probeId;
-    clearBrokerHealthVerification();
+    // Do not clear a prior verification until this probe fails. Clearing on
+    // every re-warm disabled LOGIN mid-flight while health was re-checked.
     setIsBrokerHealthChecking(true);
     setBrokerHealthWarning('');
 
@@ -320,14 +323,24 @@ export function AccountLoginScreen() {
   };
 
   const selectBrokerOption = useCallback((option: LoginBrokerOption) => {
-    brokerHealthProbeRef.current += 1;
-    clearBrokerHealthVerification();
+    const nextServerUrl = normalizeBrokerServerUrl(option.serverUrl);
     brokerIdValueRef.current = option.brokerId;
     brokerServerUrlValueRef.current = option.serverUrl;
     brokerLogoUrlValueRef.current = option.logoUrl;
     setBrokerId(option.brokerId);
     setBrokerServerUrl(option.serverUrl);
     setBrokerLogoUrl(option.logoUrl);
+    // Same already-verified broker — skip clear/re-probe so LOGIN stays ready.
+    if (
+      nextServerUrl
+      && healthVerifiedBrokerServerUrlRef.current === nextServerUrl
+    ) {
+      warmedBrokerServerUrlRef.current = option.serverUrl;
+      setBrokerHealthWarning('');
+      return;
+    }
+    brokerHealthProbeRef.current += 1;
+    clearBrokerHealthVerification();
     warmedBrokerServerUrlRef.current = option.serverUrl;
     void probeBrokerHealth(option.serverUrl);
   }, [clearBrokerHealthVerification, probeBrokerHealth]);
@@ -490,8 +503,10 @@ export function AccountLoginScreen() {
     exactSelectedBrokerServerUrl
     && healthVerifiedBrokerServerUrl === exactSelectedBrokerServerUrl,
   );
+  // Only gate on verified health for the selected host — not on a background
+  // re-probe. Waiting on isBrokerHealthChecking blocked LOGIN for seconds even
+  // after the host was already confirmed reachable.
   const isLoginSubmitDisabled = isLoading
-    || isBrokerHealthChecking
     || Boolean(brokerSelectionError)
     || !isSelectedBrokerHealthVerified;
 
@@ -681,10 +696,6 @@ export function AccountLoginScreen() {
     }
 
     loginRequestInFlightRef.current = true;
-    setIsLoading(true);
-    recordAccountJournalEvent(`login requested for broker ${normalizedBrokerId}`, {
-      accountLogin: normalizedAccountId,
-    });
     const commitAuthorization = authorizeBrokerSessionCommit();
     const loginAbortController = new AbortController();
     activeLoginAttemptRef.current = {
@@ -692,12 +703,19 @@ export function AccountLoginScreen() {
       controller: loginAbortController,
     };
     let didStartSuccessNavigation = false;
+    // Kick the POST before React loading-state re-render work so the network
+    // RTT starts in this same touch turn.
+    const loginRequestPromise = loginAPI({
+      username: normalizedAccountId,
+      password: currentPassword,
+      broker_id: normalizedBrokerId,
+    }, { serverUrl: normalizedServerUrl, signal: loginAbortController.signal });
+    setIsLoading(true);
+    recordAccountJournalEvent(`login requested for broker ${normalizedBrokerId}`, {
+      accountLogin: normalizedAccountId,
+    });
     try {
-      const response: any = await loginAPI({
-        username: normalizedAccountId,
-        password: currentPassword,
-        broker_id: normalizedBrokerId,
-      }, { serverUrl: normalizedServerUrl, signal: loginAbortController.signal });
+      const response: any = await loginRequestPromise;
 
       // ── Defensive response parsing ──
       // The V2 server's spec (AuthTokenResponse) returns `token` + nested
@@ -926,7 +944,8 @@ export function AccountLoginScreen() {
 
     loginSubmitPressGuardRef.current = true;
     runImmediateAction('login.submit.touch', () => {
-      setIsLoading(true);
+      // Snapshot + kick auth first. Spinner is set inside handleLogin only after
+      // validation passes and the POST has already been started.
       const snapshot = getLoginCredentialsSnapshot();
       void handleLogin(snapshot);
       scheduleLoginKeyboardDismiss();
@@ -1177,6 +1196,7 @@ export function AccountLoginScreen() {
                   (pressed || isLoginSubmitDisabled) && styles.loginBtnPressed
                 ]}
                 onPress={handleLoginPress}
+                activateOnPressIn
                 activateOnTouchStart
                 disabled={isLoginSubmitDisabled}
                 hitSlop={LOGIN_BUTTON_HIT_SLOP}

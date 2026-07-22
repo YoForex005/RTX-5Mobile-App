@@ -56,6 +56,10 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(serviceSource, /const QUOTE_WS_SILENT_STALE_MS = 8_000/);
   assert.match(serviceSource, /const QUOTE_WS_WATCHDOG_INTERVAL_MS = 3_000/);
   assert.match(serviceSource, /const QUOTE_WS_INTERACTION_RECONNECT_DEFER_MS = 2_500/);
+  assert.match(
+    serviceSource,
+    /reportFeedLocalTick\(identity, \{[\s\S]*receivedAt,[\s\S]*transport: 'websocket'/,
+  );
   assert.match(serviceSource, /private reconnectDeferredUntil = 0/);
   assert.match(serviceSource, /public deferReconnectForInteraction\(durationMs = QUOTE_WS_INTERACTION_RECONNECT_DEFER_MS\): void \{/);
   assert.match(serviceSource, /public resumeReconnectAfterInteraction\(\): void \{[\s\S]*this\.reconnectDeferredUntil = 0;[\s\S]*this\.clearReconnectTimer\(\);[\s\S]*this\.connect\(\);/);
@@ -200,6 +204,8 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.doesNotMatch(quotesScreenSource, /useFeedStatusActiveSymbols/);
   assert.match(quotesScreenSource, /const feedAwareSymbols = apiSymbols/);
   assert.match(quotesScreenSource, /quotesWsService\.setSubscriptions\(quoteFeedSymbols\)/);
+  assert.doesNotMatch(quotesScreenSource, /reportFeedLocalTick/);
+  assert.doesNotMatch(quotesScreenSource, /quotesWsService\.addTickListener\(/);
   assert.match(
     quotesScreenSource,
     /useWatchlistLiveQuotes\(quoteFeedSymbols, quoteStickyFeedActive, \{[\s\S]*restFallbackActive: quoteRestFallbackActive,[\s\S]*\}\)/,

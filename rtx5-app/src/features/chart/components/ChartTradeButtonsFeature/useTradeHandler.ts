@@ -25,6 +25,7 @@ import {
   getChartTradeButtonSharedLockSide,
   releaseChartTradeButtonSharedLock,
 } from './sharedLock';
+import { resolveChartTradeActionDisabled } from './tradeAvailability';
 import {
   hideOrderTicketLaunch,
   scheduleOrderTicketLaunchNavigation,
@@ -32,6 +33,7 @@ import {
 } from '../../../trade/orderTicketLaunchController';
 import { redactDiagnosticValue } from '../../../../utils/securityRedaction';
 import { resolveBrokerExecutionEvidence } from '../../../../api/orders/executionEvidence';
+import { normalizeSymbol } from '../../../../domain/symbols';
 
 const CHART_TRADE_DIAGNOSTICS_ENABLED =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CHART_TRADE === 'true';
@@ -117,7 +119,8 @@ export function useTradeHandler({
   const nextTradeQueueIdRef = React.useRef(1);
   const quoteActionQuoteRef = React.useRef<ExecutableQuoteInput | undefined>(quoteActionQuote);
   quoteActionQuoteRef.current = quoteActionQuote;
-  const isCurrentChartSymbol = currentChartSymbol === symbol;
+  const isCurrentChartSymbol =
+    normalizeSymbol(currentChartSymbol) === normalizeSymbol(symbol);
 
   React.useEffect(() => () => {
     if (activeSideResetTimeoutRef.current) {
@@ -202,22 +205,26 @@ export function useTradeHandler({
     }, delayMs);
   };
 
-  function processNextQueuedTrade() {
+  function processNextQueuedTrade(options?: { skipQuoteRecheck?: boolean }) {
     if (tradeTapLockRef.current || tradeQueueRef.current.length === 0) {
       return;
     }
 
-    const currentQuoteAvailability = resolveSessionQuoteActionAvailability(quoteActionQuoteRef.current);
-    if (!currentQuoteAvailability.allowed) {
-      recordBlockedPriceAction('chart_queued_trade', currentQuoteAvailability);
-      tradeQueueRef.current = [];
-      onTradeResult?.({
-        visible: true,
-        type: 'error',
-        title: 'Market Data Unavailable',
-        message: quoteActionBlockMessage(currentQuoteAvailability),
-      });
-      return;
+    // Same-turn enqueue already validated the quote; recheck only for drains
+    // that waited behind an in-flight order.
+    if (!options?.skipQuoteRecheck) {
+      const currentQuoteAvailability = resolveSessionQuoteActionAvailability(quoteActionQuoteRef.current);
+      if (!currentQuoteAvailability.allowed) {
+        recordBlockedPriceAction('chart_queued_trade', currentQuoteAvailability);
+        tradeQueueRef.current = [];
+        onTradeResult?.({
+          visible: true,
+          type: 'error',
+          title: 'Market Data Unavailable',
+          message: quoteActionBlockMessage(currentQuoteAvailability),
+        });
+        return;
+      }
     }
 
     const queuedTrade = tradeQueueRef.current.shift();
@@ -234,8 +241,7 @@ export function useTradeHandler({
 
     tradeTapLockRef.current = true;
     tradeTapLockSideRef.current = action.side;
-    markActiveTradeSide(action.side);
-
+    // Visual busy state after placeOrder starts — keep the POST on the critical path.
     const payload = buildChartMarketOrderPayload({
       accountLogin: queuedTrade.tradingLogin,
       symbol: queuedTrade.symbol,
@@ -247,6 +253,8 @@ export function useTradeHandler({
     });
     const requestStartedAtMs = getApiLatencyNow();
     const queueWaitMs = Math.max(0, Math.round(requestStartedAtMs - queuedTrade.queuedAtMs));
+
+    markActiveTradeSide(action.side);
 
     logChartTradeDiagnostic('[TRADE-QUEUE-START]', {
       queueId: queuedTrade.id,
@@ -350,7 +358,8 @@ export function useTradeHandler({
   const executeTrade = (side: TradeSide) => {
     const action = getChartTradeAction(side);
     const stateChartSymbol = useUserPreferences.getState().chartSymbol;
-    if (stateChartSymbol !== symbol) {
+    // Normalize once — hot path used to normalize both sides twice.
+    if (normalizeSymbol(stateChartSymbol) !== normalizeSymbol(symbol)) {
       logChartTradeDiagnostic('[TRADE-BUTTON-PRESS]', {
         side,
         buttonPressed: action.buttonPressed,
@@ -365,25 +374,10 @@ export function useTradeHandler({
       return;
     }
 
-    const currentQuoteAvailability = resolveSessionQuoteActionAvailability(quoteActionQuoteRef.current);
-    if (!currentQuoteAvailability.allowed) {
-      recordBlockedPriceAction('chart_quick_trade', currentQuoteAvailability);
-      onTradeResult?.({
-        visible: true,
-        type: 'error',
-        title: 'Market Data Unavailable',
-        message: quoteActionBlockMessage(currentQuoteAvailability),
-        side: action.side,
-      });
-      return;
-    }
-
     // ── One-click OFF: open New Order as a sidebar-class retained handoff ──
-    // Show the pre-mounted shell in this touch turn BEFORE auth/volume/SL work
-    // or React setState so Buy/Sell first paint is not competing with chart work.
+    // Shell first (UI thread), then lock + route — no heavy validation.
     if (!oneClickAccepted) {
-      const openLockSide = getChartTradeButtonSharedLockSide();
-      if (tradeTapLockRef.current || openLockSide !== null) {
+      if (tradeTapLockRef.current) {
         logChartTradeDiagnostic('[TRADE-BUTTON-PRESS]', {
           side,
           buttonPressed: action.buttonPressed,
@@ -391,8 +385,8 @@ export function useTradeHandler({
           displayedLabel: variant === 'mt5-market' ? action.marketLabel : action.displayLabel,
           sidePassedToHandler: action.side,
           ignored: true,
-          lockSide: openLockSide,
-          reason: tradeTapLockRef.current ? 'tap-lock' : 'shared-tap-lock',
+          lockSide: getChartTradeButtonSharedLockSide(),
+          reason: 'tap-lock',
           timestamp: new Date().toISOString(),
         });
         return;
@@ -412,19 +406,20 @@ export function useTradeHandler({
         return;
       }
 
-      // UI-thread shell first — zero validation work before this line.
-      logChartTradeDiagnostic('[Trade] navigate path → /trade/order-ticket');
+      // Paint retained New Order shell in this touch turn before any setState.
       const launchRevision = showOrderTicketLaunch(symbol, 'chart');
 
       tradeTapLockRef.current = true;
       tradeTapLockSideRef.current = action.side;
-      markActiveTradeSide(action.side);
 
       const trimmedComment = typeof comment === 'string' ? comment.trim() : '';
       const normalizedStopLossPrice = Number(stopLossPrice);
       const normalizedTakeProfitPrice = Number(takeProfitPrice);
       const hasStopLossPrice = Number.isFinite(normalizedStopLossPrice) && normalizedStopLossPrice > 0;
       const hasTakeProfitPrice = Number.isFinite(normalizedTakeProfitPrice) && normalizedTakeProfitPrice > 0;
+
+      // Busy chrome after shell is visible so it does not compete with first paint.
+      markActiveTradeSide(action.side);
 
       logChartTradeDiagnostic('[TRADE-BUTTON-PRESS]', {
         side,
@@ -435,38 +430,67 @@ export function useTradeHandler({
         timestamp: new Date().toISOString(),
       });
 
-      // Real ticket mounts after the shell has a paint frame (see scheduler).
-      scheduleOrderTicketLaunchNavigation(launchRevision, () => {
-        try {
-          router.push({
-            pathname: '/trade/order-ticket',
-            params: {
-              symbol,
-              origin: 'chart',
+      const releaseOpenPathLock = () => {
+        releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
+      };
+
+      // Real ticket mounts after one paint frame (see scheduler).
+      scheduleOrderTicketLaunchNavigation(
+        launchRevision,
+        () => {
+          try {
+            router.push({
+              pathname: '/trade/order-ticket',
+              params: {
+                symbol,
+                origin: 'chart',
+                side: action.side,
+                ...(hasStopLossPrice ? { sl: String(normalizedStopLossPrice) } : {}),
+                ...(hasTakeProfitPrice ? { tp: String(normalizedTakeProfitPrice) } : {}),
+                ...(trimmedComment ? { comment: trimmedComment } : {}),
+              },
+            });
+          } catch (navErr: any) {
+            hideOrderTicketLaunch(launchRevision);
+            warnChartTradeDiagnostic('[Trade] navigation failed', navErr);
+            onTradeResult?.({
+              visible: true, type: 'error',
+              title: 'Navigation Error',
+              message: navErr?.message || 'Could not open the order ticket screen.',
               side: action.side,
-              ...(hasStopLossPrice ? { sl: String(normalizedStopLossPrice) } : {}),
-              ...(hasTakeProfitPrice ? { tp: String(normalizedTakeProfitPrice) } : {}),
-              ...(trimmedComment ? { comment: trimmedComment } : {}),
-            },
-          });
-          releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
-        } catch (navErr: any) {
+            });
+          } finally {
+            releaseOpenPathLock();
+          }
+        },
+        () => {
           hideOrderTicketLaunch(launchRevision);
-          warnChartTradeDiagnostic('[Trade] navigation failed', navErr);
-          onTradeResult?.({
-            visible: true, type: 'error',
-            title: 'Navigation Error',
-            message: navErr?.message || 'Could not open the order ticket screen.',
-            side: action.side,
-          });
-          releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
-        }
-      });
+          releaseOpenPathLock();
+        },
+      );
       return;
     }
 
     // ── One-click ON: place market order (validation required) ───────────
-    const sharedLockSide = getChartTradeButtonSharedLockSide();
+    // Re-resolve at the actual tap time. A render-time allowed flag can outlive
+    // the final websocket tick and must not authorize an order after it turns
+    // stale.
+    const currentQuoteAvailability = resolveSessionQuoteActionAvailability(
+      quoteActionQuoteRef.current,
+      Date.now(),
+    );
+    if (!currentQuoteAvailability.allowed) {
+      recordBlockedPriceAction('chart_quick_trade', currentQuoteAvailability);
+      onTradeResult?.({
+        visible: true,
+        type: 'error',
+        title: 'Market Data Unavailable',
+        message: quoteActionBlockMessage(currentQuoteAvailability),
+        side: action.side,
+      });
+      return;
+    }
+
     const volume = Number(lotSize);
     const trimmedComment = typeof comment === 'string' ? comment.trim() : '';
     const normalizedStopLossPrice = Number(stopLossPrice);
@@ -516,25 +540,28 @@ export function useTradeHandler({
       return;
     }
 
-    const protectionValidation = validateChartTradeProtectionLevels({
-      side: action.side,
-      entryPrice: action.side === 'buy' ? latestAsk : latestBid,
-      slEnabled: hasStopLossPrice,
-      slPrice: hasStopLossPrice ? normalizedStopLossPrice : 0,
-      tpEnabled: hasTakeProfitPrice,
-      tpPrice: hasTakeProfitPrice ? normalizedTakeProfitPrice : 0,
-      pointSize,
-    });
-
-    if (!protectionValidation.valid) {
-      onTradeResult?.({
-        visible: true,
-        type: 'error',
-        title: 'Invalid SL/TP',
-        message: protectionValidation.message,
+    // Skip SL/TP math when neither protection is set (common one-click path).
+    if (hasStopLossPrice || hasTakeProfitPrice) {
+      const protectionValidation = validateChartTradeProtectionLevels({
         side: action.side,
+        entryPrice: action.side === 'buy' ? latestAsk : latestBid,
+        slEnabled: hasStopLossPrice,
+        slPrice: hasStopLossPrice ? normalizedStopLossPrice : 0,
+        tpEnabled: hasTakeProfitPrice,
+        tpPrice: hasTakeProfitPrice ? normalizedTakeProfitPrice : 0,
+        pointSize,
       });
-      return;
+
+      if (!protectionValidation.valid) {
+        onTradeResult?.({
+          visible: true,
+          type: 'error',
+          title: 'Invalid SL/TP',
+          message: protectionValidation.message,
+          side: action.side,
+        });
+        return;
+      }
     }
 
     logChartTradeDiagnostic('[Trade] one-click path, login=', tradingLogin);
@@ -576,19 +603,25 @@ export function useTradeHandler({
       volume,
       queueLength: tradeQueueRef.current.length,
       activeInFlight: tradeTapLockRef.current,
-      sharedLockSide,
+      sharedLockSide: getChartTradeButtonSharedLockSide(),
       timestamp: new Date().toISOString(),
     });
-    processNextQueuedTrade();
+    // Same-turn drain: skip a second quote integrity pass.
+    processNextQueuedTrade({ skipQuoteRecheck: true });
   };
 
   const handleTrade = (side: TradeSide) =>
     runCriticalTradeAction(`chart.${variant}.trade.${side}`, () => executeTrade(side));
 
   const isChartTradeActionBusy = (side: TradeSide) => activeSide === side && tradeTapLockRef.current;
-  const isChartTradeActionVisuallyLocked = (side: TradeSide) =>
-    !isCurrentChartSymbol || !quoteActionAllowed || activeSide === side;
-  const chartTradeActionDisabled = !isCurrentChartSymbol || !quoteActionAllowed;
+  const chartTradeActionDisabled = resolveChartTradeActionDisabled({
+    isCurrentChartSymbol,
+    oneClickAccepted,
+    quoteActionAllowed,
+  });
+  // Dim only while this side is actively in-flight — never for quote readiness.
+  // Quote-not-ready used to apply opacity 0.5 and made Buy/Sell look permanently disabled.
+  const isChartTradeActionVisuallyLocked = (side: TradeSide) => isChartTradeActionBusy(side);
 
   return {
     handleTrade,

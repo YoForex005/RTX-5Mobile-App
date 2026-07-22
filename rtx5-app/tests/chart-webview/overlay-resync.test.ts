@@ -100,8 +100,8 @@ test('overlay injection before series exists self-heals through init, native res
   );
   assertSourceContains(
     source,
-    /const resyncInterval = setInterval\(\(\) => \{[\s\S]*webViewRef\.current\.injectJavaScript\(js\)/,
-    'native side must periodically re-push overlays',
+    /const resyncInterval = setInterval\(\(\) => \{[\s\S]*setChartOverlays\(\$\{JSON\.stringify\(payload\)\}\)[\s\S]*\}, 5000\)/,
+    'native side must periodically re-push overlays on the geometry path',
   );
   assertSourceContains(
     source,

@@ -22,6 +22,16 @@ import {
 } from '../accountSummary';
 import type { ThemeColors } from '../../../ui/theme/glass';
 import type { TradeScreenStyles } from './styles';
+import type { AccountSummary as ApiAccountSummary } from '../../../api/account';
+
+const EMPTY_TRADE_LIVE_ACCOUNT = Object.freeze({
+  balance: 0,
+  floating: 0,
+  equity: 0,
+  margin: 0,
+  margin_free: 0,
+  margin_level: 0,
+});
 
 function SummaryMetricRow({
   label,
@@ -155,6 +165,7 @@ export const TradeSummaryHeader = React.memo(({
   totalVolume,
   onBulkPress,
   active,
+  restAccountSummary,
 }: {
   positions: PositionItem[];
   hydratedLogin: string | null;
@@ -165,10 +176,38 @@ export const TradeSummaryHeader = React.memo(({
   totalVolume: number;
   onBulkPress: () => void;
   active: boolean;
+  restAccountSummary?: ApiAccountSummary;
 }) => {
-  const tradingAccount = useTradingState((state: any) => state.account);
-  const liveAcc = useLiveAccountState(
-    useShallow((state) => ({
+  // The Trade tab is retained offscreen. Keep its last rendered account values,
+  // but stop observing high-frequency account stores while another tab owns the
+  // screen. Those hidden summary renders were saturating the JS thread and could
+  // delay the real Chart/Trade navigation callback for minutes.
+  const selectedTradingAccount = useTradingState((state: any) => (
+    active ? state.account : null
+  ));
+  const restTradingAccount = useMemo(() => restAccountSummary ? ({
+    balance: restAccountSummary.balance,
+    credit: restAccountSummary.credit,
+    floating: restAccountSummary.profit,
+    equity: restAccountSummary.equity,
+    margin: restAccountSummary.margin,
+    freeMargin: restAccountSummary.freeMargin,
+    marginLevel: restAccountSummary.marginLevel,
+    currency: restAccountSummary.currency,
+  }) : null, [restAccountSummary]);
+  const selectedFallbackAccount = active
+    ? restTradingAccount ?? selectedTradingAccount
+    : null;
+  const retainedTradingAccountRef = React.useRef(selectedFallbackAccount);
+  if (active) {
+    retainedTradingAccountRef.current = selectedFallbackAccount;
+  }
+  const tradingAccount = active
+    ? selectedFallbackAccount
+    : retainedTradingAccountRef.current;
+
+  const selectedLiveAcc = useLiveAccountState(
+    useShallow((state) => active ? ({
       balance: state.balance,
       floating: state.floating,
       equity: state.equity,
@@ -176,8 +215,15 @@ export const TradeSummaryHeader = React.memo(({
       margin_free: state.margin_free,
       margin_level: state.margin_level,
       metricFlags: state.metricFlags,
-    })),
+    }) : null),
   );
+  const retainedLiveAccRef = React.useRef(selectedLiveAcc);
+  if (active && selectedLiveAcc) {
+    retainedLiveAccRef.current = selectedLiveAcc;
+  }
+  const liveAcc = selectedLiveAcc
+    ?? retainedLiveAccRef.current
+    ?? EMPTY_TRADE_LIVE_ACCOUNT;
   const liveQuoteSymbols = useMemo(
     () => Array.from(new Set(positions.map((position) => position.symbol))),
     [positions],

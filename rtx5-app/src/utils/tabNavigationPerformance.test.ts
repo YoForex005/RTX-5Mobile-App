@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
-import { createFastTabVisualController } from '../ui/navigation/fastTabVisualController';
+import {
+  createFastTabVisualController,
+  fastTabVisualController,
+  scheduleFastTabNavigation,
+} from '../ui/navigation/fastTabVisualController';
 
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
@@ -13,7 +17,9 @@ test('bottom tab press paints optimistically on press-in and delays real navigat
   assert.match(source, /import \{ PlatformPressable \} from '@react-navigation\/elements'/);
   assert.match(source, /const TAB_SWITCH_MAX_LATENCY_MS = 20/);
   assert.match(source, /const STALE_TAB_SWITCH_SAMPLE_MS = 5000/);
-  assert.match(source, /const TAB_PRESS_DEDUP_WINDOW_MS = 1500/);
+  // 350ms absorbs a double-fired press event from one physical tap without
+  // swallowing a deliberate A -> B -> A return tap the way 1500ms did.
+  assert.match(source, /const TAB_PRESS_DEDUP_WINDOW_MS = 350/);
   assert.match(source, /const recentTabPresses = new Map<string, number>\(\)/);
   assert.match(source, /function scheduleTabSwitchBudgetCheck\(label: string, startedAtMs: number, navigationFinishedAtMs: number\)/);
   assert.match(source, /type FastTabBarButtonProps = BottomTabBarButtonProps & \{/);
@@ -42,14 +48,54 @@ test('bottom tab press paints optimistically on press-in and delays real navigat
   assert.match(source, /unstable_pressDelay=\{0\}/);
   assert.match(source, /if \(handledOnPressInRef\.current\) \{\s*handledOnPressInRef\.current = false;\s*return;/);
   assert.match(visualControllerSource, /export function scheduleFastTabNavigation\(\s*revision: number,\s*action: \(\) => void,\s*settleDelayMs: number = FAST_TAB_NAVIGATION_SETTLE_DELAY_MS,\s*\)/);
-  assert.match(visualControllerSource, /fastTabVisualController\.getSnapshot\(\)\.revision === revision/);
-  assert.match(visualControllerSource, /setTimeout\(runIfCurrent, 32\)/);
-  // The real navigation commit behind a DRAWER close waits for the shortened
-  // native motion to settle. Bottom-bar taps have no motion to protect and commit right after
-  // the two optimistic swap frames.
+  assert.match(visualControllerSource, /const requestedSnapshot = fastTabVisualController\.getSnapshot\(\)/);
+  assert.match(visualControllerSource, /requestedSnapshot\.revision === revision \? requestedSnapshot\.routeName : null/);
+  assert.match(visualControllerSource, /requestedRouteName !== null &&[\s\S]*currentSnapshot\.revision === revision &&[\s\S]*currentSnapshot\.routeName === requestedRouteName/);
+  // Bottom-bar taps (settleDelayMs=0) commit after one paint frame so the
+  // previous tab's focus work stops immediately. Drawer closes keep the
+  // two-frame + settle path so close animation is not starved.
+  assert.match(visualControllerSource, /if \(settleDelayMs <= 0\) \{\s*globalThis\.requestAnimationFrame\(runIfCurrent\);\s*return;/);
   assert.match(visualControllerSource, /const FAST_TAB_NAVIGATION_SETTLE_DELAY_MS = 60/);
   assert.match(visualControllerSource, /export const TAB_BAR_NAVIGATION_SETTLE_DELAY_MS = 0/);
   assert.match(visualControllerSource, /globalThis\.requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(runIfCurrent, settleDelayMs\);/);
+  assert.match(visualControllerSource, /export function showFastTabVisual\(pathOrName: string\) \{[\s\S]*fastTabVisualController\.show\(routeName, false\)/);
+});
+
+test('delayed tab navigation is cancelled after its optimistic route is cleared', () => {
+  const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+  const pendingFrames: FrameRequestCallback[] = [];
+  globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+    pendingFrames.push(callback);
+    return pendingFrames.length;
+  }) as typeof globalThis.requestAnimationFrame;
+
+  try {
+    fastTabVisualController.setActualRouteName('quotes');
+    const staleRevision = fastTabVisualController.show('chart', false);
+    let navigationCount = 0;
+    scheduleFastTabNavigation(staleRevision, () => {
+      navigationCount += 1;
+    }, 0);
+
+    fastTabVisualController.clear(staleRevision);
+    pendingFrames.shift()?.(0);
+    assert.equal(navigationCount, 0, 'a cleared optimistic route must not navigate later');
+
+    const currentRevision = fastTabVisualController.show('trade', false);
+    scheduleFastTabNavigation(currentRevision, () => {
+      navigationCount += 1;
+    }, 0);
+    pendingFrames.shift()?.(16);
+    assert.equal(navigationCount, 1, 'the still-current optimistic route must navigate');
+    fastTabVisualController.clear(currentRevision);
+  } finally {
+    fastTabVisualController.clear();
+    if (originalRequestAnimationFrame) {
+      globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+    } else {
+      Reflect.deleteProperty(globalThis, 'requestAnimationFrame');
+    }
+  }
 });
 
 test('tab layout declares only the five primary cached scenes', () => {
@@ -76,7 +122,7 @@ test('retained Trade and Settings bodies prewarm without activating hidden work'
   const settingsSource = readSource('src/features/settings/SettingsScreen/SettingsScreen.tsx');
 
   assert.match(tradeSource, /const TRADE_BODY_PREWARM_DELAY_MS = 600/);
-  assert.match(tradeSource, /const routeBodyReady = useDeferredRouteContentReady\(TRADE_BODY_PREWARM_DELAY_MS\)/);
+  assert.match(tradeSource, /const routeBodyReady = useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : TRADE_BODY_PREWARM_DELAY_MS,\s*\)/);
   assert.match(tradeSource, /const tradeLiveActive = isScreenFocused/);
   assert.match(tradeSource, /const tradeFetchActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady, TRADE_SCREEN_FETCH_DELAY_MS\)/);
   assert.doesNotMatch(tradeSource, /useDeferredRouteContentReady\([^)]*, isScreenFocused\)/);

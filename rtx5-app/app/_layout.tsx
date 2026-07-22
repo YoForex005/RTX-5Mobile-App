@@ -343,7 +343,9 @@ function RootLayout() {
     });
     let cancelled = false;
 
-    const cancelCacheHydration = scheduleIdleWork(() => {
+    // Restore cached chart history immediately after session restore so the
+    // first Chart visit can paint without waiting for idle (was 1.5s+).
+    const cancelCacheHydration = scheduleAfterFirstFrame(() => {
       if (!cancelled) {
         logStartupDiagnostic('trading.candleCache.restore.started', {
           chartSymbol,
@@ -351,7 +353,7 @@ function RootLayout() {
         });
         void hydratePersistedCandleCache(chartSymbol, chartTimeframe);
       }
-    }, { delayMs: 1500, timeoutMs: 3000 });
+    });
     return () => {
       cancelled = true;
       cancelCacheHydration();
@@ -536,13 +538,18 @@ function RootLayout() {
     return () => clearTimeout(fallback);
   }, []);
 
+  // OtaUpdateModal MUST sit outside ErrorBoundary. When the trading UI crashes
+  // (e.g. 1.1.28 quote-destructure bug), ErrorBoundary replaces its children —
+  // which used to unmount the install modal so users could never recover.
   return (
-    <ErrorBoundary>
-      <AppProviders>
-        {hasHydrated && sessionRestoreComplete && fontsReady ? <InnerLayout /> : <StartupLogoScreen />}
-        <OtaUpdateModal {...otaUpdatePrompt} />
-      </AppProviders>
-    </ErrorBoundary>
+    <>
+      <ErrorBoundary>
+        <AppProviders>
+          {hasHydrated && sessionRestoreComplete && fontsReady ? <InnerLayout /> : <StartupLogoScreen />}
+        </AppProviders>
+      </ErrorBoundary>
+      <OtaUpdateModal {...otaUpdatePrompt} />
+    </>
   );
 }
 

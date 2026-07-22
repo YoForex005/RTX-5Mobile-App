@@ -76,15 +76,20 @@ test('quote socket recovers after active-session credentials refresh', () => {
   assert.match(quotes, /this\.shouldReconnect = this\.hasActiveDemand\(\)/);
 });
 
-test('quote socket requires a successful non-blocked health probe before open', () => {
+test('quote socket opens immediately then health probe can hard-stop confirmed blocks', () => {
   const quotes = readSource('src/api/ws/quotesSocket/QuotesWebSocketService.ts');
 
   assert.match(quotes, /feedHealthBlocksSocketConnection\(health, identity\)/);
-  assert.match(quotes, /if \(!healthConfirmed\) \{[\s\S]*if \(boundedRecoveryProbe\) \{[\s\S]*this\.shouldReconnect = false/);
-  const failedProbeGuard = quotes.indexOf('if (!healthConfirmed)');
+  // Fast path: open right after URL resolve so first ticks are not blocked by
+  // a serial status probe (up to ~3s). Confirmed health blocks still stop the socket.
+  const firstOpen = quotes.indexOf('this.openResolvedSocket(resolved)');
+  const healthProbe = quotes.indexOf('await probeActiveFeedHealth(resolved.identity)', firstOpen);
+  const failedProbeGuard = quotes.indexOf('if (!healthConfirmed)', healthProbe);
   const policyGuard = quotes.indexOf('if (this.shouldPauseForConfirmedHealth(resolved.identity))', failedProbeGuard);
-  const socketOpen = quotes.indexOf('this.openResolvedSocket(resolved)', policyGuard);
-  assert.ok(failedProbeGuard > -1 && policyGuard > failedProbeGuard && socketOpen > policyGuard);
+  assert.ok(firstOpen > -1 && healthProbe > firstOpen);
+  assert.ok(failedProbeGuard > healthProbe && policyGuard > failedProbeGuard);
+  assert.match(quotes, /if \(!healthConfirmed\) \{[\s\S]*if \(boundedRecoveryProbe\) \{[\s\S]*this\.shouldReconnect = false/);
+  assert.match(quotes, /this\.openResolvedSocket\(resolved\);[\s\S]*this\.scheduleHealthProbe\(resolved\.identity\)/);
 });
 
 test('NetInfo failures use the same advancing reconnect policy and telemetry', () => {

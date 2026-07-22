@@ -433,10 +433,16 @@ test('vertical candle drag can own the price range without autoscale fighting it
     /var onPointerUp = function\(event\)[\s\S]*releasePointer\(event\);[\s\S]*finishRightPriceScaleGesture\(\)[\s\S]*if \(vertPanState\) \{[\s\S]*endVerticalPan\(\)[\s\S]*return;[\s\S]*finishHorizontalScrollGesture\(\);/,
     'vertical pan release must finish before horizontal-scroll idle recovery is allowed to run',
   );
+  const setChartOverlaysBody = extractFunctionBody(source, 'setChartOverlays');
   assertSourceContains(
-    source,
-    /function setChartOverlays\(payload\)[\s\S]*scheduleOverlayPriceScaleLock\(false\)[\s\S]*applyOverlayPayload\(_overlayPayload\)/,
-    'live trade and overlay refreshes must not force autoscale over the user-owned vertical range',
+    setChartOverlaysBody,
+    /applyOverlayPayload\(_overlayPayload\)[\s\S]*schedulePriceScaleHealthCheck\('overlay_update', false, 1\)/,
+    'live trade and overlay refreshes may heal a collapsed scale but must not reset the user-owned vertical range',
+  );
+  assert.doesNotMatch(
+    setChartOverlaysBody,
+    /scheduleOverlayPriceScaleLock|scheduleOverlayVisibleCandleScaleRecovery/,
+    'routine overlay refreshes must not run price-scale fitting or visible-candle recovery',
   );
 });
 

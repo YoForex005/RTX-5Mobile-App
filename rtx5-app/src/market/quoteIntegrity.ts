@@ -1,3 +1,4 @@
+import { normalizeQuoteTickTimestampToMs } from '../api/ws/quoteTimestamp';
 import { MARKET_QUOTE_STALE_AFTER_MS } from './quotePolicy';
 import {
   captureActiveBrokerSession,
@@ -5,6 +6,7 @@ import {
 } from '../state/activeBrokerSession';
 import { getFeedHealthSnapshot } from './feedHealthRuntime';
 import {
+  feedHealthAllowsFreshQuoteFallback,
   feedHealthAllowsPriceActions,
   feedHealthStateMatchesIdentity,
 } from './feedHealthState';
@@ -45,10 +47,39 @@ const toFinitePositiveNumber = (value: unknown): number | undefined => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 };
 
+/** Normalize seconds/ms/us timestamps so freshness compares against Date.now(). */
+const toFreshnessMs = (value: unknown): number | undefined => {
+  const ms = normalizeQuoteTickTimestampToMs(value);
+  return ms != null && ms > 0 ? ms : undefined;
+};
+
+const isFreshTimestampMs = (timestampMs: number | undefined, now: number): boolean => {
+  if (timestampMs === undefined) return false;
+  const ageMs = now - timestampMs;
+  // Allow a small future skew from broker clocks; reject ancient or absurd values.
+  return ageMs >= -5_000 && ageMs <= MARKET_QUOTE_STALE_AFTER_MS;
+};
+
 /**
  * Fail-closed policy for any action that can execute at the displayed price.
- * REST is intentionally display/snapshot-only; only a fresh, explicitly
- * tradable websocket quote can enable a price action.
+ *
+ * Gate on **live websocket transport + fresh bid/ask**. Do not block on the
+ * feed's optional `tradable` flag: many brokers (and REST→WS merges) leave it
+ * false/missing while still streaming executable prices — which produced
+ * "marked non-tradable by the market feed" on XAUUSD/BTCUSD with live candles.
+ *
+ * Freshness:
+ * - A recent client receipt (`lastReceivedAt` / `lastTickAt`) of a websocket
+ *   tick is enough. Receipt is stamped only when a live tick is ingested, so
+ *   it is the reliable proof of life for Close / Order Ticket / SL·TP modify.
+ * - Many brokers omit `feedTickAt` or send an unusable source clock. An ancient
+ *   or wrong `feedTickAt` must not override a fresh websocket receipt (that
+ *   produced false "live quote is stale" while bid/ask were still updating).
+ * - When receipt is missing, a fresh `feedTickAt` alone can still pass.
+ *
+ * REST snapshots stay non-executable. Place-order on the broker gateway remains
+ * the authority for session, margin, and market-hours rejects
+ * (NO_FRESH_QUOTE / STALE_QUOTE / etc.).
  */
 export const resolveQuoteActionAvailability = (
   quote: ExecutableQuoteInput | null | undefined,
@@ -68,41 +99,33 @@ export const resolveQuoteActionAvailability = (
     return { allowed: false, reason: 'invalid_price' };
   }
 
-  const receivedAt = toFinitePositiveNumber(quote.lastReceivedAt ?? quote.lastTickAt);
-  if (
-    quote.stale === true ||
-    receivedAt === undefined ||
-    now - receivedAt > MARKET_QUOTE_STALE_AFTER_MS
-  ) {
+  const receivedAt = toFreshnessMs(quote.lastReceivedAt ?? quote.lastTickAt);
+  const feedTickAt = toFreshnessMs(quote.feedTickAt);
+  const receiptFresh = isFreshTimestampMs(receivedAt, now);
+  const sourceFresh = isFreshTimestampMs(feedTickAt, now);
+
+  // Fresh WS receipt or fresh source clock is enough. Do not fail closed solely
+  // because feedTickAt is missing, ancient, or wrong, and do not let ageMs /
+  // ageSec override a live receipt — those fields are often wrong on real
+  // brokers while bid/ask keep updating (SL/TP modify, close, order ticket).
+  if (!receiptFresh && !sourceFresh) {
+    // Broker `stale` without any fresh anchor is also non-executable.
     return { allowed: false, reason: 'stale_quote' };
   }
 
-  const feedTickAt = toFinitePositiveNumber(quote.feedTickAt);
-  const reportedAgeMs = toFinitePositiveNumber(quote.ageMs);
-  const reportedAgeSec = toFinitePositiveNumber(quote.ageSec);
-  const sourceAgeMs = feedTickAt === undefined ? Number.POSITIVE_INFINITY : now - feedTickAt;
-  const effectiveSourceAgeMs = Math.max(
-    sourceAgeMs,
-    reportedAgeMs ?? 0,
-    reportedAgeSec === undefined ? 0 : reportedAgeSec * 1_000,
-  );
-  if (
-    feedTickAt === undefined ||
-    sourceAgeMs < 0 ||
-    !Number.isFinite(effectiveSourceAgeMs) ||
-    effectiveSourceAgeMs > MARKET_QUOTE_STALE_AFTER_MS
-  ) {
+  // Broker `stale` / `degraded` flags alone must not block when we already have
+  // a fresh WS receipt (or source clock) and valid bid/ask. Several feeds set
+  // these while still streaming prices — Modify Position then showed
+  // "live quote is stale" with live bid/ask on screen.
+  if (quote.stale === true && !receiptFresh && !sourceFresh) {
     return { allowed: false, reason: 'stale_quote' };
   }
 
-  if (quote.degraded === true) {
+  if (quote.degraded === true && !receiptFresh && !sourceFresh) {
     return { allowed: false, reason: 'degraded_quote' };
   }
 
-  if (quote.tradable !== true) {
-    return { allowed: false, reason: 'not_tradable' };
-  }
-
+  // Intentionally ignore quote.tradable — see header comment.
   return { allowed: true, bid, ask };
 };
 
@@ -118,10 +141,24 @@ export const resolveSessionQuoteActionAvailability = (
   if (!capture) return { allowed: false, reason: 'feed_unavailable' };
   const identity = getActiveBrokerSessionIdentity(capture.session);
   const health = getFeedHealthSnapshot();
+  const healthAllowsActions = health.thresholds
+    ? feedHealthAllowsPriceActions(health, now)
+    : feedHealthAllowsFreshQuoteFallback(health, identity);
   if (
     !feedHealthStateMatchesIdentity(health, identity) ||
-    !feedHealthAllowsPriceActions(health, now)
+    !healthAllowsActions
   ) {
+    // A live, quote-local-fresh websocket tick already proved bid/ask. Do not
+    // block SL/TP/close/order solely because the optional health_policy / tick
+    // bookkeeping is lagging — that resurfaced as "stale" UX on Modify Position.
+    const receivedAt = toFreshnessMs(quote?.lastReceivedAt ?? quote?.lastTickAt);
+    const feedTickAt = toFreshnessMs(quote?.feedTickAt);
+    if (
+      quote?.transport === 'websocket'
+      && (isFreshTimestampMs(receivedAt, now) || isFreshTimestampMs(feedTickAt, now))
+    ) {
+      return availability;
+    }
     return { allowed: false, reason: 'feed_unavailable' };
   }
   return availability;
@@ -140,7 +177,7 @@ export const quoteActionBlockMessage = (availability: QuoteActionAvailability): 
     case 'degraded_quote':
       return 'The market feed is degraded. Wait for a complete live quote and try again.';
     case 'not_tradable':
-      return 'This live quote is not currently marked tradable.';
+      return 'This instrument is currently marked non-tradable by the market feed.';
     case 'invalid_price':
       return 'The live bid/ask is invalid. Wait for the next quote and try again.';
     case 'feed_unavailable':

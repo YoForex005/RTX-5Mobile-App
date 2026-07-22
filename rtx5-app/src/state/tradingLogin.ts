@@ -2,29 +2,40 @@
  * Core module: tradingLogin.ts
  */
 
+import { captureActiveBrokerSession } from './activeBrokerSession';
 import { useLiveAccountState } from './liveAccountState';
 import { useUserPreferences } from './userPreferences';
 
+const toPositiveLogin = (value: unknown): number | undefined => {
+  const numeric = typeof value === 'number' ? value : Number(String(value ?? '').trim());
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return numeric;
+  }
+  return undefined;
+};
+
 /**
  * Central resolution utility for determining the active trading account login.
- * It prioritizes the real-time live connection state, falling back to persisted user preferences.
- * 
+ * Prefer the authenticated broker session (source of truth for positions/cache
+ * scope), then live WS metrics, then persisted preferences.
+ *
  * @returns The active numeric MT5 login ID, or undefined if no account is authenticated.
  */
 export function resolveTradingLogin(): number | undefined {
-  // 1. Highest Priority: Check the actual live WebSocket state
-  const liveLogin = useLiveAccountState.getState().login;
-  if (Number.isFinite(liveLogin) && liveLogin > 0) {
+  // 1. Active broker session — must match positionsState cache-scope checks.
+  const sessionLogin = toPositiveLogin(captureActiveBrokerSession()?.session.accountLogin);
+  if (sessionLogin !== undefined) {
+    return sessionLogin;
+  }
+
+  // 2. Live WebSocket metrics (may lag during account switch).
+  const liveLogin = toPositiveLogin(useLiveAccountState.getState().login);
+  if (liveLogin !== undefined) {
     return liveLogin;
   }
 
-  // 2. Fallback: Check the locally persisted user preferences (useful during initialization)
-  const persistedLogin = Number(useUserPreferences.getState().accountDetails?.id);
-  if (Number.isFinite(persistedLogin) && persistedLogin > 0) {
-    return persistedLogin;
-  }
-
-  return undefined;
+  // 3. Persisted preferences (boot / pre-session hydrate).
+  return toPositiveLogin(useUserPreferences.getState().accountDetails?.id);
 }
 
 /**
@@ -34,17 +45,20 @@ export function resolveTradingLogin(): number | undefined {
  */
 export function useResolvedTradingLogin(): number | undefined {
   const liveLogin = useLiveAccountState((state) => state.login);
-  const persistedLogin = useUserPreferences((state) => Number(state.accountDetails?.id));
-
-  if (Number.isFinite(liveLogin) && liveLogin > 0) {
-    return liveLogin;
+  const persistedLogin = useUserPreferences((state) => state.accountDetails?.id);
+  // Session is not a React store; re-read each render so login switches that
+  // also update live/preferences still resolve the session login first.
+  const sessionLogin = toPositiveLogin(captureActiveBrokerSession()?.session.accountLogin);
+  if (sessionLogin !== undefined) {
+    return sessionLogin;
   }
 
-  if (Number.isFinite(persistedLogin) && persistedLogin > 0) {
-    return persistedLogin;
+  const resolvedLive = toPositiveLogin(liveLogin);
+  if (resolvedLive !== undefined) {
+    return resolvedLive;
   }
 
-  return undefined;
+  return toPositiveLogin(persistedLogin);
 }
 
 /**

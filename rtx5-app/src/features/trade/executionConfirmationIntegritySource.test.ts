@@ -39,7 +39,8 @@ test('chart trade confirmations never invent tickets or execution prices', () =>
   assert.match(webButtons, /data\?\.price_open \?\? data\?\.price/);
   assert.doesNotMatch(webButtons, /data\?\.price\s*(?:\|\||\?\?).*(?:latestBid|latestAsk)/);
 
-  assert.match(evidence, /data\.price_open \?\? data\.price/);
+  assert.match(evidence, /data\.price \?\? data\.price_open/);
+  assert.doesNotMatch(evidence, /data\.position_ticket \?\? data\.order_ticket/);
   assert.match(evidence, /ticket !== undefined && executionPrice !== undefined/);
   assert.match(handler, /resolveBrokerExecutionEvidence\(data\)/);
   assert.match(handler, /executionEvidence\.confirmed/);
@@ -54,11 +55,13 @@ test('chart trade confirmations never invent tickets or execution prices', () =>
 test('order mutation cache inserts require a real ticket and positive backend execution price', () => {
   const source = readSource('src/query/orders.ts');
   const guardedInserts = source.match(
-    /if \(positionTicket !== null && executionPrice !== null && currentPrice !== null\)/g,
+    /canOptimisticallyInsertPosition\(data\)[\s\S]*?&& positionTicket !== null[\s\S]*?&& executionPrice !== null[\s\S]*?&& currentPrice !== null/g,
   ) ?? [];
 
-  assert.equal(guardedInserts.length, 2);
-  assert.match(source, /firstPositiveFiniteNumber\(data\.price_open, data\.price\)/);
+  // Shared handlePlaceOrderSuccess owns the insert; mutation/executor both call it.
+  assert.equal(guardedInserts.length, 1);
+  assert.match(source, /handlePlaceOrderSuccess\(queryClient, data, variables, cacheNamespace\)/);
+  assert.match(source, /resolveBrokerExecutionEvidence\(data\)/);
   assert.doesNotMatch(source, /openPrice:\s*data\.price\s*\|\|\s*0/);
   assert.doesNotMatch(source, /currentPrice:\s*data\.price\s*\|\|\s*0/);
 });
@@ -70,8 +73,11 @@ test('order ticket never fabricates a broker fill from a live quote or random id
   assert.match(handler, /resolveBrokerExecutionEvidence\(data\)/);
   assert.match(
     handler,
-    /executionEvidence\.confirmed[\s\S]*positionTicket !== undefined[\s\S]*executionPrice !== undefined[\s\S]*confirmedCurrentPrice !== undefined/,
+    /canOptimisticallyInsertPosition &&[\s\S]*executionEvidence\.confirmed[\s\S]*positionTicket !== undefined[\s\S]*executionPrice !== undefined[\s\S]*confirmedCurrentPrice !== undefined/,
   );
+  assert.match(handler, /executionAction === 'closed'[\s\S]*expectedPositionPresence/);
+  assert.match(handler, /requiresContentReconciliation = \['increased', 'decreased', 'reversed'\]/);
+  assert.match(handler, /syncMarketPosition\([\s\S]*expectedPositionPresence,[\s\S]*requiresContentReconciliation/);
   assert.match(handler, /executionConfirmed:\s*false/);
   assert.match(handler, /Confirmation Pending/);
   assert.doesNotMatch(handler, /Math\.random/);

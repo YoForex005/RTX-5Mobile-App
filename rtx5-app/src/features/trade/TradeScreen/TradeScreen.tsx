@@ -46,7 +46,7 @@ import {
   isActiveBrokerSessionCurrent,
 } from '../../../state/activeBrokerSession';
 import {
-  getFeedHealthSnapshot,
+  getFeedHealthRenderSnapshot,
   requestFeedHealthRetry,
   subscribeFeedHealth,
 } from '../../../market/feedHealthRuntime';
@@ -76,6 +76,11 @@ const TRADE_SCREEN_REFRESH_INTERVAL_MS = 3000;
 // FlatList mount cost. Live quotes and ledger work remain focus-gated below.
 const TRADE_BODY_PREWARM_DELAY_MS = 600;
 
+type RetainedTradeLedger = Pick<
+  ReturnType<typeof usePositionsState.getState>,
+  'positions' | 'lastFetchLogin' | 'hydratedLogin' | 'lastError'
+>;
+
 function areStringSetsEqual(left: Set<string>, right: Set<string>) {
   if (left.size !== right.size) {
     return false;
@@ -94,7 +99,11 @@ function areStringSetsEqual(left: Set<string>, right: Set<string>) {
  * Main screen for the Trade tab, displaying the user's active open positions, pending orders, and real-time equity/margin summary.
  */
 const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
-  const routeBodyReady = useDeferredRouteContentReady(TRADE_BODY_PREWARM_DELAY_MS);
+  // Prewarm the body offscreen, but never make a Trade tab selection wait for
+  // the idle window — focus cancels the delay so the retained list paints now.
+  const routeBodyReady = useDeferredRouteContentReady(
+    isScreenFocused ? 0 : TRADE_BODY_PREWARM_DELAY_MS,
+  );
   const [viewablePositionIds, setViewablePositionIds] = useState<Set<string>>(() => new Set());
   const T = useTheme();
   const { t } = useTranslation();
@@ -108,11 +117,23 @@ const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused 
     state.accountDetails?.server || state.brokerId
   ));
   const showTradeActionSheet = useUIState((st) => st.showTradeActionSheet);
-  const feedHealth = React.useSyncExternalStore(
-    subscribeFeedHealth,
-    getFeedHealthSnapshot,
-    getFeedHealthSnapshot,
+  const retainedFeedHealthRef = useRef(getFeedHealthRenderSnapshot());
+  const subscribeFocusedFeedHealth = useCallback(
+    (listener: () => void) => (isScreenFocused ? subscribeFeedHealth(listener) : () => undefined),
+    [isScreenFocused],
   );
+  const getFocusedFeedHealthSnapshot = useCallback(
+    () => (isScreenFocused ? getFeedHealthRenderSnapshot() : retainedFeedHealthRef.current),
+    [isScreenFocused],
+  );
+  const feedHealth = React.useSyncExternalStore(
+    subscribeFocusedFeedHealth,
+    getFocusedFeedHealthSnapshot,
+    getFocusedFeedHealthSnapshot,
+  );
+  if (isScreenFocused) {
+    retainedFeedHealthRef.current = feedHealth;
+  }
   const activeCapture = captureActiveBrokerSession();
   const activeFeedIdentity = activeCapture
     ? getActiveBrokerSessionIdentity(activeCapture.session)
@@ -138,16 +159,36 @@ const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused 
     quotesWsService.connect();
   }, [activeFeedIdentity]);
 
-  const { positions, refreshPositions, hydrateCachedPositions, lastFetchLogin, hydratedLogin, lastError } = usePositionsState(
-    useShallow((state) => ({
-      positions: state.positions,
-      refreshPositions: state.refreshPositions,
-      hydrateCachedPositions: state.hydrateCachedPositions,
-      lastFetchLogin: state.lastFetchLogin,
-      hydratedLogin: state.hydratedLogin,
-      lastError: state.lastError,
-    })),
+  const retainedTradeLedgerRef = useRef<RetainedTradeLedger | null>(null);
+  if (retainedTradeLedgerRef.current === null) {
+    const initialLedger = usePositionsState.getState();
+    retainedTradeLedgerRef.current = {
+      positions: initialLedger.positions,
+      lastFetchLogin: initialLedger.lastFetchLogin,
+      hydratedLogin: initialLedger.hydratedLogin,
+      lastError: initialLedger.lastError,
+    };
+  }
+  const tradeLedger = usePositionsState(
+    useShallow((state): RetainedTradeLedger => (
+      isScreenFocused
+        ? {
+          positions: state.positions,
+          lastFetchLogin: state.lastFetchLogin,
+          hydratedLogin: state.hydratedLogin,
+          lastError: state.lastError,
+        }
+        : retainedTradeLedgerRef.current as RetainedTradeLedger
+    )),
   );
+  if (isScreenFocused) {
+    retainedTradeLedgerRef.current = tradeLedger;
+  }
+  const { positions, lastFetchLogin, hydratedLogin, lastError } = tradeLedger;
+  // Actions are stable Zustand members; keeping them in separate selectors
+  // prevents the hidden Trade tree from following every ledger mutation.
+  const refreshPositions = usePositionsState((state) => state.refreshPositions);
+  const hydrateCachedPositions = usePositionsState((state) => state.hydrateCachedPositions);
   const primePositionSnapshot = usePositionsState((state) => state.primePositionSnapshot);
   // Use the reactive login hook here. If the Trade tab is already mounted while
   // login state hydrates, this rerenders immediately and starts cache/fetch work.
@@ -229,6 +270,19 @@ const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused 
       clearInterval(refreshIntervalId);
     };
   }, [tradeFetchActive, resolvedLogin, fetchPositions]);
+
+  // On focus, refresh ledger quietly. Do NOT remount FlatList via a changing
+  // `key` — remounting the whole list blanks every row for a frame (visible
+  // Trade-screen blink after place-order / tab switches).
+  useEffect(() => {
+    if (!isScreenFocused) {
+      return;
+    }
+    if (resolvedLogin) {
+      void fetchPositions();
+    }
+  }, [isScreenFocused, resolvedLogin, fetchPositions]);
+
   const positionRowsActive = tradeLiveActive;
   const { data: accountSummary } = useAccountSummary(accountLoginString, {
     enabled: tradeFetchActive && !!accountLoginString,
@@ -245,6 +299,10 @@ const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused 
     [positions],
   );
   const totalVolume = renderablePositions.reduce((sum, p) => sum + (p.volume || 0), 0);
+  const positionsListSignature = useMemo(
+    () => renderablePositions.map((position) => position.id).join('|'),
+    [renderablePositions],
+  );
   const rowActivationKey = useMemo(
     // FlatList rows are memoized, so this key tells them when their "live row"
     // status changed after scrolling.
@@ -252,8 +310,18 @@ const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused 
     [positionRowsActive, viewablePositionIds],
   );
   const flatListExtraData = useMemo(
-    () => ({ accountLeverage, rowActivationKey }),
-    [accountLeverage, rowActivationKey],
+    () => ({
+      accountLeverage,
+      rowActivationKey,
+      positionsListSignature,
+      positionCount: renderablePositions.length,
+    }),
+    [
+      accountLeverage,
+      rowActivationKey,
+      positionsListSignature,
+      renderablePositions.length,
+    ],
   );
 
   /**
@@ -341,16 +409,6 @@ const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused 
             onPress: () => {
               primePositionSnapshot(item);
               showTradePositionAction('close', item.id);
-            },
-          },
-          {
-            icon: <Ionicons name="git-compare-outline" size={20} color={positionCloseActionColor} />,
-            label: t('Close By'),
-            textColor: positionCloseActionColor,
-            textFontWeight: TRADE_POSITION_CLOSE_ACTION_FONT_WEIGHT,
-            onPress: () => {
-              primePositionSnapshot(item);
-              showTradePositionAction('close-by', item.id);
             },
           },
           {
@@ -452,6 +510,7 @@ const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused 
         totalVolume={totalVolume}
         onBulkPress={showBulkSheet}
         active={tradeLiveActive}
+        restAccountSummary={accountSummary}
         />
         <FlatList
         keyboardShouldPersistTaps="always"

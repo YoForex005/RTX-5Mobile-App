@@ -636,8 +636,12 @@ export function useLiveQuoteSnapshot(symbol: string, active = true): LiveQuoteSn
   );
 
   const getSnapshot = useCallback(
-    () => (normalizedSymbol ? resolveSnapshot(normalizedSymbol) : undefined),
-    [cacheNamespace, normalizedSymbol],
+    // Mirrors the subscribe gate (like useLiveQuoteFreshnessAnchor below). An
+    // inactive instance is not subscribed, so its snapshot must not track the
+    // live per-symbol object — that made every tick fail React's
+    // store-consistency check and sync-re-render hidden shells and screens.
+    () => (active && cacheNamespace && normalizedSymbol ? resolveSnapshot(normalizedSymbol) : undefined),
+    [active, cacheNamespace, normalizedSymbol],
   );
 
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);

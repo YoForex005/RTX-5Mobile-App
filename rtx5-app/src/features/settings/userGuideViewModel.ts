@@ -55,7 +55,7 @@ export const GUIDE_MANUAL_SECTIONS: GuideManualSection[] = [
     icon: 'trending-up-outline',
     bullets: [
       'Open Trade to review positions, floating profit/loss, account context, and position actions.',
-      'Use order tickets for market, pending, modify, close, close-by, and bulk operation flows.',
+      'Use order tickets for market, pending, modify, close, and bulk operation flows.',
       'One-click trading remains blocked until the local terms acceptance state is enabled by the user.',
     ],
   },

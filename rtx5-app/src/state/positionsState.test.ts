@@ -2,11 +2,66 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  buildOpenPositionsCacheSignature,
   buildMergedPositions,
   dedupePositionsById,
+  hasPositionPresenceConverged,
   isTerminalPositionUpdate,
   shouldClearPositionsForLoginSwitch,
 } from './positionsState.helpers.ts';
+
+const cachedPositionFixture = {
+  id: '9101',
+  symbol: 'EURUSD',
+  side: 'buy' as const,
+  volume: 0.1,
+  openPrice: 1.14,
+  currentPrice: 1.1401,
+  pnl: 1,
+  swap: 0,
+  commission: -0.25,
+  openTime: '2026-07-22T05:00:00.000Z',
+  sl: 1.13,
+  tp: 1.16,
+};
+
+test('open-position cache signature ignores price and PnL-only websocket ticks', () => {
+  const before = buildOpenPositionsCacheSignature([cachedPositionFixture]);
+  const after = buildOpenPositionsCacheSignature([
+    {
+      ...cachedPositionFixture,
+      currentPrice: 1.145,
+      pnl: 50,
+    },
+  ]);
+
+  assert.equal(after, before);
+});
+
+test('open-position cache signature changes for open, close, size, and SL/TP ledger updates', () => {
+  const initial = buildOpenPositionsCacheSignature([cachedPositionFixture]);
+
+  assert.notEqual(
+    buildOpenPositionsCacheSignature([{ ...cachedPositionFixture, volume: 0.05 }]),
+    initial,
+  );
+  assert.notEqual(
+    buildOpenPositionsCacheSignature([{ ...cachedPositionFixture, sl: 1.135 }]),
+    initial,
+  );
+  assert.notEqual(
+    buildOpenPositionsCacheSignature([{ ...cachedPositionFixture, tp: 1.17 }]),
+    initial,
+  );
+  assert.notEqual(
+    buildOpenPositionsCacheSignature([
+      cachedPositionFixture,
+      { ...cachedPositionFixture, id: '9102' },
+    ]),
+    initial,
+  );
+  assert.notEqual(buildOpenPositionsCacheSignature([]), initial);
+});
 
 test('shouldClearPositionsForLoginSwitch only clears when the account really changed', () => {
   assert.equal(shouldClearPositionsForLoginSwitch(null, '2001'), false);
@@ -126,6 +181,89 @@ test('buildMergedPositions clears optimistic state after backend confirmation so
 
   const afterHitSnapshot = buildMergedPositions(confirmed, []);
   assert.deepEqual(afterHitSnapshot, []);
+});
+
+test('incremental websocket confirmation keeps optimistic convergence without dropping other rows', () => {
+  const optimisticCreatedAt = Date.now() - 5000;
+  const current = [
+    {
+      id: '421',
+      symbol: 'EURUSD',
+      side: 'buy' as const,
+      volume: 0.1,
+      openPrice: 1.14,
+      currentPrice: 1.1401,
+      pnl: 1,
+      swap: 0,
+      openTime: '2026-07-22T05:00:00.000Z',
+      clientCreatedAt: optimisticCreatedAt,
+    },
+    {
+      id: '422',
+      symbol: 'XAUUSD',
+      side: 'sell' as const,
+      volume: 0.2,
+      openPrice: 4120,
+      currentPrice: 4119,
+      pnl: 20,
+      swap: 0,
+      openTime: '2026-07-22T04:59:00.000Z',
+    },
+  ];
+
+  const incremental = buildMergedPositions(
+    current,
+    [
+      {
+        ticket: 421,
+        symbol: 'EURUSD',
+        side: 'buy',
+        volume: 0.1,
+        price_open: 1.14,
+        price_current: 1.1402,
+        profit: 2,
+        time_create: 1_779_252_400,
+      },
+    ],
+    { preserveMissingExisting: true },
+  );
+
+  assert.equal(incremental.find((position) => position.id === '421')?.clientCreatedAt, optimisticCreatedAt);
+  assert.deepEqual(incremental.map((position) => position.id).sort(), ['421', '422']);
+
+  const laterEmptyIncremental = buildMergedPositions(
+    incremental,
+    [],
+    { preserveMissingExisting: true },
+  );
+  assert.deepEqual(laterEmptyIncremental.map((position) => position.id).sort(), ['421', '422']);
+});
+
+test('position presence converges only after authoritative confirmation or actual removal', () => {
+  const optimisticPosition = {
+    id: '431',
+    symbol: 'EURUSD',
+    side: 'buy' as const,
+    volume: 0.1,
+    openPrice: 1.14,
+    currentPrice: 1.1401,
+    pnl: 1,
+    swap: 0,
+    openTime: '2026-07-22T05:00:00.000Z',
+    clientCreatedAt: Date.now(),
+  };
+
+  assert.equal(hasPositionPresenceConverged([optimisticPosition], '431', true), false);
+  assert.equal(
+    hasPositionPresenceConverged(
+      [{ ...optimisticPosition, clientCreatedAt: undefined }],
+      '431',
+      true,
+    ),
+    true,
+  );
+  assert.equal(hasPositionPresenceConverged([optimisticPosition], '431', false), false);
+  assert.equal(hasPositionPresenceConverged([], '431', false), true);
 });
 
 test('dedupePositionsById keeps the newest optimistic row when a ticket collides', () => {

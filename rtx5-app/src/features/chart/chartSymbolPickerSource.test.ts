@@ -65,9 +65,16 @@ test('symbol picker stays fixed when the search keyboard opens (no focus-time ju
     actionSheetSource,
     /keepFullHeightSheet\s*\n?\s*\?\s*\{ position: 'absolute' as const, top: 0, left: 0, right: 0, height: screenHeight \}/,
   );
-  //    iOS: the KeyboardAvoidingView is disabled so it stops padding the
-  //    bottom-anchored sheet up (that upward push is the jump).
-  assert.match(actionSheetSource, /enabled=\{!keepFullHeightSheet\}/);
+  //    iOS: stay-still and non-searchable sheets bypass KeyboardAvoidingView
+  //    entirely, so it cannot pad the bottom-anchored sheet up. Searchable
+  //    sheets that do need avoidance keep the dedicated iOS host.
+  assert.match(
+    actionSheetSource,
+    /const iosKeyboardAvoidanceEnabled\s*=\s*\n?\s*Platform\.OS === 'ios' && activeSearchable && !keepFullHeightSheet;/,
+  );
+  assert.match(actionSheetSource, /\{iosKeyboardAvoidanceEnabled \? \(\s*<KeyboardAvoidingView/);
+  assert.match(actionSheetSource, /<KeyboardAvoidingView[\s\S]*behavior="padding"[\s\S]*enabled[\s\S]*style=\{styles\.sheetHost\}/);
+  assert.doesNotMatch(actionSheetSource, /enabled=\{!keepFullHeightSheet\}/);
 
   // 4) The chart must not run its own keyboard avoidance for a sheet's keyboard.
   assert.match(
@@ -220,17 +227,22 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
     source.indexOf('const handleOpenDrawingTools = useCallback'),
     source.indexOf('const handleOpenSettingsScreen = useCallback', source.indexOf('const handleOpenDrawingTools = useCallback')),
   );
+  const smoothActionSheetHelperSource = source.slice(
+    source.indexOf('const openChartActionSheetSmoothly = useCallback'),
+    source.indexOf('const symbolPickerActions = useMemo', source.indexOf('const openChartActionSheetSmoothly = useCallback')),
+  );
 
   assert.match(timeframePickerSource, /TIMEFRAME_PICKER_GROUPS[\s\S]*title: 'Minutes'[\s\S]*options: \['M1', 'M5', 'M15', 'M30'\]/);
   assert.match(timeframePickerSource, /title: 'Hours'[\s\S]*options: \['H1', 'H4'\]/);
   assert.match(timeframePickerSource, /title: 'Days'[\s\S]*'D1'[\s\S]*'MN'/);
   assert.doesNotMatch(timeframePickerSource, /'M2'|'M3'|'M4'|'M6'|'M10'|'M12'|'M20'|'H2'|'H3'|'H6'|'H8'|'H12'/);
   assert.match(timeframePickerSource, /export function createTimeframePickerActionSheetActions/);
-  assert.match(timeframePickerSource, /export function ChartTimeframePickerOverlay/);
+  assert.match(timeframePickerSource, /export const ChartTimeframePickerOverlay = memo\(function ChartTimeframePickerOverlay/);
   assert.match(timeframePickerSource, /const options = group\.options\.filter\(\(timeframe\) => supportedSet\.has\(timeframe\)\)/);
   assert.match(timeframePickerSource, /selected: active/);
   assert.match(timeframePickerSource, /disabled: !supported/);
   assert.match(timeframePickerSource, /activateOnPressIn: true/);
+  assert.match(timeframePickerSource, /disabled=\{active\}/);
   assert.match(timeframePickerSource, /StyleSheet\.absoluteFillObject/);
   assert.match(timeframePickerSource, /justifyContent: 'center'/);
   assert.match(timeframePickerSource, /const CHART_DARK_PANEL_BACKGROUND = '#1E1E1E'/);
@@ -241,11 +253,17 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(timeframePickerSource, /shadowOpacity: 0/);
   assert.match(timeframePickerSource, /shadowRadius: 0/);
   assert.match(timeframePickerSource, /elevation: 0/);
+  // Retained host: always mounted, native opacity flip on open (no mount lag).
+  assert.match(timeframePickerSource, /registerChartTimeframePickerApplier\(applyVisibilityNow\)/);
+  assert.match(timeframePickerSource, /setNativeProps\(\{[\s\S]*pointerEvents: isVisible \? 'auto' : 'none'/);
+  assert.match(timeframePickerSource, /overlayHidden: \{\s*opacity: 0,\s*\}/);
+  assert.doesNotMatch(timeframePickerSource, /if \(!visible\) return null/);
   assert.doesNotMatch(timeframePickerSource, /shadowColor: '#000000'|rgba\(59,130,246,0\.25\)|shadowColor: isDark \? accentColor|rgba\(37,99,235,0\.18\)|shadowRadius: isDark \? 0 : 28|elevation: isDark \? 0 : 18/);
   assert.doesNotMatch(timeframePickerSource, /Ionicons|iconName|icon:/);
   assert.doesNotMatch(timeframePickerSource, /<Modal|bottomDock/);
   assert.match(source, /import \{ ChartTimeframePickerOverlay \} from '\.\/components\/ChartTimeframePickerSheet'/);
-  assert.match(source, /const \[timeframePickerVisible, setTimeframePickerVisible\] = useState\(false\)/);
+  assert.match(source, /import \{\s*hideChartTimeframePicker,\s*showChartTimeframePicker,\s*\} from '\.\/chartTimeframePickerController'/);
+  assert.doesNotMatch(source, /const \[timeframePickerVisible, setTimeframePickerVisible\] = useState\(false\)/);
   assert.match(source, /const chartTradeExpirationActions = useMemo\(/);
   assert.match(source, /chartTradeExpirationActions = useMemo\([\s\S]*name="infinite-outline"[\s\S]*label: t\('GTC'\)[\s\S]*name="today-outline"[\s\S]*label: t\('Today'\)[\s\S]*name="time-outline"[\s\S]*label: t\('Date and Time'\)[\s\S]*name="calendar-outline"[\s\S]*label: t\('Date'\)/);
   assert.doesNotMatch(source, /const timeframePickerActions = useMemo\(/);
@@ -272,17 +290,22 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(source, /setChartDisplaySetting: state\.setChartDisplaySetting/);
   assert.match(source, /const scheduleChartActionSheetContextReset = useCallback/);
   assert.match(source, /scheduleAfterFirstFrame\(resetChartActionSheetContext\)/);
-  assert.match(source, /const handleTimeframeSelect = useCallback[\s\S]*setTimeframePickerVisible\(false\)[\s\S]*warmChartContextAndCommit\(chartSymbol, nextTimeframe\)/);
-  assert.match(timeframeHandlerSource, /timeframes\.forEach[\s\S]*prefetchChartTimeframeHistory\(chartSymbol, tf\)[\s\S]*hideActionSheet\(\);[\s\S]*closeChartTapMenu\(\);[\s\S]*setTimeframePickerVisible\(true\)/);
+  assert.match(source, /const handleTimeframeSelect = useCallback[\s\S]*hideChartTimeframePicker\(\)[\s\S]*warmChartContextAndCommit\(chartSymbol, nextTimeframe\)/);
+  // Open critical path: native show first, history prefetch deferred off the tap.
+  assert.match(timeframeHandlerSource, /showChartTimeframePicker\(\);[\s\S]*hideActionSheet\(\);[\s\S]*closeChartTapMenu\(\);/);
+  assert.match(timeframeHandlerSource, /scheduleIdleWork\(\(\) => \{\s*timeframes\.forEach[\s\S]*prefetchChartTimeframeHistory\(chartSymbol, tf\)/);
+  assert.doesNotMatch(timeframeHandlerSource, /setTimeframePickerVisible/);
   assert.doesNotMatch(timeframeHandlerSource, /showActionIcons:\s*true/);
   assert.doesNotMatch(timeframeHandlerSource, /showChartActionSheet|presentation:\s*'mt5Plain'|presentation:\s*'mt5TimeframeGrid'|detent:\s*'adaptive'/);
-  assert.match(source, /<ChartTimeframePickerOverlay[\s\S]*visible=\{timeframePickerVisible\}[\s\S]*supportedTimeframes=\{timeframes\}[\s\S]*onClose=\{handleCloseTimeframePicker\}[\s\S]*onSelect=\{handleTimeframeSelect\}/);
-  assert.match(source, /drawingToolsActionSheetConfig = useMemo[\s\S]*title:\s*t\('Drawing Tools'\)[\s\S]*searchable:\s*true[\s\S]*searchPlaceholder:\s*t\('Search drawing tools\.\.\.'\)[\s\S]*compactText:\s*true[\s\S]*presentation:\s*'mt5Plain'[\s\S]*showActionIcons:\s*true[\s\S]*deferOffscreenActions:\s*true[\s\S]*maximumVisibleActionRows:\s*12[\s\S]*detent:\s*'large'[\s\S]*instantOpen:\s*true[\s\S]*entryMotion:\s*'mt5Slide'[\s\S]*immediateHostHideOnClose:\s*true[\s\S]*runActionAfterClose:\s*false[\s\S]*keepFullHeightOnKeyboard:\s*true[\s\S]*actions: drawingToolsActions/);
+  assert.match(source, /<ChartTimeframePickerOverlay[\s\S]*supportedTimeframes=\{timeframes\}[\s\S]*onSelect=\{handleTimeframeSelect\}/);
+  assert.doesNotMatch(source, /visible=\{timeframePickerVisible\}|onClose=\{handleCloseTimeframePicker\}/);
+  assert.match(source, /drawingToolsActionSheetConfig = useMemo[\s\S]*title:\s*t\('Drawing Tools'\)[\s\S]*searchable:\s*true[\s\S]*searchPlaceholder:\s*t\('Search drawing tools\.\.\.'\)[\s\S]*compactText:\s*true[\s\S]*presentation:\s*'mt5Plain'[\s\S]*showActionIcons:\s*true[\s\S]*deferOffscreenActions:\s*true[\s\S]*maximumVisibleActionRows:\s*12[\s\S]*detent:\s*'large'[\s\S]*instantOpen:\s*true[\s\S]*entryMotion:\s*'instant'[\s\S]*immediateHostHideOnClose:\s*true[\s\S]*runActionAfterClose:\s*false[\s\S]*keepFullHeightOnKeyboard:\s*true[\s\S]*actions: drawingToolsActions/);
   assert.match(source, /const openChartActionSheetSmoothly = useCallback[\s\S]*mountedVisualKey =[\s\S]*preloadedScopedActionSheets\.chart\?\.visualKey[\s\S]*parkRetainedActionSheetHostForConfigSwap\(mountedVisualKey\)[\s\S]*preloadScopedActionSheet\('chart', config\)[\s\S]*if \(parked\)[\s\S]*scheduleAfterFirstFrame\(\(\) => \{[\s\S]*showChartActionSheet\(config\)/);
-  assert.doesNotMatch(source, /const openChartActionSheetSmoothly =[\s\S]*requestRetainedActionSheetPreview/);
-  assert.match(drawingToolsHandlerSource, /runImmediateAction\('chart\.drawingTools\.open'[\s\S]*openChartActionSheetSmoothly\(drawingToolsActionSheetConfig\)/);
+  assert.doesNotMatch(smoothActionSheetHelperSource, /requestRetainedActionSheetPreview/);
+  assert.match(drawingToolsHandlerSource, /runImmediateAction\('chart\.drawingTools\.open'[\s\S]*showChartActionSheet\(drawingToolsActionSheetConfig\)/);
+  assert.doesNotMatch(drawingToolsHandlerSource, /openChartActionSheetSmoothly/);
   assert.match(symbolPickerHandlerSource, /runImmediateAction\('chart\.symbolPicker\.open'[\s\S]*openChartActionSheetSmoothly\(symbolPickerActionSheetConfig\)/);
-  assert.doesNotMatch(drawingToolsHandlerSource, /scheduleAfterFirstFrame/);
+  assert.match(drawingToolsHandlerSource, /commitRetainedActionSheetPreview\([\s\S]*if \(retainedRevealAccepted\) \{[\s\S]*scheduleAfterFirstFrame\(adoptDrawingToolsSheet\)/);
   assert.doesNotMatch(symbolPickerHandlerSource, /scheduleAfterFirstFrame/);
   // Both long chart lists can share More-menu motion once their opening
   // viewport is stable and their offscreen rows are deferred.
@@ -307,11 +330,11 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(drawingToolsConfigSource, /deferOffscreenActions:\s*true/);
   assert.match(drawingToolsConfigSource, /maximumVisibleActionRows:\s*12/);
   assert.match(drawingToolsConfigSource, /detent:\s*'large'/);
-  assert.match(drawingToolsConfigSource, /entryMotion:\s*'mt5Slide'/);
+  assert.match(drawingToolsConfigSource, /entryMotion:\s*'instant'/);
   assert.match(drawingToolsConfigSource, /keepFullHeightOnKeyboard:\s*true/);
-  assert.doesNotMatch(drawingToolsConfigSource, /entryMotion:\s*'instant'/);
+  assert.doesNotMatch(drawingToolsConfigSource, /entryMotion:\s*'mt5Slide'/);
   assert.match(source, /title:\s*t\('Drawing Tools'\)[\s\S]*presentation:\s*'mt5Plain'/);
-  assert.match(drawingSource, /title=\{t\('Drawing Tools'\)\}[\s\S]*searchable[\s\S]*searchPlaceholder=\{t\('Search drawing tools\.\.\.'\)\}[\s\S]*maximumVisibleActionRows=\{12\}[\s\S]*detent="large"[\s\S]*keepFullHeightOnKeyboard/);
+  assert.match(drawingSource, /title=\{t\('Drawing Tools'\)\}[\s\S]*searchable[\s\S]*searchPlaceholder=\{t\('Search drawing tools\.\.\.'\)\}[\s\S]*maximumVisibleActionRows=\{12\}[\s\S]*detent="large"[\s\S]*entryMotion="instant"[\s\S]*keepFullHeightOnKeyboard/);
   assert.match(drawingSource, /presentation="mt5Plain"[\s\S]*showActionIcons[\s\S]*actions=\{createDrawingToolsActionSheetActions/);
   assert.match(drawingTypesSource, /icon\?: ReactNode/);
   assert.match(drawingToolsSource, /DRAWING_SHEET_OPTIONS\.map\(\(definition\) => \(\{[\s\S]*icon: definition\.renderIcon\(iconColor\)/);

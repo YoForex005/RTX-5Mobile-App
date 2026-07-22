@@ -56,3 +56,24 @@ test('market order request explicitly identifies market execution', () => {
 
   assert.match(orderBodySource, /type: 'market'/);
 });
+
+test('market order wire body uses canonical account_login and never sends magic', () => {
+  const orderBodySource = marketOrderSource.slice(
+    marketOrderSource.indexOf('const orderBody:'),
+    marketOrderSource.indexOf("logOrderDiagnostic('[RTX5 Order] active broker session:'"),
+  );
+
+  assert.match(orderBodySource, /account_login: loginInt/);
+  assert.doesNotMatch(orderBodySource, /\blogin: loginInt/);
+  assert.doesNotMatch(orderBodySource, /orderBody\.magic|magic\s*:/);
+});
+
+test('legacy ticket normalization never promotes a ticket into order_ticket', () => {
+  const normalizationSource = marketOrderSource.slice(
+    marketOrderSource.indexOf("if (finalData && typeof finalData === 'object')"),
+    marketOrderSource.indexOf("logOrderDiagnostic('[TRADE-RESPONSE]'"),
+  );
+
+  assert.match(normalizationSource, /finalData\.position_ticket = finalData\.ticket/);
+  assert.doesNotMatch(normalizationSource, /finalData\.order_ticket = finalData\.ticket/);
+});

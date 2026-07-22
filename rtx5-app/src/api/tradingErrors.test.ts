@@ -40,6 +40,40 @@ test('classifyTradingError marks 401 responses as session expiry', () => {
   assert.equal(feedback.title, 'Session Expired');
 });
 
+test('classifyTradingError reads the canonical gateway response.error code', () => {
+  const feedback = classifyTradingError(
+    createTradingApiError(503, {
+      error: 'NO_FRESH_QUOTE',
+      message: 'No fresh quote available',
+    }),
+    { action: 'place-order' },
+  );
+
+  assert.equal(feedback.kind, 'backend-rejection');
+  assert.equal(feedback.title, 'Order Rejected');
+  assert.match(feedback.message, /fresh market price/i);
+});
+
+test('classifyTradingError maps required market-order policy codes', () => {
+  const cases = [
+    ['INVALID_SIDE', 400, /Buy or Sell/i],
+    ['INSUFFICIENT_MARGIN', 400, /margin/i],
+    ['STALE_QUOTE', 409, /stale/i],
+    ['SYMBOL_NOT_ALLOWED', 403, /not available/i],
+    ['TRADE_ROUTE_NOT_CONFIGURED', 403, /not configured/i],
+    ['INCOMPLETE_CONVERSION_DATA', 503, /calculation data/i],
+  ] as const;
+
+  for (const [error, status, expected] of cases) {
+    const feedback = classifyTradingError(
+      createTradingApiError(status, { error, message: 'backend detail' }),
+      { action: 'place-order' },
+    );
+    assert.equal(feedback.kind, 'backend-rejection');
+    assert.match(feedback.message, expected);
+  }
+});
+
 test('classifyTradingError keeps retry-after information for rate limiting', () => {
   const feedback = classifyTradingError(
     createTradingApiError(429, { message: 'Too many requests' }, { 'retry-after': '17' }),

@@ -46,6 +46,8 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.match(tapConfigSource, /presentation: 'mt5Plain'/);
   assert.match(tapConfigSource, /detent: 'auto'/);
   assert.match(tapConfigSource, /instantOpen: true/);
+  assert.match(tapConfigSource, /presentation: 'mt5Plain'/);
+  assert.match(tapConfigSource, /entryMotion: 'mt5Slide'/);
   assert.match(tapConfigSource, /entryMotion: 'mt5Slide'/);
   // Route actions commit only a light preview (or the fast-tab flip), so they
   // run in the press frame instead of waiting behind the close animation.

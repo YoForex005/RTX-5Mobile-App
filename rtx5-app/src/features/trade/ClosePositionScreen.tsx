@@ -6,10 +6,12 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useShallow } from 'zustand/shallow';
 import { useUserPreferences } from '../../state/userPreferences';
 import { usePositionsState } from '../../state/positionsState';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
@@ -30,10 +32,7 @@ import {
   createFrontendTradingError,
   formatTradingErrorFeedback,
 } from '../../api/tradingErrors';
-import {
-  hideTradePositionActionHost,
-  showTradePositionAction,
-} from './tradePositionActionHostController';
+import { hideTradePositionActionHost } from './tradePositionActionHostController';
 import { useExecutableQuote } from '../quotes/useExecutableQuote';
 import { quoteActionBlockMessage, recordBlockedPriceAction } from '../../market/quoteIntegrity';
 import {
@@ -46,6 +45,11 @@ import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope
 const CANVAS_DARK = '#121212';
 const CARD_DARK = '#1E1E1E';
 const DIVIDER_DARK = 'rgba(255,255,255,0.06)';
+
+type RetainedClosePositionState = Pick<
+  ReturnType<typeof usePositionsState.getState>,
+  'positions' | 'positionSnapshots'
+>;
 
 export type ClosePositionScreenProps = Readonly<{
   hosted?: boolean;
@@ -100,7 +104,9 @@ export function ClosePositionScreen({
   const [closeError, setCloseError] = useState<string | null>(null);
   const actionLockRef = useRef(false);
   const actionReleaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const themeActive = !hosted || hostedActive;
+  const routeFocused = useIsFocused();
+  const isScreenFocused = hosted ? hostedActive : routeFocused;
+  const themeActive = isScreenFocused;
   const T = useTheme({ active: themeActive });
   const { t } = useTranslation();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
@@ -108,10 +114,28 @@ export function ClosePositionScreen({
   const insets = useSafeAreaInsets();
   const screenBg = isDark ? CANVAS_DARK : T.bg;
 
-  const positions = usePositionsState((s) => s.positions);
-  const primedPosition = usePositionsState((s) =>
-    positionId ? s.positionSnapshots[Array.isArray(positionId) ? positionId[0] : positionId] : undefined
+  const retainedPositionStateRef = useRef<RetainedClosePositionState | null>(null);
+  if (retainedPositionStateRef.current === null) {
+    const initialPositionState = usePositionsState.getState();
+    retainedPositionStateRef.current = {
+      positions: initialPositionState.positions,
+      positionSnapshots: initialPositionState.positionSnapshots,
+    };
+  }
+  const positionState = usePositionsState(
+    useShallow((state): RetainedClosePositionState => (
+      isScreenFocused
+        ? { positions: state.positions, positionSnapshots: state.positionSnapshots }
+        : retainedPositionStateRef.current as RetainedClosePositionState
+    )),
   );
+  if (isScreenFocused) {
+    retainedPositionStateRef.current = positionState;
+  }
+  const positions = positionState.positions;
+  const primedPosition = positionId
+    ? positionState.positionSnapshots[Array.isArray(positionId) ? positionId[0] : positionId]
+    : undefined;
   const resolvedPosition = useMemo(
     () => findPositionById(positions, positionId) ?? primedPosition,
     [positions, positionId, primedPosition]
@@ -160,10 +184,10 @@ export function ClosePositionScreen({
   const livePnl = position ? resolveLivePositionPnl(position, executableQuote) : 0;
 
   useEffect(() => {
-    if (!position && resolvedLogin) {
+    if (isScreenFocused && !position && resolvedLogin) {
       void usePositionsState.getState().refreshPositions(resolvedLogin);
     }
-  }, [position, resolvedLogin]);
+  }, [isScreenFocused, position, resolvedLogin]);
 
   useEffect(() => () => {
     if (actionReleaseTimeoutRef.current) {
@@ -200,15 +224,6 @@ export function ClosePositionScreen({
     }
     safeRouterBack(router, '/(tabs)/trade');
   }, [hosted, onHostedBack]);
-
-  const handleOpenCloseBy = useCallback(() => {
-    if (!position || actionLockRef.current || isClosing) return;
-    if (hosted) {
-      showTradePositionAction('close-by', String(position.id));
-      return;
-    }
-    router.push({ pathname: '/trade/close-by', params: { positionId: String(position.id) } });
-  }, [hosted, isClosing, position]);
 
   const handleClosePosition = useCallback(async () => {
     if (!position || actionLockRef.current || isClosing) {
@@ -313,8 +328,8 @@ export function ClosePositionScreen({
       });
   }, [getCurrentAvailability, isClosing, leaveScreen, position, positionCacheNamespace, releaseActionLock, resolvedLogin, t]);
 
-  // Hosted inactive layers skip paint work while another action is visible.
-  if (hosted && !hostedActive) {
+  // Inactive retained layers skip paint work while another screen is visible.
+  if (!isScreenFocused) {
     return <View style={[styles.root, { backgroundColor: screenBg }]} />;
   }
 
@@ -430,16 +445,6 @@ export function ClosePositionScreen({
             )}
           </Pressable>
 
-          <Pressable
-            style={[styles.secondaryBtn, actionLocked && styles.btnDisabled]}
-            disabled={isClosing || actionLocked}
-            onPress={handleOpenCloseBy}
-            activateOnPressIn
-            latencyLabel="closePosition.closeBy"
-            unstable_pressDelay={0}
-          >
-            <Text style={styles.secondaryBtnText}>{t('Close By')}</Text>
-          </Pressable>
         </View>
       </ScrollView>
     </View>

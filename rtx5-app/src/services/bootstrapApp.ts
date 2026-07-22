@@ -11,6 +11,7 @@ import { useUserPreferences } from '../state/userPreferences';
 import { getAccountsListQueryKey } from '../query/accounts';
 import { getOrdersByLoginQueryKey } from '../query/orders';
 import { brokerRealtimeService } from '../api/ws/BrokerRealtimeService';
+import { quotesWsService } from '../api/ws/quotesSocket';
 import { buildAccountDetailPath } from '../api/accountsRoutes';
 import { redactDiagnosticValue } from '../utils/securityRedaction';
 import {
@@ -20,6 +21,8 @@ import {
   type ActiveBrokerSessionProvenance,
 } from '../state/activeBrokerSession';
 import { recordMarketDataEvent } from '../market/marketDataTelemetry';
+import { normalizeQuoteSymbolKey } from '../domain/symbols';
+import { extractLiveAccountMetrics } from '../api/ws/accountSocket.helpers';
 
 type BootstrapResult = {
   me: unknown;
@@ -98,36 +101,60 @@ const updateAccountMetricsFromBootstrap = (accounts: unknown, accountLogin: stri
   const record = selected as Record<string, unknown> | undefined;
   if (!record) return;
 
-  const login = Number(record.login ?? record.account_login ?? record.id);
-  const balance = Number(record.balance);
-  const credit = Number(record.credit);
-  const equity = Number(record.equity);
-  const margin = Number(record.margin ?? record.usedMargin ?? record.used_margin);
-  const freeMargin = Number(record.margin_free ?? record.freeMargin ?? record.free_margin ?? record.margin_available);
-  const marginLevel = Number(record.margin_level ?? record.marginLevel);
-  const floating = Number(record.floating ?? record.floatingPnl ?? record.floating_pnl ?? record.unrealized_pl ?? record.pnl);
+  const parsedMetrics = extractLiveAccountMetrics(record) ?? {};
+  const parseFiniteNumber = (value: unknown): number | undefined => {
+    if (value === null || value === undefined) return undefined;
+    if (typeof value === 'string' && value.trim() === '') return undefined;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  };
+  const login = parsedMetrics.login ?? parseFiniteNumber(record.id);
+  const balance = parsedMetrics.balance;
+  const credit = parseFiniteNumber(record.credit);
+  const floating = parsedMetrics.floating;
+  const margin = parsedMetrics.margin;
+  const equity = parsedMetrics.equity ?? (balance !== undefined
+    ? balance + (credit ?? 0) + (floating ?? 0)
+    : undefined);
+  const freeMargin = parsedMetrics.margin_free ?? (
+    equity !== undefined && margin !== undefined ? equity - margin : undefined
+  );
+  const marginLevel = parsedMetrics.margin_level ?? (
+    equity !== undefined && margin !== undefined
+      ? margin > 0 ? (equity / margin) * 100 : 0
+      : undefined
+  );
 
-  useLiveAccountState.getState().updateMetrics({
-    ...(Number.isFinite(login) ? { login } : {}),
-    ...(Number.isFinite(balance) ? { balance } : {}),
-    ...(Number.isFinite(equity) ? { equity } : {}),
-    ...(Number.isFinite(margin) ? { margin } : {}),
-    ...(Number.isFinite(freeMargin) ? { margin_free: freeMargin } : {}),
-    ...(Number.isFinite(marginLevel) ? { margin_level: marginLevel } : {}),
-    ...(Number.isFinite(floating) ? { floating } : {}),
-  });
+  const liveMetrics = {
+    ...(login !== undefined ? { login } : {}),
+    ...(balance !== undefined ? { balance } : {}),
+    ...(equity !== undefined ? { equity } : {}),
+    ...(margin !== undefined ? { margin } : {}),
+    ...(freeMargin !== undefined ? { margin_free: freeMargin } : {}),
+    ...(marginLevel !== undefined ? { margin_level: marginLevel } : {}),
+    ...(floating !== undefined ? { floating } : {}),
+  };
+  if (Object.keys(liveMetrics).length > 0) {
+    useLiveAccountState.getState().updateMetrics(liveMetrics);
+  }
 
-  if (Number.isFinite(balance) || Number.isFinite(equity)) {
-    useTradingState.getState().setAccount({
-      balance: Number.isFinite(balance) ? balance : 0,
-      credit: Number.isFinite(credit) ? credit : 0,
-      equity: Number.isFinite(equity) ? equity : Number.isFinite(balance) ? balance : 0,
-      margin: Number.isFinite(margin) ? margin : 0,
-      freeMargin: Number.isFinite(freeMargin) ? freeMargin : 0,
-      marginLevel: Number.isFinite(marginLevel) ? marginLevel : 0,
-      floating: Number.isFinite(floating) ? floating : 0,
-      currency: String(record.currency ?? 'USD'),
-    });
+  const currency = typeof record.currency === 'string' && record.currency.trim()
+    ? record.currency.trim()
+    : undefined;
+  const accountPatch = {
+    ...(balance !== undefined ? { balance } : {}),
+    ...(credit !== undefined ? { credit } : {}),
+    ...(equity !== undefined ? { equity } : {}),
+    ...(margin !== undefined ? { margin } : {}),
+    ...(freeMargin !== undefined ? { freeMargin } : {}),
+    ...(marginLevel !== undefined ? { marginLevel } : {}),
+    ...(floating !== undefined ? { floating } : {}),
+    ...(currency !== undefined ? { currency } : {}),
+  };
+  if (Object.keys(accountPatch).length > 0) {
+    // setAccount merges partial snapshots, so omitted/blank bootstrap fields do
+    // not replace valid metrics that arrived earlier from realtime.
+    useTradingState.getState().setAccount(accountPatch);
   }
 };
 
@@ -179,6 +206,18 @@ export async function bootstrapApp(options: BootstrapOptions = {}): Promise<Boot
   const state = useUserPreferences.getState();
   if (state.isLoggedIn && state.accountDetails?.credentials?.accessToken) {
     brokerRealtimeService.connect();
+    // Warm the market quote socket before Quotes/Chart finish mounting so the
+    // first watchlist paint is not waiting on React focus + health-probe serial work.
+    const warmSymbols = Array.from(
+      new Set(
+        (state.quoteSymbols ?? [])
+          .map((symbol) => normalizeQuoteSymbolKey(String(symbol ?? '')))
+          .filter(Boolean),
+      ),
+    );
+    if (warmSymbols.length > 0) {
+      quotesWsService.setSubscriptions(warmSymbols);
+    }
   }
 
   // Start startup requests together and apply each result as soon as it lands.
@@ -197,7 +236,7 @@ export async function bootstrapApp(options: BootstrapOptions = {}): Promise<Boot
       }))
     : Promise.resolve(null);
   const positionsPromise = accountLogin
-    ? requestJson(`/positions/${encodedAccountLogin}`).then((result) =>
+    ? requestJson(`/positions/${encodedAccountLogin}?limit=50&offset=0`).then((result) =>
       commitBootstrapResponse(result, cacheNamespace, (positions) => {
         const resolvedRows = unwrapArray(positions);
         usePositionsState.getState().applyPositionsSnapshot(resolvedRows, accountLogin, {

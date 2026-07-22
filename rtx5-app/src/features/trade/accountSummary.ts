@@ -97,7 +97,12 @@ export function resolveRenderableTradeAccountSummary(
   const floatingChanged = Math.abs(floating - summary.floating) > Number.EPSILON;
   const equity = summary.balance + summary.credit + floating;
   const freeMargin = equity - summary.margin;
-  const marginLevel = summary.margin > 0 ? (equity / summary.margin) * 100 : 0;
+  // A partial event can contain margin_level before its used-margin companion.
+  // Preserve that valid broker value until margin arrives; an explicit
+  // no-position payload still supplies marginLevel = 0 and remains zero.
+  const marginLevel = summary.margin > 0
+    ? (equity / summary.margin) * 100
+    : summary.marginLevel;
   const equityChanged =
     Number.isFinite(equity) &&
     (!Number.isFinite(summary.equity) || Math.abs(equity - summary.equity) >= 0.005);

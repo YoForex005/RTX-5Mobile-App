@@ -363,7 +363,7 @@ function TradePositionRowComponent({
   const dividerColor = isDark ? T.borderSubtle : T.border;
   const tradingLogin = resolveTradingLoginString();
 
-  const openPositionAction = (destination: 'close' | 'close-by' | 'modify') => {
+  const openPositionAction = (destination: 'close' | 'modify') => {
     primePositionSnapshot(item);
     showTradePositionAction(destination, item.id);
   };
@@ -533,7 +533,6 @@ function TradePositionRowComponent({
               quote: liveQuote,
               resolvedLogin: tradingLogin,
             }))}
-            onCloseBy={() => runOverlayAction(() => openPositionAction('close-by'))}
             onModify={() => runOverlayAction(navigateToModifyPosition)}
             onOrderTicket={() => runOverlayAction(navigateToOrderTicket)}
             onOpenChart={() => runOverlayAction(() => {

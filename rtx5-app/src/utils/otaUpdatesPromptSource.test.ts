@@ -25,4 +25,10 @@ test('ota update prompt waits for user install and exposes download progress', (
   assert.match(modalSource, /Update available/);
   assert.doesNotMatch(modalSource, /Update \$\{targetVersion\} available/);
   assert.match(modalSource, /progressPercent/);
+  // RN Pressable so install stays tappable after crashes (no FastPressable import).
+  assert.match(modalSource, /from 'react-native'/);
+  assert.match(modalSource, /<Pressable[\s\S]*onPress=\{handlePress\}/);
+  assert.doesNotMatch(modalSource, /from '\.\/FastPressable'|from "\.\/FastPressable"/);
+  assert.match(modalSource, /presentationStyle="overFullScreen"/);
+  assert.match(modalSource, /minHeight: 52/);
 });

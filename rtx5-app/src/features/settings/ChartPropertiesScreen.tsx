@@ -124,7 +124,11 @@ export function ChartPropertiesScreen({
   // Hosted opens are active when the retained layer is visible; routed opens
   // still use navigation focus. Inactive host layers freeze theme so a theme
   // tap only repaints the visible Settings shell.
-  const isScreenFocused = useIsFocused() || (hosted && hostedActive);
+  const navigationFocused = useIsFocused();
+  // Host instances mount outside any navigator screen, where useIsFocused()
+  // is always true — hostedActive is the only truthful signal there. OR-ing
+  // them kept the hidden host's live chart preview subscribed to every tick.
+  const isScreenFocused = hosted ? hostedActive : navigationFocused;
   const themeActive = !hosted || hostedActive;
   const T = useTheme({ active: themeActive });
   const isDark = useIsDarkTheme({ active: themeActive });

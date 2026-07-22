@@ -557,8 +557,15 @@ test('android searchable sheets clamp to live overlay height during keyboard foc
   assert.match(source, /const \[keyboardHeight, setKeyboardHeight\] = useState\(0\)/);
   assert.match(source, /const activeAndroidKeyboardAvoidance = activeConfig\.androidKeyboardAvoidance \?\? 'event'/);
   assert.match(source, /const androidSearchableSheet\s*=\s*\n?\s*Platform\.OS === 'android' && activeSearchable/);
-  assert.match(source, /const shouldLockSheetHeight = activeDetent === 'large'/);
+  assert.match(
+    source,
+    /const shouldLockSheetHeight = activeDetent === 'large' \|\| contentSizedAutoSheet/,
+  );
   assert.match(source, /\? \{ height: sheetMaxHeight \}/);
+  assert.match(source, /const contentSizedAutoSheet =[\s\S]*activeDetent === 'auto'[\s\S]*!activeSearchable/);
+  assert.match(source, /const iosKeyboardAvoidanceEnabled =[\s\S]*Platform\.OS === 'ios' && activeSearchable && !keepFullHeightSheet/);
+  assert.match(source, /iosKeyboardAvoidanceEnabled \? \([\s\S]*KeyboardAvoidingView/);
+  assert.match(source, /sheetBottomSafePad > 0 \? \{ paddingBottom: sheetBottomSafePad \}/);
   assert.match(
     source,
     /const overlayKeyboardLift = androidSearchableSheet[\s\S]*measuredHeight - \(currentOverlayHeight \|\| measuredHeight\)/,

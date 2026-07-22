@@ -21,3 +21,14 @@ test('trade summary keeps equity in expanded details, not the floating pnl heade
   assert.doesNotMatch(collapsedHeaderSource, /\{fmt\.decimal\(safeEquity\)\}/);
   assert.match(expandedDetailsSource, /\{t\('Equity'\)\}[\s\S]*\{fmt\.decimal\(safeEquity\)\}/);
 });
+
+test('trade summary renders normalized margin fields and uses the REST summary as fallback', () => {
+  const summarySource = readTradeSummarySource();
+
+  assert.match(summarySource, /label=\{t\('Margin'\)\} value=\{fmt\.decimal\(safeMargin\)\}/);
+  assert.match(summarySource, /label=\{t\('Free Margin'\)\} value=\{fmt\.decimal\(safeFreeMargin\)\}/);
+  assert.match(summarySource, /label=\{t\('Margin Level'\)\} value=\{`\$\{fmt\.decimal\(safeMarginLevel\)\}%`\}/);
+  assert.match(summarySource, /floating: restAccountSummary\.profit/);
+  assert.match(summarySource, /restTradingAccount \?\? selectedTradingAccount/);
+  assert.match(summarySource, /metricFlags: state\.metricFlags/);
+});

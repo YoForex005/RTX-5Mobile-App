@@ -26,8 +26,11 @@ import {
 } from '../../state/terminalJournalState';
 import { getPositionHistory } from './closedHistory';
 import {
-  buildClosePositionRequestPayload,
-  type ClosePositionTicketBy,
+  buildFullClosePositionRequestPayload,
+  buildPartialClosePositionRequestPayload,
+  buildClosePositionRequestDescriptor,
+  type ClosePositionVolume,
+  type PreparedClosePositionRequest,
 } from './closePayload';
 import type {
   ClosePositionResponse,
@@ -48,6 +51,40 @@ const logPositionsApiDiagnostic = (...args: Parameters<typeof console.log>) => {
 const warnPositionsApiDiagnostic = (...args: Parameters<typeof console.warn>) => {
   if (DEBUG_POSITIONS_API) {
     console.warn(...args.map(redactDiagnosticValue));
+  }
+};
+
+const submitClosePositionRequest = async (
+  ticketId: string | number,
+  request: PreparedClosePositionRequest,
+): Promise<ClosePositionResponse> => {
+  const descriptor = buildClosePositionRequestDescriptor(ticketId, request);
+  recordClosePositionJournalRequest(descriptor.ticket, descriptor.journalPayload);
+  let failureRecorded = false;
+  try {
+    const response = await apiClient(descriptor.endpoint, {
+      method: descriptor.method,
+      body: descriptor.body,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const headers: Record<string, string> = {};
+      if (response.status === 429) headers['retry-after'] = response.headers.get('retry-after') || '';
+      const error = createTradingApiError(response.status, errorData, headers);
+      failureRecorded = true;
+      recordClosePositionJournalFailure(descriptor.ticket, error);
+      throw error;
+    }
+
+    const data = await response.json().catch(() => ({} as ClosePositionResponse));
+    recordClosePositionJournalSuccess(descriptor.ticket, data);
+    return data;
+  } catch (error) {
+    if (!failureRecorded) {
+      recordClosePositionJournalFailure(descriptor.ticket, error);
+    }
+    throw error;
   }
 };
 
@@ -125,40 +162,18 @@ export const positionsApi = {
    * - 404: Position not found
    * - 429: Rate limited — check Retry-After header
    */
-  closePosition: async (
+  closePosition: async (ticketId: string | number): Promise<ClosePositionResponse> =>
+    submitClosePositionRequest(ticketId, buildFullClosePositionRequestPayload()),
+
+  /**
+   * Partial close is intentionally a separate method so the wire body contains
+   * volume only and can never be combined with the full-close mode.
+   */
+  closePositionPartial: async (
     ticketId: string | number,
-    ticketBy?: ClosePositionTicketBy,
-  ): Promise<ClosePositionResponse> => {
-    const { body: closePayload, journalPayload } = buildClosePositionRequestPayload(ticketBy);
-    const body = JSON.stringify(closePayload);
-    recordClosePositionJournalRequest(ticketId, journalPayload);
-    let failureRecorded = false;
-    try {
-      const response = await apiClient(`/positions/${ticketId}/close`, {
-        method: 'POST',
-        body,
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        const headers: Record<string, string> = {};
-        if (response.status === 429) headers['retry-after'] = response.headers.get('retry-after') || '';
-        const error = createTradingApiError(response.status, errorData, headers);
-        failureRecorded = true;
-        recordClosePositionJournalFailure(ticketId, error);
-        throw error;
-      }
-
-      const data = await response.json().catch(() => ({} as ClosePositionResponse));
-      recordClosePositionJournalSuccess(ticketId, data);
-      return data;
-    } catch (error) {
-      if (!failureRecorded) {
-        recordClosePositionJournalFailure(ticketId, error);
-      }
-      throw error;
-    }
-  },
+    volume: ClosePositionVolume,
+  ): Promise<ClosePositionResponse> =>
+    submitClosePositionRequest(ticketId, buildPartialClosePositionRequestPayload(volume)),
 
   /**
    * Modify an open position's SL/TP values.

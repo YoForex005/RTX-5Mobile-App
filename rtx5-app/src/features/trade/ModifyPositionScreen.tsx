@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/shallow';
 import {
   ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text, TextInput, View,
   Platform
@@ -38,6 +39,13 @@ import { safeRouterBack } from '../../utils/navigation';
 import { useTranslation } from '../../i18n/useTranslation';
 import { resolveModifyPositionMarkerYPositions } from './modifyPositionChartLayout';
 import {
+  clampStopTargetToMinDistance,
+  DEFAULT_MIN_STOP_DISTANCE_POINTS,
+  isStopTargetDistanceValid,
+  resolveStopTargetDistancePoints,
+  validateStopTargetsDistance,
+} from './modifyPositionStopDistance';
+import {
   classifyTradingError,
   createFrontendTradingError,
   formatTradingErrorFeedback,
@@ -53,7 +61,12 @@ import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope
 
 const SETTINGS_DARK_BACKGROUND = '#121212';
 const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E';
-const MIN_STOP_DISTANCE_POINTS = 5;
+const MIN_STOP_DISTANCE_POINTS = DEFAULT_MIN_STOP_DISTANCE_POINTS;
+
+type RetainedModifyPositionState = Pick<
+  ReturnType<typeof usePositionsState.getState>,
+  'positions' | 'positionSnapshots'
+>;
 
 export type ModifyPositionScreenProps = Readonly<{
   hosted?: boolean;
@@ -131,10 +144,28 @@ export function ModifyPositionScreen({
   const routeFocused = useIsFocused();
   const isScreenFocused = hosted ? hostedActive : routeFocused;
 
-  const positions = usePositionsState((s) => s.positions);
-  const primedPosition = usePositionsState((s) =>
-    positionId ? s.positionSnapshots[Array.isArray(positionId) ? positionId[0] : positionId] : undefined
+  const retainedPositionStateRef = useRef<RetainedModifyPositionState | null>(null);
+  if (retainedPositionStateRef.current === null) {
+    const initialPositionState = usePositionsState.getState();
+    retainedPositionStateRef.current = {
+      positions: initialPositionState.positions,
+      positionSnapshots: initialPositionState.positionSnapshots,
+    };
+  }
+  const positionState = usePositionsState(
+    useShallow((state): RetainedModifyPositionState => (
+      isScreenFocused
+        ? { positions: state.positions, positionSnapshots: state.positionSnapshots }
+        : retainedPositionStateRef.current as RetainedModifyPositionState
+    )),
   );
+  if (isScreenFocused) {
+    retainedPositionStateRef.current = positionState;
+  }
+  const positions = positionState.positions;
+  const primedPosition = positionId
+    ? positionState.positionSnapshots[Array.isArray(positionId) ? positionId[0] : positionId]
+    : undefined;
   const position = useMemo(
     () => findPositionById(positions, positionId) ?? primedPosition,
     [positions, positionId, primedPosition]
@@ -387,53 +418,96 @@ export function ModifyPositionScreen({
   // SL/TP against that closing price. Stepping clamps to at least five points
   // on the valid side so chips/steppers can never build a value the server rejects.
   const closingMarketPrice = position ? (position.side === 'buy' ? BID : ASK) : 0;
+  // Usable market prices for SL/TP distance — prefer the integrity gate, but do
+  // not block the whole form when bid/ask are already painted on this screen.
+  const hasUsableMarketPrice = closingMarketPrice > 0 && BID > 0 && ASK > 0;
 
   const clampStopTarget = (value: number, kind: 'sl' | 'tp') => {
-    if (!position || !(closingMarketPrice > 0)) return value;
-    const mustStayBelow = (position.side === 'buy') === (kind === 'sl');
-    return mustStayBelow
-      ? Math.min(value, closingMarketPrice - minStopDistance)
-      : Math.max(value, closingMarketPrice + minStopDistance);
+    if (!position || !(closingMarketPrice > 0) || !(minStopDistance > 0)) return value;
+    return clampStopTargetToMinDistance(
+      value,
+      kind,
+      position.side,
+      closingMarketPrice,
+      minStopDistance,
+    );
   };
 
-  const validateStopTargets = (): string | null => {
-    if (!position || !(closingMarketPrice > 0)) return null;
+  const validateStopTargets = useCallback((): string | null => {
+    if (!position || !(closingMarketPrice > 0) || !(point > 0)) return null;
     const priceLabel = closingMarketPrice.toFixed(decimals);
     const stopMessage = (key: string) =>
       t(key)
         .replace('{points}', String(MIN_STOP_DISTANCE_POINTS))
         .replace('{price}', priceLabel);
-    const isBuySide = position.side === 'buy';
-    if (stopLoss !== null) {
-      const slLimit = isBuySide
-        ? closingMarketPrice - minStopDistance
-        : closingMarketPrice + minStopDistance;
-      if (isBuySide && stopLoss > slLimit) {
-        return stopMessage('Stop Loss must be at least {points} points below the current Bid ({price}) for a buy position.');
-      }
-      if (!isBuySide && stopLoss < slLimit) {
-        return stopMessage('Stop Loss must be at least {points} points above the current Ask ({price}) for a sell position.');
-      }
+    return validateStopTargetsDistance({
+      side: position.side,
+      marketPrice: closingMarketPrice,
+      point,
+      minPoints: MIN_STOP_DISTANCE_POINTS,
+      stopLoss,
+      takeProfit,
+      messages: {
+        buySl: stopMessage('Stop Loss must be at least {points} points below the current Bid ({price}) for a buy position.'),
+        sellSl: stopMessage('Stop Loss must be at least {points} points above the current Ask ({price}) for a sell position.'),
+        buyTp: stopMessage('Take Profit must be at least {points} points above the current Bid ({price}) for a buy position.'),
+        sellTp: stopMessage('Take Profit must be at least {points} points below the current Ask ({price}) for a sell position.'),
+      },
+    });
+  }, [closingMarketPrice, decimals, point, position, stopLoss, t, takeProfit]);
+
+  const stopValidationError = useMemo(() => validateStopTargets(), [validateStopTargets]);
+  // Prefer the live 5-point banner over a stale submit-time message so the
+  // rule stays visible as the market ticks and levels move.
+  useEffect(() => {
+    if (stopValidationError) {
+      setSubmitMessage(null);
     }
-    if (takeProfit !== null) {
-      const tpLimit = isBuySide
-        ? closingMarketPrice + minStopDistance
-        : closingMarketPrice - minStopDistance;
-      if (isBuySide && takeProfit < tpLimit) {
-        return stopMessage('Take Profit must be at least {points} points above the current Bid ({price}) for a buy position.');
-      }
-      if (!isBuySide && takeProfit > tpLimit) {
-        return stopMessage('Take Profit must be at least {points} points below the current Ask ({price}) for a sell position.');
-      }
+  }, [stopValidationError]);
+  const isSlDistanceValid = useMemo(() => {
+    if (!position || stopLoss === null || !(closingMarketPrice > 0) || !(point > 0)) {
+      return true;
     }
-    return null;
-  };
+    return isStopTargetDistanceValid(
+      'sl',
+      position.side,
+      stopLoss,
+      closingMarketPrice,
+      point,
+      MIN_STOP_DISTANCE_POINTS,
+    );
+  }, [closingMarketPrice, point, position, stopLoss]);
+  const isTpDistanceValid = useMemo(() => {
+    if (!position || takeProfit === null || !(closingMarketPrice > 0) || !(point > 0)) {
+      return true;
+    }
+    return isStopTargetDistanceValid(
+      'tp',
+      position.side,
+      takeProfit,
+      closingMarketPrice,
+      point,
+      MIN_STOP_DISTANCE_POINTS,
+    );
+  }, [closingMarketPrice, point, position, takeProfit]);
+  // Modify is only actionable when market price is known and SL/TP (if set)
+  // clear the 5-point distance rule. Do not gate the button solely on the
+  // integrity banner — false "stale" blocked Done while bid/ask were live.
+  const canModifyPosition = Boolean(
+    position
+    && symbolsMatch
+    && hasUsableMarketPrice
+    && !stopValidationError
+    && isSlDistanceValid
+    && isTpDistanceValid
+    && !isSubmitting,
+  );
 
   /**
    * Incrementally steps the Stop Loss value up or down by a predefined point amount when tapping the +/- buttons.
    */
   const handleStepSl = (delta: number) => {
-    if (!position || !quoteAvailability.allowed) return;
+    if (!position || !hasUsableMarketPrice) return;
     setStopLoss((prev) => {
       // If setting for the first time, bias it directly against the live matching price for the position side
       const livePrice = closingMarketPrice;
@@ -451,7 +525,7 @@ export function ModifyPositionScreen({
    * Incrementally steps the Take Profit value up or down by a predefined point amount when tapping the +/- buttons.
    */
   const handleStepTp = (delta: number) => {
-    if (!position || !quoteAvailability.allowed) return;
+    if (!position || !hasUsableMarketPrice) return;
     setTakeProfit((prev) => {
       const livePrice = closingMarketPrice;
       let base = prev;
@@ -493,15 +567,42 @@ export function ModifyPositionScreen({
       return;
     }
 
-    const currentQuoteAvailability = getCurrentAvailability();
-    if (!currentQuoteAvailability.allowed) {
-      recordBlockedPriceAction('modify_position', currentQuoteAvailability);
+    if (!hasUsableMarketPrice) {
+      const currentQuoteAvailability = getCurrentAvailability();
+      if (!currentQuoteAvailability.allowed) {
+        recordBlockedPriceAction('modify_position', currentQuoteAvailability);
+        setSubmitMessage(
+          formatTradingErrorFeedback(
+            createFrontendTradingError(
+              t('Market Data Unavailable'),
+              t(quoteActionBlockMessage(currentQuoteAvailability)),
+            ),
+          ),
+        );
+        return;
+      }
       setSubmitMessage(
         formatTradingErrorFeedback(
           createFrontendTradingError(
             t('Market Data Unavailable'),
-            t(quoteActionBlockMessage(currentQuoteAvailability)),
+            t('Wait for a live bid/ask before modifying Stop Loss or Take Profit.'),
           ),
+        ),
+      );
+      return;
+    }
+
+    // Typed values bypass the stepper clamp, so re-validate before submitting.
+    // Always surface the 5-point rule in the footer even if a fast-press path
+    // races a disabled state update.
+    const distanceError = validateStopTargets();
+    if (distanceError || !isSlDistanceValid || !isTpDistanceValid) {
+      const message = distanceError
+        ?? t('SL/TP must be at least {points} points away from the market price. Orders are executed by the broker.')
+          .replace('{points}', String(MIN_STOP_DISTANCE_POINTS));
+      setSubmitMessage(
+        formatTradingErrorFeedback(
+          createFrontendTradingError(t('Invalid Stop Levels'), message),
         ),
       );
       return;
@@ -514,17 +615,6 @@ export function ModifyPositionScreen({
             t('Authentication Error'),
             t('The app does not have a valid local trading session. Log in again before modifying the position.'),
           ),
-        ),
-      );
-      return;
-    }
-
-    // Typed values bypass the stepper clamp, so re-validate before submitting.
-    const stopValidationError = validateStopTargets();
-    if (stopValidationError) {
-      setSubmitMessage(
-        formatTradingErrorFeedback(
-          createFrontendTradingError(t('Invalid Stop Levels'), stopValidationError),
         ),
       );
       return;
@@ -602,8 +692,8 @@ export function ModifyPositionScreen({
     }
   };
 
-  // Hosted inactive layers skip heavy paint while another action is visible.
-  if (hosted && !hostedActive) {
+  // Inactive retained layers skip heavy paint while another screen is visible.
+  if (!isScreenFocused) {
     return <View style={styles.screen} />;
   }
 
@@ -829,8 +919,10 @@ export function ModifyPositionScreen({
           const lots = position.volume || 0;
 
           const computeImpact = (target: number | null, kind: 'sl' | 'tp') => {
-            if (!target) return null;
-            const distance = Math.abs(target - position.openPrice);
+            if (!target || !(closingMarketPrice > 0) || !(point > 0)) return null;
+            // Distance for the 5-point rule is vs the closing market price, not open.
+            const marketPoints = resolveStopTargetDistancePoints(target, closingMarketPrice, point);
+            const distance = Math.abs(target - closingMarketPrice);
             const pips = Math.round(distance / pipSize);
             // Prefer the broker's tick economics (exact, in account currency).
             // Fallback: contract-size math gives the quote-currency amount; for
@@ -848,7 +940,15 @@ export function ModifyPositionScreen({
                 : quoteCurrencyAmount;
             }
             const sign = kind === 'sl' ? '−' : '+';
-            return { pips, usd, sign };
+            const distanceValid = isStopTargetDistanceValid(
+              kind,
+              position.side,
+              target,
+              closingMarketPrice,
+              point,
+              MIN_STOP_DISTANCE_POINTS,
+            );
+            return { pips, marketPoints, usd, sign, distanceValid };
           };
           const slImpact = computeImpact(stopLoss, 'sl');
           const tpImpact = computeImpact(takeProfit, 'tp');
@@ -866,13 +966,23 @@ export function ModifyPositionScreen({
             color: string,
             title: string,
             parts: { main: string; huge: string },
-            impact: { pips: number; usd: number; sign: string } | null,
+            impact: {
+              pips: number;
+              marketPoints: number;
+              usd: number;
+              sign: string;
+              distanceValid: boolean;
+            } | null,
             onStep: (delta: number) => void,
             onChangeText: (text: string) => void,
             onClear: () => void,
             rawValue: number | null,
-          ) => (
-            <View style={[styles.stepperCard, { borderColor: T.border }]}>
+          ) => {
+            const distanceInvalid = Boolean(impact && !impact.distanceValid);
+            const distanceColor = distanceInvalid ? T.trading.sell.primary : T.text;
+            const cardBorderColor = distanceInvalid ? T.trading.sell.primary : T.border;
+            return (
+            <View style={[styles.stepperCard, { borderColor: cardBorderColor }]}>
               <View style={[styles.stepperAccent, { backgroundColor: color }]} />
 
               {/* Header */}
@@ -936,13 +1046,21 @@ export function ModifyPositionScreen({
                 ))}
               </View>
 
-              {/* Footer: pip distance + $ impact */}
+              {/* Footer: market-point distance + $ impact */}
               <View style={styles.stepperFootRow}>
                 <Text style={styles.stepperFootLabel}>{t('Distance')}</Text>
-                <Text style={[styles.stepperFootValue, impact && { color: T.text }]}>
-                  {impact ? `${impact.pips} ${t('pts')}` : '—'}
+                <Text style={[styles.stepperFootValue, impact && { color: distanceColor }]}>
+                  {impact
+                    ? `${Math.round(impact.marketPoints)} ${t('pts')}`
+                    : '—'}
                 </Text>
               </View>
+              {distanceInvalid ? (
+                <Text style={styles.stepperDistanceError} accessibilityRole="alert">
+                  {t('SL/TP must be at least {points} points away from the market price. Orders are executed by the broker.')
+                    .replace('{points}', String(MIN_STOP_DISTANCE_POINTS))}
+                </Text>
+              ) : null}
               <View style={styles.stepperFootRow}>
                 <Text style={styles.stepperFootLabel}>{kind === 'sl' ? t('Est. Loss') : t('Est. Profit')}</Text>
                 <Text style={[styles.stepperFootValue, impact && { color }]}>
@@ -950,7 +1068,8 @@ export function ModifyPositionScreen({
                 </Text>
               </View>
             </View>
-          );
+            );
+          };
 
           return (
             <View style={styles.stepperRow}>
@@ -1035,10 +1154,17 @@ export function ModifyPositionScreen({
             </Text>
           </View>
 
-          {submitMessage && (
-            <Text style={styles.validationText}>{submitMessage}</Text>
-          )}
-          {!submitMessage && !quoteAvailability.allowed && (
+          {submitMessage ? (
+            <Text style={styles.validationText} accessibilityRole="alert">{submitMessage}</Text>
+          ) : null}
+          {/* Always keep the live 5-point rule visible above Modify when either
+              level is too close — even if a previous submit message is clear. */}
+          {stopValidationError ? (
+            <Text style={styles.validationText} accessibilityRole="alert">
+              {stopValidationError}
+            </Text>
+          ) : null}
+          {!submitMessage && !stopValidationError && !hasUsableMarketPrice && !quoteAvailability.allowed && (
             <Text style={styles.validationText} accessibilityRole="alert">
               {t(quoteActionBlockMessage(quoteAvailability))}
             </Text>
@@ -1050,16 +1176,17 @@ export function ModifyPositionScreen({
           <Pressable
             style={({ pressed }) => [
               styles.modifyBtn,
-              pressed && { opacity: 0.8 },
-              (isSubmitting || !quoteAvailability.allowed) && { opacity: 0.5 }
+              pressed && canModifyPosition && { opacity: 0.8 },
+              !canModifyPosition && styles.modifyBtnDisabled,
             ]}
-            disabled={isSubmitting || !quoteAvailability.allowed}
+            disabled={!canModifyPosition}
             onPress={handleModify}
             activateOnPressIn
             unstable_pressDelay={0}
             hitSlop={12}
             latencyLabel="modifyPosition.submit"
             latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
+            accessibilityState={{ disabled: !canModifyPosition }}
           >
             {isSubmitting ? (
               <ActivityIndicator color="#FFF" />
@@ -1470,6 +1597,20 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => {
     shadowOpacity: 0.3,
     shadowRadius: 10,
     elevation: 6,
+  },
+  modifyBtnDisabled: {
+    opacity: 0.45,
+    backgroundColor: isDark ? '#334155' : '#94A3B8',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  stepperDistanceError: {
+    color: T.trading.sell.primary,
+    fontSize: 11,
+    fontWeight: '600',
+    lineHeight: 15,
+    marginTop: 2,
+    marginBottom: 6,
   },
   modifyText: {
     color: '#FFF',

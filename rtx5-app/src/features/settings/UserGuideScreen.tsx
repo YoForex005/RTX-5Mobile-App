@@ -28,10 +28,8 @@ import {
   type GuideManualSection,
 } from './userGuideViewModel';
 
-// User Guide is static and retained. Stagger its offscreen body mount behind
-// the lighter About/Help trees so its first drawer reveal is already complete
-// without concentrating all sidebar work in one startup frame.
-// Hosted sidebar destination: mount body immediately so first open is never blank.
+// Keep readiness warm while hidden, but build the static manual's native body
+// only while focused so the retained sidebar shell stays lightweight.
 const USER_GUIDE_BODY_PREWARM_DELAY_MS = 0;
 
 /**
@@ -47,6 +45,7 @@ export const UserGuideScreenInner = memo(function UserGuideScreenInner({ isScree
   const routeBodyReady = useDeferredRouteContentReady(
     isScreenFocused ? 0 : USER_GUIDE_BODY_PREWARM_DELAY_MS,
   );
+  const focusedBodyReady = isScreenFocused && routeBodyReady;
   const visibleSections = GUIDE_MANUAL_SECTIONS;
   const menuIconColor = isDark ? '#F8FAFC' : '#050505';
   const sectionIconColor = isDark ? '#60A5FA' : '#0A6EEB';
@@ -73,7 +72,7 @@ export const UserGuideScreenInner = memo(function UserGuideScreenInner({ isScree
         <Text style={styles.headerTitle} numberOfLines={1}>{t('User Guide')}</Text>
       </View>
 
-      {routeBodyReady ? <ScrollView
+      {focusedBodyReady ? <ScrollView
         keyboardShouldPersistTaps="always"
         canCancelContentTouches={Platform.OS === 'ios'}
         style={styles.scroll}

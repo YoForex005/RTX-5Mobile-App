@@ -202,12 +202,14 @@ export function BrokerDetailLaunchHost() {
         // Keep the established diagnostic id for ADB/UI automation.
         testID="broker-detail-launch-animated-host"
       >
-        <BrokerDetailLaunchShell
-          selection={selection}
-          onBack={closeLaunch}
-          onOpenDemo={openDemoAccount}
-          backLatencyLabel="brokerDetail.launch.back"
-        />
+        {renderVisible ? (
+          <BrokerDetailLaunchShell
+            selection={selection}
+            onBack={closeLaunch}
+            onOpenDemo={openDemoAccount}
+            backLatencyLabel="brokerDetail.launch.back"
+          />
+        ) : null}
       </View>
     </View>
   );

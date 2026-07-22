@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, BackHandler, Dimensions, Keyboard, Platform, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, AppState, Dimensions, Keyboard, Platform, ScrollView, Text, TextInput, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -27,7 +27,6 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDeferredActiveFlag } from '../../hooks/useDeferredActiveFlag';
-import { useLatchedFlag } from '../../hooks/useLatchedFlag';
 import { useNextFrameValue } from '../../hooks/useNextFrameValue';
 import {
   ChartTapRadialMenu,
@@ -35,6 +34,10 @@ import {
   type ChartTapMenuBounds,
 } from './components/ChartTapRadialMenu';
 import { ChartTimeframePickerOverlay } from './components/ChartTimeframePickerSheet';
+import {
+  hideChartTimeframePicker,
+  showChartTimeframePicker,
+} from './chartTimeframePickerController';
 import {
   ChartDrawingToolsSidebar,
 } from './components/ChartDrawingToolsFeature';
@@ -54,7 +57,10 @@ import { LiveOrderTickExecutionGraph } from '../trade/OrderTickExecutionGraph';
 import { Screen } from '../../ui/components/Screen';
 import { BrokerFeedHealthBanner } from '../../market/BrokerFeedHealthBanner';
 import {
+  cancelRetainedActionSheetPreview,
+  commitRetainedActionSheetPreview,
   parkRetainedActionSheetHostForConfigSwap,
+  requestRetainedActionSheetPreview,
 } from '../../ui/components/ActionSheet/retainedActionSheetVisualController';
 import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../ui/components/sidebarDrawerController';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -115,14 +121,20 @@ import {
   getExpectedNextCandleTime,
 } from '../../domain/candles/core/timeframeUtils';
 import {
+  buildChartOverlayMarkers,
   buildChartPositionStopDragKey,
   buildChartOverlayPayload,
   CHART_LINE_STYLE,
   normalizeChartOverlaySymbol,
   parseChartPositionStopDragKey,
+  type ChartOverlayMarker,
   type ChartOverlayPriceLine,
   type ChartPositionStopDragTarget,
 } from './chartOverlays';
+import {
+  buildChartMarkerCandleTimeSignature,
+  buildChartPositionStructuralSignature,
+} from './chartRenderIsolation';
 import { resolveChartDisplayDecimals } from './chartPricePrecision';
 import { isPriceCoherentWithCandle } from '../../domain/candles/series/priceCoherence';
 import {
@@ -257,8 +269,11 @@ const CHART_DEV_SOURCE_KEY = getDevRefreshKey(
   hashDevRefreshSource(CH_HTML),
 );
 const CHART_BRIDGE_DEBUG = false;
-// Match the Quotes screen: every bid/ask tick should reach the live candle immediately.
-const CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS = 0;
+// The tiny Buy/Sell button component owns its own 16 ms quote subscription.
+// Coalesce the giant Chart host at the same cadence as its label-only WebView
+// bridge so feed metadata/tick IDs cannot force a 7k-line render per tick.
+const CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS = 400;
+const CHART_SCREEN_CANDLE_COMMIT_INTERVAL_MS = 400;
 const CHART_SYMBOL_HEADER_HIT_SLOP = { top: 10, bottom: 18, left: 16, right: 48 };
 const CHART_OHLC_NEUTRAL_DARK_COLOR = '#FFFFFF';
 const CHART_OHLC_NEUTRAL_LIGHT_COLOR = '#0F172A';
@@ -313,6 +328,8 @@ const buildChartTickPayload = (
 const EMPTY_DISPLAY_CANDLES = Object.freeze(
   [],
 ) as unknown as ReturnType<typeof sanitizeCandlesForChart>;
+const EMPTY_CHART_QUERY_ROWS = Object.freeze([]) as unknown as [];
+const EMPTY_CHART_OVERLAY_MARKERS = Object.freeze([]) as unknown as ChartOverlayMarker[];
 
 const getChartSnapshotSignature = (snapshot: ReturnType<typeof buildChartSeriesSnapshot>): string =>
   [
@@ -407,13 +424,10 @@ const filterChartDrawingRecordsForCurrentChart = (
   );
 
 const CHART_RUNTIME_ACTIVE_DELAY_MS = 0;
-const CHART_FOCUS_WORK_DELAY_MS = 650;
-const CHART_SURFACE_MOUNT_DELAY_MS = 650;
-// Background pre-warm: FastTabNavigator mounts the chart before its first visit.
-// Start the expensive WebView immediately after the app's first painted frame;
-// delaying it by seconds makes its multi-second boot overlap a normal first
-// Chart tap. Live REST/WS hooks remain gated by chartRuntimeActive below, so the
-// hidden warm surface does not retain live market subscriptions.
+// Background recovery work can wait a beat; first paint must not.
+const CHART_FOCUS_WORK_DELAY_MS = 120;
+// Surface mounts on first frame prewarm or immediate focus — no multi-hundred-ms gate.
+const CHART_SURFACE_MOUNT_DELAY_MS = 0;
 const CHART_WATCHDOG_INTERVAL_MS = 3000;
 const CHART_INIT_RETRY_MIN_MS = 5000;
 const MT5_LIGHT_GRID_COLOR = 'rgba(0,0,0,0.09)';
@@ -430,21 +444,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   // bottom-tab switch and was the dominant tab-switch cost.)
   const isScreenFocused = isChartRouteActive;
   const chartRuntimeActive = useDeferredActiveFlag(isChartRouteActive, CHART_RUNTIME_ACTIVE_DELAY_MS);
-  // Mount-once keep-alive: a focused cold start has a short fallback delay, but
-  // the eager hidden tab starts the WebView immediately after the first app
-  // frame. The surface then stays mounted; hidden live work is still paused via
-  // chartRuntimeActive.
+  // Mount the expensive WebView only after Chart is the real focused route.
+  // Prewarming it behind Quotes caused an Expo Go JS/native allocation loop on
+  // lower-memory Android devices, starving the real tab navigation callback.
+  // Unmount it again on blur. The user-visible reload is bounded and avoids
+  // parsing/retaining the large chart document while another live tab is active.
   const chartSurfaceActivated = useDeferredActiveFlag(isChartRouteActive, CHART_SURFACE_MOUNT_DELAY_MS);
-  const [chartSurfacePrewarmed, setChartSurfacePrewarmed] = useState(false);
-  useEffect(() => {
-    if (typeof __DEV__ !== 'undefined' && __DEV__) {
-      if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
-        console.log('[CHART] screen mounted; surface pre-warm scheduled');
-      }
-    }
-    return scheduleAfterFirstFrame(() => setChartSurfacePrewarmed(true));
-  }, []);
-  const chartSurfaceReady = useLatchedFlag(chartSurfaceActivated || chartSurfacePrewarmed);
+  const chartSurfaceReady = chartSurfaceActivated;
   // Derive login reactively from Zustand so the positions fetch re-triggers
   // when auth completes (login goes from undefined → valid number).
   const liveLogin = useLiveAccountState((s) => s.login);
@@ -544,7 +550,24 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   }, [chartSymbol]);
   const BLUE = T.trading.buy.primary;
   const TEXT_MUTED = T.textMuted;
-  const positions = usePositionsState((s) => s.positions);
+  const retainedChartPositionsRef = useRef(usePositionsState.getState().positions);
+  // Position pushes replace currentPrice/P&L at feed cadence. Open-line
+  // geometry only changes when the structural fields below change; live labels
+  // are calculated from the separately coalesced quote. Selecting a primitive
+  // signature prevents P/L-only arrays from re-rendering the full Chart host.
+  const chartPositionStructuralSignature = usePositionsState((state) => (
+    chartRuntimeActive
+      ? buildChartPositionStructuralSignature(state.positions)
+      : buildChartPositionStructuralSignature(retainedChartPositionsRef.current)
+  ));
+  const positions = useMemo(() => {
+    if (!chartRuntimeActive) {
+      return retainedChartPositionsRef.current;
+    }
+    const latestPositions = usePositionsState.getState().positions;
+    retainedChartPositionsRef.current = latestPositions;
+    return latestPositions;
+  }, [chartPositionStructuralSignature, chartRuntimeActive]);
   const preferencesHydrated = useUserPreferences((s) => s.hasHydrated);
   const chartShowOnChart = useUserPreferences((s) => s.chartShowOnChart);
   const setChartShowOnChartItem = useUserPreferences((s) => s.setChartShowOnChartItem);
@@ -573,7 +596,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     [chartSymbol, chartTimeframe, persistedChartDrawingRecords],
   );
 
-  const { data: apiSymbols = [] } = useMarketSymbols(chartRuntimeActive);
+  const { data: apiSymbolsData } = useMarketSymbols(chartRuntimeActive);
+  const apiSymbols = apiSymbolsData ?? EMPTY_CHART_QUERY_ROWS;
   const availableSymbols = useMemo(
     () => buildAvailableChartSymbols(chartSymbol, apiSymbols),
     [apiSymbols, chartSymbol],
@@ -651,42 +675,32 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     chartLiveQuoteTickFields?.time,
     chartLiveQuoteTickFields?.timestamp,
   ]);
-  const { data: closedPositions = [], refetch: refetchClosedPositions } = usePositionHistoryQuery(accountLogin, {
+  const { data: closedPositionsData, refetch: refetchClosedPositions } = usePositionHistoryQuery(accountLogin, {
     enabled: chartRuntimeActive,
   });
-  const { data: orders = [], refetch: refetchOrders } = useOrdersByLoginQuery(accountLogin, {
+  const closedPositions = closedPositionsData ?? EMPTY_CHART_QUERY_ROWS;
+  const { data: ordersData, refetch: refetchOrders } = useOrdersByLoginQuery(accountLogin, {
     enabled: chartRuntimeActive,
   });
-  const { data: alerts = [], refetch: refetchAlerts } = useAlertsQuery({
+  const orders = ordersData ?? EMPTY_CHART_QUERY_ROWS;
+  const { data: alertsData, refetch: refetchAlerts } = useAlertsQuery({
     enabled: chartRuntimeActive,
   });
+  const alerts = alertsData ?? EMPTY_CHART_QUERY_ROWS;
   const { data: accountSummary, refetch: refetchAccountSummary } = useAccountSummary(
     accountLogin ? String(accountLogin) : undefined,
     { enabled: chartRuntimeActive },
   );
-  const liveAccountEquity = useLiveAccountState((s) => s.equity);
-  const liveAccountMargin = useLiveAccountState((s) => s.margin);
-  const liveAccountMarginLevel = useLiveAccountState((s) => s.margin_level);
-  const liveAccountBalance = useLiveAccountState((s) => s.balance);
-  const overlayAccountMetrics = useMemo(() => {
-    const hasLiveMetrics =
-      (Number.isFinite(liveAccountEquity) && liveAccountEquity > 0) ||
-      (Number.isFinite(liveAccountMargin) && liveAccountMargin > 0) ||
-      (Number.isFinite(liveAccountMarginLevel) && liveAccountMarginLevel > 0);
-
-    return {
-      equity: hasLiveMetrics ? liveAccountEquity : accountSummary?.equity ?? 0,
-      margin: hasLiveMetrics ? liveAccountMargin : accountSummary?.margin ?? 0,
-      marginLevel: hasLiveMetrics ? liveAccountMarginLevel : accountSummary?.marginLevel ?? 0,
-    };
-  }, [
-    liveAccountEquity,
-    liveAccountMargin,
-    liveAccountMarginLevel,
-    accountSummary?.equity,
-    accountSummary?.margin,
-    accountSummary?.marginLevel,
-  ]);
+  // Equity/margin change with every position tick but are not consumed by the
+  // current overlay builder. Balance is the only live account value rendered in
+  // the trade sheet and normally changes only after an execution.
+  const retainedChartBalanceRef = useRef(useLiveAccountState.getState().balance);
+  const liveAccountBalance = useLiveAccountState((state) => (
+    chartRuntimeActive ? state.balance : retainedChartBalanceRef.current
+  ));
+  if (chartRuntimeActive) {
+    retainedChartBalanceRef.current = liveAccountBalance;
+  }
 
   useEffect(() => {
     const normalized = normalizeTradeVolume(tradeVolume, tradeVolumeBounds);
@@ -769,9 +783,17 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const handleFooterLotDraftChange = useCallback((text: string) => {
     setFooterLotDraft(sanitizeTradeVolumeDraft(text));
   }, [setFooterLotDraft]);
+  // Suppress the synthetic blur that fires when iOS swaps the lot TextInput
+  // from the inline footer into the floating dock (unmount → remount). Without
+  // this, blur immediately ends the session so the user can't type and the
+  // Sell/Lot/Buy dock never stays above the keyboard.
+  const suppressFooterLotBlurUntilRef = useRef(0);
   const handleFocusFooterLotEditor = useCallback(() => {
     // Engage the chart freeze synchronously (before the keyboard resize lands).
     footerLotEditorActiveRef.current = true;
+    if (Platform.OS === 'ios') {
+      suppressFooterLotBlurUntilRef.current = Date.now() + 900;
+    }
     setFooterLotPickerMode(null);
     setFooterLotDraft(
       footerLotInvalid ? footerLotInvalidDisplay : formatTradeVolume(tradeVolume, tradeVolumeBounds),
@@ -783,11 +805,35 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     // Always prefer the ref (latest typed value) when no explicit override given
     commitLotDraft(draftOverride ?? footerLotDraftRef.current);
     footerLotEditorActiveRef.current = false;
+    suppressFooterLotBlurUntilRef.current = 0;
     setFooterLotEditorOpening(false);
     setFooterLotEditorFocused(false);
   }, [commitLotDraft]);
   const handleBlurFooterLotEditor = useCallback(() => {
-    finishFooterLotEditor();
+    if (
+      footerLotEditorActiveRef.current
+      && Date.now() < suppressFooterLotBlurUntilRef.current
+    ) {
+      // Re-focus the surviving floating TextInput after the inline unmount blur.
+      requestAnimationFrame(() => {
+        footerLotEditorInputRef.current?.focus();
+      });
+      return;
+    }
+    // Defer one frame so a handoff remount can reclaim focus before we commit.
+    requestAnimationFrame(() => {
+      const input = footerLotEditorInputRef.current as (TextInput & { isFocused?: () => boolean }) | null;
+      if (footerLotEditorActiveRef.current && input && typeof input.isFocused === 'function' && input.isFocused()) {
+        return;
+      }
+      if (footerLotEditorActiveRef.current && Date.now() < suppressFooterLotBlurUntilRef.current) {
+        input?.focus();
+        return;
+      }
+      if (footerLotEditorActiveRef.current) {
+        finishFooterLotEditor();
+      }
+    });
   }, [finishFooterLotEditor]);
   const handleEndFooterLotEditor = useCallback((event: TextInputCommitEvent) => {
     finishFooterLotEditor(event.nativeEvent.text);
@@ -1027,7 +1073,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   }, [readKeyboardMetricsFrame, recomputeKeyboardDockOffset]);
   const screenHeight = Dimensions.get('window').height;
   const fullscreenChartMinHeight = Math.max(320, screenHeight);
-  const chartTradeSheetCollapsedHeight = 120;
+  // Must fit drag handle + symbol/SL·TP header + order-type tabs. 120 clipped
+  // the tabs/header so collapsed SL/TP looked empty after open.
+  const chartTradeSheetCollapsedHeight = 186;
   const fullscreenToolbarTouchBuffer = 18;
   const fullscreenToolbarTopPadding = safeInsets.top + fullscreenToolbarTouchBuffer;
   const chartHeaderTopPadding = (Platform.OS === 'web' ? 0 : Math.max(safeInsets.top, 0)) + 6;
@@ -1148,7 +1196,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const [activeTool, setActiveTool] = useState<string>(CHART_NO_DRAWING_TOOL);
   const [chartDrawingInputActive, setChartDrawingInputActive] = useState(false);
   const [chartTapMenuAnchor, setChartTapMenuAnchor] = useState<ChartTapMenuAnchor | null>(null);
-  const [timeframePickerVisible, setTimeframePickerVisible] = useState(false);
   const [chartTapMenuBounds, setChartTapMenuBounds] = useState<ChartTapMenuBounds>({ width: 0, height: 0 });
   const [chartTapMenuViewport, setChartTapMenuViewport] = useState<ChartTapMenuViewport>({ x: 0, y: 0, width: 0, height: 0 });
   const [, setChartPlotArea] = useState<FixedHorizontalGridPlotArea | null>(null);
@@ -1165,18 +1212,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   const webViewRef = useRef<WebView>(null);
 
+  // The retained overlay is independent of ChartScreen state. Clear it when
+  // Chart blurs so a half-open picker never covers Quotes/Trade after a tab swap.
   useEffect(() => {
-    if (!timeframePickerVisible) {
-      return undefined;
+    if (!isScreenFocused) {
+      hideChartTimeframePicker();
     }
+  }, [isScreenFocused]);
 
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      setTimeframePickerVisible(false);
-      return true;
-    });
-
-    return () => subscription.remove();
-  }, [timeframePickerVisible]);
   const nextObjectsDrawingSyncRequestIdRef = useRef(0);
   const pendingObjectsDrawingSyncRef = useRef<{
     onReady: () => void;
@@ -1483,7 +1526,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     paginate,
     loading: chartDataLoading,
     error: chartDataError,
-  } = useLiveCandles(chartSymbol, chartTimeframe, chartDataActive);
+  } = useLiveCandles(
+    chartSymbol,
+    chartTimeframe,
+    chartDataActive,
+    CHART_SCREEN_CANDLE_COMMIT_INTERVAL_MS,
+  );
   const sanitizedBackendCandles = useMemo(
     () => (
       candles.length > 0
@@ -2039,8 +2087,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const openChartTradeSheet = useCallback((orderType: ChartOrderType = chartTradeOrderType) => {
     // Visual first (pre-mounted sheet + same-turn spring) — never let panel
     // resets / keyboard work steal the SL/TP open frame.
+    // Open expanded so volume / Buy·Sell body is immediately scrollable;
+    // collapsed is only the compact snap after the user drags down.
     setChartTradeOrderType(orderType);
-    snapTradeSheet('collapsed');
+    snapTradeSheet('expanded');
 
     // Non-visual cleanup after the open paint so first frame stays instant.
     const finalizeOpenWork = () => {
@@ -2951,27 +3001,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     showChartTradeSheet,
     syncKeyboardHeightFromMetrics,
   ]);
-  useEffect(() => {
-    if (
-      Platform.OS !== 'android' ||
-      !footerLotEditorFocused ||
-      footerLotEditorOpening ||
-      showChartTradeSheet ||
-      keyboardVisibleHeight > 0 ||
-      keyboardDockOffset > 0
-    ) {
-      return;
-    }
-
-    finishFooterLotEditor();
-  }, [
-    finishFooterLotEditor,
-    footerLotEditorFocused,
-    footerLotEditorOpening,
-    keyboardDockOffset,
-    keyboardVisibleHeight,
-    showChartTradeSheet,
-  ]);
+  // Do not auto-abort lot editing just because keyboard metrics are briefly 0.
+  // That race closed the editor (and hid Sell/Lot/Buy) right as the keyboard
+  // was opening. Commit only via blur/submit/chart-tap/finishFooterLotEditor.
   useEffect(() => {
     if (!footerLotEditorFocused || showChartTradeSheet) {
       return;
@@ -3038,8 +3070,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const chartTradeSheetDragGesture = useMemo(
     () =>
       Gesture.Pan()
-        .activeOffsetY([-4, 4])
-        .failOffsetX([-24, 24])
+        // Slightly larger activation so body ScrollView vertical scrolls are
+        // not stolen by the sheet-drag pan on the header region.
+        .activeOffsetY([-10, 10])
+        .failOffsetX([-20, 20])
         .onBegin(() => {
           chartTradeSheetDragStartY.value = chartTradeSheetTranslateY.value;
         })
@@ -3064,14 +3098,17 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
             return;
           }
 
-          const restingOffset = Math.min(
-            chartTradeSheetCollapsedTranslateY,
-            Math.max(chartTradeSheetExpandedTranslateY, current),
-          );
+          // Snap to expanded or collapsed only — intermediate offsets felt sticky.
+          const mid = (chartTradeSheetExpandedTranslateY + chartTradeSheetCollapsedTranslateY) / 2;
+          const restingOffset =
+            event.velocityY < -400 || current < mid
+              ? chartTradeSheetExpandedTranslateY
+              : chartTradeSheetCollapsedTranslateY;
 
           chartTradeSheetTranslateY.value = withSpring(restingOffset, {
-            damping: 28,
-            stiffness: 260,
+            damping: 30,
+            stiffness: 320,
+            mass: 0.7,
             overshootClamping: true,
           });
           chartTradeSheetDragStartY.value = restingOffset;
@@ -3344,16 +3381,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   // the trade sheet at its full height on Android.
   const showFloatingChartTradeCommentEditor = false;
   const floatingChartTradeCommentOffset = 0;
-  // On Android with adjustResize, the window shrinks when the keyboard opens.
-  // The host-height freeze activates predictively (as soon as the user focuses
-  // a TextInput) so the onLayout handler rejects the smaller height BEFORE the
-  // window actually shrinks. This keeps chartTradeSheetHostHeight stable.
+  // Freeze host/viewport height while the lot keyboard or trade sheet inputs
+  // are active so the horizontal candle chart does not blink/shrink on either
+  // platform (Android adjustResize + iOS keyboard layout animation).
   const shouldFreezeChartTradeSheetHostHeight =
-    Platform.OS === 'android' &&
     showChartTradeSheet &&
     (chartTradeCommentFocused || footerLotEditorFocused || keyboardVisibleHeight > 0);
   const shouldFreezeFooterLotChartViewport =
-    Platform.OS === 'android' &&
     !showChartTradeSheet &&
     (footerLotEditorFocused || footerLotEditorOpening || keyboardVisibleHeight > 0);
   const shouldFreezeChartViewportResize =
@@ -3364,7 +3398,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   // adjustResize). When the keyboard is not visible, use 0 to signal
   // "use absoluteFillObject as normal".
   const chartTradeSheetFrozenLayerHeight =
-    Platform.OS === 'android' && shouldFreezeChartTradeSheetHostHeight && resolvedChartTradeSheetHostHeight > 0
+    shouldFreezeChartTradeSheetHostHeight && resolvedChartTradeSheetHostHeight > 0
       ? resolvedChartTradeSheetHostHeight
       : 0;
   const chartTradeSheetFooterDockReserve = 0;
@@ -3680,6 +3714,26 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const showChartVolumePane = chartViewportShowVolumePane;
   const showChartDrawingToolbar = isChartExpanded && chartViewportShowDrawingToolbar;
   const overlayCandles = sanitizedBackendCandles.length > 0 ? sanitizedBackendCandles : sanitizedCandles;
+  const overlayMarkerCandleTimeSignature = useMemo(
+    () => buildChartMarkerCandleTimeSignature(overlayCandles),
+    [overlayCandles],
+  );
+  const retainedOverlayMarkerCandlesRef = useRef({
+    signature: '',
+    candles: EMPTY_DISPLAY_CANDLES,
+  });
+  if (retainedOverlayMarkerCandlesRef.current.signature !== overlayMarkerCandleTimeSignature) {
+    retainedOverlayMarkerCandlesRef.current = {
+      signature: overlayMarkerCandleTimeSignature,
+      candles: overlayCandles,
+    };
+  }
+  // Pattern recognition consumes OHLC bodies and may update with the forming
+  // candle. Closed-trade markers consume only candle times, so retain their
+  // input through close/high/low ticks within the same bucket.
+  const overlayMarkerCandles = activeTool === 'patterns'
+    ? overlayCandles
+    : retainedOverlayMarkerCandlesRef.current.candles;
   const applyNativeTimeRange = useCallback((range: ChartTimeRange, nextCustomDateValue?: Date | null) => {
     const visibleCandles = timeRangeCandlesRef.current;
     if (!webViewReady || !chartCanvasReady || visibleCandles.length === 0) {
@@ -3790,7 +3844,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       currentUIState.scopedActionSheets.chart?.visualKey
       ?? currentUIState.preloadedScopedActionSheets.chart?.visualKey
       ?? config.visualKey;
-    const parked = mountedVisualKey
+    // Park only for a real config swap. A same-key open (the preloaded symbol
+    // picker is the common case) would hide the exact rows about to be shown
+    // and push the reveal a frame later for nothing.
+    const parked = mountedVisualKey && mountedVisualKey !== config.visualKey
       ? parkRetainedActionSheetHostForConfigSwap(mountedVisualKey)
       : false;
 
@@ -3860,20 +3917,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     }
     startupChartPrefetchKeyRef.current = startupPrefetchKey;
 
-    // Start history after the first app frame, alongside the hidden WebView
-    // warm-up. This is a one-shot REST prefetch into the candle cache; live
-    // candle and quote subscriptions remain gated by chartRuntimeActive.
-    return scheduleAfterFirstFrame(() => {
-      void prefetchChartTimeframeHistory(chartSymbol, normalizedTimeframe).catch((error) => {
-        if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
-          console.warn('[CHART-BRIDGE] startup_history_prefetch_failed', {
-            symbol: chartSymbol,
-            timeframe: normalizedTimeframe,
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
-      });
+    // Prefetch chart history as soon as the Chart tree mounts (not after an
+    // extra paint frame) so the first Chart visit has candles ready sooner.
+    void prefetchChartTimeframeHistory(chartSymbol, normalizedTimeframe).catch((error) => {
+      if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
+        console.warn('[CHART-BRIDGE] startup_history_prefetch_failed', {
+          symbol: chartSymbol,
+          timeframe: normalizedTimeframe,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
     });
+    return undefined;
   }, [chartSymbol, chartTimeframe, prefetchChartTimeframeHistory]);
 
   const warmChartContextAndCommit = useCallback(
@@ -3895,7 +3950,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   const handleTimeframeSelect = useCallback((nextTimeframe: string) => {
     runImmediateAction(`chart.timeframe.${nextTimeframe}`, () => {
-      setTimeframePickerVisible(false);
+      hideChartTimeframePicker();
       if (nextTimeframe === chartTimeframe) {
         closeChartTapMenu();
         hideActionSheet();
@@ -4009,15 +4064,19 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   const handleOpenTimeframePicker = useCallback(() => {
     runImmediateAction('chart.timeframePicker.open', () => {
-      timeframes.forEach((tf) => {
-        if (tf !== chartTimeframe) {
-          void prefetchChartTimeframeHistory(chartSymbol, tf);
-        }
-      });
+      // Paint the retained overlay immediately — do not re-render ChartScreen
+      // or start multi-timeframe history work on the open critical path.
+      showChartTimeframePicker();
       hideActionSheet();
       closeChartTapMenu();
-      setTimeframePickerVisible(true);
       scheduleChartActionSheetContextReset();
+      scheduleIdleWork(() => {
+        timeframes.forEach((tf) => {
+          if (tf !== chartTimeframe) {
+            void prefetchChartTimeframeHistory(chartSymbol, tf);
+          }
+        });
+      }, { delayMs: 0, timeoutMs: 1200 });
     });
   }, [
     chartSymbol,
@@ -4027,10 +4086,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     prefetchChartTimeframeHistory,
     scheduleChartActionSheetContextReset,
   ]);
-
-  const handleCloseTimeframePicker = useCallback(() => {
-    setTimeframePickerVisible(false);
-  }, []);
 
   const handleSelectChartType = useCallback((nextType: 'candles' | 'hollow' | 'line') => {
     runImmediateAction(`chart.chartType.select.${nextType}`, () => {
@@ -4182,9 +4237,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       // remaining tools only as the user scrolls.
       detent: 'large',
       instantOpen: true,
-      // Viewport-first rendering keeps the large body stable enough to use the
-      // same UI-thread sheet motion as the short chart More menu.
-      entryMotion: 'mt5Slide',
+      // Keep this long virtualized catalog at its final height from the first
+      // visible frame. Sliding it from a full-sheet translation can replay a
+      // mid-height compositor frame that looks like the sheet is shrinking.
+      entryMotion: 'instant',
       // Same direct host hide as symbol picker — avoids replaying a close slide
       // that looked like a second shrink when reopening tools.
       immediateHostHideOnClose: true,
@@ -4202,17 +4258,54 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     preloadScopedActionSheet('chart', drawingToolsActionSheetConfig);
   }, [drawingToolsActionSheetConfig, isScreenFocused, preloadScopedActionSheet]);
 
+  useEffect(() => {
+    if (!isScreenFocused) return undefined;
+
+    // Chart owns one shared hidden ActionSheet slot. Symbol Picker and other
+    // menus may replace it while visible, so restore Drawing Tools as soon as
+    // they close. The next pencil tap then always has exact native pixels to
+    // reveal instead of mounting the long list on the tap path.
+    return useUIState.subscribe((state, previousState) => {
+      if (
+        previousState.scopedActionSheets.chart !== null
+        && state.scopedActionSheets.chart === null
+      ) {
+        preloadScopedActionSheet('chart', drawingToolsActionSheetConfig);
+      }
+    });
+  }, [drawingToolsActionSheetConfig, isScreenFocused, preloadScopedActionSheet]);
+
   const handleOpenDrawingTools = useCallback(() => {
     runImmediateAction('chart.drawingTools.open', () => {
-      closeChartTapMenu();
-      openChartActionSheetSmoothly(drawingToolsActionSheetConfig);
-      scheduleChartActionSheetContextReset();
+      const adoptDrawingToolsSheet = () => {
+        closeChartTapMenu();
+        showChartActionSheet(drawingToolsActionSheetConfig);
+        scheduleChartActionSheetContextReset();
+      };
+      // The exact Drawing Tools config is already mounted by the preload
+      // effect. Reveal those native pixels in the touch-start turn. Defer the
+      // heavier Zustand/React adoption until those queued native props have
+      // painted; doing both in one JS turn blocks the reveal on slower phones.
+      const retainedRevision = requestRetainedActionSheetPreview(drawingToolsVisualKey);
+      const retainedRevealAccepted = commitRetainedActionSheetPreview(
+        retainedRevision,
+        drawingToolsVisualKey,
+      );
+      if (retainedRevealAccepted) {
+        scheduleAfterFirstFrame(adoptDrawingToolsSheet);
+        return;
+      }
+
+      cancelRetainedActionSheetPreview(retainedRevision);
+      // A faster-than-preload tap still opens correctly through React.
+      adoptDrawingToolsSheet();
     });
   }, [
     closeChartTapMenu,
     drawingToolsActionSheetConfig,
-    openChartActionSheetSmoothly,
+    drawingToolsVisualKey,
     scheduleChartActionSheetContextReset,
+    showChartActionSheet,
   ]);
 
   const handleOpenSettingsScreen = useCallback(() => {
@@ -4599,7 +4692,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       visible: true,
       borderVisible: false,
       borderColor: 'transparent',
-      autoScale: true,
+      // Honor Chart Preferences → Auto-scale on first paint (iOS + Android).
+      autoScale: isChartAutoScaleEnabled,
       entireTextOnly: false,
       minimumWidth: CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH,
       scaleMargins: {
@@ -4636,7 +4730,20 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       },
     },
     periodSeparators: periodSeparatorOptions,
-  }), [chartAxisBorderColor, chartDisplay.showGrid, chartGridColor, chartSymbol, chartTimeframe, chartType, drawingMagnetMode, isDark, periodSeparatorOptions, resolvedChartColors, showChartVolumePane]);
+  }), [
+    chartAxisBorderColor,
+    chartDisplay.showGrid,
+    chartGridColor,
+    chartSymbol,
+    chartTimeframe,
+    chartType,
+    drawingMagnetMode,
+    isChartAutoScaleEnabled,
+    isDark,
+    periodSeparatorOptions,
+    resolvedChartColors,
+    showChartVolumePane,
+  ]);
 
   const applyImmediateChartVisualTheme = useCallback((mode: ThemeMode) => {
     const nextIsDark = mode === 'dark';
@@ -4704,6 +4811,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   // React effect cycle — this eliminates the "flash of missing lines"
   // race condition.
   const overlayPayloadRef = useRef<any>({ priceLines: [], markers: [] });
+  const overlayLabelFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastOverlayLabelFlushAtRef = useRef(0);
   const drawingSignatureRef = useRef(chartDrawingSignature);
   const drawingRecordsRef = useRef(chartDrawingRecords);
   const lastWebViewDrawingSignatureRef = useRef('');
@@ -4836,9 +4945,25 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       setDrawingMagnetMode(${drawingMagnetMode});
       setVerticalScrollingLocked(${isVerticalScrollingLocked});
       setChartAutoScaleEnabled(${isChartAutoScaleEnabled});
+      setShowObjectDescriptions(${chartDisplay.showObjectDescriptions === true});
       setDrawingTool(${JSON.stringify(bridgedTool)}, { startDrawing: ${shouldStartDrawing} });
     `);
-  }, [activeTool, chartDrawingInputActive, webViewReady, chartCanvasReady, chartLockAll, chartHideAll, stickyDrawingMode, drawingMagnetMode, isVerticalScrollingLocked, isChartAutoScaleEnabled, chartSymbol, chartTimeframe, chartType]);
+  }, [
+    activeTool,
+    chartDrawingInputActive,
+    webViewReady,
+    chartCanvasReady,
+    chartLockAll,
+    chartHideAll,
+    stickyDrawingMode,
+    drawingMagnetMode,
+    isVerticalScrollingLocked,
+    isChartAutoScaleEnabled,
+    chartDisplay.showObjectDescriptions,
+    chartSymbol,
+    chartTimeframe,
+    chartType,
+  ]);
 
   useEffect(() => {
     if (!hasCandles || !webViewReady || !chartCanvasReady) {
@@ -5401,63 +5526,123 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     };
   }, [chartRuntimeActive, webViewReady, sendInit]);
 
-  const overlayPayload = useMemo(
+  const overlayMarkers = useMemo(
     () => {
       if (!preferencesHydrated) {
-        return { priceLines: chartTradePreviewLines, markers: [] };
+        return EMPTY_CHART_OVERLAY_MARKERS;
+      }
+      return buildChartOverlayMarkers({
+        chartSymbol,
+        candles: overlayMarkerCandles,
+        closedPositions,
+        showOnChart: chartShowOnChart,
+        activeTool,
+      });
+    },
+    [
+      activeTool,
+      chartShowOnChart,
+      chartSymbol,
+      closedPositions,
+      overlayMarkerCandles,
+      preferencesHydrated,
+    ],
+  );
+  const overlayPriceLines = useMemo(
+    () => {
+      if (!preferencesHydrated) {
+        return chartTradePreviewLines;
       }
 
+      // Candle/history markers are built by the static memo above. This payload
+      // call is intentionally price-lines-only, so quote/P&L commits cannot scan
+      // closed history or sort the full candle series.
       const basePayload = buildChartOverlayPayload({
         chartSymbol,
-        candles: overlayCandles,
+        candles: EMPTY_DISPLAY_CANDLES,
         positions,
         orders,
-        closedPositions,
         alerts,
         colors: resolvedChartColors,
         sellColor: T.trading.sell.primary,
         liveBid: overlayLiveBid,
         liveAsk: overlayLiveAsk,
-        liveAccount: overlayAccountMetrics,
         showOnChart: chartShowOnChart,
-        activeTool,
+        activeTool: CHART_NO_DRAWING_TOOL,
       });
 
       if (chartTradePreviewLines.length === 0) {
-        return basePayload;
+        return basePayload.priceLines;
       }
 
-      return {
-        ...basePayload,
-        priceLines: [...basePayload.priceLines, ...chartTradePreviewLines].sort((left, right) => left.price - right.price),
-      };
+      return [...basePayload.priceLines, ...chartTradePreviewLines]
+        .sort((left, right) => left.price - right.price);
     },
     [
-      preferencesHydrated,
-      chartSymbol,
-      overlayCandles,
-      positions,
-      orders,
-      closedPositions,
       alerts,
+      chartShowOnChart,
+      chartSymbol,
+      chartTradePreviewLines,
+      orders,
+      overlayLiveAsk,
+      overlayLiveBid,
+      positions,
+      preferencesHydrated,
       resolvedChartColors,
       T.trading.sell.primary,
-      overlayLiveBid,
-      overlayLiveAsk,
-      overlayAccountMetrics,
-      chartShowOnChart,
-      activeTool,
-      chartTradePreviewLines,
     ],
   );
-  const overlayPayloadSignature = useMemo(() => JSON.stringify(overlayPayload), [overlayPayload]);
+  const overlayPayload = useMemo(() => ({
+    priceLines: overlayPriceLines,
+    markers: overlayMarkers,
+  }), [overlayMarkers, overlayPriceLines]);
+  const overlayLabelSignature = useMemo(
+    () => JSON.stringify(overlayPriceLines.map((line) => ({
+      id: line.id,
+      title: line.title,
+      labelSideText: line.labelSideText,
+      labelValueText: line.labelValueText,
+      labelSideColor: line.labelSideColor,
+      labelValueColor: line.labelValueColor,
+    }))),
+    [overlayPriceLines],
+  );
+  // Geometry-only signature (no live P/L text). Injecting the full overlay on
+  // every bid/ask tick forced DOM label wipe/rebuild and made the horizontal
+  // trade lines blink after place-order.
+  const overlayPriceLineGeometrySignature = useMemo(
+    () => JSON.stringify(overlayPriceLines.map((line) => ({
+      id: line.id,
+      price: line.price,
+      color: line.color,
+      lineWidth: line.lineWidth,
+      lineStyle: line.lineStyle,
+      labelPlacement: line.labelPlacement,
+      dragKey: line.dragKey,
+    }))),
+    [overlayPriceLines],
+  );
+  const overlayMarkerGeometrySignature = useMemo(
+    () => JSON.stringify(overlayMarkers.map((marker) => ({
+      time: marker.time,
+      position: marker.position,
+      color: marker.color,
+      shape: marker.shape,
+      text: marker.text,
+    }))),
+    [overlayMarkers],
+  );
+  const overlayGeometrySignature = useMemo(
+    () => `${overlayPriceLineGeometrySignature}|${overlayMarkerGeometrySignature}`,
+    [overlayMarkerGeometrySignature, overlayPriceLineGeometrySignature],
+  );
 
   // ── DEBUG: Log overlay payload every time it changes ──
   // Keep the ref in sync so the onMessage CHART_READY handler can
   // immediately push the latest overlay without waiting for the effect.
-  useEffect(() => {
+  useLayoutEffect(() => {
     overlayPayloadRef.current = overlayPayload;
-  }, [overlayPayloadSignature]);
+  }, [overlayPayload]);
   useEffect(() => {
     if (!isScreenFocused || !preferencesHydrated || !webViewReady || !chartCanvasReady || !webViewRef.current) {
       return;
@@ -5490,59 +5675,102 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   }, [chartCanvasReady, chartDrawingRecords, chartDrawingSignature, chartReadyEpoch, isScreenFocused, preferencesHydrated, webViewReady]);
 
   // ── Chart Overlays Bridge ───────────────────────────────────────
-  // Single effect that pushes ALL 7 "Show on Chart" features to the WebView:
-  //   1. Open positions (BUY/SELL entry lines)
-  //   2. TP / SL / Stop / Limit levels
-  //   3. Closed position markers
-  //   4. Trading signals
-  //   5. HMR periods
-  //   6. Price alerts
-  //   7. Potential Stop Out line
-  //
-  // MUST wait for chartCanvasReady — the WebView's applyOverlayPayload
-  // requires `series` to exist. Without this gate the effect fires when
-  // the HTML loads (webViewReady=true) but before the chart is initialized
-  // (series=null), so applyOverlayPayload silently returns and no lines
-  // appear. This was the root cause of "sometimes shows, sometimes doesn't".
-  // Push overlay to WebView whenever payload changes or chart (re-)initializes.
+  // Geometry inject (new/close trade, SL/TP price change) — rare.
+  // Depends on geometry signature only so live P/L text does not re-push.
   useEffect(() => {
     if (!chartRuntimeActive || !webViewReady || !chartCanvasReady || !webViewRef.current) {
       return;
     }
 
+    const latestPayload = overlayPayloadRef.current ?? overlayPayload;
     const js = `
       if (typeof setChartOverlays === 'function') {
-        setChartOverlays(${JSON.stringify(overlayPayload)});
+        setChartOverlays(${JSON.stringify(latestPayload)});
       }
       true;
     `;
     webViewRef.current.injectJavaScript(js);
 
     const hasOverlayContent =
-      overlayPayload.priceLines.length > 0 || overlayPayload.markers.length > 0;
+      (latestPayload.priceLines?.length ?? 0) > 0 || (latestPayload.markers?.length ?? 0) > 0;
     if (!hasOverlayContent) {
       return;
     }
 
-    // Periodic resync: re-push the overlay every 5 seconds so that even
-    // if a single injectJavaScript call races with initChart's
-    // requestAnimationFrame (series=null at call time), the overlay
-    // self-heals within one cycle.
+    // Self-heal only on geometry path (not on every P/L tick).
     const resyncInterval = setInterval(() => {
-      if (webViewRef.current) {
-        webViewRef.current.injectJavaScript(js);
+      if (!webViewRef.current) {
+        return;
       }
+      const payload = overlayPayloadRef.current ?? latestPayload;
+      webViewRef.current.injectJavaScript(`
+        if (typeof setChartOverlays === 'function') {
+          setChartOverlays(${JSON.stringify(payload)});
+        }
+        true;
+      `);
     }, 5000);
 
     return () => clearInterval(resyncInterval);
+    // overlayPayload intentionally omitted: geometry signature is the gate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     chartRuntimeActive,
-    overlayPayloadSignature,
+    overlayGeometrySignature,
     webViewReady,
     chartCanvasReady,
     chartReadyEpoch,
     overlaySyncRevision,
   ]);
+
+  // Label-only inject (live P/L text). Keep one timer alive and let it flush
+  // the newest payload: cancelling/restarting it on every tick was a debounce,
+  // so a continuously moving quote could prevent labels from updating at all.
+  useEffect(() => {
+    if (!chartRuntimeActive || !webViewReady || !chartCanvasReady || !webViewRef.current) {
+      if (overlayLabelFlushTimerRef.current !== null) {
+        clearTimeout(overlayLabelFlushTimerRef.current);
+        overlayLabelFlushTimerRef.current = null;
+      }
+      return;
+    }
+    const latestPayload = overlayPayloadRef.current;
+    if (!latestPayload?.priceLines?.length && !latestPayload?.markers?.length) {
+      return;
+    }
+    if (overlayLabelFlushTimerRef.current !== null) {
+      return;
+    }
+
+    const elapsedMs = Date.now() - lastOverlayLabelFlushAtRef.current;
+    const delayMs = Math.max(0, 400 - elapsedMs);
+    overlayLabelFlushTimerRef.current = setTimeout(() => {
+      overlayLabelFlushTimerRef.current = null;
+      const payload = overlayPayloadRef.current;
+      if (!webViewRef.current || (!payload?.priceLines?.length && !payload?.markers?.length)) {
+        return;
+      }
+      webViewRef.current.injectJavaScript(`
+        if (typeof updateOverlayTradeLabels === 'function') {
+          updateOverlayTradeLabels(${JSON.stringify(payload)});
+        }
+        true;
+      `);
+      lastOverlayLabelFlushAtRef.current = Date.now();
+    }, delayMs);
+  }, [
+    chartCanvasReady,
+    chartReadyEpoch,
+    chartRuntimeActive,
+    overlayLabelSignature,
+    webViewReady,
+  ]);
+  useEffect(() => () => {
+    if (overlayLabelFlushTimerRef.current !== null) {
+      clearTimeout(overlayLabelFlushTimerRef.current);
+      overlayLabelFlushTimerRef.current = null;
+    }
+  }, []);
 
   const displaySymbol = chartSymbol.replace(/\//g, '');
   const symbolName = resolveChartSymbolFullName(chartSymbol);
@@ -6471,16 +6699,26 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                     isDark={isDark}
                     onDismiss={closeChartTapMenu}
                     onSelectTimeframe={handleTimeframeSelect}
-                    onOpenObjects={handleOpenObjectsScreen}
+                    onOpenObjects={() => {
+                      // Always clear the radial first so the next sheet/route
+                      // does not sit under a leftover touch layer (Android).
+                      closeChartTapMenu();
+                      handleOpenObjectsScreen();
+                    }}
                     onOpenDrawingTools={() => {
                       closeChartTapMenu();
                       handleOpenDrawingTools();
                     }}
                     onOpenIndicators={() => {
                       closeChartTapMenu();
-                      router.push('/chart/indicators');
+                      runImmediateAction('chart.indicators.open', () => {
+                        try {
+                          router.push('/chart/indicators');
+                        } catch {
+                          // Route may already be mid-transition; radial is closed.
+                        }
+                      });
                     }}
-
                     onOpenSymbolPicker={() => {
                       closeChartTapMenu();
                       handleOpenSymbolPicker();
@@ -6489,14 +6727,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                   />
                 ) : null}
                 <ChartTimeframePickerOverlay
-                  visible={timeframePickerVisible}
                   activeTimeframe={chartTimeframe}
                   supportedTimeframes={timeframes}
                   accentColor={BLUE}
                   isDark={isDark}
                   textColor={T.text}
                   mutedColor={TEXT_MUTED}
-                  onClose={handleCloseTimeframePicker}
                   onSelect={handleTimeframeSelect}
                 />
               </View>

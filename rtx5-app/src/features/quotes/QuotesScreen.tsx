@@ -108,8 +108,7 @@ import {
 import { buildFeedHealthBannerModel } from '../../market/feedHealthPresentation';
 import {
   bindFeedHealthSession,
-  getFeedHealthSnapshot,
-  reportFeedLocalTick,
+  getFeedHealthRenderSnapshot,
   requestFeedHealthRetry,
   subscribeFeedHealth,
   unbindFeedHealthSession,
@@ -622,16 +621,14 @@ const QuoteCard = React.memo(function QuoteCard({
   const NEGATIVE = T.trading.loss;
   const color = isUp ? POSITIVE : NEGATIVE;
   // Card chrome always uses the Quotes surface palette (light #FFFFFF / dark #1E1E1E
-  // via cardBackground + normal border). STALE/DELAYED is badge-only — do not wash
-  // the whole card amber when weekend FX or delayed ticks arrive.
+  // via cardBackground + normal border). Quote freshness remains an execution and
+  // tick-direction concern, but the row always presents the daily percentage change.
   const cardBorder = isDark ? QUOTES_DARK_BORDER : T.border;
   const cardHighlight = isDark ? QUOTES_DARK_CARD_HIGHLIGHT : QUOTES_LIGHT_CARD_HIGHLIGHT;
   const primaryText = isDark ? QUOTES_DARK_PRIMARY_TEXT : T.text;
   const mutedText = isDark ? QUOTES_DARK_MUTED_TEXT : T.textMuted;
   const secondaryText = isDark ? QUOTES_DARK_SUBTLE_TEXT : T.textSub;
   const hasDelayedPrice = !noData && rowFreshness.status !== 'live';
-  const staleAccent = rowFreshness.status === 'stale' ? '#F59E0B' : '#D97706';
-  const staleBadgeTextColor = isDark ? '#FBBF24' : '#92400E';
 
   const displaySymbol = pairLabel(item.symbol);
   const pct = `${isUp ? '+' : ''}${(item.changePct || 0).toFixed(2)}%`;
@@ -726,14 +723,7 @@ const QuoteCard = React.memo(function QuoteCard({
               {displaySymbol}
             </Text>
 
-            {hasDelayedPrice ? (
-              <View style={[sc.freshnessBadge, { borderColor: staleAccent }]}>
-                <Ionicons name="time-outline" size={10} color={staleAccent} />
-                <Text style={[sc.freshnessBadgeText, { color: staleBadgeTextColor }]}>
-                  {rowFreshness.label}
-                </Text>
-              </View>
-            ) : !isSimpleMode ? (
+            {!isSimpleMode ? (
               <View style={sc.changePill}>
                 <Text
                   style={[
@@ -1902,8 +1892,8 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
   );
   const feedHealthSnapshot = useSyncExternalStore(
     subscribeFeedHealth,
-    getFeedHealthSnapshot,
-    getFeedHealthSnapshot,
+    getFeedHealthRenderSnapshot,
+    getFeedHealthRenderSnapshot,
   );
   const activeFeedIdentity = useMemo(
     () => activeBrokerCapture
@@ -1960,26 +1950,10 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
         feedAuth.mode !== 'disabled_unconfigured'
       ),
       credentialApproved,
-      // Deliberately omit thresholds. A normalized server policy integration
-      // must provide approved values; this screen never invents defaults.
+      // Undefined preserves a policy already confirmed for this exact session;
+      // the status probe owns installing it and this screen invents no defaults.
     });
   }, [activeBrokerCapture, activeFeedIdentity, isLoggedIn]);
-
-  useEffect(() => {
-    if (!isLoggedIn || !activeFeedIdentity) return;
-    const listener = (tick: QuoteTickEvent) => {
-      reportFeedLocalTick(activeFeedIdentity, {
-        receivedAt: tick.receivedAt,
-        bid: tick.bid,
-        ask: tick.ask,
-        transport: tick.transport,
-        stale: tick.stale,
-        degraded: tick.degraded,
-      });
-    };
-    quotesWsService.addTickListener(listener);
-    return () => quotesWsService.removeTickListener(listener);
-  }, [activeFeedIdentity, isLoggedIn]);
 
   const retryActiveFeed = useCallback(() => {
     if (
@@ -2084,10 +2058,8 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
   const setHasSetInitialSymbols = useUserPreferences((st) => st.setHasSetInitialSymbols);
 
   useEffect(() => {
-    // Clear any legacy sticky watchlist subscriptions. Quotes rows already
-    // subscribe through focused-screen effects and detail/chart hooks, so
-    // leaving sticky symbols behind only causes unnecessary global quote fan-out.
-    quotesWsService.setSubscriptions([]);
+    // Do not clear sticky subscriptions on mount — bootstrap may already have
+    // warmed the watchlist feed for faster first paint. Only clear on leave.
     return () => {
       quotesWsService.setSubscriptions([]);
     };
@@ -2890,7 +2862,9 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
           />
 
           <View style={s.subheaderRow}>
-            <GmtClock style={[s.subLeft, { color: palette.secondaryText }]} active />
+            {/* Tick the 1s clock only while Quotes is the visible tab — an
+                always-on interval re-rendered this retained screen forever. */}
+            <GmtClock style={[s.subLeft, { color: palette.secondaryText }]} active={isScreenFocused} />
 
             <View style={{ alignItems: 'flex-end' }}>
               <TickCounter T={T} palette={palette} active={quoteStickyFeedActive} symbols={quoteFeedSymbols} />
@@ -3484,22 +3458,6 @@ const sc = StyleSheet.create({
   changePillText: {
     fontSize: 11,
     fontWeight: '600',
-  },
-
-  freshnessBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 999,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-
-  freshnessBadgeText: {
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.45,
   },
 
   cardRow2: {

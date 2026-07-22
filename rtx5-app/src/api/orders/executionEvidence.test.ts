@@ -5,8 +5,24 @@ import { resolveBrokerExecutionEvidence } from './executionEvidence';
 
 test('confirms a market execution only with both broker ticket and fill price', () => {
   assert.deepEqual(
-    resolveBrokerExecutionEvidence({ position_ticket: 81001, price_open: 1.08421 }),
+    resolveBrokerExecutionEvidence({ position_ticket: 81001, price: 1.08421 }),
     { ticket: 81001, executionPrice: 1.08421, confirmed: true },
+  );
+});
+
+test('prefers canonical fill price and never treats order_ticket as a position identity', () => {
+  assert.deepEqual(
+    resolveBrokerExecutionEvidence({
+      order_ticket: 71001,
+      position_ticket: 81001,
+      price: 1.08421,
+      price_open: 9.99999,
+    }),
+    { ticket: 81001, executionPrice: 1.08421, confirmed: true },
+  );
+  assert.deepEqual(
+    resolveBrokerExecutionEvidence({ order_ticket: 71001, price: 1.08421 }),
+    { executionPrice: 1.08421, confirmed: false },
   );
 });
 

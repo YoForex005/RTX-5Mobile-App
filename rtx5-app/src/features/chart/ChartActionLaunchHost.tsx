@@ -277,6 +277,7 @@ export function ChartActionLaunchHost() {
             style={[styles.layer, visualActive ? styles.layerVisible : styles.layerHidden]}
           >
             <ChartActionLaunchShell
+              active={visualActive}
               destination={destination}
               symbol={snapshot.symbol}
               onBack={closeLaunch}

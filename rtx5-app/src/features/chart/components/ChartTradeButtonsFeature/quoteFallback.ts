@@ -13,16 +13,38 @@ export type ChartTradeButtonQuoteInput = {
   fallbackAsk?: unknown;
 };
 
-export function resolveChartTradeButtonQuote({
-  liveBid,
-  liveAsk,
-  // Candle/snapshot fallbacks are retained in the call shape for compatibility
-  // with chart renderers, but are never eligible for a trade-button price.
-  fallbackBid: _fallbackBid,
-  fallbackAsk: _fallbackAsk,
-}: ChartTradeButtonQuoteInput): { bid: number; ask: number } {
+/**
+ * Prices eligible for one-click SL/TP validation and execution context.
+ * Live websocket bid/ask only — never candle/snapshot fallbacks.
+ */
+export function resolveChartTradeButtonQuote(
+  input?: ChartTradeButtonQuoteInput | null,
+): { bid: number; ask: number } {
+  // Guard null/undefined so a missing live quote never crashes the chart tree
+  // (object destructure of undefined was the OTA ErrorBoundary failure).
+  const liveBid = input?.liveBid;
+  const liveAsk = input?.liveAsk;
   return {
     bid: toPositiveFiniteNumber(liveBid) ?? 0,
     ask: toPositiveFiniteNumber(liveAsk) ?? 0,
+  };
+}
+
+/**
+ * Prices shown on the Buy/Sell tiles. Prefer live ticks; fall back to the
+ * chart's last known bid/ask so the tiles stay bright instead of "---" while
+ * the quote integrity gate is still warming. Execution remains fail-closed
+ * via resolveSessionQuoteActionAvailability in the trade handler.
+ */
+export function resolveChartTradeButtonDisplayQuote(
+  input?: ChartTradeButtonQuoteInput | null,
+): { bid: number; ask: number } {
+  const liveBid = input?.liveBid;
+  const liveAsk = input?.liveAsk;
+  const fallbackBid = input?.fallbackBid;
+  const fallbackAsk = input?.fallbackAsk;
+  return {
+    bid: toPositiveFiniteNumber(liveBid) ?? toPositiveFiniteNumber(fallbackBid) ?? 0,
+    ask: toPositiveFiniteNumber(liveAsk) ?? toPositiveFiniteNumber(fallbackAsk) ?? 0,
   };
 }

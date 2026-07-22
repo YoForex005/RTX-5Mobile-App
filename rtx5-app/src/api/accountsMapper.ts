@@ -1,18 +1,37 @@
 type NumericAccountField = number | string | null | undefined;
 
-function toFiniteNumber(value: unknown, fallback = 0): number {
+function parseFiniteNumber(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
   }
 
   if (typeof value === 'string') {
-    const parsed = Number(value.trim());
+    const normalized = value.trim();
+    if (!normalized) {
+      return undefined;
+    }
+    const parsed = Number(normalized);
     if (Number.isFinite(parsed)) {
       return parsed;
     }
   }
 
-  return fallback;
+  return undefined;
+}
+
+function pickFiniteNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    const parsed = parseFiniteNumber(value);
+    if (parsed !== undefined) {
+      return parsed;
+    }
+  }
+
+  return undefined;
+}
+
+function toFiniteNumber(value: unknown, fallback = 0): number {
+  return parseFiniteNumber(value) ?? fallback;
 }
 
 /**
@@ -29,10 +48,17 @@ export interface TradingAccountRaw {
   credit: NumericAccountField;
   equity: NumericAccountField;
   margin?: NumericAccountField;
+  margin_used?: NumericAccountField;
   used_margin?: NumericAccountField;
+  marginUsed?: NumericAccountField;
+  usedMargin?: NumericAccountField;
   margin_free?: NumericAccountField;
   free_margin?: NumericAccountField;
-  margin_level: NumericAccountField;
+  freeMargin?: NumericAccountField;
+  margin_available?: NumericAccountField;
+  marginAvailable?: NumericAccountField;
+  margin_level?: NumericAccountField;
+  marginLevel?: NumericAccountField;
   floating?: NumericAccountField;
   floating_pnl?: NumericAccountField;
   total_swap?: NumericAccountField;
@@ -70,6 +96,24 @@ export interface TradingAccount {
  */
 export function mapRawAccount(raw: TradingAccountRaw): TradingAccount {
   const login = Math.trunc(toFiniteNumber(raw.login));
+  const equity = toFiniteNumber(raw.equity);
+  const usedMargin = pickFiniteNumber(
+    raw.margin_used,
+    raw.used_margin,
+    raw.marginUsed,
+    raw.usedMargin,
+    raw.margin,
+  ) ?? 0;
+  const freeMargin = pickFiniteNumber(
+    raw.free_margin,
+    raw.margin_free,
+    raw.freeMargin,
+    raw.margin_available,
+    raw.marginAvailable,
+  ) ?? equity - usedMargin;
+  const marginLevel = pickFiniteNumber(raw.margin_level, raw.marginLevel) ?? (usedMargin > 0
+    ? (equity / usedMargin) * 100
+    : 0);
 
   return {
     login,
@@ -79,10 +123,10 @@ export function mapRawAccount(raw: TradingAccountRaw): TradingAccount {
     leverage: toFiniteNumber(raw.leverage),
     balance: toFiniteNumber(raw.balance),
     credit: toFiniteNumber(raw.credit),
-    equity: toFiniteNumber(raw.equity),
-    usedMargin: toFiniteNumber(raw.used_margin ?? raw.margin),
-    freeMargin: toFiniteNumber(raw.free_margin ?? raw.margin_free),
-    marginLevel: toFiniteNumber(raw.margin_level),
+    equity,
+    usedMargin,
+    freeMargin,
+    marginLevel,
     floatingPnl: toFiniteNumber(raw.floating_pnl ?? raw.floating),
     totalSwap: toFiniteNumber(raw.total_swap),
     openPositions: Math.trunc(toFiniteNumber(raw.open_positions)),

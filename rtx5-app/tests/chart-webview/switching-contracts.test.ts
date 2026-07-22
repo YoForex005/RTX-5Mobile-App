@@ -144,15 +144,33 @@ test('symbol change recalculates decimals and candle close cannot become a trade
     /const rawDisplayDecimals = useMemo\([\s\S]*baseSymbol\.includes\('BTC'\)/,
     'display decimals must not use frontend symbol-family precision guesses',
   );
+  // Executable path: live WS bid/ask only (fallbacks intentionally unused).
   assertSourceContains(
     quoteFallbackSource,
-    /bid: toPositiveFiniteNumber\(liveBid\) \?\? 0,[\s\S]*ask: toPositiveFiniteNumber\(liveAsk\) \?\? 0/,
-    'trade-button quote resolution must use only live bid and ask',
+    /export function resolveChartTradeButtonQuote\([\s\S]*bid: toPositiveFiniteNumber\(liveBid\) \?\? 0,[\s\S]*ask: toPositiveFiniteNumber\(liveAsk\) \?\? 0/,
+    'executable trade-button quote resolution must use only live bid and ask',
   );
+  const executableQuoteStart = quoteFallbackSource.indexOf(
+    'export function resolveChartTradeButtonQuote',
+  );
+  const displayQuoteStart = quoteFallbackSource.indexOf(
+    'export function resolveChartTradeButtonDisplayQuote',
+    executableQuoteStart,
+  );
+  assert.notEqual(executableQuoteStart, -1, 'executable quote resolver was not found');
+  assert.notEqual(displayQuoteStart, -1, 'display-only quote resolver was not found');
+  const executableQuoteSource = quoteFallbackSource.slice(executableQuoteStart, displayQuoteStart);
   assertSourceOmits(
+    executableQuoteSource,
+    /fallbackBid|fallbackAsk/,
+    'executable quote resolver must ignore candle/snapshot fallbacks',
+  );
+  // Display path may use chart last-known bid/ask so tiles stay bright while
+  // the integrity gate warms; execution stays fail-closed via quote integrity.
+  assertSourceContains(
     quoteFallbackSource,
-    /toPositiveFiniteNumber\(_?fallback(?:Bid|Ask)\)/,
-    'candle/chart fallback values must never become executable quote prices',
+    /export function resolveChartTradeButtonDisplayQuote\([\s\S]*toPositiveFiniteNumber\(liveBid\) \?\? toPositiveFiniteNumber\(fallbackBid\) \?\? 0/,
+    'display quote may fall back to chart bid/ask for tile rendering only',
   );
   assertSourceOmits(
     source,

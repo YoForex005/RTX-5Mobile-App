@@ -6,6 +6,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
@@ -45,7 +46,7 @@ import {
   type QuoteActionAvailability,
 } from '../../market/quoteIntegrity';
 import {
-  getFeedHealthSnapshot,
+  getFeedHealthRenderSnapshot,
   subscribeFeedHealth,
 } from '../../market/feedHealthRuntime';
 import {
@@ -60,6 +61,7 @@ const DIVIDER_DARK = 'rgba(255,255,255,0.06)';
 const PREVIEW_LIMIT = 8;
 
 export function BulkOperationScreen() {
+  const isScreenFocused = useIsFocused();
   const { mode } = useLocalSearchParams<{ mode?: string }>();
   const [isRunning, setIsRunning] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -70,7 +72,13 @@ export function BulkOperationScreen() {
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const { t } = useTranslation();
-  const positions = usePositionsState((s) => s.positions);
+  const retainedPositionsRef = useRef(usePositionsState.getState().positions);
+  const positions = usePositionsState((state) => (
+    isScreenFocused ? state.positions : retainedPositionsRef.current
+  ));
+  if (isScreenFocused) {
+    retainedPositionsRef.current = positions;
+  }
   const resolvedLogin = resolveTradingLoginString();
   const screenBg = isDark ? CANVAS_DARK : T.bg;
 
@@ -92,19 +100,35 @@ export function BulkOperationScreen() {
     () => Array.from(new Set(affectedPositions.map((position) => position.symbol))),
     [affectedPositions],
   );
-  const quotes = useLiveSymbolQuotes(affectedSymbols, affectedSymbols.length > 0, 0);
-  const feedHealth = useSyncExternalStore(
-    subscribeFeedHealth,
-    getFeedHealthSnapshot,
-    getFeedHealthSnapshot,
+  const quotes = useLiveSymbolQuotes(
+    affectedSymbols,
+    isScreenFocused && affectedSymbols.length > 0,
+    0,
   );
+  const retainedFeedHealthRef = useRef(getFeedHealthRenderSnapshot());
+  const subscribeFocusedFeedHealth = useCallback(
+    (listener: () => void) => (isScreenFocused ? subscribeFeedHealth(listener) : () => undefined),
+    [isScreenFocused],
+  );
+  const getFocusedFeedHealthSnapshot = useCallback(
+    () => (isScreenFocused ? getFeedHealthRenderSnapshot() : retainedFeedHealthRef.current),
+    [isScreenFocused],
+  );
+  const feedHealth = useSyncExternalStore(
+    subscribeFocusedFeedHealth,
+    getFocusedFeedHealthSnapshot,
+    getFocusedFeedHealthSnapshot,
+  );
+  if (isScreenFocused) {
+    retainedFeedHealthRef.current = feedHealth;
+  }
   const [quoteFreshnessNow, setQuoteFreshnessNow] = useState(() => Date.now());
 
   useEffect(() => {
-    if (affectedSymbols.length === 0) return;
+    if (!isScreenFocused || affectedSymbols.length === 0) return;
     const timer = setInterval(() => setQuoteFreshnessNow(Date.now()), 1_000);
     return () => clearInterval(timer);
-  }, [affectedSymbols.length]);
+  }, [affectedSymbols.length, isScreenFocused]);
 
   const resolveBulkQuoteBlock = useCallback((now = Date.now()): QuoteActionAvailability | null => {
     for (const position of affectedPositions) {
@@ -227,6 +251,10 @@ export function BulkOperationScreen() {
     runningRef.current = false;
     setIsRunning(false);
   }, [affectedPositions, resolveBulkQuoteBlock, resolvedLogin, t]);
+
+  if (!isScreenFocused) {
+    return <View style={[styles.root, { backgroundColor: screenBg }]} />;
+  }
 
   return (
     <View style={[styles.root, { backgroundColor: screenBg }]}>

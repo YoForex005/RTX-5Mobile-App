@@ -9,7 +9,8 @@ import { hideChartConfigDestination } from './chartConfigDestinationController';
 
 /**
  * Sidebar-style retained host for Chart Preferences (toolbar options icon).
- * The screen stays mounted; taps only flip visibility so open/back feel instant.
+ * The native layer stays retained, while the interactive settings tree only
+ * exists for the visible lifetime of the host.
  */
 export const ChartSettingsHost = memo(function ChartSettingsHost() {
   const layerRef = useRef<View | null>(null);
@@ -67,11 +68,13 @@ export const ChartSettingsHost = memo(function ChartSettingsHost() {
         style={[styles.layer, active ? styles.layerVisible : styles.layerHidden]}
         testID="chart-settings-host-layer"
       >
-        <ChartSettingsScreen
-          hosted
-          hostedActive={active}
-          onHostedBack={closeHost}
-        />
+        {active ? (
+          <ChartSettingsScreen
+            hosted
+            hostedActive
+            onHostedBack={closeHost}
+          />
+        ) : null}
       </View>
     </View>
   );

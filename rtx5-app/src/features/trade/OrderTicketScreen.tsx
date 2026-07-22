@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUserPreferences } from '../../state/userPreferences';
 import { usePositionsState } from '../../state/positionsState';
+import { hasPositionPresenceConverged } from '../../state/positionsState.helpers';
 import { resolveTradingLogin, resolveTradingLoginString, useResolvedTradingLogin } from '../../state/tradingLogin';
 import { ordersApi } from '../../api/orders';
 import { resolveBrokerExecutionEvidence } from '../../api/orders/executionEvidence';
@@ -162,6 +163,13 @@ export function OrderTicketScreen() {
     }
     hideOrderTicketLaunch();
   }, [contentReady, isScreenFocused]);
+
+  // Expo Router can retain a previously visited ticket underneath the tabs.
+  // Do not keep its full shell/interactive tree subscribed and rendering while
+  // another route is focused; the separate launch host owns the handoff frame.
+  if (!isScreenFocused) {
+    return null;
+  }
 
   if (!contentReady) {
     return <OrderTicketInitialShell />;
@@ -446,21 +454,27 @@ function OrderTicketInteractiveContent() {
       ?? liveQuote?.lastTickAt
       ?? tickTimestamp,
   );
+  // Same executable shape for UI disable + submit recheck. Spreading liveQuote
+  // alone used to drop normalized bid/ask/receipt time on the press path and
+  // show a false "live quote is stale" while the tiles still had prices.
+  const executableLiveQuote = liveQuote
+    ? {
+        ...liveQuote,
+        bid: BID,
+        ask: ASK,
+        lastReceivedAt: quoteTimeMs ?? liveQuote.lastReceivedAt ?? liveQuote.lastTickAt,
+        feedTickAt: liveQuote.feedTickAt ?? liveQuote.lastTickAt,
+        transport: liveQuote.transport ?? ('websocket' as const),
+      }
+    : null;
   const quoteActionAvailability = resolveSessionQuoteActionAvailability(
-    liveQuote
-      ? {
-          ...liveQuote,
-          bid: BID,
-          ask: ASK,
-          lastReceivedAt: quoteTimeMs,
-        }
-      : null,
+    executableLiveQuote,
     quoteFreshnessNow,
   );
   const quoteIsUnavailable = !quoteActionAvailability.allowed;
   const quoteUnavailableMessage = quoteActionBlockMessage(quoteActionAvailability);
   const resolveCurrentQuoteAvailability = () =>
-    resolveSessionQuoteActionAvailability(liveQuote, Date.now());
+    resolveSessionQuoteActionAvailability(executableLiveQuote, Date.now());
   const isMarketExecution = orderType === 'Market Execution';
 
   const loginStr = resolveTradingLoginString();
@@ -706,9 +720,14 @@ function OrderTicketInteractiveContent() {
   const sellTradeAction = tradeButtonActions[0];
   const buyTradeAction = tradeButtonActions[1];
 
-  // After an optimistic local insert, poll positions briefly so local state
-  // converges with the server-created ticket once it is available.
-  const syncOpenedPosition = async (login: string, ticketId?: number) => {
+  // Reconcile every successful market action. In netting mode, Buy/Sell can
+  // increase, decrease, close, or reverse a position instead of opening one.
+  const syncMarketPosition = async (
+    login: string,
+    ticketId: number | undefined,
+    expectedPresence: boolean | null,
+    requiresContentReconciliation: boolean,
+  ) => {
     const maxAttempts = 15;
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
@@ -716,11 +735,17 @@ function OrderTicketInteractiveContent() {
 
       if (!ticketId) return;
 
-      const exists = usePositionsState.getState().positions.some(
-        (position) => String(position.id) === String(ticketId)
-      );
+      if (expectedPresence === null) {
+        if (attempt >= 1) return;
+      } else {
+        const presenceConverged = hasPositionPresenceConverged(
+          usePositionsState.getState().positions,
+          ticketId,
+          expectedPresence,
+        );
 
-      if (exists) return;
+        if (presenceConverged && (!requiresContentReconciliation || attempt >= 1)) return;
+      }
 
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
@@ -818,6 +843,17 @@ function OrderTicketInteractiveContent() {
       !marketActionProvenance ||
       marketActionProvenance.identity.accountLogin !== String(tradingLogin)
     ) {
+      const feedback = createFrontendTradingError(
+        'Account Session Changed',
+        'The active trading account changed before this order could be sent. Reopen New Order from the current account and try again.',
+      );
+      showModal({
+        visible: true,
+        type: 'error',
+        title: feedback.title,
+        message: feedback.message,
+        side: requestedSide,
+      });
       releaseTradeTapLock();
       return;
     }
@@ -884,6 +920,15 @@ function OrderTicketInteractiveContent() {
       const currentPriceValue = Number(data.price_current);
       const positionTicket = executionEvidence.ticket;
       const executionPrice = executionEvidence.executionPrice;
+      const executionAction = typeof data.action === 'string'
+        ? data.action.trim().toLowerCase()
+        : '';
+      // Netting lifecycle actions must not invent a brand-new row. Everything
+      // else with full broker evidence is injected so Trade shows the fill
+      // immediately (including gateways that omit action or send "open"/"buy").
+      const canOptimisticallyInsertPosition = !['closed', 'increased', 'decreased', 'reversed'].includes(executionAction);
+      const expectedPositionPresence = executionAction === 'closed' ? false : true;
+      const requiresContentReconciliation = ['increased', 'decreased', 'reversed'].includes(executionAction);
       const confirmedCurrentPrice = Number.isFinite(currentPriceValue) && currentPriceValue > 0
         ? currentPriceValue
         : executionPrice;
@@ -893,24 +938,26 @@ function OrderTicketInteractiveContent() {
       // ticket and execution price are mandatory; live quote values are not
       // evidence of the broker's actual fill.
       if (
+        canOptimisticallyInsertPosition &&
         executionEvidence.confirmed &&
         positionTicket !== undefined &&
         executionPrice !== undefined &&
         confirmedCurrentPrice !== undefined
       ) {
         const state = usePositionsState.getState();
+        const responseVolume = Number(data.volume);
         state.upsertPosition({
           id: String(positionTicket),
-          symbol,
+          symbol: (typeof data.symbol === 'string' && data.symbol.trim()) ? data.symbol : symbol,
           side: requestedSide,
-          volume,
+          volume: Number.isFinite(responseVolume) && responseVolume > 0 ? responseVolume : volume,
           openPrice: executionPrice,
           currentPrice: confirmedCurrentPrice,
           pnl: 0,
           swap: 0,
           openTime: new Date().toISOString(),
-          sl: slEnabled ? slPrice : 0,
-          tp: tpEnabled ? tpPrice : 0,
+          sl: slEnabled ? slPrice : (Number(data.price_sl) > 0 ? Number(data.price_sl) : 0),
+          tp: tpEnabled ? tpPrice : (Number(data.price_tp) > 0 ? Number(data.price_tp) : 0),
           clientCreatedAt: Date.now(),
         });
       }
@@ -924,7 +971,12 @@ function OrderTicketInteractiveContent() {
       // Refresh positions state from the server in the background.
       const mt5Login = resolveTradingLoginString();
       if (mt5Login) {
-        void syncOpenedPosition(mt5Login, positionTicket);
+        void syncMarketPosition(
+          mt5Login,
+          positionTicket,
+          expectedPositionPresence,
+          requiresContentReconciliation,
+        );
       }
 
       const displaySymbol = symbol.replace(/\//g, '');

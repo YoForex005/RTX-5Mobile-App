@@ -41,7 +41,7 @@ test('ActionSheet surfaces use the shared instant Quotes-style sheet contract', 
 
   // Mailbox/News/Community screens removed — fewer mounts and no News sheet scope.
   assert.equal(actionSheetMounts.length, 21);
-  assert.equal(scopedActionSheetCalls.length, 14);
+  assert.equal(scopedActionSheetCalls.length, 15);
 
   for (const mount of actionSheetMounts) {
     assert.match(mount[0], /instantOpen/, 'ActionSheet mount must opt into instant open path');
@@ -138,8 +138,9 @@ test('high-traffic scoped action sheets open through immediate action wrappers',
   assert.match(accountsSource, /const accountsOptionsSheetConfig = React\.useMemo[\s\S]*entryMotion: 'mt5Slide'[\s\S]*runActionAfterClose: false/);
   assert.match(accountsSource, /runImmediateAction\('accounts\.optionsSheet\.open'[\s\S]*showAccountsActionSheet\(accountsOptionsSheetConfig\)/);
   assert.match(brokerDetailSource, /runImmediateAction\('brokerDetail\.serverSheet\.open'[\s\S]*showBrokerDetailActionSheet\(\{/);
-  assert.match(chartSource, /runImmediateAction\('chart\.symbolPicker\.open'[\s\S]*showChartActionSheet\(\{/);
-  assert.match(chartSource, /runImmediateAction\('chart\.timeframePicker\.open'[\s\S]*showChartActionSheet\(\{/);
-  assert.match(chartSource, /runImmediateAction\('chart\.drawingTools\.open'[\s\S]*showChartActionSheet\(\{/);
-  assert.match(chartSource, /runImmediateAction\('chart\.moreMenu\.open'[\s\S]*showChartActionSheet\(\{/);
+  assert.match(chartSource, /runImmediateAction\('chart\.symbolPicker\.open'[\s\S]*openChartActionSheetSmoothly\(/);
+  // Timeframe uses a retained centered overlay (not the shared bottom ActionSheet).
+  assert.match(chartSource, /runImmediateAction\('chart\.timeframePicker\.open'[\s\S]*showChartTimeframePicker\(\)/);
+  assert.match(chartSource, /runImmediateAction\('chart\.drawingTools\.open'[\s\S]*showChartActionSheet\(drawingToolsActionSheetConfig\)/);
+  assert.match(chartSource, /runImmediateAction\('chart\.moreMenu\.open'[\s\S]*(?:showChartActionSheet|openChartActionSheetSmoothly)\(/);
 });

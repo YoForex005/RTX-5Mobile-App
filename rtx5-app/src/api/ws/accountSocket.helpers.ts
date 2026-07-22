@@ -41,7 +41,17 @@ function extractMetricsFromRecord(source: Record<string, unknown>): Partial<Live
   const login = pickFiniteNumber(source.login, source.account_login, source.accountLogin);
   const balance = pickFiniteNumber(source.balance);
   const equity = pickFiniteNumber(source.equity);
-  const margin = pickFiniteNumber(source.margin, source.usedMargin, source.used_margin);
+  // Account snapshots use several aliases across the REST and realtime
+  // gateways. Prefer the explicit "used" fields before the legacy `margin`
+  // field so a placeholder `margin: 0` cannot hide a populated used-margin
+  // value from the same payload.
+  const margin = pickFiniteNumber(
+    source.margin_used,
+    source.used_margin,
+    source.marginUsed,
+    source.usedMargin,
+    source.margin,
+  );
   const marginFree = pickFiniteNumber(
     source.margin_free,
     source.free_margin,

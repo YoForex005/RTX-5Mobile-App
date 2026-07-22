@@ -13,7 +13,6 @@ test('trade completions invalidate only their captured broker/account/epoch name
     'OrderTicketScreen.tsx',
     'ModifyPositionScreen.tsx',
     'ClosePositionScreen.tsx',
-    'CloseByScreen.tsx',
     'BulkOperationScreen.tsx',
     'closePositionFlow.ts',
   ];
@@ -25,4 +24,11 @@ test('trade completions invalidate only their captured broker/account/epoch name
     assert.match(source, /invalidateSessionQueryRoots\(/, file);
     assert.doesNotMatch(source, /\.invalidateQueries\(/, file);
   }
+
+  const unsupportedCloseBy = readTradeSource('CloseByScreen.tsx');
+  assert.match(unsupportedCloseBy, /Close By is unavailable for this API contract/);
+  assert.doesNotMatch(
+    unsupportedCloseBy,
+    /captureActiveBrokerSession|invalidateSessionQueryRoots|positionsApi|beginOptimisticClose/,
+  );
 });

@@ -98,6 +98,10 @@ test('chart quick trade buttons keep side colors stable while bid and ask update
   const tradeButtonsSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/ChartTradeButtonsFeature.tsx');
   const quoteSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/quoteFallback.ts');
   const chartScreenSource = readSource('src/features/chart/ChartScreen.native.tsx');
+  const priceTextSource = tradeButtonsSource.slice(
+    tradeButtonsSource.indexOf('const ChartTradeButtonPriceText = React.memo'),
+    tradeButtonsSource.indexOf('export const ChartTradeButtons = React.memo'),
+  );
 
   assert.match(chartScreenSource, /const BLUE = T\.trading\.buy\.primary/);
   assert.match(chartScreenSource, /buyColor=\{BLUE\}/);
@@ -109,19 +113,12 @@ test('chart quick trade buttons keep side colors stable while bid and ask update
   assert.doesNotMatch(tradeButtonsSource, /ChartTradeButtonPriceFlash|Animated\.View/);
   assert.match(tradeButtonsSource, /const TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS = 16/);
   assert.match(tradeButtonsSource, /const TRADE_BUTTON_PRICE_TEXT_COLOR = '#FFFFFF'/);
-  assert.match(tradeButtonsSource, /const TRADE_BUTTON_PRICE_UP_FLASH = '#BBF7D0'/);
-  assert.match(tradeButtonsSource, /const TRADE_BUTTON_PRICE_DOWN_FLASH = '#FECACA'/);
-  assert.match(tradeButtonsSource, /const TRADE_BUTTON_PRICE_FLASH_MS = 220/);
   assert.match(tradeButtonsSource, /const ChartTradeButtonPriceText = React\.memo/);
-  assert.match(tradeButtonsSource, /previousTextRef\.current = text/);
-  assert.match(tradeButtonsSource, /setFlashColor\(next > prev \? TRADE_BUTTON_PRICE_UP_FLASH : TRADE_BUTTON_PRICE_DOWN_FLASH\)/);
-  assert.match(tradeButtonsSource, /Animated\.timing\(flashProgress/);
-  assert.match(tradeButtonsSource, /duration: TRADE_BUTTON_PRICE_FLASH_MS/);
-  assert.match(tradeButtonsSource, /useNativeDriver: false/);
-  assert.match(tradeButtonsSource, /const animatedColor = flashProgress\.interpolate/);
-  assert.match(tradeButtonsSource, /outputRange: \[TRADE_BUTTON_PRICE_TEXT_COLOR, flashColor\]/);
-  assert.match(tradeButtonsSource, /color: animatedColor/);
-  assert.match(tradeButtonsSource, /opacity: 1/);
+  assert.doesNotMatch(
+    priceTextSource,
+    /Animated|Easing|previousTextRef|flashProgress|flashColor|setFlashColor|TRADE_BUTTON_PRICE_(?:UP|DOWN)_FLASH|TRADE_BUTTON_PRICE_FLASH_MS/,
+  );
+  assert.match(priceTextSource, /<Text[\s\S]*color: TRADE_BUTTON_PRICE_TEXT_COLOR,[\s\S]*opacity: 1/);
   assert.match(tradeButtonsSource, /<ChartTradeButtonPriceText text=\{formattedBid\} testID="chart-trade-sell-price-text" \/>/);
   assert.match(tradeButtonsSource, /<ChartTradeButtonPriceText text=\{formattedAsk\} testID="chart-trade-buy-price-text" \/>/);
   assert.match(tradeButtonsSource, /baseStyles\.chartTradeMarketActionButton,\s*\{ backgroundColor: sellColor \}/);
@@ -467,6 +464,24 @@ test('resolveFooterTradeRowState uses the measured iOS keyboard overlap for the 
   );
 });
 
+test('resolveFooterTradeRowState falls back to iOS keyboard height when dock anchors are not ready', () => {
+  assert.deepEqual(
+    resolveFooterTradeRowState({
+      platform: 'ios',
+      footerLotEditorFocused: true,
+      footerLotEditorOpening: false,
+      showChartTradeSheet: false,
+      keyboardVisibleHeight: 312,
+      keyboardDockOffset: 0,
+    }),
+    {
+      shouldMountFloatingFooterTradeRow: true,
+      isFloatingFooterTradeRowVisible: true,
+      footerTradeRowKeyboardOffset: 312,
+    },
+  );
+});
+
 test('resolveFooterTradeRowState disables the floating row when the editor is closed', () => {
   assert.deepEqual(
     resolveFooterTradeRowState({
@@ -568,6 +583,20 @@ test('resolveFooterTradeDockBottom docks iOS lot editing from measured keyboard 
       keyboardVisibleHeight: 312,
     }),
     76,
+  );
+});
+
+test('resolveFooterTradeDockBottom falls back to iOS keyboard height when offset is still zero', () => {
+  assert.equal(
+    resolveFooterTradeDockBottom({
+      platform: 'ios',
+      footerLotEditorFocused: true,
+      showFloatingFooterTradeRow: true,
+      showInlineFooterDock: false,
+      footerTradeRowKeyboardOffset: 0,
+      keyboardVisibleHeight: 312,
+    }),
+    312,
   );
 });
 

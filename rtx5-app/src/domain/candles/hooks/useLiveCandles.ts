@@ -118,12 +118,18 @@ const hasCommittedHistoryCandles = (candles: readonly CandleParams[]): boolean =
  * @param timeframe The requested bucket size (e.g. 'M1').
  * @returns An object containing the active candle series and pagination/refresh controllers.
  */
-export function useLiveCandles(symbol: string, timeframe: string, active = true) {
+export function useLiveCandles(
+  symbol: string,
+  timeframe: string,
+  active = true,
+  commitIntervalMs = 0,
+) {
   const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
   const normalizedTimeframe = useMemo(() => normalizeTimeframeStrict(timeframe), [timeframe]);
   const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
   const isLiveActive = active && isLoggedIn;
   const useServerCandleStream = shouldUseServerCandleStream();
+  const safeCommitIntervalMs = Math.max(0, Math.floor(commitIntervalMs));
 
   const subscribe = useCallback(
     (listener: () => void) => {
@@ -141,23 +147,67 @@ export function useLiveCandles(symbol: string, timeframe: string, active = true)
       // ticks are the only active-candle body source; server candles are opt-in
       // only after runtime compatibility has been proven.
       const unsubscribeQuoteDemand = quotesWsService.subscribeToSymbol(symbol, () => {});
-      const unsubscribeEngine = liveCandlesEngine.subscribe(normalizedSymbol, normalizedTimeframe, listener);
+      let lastNotificationAt = 0;
+      let notificationTimer: ReturnType<typeof setTimeout> | null = null;
+      const notifyReact = () => {
+        notificationTimer = null;
+        lastNotificationAt = Date.now();
+        listener();
+      };
+      const scheduleReactNotification = () => {
+        if (safeCommitIntervalMs === 0) {
+          notifyReact();
+          return;
+        }
+        if (notificationTimer !== null) {
+          return;
+        }
+
+        const elapsedMs = Date.now() - lastNotificationAt;
+        const delayMs = Math.max(0, safeCommitIntervalMs - elapsedMs);
+        if (delayMs === 0) {
+          notifyReact();
+          return;
+        }
+        notificationTimer = setTimeout(notifyReact, delayMs);
+      };
+      const unsubscribeEngine = liveCandlesEngine.subscribe(
+        normalizedSymbol,
+        normalizedTimeframe,
+        scheduleReactNotification,
+      );
       return () => {
+        if (notificationTimer !== null) {
+          clearTimeout(notificationTimer);
+          notificationTimer = null;
+        }
         unsubscribeQuoteDemand();
         unsubscribeEngine();
         unsubscribeCandleDemand?.();
       };
     },
-    [isLiveActive, normalizedSymbol, normalizedTimeframe, symbol, useServerCandleStream],
+    [
+      isLiveActive,
+      normalizedSymbol,
+      normalizedTimeframe,
+      safeCommitIntervalMs,
+      symbol,
+      useServerCandleStream,
+    ],
   );
 
   const getSnapshot = useCallback(() => {
-    if (!normalizedSymbol || !normalizedTimeframe) {
+    // Must mirror the subscribe gate. An inactive instance never subscribes,
+    // so its snapshot must stay frozen too — if it kept returning the live
+    // stream key, every candle tick would fail React's store-consistency check
+    // and force synchronous re-renders of hidden retained screens (warmed
+    // routes, chart previews) that share the focused chart's symbol/timeframe.
+    if (!isLiveActive || !normalizedSymbol || !normalizedTimeframe) {
       return EMPTY_STREAM_SNAPSHOT_KEY;
     }
 
     return getCandleStreamSnapshotKey(normalizedSymbol, normalizedTimeframe);
-  }, [normalizedSymbol, normalizedTimeframe]);
+  }, [isLiveActive, normalizedSymbol, normalizedTimeframe]);
 
   const streamSnapshotKey = useSyncExternalStore(subscribe, getSnapshot, getEmptyStreamSnapshotKey);
 

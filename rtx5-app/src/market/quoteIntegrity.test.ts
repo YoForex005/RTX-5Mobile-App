@@ -13,7 +13,7 @@ import {
 
 const NOW = 1_800_000_000_000;
 
-test('allows only a fresh explicitly tradable websocket quote', () => {
+test('allows a fresh websocket quote with valid bid/ask regardless of tradable flag', () => {
   assert.deepEqual(
     resolveQuoteActionAvailability({
       bid: 1.1,
@@ -25,6 +25,28 @@ test('allows only a fresh explicitly tradable websocket quote', () => {
     }, NOW),
     { allowed: true, bid: 1.1, ask: 1.1002 },
   );
+  // Broker ticks often omit or falsely set tradable — do not block live one-click.
+  assert.deepEqual(
+    resolveQuoteActionAvailability({
+      bid: 4059.61,
+      ask: 4059.71,
+      lastReceivedAt: NOW - 50,
+      feedTickAt: NOW - 75,
+      transport: 'websocket',
+      tradable: false,
+    }, NOW),
+    { allowed: true, bid: 4059.61, ask: 4059.71 },
+  );
+  assert.deepEqual(
+    resolveQuoteActionAvailability({
+      bid: 66189.46,
+      ask: 66204.46,
+      lastReceivedAt: NOW - 50,
+      feedTickAt: NOW - 75,
+      transport: 'websocket',
+    }, NOW),
+    { allowed: true, bid: 66189.46, ask: 66204.46 },
+  );
 });
 
 test('REST snapshots and missing transport are never executable', () => {
@@ -33,7 +55,7 @@ test('REST snapshots and missing transport are never executable', () => {
   assert.equal(resolveQuoteActionAvailability(quote, NOW).allowed, false);
 });
 
-test('stale, degraded, and non-tradable websocket quotes fail closed', () => {
+test('stale and degraded websocket quotes fail closed; tradable flag is ignored', () => {
   const quote = {
     bid: 1.1,
     ask: 1.1002,
@@ -42,16 +64,45 @@ test('stale, degraded, and non-tradable websocket quotes fail closed', () => {
     transport: 'websocket' as const,
     tradable: true,
   };
-  assert.equal(resolveQuoteActionAvailability({ ...quote, stale: true }, NOW).allowed, false);
-  assert.equal(resolveQuoteActionAvailability({ ...quote, degraded: true }, NOW).allowed, false);
-  assert.equal(resolveQuoteActionAvailability({ ...quote, tradable: undefined }, NOW).allowed, false);
+  // Broker stale/degraded flags alone must not block a fresh live WS tick
+  // (Modify Position was showing "live quote is stale" with live bid/ask).
+  assert.equal(resolveQuoteActionAvailability({ ...quote, stale: true }, NOW).allowed, true);
+  assert.equal(resolveQuoteActionAvailability({ ...quote, degraded: true }, NOW).allowed, true);
+  assert.equal(resolveQuoteActionAvailability({ ...quote, tradable: false }, NOW).allowed, true);
+  assert.equal(resolveQuoteActionAvailability({ ...quote, tradable: undefined }, NOW).allowed, true);
   assert.equal(
-    resolveQuoteActionAvailability({ ...quote, lastReceivedAt: NOW - MARKET_QUOTE_STALE_AFTER_MS - 1 }, NOW).allowed,
+    resolveQuoteActionAvailability({
+      bid: 1.1,
+      ask: 1.1002,
+      transport: 'websocket',
+      stale: true,
+    }, NOW).allowed,
     false,
+  );
+  // Stale receipt with no usable source clock fails closed.
+  assert.equal(
+    resolveQuoteActionAvailability({
+      ...quote,
+      lastReceivedAt: NOW - MARKET_QUOTE_STALE_AFTER_MS - 1,
+      feedTickAt: undefined,
+    }, NOW).allowed,
+    false,
+  );
+  // Stale receipt can still pass when the source clock is fresh.
+  assert.equal(
+    resolveQuoteActionAvailability({
+      ...quote,
+      lastReceivedAt: NOW - MARKET_QUOTE_STALE_AFTER_MS - 1,
+      feedTickAt: NOW,
+    }, NOW).allowed,
+    true,
   );
 });
 
-test('fresh receipt time cannot make a missing or stale source timestamp executable', () => {
+test('fresh websocket receipt is executable when the broker omits or mis-stamps feedTickAt', () => {
+  // Close / Order Ticket / SL·TP modify were blocked with "live quote is stale"
+  // because many live ticks omit feedTickAt or send an unusable source clock
+  // while client receipt time is still fresh.
   const quote = {
     bid: 1.1,
     ask: 1.1002,
@@ -61,21 +112,53 @@ test('fresh receipt time cannot make a missing or stale source timestamp executa
   };
 
   assert.deepEqual(resolveQuoteActionAvailability(quote, NOW), {
-    allowed: false,
-    reason: 'stale_quote',
+    allowed: true,
+    bid: 1.1,
+    ask: 1.1002,
   });
+  // Fresh receipt wins over an ancient/wrong source clock.
   assert.deepEqual(resolveQuoteActionAvailability({
     ...quote,
     feedTickAt: NOW - MARKET_QUOTE_STALE_AFTER_MS - 1,
   }, NOW), {
-    allowed: false,
-    reason: 'stale_quote',
+    allowed: true,
+    bid: 1.1,
+    ask: 1.1002,
   });
+  // ageMs must not override a fresh receipt (some brokers leave age wrong).
   assert.equal(resolveQuoteActionAvailability({
     ...quote,
+    ageMs: MARKET_QUOTE_STALE_AFTER_MS + 1,
+  }, NOW).allowed, true);
+  // Source-only freshness still works without a receipt stamp.
+  assert.equal(resolveQuoteActionAvailability({
+    bid: 1.1,
+    ask: 1.1002,
     feedTickAt: NOW,
     ageMs: MARKET_QUOTE_STALE_AFTER_MS + 1,
+    transport: 'websocket',
+  }, NOW).allowed, true);
+  // No receipt and no source time → not executable.
+  assert.equal(resolveQuoteActionAvailability({
+    bid: 1.1,
+    ask: 1.1002,
+    ageMs: 1,
+    transport: 'websocket',
   }, NOW).allowed, false);
+});
+
+test('unix-second feed timestamps are normalized before freshness checks', () => {
+  const seconds = Math.floor(NOW / 1000);
+  assert.deepEqual(
+    resolveQuoteActionAvailability({
+      bid: 4059.61,
+      ask: 4059.71,
+      lastReceivedAt: seconds,
+      feedTickAt: seconds,
+      transport: 'websocket',
+    }, NOW),
+    { allowed: true, bid: 4059.61, ask: 4059.71 },
+  );
 });
 
 test('blocked price actions emit only the action category and fail-closed reason', () => {

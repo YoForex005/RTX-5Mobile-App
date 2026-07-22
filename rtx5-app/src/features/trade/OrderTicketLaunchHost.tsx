@@ -39,7 +39,7 @@ function writeOrderTicketLaunchVisibilityNow(visible: boolean) {
   }
 }
 
-/** Keeps a lightweight New Order preview ready so a tap can show it immediately. */
+/** Shows a lightweight New Order handoff while the interactive route is mounting. */
 export function OrderTicketLaunchHost() {
   const router = useRouter();
   const backInFlightRef = useRef(false);
@@ -161,12 +161,14 @@ export function OrderTicketLaunchHost() {
       style={[styles.host, animatedStyle, snapshot.visible && styles.hostVisible]}
       testID="order-ticket-launch-host"
     >
-      <OrderTicketLaunchShell
-        active={shellActive}
-        symbol={snapshot.symbol}
-        onBack={closeLaunch}
-        backLatencyLabel="orderTicket.launch.back"
-      />
+      {snapshot.visible ? (
+        <OrderTicketLaunchShell
+          active={shellActive}
+          symbol={snapshot.symbol}
+          onBack={closeLaunch}
+          backLatencyLabel="orderTicket.launch.back"
+        />
+      ) : null}
     </Animated.View>
   );
 }

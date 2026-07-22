@@ -53,7 +53,7 @@ test('positions API records close and SLTP modify journal rows', () => {
   assert.match(source, /recordModifyPositionJournalRequest/);
   assert.match(source, /recordModifyPositionJournalSuccess/);
   assert.match(source, /recordModifyPositionJournalFailure/);
-  assert.match(source, /recordClosePositionJournalRequest\(ticketId/);
+  assert.match(source, /recordClosePositionJournalRequest\(descriptor\.ticket, descriptor\.journalPayload\)/);
   assert.match(source, /recordModifyPositionJournalRequest\(ticketId, payload\)/);
 });
 

@@ -17,6 +17,7 @@ import {
 } from '../api/tradingErrors';
 import { UNKNOWN_POSITION_SYMBOL, mapPositionToItem } from './positionsMapper';
 import {
+  buildOpenPositionsCacheSignature,
   buildMergedPositions,
   dedupePositionsById,
   findExistingPosition,
@@ -88,11 +89,18 @@ type PositionsCacheScope = Readonly<{
 type PendingOpenPositionsCacheWrite = Readonly<{
   scope: PositionsCacheScope;
   positions: PositionItem[];
+  signature: string;
 }>;
 
 const pendingOpenPositionsCacheWrites = new Map<string, PendingOpenPositionsCacheWrite>();
+const latestOpenPositionsCacheSignatureByNamespace = new Map<string, string>();
 let openPositionsCacheWriteTimer: ReturnType<typeof setTimeout> | null = null;
 let positionsCacheResetGeneration = 0;
+// When a refresh is already in flight for an account, later callers (post-trade
+// sync, Trade tab focus) used to no-op and never re-run. Queue one follow-up so
+// a place-order success always lands in positionsState after the in-flight fetch.
+const pendingPositionsRefreshLogins = new Set<string>();
+const positionsRefreshInFlightByLogin = new Map<string, Promise<void>>();
 
 const logPositionsStateDiagnostic = (...args: Parameters<typeof console.log>) => {
   if (DEBUG_POSITIONS_STATE) {
@@ -186,8 +194,12 @@ const isPositionOptimisticallyClosing = (positionId: string | number | null | un
 const sortPositionsNewestFirst = (positions: PositionItem[]): PositionItem[] =>
   [...positions].sort((a, b) => new Date(b.openTime).getTime() - new Date(a.openTime).getTime());
 
-const withoutOptimisticallyClosingPositions = (positions: PositionItem[]): PositionItem[] =>
-  positions.filter((position) => !isPositionOptimisticallyClosing(position.id));
+const withoutOptimisticallyClosingPositions = (positions: PositionItem[]): PositionItem[] => {
+  const filtered = positions.filter((position) => !isPositionOptimisticallyClosing(position.id));
+  // Preserve the input identity when nothing was removed so unchanged
+  // snapshots do not fan out as store updates to every subscribed screen.
+  return filtered.length === positions.length ? positions : filtered;
+};
 
 const clonePositionForCache = (position: PositionItem): PositionItem => ({
   id: String(position.id),
@@ -220,7 +232,7 @@ const flushOpenPositionsCacheWrites = () => {
   pendingOpenPositionsCacheWrites.clear();
 
   writes.forEach(([, pendingWrite]) => {
-    const { scope, positions } = pendingWrite;
+    const { scope, positions, signature } = pendingWrite;
     if (!isPositionsCacheScopeCurrent(scope)) {
       return;
     }
@@ -228,6 +240,9 @@ const flushOpenPositionsCacheWrites = () => {
     const key = getOpenPositionsCacheKey(scope.cacheNamespace);
     if (positions.length === 0) {
       void AsyncStorage.removeItem(key).catch((error) => {
+        if (latestOpenPositionsCacheSignatureByNamespace.get(scope.cacheNamespace) === signature) {
+          latestOpenPositionsCacheSignatureByNamespace.delete(scope.cacheNamespace);
+        }
         warnPositionsStateDiagnostic('[PositionsState] Failed to clear cached positions', error);
       });
       return;
@@ -243,6 +258,9 @@ const flushOpenPositionsCacheWrites = () => {
       positions: positions.map(clonePositionForCache),
     };
     void AsyncStorage.setItem(key, JSON.stringify(payload)).catch((error) => {
+      if (latestOpenPositionsCacheSignatureByNamespace.get(scope.cacheNamespace) === signature) {
+        latestOpenPositionsCacheSignatureByNamespace.delete(scope.cacheNamespace);
+      }
       warnPositionsStateDiagnostic('[PositionsState] Failed to persist cached positions', error);
     });
   });
@@ -254,9 +272,17 @@ const scheduleOpenPositionsCacheWrite = (accountLogin: string | null | undefined
     return;
   }
 
+  const signature = buildOpenPositionsCacheSignature(positions);
+  if (latestOpenPositionsCacheSignatureByNamespace.get(scope.cacheNamespace) === signature) {
+    return;
+  }
+
+  latestOpenPositionsCacheSignatureByNamespace.set(scope.cacheNamespace, signature);
+
   pendingOpenPositionsCacheWrites.set(scope.cacheNamespace, {
     scope,
     positions: normalizeCachedPositions(positions),
+    signature,
   });
   if (openPositionsCacheWriteTimer) {
     return;
@@ -439,6 +465,11 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
           : undefined;
       if (incomingClientCreatedAt !== undefined) {
         newItem.clientCreatedAt = incomingClientCreatedAt;
+      } else if (existing?.clientCreatedAt !== undefined) {
+        // upsertPosition is an incremental websocket/optimistic writer. Keep
+        // the convergence marker until an authoritative snapshot confirms the
+        // ticket; dropping it here lets a stale empty REST read blink the row.
+        newItem.clientCreatedAt = existing.clientCreatedAt;
       } else {
         delete newItem.clientCreatedAt;
       }
@@ -530,168 +561,213 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
   },
 
   refreshPositions: async (accountLogin: string) => {
-    const cacheScope = capturePositionsCacheScope(accountLogin);
+    const normalizedLogin = String(accountLogin ?? '').trim();
+    if (!normalizedLogin) {
+      return;
+    }
+
+    const existingInFlight = positionsRefreshInFlightByLogin.get(normalizedLogin);
+    if (existingInFlight) {
+      // Another refresh is already talking to the broker for this login. Wait for
+      // it, then run one more pass so post-trade / Trade-tab callers still sync
+      // after that in-flight response (which may have raced the broker commit).
+      pendingPositionsRefreshLogins.add(normalizedLogin);
+      await existingInFlight;
+      if (!pendingPositionsRefreshLogins.has(normalizedLogin)) {
+        // The in-flight finally already consumed the pending flag and scheduled
+        // (or completed) the follow-up refresh.
+        return;
+      }
+      pendingPositionsRefreshLogins.delete(normalizedLogin);
+      return get().refreshPositions(normalizedLogin);
+    }
+
+    const cacheScope = capturePositionsCacheScope(normalizedLogin);
     if (!cacheScope) {
+      warnPositionsStateDiagnostic(
+        '[PositionsState] refreshPositions skipped: no matching active broker session for login',
+        normalizedLogin,
+      );
       return;
     }
 
-    const state = get();
-    if (state.isLoading && state.lastFetchLogin === accountLogin) {
-      return;
-    }
+    const runRefresh = async () => {
+      const rateLimitUntilMs = positionsRateLimitUntilByNamespace.get(cacheScope.cacheNamespace) ?? 0;
+      if (rateLimitUntilMs > Date.now()) {
+        if (get().hydratedLogin !== normalizedLogin) {
+          const cachedPositions = await readCachedOpenPositions(cacheScope);
+          if (!isPositionsCacheScopeCurrent(cacheScope)) {
+            return;
+          }
+          set((latestState) => ({
+            ...(isPositionsCacheScopeCurrent(cacheScope)
+              ? {
+                  positions: shouldClearPositionsForLoginSwitch(latestState.lastFetchLogin, normalizedLogin)
+                    ? cachedPositions
+                    : dedupePositionsById([...latestState.positions, ...cachedPositions]),
+                  lastFetchLogin: normalizedLogin,
+                  hydratedLogin: normalizedLogin,
+                }
+              : {}),
+          }));
+        }
+        return;
+      }
 
-    const rateLimitUntilMs = positionsRateLimitUntilByNamespace.get(cacheScope.cacheNamespace) ?? 0;
-    if (rateLimitUntilMs > Date.now()) {
-      if (state.hydratedLogin !== accountLogin) {
+      set((latestState) =>
+        isPositionsCacheScopeCurrent(cacheScope)
+          ? {
+              isLoading: true,
+              lastFetchLogin: normalizedLogin,
+              lastError: null,
+              // Drop old-account positions immediately so the chart never keeps
+              // drawing stale trades while a new account fetch is in flight.
+              positions: shouldClearPositionsForLoginSwitch(latestState.lastFetchLogin, normalizedLogin)
+                ? []
+                : latestState.positions,
+              positionSnapshots: shouldClearPositionsForLoginSwitch(latestState.lastFetchLogin, normalizedLogin)
+                ? {}
+                : latestState.positionSnapshots,
+              hydratedLogin: shouldClearPositionsForLoginSwitch(latestState.lastFetchLogin, normalizedLogin)
+                ? null
+                : latestState.hydratedLogin,
+            }
+          : {},
+      );
+
+      if (get().hydratedLogin !== normalizedLogin) {
         const cachedPositions = await readCachedOpenPositions(cacheScope);
+        if (isPositionsCacheScopeCurrent(cacheScope)) {
+          set((latestState) => ({
+            ...(isPositionsCacheScopeCurrent(cacheScope)
+              ? {
+                  positions: shouldClearPositionsForLoginSwitch(latestState.lastFetchLogin, normalizedLogin)
+                    ? cachedPositions
+                    : dedupePositionsById([...latestState.positions, ...cachedPositions]),
+                  hydratedLogin: normalizedLogin,
+                }
+              : {}),
+          }));
+        }
+      }
+
+      try {
         if (!isPositionsCacheScopeCurrent(cacheScope)) {
           return;
         }
-        set((latestState) => ({
-          ...(isPositionsCacheScopeCurrent(cacheScope)
-            ? {
-                positions: shouldClearPositionsForLoginSwitch(latestState.lastFetchLogin, accountLogin)
-                  ? cachedPositions
-                  : dedupePositionsById([...latestState.positions, ...cachedPositions]),
-                lastFetchLogin: accountLogin,
-                hydratedLogin: accountLogin,
-              }
-            : {}),
-        }));
-      }
-      return;
-    }
 
-    set((latestState) =>
-      isPositionsCacheScopeCurrent(cacheScope)
-        ? {
-            isLoading: true,
-            lastFetchLogin: accountLogin,
-            lastError: null,
-            // Drop old-account positions immediately so the chart never keeps
-            // drawing stale trades while a new account fetch is in flight.
-            positions: shouldClearPositionsForLoginSwitch(latestState.lastFetchLogin, accountLogin)
-              ? []
-              : latestState.positions,
-            positionSnapshots: shouldClearPositionsForLoginSwitch(latestState.lastFetchLogin, accountLogin)
-              ? {}
-              : latestState.positionSnapshots,
-            hydratedLogin: shouldClearPositionsForLoginSwitch(latestState.lastFetchLogin, accountLogin)
-              ? null
-              : latestState.hydratedLogin,
+        const login = parseInt(normalizedLogin, 10);
+        if (Number.isNaN(login)) {
+          warnPositionsStateDiagnostic('[PositionsState] Invalid account login:', normalizedLogin);
+          if (isPositionsCacheScopeCurrent(cacheScope)) {
+            set({
+              isLoading: false,
+              lastError: createFrontendTradingError(
+                'Account Error',
+                `The app could not resolve a valid trading account login from local state: ${normalizedLogin}.`,
+              ),
+            });
           }
-        : {},
-    );
-
-    if (state.hydratedLogin !== accountLogin) {
-      const cachedPositions = await readCachedOpenPositions(cacheScope);
-      if (!isPositionsCacheScopeCurrent(cacheScope)) {
-        return;
-      }
-      set((latestState) => ({
-        ...(isPositionsCacheScopeCurrent(cacheScope)
-          ? {
-              positions: shouldClearPositionsForLoginSwitch(latestState.lastFetchLogin, accountLogin)
-                ? cachedPositions
-                : dedupePositionsById([...latestState.positions, ...cachedPositions]),
-              hydratedLogin: accountLogin,
-            }
-          : {}),
-      }));
-    }
-
-    try {
-      if (!isPositionsCacheScopeCurrent(cacheScope)) {
-        return;
-      }
-
-      const login = parseInt(accountLogin, 10);
-      if (Number.isNaN(login)) {
-        warnPositionsStateDiagnostic('[PositionsState] Invalid account login:', accountLogin);
-        if (isPositionsCacheScopeCurrent(cacheScope)) {
-          set({
-            isLoading: false,
-            lastError: createFrontendTradingError(
-              'Account Error',
-              `The app could not resolve a valid trading account login from local state: ${accountLogin}.`,
-            ),
-          });
+          return;
         }
-        return;
-      }
 
-      const data = await positionsApi.getPositions(login);
-      if (!isPositionsCacheScopeCurrent(cacheScope)) {
-        return;
-      }
+        const data = await positionsApi.getPositions(login);
+        if (!isPositionsCacheScopeCurrent(cacheScope)) {
+          return;
+        }
 
-      let positionsArray: Position[];
-      if (Array.isArray(data)) {
-        positionsArray = data;
-      } else if (data && typeof data === 'object') {
-        const wrapped = data as any;
-        if (Array.isArray(wrapped.data)) {
-          positionsArray = wrapped.data;
-        } else if (Array.isArray(wrapped.positions)) {
-          positionsArray = wrapped.positions;
-        } else if (Array.isArray(wrapped.items)) {
-          positionsArray = wrapped.items;
-        } else if (Array.isArray(wrapped.result)) {
-          positionsArray = wrapped.result;
-        } else {
-          const arrVal = Object.values(wrapped).find(Array.isArray);
-          if (arrVal) {
-            positionsArray = arrVal as Position[];
-          } else if (wrapped.ticket || wrapped.id) {
-            positionsArray = [wrapped];
+        let positionsArray: Position[];
+        if (Array.isArray(data)) {
+          positionsArray = data;
+        } else if (data && typeof data === 'object') {
+          const wrapped = data as any;
+          if (Array.isArray(wrapped.data)) {
+            positionsArray = wrapped.data;
+          } else if (Array.isArray(wrapped.positions)) {
+            positionsArray = wrapped.positions;
+          } else if (Array.isArray(wrapped.items)) {
+            positionsArray = wrapped.items;
+          } else if (Array.isArray(wrapped.result)) {
+            positionsArray = wrapped.result;
           } else {
-            const vals = Object.values(wrapped);
-            if (vals.length > 0 && typeof vals[0] === 'object' && (vals[0] as any).ticket) {
-              positionsArray = vals as Position[];
+            const arrVal = Object.values(wrapped).find(Array.isArray);
+            if (arrVal) {
+              positionsArray = arrVal as Position[];
+            } else if (wrapped.ticket || wrapped.id) {
+              positionsArray = [wrapped];
             } else {
-              positionsArray = [];
+              const vals = Object.values(wrapped);
+              if (vals.length > 0 && typeof vals[0] === 'object' && (vals[0] as any).ticket) {
+                positionsArray = vals as Position[];
+              } else {
+                positionsArray = [];
+              }
             }
           }
-        }
         } else {
           positionsArray = [];
-        warnPositionsStateDiagnostic('[PositionsState] Unexpected response shape:', typeof data);
-      }
-
-      logPositionsStateDiagnostic('[PositionsState] Fetched', positionsArray.length, 'open positions for login', login);
-
-      set((state) => {
-        if (!isPositionsCacheScopeCurrent(cacheScope)) {
-          return {};
+          warnPositionsStateDiagnostic('[PositionsState] Unexpected response shape:', typeof data);
         }
-        const nextPositions = buildMergedPositions(state.positions, positionsArray);
-        scheduleOpenPositionsCacheWrite(accountLogin, nextPositions);
-        return {
-          positions: nextPositions,
-          isLoading: false,
-          hydratedLogin: accountLogin,
-          lastError: null,
-        };
-      });
-    } catch (e) {
-      if (!isPositionsCacheScopeCurrent(cacheScope)) {
-        return;
-      }
-      const feedback = classifyTradingError(e, { action: 'load-positions' });
-      if (feedback.kind === 'rate-limit') {
-        const retryAfterSeconds = feedback.retryAfterSeconds ?? getRetryAfterSeconds(e) ?? DEFAULT_RATE_LIMIT_BACKOFF_SECONDS;
-        positionsRateLimitUntilByNamespace.set(
-          cacheScope.cacheNamespace,
-          Date.now() + retryAfterSeconds * 1000,
+
+        logPositionsStateDiagnostic(
+          '[PositionsState] Fetched',
+          positionsArray.length,
+          'open positions for login',
+          login,
         );
-      } else {
-        warnPositionsStateDiagnostic('[PositionsState] Failed to fetch positions', e);
+
+        set((latestState) => {
+          if (!isPositionsCacheScopeCurrent(cacheScope)) {
+            return {};
+          }
+          const nextPositions = buildMergedPositions(latestState.positions, positionsArray);
+          scheduleOpenPositionsCacheWrite(normalizedLogin, nextPositions);
+          return {
+            positions: nextPositions,
+            isLoading: false,
+            hydratedLogin: normalizedLogin,
+            lastError: null,
+          };
+        });
+      } catch (e) {
+        if (!isPositionsCacheScopeCurrent(cacheScope)) {
+          return;
+        }
+        const feedback = classifyTradingError(e, { action: 'load-positions' });
+        if (feedback.kind === 'rate-limit') {
+          const retryAfterSeconds =
+            feedback.retryAfterSeconds ?? getRetryAfterSeconds(e) ?? DEFAULT_RATE_LIMIT_BACKOFF_SECONDS;
+          positionsRateLimitUntilByNamespace.set(
+            cacheScope.cacheNamespace,
+            Date.now() + retryAfterSeconds * 1000,
+          );
+        } else {
+          warnPositionsStateDiagnostic('[PositionsState] Failed to fetch positions', e);
+        }
+        set({
+          isLoading: false,
+          lastError: feedback,
+        });
+      } finally {
+        // Scope can flip mid-request (session handoff). Always clear the local
+        // loading flag for this login so later post-trade refreshes are not stuck.
+        if (get().isLoading && get().lastFetchLogin === normalizedLogin) {
+          set({ isLoading: false });
+        }
       }
-      set({
-        isLoading: false,
-        lastError: feedback,
-      });
-    }
+    };
+
+    const flight = runRefresh().finally(() => {
+      if (positionsRefreshInFlightByLogin.get(normalizedLogin) === flight) {
+        positionsRefreshInFlightByLogin.delete(normalizedLogin);
+      }
+      if (pendingPositionsRefreshLogins.has(normalizedLogin)) {
+        pendingPositionsRefreshLogins.delete(normalizedLogin);
+        void get().refreshPositions(normalizedLogin);
+      }
+    });
+    positionsRefreshInFlightByLogin.set(normalizedLogin, flight);
+    await flight;
   },
 }));
 
@@ -707,6 +783,9 @@ export const resetPositionsSessionState = (): void => {
     openPositionsCacheWriteTimer = null;
   }
   pendingOpenPositionsCacheWrites.clear();
+  latestOpenPositionsCacheSignatureByNamespace.clear();
+  pendingPositionsRefreshLogins.clear();
+  positionsRefreshInFlightByLogin.clear();
   positionsRateLimitUntilByNamespace.clear();
   optimisticCloseUntilByPositionId.clear();
   usePositionsState.setState({

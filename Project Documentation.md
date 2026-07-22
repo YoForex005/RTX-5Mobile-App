@@ -142,3 +142,9 @@ To ensure enterprise-grade stability, all engineers must adhere to the following
 
 ---
 *Maintained by the Mobile Platform Engineering Team. For infrastructure questions, refer to `ARCHITECTURE.md`.*
+
+
+
+
+
+read the full codebase and tell me is there anythings need to check in the backend ? if yes then give the prompt for the backend so that backend check it and give the prompt for the frontend so that frontend will fix that 

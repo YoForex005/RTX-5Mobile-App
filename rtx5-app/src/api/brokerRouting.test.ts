@@ -7,6 +7,7 @@ import {
   buildBrokerHealthUrl,
   buildBrokerWsUrl,
   containsBlockedTestNetBrokerIp,
+  deriveBrokerTradeWsBase,
   ensureBrokerRestApiBase,
   isBrokerServerUrlForApiBase,
   normalizeBrokerHttpsUrl,
@@ -107,9 +108,41 @@ test('raw-v2 record resolves service-root server_url to REST base /api/v2', () =
     apiBase: 'https://services.myprop.trade/api/v2',
     feedWsBase: 'wss://services.myprop.trade/ws/feed',
     feedStatusUrl: 'https://services.myprop.trade/ws/feed/status',
+    tradeWsBase: 'wss://services.myprop.trade/ws/v2',
     servicesDomain: 'services.myprop.trade',
     configVersion: 'v2:77:1780582167',
   });
+});
+
+test('trade websocket uses an explicit same-host route or derives /ws/v2 from exact server_url', () => {
+  assert.equal(
+    deriveBrokerTradeWsBase('https://services.myprop.trade/api/v2'),
+    'wss://services.myprop.trade/ws/v2',
+  );
+  assert.equal(deriveBrokerTradeWsBase('http://services.myprop.trade'), '');
+  assert.equal(deriveBrokerTradeWsBase('https://127.0.0.1'), '');
+
+  const explicit = resolveBrokerEndpointSet(rawV2RoutingRecord({
+    trade_wss_url: 'wss://services.myprop.trade/custom/trade',
+  }));
+  assert.equal(explicit.ok, true);
+  if (explicit.ok) {
+    assert.equal(explicit.endpoints.tradeWsBase, 'wss://services.myprop.trade/custom/trade');
+  }
+
+  const richDerived = resolveBrokerEndpointSet({
+    ...richRecord(),
+    trade_wss_url: undefined,
+  });
+  assert.equal(richDerived.ok, true);
+  if (richDerived.ok) {
+    assert.equal(richDerived.endpoints.tradeWsBase, 'wss://services.alpha-broker.com/ws/v2');
+  }
+
+  const mismatched = resolveBrokerEndpointSet(rawV2RoutingRecord({
+    trade_wss_url: 'wss://attacker.example/ws/v2',
+  }));
+  assert.equal(mismatched.ok ? '' : mismatched.code, 'invalid_trade_endpoint');
 });
 
 test('raw-v2 resolver requires enabled true and accepts active only when absent or true', () => {
@@ -189,6 +222,19 @@ test('persisted session endpoint sets are rebound to their approved services dom
     configVersion: 'cfg-1',
   });
   assert.equal(approved.ok, true);
+
+  const derived = revalidateBrokerSessionEndpointSet({
+    brokerId: 'alpha-broker',
+    apiBase: 'https://services.alpha-broker.com/api/v2',
+    feedWsBase: 'wss://services.alpha-broker.com/ws/feed',
+    feedStatusUrl: 'https://services.alpha-broker.com/ws/feed/status',
+    servicesDomain: 'services.alpha-broker.com',
+    configVersion: 'cfg-1',
+  });
+  assert.equal(derived.ok, true);
+  if (derived.ok) {
+    assert.equal(derived.endpoints.tradeWsBase, 'wss://services.alpha-broker.com/ws/v2');
+  }
 
   const mismatch = revalidateBrokerSessionEndpointSet({
     brokerId: 'alpha-broker',

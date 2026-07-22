@@ -77,10 +77,14 @@ test('drawing tools open path is resilient to iOS chart overlay touch ordering',
     drawingToolsSource,
     'createDrawingToolsActionSheetActions',
   );
+  const drawingToolsOpenHandler = source.slice(
+    source.indexOf('const handleOpenDrawingTools'),
+    source.indexOf('const handleOpenSettingsScreen'),
+  );
 
   assertSourceContains(
-    source,
-    /const handleOpenDrawingTools = useCallback\(\(\) => \{[\s\S]*runImmediateAction\('chart\.drawingTools\.open'[\s\S]*closeChartTapMenu\(\);[\s\S]*showChartActionSheet\(\{/,
+    drawingToolsOpenHandler,
+    /runImmediateAction\('chart\.drawingTools\.open'[\s\S]*closeChartTapMenu\(\);[\s\S]*showChartActionSheet\(drawingToolsActionSheetConfig\)/,
     'opening drawing tools must close chart overlays before showing the sheet',
   );
   assertSourceContains(

@@ -2,7 +2,7 @@ import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import type { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import type { NavigationHelpers, ParamListBase } from '@react-navigation/native';
 import { PlatformPressable } from '@react-navigation/elements';
-import { usePathname, useRouter } from 'expo-router';
+import { usePathname } from 'expo-router';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
 import { View, StyleSheet, Text, useWindowDimensions, type GestureResponderEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -46,7 +46,10 @@ const icons = {
 
 const TAB_SWITCH_MAX_LATENCY_MS = 20;
 const STALE_TAB_SWITCH_SAMPLE_MS = 5000;
-const TAB_PRESS_DEDUP_WINDOW_MS = 1500;
+// Wide enough to absorb a double-fired press event from one physical tap,
+// short enough that a deliberate return tap (A -> B -> A) is never swallowed.
+// 1500ms silently dropped rapid back-and-forth switches on the bottom menu.
+const TAB_PRESS_DEDUP_WINDOW_MS = 350;
 const recentTabPresses = new Map<string, number>();
 type TabPressEvent = Parameters<NonNullable<BottomTabBarButtonProps['onPress']>>[0];
 type TabPressInEvent = Parameters<NonNullable<BottomTabBarButtonProps['onPressIn']>>[0];
@@ -413,7 +416,6 @@ const ThemedTabsChrome = memo(function ThemedTabsChrome({
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const router = useRouter();
   const renderTabsLayout = useCallback(({
     children,
     navigation,
@@ -456,7 +458,7 @@ const ThemedTabsChrome = memo(function ThemedTabsChrome({
   const inactiveTabColor = isDark ? T.textMuted : T.textDimmed;
   const bottomTabActiveColor = T.trading.buy.primary;
 
-  useEffect(() => warmActionRoutes(router), [router]);
+  useEffect(() => warmActionRoutes(), []);
 
   return (
     <Tabs

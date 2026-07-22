@@ -1,6 +1,11 @@
 import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
-import React, { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { BackHandler, StyleSheet, Text, View } from 'react-native';
+import {
+  hideChartTimeframePicker,
+  registerChartTimeframePickerApplier,
+  useChartTimeframePickerVisible,
+} from '../chartTimeframePickerController';
 
 type TimeframePickerGroup = {
   title: string;
@@ -23,14 +28,12 @@ type CreateTimeframePickerActionSheetActionsOptions = {
 };
 
 type ChartTimeframePickerOverlayProps = {
-  visible: boolean;
   activeTimeframe: string;
   supportedTimeframes: readonly string[];
   accentColor: string;
   isDark: boolean;
   textColor: string;
   mutedColor: string;
-  onClose: () => void;
   onSelect: (timeframe: string) => void;
 };
 
@@ -83,32 +86,69 @@ export function createTimeframePickerActionSheetActions({
 }
 
 /**
- * A modal overlay presenting the user with a grid of available timeframes (M1, H1, D1, etc.) to switch the chart's current resolution.
+ * Retained centered timeframe grid. Stays mounted under the chart so open/close
+ * is a native opacity flip — never a mount of this tree, and never a
+ * ChartScreen setState on the open path.
  */
-export function ChartTimeframePickerOverlay({
-  visible,
+export const ChartTimeframePickerOverlay = memo(function ChartTimeframePickerOverlay({
   activeTimeframe,
   supportedTimeframes,
   accentColor,
   isDark,
   textColor,
   mutedColor,
-  onClose,
   onSelect,
 }: ChartTimeframePickerOverlayProps) {
+  const visible = useChartTimeframePickerVisible();
+  const hostRef = useRef<View>(null);
   const supportedSet = useMemo(() => new Set(supportedTimeframes), [supportedTimeframes]);
   const styles = useMemo(
     () => makeTimeframePickerStyles({ accentColor, isDark, textColor, mutedColor }),
     [accentColor, isDark, mutedColor, textColor],
   );
 
-  if (!visible) return null;
+  const applyVisibilityNow = useCallback((isVisible: boolean) => {
+    hostRef.current?.setNativeProps({
+      pointerEvents: isVisible ? 'auto' : 'none',
+      style: [
+        styles.overlay,
+        isVisible ? styles.overlayVisible : styles.overlayHidden,
+      ],
+    });
+  }, [styles]);
+
+  useLayoutEffect(
+    () => registerChartTimeframePickerApplier(applyVisibilityNow),
+    [applyVisibilityNow],
+  );
+
+  useEffect(() => {
+    if (!visible) {
+      return undefined;
+    }
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      hideChartTimeframePicker();
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [visible]);
+
+  const handleClose = useCallback(() => {
+    hideChartTimeframePicker();
+  }, []);
 
   return (
-    <View style={styles.overlay}>
+    <View
+      ref={hostRef}
+      collapsable={false}
+      pointerEvents={visible ? 'auto' : 'none'}
+      style={[styles.overlay, visible ? styles.overlayVisible : styles.overlayHidden]}
+    >
       <Pressable
         style={StyleSheet.absoluteFillObject}
-        onPress={onClose}
+        onPress={handleClose}
         activateOnPressIn
         latencyLabel="chart.timeframePicker.backdrop"
         unstable_pressDelay={0}
@@ -151,7 +191,7 @@ export function ChartTimeframePickerOverlay({
       </View>
     </View>
   );
-}
+});
 
 const makeTimeframePickerStyles = ({
   accentColor,
@@ -175,6 +215,12 @@ const makeTimeframePickerStyles = ({
     justifyContent: 'center',
     paddingHorizontal: 12,
     backgroundColor: isDark ? 'rgba(0,0,0,0.58)' : 'rgba(15,23,42,0.36)',
+  },
+  overlayVisible: {
+    opacity: 1,
+  },
+  overlayHidden: {
+    opacity: 0,
   },
   card: {
     width: '90%',

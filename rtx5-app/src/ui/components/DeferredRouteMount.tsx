@@ -112,8 +112,9 @@ export function useDeferredRouteContentReady(
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    // Once the body has been built it stays mounted for retained hosts so
-    // later sidebar/settings taps never flash an empty loading shell.
+    // Readiness stays latched after the first activation. Retained hosts may
+    // still focus-gate their native body while hidden, then reuse this ready
+    // value on the next reveal without showing a loading shell.
     if (!active || ready) {
       return undefined;
     }

@@ -19,9 +19,9 @@ export function resolveBrokerExecutionEvidence(response: unknown): BrokerExecuti
     ? response as Record<string, unknown>
     : {};
   const ticket = toPositiveFiniteNumber(
-    data.position_ticket ?? data.order_ticket ?? data.ticket,
+    data.position_ticket ?? data.ticket,
   );
-  const executionPrice = toPositiveFiniteNumber(data.price_open ?? data.price);
+  const executionPrice = toPositiveFiniteNumber(data.price ?? data.price_open);
   const status = typeof data.status === 'string' ? data.status.trim().toLowerCase() : '';
   const explicitlyRejected = ['rejected', 'failed', 'error'].includes(status);
 

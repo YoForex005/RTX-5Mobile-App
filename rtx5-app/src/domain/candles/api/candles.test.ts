@@ -103,7 +103,11 @@ test('getCandleHistoryRequestTimeframes requests only the selected backend timef
 });
 
 test('candle history uses one explicit release contract and fails closed otherwise', () => {
-  assert.equal(resolveCandleHistoryRouteContract({}), null);
+  // Explicit empty override must fail closed (do not fall through to ambient process.env).
+  assert.equal(resolveCandleHistoryRouteContract({
+    EXPO_PUBLIC_CANDLE_HISTORY_PATH: '',
+    EXPO_PUBLIC_CANDLE_HISTORY_QUERY_STYLE: '',
+  }), null);
   assert.equal(resolveCandleHistoryRouteContract({
     EXPO_PUBLIC_CANDLE_HISTORY_PATH: '../candles',
     EXPO_PUBLIC_CANDLE_HISTORY_QUERY_STYLE: 'timeframeLimit',
@@ -115,6 +119,19 @@ test('candle history uses one explicit release contract and fails closed otherwi
     pathPrefix: 'market-data/candles',
     queryStyle: 'tfCount',
   });
+});
+
+test('candle history contract reads EXPO_PUBLIC_* via static process.env access for OTA inlining', () => {
+  const source = readFileSync(resolve(process.cwd(), 'src/domain/candles/api/candleHistoryQuery.ts'), 'utf8');
+  // Metro only inlines direct process.env.EXPO_PUBLIC_* reads in release/OTA bundles.
+  // Using `env = process.env` then `env.EXPO_PUBLIC_*` leaves history unconfigured on device.
+  assert.match(source, /process\.env\.EXPO_PUBLIC_CANDLE_HISTORY_PATH/);
+  assert.match(source, /process\.env\.EXPO_PUBLIC_CANDLE_HISTORY_QUERY_STYLE/);
+  assert.doesNotMatch(
+    source,
+    /=\s*process\.env\s*[,)]/,
+    'must not default the env argument to the process.env object',
+  );
 });
 
 test('default candle history request fills the chart buffer so M1 includes previous dates', () => {

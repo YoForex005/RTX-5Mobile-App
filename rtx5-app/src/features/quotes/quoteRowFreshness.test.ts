@@ -34,7 +34,7 @@ test('fresh row is live only when both quote and active feed permit execution', 
   );
 });
 
-test('old local/source timestamps and stale feed health remain visibly stale and non-executable', () => {
+test('old local/source timestamps and stale feed health remain stale and non-executable', () => {
   assert.deepEqual(
     resolveQuoteRowFreshness({
       ...freshQuote,
@@ -70,17 +70,23 @@ test('snapshot prices are delayed and a fresh websocket row schedules one expiry
   }, NOW), null);
 });
 
-test('QuotesScreen wires explicit stale styling and a bounded one-shot freshness timer', () => {
+test('QuotesScreen keeps freshness safety while showing percentage change beside the symbol', () => {
   const source = readFileSync(resolve(process.cwd(), 'src/features/quotes/QuotesScreen.tsx'), 'utf8');
 
   assert.match(source, /resolveQuoteRowFreshness\(/);
   assert.match(source, /getQuoteRowFreshnessRefreshDelayMs\(/);
   assert.match(source, /setTimeout\(\(\) => setFreshnessEvaluationNow\(Date\.now\(\)\), refreshDelayMs\)/);
-  assert.match(source, /rowFreshness\.label/);
-  // Card surface stays normal Quotes palette; STALE is badge-only (no full-card amber wash).
+  assert.match(source, /const hasDelayedPrice = !noData && rowFreshness\.status !== 'live'/);
+  assert.match(source, /const showBidCaret = !noData && !hasDelayedPrice/);
+  assert.match(source, /\{!isSimpleMode \? \(/);
+  assert.match(source, /sc\.changePill/);
+  assert.match(source, /\{noData \? '--' : pct\}/);
+  assert.doesNotMatch(source, /\{hasDelayedPrice \? \(/);
+  assert.doesNotMatch(source, /rowFreshness\.label/);
+  assert.doesNotMatch(source, /sc\.freshnessBadge/);
+  // Card surface stays on the normal Quotes palette even when the quote is stale.
   assert.match(source, /borderColor: cardBorder/);
   assert.match(source, /\{ backgroundColor: cardBackground \}/);
-  assert.match(source, /sc\.freshnessBadge/);
   assert.doesNotMatch(source, /stalePriceOverlay/);
   assert.match(source, /feedHealthAllowsPriceActions\(scopedFeedHealth\)/);
 });

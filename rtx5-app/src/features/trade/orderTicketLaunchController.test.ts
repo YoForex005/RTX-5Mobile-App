@@ -28,9 +28,15 @@ test('order-ticket launch controller prepares, reveals, and hides synchronously'
   assert.deepEqual(visualEvents, [true]);
   assert.equal(controller.getSnapshot().visible, true);
   assert.equal(controller.getSnapshot().origin, 'quotes');
+  // Idle prepare must not kill a visible shell mid Buy/Sell navigation race.
+  controller.prepare('EURUSD', 'trade');
+  assert.equal(controller.getSnapshot().visible, true);
+  assert.equal(controller.getSnapshot().symbol, 'XAUUSDM');
+  assert.equal(controller.getSnapshot().origin, 'quotes');
   assert.equal(controller.startNavigation(revision + 1), false);
   assert.equal(controller.startNavigation(revision), true);
   assert.equal(controller.getSnapshot().navigationStarted, true);
+  assert.equal(controller.startNavigation(revision), false);
   assert.equal(controller.hide(revision + 1), false);
   assert.equal(controller.hide(revision), true);
   assert.deepEqual(visualEvents, [true, false]);
@@ -56,8 +62,11 @@ test('scheduled native navigation is cancelled when the optimistic shell closes'
   try {
     const revision = orderTicketLaunchController.show('EURUSD');
     let navigations = 0;
+    let cancellations = 0;
     scheduleOrderTicketLaunchNavigation(revision, () => {
       navigations += 1;
+    }, () => {
+      cancellations += 1;
     });
     orderTicketLaunchController.hide(revision);
 
@@ -66,9 +75,12 @@ test('scheduled native navigation is cancelled when the optimistic shell closes'
       frameQueue = [];
       callbacks.forEach((callback) => callback(0));
     };
+    flushFrame();
+    flushFrame();
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     assert.equal(navigations, 0);
+    assert.equal(cancellations, 1);
     assert.equal(orderTicketLaunchController.isVisible(), false);
   } finally {
     orderTicketLaunchController.hide();
@@ -99,15 +111,10 @@ test('order-ticket launch navigation starts after the shell paint frames', async
     });
 
     assert.equal(navigations, 0);
-    // First rAF schedules the second; navigation runs on the second frame.
+    // Navigation runs on the first paint frame after the shell is shown.
     const first = frameQueue;
     frameQueue = [];
     first.forEach((callback) => callback(0));
-    assert.equal(navigations, 0);
-    const second = frameQueue;
-    frameQueue = [];
-    second.forEach((callback) => callback(0));
-
     assert.equal(navigations, 1);
     assert.equal(orderTicketLaunchController.getSnapshot().navigationStarted, true);
     assert.equal(orderTicketLaunchController.getSnapshot().origin, 'chart');

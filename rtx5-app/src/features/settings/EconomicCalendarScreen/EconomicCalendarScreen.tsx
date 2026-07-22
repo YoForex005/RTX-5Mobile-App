@@ -42,10 +42,9 @@ import {
 } from './EconomicEventFiltersSheet';
 
 const ECON_CALENDAR_IDLE_PREWARM_DELAY_MS = 6000;
-// Mount the retained calendar rows offscreen after the lighter sidebar pages.
-// Live refreshes remain focus-only; this prewarm consumes the existing local
-// fallback/cache and prevents a visible body-load after a drawer selection.
-// Hosted sidebar destination: mount body immediately so first open is never blank.
+// Keep readiness warm while hidden, but mount the calendar hero, rows, and
+// filter sheet only on focus. The bounded data-cache prewarm below remains
+// independent of the native body and avoids a network wait on first reveal.
 const ECON_CALENDAR_BODY_PREWARM_DELAY_MS = 0;
 
 /**
@@ -55,6 +54,7 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
   const routeBodyReady = useDeferredRouteContentReady(
     isScreenFocused ? 0 : ECON_CALENDAR_BODY_PREWARM_DELAY_MS,
   );
+  const focusedBodyReady = isScreenFocused && routeBodyReady;
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeEconomicCalendarStyles(T, isDark), [T, isDark]);
@@ -315,6 +315,7 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
           <View style={{ width: 46 }} />
         </View>
       </View>
+      {focusedBodyReady ? <>
       <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
         <View style={[styles.heroCard, { marginBottom: 0 }]}>
           <View style={styles.heroContent}>
@@ -388,7 +389,7 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
         </View>
       </View>
 
-      {routeBodyReady ? <ScrollView
+      <ScrollView
         keyboardShouldPersistTaps="always"
         canCancelContentTouches={Platform.OS === 'ios'} style={styles.scroll} contentContainerStyle={[styles.content, { paddingTop: 20 }]} showsVerticalScrollIndicator={false}>
 
@@ -437,13 +438,14 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
         )}
 
         <View style={{ height: 36 }} />
-      </ScrollView> : <View style={styles.scroll} />}
+      </ScrollView>
 
       <EconomicEventFiltersSheet
         ref={eventFiltersSheetRef}
         selectedImpacts={selectedImpacts}
         onApply={applyEventFilters}
       />
+      </> : <View style={styles.scroll} />}
     </Screen>
   );
 });

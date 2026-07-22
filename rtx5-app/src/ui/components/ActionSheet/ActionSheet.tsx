@@ -1058,6 +1058,12 @@ export function ActionSheet({
   // is disabled so it stops padding the bottom-anchored sheet up. Isolated —
   // every other searchable sheet keeps the avoidance math unchanged.
   const keepFullHeightSheet = activeSearchable && activeKeepFullHeightOnKeyboard;
+  // Quotes symbol menus (and other non-searchable MT5 sheets) must never sit in
+  // a KeyboardAvoidingView on iOS — the padding behavior can collapse the host
+  // even with the keyboard closed and is the common "sheet shrinks on iOS only"
+  // failure. Only searchable sheets that are not in stay-still mode need KAV.
+  const iosKeyboardAvoidanceEnabled =
+    Platform.OS === 'ios' && activeSearchable && !keepFullHeightSheet;
   const androidSearchableSheet =
     Platform.OS === 'android' && activeSearchable && !keepFullHeightSheet;
   const overlayKeyboardLift = androidSearchableSheet
@@ -1099,7 +1105,16 @@ export function ActionSheet({
       ),
       actionsContentExtraHeight,
     );
-  const estimatedSheetHeight = reservedChromeHeight + estimatedActionsHeight;
+  // Content-sized auto menus (Quotes symbol tap/long-press) need the home-
+  // indicator inset baked into height so iOS does not paint the last rows under
+  // the safe area and then reflow shorter.
+  const contentSizedAutoSheet =
+    activeDetent === 'auto'
+    && !activeSearchable
+    && !isTimeframeGridPresentation;
+  const sheetBottomSafePad = contentSizedAutoSheet ? bottomInset : 0;
+  const estimatedSheetHeight =
+    reservedChromeHeight + estimatedActionsHeight + sheetBottomSafePad;
   const adaptiveSheetFloor = resolveActionSheetFloor({
     detent: activeDetent,
     searchable: activeSearchable,
@@ -1117,7 +1132,7 @@ export function ActionSheet({
           action.subtitle ? ACTION_SHEET_SUBTITLE_ROW_MIN_HEIGHT : actionRowMinHeight
         ),
         actionsContentExtraHeight,
-      )
+      ) + sheetBottomSafePad
     : Number.POSITIVE_INFINITY;
   // Large detents already target ~88% of the window. Do not also hard-cap the
   // sheet to the progressive-open row budget (e.g. 12 Drawing Tools rows) —
@@ -1137,8 +1152,12 @@ export function ActionSheet({
   const sheetFloorMinHeight = adaptiveSheetFloor > 0 && sheetMaxHeight > estimatedSheetHeight
     ? Math.min(sheetMaxHeight, adaptiveSheetFloor)
     : undefined;
-  const sheetMinHeight = sheetFloorMinHeight;
-  const shouldLockSheetHeight = activeDetent === 'large';
+  // Content-sized auto sheets keep a stable floor so a later layout pass cannot
+  // collapse them below the first settled height (iOS shrink regression).
+  const sheetMinHeight = contentSizedAutoSheet
+    ? Math.min(sheetMaxHeight, estimatedSheetHeight)
+    : sheetFloorMinHeight;
+  const shouldLockSheetHeight = activeDetent === 'large' || contentSizedAutoSheet;
   const sheetHeightStyle = shouldLockSheetHeight
     ? { height: sheetMaxHeight }
     : { maxHeight: sheetMaxHeight };
@@ -1841,6 +1860,7 @@ export function ActionSheet({
           isTimeframeGridPresentation && styles.sheetTimeframeGrid,
           sheetHeightStyle,
           !shouldLockSheetHeight && sheetMinHeight ? { minHeight: sheetMinHeight } : null,
+          sheetBottomSafePad > 0 ? { paddingBottom: sheetBottomSafePad } : null,
         ]}
       >
         {isMt5StylePresentation ? null : <View style={styles.handle} />}
@@ -2063,13 +2083,12 @@ export function ActionSheet({
         activateOnPressIn
       />
 
-      {Platform.OS === 'ios' ? (
+      {iosKeyboardAvoidanceEnabled ? (
         <KeyboardAvoidingView
           behavior="padding"
-          // "Stay still" mode: disable avoidance so the keyboard overlays the
-          // sheet's lower part instead of padding the bottom-anchored sheet up
-          // (that upward push is the jump). Matches the Android pinned-host path.
-          enabled={!keepFullHeightSheet}
+          // Searchable sheets only. Non-searchable menus (Quotes symbol tap)
+          // use the plain host below so iOS cannot pad/collapse the sheet.
+          enabled
           style={styles.sheetHost}
           pointerEvents="box-none"
         >

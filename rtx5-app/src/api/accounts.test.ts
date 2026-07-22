@@ -61,6 +61,42 @@ test('mapRawAccount accepts singular account detail metric aliases', () => {
   assert.equal(account.floatingPnl, 3.72);
 });
 
+test('mapRawAccount accepts margin_used and skips blank aliases', () => {
+  const account = mapRawAccount({
+    login: 200082,
+    currency: 'USD',
+    leverage: 500,
+    balance: 10000,
+    credit: 0,
+    equity: 10050,
+    margin_used: ' ',
+    used_margin: '125.5',
+    free_margin: '',
+    freeMargin: '9924.5',
+    margin_level: null,
+    marginLevel: '8007.97',
+  } satisfies TradingAccountRaw);
+
+  assert.equal(account.usedMargin, 125.5);
+  assert.equal(account.freeMargin, 9924.5);
+  assert.equal(account.marginLevel, 8007.97);
+});
+
+test('mapRawAccount derives omitted free margin and margin level from account values', () => {
+  const account = mapRawAccount({
+    login: 200082,
+    currency: 'USD',
+    leverage: 500,
+    balance: 10000,
+    credit: 0,
+    equity: 10100,
+    margin_used: 100,
+  } satisfies TradingAccountRaw);
+
+  assert.equal(account.freeMargin, 10000);
+  assert.equal(account.marginLevel, 10100);
+});
+
 test('mapRawAccount falls back to zero for missing numeric fields', () => {
   const account = mapRawAccount({
     login: undefined,

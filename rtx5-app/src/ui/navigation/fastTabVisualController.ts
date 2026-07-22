@@ -183,9 +183,14 @@ export const fastTabVisualController =
     : createFastTabVisualController();
 controllerGlobal.__rtx5FastTabVisualController = fastTabVisualController;
 
+/**
+ * Bottom-menu taps flip retained native scene + chrome via setNativeProps.
+ * Skip React subscribers on the critical path so FastTabView does not reconcile
+ * five warm tab trees before the first paint of the chosen screen.
+ */
 export function showFastTabVisual(pathOrName: string) {
   const routeName = resolveFastTabRouteName(pathOrName);
-  return routeName ? fastTabVisualController.show(routeName) : null;
+  return routeName ? fastTabVisualController.show(routeName, false) : null;
 }
 
 /**
@@ -237,20 +242,38 @@ export const TAB_BAR_NAVIGATION_SETTLE_DELAY_MS = 0;
 /**
  * Lets the requested screen paint first, then updates the real route.
  * The revision check makes sure only the newest rapid tap can finish.
+ *
+ * Bottom-menu taps use settleDelayMs=0: one frame is enough for the native
+ * scene swap to commit, then route focus flips so the previous tab stops live
+ * work immediately. Drawer closes keep a second frame + settle delay so the
+ * close animation is not starved by navigation/focus work.
  */
 export function scheduleFastTabNavigation(
   revision: number,
   action: () => void,
   settleDelayMs: number = FAST_TAB_NAVIGATION_SETTLE_DELAY_MS,
 ) {
+  const requestedSnapshot = fastTabVisualController.getSnapshot();
+  const requestedRouteName =
+    requestedSnapshot.revision === revision ? requestedSnapshot.routeName : null;
   const runIfCurrent = () => {
-    if (fastTabVisualController.getSnapshot().revision === revision) {
+    const currentSnapshot = fastTabVisualController.getSnapshot();
+    if (
+      requestedRouteName !== null &&
+      currentSnapshot.revision === revision &&
+      currentSnapshot.routeName === requestedRouteName
+    ) {
       action();
     }
   };
 
   if (typeof globalThis.requestAnimationFrame !== 'function') {
-    setTimeout(runIfCurrent, 32);
+    setTimeout(runIfCurrent, settleDelayMs > 0 ? Math.max(settleDelayMs, 16) : 0);
+    return;
+  }
+
+  if (settleDelayMs <= 0) {
+    globalThis.requestAnimationFrame(runIfCurrent);
     return;
   }
 

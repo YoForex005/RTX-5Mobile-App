@@ -56,8 +56,8 @@ function writeQuoteInfoLaunchDestinationNow(
  * New-Order-class retained host for Properties and Market Statistics.
  *
  * Critical for speed (same model as OrderTicketLaunchHost):
- * - Always keep TWO lightweight shells mounted (never mount the full screens here)
- * - Tap only flips a UI-thread shared value → opacity (no heavy React mount)
+ * - Keep TWO lightweight shell headers mounted (never mount full screens here)
+ * - Tap flips a UI-thread shared value → opacity before React adopts the body
  * - prepare() already set the symbol while the action sheet was open
  * - Full interactive routes load behind the shell after the press paint
  */
@@ -183,8 +183,8 @@ export function QuoteInfoLaunchHost() {
     return () => subscription.remove();
   }, [closeLaunch]);
 
-  // Shells stay mounted for the prepared symbol. `active` only gates live tick
-  // subscriptions — never mounts/unmounts the tree on the option press.
+  // Shell headers stay mounted for the prepared symbol. `active` gates both
+  // live ticks and the larger preview body, which is removed again on hide.
   const propertiesActive = snapshot.visible && snapshot.destination === 'properties';
   const statisticsActive = snapshot.visible && snapshot.destination === 'market-statistics';
 

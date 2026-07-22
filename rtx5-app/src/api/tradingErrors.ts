@@ -44,10 +44,24 @@ const ACTION_LABELS: Record<TradingAction, string> = {
 
 const BROKER_ERROR_MESSAGES: Record<string, string> = {
   UNAUTHORIZED: 'Invalid session or credentials. Please log in again.',
+  INVALID_INPUT: 'The trade request was invalid. Check the symbol and volume, then try again.',
+  INVALID_SIDE: 'The trade direction was invalid. Choose Buy or Sell and try again.',
+  INVALID_IDEMPOTENCY_KEY: 'The trade request key was invalid. Please try the order again.',
+  IDEMPOTENCY_KEY_REQUIRED: 'The trade could not be submitted safely. Please try again.',
+  IDEMPOTENCY_KEY_REUSED: 'This trade request was already used for different order details. Please submit it again.',
+  BROKER_REQUIRED: 'Your broker session is incomplete. Please log in again.',
+  BROKER_NOT_FOUND: 'The selected broker is unavailable. Please contact your broker.',
   BROKER_INACTIVE: 'The selected broker server is offline. Please try again later.',
   LICENSE_EXPIRED: 'License expired. Please renew your trading license to proceed.',
   INSUFFICIENT_MARGIN: 'Insufficient margin. You do not have enough funds to open this position.',
-  MARKET_CLOSED: 'Trading is disabled. The market is currently closed for this symbol.',
+  TRADE_DISABLED: 'Trading is disabled for this account group. Please contact your broker.',
+  SYMBOL_NOT_ALLOWED: 'This symbol is not available for trading on your account.',
+  TRADE_ROUTE_NOT_CONFIGURED: 'Trading is not configured for this broker account. Please contact your broker.',
+  NO_FRESH_QUOTE: 'No fresh market price is available yet. Wait for the next quote and try again.',
+  STALE_QUOTE: 'The market price is stale. Wait for a fresh quote and try again.',
+  SOURCE_MISMATCH: 'The broker price feed is temporarily unavailable. Please try again shortly.',
+  MISSING_FX_RATE: 'A required conversion rate is unavailable. Please try again shortly.',
+  CALCULATION_SCHEMA_NOT_READY: 'Trading calculations are temporarily unavailable. Please try again shortly.',
   INVALID_SL_TP: 'Invalid Stop Loss or Take Profit levels. Please check your price offsets.',
 };
 
@@ -90,7 +104,11 @@ const extractDataCode = (data: unknown): string | null => {
   }
 
   const record = data as Record<string, unknown>;
+  // Gateway error envelopes use `{ error: "ERROR_CODE", message: "..." }`.
+  // Treat that canonical string as the code before checking legacy aliases.
+  const canonicalError = cleanMessage(record.error);
   const directCode =
+    canonicalError ||
     cleanMessage(record.code) ||
     cleanMessage(record.error_code) ||
     cleanMessage(record.errorCode);
@@ -287,16 +305,24 @@ export const classifyTradingError = (
   const detail = rawDetail ? redactSensitiveString(rawDetail) : null;
   const retryAfterSeconds = getRetryAfterSeconds(headers);
 
-  if (brokerCode && BROKER_ERROR_MESSAGES[brokerCode]) {
+  const mappedBrokerMessage = brokerCode
+    ? BROKER_ERROR_MESSAGES[brokerCode]
+      || (brokerCode.startsWith('INCOMPLETE_')
+        ? 'Required trading calculation data is temporarily unavailable. Please try again shortly.'
+        : null)
+    : null;
+
+  if (brokerCode && mappedBrokerMessage) {
+    const sessionCode = brokerCode === 'UNAUTHORIZED' || brokerCode === 'BROKER_REQUIRED';
     return {
-      origin: brokerCode === 'UNAUTHORIZED' ? 'session' : 'backend',
-      kind: brokerCode === 'UNAUTHORIZED' ? 'session-expired' : 'backend-rejection',
-      title: brokerCode === 'UNAUTHORIZED'
+      origin: sessionCode ? 'session' : 'backend',
+      kind: sessionCode ? 'session-expired' : 'backend-rejection',
+      title: sessionCode
         ? 'Session Expired'
         : options.action === 'place-order'
           ? 'Order Rejected'
           : 'Request Rejected',
-      message: BROKER_ERROR_MESSAGES[brokerCode],
+      message: mappedBrokerMessage,
       status,
       detail,
     };

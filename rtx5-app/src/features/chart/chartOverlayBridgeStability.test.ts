@@ -95,7 +95,11 @@ test('overlay bridge: overlay resync timer repairs missed injection', () => {
   assertSourceContains(body, /setInterval\(function\(\)/, 'WebView overlay resync must run on an interval');
   assertSourceContains(body, /_positionLinesArr\.length !== countOverlayNativePriceLines\(_overlayPayload\.priceLines\)/, 'resync must detect missing native price lines');
   assertSourceContains(body, /applyOverlayPayload\(_overlayPayload\)/, 'resync must recreate missing overlays');
-  assertSourceContains(source, /const resyncInterval = setInterval\(\(\) => \{[\s\S]*webViewRef\.current\.injectJavaScript\(js\)/, 'native overlay bridge must periodically re-push overlays');
+  assertSourceContains(
+    source,
+    /const resyncInterval = setInterval\(\(\) => \{[\s\S]*setChartOverlays\(\$\{JSON\.stringify\(payload\)\}\)[\s\S]*\}, 5000\)/,
+    'native overlay bridge must periodically re-push overlays on the geometry path',
+  );
 });
 
 test('overlay bridge: draggable SL and TP lines emit CHART_TRADE_LINE_DRAG', () => {
@@ -449,7 +453,7 @@ test('overlay bridge: trade labels follow their price coordinate off screen', ()
   );
   assertSourceContains(
     refreshBody,
-    /var floatingTop = tops\[labelIndex\][\s\S]*renderLabel\(floatingItem, floatingTop\)/,
+    /var floatingTop = tops\[labelIndex\][\s\S]*renderLabel\(floatingItem, floatingTop, null/,
     'floating labels must render from the unclamped top value',
   );
   assertSourceContains(
@@ -474,7 +478,7 @@ test('overlay bridge: trade labels follow their price coordinate off screen', ()
   );
   assertSourceContains(
     refreshBody,
-    /var renderLabel = function\(item, top, left\)[\s\S]*var labelLeft = typeof left === 'number' && isFinite\(left\)[\s\S]*label\.style\.left = labelLeft \+ 'px'/,
+    /var renderLabel = function\(item, top, left, labelKey\)[\s\S]*var labelLeft = typeof left === 'number' && isFinite\(left\)[\s\S]*label\.style\.left = labelLeft \+ 'px'/,
     'label rendering must use the resolved horizontal lane without changing the fixed top coordinate',
   );
   assertSourceContains(
@@ -484,7 +488,7 @@ test('overlay bridge: trade labels follow their price coordinate off screen', ()
   );
   assertSourceContains(
     refreshBody,
-    /renderAnchoredTradeLine\(layer, anchoredItem\)[\s\S]*renderLabel\(anchoredItem, anchoredTop, anchoredLefts\[anchoredIndex\]\)/,
+    /renderAnchoredTradeLine\(layer, anchoredItem, lineKey\)[\s\S]*renderLabel\(anchoredItem, anchoredTop, anchoredLefts\[anchoredIndex\]/,
     'line-anchored open-position labels must draw the owned dotted line and label from the same payload',
   );
   assertSourceContains(
@@ -519,8 +523,18 @@ test('overlay bridge: trade labels follow their price coordinate off screen', ()
   );
   assertSourceContains(
     refreshBody,
-    /renderAnchoredTradeLine\(layer, anchoredItem\)[\s\S]*renderLabel\(anchoredItem, anchoredTop, anchoredLefts\[anchoredIndex\]\)/,
+    /renderAnchoredTradeLine\(layer, anchoredItem, lineKey\)[\s\S]*renderLabel\(anchoredItem, anchoredTop, anchoredLefts\[anchoredIndex\]/,
     'line-anchored open-position labels must draw the full-width line and live P/L label from the same fixed price coordinate',
+  );
+  assertSourceContains(
+    refreshBody,
+    /upsertOverlayDomNode\(layer, key[\s\S]*pruneOverlayDomNodes\(liveOverlayKeys\)/,
+    'overlay DOM labels must update in place and never wipe the whole layer on quote ticks',
+  );
+  assert.doesNotMatch(
+    refreshBody,
+    /clearOverlayDomLabels\(\);\s*\n\s*if \(!series\)/,
+    'overlay refresh must not blank the trade-line layer before painting when the series is healthy',
   );
   assert.doesNotMatch(refreshBody, /anchoredInitialBackIndex/);
   assert.doesNotMatch(refreshBody, /anchoredBounds|bounds\.minTop|bounds\.maxTop/);
@@ -616,8 +630,13 @@ test('overlay bridge: trade overlays stay out of price-scale autoscale', () => {
   );
   assertSourceContains(
     setOverlayBody,
-    /scheduleOverlayPriceScaleLock\(false\)[\s\S]*applyOverlayPayload\(_overlayPayload\)[\s\S]*schedulePriceScaleHealthCheck\('overlay_update', true, 3\)[\s\S]*scheduleOverlayVisibleCandleScaleRecovery\('overlay_update'\)/,
-    'live overlay updates must recalculate and heal the right price scale after applying overlays',
+    /applyOverlayPayload\(_overlayPayload\)[\s\S]*schedulePriceScaleHealthCheck\('overlay_update', false, 1\)/,
+    'live overlay updates must apply trade lines without re-fitting the candle scale (full recovery caused horizontal blink)',
+  );
+  assert.doesNotMatch(
+    setOverlayBody,
+    /scheduleOverlayVisibleCandleScaleRecovery\('overlay_update'\)/,
+    'routine setChartOverlays must not re-center the visible candle scale on every trade/P-L push',
   );
   assertSourceContains(
     source,

@@ -96,6 +96,14 @@ test('blank drawing search keeps every tool directly selectable on the chart', (
     chartSource.indexOf('const drawingToolsActionSheetConfig'),
     chartSource.indexOf('const handleOpenDrawingTools'),
   );
+  const drawingSheetHandler = chartSource.slice(
+    chartSource.indexOf('const handleOpenDrawingTools'),
+    chartSource.indexOf('const handleOpenSettingsScreen'),
+  );
+  const drawingSheetPreload = chartSource.slice(
+    chartSource.indexOf("preloadScopedActionSheet('chart', drawingToolsActionSheetConfig)"),
+    chartSource.indexOf('const handleOpenDrawingTools'),
+  );
 
   assert.match(
     actionSheetFactory,
@@ -106,7 +114,31 @@ test('blank drawing search keeps every tool directly selectable on the chart', (
   assert.match(setToolHandler, /setChartDrawingInputActive\(nextDrawingInputActive\)/);
   assert.match(setToolHandler, /injectChartScript\(`setDrawingTool\(/);
   assert.match(drawingSheetConfig, /searchable:\s*true/);
+  assert.match(drawingSheetConfig, /maximumVisibleActionRows:\s*12/);
+  assert.match(drawingSheetConfig, /detent:\s*'large'/);
+  assert.match(drawingSheetConfig, /instantOpen:\s*true/);
+  assert.match(drawingSheetConfig, /entryMotion:\s*'instant'/);
+  assert.doesNotMatch(drawingSheetConfig, /entryMotion:\s*'mt5Slide'/);
+  assert.match(drawingSheetConfig, /keepFullHeightOnKeyboard:\s*true/);
   assert.match(drawingSheetConfig, /runActionAfterClose:\s*false/);
+  assert.match(
+    drawingSheetPreload,
+    /useUIState\.subscribe\(\(state, previousState\) => \{[\s\S]*previousState\.scopedActionSheets\.chart !== null[\s\S]*state\.scopedActionSheets\.chart === null[\s\S]*preloadScopedActionSheet\('chart', drawingToolsActionSheetConfig\)/,
+  );
+  assert.match(
+    drawingSheetHandler,
+    /requestRetainedActionSheetPreview\(drawingToolsVisualKey\)[\s\S]*commitRetainedActionSheetPreview\([\s\S]*retainedRevision,[\s\S]*drawingToolsVisualKey,[\s\S]*\)[\s\S]*if \(retainedRevealAccepted\) \{[\s\S]*scheduleAfterFirstFrame\(adoptDrawingToolsSheet\)[\s\S]*return;/,
+  );
+  assert.match(
+    drawingSheetHandler,
+    /cancelRetainedActionSheetPreview\(retainedRevision\);[\s\S]*adoptDrawingToolsSheet\(\)/,
+  );
+  assert.match(
+    drawingSheetHandler,
+    /const adoptDrawingToolsSheet = \(\) => \{[\s\S]*closeChartTapMenu\(\);[\s\S]*showChartActionSheet\(drawingToolsActionSheetConfig\);[\s\S]*scheduleChartActionSheetContextReset\(\);/,
+  );
+  assert.doesNotMatch(drawingSheetHandler, /openChartActionSheetSmoothly/);
+  assert.doesNotMatch(drawingSheetHandler, /requestAnimationFrame|setTimeout/);
 });
 
 test('every drawing action dismisses the sheet before applying its selection', () => {

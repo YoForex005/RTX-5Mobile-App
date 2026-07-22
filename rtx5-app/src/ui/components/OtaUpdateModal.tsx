@@ -1,9 +1,20 @@
-import { ActivityIndicator, Modal, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import type { OtaUpdatePromptController } from '../../utils/otaUpdates';
-import { FastPressable as Pressable } from './FastPressable';
 
 type OtaUpdateModalProps = OtaUpdatePromptController;
 
+/**
+ * Blocking OTA install prompt. Uses RN Pressable (not FastPressable) so install
+ * remains tappable even when the trading tree is unhealthy or gesture systems
+ * are wedged after a crash recovery.
+ */
 export function OtaUpdateModal({
   visible,
   status,
@@ -15,11 +26,20 @@ export function OtaUpdateModal({
   const isInstalling = status === 'downloading' || status === 'restarting';
   const showProgress = isInstalling;
   const buttonText = status === 'error' ? 'Retry install' : 'Install latest version';
+  const handlePress = status === 'error' ? onRetry : onInstall;
 
   return (
-    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
-      <View style={styles.backdrop}>
-        <View style={styles.panel} accessibilityViewIsModal>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      presentationStyle="overFullScreen"
+      // Keep above any crashed error UI / absolute overlays.
+      hardwareAccelerated
+    >
+      <View style={styles.backdrop} pointerEvents="auto">
+        <View style={styles.panel} accessibilityViewIsModal importantForAccessibility="yes">
           <Text style={styles.title}>
             {status === 'error' ? 'Update failed' : 'Update available'}
           </Text>
@@ -46,11 +66,11 @@ export function OtaUpdateModal({
 
           <Pressable
             accessibilityRole="button"
+            accessibilityState={{ disabled: isInstalling, busy: isInstalling }}
             disabled={isInstalling}
-            onPress={status === 'error' ? onRetry : onInstall}
-            activateOnPressIn
-            latencyLabel={status === 'error' ? 'otaUpdate.retry' : 'otaUpdate.install'}
-            unstable_pressDelay={0}
+            onPress={handlePress}
+            hitSlop={16}
+            // Large min hit target — users reported the install control was untappable.
             style={({ pressed }) => [
               styles.button,
               isInstalling ? styles.buttonDisabled : null,
@@ -73,7 +93,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
-    backgroundColor: 'rgba(0, 0, 0, 0.68)',
+    backgroundColor: 'rgba(0, 0, 0, 0.78)',
   },
   panel: {
     width: '100%',
@@ -83,6 +103,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(148, 163, 184, 0.22)',
     padding: 20,
     backgroundColor: '#1E1E1E',
+    elevation: 24,
+    zIndex: 100000,
   },
   title: {
     color: '#f8fafc',
@@ -128,10 +150,11 @@ const styles = StyleSheet.create({
   button: {
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 46,
+    minHeight: 52,
     marginTop: 22,
     borderRadius: 8,
     backgroundColor: '#0ea5e9',
+    paddingHorizontal: 16,
   },
   buttonPressed: {
     backgroundColor: '#0284c7',
@@ -141,7 +164,7 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     color: '#ffffff',
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '700',
   },
 });

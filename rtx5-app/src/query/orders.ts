@@ -12,6 +12,7 @@
 import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { ordersApi, type PlaceOrderPayload, type PlaceOrderResponse } from '../api/orders';
+import { resolveBrokerExecutionEvidence } from '../api/orders/executionEvidence';
 import { StaleBrokerSessionError } from '../api/brokerApi';
 import { redactDiagnosticValue } from '../utils/securityRedaction';
 import {
@@ -103,6 +104,7 @@ export function useAccountOrdersQuery(options: PollingQueryOptions = {}) {
   });
 }
 import { usePositionsState } from '../state/positionsState';
+import { hasPositionPresenceConverged } from '../state/positionsState.helpers';
 import { resolveTradingLoginString } from '../state/tradingLogin';
 
 const ORDER_DIAGNOSTICS_ENABLED =
@@ -128,14 +130,31 @@ const firstPositiveFiniteNumber = (...values: unknown[]): number | null => {
 };
 
 const getConfirmedMarketOrderValues = (data: PlaceOrderResponse) => {
-  const ticket = firstPositiveFiniteNumber(
-    data.position_ticket,
-    data.order_ticket,
-    data.ticket,
-  );
-  const executionPrice = firstPositiveFiniteNumber(data.price_open, data.price);
+  const evidence = resolveBrokerExecutionEvidence(data);
+  const ticket = evidence.ticket ?? null;
+  const executionPrice = evidence.executionPrice ?? null;
   const currentPrice = firstPositiveFiniteNumber(data.price_current) ?? executionPrice;
   return { ticket, executionPrice, currentPrice } as const;
+};
+
+const normalizeMarketOrderAction = (data: PlaceOrderResponse): string =>
+  typeof data.action === 'string' ? data.action.trim().toLowerCase() : '';
+
+const canOptimisticallyInsertPosition = (data: PlaceOrderResponse): boolean => {
+  const action = normalizeMarketOrderAction(data);
+  // Netting buy/sell can increase, decrease, close, or reverse an existing
+  // position — those must not be modeled as a brand-new row. Explicit opens,
+  // legacy empty action, and unknown actions (or side-like "buy"/"sell") with
+  // full execution evidence are injected so Trade/Chart show the fill before
+  // REST catches up.
+  return !['closed', 'increased', 'decreased', 'reversed'].includes(action);
+};
+
+const positionPresenceExpectedAfterAction = (action: string): boolean | null => {
+  if (action === 'closed') return false;
+  if (['', 'opened', 'open', 'increased', 'decreased', 'reversed'].includes(action)) return true;
+  // Unknown action with a ticket still expects the position to appear after sync.
+  return true;
 };
 
 const logPlaceOrderPayload = (payload: PlaceOrderPayload) => {
@@ -175,24 +194,43 @@ const handlePlaceOrderSuccess = (
     executionPrice,
     currentPrice,
   } = getConfirmedMarketOrderValues(data);
-  if (positionTicket !== null && executionPrice !== null && currentPrice !== null) {
+  if (
+    canOptimisticallyInsertPosition(data)
+    && positionTicket !== null
+    && executionPrice !== null
+    && currentPrice !== null
+  ) {
     const state = usePositionsState.getState();
+    const responseVolume = Number(data.volume);
+    const responseSl = Number(data.price_sl);
+    const responseTp = Number(data.price_tp);
     const newPos = {
       id: String(positionTicket),
-      symbol: variables.symbol,
-      side: variables.side,
-      volume: variables.volume,
+      symbol: (typeof data.symbol === 'string' && data.symbol.trim())
+        ? data.symbol
+        : variables.symbol,
+      side: data.side === 'buy' || data.side === 'sell' ? data.side : variables.side,
+      volume: Number.isFinite(responseVolume) && responseVolume > 0
+        ? responseVolume
+        : variables.volume,
       openPrice: executionPrice,
       currentPrice,
       pnl: 0,
       swap: 0,
       openTime: new Date().toISOString(),
-      sl: 0,
-      tp: 0,
+      sl: Number.isFinite(responseSl) && responseSl > 0 ? responseSl : 0,
+      tp: Number.isFinite(responseTp) && responseTp > 0 ? responseTp : 0,
       clientCreatedAt: Date.now(),
     };
     state.upsertPosition(newPos);
+  }
 
+  // Kick REST reconciliation immediately so the Trade tab is not empty while
+  // waiting for the 250ms paint-friendly delay. The delayed pass still runs
+  // invalidation + multi-attempt sync for broker commit lag.
+  const mt5LoginImmediate = resolveTradingLoginString();
+  if (mt5LoginImmediate && isSessionQueryCacheNamespaceCurrent(cacheNamespace)) {
+    void usePositionsState.getState().refreshPositions(mt5LoginImmediate);
   }
 
   scheduleTradePostSuccessRefresh(() => {
@@ -201,14 +239,31 @@ const handlePlaceOrderSuccess = (
     // Fire a background sync loop to eventually replace the optimistic record
     // with the fully-hydrated backend record after the chart has painted.
     const mt5Login = resolveTradingLoginString();
-    if (mt5Login && positionTicket) {
+    if (mt5Login) {
+      const action = normalizeMarketOrderAction(data);
+      const expectedPresence = positionPresenceExpectedAfterAction(action);
+      const requiresContentReconciliation = ['increased', 'decreased', 'reversed'].includes(action);
       const syncLoop = async () => {
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < 8; i++) {
           if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) return;
           await usePositionsState.getState().refreshPositions(mt5Login);
           if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) return;
-          const exists = usePositionsState.getState().positions.some(p => String(p.id) === String(positionTicket));
-          if (exists) break;
+          // Refresh is unconditional. When the canonical position ticket and
+          // action let us prove convergence, stop early; otherwise perform a
+          // second REST backstop because the first read may race broker commit.
+          if (positionTicket !== null && expectedPresence !== null) {
+            const presenceConverged = hasPositionPresenceConverged(
+              usePositionsState.getState().positions,
+              positionTicket,
+              expectedPresence,
+            );
+            // Presence alone cannot prove that an existing netting position's
+            // volume or side changed. Require the one-second REST backstop for
+            // increase/decrease/reverse even when the ticket already exists.
+            if (presenceConverged && (!requiresContentReconciliation || i >= 1)) break;
+          } else if (i >= 1) {
+            break;
+          }
           await new Promise(r => setTimeout(r, 1000));
         }
       };
@@ -268,68 +323,13 @@ export const usePlaceOrderMutation = () => {
       );
     },
     onSuccess: (data, variables) => {
-      if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) return;
-      logOrderDiagnostic('[TRADE-RESPONSE]', {
-        requestSide: variables.side,
-        result: data?.status ?? 'success',
-        backendSide: data?.side ?? null,
-        rawResponse: data,
-      });
-      // ── Optimistic UI Update ───────────────────────────
-      // Instantly inject the trade into the Zustand store so the Chart Screen
-      // renders the new position line without waiting for the next data poll.
-      const {
-        ticket: positionTicket,
-        executionPrice,
-        currentPrice,
-      } = getConfirmedMarketOrderValues(data);
-      if (positionTicket !== null && executionPrice !== null && currentPrice !== null) {
-        const state = usePositionsState.getState();
-        const newPos = {
-          id: String(positionTicket),
-          symbol: variables.symbol,
-          side: variables.side,
-          volume: variables.volume,
-          openPrice: executionPrice,
-          currentPrice,
-          pnl: 0,
-          swap: 0,
-          openTime: new Date().toISOString(),
-          sl: 0,
-          tp: 0,
-          clientCreatedAt: Date.now(),
-        };
-        state.upsertPosition(newPos);
-
+      // Shared success path owns optimistic insert + post-trade refresh so the
+      // Trade screen stays in lockstep with chart / executor placements.
+      try {
+        handlePlaceOrderSuccess(queryClient, data, variables, cacheNamespace);
+      } catch {
+        // Stale session is ignored here; the mutation already completed on the broker.
       }
-
-      scheduleTradePostSuccessRefresh(() => {
-        if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) return;
-
-        // Fire a background sync loop to eventually replace the optimistic record
-        // with the fully-hydrated backend record after the chart has painted.
-        const mt5Login = resolveTradingLoginString();
-        if (mt5Login && positionTicket) {
-          const syncLoop = async () => {
-            for (let i = 0; i < 5; i++) {
-              if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) return;
-              await usePositionsState.getState().refreshPositions(mt5Login);
-              if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) return;
-              const exists = usePositionsState.getState().positions.some(p => String(p.id) === String(positionTicket));
-              if (exists) break;
-              await new Promise(r => setTimeout(r, 1000));
-            }
-          };
-          syncLoop().catch(() => {});
-        }
-
-        // Invalidate queries that should update after a new trade.
-        void invalidateSessionQueryRoots(queryClient, cacheNamespace, [
-          'positions',
-          'accountSummary',
-          'transactions',
-        ]);
-      });
     },
   });
 };

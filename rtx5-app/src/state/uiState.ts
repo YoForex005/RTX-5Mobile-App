@@ -121,10 +121,13 @@ const openScopedActionSheet = (
   sheets: ScopedActionSheetState,
   scope: ActionSheetScope,
   config: ActionSheetConfig,
-): ScopedActionSheetState => ({
-  ...sheets,
-  [scope]: withInstantActionSheetOpen(config),
-});
+): ScopedActionSheetState => {
+  const nextConfig = withInstantActionSheetOpen(config);
+  // Re-publishing an already-held config must not re-render the giant sheet
+  // host — focus effects re-preload the same object on every dependency tick,
+  // and sheet openers preload synchronously on the tap's critical path.
+  return sheets[scope] === nextConfig ? sheets : { ...sheets, [scope]: nextConfig };
+};
 
 const hideScopedActionSheetState = (
   sheets: ScopedActionSheetState,

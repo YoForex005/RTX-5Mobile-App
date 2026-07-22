@@ -276,6 +276,13 @@ export function BrokerDetailScreen() {
     return () => subscription.remove();
   }, [handleBack, isScreenFocused]);
 
+  // Root-stack routes remain mounted underneath newer screens. Keep only this
+  // route wrapper alive while blurred so the login form does not stay in the
+  // native hierarchy or participate in unrelated live renders.
+  if (!isScreenFocused) {
+    return null;
+  }
+
   if (!contentReady) {
     if (brokerDetailLaunchController.isVisible()) {
       return null;

@@ -28,10 +28,8 @@ import {
   type HelpFaqItem,
 } from './helpViewModel';
 
-// The retained sidebar host mounts Help offscreen. Build its static FAQ body
-// before the first selection, after About, while keeping every interactive or
-// focus-only effect governed by isScreenFocused.
-// Hosted sidebar destination: mount body immediately so first open is never blank.
+// Keep readiness warm while Help is hidden, but mount its FAQ native body only
+// on focus so the retained header shell does not carry the full list.
 const HELP_BODY_PREWARM_DELAY_MS = 0;
 
 /**
@@ -50,6 +48,7 @@ export const HelpScreenInner = memo(function HelpScreenInner({ isScreenFocused }
   const routeBodyReady = useDeferredRouteContentReady(
     isScreenFocused ? 0 : HELP_BODY_PREWARM_DELAY_MS,
   );
+  const focusedBodyReady = isScreenFocused && routeBodyReady;
   const categoryCounts = useMemo(() => getHelpCategoryCounts(), []);
   const visibleFaqItems = useMemo(
     () => selectHelpFaqItems({ category: selectedCategory, query: faqQuery }),
@@ -112,7 +111,7 @@ export const HelpScreenInner = memo(function HelpScreenInner({ isScreenFocused }
         <Text style={styles.headerTitle} numberOfLines={1}>{t('Help')}</Text>
       </View>
 
-      {routeBodyReady ? <ScrollView
+      {focusedBodyReady ? <ScrollView
         keyboardShouldPersistTaps="always"
         canCancelContentTouches={Platform.OS === 'ios'}
         style={styles.scroll}

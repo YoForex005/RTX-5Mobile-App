@@ -1328,11 +1328,18 @@ export function ChartTradeOverlayLayer({
   const showSheetBody = shouldRenderChartTradeSheetBody({
     chartTradeSheetMode: sheet.chartTradeSheetMode,
   });
-  const chartTradeSheetFrameHeight = resolveChartTradeSheetFrameHeight({
-    chartTradeSheetMode: sheet.chartTradeSheetMode,
-    collapsedHeight: sheet.chartTradeSheetCollapsedHeight,
-    maxHeight: sheet.chartTradeSheetMaxHeight,
-  });
+  // Full max height + translateY for every mode (hidden/collapsed/expanded).
+  // Using only the collapsed height without transform clipped the pinned header
+  // and order-type tabs so SL/TP looked empty after open.
+  const chartTradeSheetFrameHeight = Math.max(
+    Number(sheet.chartTradeSheetMaxHeight) || 0,
+    Number(sheet.chartTradeSheetCollapsedHeight) || 0,
+    resolveChartTradeSheetFrameHeight({
+      chartTradeSheetMode: sheet.chartTradeSheetMode,
+      collapsedHeight: sheet.chartTradeSheetCollapsedHeight,
+      maxHeight: sheet.chartTradeSheetMaxHeight,
+    }),
+  );
   const showTradeFooterDock = showInlineFooterDock || footer.showFloatingFooterTradeRow;
   const tradeFooterDockVisible = showInlineFooterDock || footer.floatingFooterTradeRowVisible;
   const isAndroidFloatingFooterLotEditor =
@@ -1384,7 +1391,9 @@ export function ChartTradeOverlayLayer({
               styles.chartTradeSheetOverlayFrame,
               { height: chartTradeSheetFrameHeight },
               tradeSheetFrameBottom > 0 && { bottom: tradeSheetFrameBottom },
-              sheet.chartTradeSheetMode !== 'collapsed' && sheet.chartTradeSheetAnimatedStyle,
+              // Always drive translateY — skipping it in collapsed mode left the
+              // sheet at the wrong offset and clipped handle/header/tabs.
+              sheet.chartTradeSheetAnimatedStyle,
             ]}
           >
             <View
@@ -1432,11 +1441,19 @@ export function ChartTradeOverlayLayer({
                     { paddingBottom: sheet.chartTradeSheetContentBottomPadding },
                   ]}
                   nestedScrollEnabled
-                  bounces={false}
+                  // Smooth native scrolling: allow light bounce on iOS, keep
+                  // Android overscroll off, and avoid thrashing on every frame.
+                  bounces={Platform.OS === 'ios'}
+                  alwaysBounceVertical={false}
+                  overScrollMode="never"
+                  decelerationRate="normal"
+                  removeClippedSubviews={Platform.OS === 'android'}
                   showsVerticalScrollIndicator={false}
                   keyboardShouldPersistTaps="always"
                   keyboardDismissMode={sheet.chartTradeCommentFocused ? 'none' : Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-                  scrollEventThrottle={16}
+                  // 16ms is enough for offset bookkeeping; lower values force
+                  // JS scroll events every frame and make the sheet feel sticky.
+                  scrollEventThrottle={32}
                   onScroll={(event) => {
                     handlers.onTradeSheetScroll(event.nativeEvent.contentOffset.y);
                   }}

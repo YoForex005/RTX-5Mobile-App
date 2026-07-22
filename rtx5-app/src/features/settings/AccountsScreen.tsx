@@ -19,6 +19,7 @@ import { FastPressable } from '../../ui/components/FastPressable';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useMemo } from 'react';
+import { useShallow } from 'zustand/shallow';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
 import {
@@ -166,6 +167,16 @@ const ACCOUNTS_BODY_PREWARM_DELAY_MS = 0;
 const ACCOUNTS_DATA_PREWARM_DELAY_MS = 800;
 const ACCOUNTS_DATA_PREWARM_WINDOW_MS = 15000;
 const ACCOUNT_SWITCH_BROKER_WARM_TTL_MS = 30_000;
+
+type RetainedAccountsLiveMetrics = Pick<
+  ReturnType<typeof useLiveAccountState.getState>,
+  'login' | 'balance' | 'equity' | 'margin_free' | 'floating' | 'metricFlags' | 'margin' | 'margin_level'
+>;
+
+type RetainedAccountsPositions = Pick<
+  ReturnType<typeof usePositionsState.getState>,
+  'positions' | 'hydratedLogin'
+>;
 
 const schedulePostAccountSwitchWork = (work: () => void) => {
   const runAfterFrame = () => setTimeout(work, 0);
@@ -428,12 +439,13 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
   const [firstPaintReady, setFirstPaintReady] = React.useState(false);
-  // Hosted by the sidebar destination host, this view stays mounted while
-  // hidden. The body mounts offscreen after the boot prewarm delay (or
-  // immediately on focus), so the first open reveals a fully built screen.
+  // Hosted by the sidebar destination host, this view keeps only its header
+  // shell while hidden. Readiness stays warm, while the FlatList and overlays
+  // mount only for the focused instance.
   const hostBodyReady = useDeferredRouteContentReady(
     isScreenFocused ? 0 : ACCOUNTS_BODY_PREWARM_DELAY_MS,
   );
+  const focusedBodyReady = isScreenFocused && hostBodyReady;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -668,22 +680,80 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
   ]);
 
   // ── Live WebSocket account metrics (real-time balance/equity from accountSocket) ──
-  const liveLogin = useLiveAccountState((s) => s.login);
-  const liveBalance = useLiveAccountState((s) => s.balance);
-  const liveEquity = useLiveAccountState((s) => s.equity);
-  const liveMarginFree = useLiveAccountState((s) => s.margin_free);
-  const liveFloating = useLiveAccountState((s) => s.floating);
-  const liveMetricFlags = useLiveAccountState((s) => s.metricFlags);
-  const liveMargin = useLiveAccountState((s) => s.margin);
-  const liveMarginLevel = useLiveAccountState((s) => s.margin_level);
+  const retainedLiveMetricsRef = React.useRef<RetainedAccountsLiveMetrics | null>(null);
+  if (retainedLiveMetricsRef.current === null) {
+    const initialMetrics = useLiveAccountState.getState();
+    retainedLiveMetricsRef.current = {
+      login: initialMetrics.login,
+      balance: initialMetrics.balance,
+      equity: initialMetrics.equity,
+      margin_free: initialMetrics.margin_free,
+      floating: initialMetrics.floating,
+      metricFlags: initialMetrics.metricFlags,
+      margin: initialMetrics.margin,
+      margin_level: initialMetrics.margin_level,
+    };
+  }
+  const liveMetrics = useLiveAccountState(
+    useShallow((state): RetainedAccountsLiveMetrics => (
+      isScreenFocused
+        ? {
+          login: state.login,
+          balance: state.balance,
+          equity: state.equity,
+          margin_free: state.margin_free,
+          floating: state.floating,
+          metricFlags: state.metricFlags,
+          margin: state.margin,
+          margin_level: state.margin_level,
+        }
+        : retainedLiveMetricsRef.current as RetainedAccountsLiveMetrics
+    )),
+  );
+  if (isScreenFocused) {
+    retainedLiveMetricsRef.current = liveMetrics;
+  }
+  const {
+    login: liveLogin,
+    balance: liveBalance,
+    equity: liveEquity,
+    margin_free: liveMarginFree,
+    floating: liveFloating,
+    metricFlags: liveMetricFlags,
+    margin: liveMargin,
+    margin_level: liveMarginLevel,
+  } = liveMetrics;
   // The account WS only sends a one-time metrics snapshot, so equity/free-margin/
   // floating from it are frozen. Recompute them live from open positions x live
   // quotes (the same source the Trade screen uses) so the connected account's
   // card updates on every tick. Falls back to the snapshot when positions are
   // not hydrated for this login.
-  const livePositions = usePositionsState((s) => s.positions);
-  const liveHydratedLogin = usePositionsState((s) => s.hydratedLogin);
-  const liveTradingAccount = useTradingState((s) => s.account);
+  const retainedPositionsRef = React.useRef<RetainedAccountsPositions | null>(null);
+  if (retainedPositionsRef.current === null) {
+    const initialPositions = usePositionsState.getState();
+    retainedPositionsRef.current = {
+      positions: initialPositions.positions,
+      hydratedLogin: initialPositions.hydratedLogin,
+    };
+  }
+  const livePositionState = usePositionsState(
+    useShallow((state): RetainedAccountsPositions => (
+      isScreenFocused
+        ? { positions: state.positions, hydratedLogin: state.hydratedLogin }
+        : retainedPositionsRef.current as RetainedAccountsPositions
+    )),
+  );
+  if (isScreenFocused) {
+    retainedPositionsRef.current = livePositionState;
+  }
+  const { positions: livePositions, hydratedLogin: liveHydratedLogin } = livePositionState;
+  const retainedTradingAccountRef = React.useRef(useTradingState.getState().account);
+  const liveTradingAccount = useTradingState((state) => (
+    isScreenFocused ? state.account : retainedTradingAccountRef.current
+  ));
+  if (isScreenFocused) {
+    retainedTradingAccountRef.current = liveTradingAccount;
+  }
 
   // Extract the essential display values — prefer live WS data, fall back to REST API
   const displayLogin = activeAccount ? String(activeAccount.login) : (accountDetails?.id ?? '---');
@@ -701,8 +771,9 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
   // market moves — same source/cadence as the Trade summary header. Without this,
   // useTradingState.quotes (what useMarketData reads) goes stale off the Quotes
   // screen and the calc falls back to the frozen position-snapshot price.
-  useWatchlistLiveQuotes(livePositionSymbols, screenDataActive && liveMatchesActiveAccount);
-  const liveQuotes = useMarketData(livePositionSymbols, screenDataActive && liveMatchesActiveAccount);
+  const liveQuoteDataActive = isScreenFocused && screenDataActive && liveMatchesActiveAccount;
+  useWatchlistLiveQuotes(livePositionSymbols, liveQuoteDataActive);
+  const liveQuotes = useMarketData(livePositionSymbols, liveQuoteDataActive);
   // Live equity = balance + credit + (live floating); free margin = equity - margin.
   const liveAccountSummary = useMemo(() => {
     const summary = buildTradeAccountSummary(
@@ -896,6 +967,12 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
     activeAccountSwitchAttemptRef.current = null;
     accountSwitchInFlightRef.current = false;
     setConnectingKey(null);
+    setExpandedAccountKey(null);
+    setPasswordSheetVisible(false);
+    setTradeNotificationsSheetVisible(false);
+    setDeleteTarget(null);
+    setSuccessMessage('');
+    useUIState.getState().hideAccountsActionSheet();
   }, [isScreenFocused]);
 
   /**
@@ -1222,8 +1299,11 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
 
   const preloadAccountsActionSheet = useUIState((s) => s.preloadScopedActionSheet);
   React.useEffect(() => {
+    if (!isScreenFocused) {
+      return;
+    }
     preloadAccountsActionSheet('settingsAccounts', accountsOptionsSheetConfig);
-  }, [accountsOptionsSheetConfig, preloadAccountsActionSheet]);
+  }, [accountsOptionsSheetConfig, isScreenFocused, preloadAccountsActionSheet]);
 
   const openOptions = React.useCallback(() => {
     runImmediateAction('accounts.optionsSheet.open', () =>
@@ -1299,7 +1379,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
           </View>
         </View>
 
-        {hostBodyReady ? (
+        {focusedBodyReady ? (
         <FlatList
           keyboardShouldPersistTaps="always"
           canCancelContentTouches={Platform.OS === 'ios'}
@@ -1628,7 +1708,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
         ) : null}
       </View>
 
-      {passwordSheetVisible && (
+      {isScreenFocused && passwordSheetVisible && (
         <View style={styles.modalOverlay} pointerEvents="box-none">
           {/* Background tap to close */}
           <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setPasswordSheetVisible(false)} />
@@ -1648,7 +1728,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
       )}
 
       {/* Trade Notifications Modal */}
-      {tradeNotificationsSheetVisible && (
+      {isScreenFocused && tradeNotificationsSheetVisible && (
         <View style={[styles.modalOverlay, { justifyContent: 'center', alignItems: 'center', padding: 24 }]} pointerEvents="box-none">
           <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setTradeNotificationsSheetVisible(false)} />
           <View style={styles.tradeNotifModal}>
@@ -1684,7 +1764,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
       )}
 
       {/* Delete Account Confirmation Modal */}
-      {deleteTarget && (
+      {isScreenFocused && deleteTarget && (
         <View style={[styles.modalOverlay, { justifyContent: 'center', alignItems: 'center', padding: 24 }]} pointerEvents="box-none">
           <Pressable style={StyleSheet.absoluteFillObject} onPress={handleDismissDeleteAccount} />
           <View style={styles.deleteModal}>
@@ -1754,7 +1834,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
       )}
 
       {/* Success Modal */}
-      {!!successMessage && (
+      {isScreenFocused && !!successMessage && (
         <View style={[styles.modalOverlay, { justifyContent: 'center', alignItems: 'center', padding: 24 }]} pointerEvents="box-none">
           <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setSuccessMessage('')} />
           <View style={styles.successModal}>
@@ -1770,7 +1850,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
         </View>
       )}
 
-      <AccountsActionSheetHost />
+      {isScreenFocused ? <AccountsActionSheetHost /> : null}
     </Screen>
   );
 });

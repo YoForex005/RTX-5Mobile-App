@@ -143,7 +143,11 @@ export function SymbolDetailsScreen() {
   if (!contentReady) {
     return (
       <QuoteInfoLaunchShell
-        active
+        // Focus-gated: this branch also renders for the boot-prefetched route
+        // instance, which must not hold a live per-tick quote subscription
+        // while hidden. The root QuoteInfoLaunchHost cover carries the live
+        // shell during the open transition.
+        active={isScreenFocused}
         destination="properties"
         symbol={symbol}
         onBack={handleBack}

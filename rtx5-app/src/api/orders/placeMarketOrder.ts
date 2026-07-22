@@ -3,7 +3,7 @@
  *
  * POST /api/v2/orders
  *
- * Rate limited: 60 requests per minute per account.
+ * Rate limited by the active broker gateway.
  * Uses a DB transaction for atomicity. Rejected if market data returns
  * zero or negative prices. SL/TP values are validated server-side.
  */
@@ -54,12 +54,21 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
     }
   };
 
-  // V2 contract requires `login` (integer), not `account_login`.
+  // The gateway's canonical market-order field is `account_login`. Keep the
+  // caller-facing value flexible for persisted sessions, but put an integer on
+  // the wire and never send both account aliases.
   const { account_login, ...rest } = payload;
   const loginInt =
-    typeof account_login === 'string' ? parseInt(account_login, 10) : account_login;
+    typeof account_login === 'string' ? Number(account_login.trim()) : account_login;
+  if (!Number.isSafeInteger(loginInt) || loginInt <= 0) {
+    throw createTradingApiError(400, {
+      error: 'INVALID_INPUT',
+      message: 'A valid trading account login is required to place an order.',
+    });
+  }
   if (String(loginInt) !== sessionCapture.session.accountLogin) {
     throw createTradingApiError(403, {
+      error: 'BROKER_REQUIRED',
       message: 'Order account does not match the active broker session.',
     });
   }
@@ -75,7 +84,7 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
 
   const requestedSide = assertTradeSide(restWithoutBroker.side);
   const orderBody: Record<string, unknown> = {
-    login: loginInt,
+    account_login: loginInt,
     symbol: callerSymbol,
     side: requestedSide,
     volume: restWithoutBroker.volume,
@@ -99,9 +108,8 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
   if (typeof restWithoutBroker.trailing_step === 'number' && restWithoutBroker.trailing_step > 0) {
     orderBody.trailing_step = restWithoutBroker.trailing_step;
   }
-  if (typeof restWithoutBroker.magic === 'number' && restWithoutBroker.magic > 0) {
-    orderBody.magic = restWithoutBroker.magic;
-  }
+  // `magic` is intentionally never copied. The trader gateway strictly
+  // rejects that manager/EA-only field as unknown input.
 
   logOrderDiagnostic('[RTX5 Order] active broker session:', sessionCapture.session.brokerId);
   logOrderDiagnostic('[TRADE-PAYLOAD]', {
@@ -273,10 +281,12 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
 
   if (!accepted) {
     const status = lastBad?.status ?? 400;
+    const rejectedBody = lastBad ? unwrap(lastBad.body) : null;
     const body = lastBad?.graceful
       ? {
-        message: unwrap(lastBad.body)?.comment
-          || unwrap(lastBad.body)?.message
+        ...(typeof rejectedBody?.error === 'string' ? { error: rejectedBody.error } : {}),
+        message: rejectedBody?.comment
+          || rejectedBody?.message
           || 'Order rejected by the trading server.',
       }
       : (lastBad?.body ?? { message: 'Order rejected before a valid symbol candidate was available.' });
@@ -293,14 +303,13 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
   acceptedOrderSymbolCache.set(brokerCacheKey, accepted.symbol);
   const finalData = unwrap(accepted.body);
 
-  // Normalize the response so existing call-sites that read the legacy
-  // `position_ticket` / `order_ticket` / `price` fields keep working.
+  // The handler's canonical execution response already contains
+  // order_ticket, position_ticket, and price. Preserve only safe aliases for
+  // older Position-shaped broker deployments: a legacy `ticket` can identify
+  // a position, but an order ticket must never be promoted to position ID.
   if (finalData && typeof finalData === 'object') {
     if (finalData.position_ticket == null && finalData.ticket != null) {
       finalData.position_ticket = finalData.ticket;
-    }
-    if (finalData.order_ticket == null && finalData.ticket != null) {
-      finalData.order_ticket = finalData.ticket;
     }
     if (finalData.price == null && finalData.price_open != null) {
       finalData.price = finalData.price_open;

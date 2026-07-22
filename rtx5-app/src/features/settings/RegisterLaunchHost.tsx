@@ -33,7 +33,7 @@ function writeRegisterLaunchVisibilityNow(layer: View | null, visible: boolean) 
   });
 }
 
-/** Keeps the Demo Account first frame mounted above every broker-flow route. */
+/** Shows the Demo Account handoff above every broker-flow route when requested. */
 export function RegisterLaunchHost() {
   const router = useRouter();
   const pathname = usePathname();
@@ -161,10 +161,12 @@ export function RegisterLaunchHost() {
         ]}
         testID="register-launch-animated-host"
       >
-        <RegisterHandoffPreview
-          onBack={closeLaunch}
-          backLatencyLabel="register.launch.back"
-        />
+        {renderVisible ? (
+          <RegisterHandoffPreview
+            onBack={closeLaunch}
+            backLatencyLabel="register.launch.back"
+          />
+        ) : null}
       </View>
     </View>
   );

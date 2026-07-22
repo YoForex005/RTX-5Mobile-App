@@ -22,10 +22,10 @@ export type BrokerServiceDiscovery = {
   feed_wss_url?: string | null;
   trade_ws_url?: string | null;
   trade_wss_url?: string | null;
-
-  // Legacy/opaque fields remain typed so callers can report why a record was
-  // rejected. They are never used to construct an authenticated endpoint.
   server_url?: string | null;
+
+  // Other legacy/opaque fields remain typed so callers can report why a record
+  // was rejected. They are never used to construct an authenticated endpoint.
   domain_name?: string | null;
   server_domain?: string | null;
   feed_url?: string | null;
@@ -244,6 +244,23 @@ export function toBrokerServiceRoot(serverUrl?: string | null): string {
   }
 }
 
+/**
+ * The gateway trade lifecycle socket has one broker-owned path. The broker
+ * directory's validated `server_url` remains the authority; only its exact
+ * TLS host (including an explicit port) is reused for `/ws/v2`.
+ */
+export function deriveBrokerTradeWsBase(serverUrl?: string | null): string {
+  const normalized = normalizeBrokerHttpsUrl(serverUrl);
+  if (!normalized) return '';
+
+  try {
+    const url = new URL(normalized);
+    return normalizeBrokerWssUrl(`wss://${url.host}/ws/v2`);
+  } catch {
+    return '';
+  }
+}
+
 type ApprovedServiceAuthority = {
   authority: string;
   hostname: string;
@@ -399,6 +416,8 @@ const resolveRawV2BrokerEndpointSet = (
     'wss:',
     approved,
   );
+  const hasExplicitTradeEndpoint = [record.trade_wss_url, record.trade_ws_url]
+    .some((value) => Boolean(String(value ?? '').trim()));
 
   if (feed.conflict || status.conflict || trade.conflict) {
     return resolutionError(
@@ -418,6 +437,20 @@ const resolveRawV2BrokerEndpointSet = (
       `Broker "${brokerId}" has no compatible exact HTTPS feed status endpoint.`,
     );
   }
+  if (hasExplicitTradeEndpoint && !trade.value) {
+    return resolutionError(
+      'invalid_trade_endpoint',
+      `Broker "${brokerId}" has an invalid or mismatched WSS trade endpoint.`,
+    );
+  }
+
+  const tradeWsBase = trade.value || deriveBrokerTradeWsBase(serviceRoot);
+  if (!tradeWsBase) {
+    return resolutionError(
+      'invalid_trade_endpoint',
+      `Broker "${brokerId}" has no valid WSS trade endpoint.`,
+    );
+  }
 
   const configVersion = normalizeVersion(record.config_version);
   if (!configVersion) {
@@ -435,7 +468,7 @@ const resolveRawV2BrokerEndpointSet = (
       apiBase,
       feedWsBase: feed.value,
       feedStatusUrl: status.value,
-      ...(trade.value ? { tradeWsBase: trade.value } : {}),
+      tradeWsBase,
       servicesDomain: approved.authority,
       configVersion,
     }),
@@ -446,8 +479,9 @@ const resolveRawV2BrokerEndpointSet = (
  * Validates the direct-endpoint form of a rich broker-directory record.
  *
  * The resolver deliberately does not inspect generic domains, raw server
- * values, regions, broker IDs, or IP fields to manufacture routes. Opaque
- * records require a backend-owned proxy or signed handoff and fail closed here.
+ * values, regions, broker IDs, or IP fields to manufacture routes. The sole
+ * derivation allowed is the gateway `/ws/v2` path on an exact validated
+ * `server_url` when an explicit trade socket URL is absent.
  */
 export function resolveBrokerEndpointSet(record: BrokerServiceDiscovery): BrokerEndpointResolution {
   if (containsBlockedTestNetBrokerIp(record)) {
@@ -550,7 +584,12 @@ export function resolveBrokerEndpointSet(record: BrokerServiceDiscovery): Broker
     return resolutionError('invalid_trade_endpoint', `Broker "${brokerId}" has an invalid WSS trade endpoint.`);
   }
 
-  const endpoints = [restApiBase, feed.value, status.value, ...(trade.value ? [trade.value] : [])];
+  const derivedTradeWsBase = !trade.present && isBrokerServerUrlForApiBase(record.server_url, restApiBase)
+    ? deriveBrokerTradeWsBase(record.server_url)
+    : '';
+  const tradeWsBase = trade.value || derivedTradeWsBase;
+
+  const endpoints = [restApiBase, feed.value, status.value, ...(tradeWsBase ? [tradeWsBase] : [])];
   if (endpoints.some((endpoint) => !endpointHostMatches(endpoint, approvedDomain))) {
     return resolutionError(
       'endpoint_host_mismatch',
@@ -566,7 +605,7 @@ export function resolveBrokerEndpointSet(record: BrokerServiceDiscovery): Broker
       apiBase: restApiBase,
       feedWsBase: feed.value,
       feedStatusUrl: status.value,
-      ...(trade.value ? { tradeWsBase: trade.value } : {}),
+      ...(tradeWsBase ? { tradeWsBase } : {}),
       servicesDomain: approvedDomain.authority,
       configVersion,
     }),
@@ -591,6 +630,7 @@ export type BrokerSessionEndpointSetInput = Readonly<{
 export function revalidateBrokerSessionEndpointSet(
   input: BrokerSessionEndpointSetInput,
 ): BrokerEndpointResolution {
+  const tradeWsBase = input.tradeWsBase || deriveBrokerTradeWsBase(input.apiBase);
   return resolveBrokerEndpointSet({
     broker_id: input.brokerId,
     enabled: true,
@@ -601,7 +641,7 @@ export function revalidateBrokerSessionEndpointSet(
     market_api_url: input.apiBase,
     feed_wss_url: input.feedWsBase,
     feed_status_https_url: input.feedStatusUrl,
-    ...(input.tradeWsBase ? { trade_wss_url: input.tradeWsBase } : {}),
+    ...(tradeWsBase ? { trade_wss_url: tradeWsBase } : {}),
   });
 }
 

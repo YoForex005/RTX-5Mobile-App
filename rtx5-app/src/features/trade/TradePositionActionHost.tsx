@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import { BackHandler, StyleSheet, View } from 'react-native';
 import { CloseByScreen } from './CloseByScreen';
 import { ClosePositionScreen } from './ClosePositionScreen';
@@ -6,12 +6,12 @@ import { ModifyPositionScreen } from './ModifyPositionScreen';
 import {
   hideTradePositionActionHost,
   tradePositionActionHostController,
-  type TradePositionActionDestination,
 } from './tradePositionActionHostController';
 
 /**
  * Chart-options-class retained host for Close / Close By / Modify.
- * First open latches that destination; later taps only flip visibility.
+ * The native cover stays retained, while only the visible position-action
+ * screen is mounted.
  */
 export const TradePositionActionHost = memo(function TradePositionActionHost() {
   const layerRef = useRef<View | null>(null);
@@ -20,18 +20,6 @@ export const TradePositionActionHost = memo(function TradePositionActionHost() {
     tradePositionActionHostController.getSnapshot,
     tradePositionActionHostController.getSnapshot,
   );
-  const [latched, setLatched] = useState<Record<TradePositionActionDestination, boolean>>({
-    close: false,
-    'close-by': false,
-    modify: false,
-  });
-
-  // Latch during render (not useEffect) so the first open paints content in the
-  // same commit as the host becoming visible — same class as Chart settings.
-  if (snapshot.visible && snapshot.destination && !latched[snapshot.destination]) {
-    setLatched({ ...latched, [snapshot.destination]: true });
-  }
-
   const writeVisibilityNow = useCallback((visible: boolean) => {
     layerRef.current?.setNativeProps({
       accessibilityElementsHidden: !visible,
@@ -80,43 +68,43 @@ export const TradePositionActionHost = memo(function TradePositionActionHost() {
         style={[styles.layer, active ? styles.layerVisible : styles.layerHidden]}
         testID="trade-position-action-host-layer"
       >
-        {latched.close ? (
+        {active && destination === 'close' ? (
           <View
-            pointerEvents={active && destination === 'close' ? 'auto' : 'none'}
-            style={destination === 'close' && active ? styles.panelVisible : styles.panelHidden}
+            pointerEvents="auto"
+            style={styles.panelVisible}
           >
             <ClosePositionScreen
               hosted
-              hostedActive={active && destination === 'close'}
-              hostedPositionId={destination === 'close' ? positionId : null}
+              hostedActive
+              hostedPositionId={positionId}
               onHostedBack={closeHost}
             />
           </View>
         ) : null}
 
-        {latched['close-by'] ? (
+        {active && destination === 'close-by' ? (
           <View
-            pointerEvents={active && destination === 'close-by' ? 'auto' : 'none'}
-            style={destination === 'close-by' && active ? styles.panelVisible : styles.panelHidden}
+            pointerEvents="auto"
+            style={styles.panelVisible}
           >
             <CloseByScreen
               hosted
-              hostedActive={active && destination === 'close-by'}
-              hostedPositionId={destination === 'close-by' ? positionId : null}
+              hostedActive
+              hostedPositionId={positionId}
               onHostedBack={closeHost}
             />
           </View>
         ) : null}
 
-        {latched.modify ? (
+        {active && destination === 'modify' ? (
           <View
-            pointerEvents={active && destination === 'modify' ? 'auto' : 'none'}
-            style={destination === 'modify' && active ? styles.panelVisible : styles.panelHidden}
+            pointerEvents="auto"
+            style={styles.panelVisible}
           >
             <ModifyPositionScreen
               hosted
-              hostedActive={active && destination === 'modify'}
-              hostedPositionId={destination === 'modify' ? positionId : null}
+              hostedActive
+              hostedPositionId={positionId}
               onHostedBack={closeHost}
             />
           </View>
@@ -146,11 +134,6 @@ const styles = StyleSheet.create({
     elevation: 45,
     opacity: 1,
     zIndex: 45,
-  },
-  panelHidden: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0,
-    zIndex: 0,
   },
   panelVisible: {
     ...StyleSheet.absoluteFillObject,

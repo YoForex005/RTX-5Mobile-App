@@ -41,7 +41,8 @@ test('webview bridge: candles arriving before READY are retained and sent after 
   assertSourceContains(source, /const sanitizedCandles = useMemo\([\s\S]*return sanitizedBackendCandles;[\s\S]*\[\s*sanitizedBackendCandles\s*\]/, 'native host must render backend candle data without live-quote candle synthesis');
   assert.doesNotMatch(source, /resolveLivePriceCoherentCandles/, 'native host must not build display candles from quote ticks');
   assertSourceContains(source, /const overlayCandles = sanitizedBackendCandles\.length > 0 \? sanitizedBackendCandles : sanitizedCandles/, 'overlay rebuilds must stay tied to backend candles when backend history exists');
-  assertSourceContains(source, /buildChartOverlayPayload\(\{[\s\S]*candles: overlayCandles/, 'chart overlays must not rebuild from every live quote tick');
+  assertSourceContains(source, /buildChartOverlayMarkers\(\{[\s\S]*candles: overlayMarkerCandles/, 'candle/history markers must be isolated from live quote ticks');
+  assertSourceContains(source, /buildChartOverlayPayload\(\{[\s\S]*candles: EMPTY_DISPLAY_CANDLES/, 'quote-driven overlay work must build price lines without rescanning candle history');
   assertSourceContains(source, /const candlesRef = useRef\(sanitizedCandles\)/, 'sanitized candles must be retained outside render timing');
   assertSourceContains(source, /useEffect\(\(\) => \{[\s\S]*candlesRef\.current = sanitizedCandles;[\s\S]*\}, \[[^\]]*sanitizedCandles[^\]]*\]\)/, 'latest sanitized candles must update the retained ref');
   assertSourceContains(source, /const data = candlesRef\.current[\s\S]*const mapped = data\.length > 0 \? buildMappedData\(data\) : \[\][\s\S]*initChart\(/, 'sendInit must initialize the chart shell even before candles arrive');
@@ -98,7 +99,7 @@ test('webview bridge: symbol switches do not paint cached candles before fresh h
   );
   assertSourceContains(
     source,
-    /const chartDataActive = chartRuntimeActive[\s\S]*const \{[\s\S]*candles,[\s\S]*paginate,[\s\S]*loading: chartDataLoading,[\s\S]*error: chartDataError,[\s\S]*\} = useLiveCandles\(chartSymbol, chartTimeframe, chartDataActive\)[\s\S]*candles\.length > 0[\s\S]*sanitizeCandlesForChart\(candles, \{[\s\S]*timeframe: chartTimeframe,[\s\S]*pruneSyntheticFlatLiveTail: chartMarketStatus\?\.status === 'closed' && !isCryptoChartSymbol,[\s\S]*\}\)[\s\S]*EMPTY_DISPLAY_CANDLES/,
+    /const chartDataActive = chartRuntimeActive[\s\S]*const \{[\s\S]*candles,[\s\S]*paginate,[\s\S]*loading: chartDataLoading,[\s\S]*error: chartDataError,[\s\S]*\} = useLiveCandles\([\s\S]*chartSymbol,[\s\S]*chartTimeframe,[\s\S]*chartDataActive,[\s\S]*CHART_SCREEN_CANDLE_COMMIT_INTERVAL_MS,[\s\S]*\)[\s\S]*candles\.length > 0[\s\S]*sanitizeCandlesForChart\(candles, \{[\s\S]*timeframe: chartTimeframe,[\s\S]*pruneSyntheticFlatLiveTail: chartMarketStatus\?\.status === 'closed' && !isCryptoChartSymbol,[\s\S]*\}\)[\s\S]*EMPTY_DISPLAY_CANDLES/,
     'native chart may paint live candle ticks before slow REST history finishes',
   );
   assertSourceContains(
@@ -421,7 +422,7 @@ test('webview bridge: lower move bars show the current amount without a separate
   );
   assertSourceContains(
     moveBadgeBody,
-    /var value = pickLiveSignedMoveValue\(\)[\s\S]*moveBarsSeries\.priceToCoordinate\(pickLiveMoveValue\(\)\)[\s\S]*className = 'rtx5-move-overlay-badge'[\s\S]*left = axisMetrics\.axisLeft \+ 'px'[\s\S]*width = axisMetrics\.axisWidth[\s\S]*background = pickLivePriceColor\(\)/,
+    /var value = pickLiveSignedMoveValue\(\)[\s\S]*moveBarsSeries\.priceToCoordinate\(pickLiveMoveValue\(\)\)[\s\S]*upsertOverlayDomNode\(layer, 'move-badge', 'rtx5-move-overlay-badge'\)[\s\S]*left = axisMetrics\.axisLeft \+ 'px'[\s\S]*width = axisMetrics\.axisWidth[\s\S]*background = pickLivePriceColor\(\)/,
     'custom lower move badge must highlight the live volume bar amount on the right price-scale axis',
   );
   assertSourceContains(
@@ -436,7 +437,7 @@ test('webview bridge: lower move bars show the current amount without a separate
   );
   assertSourceContains(
     chartWebViewHtmlSource,
-    /function refreshOverlayDomLabels\(payload\)[\s\S]*refreshMarketPriceScaleDom\(\)[\s\S]*renderMoveDirectionOverlayBadge\(layer\)/,
+    /function refreshOverlayDomLabels\(payload\)[\s\S]*refreshMarketPriceScaleDom\(\)[\s\S]*renderMoveDirectionOverlayBadge\(layer, liveOverlayKeys\)/,
     'overlay refresh must repaint the custom lower move amount without adding a price-scale badge',
   );
 });
@@ -486,7 +487,7 @@ test('webview bridge: open-position trade labels stay attached to their price li
   );
   assertSourceContains(
     refreshBody,
-    /var floatingTop = tops\[labelIndex\][\s\S]*renderLabel\(floatingItem, floatingTop\)/,
+    /var floatingTop = tops\[labelIndex\][\s\S]*renderLabel\(floatingItem, floatingTop, null/,
     'floating order labels must also render from the unclamped price coordinate',
   );
   assert.doesNotMatch(
@@ -725,12 +726,12 @@ test('webview bridge: setLivePriceLine hides native market badges and paints one
   assertSourceContains(chartWebViewHtmlSource, /var MARKET_PRICE_SCALE_EXTENSION_HEIGHT = 1/, 'custom market price-scale extensions must stay a one-pixel MT5-like accent');
   assertSourceContains(chartWebViewHtmlSource, /var MARKET_PRICE_SCALE_BADGE_HEIGHT = 22[\s\S]*var MARKET_PRICE_SCALE_BADGE_MIN_WIDTH = 56/, 'custom market price-scale badges must use compact phone-safe dimensions');
   assertSourceContains(renderMarketPriceScaleExtensionBody, /className = 'rtx5-market-price-scale-extension'[\s\S]*style\.left = axisLeft \+ 'px'[\s\S]*style\.width = Math\.min\(axisWidth/, 'custom market price-scale extension must render only over the right price scale');
-  assertSourceContains(renderMarketPriceScaleExtensionsBody, /clearMarketPriceScaleExtensions\(layer\)[\s\S]*renderMarketPriceScaleExtension\(layer, lastLivePrice, marketLiveColor\)/, 'overlay refresh must repaint the custom live price-scale extension');
+  assertSourceContains(renderMarketPriceScaleExtensionsBody, /renderMarketPriceScaleExtension\(layer, lastLivePrice, marketLiveColor\)/, 'overlay refresh must repaint the custom live price-scale extension');
   assertSourceContains(axisMetricsBody, /resolveRightPriceScaleFallbackAxisMetrics\(Object\.assign[\s\S]*MARKET_PRICE_SCALE_BADGE_MIN_WIDTH[\s\S]*axisLeft \+ axisWidth > chartWidth/, 'custom market price badges must occupy the owned right price-scale strip without overflowing the chart');
   assertSourceContains(badgeFormatterBody, /resolveOverlayDisplayDecimals\(\)[\s\S]*Number\(price\)\.toFixed\(decimals\)/, 'custom market price badges must use the same configured display precision as the overlay');
   assertSourceContains(collectMarketPriceScaleBadgeBody, /var desiredTop = Math\.round\(y - MARKET_PRICE_SCALE_BADGE_HEIGHT \/ 2\)[\s\S]*desiredTop: desiredTop[\s\S]*top: desiredTop/, 'custom market price badges must follow the real price coordinate instead of clamping to the visible pane');
-  assertSourceContains(renderMarketPriceScaleBadgeBody, /className = 'rtx5-market-price-scale-badge rtx5-market-price-scale-badge-' \+ badge\.role[\s\S]*textContent = formatMarketPriceScaleBadgeLabel\(badge\.price\)[\s\S]*style\.left = axisMetrics\.axisLeft \+ 'px'[\s\S]*style\.width = axisMetrics\.axisWidth \+ 'px'[\s\S]*style\.background = badge\.color[\s\S]*style\.color = '#FFFFFF'[\s\S]*style\.textAlign = 'right'/, 'custom market price-scale badge must render as a colored right-axis price box');
-  assertSourceContains(renderMarketPriceScaleBadgesBody, /clearMarketPriceScaleBadges\(layer\)[\s\S]*collectMarketPriceScaleBadge\(layer, axisMetrics, lastLivePrice, marketLiveColor, 'live'\)[\s\S]*badges\.sort[\s\S]*MARKET_PRICE_SCALE_BADGE_GAP[\s\S]*renderMarketPriceScaleBadge\(layer, badges\[badgeIndex\], axisMetrics\)/, 'overlay refresh must repaint the custom live price-scale badge');
+  assertSourceContains(renderMarketPriceScaleBadgeBody, /rtx5-market-price-scale-badge[\s\S]*textContent = formatMarketPriceScaleBadgeLabel\(badge\.price\)[\s\S]*style\.left = axisMetrics\.axisLeft \+ 'px'[\s\S]*style\.width = axisMetrics\.axisWidth \+ 'px'[\s\S]*style\.background = badge\.color[\s\S]*style\.color = '#FFFFFF'[\s\S]*style\.textAlign = 'right'/, 'custom market price-scale badge must render as a colored right-axis price box');
+  assertSourceContains(renderMarketPriceScaleBadgesBody, /collectMarketPriceScaleBadge\(layer, axisMetrics, lastLivePrice, marketLiveColor, 'live'\)[\s\S]*badges\.sort[\s\S]*MARKET_PRICE_SCALE_BADGE_GAP[\s\S]*renderMarketPriceScaleBadge\(layer, badges\[badgeIndex\], axisMetrics\)/, 'overlay refresh must repaint the custom live price-scale badge in place');
   assert.doesNotMatch(renderMarketPriceScaleBadgesBody, /Math\.max\(minTop|Math\.min\(maxTop|maxTop|axisMetrics\.plotBottom - MARKET_PRICE_SCALE_BADGE_HEIGHT/, 'custom market price badges must not be pinned to the top or bottom edge while the chart is vertically panned');
   assertSourceContains(visibleRangeBody, /includeMarketPriceBadges === false[\s\S]*expandPriceRangeForMarketPriceBadges\(robustRange\)/, 'visible price-scale recovery must be able to ignore a far live price badge during horizontal navigation');
   assertSourceContains(
@@ -790,7 +791,7 @@ test('webview bridge: native web and WebView creation reserve the right price sc
 test('native chart status overlays do not block symbol recovery controls', () => {
   assertSourceContains(
     source,
-    /const startupChartPrefetchKeyRef = useRef\(''\)[\s\S]*scheduleAfterFirstFrame\(\(\) => \{[\s\S]*prefetchChartTimeframeHistory\(chartSymbol, normalizedTimeframe\)/,
+    /const startupChartPrefetchKeyRef = useRef\(''\)[\s\S]*void prefetchChartTimeframeHistory\(chartSymbol, normalizedTimeframe\)/,
     'native chart must start warming saved candle history after the first app frame and before the first chart tab visit',
   );
   assertSourceContains(

@@ -2,18 +2,19 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Trade Feature UI: CloseByScreen
  *
- * Close an open position against an opposite position of the same symbol.
+ * Safe fallback for the legacy Close By route. The active strict close API has
+ * no documented atomic pair-close contract, so this screen never submits.
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useShallow } from 'zustand/shallow';
 import { usePositionsState } from '../../state/positionsState';
 import { useUserPreferences } from '../../state/userPreferences';
-import { positionsApi } from '../../api/positions';
-import { appQueryClient } from '../../state/providers/AppProviders';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';
@@ -23,23 +24,19 @@ import { safeRouterBack } from '../../utils/navigation';
 import { useTranslation } from '../../i18n/useTranslation';
 import { findPositionById, positionPairCandidates } from './tradeFlow';
 import { resolveLivePositionPnl, resolveLivePositionPrice } from './livePositionMetrics';
-import {
-  classifyTradingError,
-  createFrontendTradingError,
-  formatTradingErrorFeedback,
-} from '../../api/tradingErrors';
 import { hideTradePositionActionHost } from './tradePositionActionHostController';
 import { useExecutableQuote } from '../quotes/useExecutableQuote';
-import { quoteActionBlockMessage, recordBlockedPriceAction } from '../../market/quoteIntegrity';
-import {
-  captureActiveBrokerSessionProvenance,
-  isActiveBrokerSessionProvenanceCurrent,
-} from '../../state/activeBrokerSession';
-import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope';
 
 const CANVAS_DARK = '#121212';
 const CARD_DARK = '#1E1E1E';
 const DIVIDER_DARK = 'rgba(255,255,255,0.06)';
+const CLOSE_BY_UNAVAILABLE_MESSAGE =
+  'Close By is unavailable for this API contract. Close each position individually.';
+
+type RetainedCloseByPositionState = Pick<
+  ReturnType<typeof usePositionsState.getState>,
+  'positions' | 'positionSnapshots'
+>;
 
 export type CloseByScreenProps = Readonly<{
   hosted?: boolean;
@@ -58,25 +55,38 @@ export function CloseByScreen({
   const positionId = hosted
     ? (hostedPositionId ?? undefined)
     : (Array.isArray(params.positionId) ? params.positionId[0] : params.positionId);
-  const [submitted, setSubmitted] = useState(false);
-  const [isClosing, setIsClosing] = useState(false);
-  const [actionLocked, setActionLocked] = useState(false);
-  const [closeError, setCloseError] = useState<string | null>(null);
-  const actionLockRef = useRef(false);
-  const actionReleaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const accountDetails = useUserPreferences((s) => s.accountDetails);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
-  const themeActive = !hosted || hostedActive;
+  const routeFocused = useIsFocused();
+  const isScreenFocused = hosted ? hostedActive : routeFocused;
+  const themeActive = isScreenFocused;
   const T = useTheme({ active: themeActive });
   const { t } = useTranslation();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const insets = useSafeAreaInsets();
   const screenBg = isDark ? CANVAS_DARK : T.bg;
 
-  const positions = usePositionsState((s) => s.positions);
-  const primedPosition = usePositionsState((s) =>
-    positionId ? s.positionSnapshots[Array.isArray(positionId) ? positionId[0] : positionId] : undefined
+  const retainedPositionStateRef = useRef<RetainedCloseByPositionState | null>(null);
+  if (retainedPositionStateRef.current === null) {
+    const initialPositionState = usePositionsState.getState();
+    retainedPositionStateRef.current = {
+      positions: initialPositionState.positions,
+      positionSnapshots: initialPositionState.positionSnapshots,
+    };
+  }
+  const positionState = usePositionsState(
+    useShallow((state): RetainedCloseByPositionState => (
+      isScreenFocused
+        ? { positions: state.positions, positionSnapshots: state.positionSnapshots }
+        : retainedPositionStateRef.current as RetainedCloseByPositionState
+    )),
   );
+  if (isScreenFocused) {
+    retainedPositionStateRef.current = positionState;
+  }
+  const positions = positionState.positions;
+  const primedPosition = positionId
+    ? positionState.positionSnapshots[Array.isArray(positionId) ? positionId[0] : positionId]
+    : undefined;
   const resolvedLogin = resolveTradingLoginString();
 
   const sourcePosition = useMemo(
@@ -87,11 +97,7 @@ export function CloseByScreen({
     () => positionPairCandidates(positions, sourcePosition),
     [positions, sourcePosition]
   );
-  const {
-    quote: executableQuote,
-    availability: quoteAvailability,
-    getCurrentAvailability,
-  } = useExecutableQuote(
+  const { quote: executableQuote } = useExecutableQuote(
     sourcePosition?.symbol ?? '',
     themeActive && Boolean(sourcePosition?.symbol),
   );
@@ -108,37 +114,12 @@ export function CloseByScreen({
   const [selectedPairId, setSelectedPairId] = useState<string>('');
 
   useEffect(() => {
-    if (!sourcePosition && resolvedLogin) {
+    if (isScreenFocused && !sourcePosition && resolvedLogin) {
       void usePositionsState.getState().refreshPositions(resolvedLogin);
     }
-  }, [resolvedLogin, sourcePosition]);
-
-  useEffect(() => () => {
-    if (actionReleaseTimeoutRef.current) {
-      clearTimeout(actionReleaseTimeoutRef.current);
-      actionReleaseTimeoutRef.current = null;
-    }
-  }, []);
+  }, [isScreenFocused, resolvedLogin, sourcePosition]);
 
   const activePairId = selectedPairId || candidates[0]?.id || '';
-  const selectedPair = candidates.find((candidate) => candidate.id === activePairId);
-
-  const releaseActionLock = useCallback((delay = 0) => {
-    if (actionReleaseTimeoutRef.current) {
-      clearTimeout(actionReleaseTimeoutRef.current);
-      actionReleaseTimeoutRef.current = null;
-    }
-    const finalize = () => {
-      actionLockRef.current = false;
-      setActionLocked(false);
-      actionReleaseTimeoutRef.current = null;
-    };
-    if (delay > 0) {
-      actionReleaseTimeoutRef.current = setTimeout(finalize, delay);
-      return;
-    }
-    finalize();
-  }, []);
 
   const leaveScreen = useCallback(() => {
     if (hosted) {
@@ -152,86 +133,7 @@ export function CloseByScreen({
     safeRouterBack(router, '/(tabs)/trade');
   }, [hosted, onHostedBack]);
 
-  const handleSubmit = useCallback(async () => {
-    if (!sourcePosition || !selectedPair || actionLockRef.current || isClosing) return;
-
-    const currentQuoteAvailability = getCurrentAvailability();
-    if (!currentQuoteAvailability.allowed) {
-      recordBlockedPriceAction('close_by', currentQuoteAvailability);
-      setCloseError(
-        formatTradingErrorFeedback(
-          createFrontendTradingError(
-            t('Market Data Unavailable'),
-            t(quoteActionBlockMessage(currentQuoteAvailability)),
-          ),
-        ),
-      );
-      return;
-    }
-
-    actionLockRef.current = true;
-    setActionLocked(true);
-
-    if (!accountDetails?.credentials?.accessToken) {
-      setCloseError(
-        formatTradingErrorFeedback(
-          createFrontendTradingError(
-            t('Authentication Error'),
-            t('The app does not have a valid local trading session. Log in again before using Close By.'),
-          ),
-        ),
-      );
-      releaseActionLock();
-      return;
-    }
-    const actionProvenance = captureActiveBrokerSessionProvenance();
-    if (!actionProvenance) {
-      releaseActionLock();
-      return;
-    }
-
-    setIsClosing(true);
-    setCloseError(null);
-    const sourceSnapshot = { ...sourcePosition };
-    const pairSnapshot = { ...selectedPair };
-    const state = usePositionsState.getState();
-    state.beginOptimisticClose(sourcePosition.id);
-    state.beginOptimisticClose(selectedPair.id);
-    setSubmitted(true);
-    leaveScreen();
-
-    void positionsApi.closePosition(sourcePosition.id, selectedPair.id)
-      .then(() => {
-        if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) return;
-        const latestState = usePositionsState.getState();
-        latestState.finishOptimisticClose(sourcePosition.id);
-        latestState.finishOptimisticClose(selectedPair.id);
-        void invalidateSessionQueryRoots(
-          appQueryClient,
-          actionProvenance.cacheNamespace,
-          ['positionHistory', 'accountDeals', 'deals', 'positions', 'ordersByLogin', 'accountSummary', 'exposure', 'transactions'],
-        );
-        if (resolvedLogin) {
-          void latestState.refreshPositions(resolvedLogin);
-        }
-      })
-      .catch((error: any) => {
-        if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) return;
-        const feedback = classifyTradingError(error, { action: 'close-by' });
-        const message = formatTradingErrorFeedback(feedback);
-        const latestState = usePositionsState.getState();
-        latestState.rollbackOptimisticClose(sourceSnapshot);
-        latestState.rollbackOptimisticClose(pairSnapshot);
-        setCloseError(message);
-        Alert.alert(feedback.title, feedback.message);
-      })
-      .finally(() => {
-        setIsClosing(false);
-        releaseActionLock();
-      });
-  }, [accountDetails?.credentials?.accessToken, getCurrentAvailability, isClosing, leaveScreen, releaseActionLock, resolvedLogin, selectedPair, sourcePosition, t]);
-
-  if (hosted && !hostedActive) {
+  if (!isScreenFocused) {
     return <View style={[styles.root, { backgroundColor: screenBg }]} />;
   }
 
@@ -259,8 +161,10 @@ export function CloseByScreen({
     return (
       <View style={[styles.root, { backgroundColor: screenBg }]}>
         {header}
-        <View style={styles.centered}>
-          <ActivityIndicator size="small" color={T.accent} />
+        <View style={[styles.statusBox, styles.statusBoxError]}>
+          <Text style={[styles.statusText, styles.statusTextError]}>
+            {t(CLOSE_BY_UNAVAILABLE_MESSAGE)}
+          </Text>
         </View>
       </View>
     );
@@ -355,48 +259,20 @@ export function CloseByScreen({
           ) : null}
         </View>
 
-        {closeError || submitted ? (
-          <View style={[styles.statusBox, closeError ? styles.statusBoxError : styles.statusBoxSuccess]}>
-            <Text style={[styles.statusText, closeError ? styles.statusTextError : styles.statusTextSuccess]}>
-              {closeError ?? t('Close-by request completed successfully.')}
-            </Text>
-          </View>
-        ) : !quoteAvailability.allowed ? (
-          <View style={[styles.statusBox, styles.statusBoxError]}>
-            <Text style={[styles.statusText, styles.statusTextError]}>
-              {t(quoteActionBlockMessage(quoteAvailability))}
-            </Text>
-          </View>
-        ) : null}
+        <View style={[styles.statusBox, styles.statusBoxError]}>
+          <Text style={[styles.statusText, styles.statusTextError]}>
+            {t(CLOSE_BY_UNAVAILABLE_MESSAGE)}
+          </Text>
+        </View>
 
         <Pressable
-          style={[
-            styles.submitButton,
-            (
-              !activePairId ||
-              candidates.length === 0 ||
-              isClosing ||
-              actionLocked ||
-              !quoteAvailability.allowed
-            ) && styles.submitDisabled,
-          ]}
-          disabled={
-            !activePairId ||
-            candidates.length === 0 ||
-            isClosing ||
-            actionLocked ||
-            !quoteAvailability.allowed
-          }
-          onPress={() => { void handleSubmit(); }}
+          style={[styles.submitButton, styles.submitDisabled]}
+          disabled
           activateOnPressIn
           latencyLabel="closeBy.submit"
           unstable_pressDelay={0}
         >
-          {isClosing ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <Text style={styles.submitText}>{t('Send Close By Request')}</Text>
-          )}
+          <Text style={styles.submitText}>{t('Send Close By Request')}</Text>
         </Pressable>
       </ScrollView>
     </View>
@@ -405,7 +281,6 @@ export function CloseByScreen({
 
 const makeStyles = (T: ThemeColors, isDark = false) => StyleSheet.create({
   root: { flex: 1 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   customHeader: {
     flexDirection: 'row',
     alignItems: 'center',

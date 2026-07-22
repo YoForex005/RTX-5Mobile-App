@@ -41,10 +41,10 @@ test('chart trade buttons keep buy and sell press handlers mapped to the matchin
   const handlerSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/useTradeHandler.ts');
   const actionSource = readSource('src/features/chart/chartTradeActions.ts');
 
-  assert.match(source, /onPressIn=\{\(\) => handleTrade\('sell'\)\}/);
+  assert.match(source, /onPress=\{\(\) => handleTrade\('sell'\)\}/);
   assert.match(
     source,
-    /onPressIn=\{\(\) => handleTrade\('sell'\)\}[\s\S]*unstable_pressDelay=\{0\}[\s\S]*accessibilityLabel=\{sellAction\.marketAccessibilityLabel\}[\s\S]*testID=\{sellAction\.marketTestID\}/,
+    /onPress=\{\(\) => handleTrade\('sell'\)\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart[\s\S]*unstable_pressDelay=\{0\}[\s\S]*accessibilityLabel=\{sellAction\.marketAccessibilityLabel\}[\s\S]*testID=\{sellAction\.marketTestID\}/,
   );
   assert.equal(CHART_TRADE_ACTIONS.sell.side, 'sell');
   assert.equal(CHART_TRADE_ACTIONS.sell.buttonPressed, 'sell');
@@ -52,10 +52,10 @@ test('chart trade buttons keep buy and sell press handlers mapped to the matchin
   assert.equal(CHART_TRADE_ACTIONS.sell.priceSource, 'bid');
   assert.match(actionSource, /marketTestID: 'chart-trade-sell-market-button'/);
 
-  assert.match(source, /onPressIn=\{\(\) => handleTrade\('buy'\)\}/);
+  assert.match(source, /onPress=\{\(\) => handleTrade\('buy'\)\}/);
   assert.match(
     source,
-    /onPressIn=\{\(\) => handleTrade\('buy'\)\}[\s\S]*unstable_pressDelay=\{0\}[\s\S]*accessibilityLabel=\{buyAction\.marketAccessibilityLabel\}[\s\S]*testID=\{buyAction\.marketTestID\}/,
+    /onPress=\{\(\) => handleTrade\('buy'\)\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart[\s\S]*unstable_pressDelay=\{0\}[\s\S]*accessibilityLabel=\{buyAction\.marketAccessibilityLabel\}[\s\S]*testID=\{buyAction\.marketTestID\}/,
   );
   assert.equal(CHART_TRADE_ACTIONS.buy.side, 'buy');
   assert.equal(CHART_TRADE_ACTIONS.buy.buttonPressed, 'buy');
@@ -68,8 +68,11 @@ test('chart trade buttons keep buy and sell press handlers mapped to the matchin
   assert.match(handlerSource, /side: action\.side/);
   assert.match(handlerSource, /const payload = buildChartMarketOrderPayload\(/);
   assert.match(handlerSource, /const placeOrder = usePlaceOrderExecutor\(\);/);
-  assert.match(handlerSource, /tradeTapLockRef\.current \|\| openLockSide !== null/);
-  assert.doesNotMatch(handlerSource, /openLockSide !== null \|\| isPending/);
+  assert.match(handlerSource, /if \(tradeTapLockRef\.current\)/);
+  assert.match(handlerSource, /reason: 'tap-lock'/);
+  assert.match(handlerSource, /const releaseOpenPathLock = \(\) => \{\s*releaseTradeTapLock\(CHART_TRADE_TAP_RELEASE_DELAY_MS\);\s*\};/);
+  assert.match(handlerSource, /scheduleOrderTicketLaunchNavigation\(\s*launchRevision,\s*\(\) => \{[\s\S]*finally \{\s*releaseOpenPathLock\(\);\s*\}[\s\S]*\(\) => \{\s*hideOrderTicketLaunch\(launchRevision\);\s*releaseOpenPathLock\(\);\s*\},/);
+  assert.match(handlerSource, /normalizeSymbol\(stateChartSymbol\) !== normalizeSymbol\(symbol\)/);
   assert.doesNotMatch(handlerSource, /usePlaceOrderMutation/);
   assert.match(handlerSource, /const currentChartSymbol = useUserPreferences\(\(s\) => s\.chartSymbol\)/);
   assert.match(handlerSource, /const stateChartSymbol = useUserPreferences\.getState\(\)\.chartSymbol/);
@@ -80,11 +83,15 @@ test('chart trade buttons keep buy and sell press handlers mapped to the matchin
   );
   assert.match(
     handlerSource,
-    /const chartTradeActionDisabled = !isCurrentChartSymbol \|\| !quoteActionAllowed;/,
+    /const chartTradeActionDisabled = resolveChartTradeActionDisabled\(\{[\s\S]*isCurrentChartSymbol,[\s\S]*oneClickAccepted,[\s\S]*quoteActionAllowed,[\s\S]*\}\);/,
   );
   assert.match(
     handlerSource,
-    /placeOrder\(payload,[\s\S]*?\}\);\s*releaseTradeTapLock\(CHART_TRADE_TAP_RELEASE_DELAY_MS\);/,
+    /placeOrder\(payload,[\s\S]*?onSuccess:[\s\S]*releaseTradeTapLock\(\);/,
+  );
+  assert.match(
+    handlerSource,
+    /releaseOpenPathLock = \(\) => \{\s*releaseTradeTapLock\(CHART_TRADE_TAP_RELEASE_DELAY_MS\);/,
   );
   assert.match(source, /const tradeBlocked = chartTradeActionDisabled \|\| lotInvalid/);
   assert.match(source, /disabled=\{tradeBlocked\}/);
@@ -162,10 +169,12 @@ test('chart trade button rows use ltr layout so buy and sell touch targets canno
 });
 
 test('compact footer lot chevrons open range picker without opening manual lot edit', () => {
-  const buttonSource = readSource('src/features/chart/components/ChartTradeButtonsFeature.tsx');
+  const buttonSource = readSource(
+    'src/features/chart/components/ChartTradeButtonsFeature/ChartTradeButtonsFeature.tsx',
+  );
   const stylesSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/styles.ts');
   const increaseButtonIndex = buttonSource.indexOf('testID="chart-trade-lot-increase-button"');
-  const editButtonIndex = buttonSource.indexOf('testID="chart-trade-lot-edit-button"');
+  const valueButtonIndex = buttonSource.indexOf('testID="chart-trade-lot-value-button"');
   const decreaseButtonIndex = buttonSource.indexOf('testID="chart-trade-lot-decrease-button"');
 
   assert.match(
@@ -188,7 +197,11 @@ test('compact footer lot chevrons open range picker without opening manual lot e
   assert.match(buttonSource, /return \(\) => lotPickerAction\('increase'\);/);
   assert.match(
     buttonSource,
-    /onPress=\{handleLotCenterPress\}[\s\S]*hitSlop=\{LOT_VALUE_HIT_SLOP\}[\s\S]*testID="chart-trade-lot-edit-button"/,
+    /const handleLotCenterPress = lotEditorAction \?\? \(lotPickerAction \? \(\) => lotPickerAction\('absolute'\) : undefined\)/,
+  );
+  assert.match(
+    buttonSource,
+    /onPress=\{handleLotCenterPress\}[\s\S]*testID="chart-trade-lot-value-button"[\s\S]*hitSlop=\{LOT_VALUE_HIT_SLOP\}/,
   );
   assert.doesNotMatch(
     buttonSource,
@@ -199,10 +212,10 @@ test('compact footer lot chevrons open range picker without opening manual lot e
     /actionLotAdjustButton:\s*\{[\s\S]*zIndex:\s*2[\s\S]*elevation:\s*2/,
   );
   assert.ok(increaseButtonIndex >= 0, 'increase lot button should render in compact footer');
-  assert.ok(editButtonIndex >= 0, 'lot edit button should render in compact footer');
+  assert.ok(valueButtonIndex >= 0, 'lot value/edit button should render in compact footer');
   assert.ok(decreaseButtonIndex >= 0, 'decrease lot button should render in compact footer');
   assert.ok(
-    decreaseButtonIndex < editButtonIndex && editButtonIndex < increaseButtonIndex,
+    decreaseButtonIndex < valueButtonIndex && valueButtonIndex < increaseButtonIndex,
     'compact footer lot controls should render decrease-left, value-center, increase-right',
   );
 });
@@ -242,23 +255,17 @@ test('compact footer lot slot paints the full center area in dark theme', () => 
 });
 
 test('compact footer buy and sell prices stay centered independently from labels', () => {
-  const buttonSource = readSource('src/features/chart/components/ChartTradeButtonsFeature.tsx');
+  const buttonSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/ChartTradeButtonsFeature.tsx');
   const stylesSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/styles.ts');
 
-  assert.doesNotMatch(buttonSource, /ChartTradeButtonPriceFlash|Animated\.View/);
+  // Price text is static white — per-tick color animation blinked the strip.
+  assert.doesNotMatch(buttonSource, /ChartTradeButtonPriceFlash|Animated\.View|Animated\.timing/);
   assert.match(buttonSource, /const TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS = 16/);
   assert.match(buttonSource, /const TRADE_BUTTON_PRICE_TEXT_COLOR = '#FFFFFF'/);
-  assert.match(buttonSource, /const TRADE_BUTTON_PRICE_UP_FLASH = '#BBF7D0'/);
-  assert.match(buttonSource, /const TRADE_BUTTON_PRICE_DOWN_FLASH = '#FECACA'/);
-  assert.match(buttonSource, /const TRADE_BUTTON_PRICE_FLASH_MS = 220/);
+  assert.doesNotMatch(buttonSource, /TRADE_BUTTON_PRICE_UP_FLASH|TRADE_BUTTON_PRICE_DOWN_FLASH|TRADE_BUTTON_PRICE_FLASH_MS/);
   assert.match(buttonSource, /const ChartTradeButtonPriceText = React\.memo/);
-  assert.match(buttonSource, /previousTextRef\.current = text/);
-  assert.match(buttonSource, /setFlashColor\(next > prev \? TRADE_BUTTON_PRICE_UP_FLASH : TRADE_BUTTON_PRICE_DOWN_FLASH\)/);
-  assert.match(buttonSource, /Animated\.timing\(flashProgress/);
-  assert.match(buttonSource, /duration: TRADE_BUTTON_PRICE_FLASH_MS/);
-  assert.match(buttonSource, /useNativeDriver: false/);
-  assert.match(buttonSource, /const animatedColor = flashProgress\.interpolate/);
-  assert.match(buttonSource, /outputRange: \[TRADE_BUTTON_PRICE_TEXT_COLOR, flashColor\]/);
+  assert.match(buttonSource, /No per-tick color animation/);
+  assert.match(buttonSource, /color: TRADE_BUTTON_PRICE_TEXT_COLOR/);
   assert.match(buttonSource, /opacity: 1/);
   assert.match(
     stylesSource,
@@ -274,13 +281,13 @@ test('compact footer buy and sell prices stay centered independently from labels
   );
   assert.match(
     buttonSource,
-    /<Animated\.Text[\s\S]*color: animatedColor[\s\S]*opacity: 1[\s\S]*minimumFontScale=\{0\.7\}[\s\S]*testID=\{testID\}/,
+    /<Text[\s\S]*color: TRADE_BUTTON_PRICE_TEXT_COLOR[\s\S]*opacity: 1[\s\S]*minimumFontScale=\{0\.7\}[\s\S]*testID=\{testID\}/,
   );
 });
 
 test('compact footer buy and sell backgrounds cover the full button slots', () => {
   const stylesSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/styles.ts');
-  const buttonSource = readSource('src/features/chart/components/ChartTradeButtonsFeature.tsx');
+  const buttonSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/ChartTradeButtonsFeature.tsx');
   const chartStylesSource = readSource('src/features/chart/ChartScreen.styles.ts');
 
   assert.match(
@@ -313,16 +320,16 @@ test('compact footer buy and sell backgrounds cover the full button slots', () =
   );
   assert.match(
     buttonSource,
-    /\{ backgroundColor: sellTileColor,[\s\S]*?testID=\{sellAction\.testID\}/,
+    /backgroundColor: sellTileColor,[\s\S]*?testID=\{sellAction\.testID\}/,
   );
   assert.match(
     buttonSource,
-    /\{ backgroundColor: buyTileColor,[\s\S]*?testID=\{buyAction\.testID\}/,
+    /backgroundColor: buyTileColor,[\s\S]*?testID=\{buyAction\.testID\}/,
   );
 });
 
 test('compact footer buy and sell tile colors stay fixed to their side', () => {
-  const buttonSource = readSource('src/features/chart/components/ChartTradeButtonsFeature.tsx');
+  const buttonSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/ChartTradeButtonsFeature.tsx');
   const quoteSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/quoteFallback.ts');
 
   assert.match(
@@ -335,8 +342,13 @@ test('compact footer buy and sell tile colors stay fixed to their side', () => {
   );
   assert.doesNotMatch(buttonSource, /previousBidRef|previousAskRef|sellTileVisual|buyTileVisual/);
   assert.doesNotMatch(quoteSource, /resolveChartTradeButtonPriceColor|direction = 'up'|direction = 'down'/);
-  assert.match(buttonSource, /const formattedBid = hasLiveBid \? latestBid\.toFixed\(displayDecimals\) : '---'/);
-  assert.match(buttonSource, /const formattedAsk = hasLiveAsk \? latestAsk\.toFixed\(displayDecimals\) : '---'/);
+  assert.match(
+    buttonSource,
+    /const safeDisplayDecimals =[\s\S]*Math\.max\(0, Math\.min\(10, Math\.round\(displayDecimals\)\)\)[\s\S]*: 5/,
+  );
+  assert.match(buttonSource, /const formattedBid = hasDisplayBid \? displayBid\.toFixed\(safeDisplayDecimals\) : '---'/);
+  assert.match(buttonSource, /const formattedAsk = hasDisplayAsk \? displayAsk\.toFixed\(safeDisplayDecimals\) : '---'/);
+  assert.match(buttonSource, /resolveChartTradeButtonDisplayQuote/);
   assert.match(
     buttonSource,
     /<ChartTradeButtonPriceText text=\{formattedBid\} testID="chart-trade-sell-price-text" \/>/,
@@ -378,7 +390,7 @@ test('trade buttons keep the busy visual state on only the pressed side', () => 
   );
   assert.match(
     handlerSource,
-    /const isChartTradeActionVisuallyLocked = \(side: TradeSide\) =>[\s\S]*!isCurrentChartSymbol \|\| !quoteActionAllowed \|\| activeSide === side;/,
+    /const isChartTradeActionVisuallyLocked = \(side: TradeSide\) => isChartTradeActionBusy\(side\);/,
   );
   assert.match(handlerSource, /clearActiveTradeSide\(lockedSide, delayMs\);/);
   assert.match(chartSource, /busy: isChartTradeActionBusy\('sell'\)/);
@@ -446,7 +458,10 @@ test('chart trade rows are remounted by symbol so first trade after symbol switc
   assert.match(featureSource, /pointerEvents=\{inlineFooterReceivesTouches \? 'auto' : 'none'\}/);
   assert.match(sharedLockSource, /let chartTradeButtonSharedLockSide: TradeSide \| null = null;/);
   assert.match(handlerSource, /acquireChartTradeButtonSharedLock\(action\.side\)/);
-  assert.match(handlerSource, /reason: tradeTapLockRef\.current \? 'tap-lock' : 'shared-tap-lock'/);
+  assert.match(handlerSource, /reason: 'tap-lock'/);
+  assert.match(handlerSource, /reason: 'shared-tap-lock'/);
+  assert.match(sharedLockSource, /CHART_TRADE_TAP_RELEASE_DELAY_MS = 180/);
+  assert.match(sharedLockSource, /CHART_TRADE_SHARED_LOCK_STALE_MS = 2_500/);
   assert.match(handlerSource, /releaseChartTradeButtonSharedLock\(tradeTapLockSideRef\.current\);[\s\S]*?\}, \[symbol\]\);/);
   assert.match(handlerSource, /currentChartSymbol: stateChartSymbol/);
 });

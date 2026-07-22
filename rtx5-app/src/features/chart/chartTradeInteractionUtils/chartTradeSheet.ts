@@ -128,11 +128,18 @@ export function resolveFooterTradeRowState({
       resolvedKeyboardDockOffset > 0 ||
       resolvedKeyboardVisibleHeight > 0
     );
+  // iOS often reports keyboard height a frame before dock-anchor geometry.
+  // Prefer measured dock overlap; fall back to keyboard height so Sell/Lot/Buy
+  // still lifts instead of sitting under the keyboard at bottom: 0.
+  const measuredKeyboardLift =
+    resolvedKeyboardDockOffset > 0
+      ? resolvedKeyboardDockOffset
+      : (platform === 'ios' ? resolvedKeyboardVisibleHeight : 0);
   const footerTradeRowKeyboardOffset =
     isFloatingFooterTradeRowVisible &&
-    resolvedKeyboardDockOffset > 0 &&
+    measuredKeyboardLift > 0 &&
     !(platform === 'android' && keyboardResizesHost)
-      ? resolvedKeyboardDockOffset
+      ? measuredKeyboardLift
       : 0;
 
   // Reference unused inputs for parameter destructuring without lint warnings.
@@ -192,7 +199,12 @@ export function resolveFooterTradeDockBottom({
 
   if (platform === 'ios') {
     void iosFocusedLotEditorEditGap;
-    return normalizedKeyboardOffset;
+    // Prefer measured dock offset; fall back to keyboard height so the trade
+    // row is never stranded under the keyboard while anchors are still measuring.
+    const iosLift = normalizedKeyboardOffset > 0
+      ? normalizedKeyboardOffset
+      : Math.max(normalizedKeyboardHeight, normalizedFooterKeyboardAvoidanceOffset);
+    return Math.max(0, iosLift);
   }
 
   return normalizedKeyboardOffset;

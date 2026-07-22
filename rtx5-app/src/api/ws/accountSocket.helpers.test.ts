@@ -145,3 +145,53 @@ test('extractLiveAccountMetrics accepts websocket metric alias names', () => {
     floating: 28.6,
   });
 });
+
+test('extractLiveAccountMetrics accepts margin_used and skips blank aliases', () => {
+  const metrics = extractLiveAccountMetrics({
+    data: {
+      metrics: {
+        margin_used: '   ',
+        used_margin: '245.75',
+        margin_free: '',
+        free_margin: '9754.25',
+        margin_level: null,
+        marginLevel: '4077.31',
+      },
+    },
+  });
+
+  assert.deepEqual(metrics, {
+    margin: 245.75,
+    margin_free: 9754.25,
+    margin_level: 4077.31,
+  });
+});
+
+test('extractLiveAccountMetrics prefers explicit used-margin aliases over legacy margin placeholders', () => {
+  const metrics = extractLiveAccountMetrics({
+    margin: 0,
+    margin_used: '125.5',
+    freeMargin: '9874.5',
+    marginLevel: '7968.13',
+  });
+
+  assert.deepEqual(metrics, {
+    margin: 125.5,
+    margin_free: 9874.5,
+    margin_level: 7968.13,
+  });
+});
+
+test('extractLiveAccountMetrics preserves explicit zero account metrics', () => {
+  const metrics = extractLiveAccountMetrics({
+    margin_used: 0,
+    free_margin: 0,
+    margin_level: 0,
+  });
+
+  assert.deepEqual(metrics, {
+    margin: 0,
+    margin_free: 0,
+    margin_level: 0,
+  });
+});

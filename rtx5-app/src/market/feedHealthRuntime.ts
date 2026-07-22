@@ -14,7 +14,16 @@ import { recordMarketDataEvent } from './marketDataTelemetry';
 
 type FeedHealthListener = () => void;
 
+/**
+ * Two views of one state machine:
+ * - `latestState` always carries the newest reduction (tick/success timestamps
+ *   included) and drives the reducer + freshness deadlines.
+ * - `snapshot` is what React subscribers read. It only advances on meaningful
+ *   transitions, so a 40Hz tick stream neither notifies every subscribed
+ *   screen nor breaks useSyncExternalStore's stable-snapshot contract.
+ */
 let snapshot: FeedHealthState = initialFeedHealthState;
+let latestState: FeedHealthState = initialFeedHealthState;
 let evaluationTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<FeedHealthListener>();
 
@@ -27,15 +36,15 @@ const clearEvaluationTimer = (): void => {
 
 const scheduleFreshnessEvaluation = (): void => {
   clearEvaluationTimer();
-  if (!snapshot.identity || !snapshot.thresholds || !snapshot.lastServerStatusAt) {
+  if (!latestState.identity || !latestState.thresholds || !latestState.lastServerStatusAt) {
     return;
   }
 
   const deadlines = [
-    snapshot.lastServerStatusAt + snapshot.thresholds.serverStatusStaleAfterMs,
+    latestState.lastServerStatusAt + latestState.thresholds.serverStatusStaleAfterMs,
   ];
-  if (snapshot.marketSchedule === 'open' && snapshot.lastLocalTickAt) {
-    deadlines.push(snapshot.lastLocalTickAt + snapshot.thresholds.localTickStaleAfterMs);
+  if (latestState.marketSchedule === 'open' && latestState.lastLocalTickAt) {
+    deadlines.push(latestState.lastLocalTickAt + latestState.thresholds.localTickStaleAfterMs);
   }
   const now = Date.now();
   const nextDeadline = Math.min(...deadlines.filter((deadline) => deadline > now));
@@ -43,7 +52,7 @@ const scheduleFreshnessEvaluation = (): void => {
     return;
   }
 
-  const expectedIdentity = snapshot.identity;
+  const expectedIdentity = latestState.identity;
   evaluationTimer = setTimeout(() => {
     evaluationTimer = null;
     dispatchFeedHealthEvent({
@@ -55,8 +64,12 @@ const scheduleFreshnessEvaluation = (): void => {
 };
 
 const publish = (next: FeedHealthState): void => {
+  latestState = next;
   if (areFeedHealthStatesEquivalent(snapshot, next)) {
-    snapshot = next;
+    // Bookkeeping-only change (tick/success timestamps moved, nothing a
+    // subscriber renders differently). Keep the public snapshot identity so
+    // React neither re-renders every subscribed screen per tick nor fails
+    // useSyncExternalStore consistency checks on an un-notified swap.
     scheduleFreshnessEvaluation();
     return;
   }
@@ -76,11 +89,23 @@ const publish = (next: FeedHealthState): void => {
 };
 
 export const dispatchFeedHealthEvent = (event: FeedHealthEvent): FeedHealthState => {
-  publish(reduceFeedHealth(snapshot, event));
-  return snapshot;
+  publish(reduceFeedHealth(latestState, event));
+  return latestState;
 };
 
-export const getFeedHealthSnapshot = (): FeedHealthState => snapshot;
+/**
+ * Always-fresh state for decision logic (trade gating, socket recovery).
+ * Timestamps here move on every tick — never hand this to useSyncExternalStore.
+ */
+export const getFeedHealthSnapshot = (): FeedHealthState => latestState;
+
+/**
+ * Notify-gated state for React subscribers: identity only changes when
+ * listeners are notified, which useSyncExternalStore requires. Renders that
+ * need live freshness decisions must call the logic helpers (which read the
+ * fresh snapshot) rather than compare these timestamps.
+ */
+export const getFeedHealthRenderSnapshot = (): FeedHealthState => snapshot;
 
 export const subscribeFeedHealth = (listener: FeedHealthListener): (() => void) => {
   listeners.add(listener);
@@ -145,7 +170,7 @@ export const reportFeedCredentialsRefreshed = (
  * creates a second endpoint or recovery loop.
  */
 export const requestFeedHealthRetry = (identity: FeedHealthIdentity): boolean => {
-  if (!sameFeedHealthIdentity(snapshot.identity, identity) || !feedHealthCanSafelyRetry(snapshot)) {
+  if (!sameFeedHealthIdentity(latestState.identity, identity) || !feedHealthCanSafelyRetry(latestState)) {
     return false;
   }
   // The reducer deliberately preserves the truthful outage state until the
@@ -157,5 +182,6 @@ export const requestFeedHealthRetry = (identity: FeedHealthIdentity): boolean =>
 export const __resetFeedHealthRuntimeForTests = (): void => {
   clearEvaluationTimer();
   snapshot = initialFeedHealthState;
+  latestState = initialFeedHealthState;
   listeners.clear();
 };

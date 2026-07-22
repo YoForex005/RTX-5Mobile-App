@@ -23,10 +23,12 @@ test('modify position SL and TP controls use semantic theme colors in the chart 
 });
 
 test('modify position validates SL and TP at least five points from market close price', () => {
-  assert.match(source, /const MIN_STOP_DISTANCE_POINTS = 5;/);
+  assert.match(source, /const MIN_STOP_DISTANCE_POINTS = DEFAULT_MIN_STOP_DISTANCE_POINTS;/);
   assert.match(source, /const minStopDistance = point \* MIN_STOP_DISTANCE_POINTS;/);
-  assert.match(source, /closingMarketPrice - minStopDistance/);
-  assert.match(source, /closingMarketPrice \+ minStopDistance/);
+  assert.match(source, /validateStopTargetsDistance\(/);
+  assert.match(source, /isStopTargetDistanceValid\(/);
+  assert.match(source, /resolveStopTargetDistancePoints\(/);
+  assert.match(source, /clampStopTargetToMinDistance\(/);
   assert.match(source, /at least \{points\} points below the current Bid/);
   assert.match(source, /at least \{points\} points above the current Ask/);
   assert.match(source, /at least \{points\} points above the current Bid/);
@@ -34,4 +36,27 @@ test('modify position validates SL and TP at least five points from market close
   assert.match(source, /SL\/TP must be at least \{points\} points away from the market price/);
   assert.match(source, /\.replace\('\{points\}', String\(MIN_STOP_DISTANCE_POINTS\)\)/);
   assert.doesNotMatch(source, /SL\/TP must be at least 10 points away/);
+});
+
+test('modify position SL/TP uses market price and five-point distance for the modify button', () => {
+  // Bid/ask on screen + 5-point rule drive the button. Full integrity is only
+  // required when there is no usable market price (avoids false "stale" blocks).
+  assert.match(source, /useExecutableQuote\(viewSymbol, isScreenFocused && Boolean\(viewSymbol\)\)/);
+  assert.match(source, /const hasUsableMarketPrice = closingMarketPrice > 0 && BID > 0 && ASK > 0/);
+  assert.match(source, /const stopValidationError = useMemo\(\(\) => validateStopTargets\(\)/);
+  assert.match(
+    source,
+    /const canModifyPosition = Boolean\([\s\S]*hasUsableMarketPrice[\s\S]*!stopValidationError[\s\S]*isSlDistanceValid[\s\S]*isTpDistanceValid/,
+  );
+  assert.match(source, /disabled=\{!canModifyPosition\}/);
+  assert.match(source, /stopValidationError \? \([\s\S]*\{stopValidationError\}/);
+  assert.match(source, /stepperDistanceError/);
+  assert.match(source, /modifyBtnDisabled/);
+  assert.match(source, /onPress=\{handleModify\}[\s\S]*activateOnPressIn/);
+  assert.match(
+    source,
+    /!submitMessage && !stopValidationError && !hasUsableMarketPrice && !quoteAvailability\.allowed/,
+  );
+  assert.match(source, /if \(!hasUsableMarketPrice\) \{[\s\S]*getCurrentAvailability\(\)/);
+  assert.match(source, /distanceError \|\| !isSlDistanceValid \|\| !isTpDistanceValid/);
 });

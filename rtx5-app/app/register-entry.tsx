@@ -280,6 +280,13 @@ export default function RegisterEntryScreen() {
     return () => subscription.remove();
   }, [isScreenFocused, startBackToOrigin]);
 
+  // The root stack can retain this route below another screen. Preserve its
+  // state, but remove the loaded registration form from the native tree until
+  // this route owns focus again.
+  if (!isScreenFocused) {
+    return null;
+  }
+
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />

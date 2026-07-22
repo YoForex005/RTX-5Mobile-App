@@ -75,6 +75,8 @@ export type NormalizedFeedServerHealth = Readonly<{
   scheduledMarketClosed: boolean;
   stale: boolean;
   degraded: boolean;
+  /** Broker-approved aging policy from the confirmed status response. */
+  thresholds?: FeedHealthThresholds;
 }>;
 
 export type FeedHealthEvent =
@@ -242,7 +244,6 @@ const evaluateBoundHealth = (state: FeedHealthState, now: number): FeedHealthSta
   return withStatus(state, 'healthy', 'awaiting_live_tick');
 };
 
-const sameOptionalNumber = (left?: number, right?: number): boolean => left === right;
 
 const bindSession = (
   state: FeedHealthState,
@@ -337,10 +338,15 @@ const serverStatusState = (
       : 'awaiting_live_tick';
   }
 
+  // Learn policy only from a confirmed status for this already-bound identity.
+  // An omitted/malformed later policy preserves the last confirmed policy for
+  // the same session; a new session still starts without one and fails closed.
+  const confirmedThresholds = normalizeThresholds(health.thresholds);
   const updated = withStatus(state, state.status, reasonCategory, {
     marketSchedule,
     serverVerdict,
     lastServerStatusAt: observedAt,
+    ...(confirmedThresholds ? { thresholds: confirmedThresholds } : {}),
   });
   return evaluateBoundHealth(updated, observedAt);
 };
@@ -432,6 +438,27 @@ export const feedHealthBlocksSocketConnection = (
   state.status === 'market_unavailable',
 );
 
+/**
+ * Compatibility gate for broker status responses that do not publish a
+ * health_policy. Quote-local execution checks still require a fresh,
+ * explicitly tradable WebSocket tick; this gate only prevents an absent
+ * optional policy from permanently disabling Buy/Sell. Explicit session,
+ * credential, transport, provider, market, and socket failures remain hard
+ * blocks. Once a broker publishes thresholds, the stricter policy gate below
+ * is authoritative and this fallback is not used.
+ */
+export const feedHealthAllowsFreshQuoteFallback = (
+  state: FeedHealthState,
+  identity: FeedHealthIdentity,
+): boolean => Boolean(
+  !state.thresholds &&
+  !feedHealthBlocksSocketConnection(state, identity) &&
+  state.status !== 'reconnecting' &&
+  state.marketSchedule !== 'scheduled_closed' &&
+  state.lastLocalTickAt &&
+  state.localTickAcceptable,
+);
+
 export const feedHealthAllowsPriceActions = (
   state: FeedHealthState,
   now: number = Date.now(),
@@ -465,7 +492,16 @@ export const feedHealthStateMatchesIdentity = (
   identity: FeedHealthIdentity,
 ): boolean => sameFeedHealthIdentity(state.identity, identity);
 
-/** Internal equality helper used by the runtime to avoid redundant subscribers. */
+/**
+ * Internal equality helper used by the runtime to avoid redundant subscriber
+ * notifications. Deliberately ignores the pure-bookkeeping timestamps
+ * (lastServerStatusAt / lastLocalTickAt / lastSuccessAt): they move on every
+ * websocket tick, and comparing them made a 40Hz tick stream notify every
+ * subscribed screen per tick. Staleness driven by those timestamps still
+ * surfaces here as a status/serverVerdict/localTickAcceptable transition via
+ * the runtime's scheduled EVALUATE events, and the degraded banner reads its
+ * "last success" from the snapshot taken at that transition.
+ */
 export const areFeedHealthStatesEquivalent = (
   left: FeedHealthState,
   right: FeedHealthState,
@@ -479,9 +515,6 @@ export const areFeedHealthStatesEquivalent = (
     left.marketSchedule === right.marketSchedule &&
     left.serverVerdict === right.serverVerdict &&
     left.localTickAcceptable === right.localTickAcceptable &&
-    sameOptionalNumber(left.lastServerStatusAt, right.lastServerStatusAt) &&
-    sameOptionalNumber(left.lastLocalTickAt, right.lastLocalTickAt) &&
-    sameOptionalNumber(left.lastSuccessAt, right.lastSuccessAt) &&
     left.thresholds?.localTickStaleAfterMs === right.thresholds?.localTickStaleAfterMs &&
     left.thresholds?.serverStatusStaleAfterMs === right.thresholds?.serverStatusStaleAfterMs
   );

@@ -1,0 +1,98 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import test from 'node:test';
+
+const readSource = (relativePath: string) =>
+  readFileSync(resolve(process.cwd(), relativePath), 'utf8');
+
+/**
+ * Chart Preferences → SHOW ON CHART / scale / trading filters must apply on
+ * both iOS and Android through the shared native chart path (no platform fork
+ * that leaves a toggle dead on one OS).
+ */
+test('every Chart Preferences display filter is listed and wired into the native chart', () => {
+  const settingsSource = readSource('src/features/chart/ChartSettingsScreen.tsx');
+  const nativeSource = readSource('src/features/chart/ChartScreen.native.tsx');
+  const htmlSource = readSource('src/features/chart/rendering/ChartWebViewHtml.ts');
+  const drawingSource = readSource('src/features/chart/plugins/enhancedDrawingToolsString.ts');
+  const overlaySource = readSource('src/features/chart/chartOverlays/buildPayload.ts');
+
+  const displayKeys = [
+    'showTicker',
+    'showOHLC',
+    'showQuickTradingButtons',
+    'showLivePriceLine',
+    'showLastPriceLine',
+    'showGrid',
+    'periodSeparators',
+    'showObjectDescriptions',
+    'showTradeLevels',
+  ] as const;
+
+  for (const key of displayKeys) {
+    assert.match(
+      settingsSource,
+      new RegExp(`key: '${key}'`),
+      `ChartSettingsScreen must expose filter ${key}`,
+    );
+  }
+
+  // Shared RN consumption (both platforms use ChartScreen.native).
+  assert.match(nativeSource, /chartDisplay\.showTicker/);
+  assert.match(nativeSource, /chartDisplay\.showOHLC/);
+  assert.match(nativeSource, /chartDisplay\.showQuickTradingButtons/);
+  assert.match(nativeSource, /chartDisplay\.showLivePriceLine/);
+  assert.match(nativeSource, /chartDisplay\.showLastPriceLine/);
+  assert.match(nativeSource, /chartDisplay\.showGrid/);
+  assert.match(nativeSource, /chartDisplay\.periodSeparators/);
+  assert.match(nativeSource, /chartDisplay\.showObjectDescriptions/);
+  assert.match(nativeSource, /setShowObjectDescriptions\(/);
+  assert.match(nativeSource, /chartShowOnChart/);
+  assert.match(nativeSource, /buildChartOverlayPayload\([\s\S]*showOnChart: chartShowOnChart/);
+
+  // Trade side filters (buy / sell / SL·TP).
+  assert.match(settingsSource, /CHART_TRADE_VISIBILITY_ITEMS\.map/);
+  assert.match(settingsSource, /CHART_SHOW_ON_CHART_ITEMS/);
+  assert.match(overlaySource, /showOnChart\.buyTrade/);
+  assert.match(overlaySource, /showOnChart\.sellTrade/);
+  assert.match(overlaySource, /showOnChart\.slTpLevels/);
+
+  // Scale / trading toggles applied through the shared WebView bridge.
+  assert.match(settingsSource, /setChartAutoScaleEnabled/);
+  assert.match(settingsSource, /handleToggleChartVerticalMovement/);
+  assert.match(settingsSource, /setChartOneClickPanelAtBottom/);
+  assert.match(nativeSource, /setChartAutoScaleEnabled\(\$\{isChartAutoScaleEnabled\}\)/);
+  assert.match(nativeSource, /setVerticalScrollingLocked\(\$\{isVerticalScrollingLocked\}\)/);
+  assert.match(nativeSource, /autoScale: isChartAutoScaleEnabled/);
+
+  // Drawing-label preference has a real WebView + manager API (iOS + Android).
+  assert.match(htmlSource, /function setShowObjectDescriptions\(enabled\)/);
+  assert.match(htmlSource, /window\.setShowObjectDescriptions = setShowObjectDescriptions/);
+  assert.match(drawingSource, /setShowObjectDescriptions = function/);
+  assert.match(drawingSource, /this\._showObjectDescriptions/);
+
+  // No iOS-only dead branch that skips applying preferences.
+  assert.doesNotMatch(
+    nativeSource,
+    /Platform\.OS === 'ios'[\s\S]{0,80}showObjectDescriptions/,
+  );
+  assert.doesNotMatch(
+    settingsSource,
+    /Platform\.OS === 'ios'[\s\S]{0,80}handleToggleChartDisplaySetting/,
+  );
+});
+
+test('Chart Preferences filter rows use a single fast press path on iOS and Android', () => {
+  const settingsSource = readSource('src/features/chart/ChartSettingsScreen.tsx');
+
+  assert.match(
+    settingsSource,
+    /function PreferenceToggleRow\([\s\S]*activateOnPressIn[\s\S]*unstable_pressDelay=\{0\}[\s\S]*pointerEvents="none"/,
+  );
+  assert.match(
+    settingsSource,
+    /function ToggleRow\([\s\S]*activateOnPressIn[\s\S]*unstable_pressDelay=\{0\}[\s\S]*pointerEvents="none"/,
+  );
+  assert.match(settingsSource, /ios_backgroundColor=/);
+});

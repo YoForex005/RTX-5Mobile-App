@@ -84,6 +84,7 @@ export interface PlaceOrderPayload {
   comment?: string;
   trailing_stop?: number;
   trailing_step?: number;
+  /** @deprecated Local legacy input only. It is never sent to the strict trader gateway. */
   magic?: number;
 }
 
@@ -113,12 +114,17 @@ export interface PlacePendingOrderPayload extends PlaceOrderPayload {
 /**
  * Response from POST /api/v2/orders on successful execution.
  *
- * Matches the server's `Position` schema from the OpenAPI spec at
- * /api/v2/orders. The legacy `order_ticket` / `position_ticket` / `price`
- * fields are kept as optional aliases for older call-sites; new code should
- * read `ticket` and `price_open` directly.
+ * Matches the gateway handler's canonical ExecutionResult. The OpenAPI
+ * Position schema is stale for this endpoint: market execution identity is
+ * `order_ticket` plus `position_ticket`, and the fill is `price`.
  */
 export interface PlaceOrderResponse {
+  order_ticket: number;
+  position_ticket: number;
+  price: number;
+  status: string;
+  time: number;
+  action: string;
   ticket?: number;
   account_login?: number;
   symbol: string;
@@ -132,14 +138,11 @@ export interface PlaceOrderResponse {
   open_time?: number;
   comment?: string;
   magic?: number;
-  // Legacy aliases kept so old call-sites that read these still compile.
-  order_ticket?: number;
-  position_ticket?: number;
-  price?: number;
   commission?: number;
-  status?: string;
-  time?: number;
-  action?: string;
+  requested_volume?: number;
+  closed_volume?: number;
+  opened_volume?: number;
+  rejected_volume?: number;
   message?: string;
 }
 

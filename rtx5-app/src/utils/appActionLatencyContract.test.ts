@@ -177,7 +177,11 @@ test('screen and shared UI pressables use the immediate fast press component', (
     ...walkSourceFiles('app'),
     ...walkSourceFiles('src/features'),
     ...walkSourceFiles('src/ui/components'),
-  ].filter((file) => file !== 'src/ui/components/FastPressable.tsx');
+  ].filter(
+    (file) =>
+      file !== 'src/ui/components/FastPressable.tsx' &&
+      file !== 'src/ui/components/OtaUpdateModal.tsx',
+  );
 
   for (const file of files) {
     const source = readSource(file);
@@ -225,28 +229,43 @@ test('chart trade one-click and ticket paths keep heavy work out of the tap pain
     ordersSource,
     /state\.upsertPosition\(newPos\);[\s\S]*scheduleTradePostSuccessRefresh\(\(\) => \{[\s\S]*refreshPositions\(mt5Login\)[\s\S]*invalidateSessionQueryRoots\(queryClient, cacheNamespace, \[[\s\S]*'positions'/,
   );
-  assert.match(chartTradeHandlerSource, /const chartTradeActionDisabled = !isCurrentChartSymbol \|\| !quoteActionAllowed;/);
-  assert.match(chartTradeHandlerSource, /resolveSessionQuoteActionAvailability\(quoteActionQuoteRef\.current\)/);
+  assert.match(
+    chartTradeHandlerSource,
+    /const chartTradeActionDisabled = resolveChartTradeActionDisabled\(\{[\s\S]*isCurrentChartSymbol,[\s\S]*oneClickAccepted,[\s\S]*quoteActionAllowed,[\s\S]*\}\);/,
+  );
+  assert.doesNotMatch(openPathSource, /resolveSessionQuoteActionAvailability/);
+  assert.match(
+    oneClickSource,
+    /resolveSessionQuoteActionAvailability\(\s*quoteActionQuoteRef\.current,\s*Date\.now\(\),?\s*\)[\s\S]*if \(!currentQuoteAvailability\.allowed\)/,
+  );
   assert.match(chartTradeHandlerSource, /import \{ usePlaceOrderExecutor \} from '..\/..\/..\/..\/query\/orders'/);
   assert.match(chartTradeHandlerSource, /import \{ getApiLatencyNow \} from '..\/..\/..\/..\/utils\/apiLatency'/);
   assert.match(chartTradeHandlerSource, /const placeOrder = usePlaceOrderExecutor\(\);/);
   assert.match(chartTradeHandlerSource, /const CHART_TRADE_QUEUE_LIMIT = 10/);
   assert.match(chartTradeHandlerSource, /type QueuedChartTrade = \{/);
   assert.match(chartTradeHandlerSource, /const tradeQueueRef = React\.useRef<QueuedChartTrade\[\]>\(\[\]\);/);
-  assert.match(chartTradeHandlerSource, /function processNextQueuedTrade\(\) \{[\s\S]*placeOrder\(payload,/);
+  assert.match(chartTradeHandlerSource, /function processNextQueuedTrade\(options\?: \{ skipQuoteRecheck\?: boolean \}\) \{[\s\S]*placeOrder\(payload,/);
   assert.match(chartTradeHandlerSource, /queueWaitMs/);
   assert.match(chartTradeHandlerSource, /backendMs/);
   assert.match(chartTradeHandlerSource, /title: 'Trade Queue Full'/);
-  assert.match(oneClickSource, /tradeQueueRef\.current\.push\(queuedTrade\);[\s\S]*processNextQueuedTrade\(\);/);
+  assert.match(oneClickSource, /tradeQueueRef\.current\.push\(queuedTrade\);[\s\S]*processNextQueuedTrade\(\{ skipQuoteRecheck: true \}\);/);
   assert.match(chartTradeHandlerSource, /const isChartTradeActionBusy = \(side: TradeSide\) => activeSide === side && tradeTapLockRef\.current;/);
   // Open path: shell first, before auth/volume/SL validation or setState locks.
   assert.match(
     openPathSource,
-    /const launchRevision = showOrderTicketLaunch\(symbol, 'chart'\);[\s\S]*scheduleOrderTicketLaunchNavigation\(launchRevision, \(\) => \{[\s\S]*router\.push\(\{[\s\S]*pathname: '\/trade\/order-ticket'[\s\S]*origin: 'chart'/,
+    /const launchRevision = showOrderTicketLaunch\(symbol, 'chart'\);[\s\S]*scheduleOrderTicketLaunchNavigation\(\s*launchRevision,\s*\(\) => \{[\s\S]*router\.push\(\{[\s\S]*pathname: '\/trade\/order-ticket'[\s\S]*origin: 'chart'/,
   );
   assert.match(
     openPathSource,
     /showOrderTicketLaunch\(symbol, 'chart'\);[\s\S]*tradeTapLockRef\.current = true/,
+  );
+  assert.match(
+    openPathSource,
+    /const releaseOpenPathLock = \(\) => \{\s*releaseTradeTapLock\(CHART_TRADE_TAP_RELEASE_DELAY_MS\);\s*\};/,
+  );
+  assert.match(
+    openPathSource,
+    /finally \{\s*releaseOpenPathLock\(\);\s*\}[\s\S]*hideOrderTicketLaunch\(launchRevision\);\s*releaseOpenPathLock\(\);/,
   );
   assert.doesNotMatch(openPathSource, /authToken|validateChartTradeProtectionLevels|Invalid Lot Size/);
   assert.match(
@@ -284,10 +303,18 @@ test('trade buy/sell success feedback uses the shared popup without device vibra
   assert.doesNotMatch(ticketSource, /showTradeConfirmation\(\{ side: requestedSide/);
   assert.match(ticketSource, /showTradeConfirmation\(\{ side: pendingSideValue, symbol, volume \}\)/);
   assert.match(ticketSource, /Shared modal overlay for market execution success and rejected order feedback/);
-  assert.match(feedbackModalSource, /import \{ View, Text, Animated, StyleSheet, Modal \} from ["']react-native["']/);
+  assert.doesNotMatch(
+    feedbackModalSource,
+    /import\s*\{[^}]*\bModal\b[^}]*\}\s*from ["']react-native["']/,
+  );
+  assert.doesNotMatch(feedbackModalSource, /<Modal\b/);
   assert.match(
     feedbackModalSource,
-    /<Modal[\s\S]*visible=\{state\.visible\}[\s\S]*transparent[\s\S]*animationType="none"[\s\S]*presentationStyle="overFullScreen"[\s\S]*statusBarTranslucent[\s\S]*onRequestClose=\{onClose\}[\s\S]*<View style=\{tfmStyles\.overlay\}/,
+    /<View style=\{tfmStyles\.overlay\} pointerEvents="box-none">/,
+  );
+  assert.match(
+    feedbackModalSource,
+    /overlay:\s*\{[\s\S]*\.\.\.StyleSheet\.absoluteFillObject,[\s\S]*zIndex:\s*10050,[\s\S]*elevation:\s*10050/,
   );
   assert.match(feedbackModalSource, /const confirmedSuccessTitle = sideLabel[\s\S]*`\$\{sideLabel\} Order Executed`[\s\S]*["']Order Executed["'][\s\S]*const successTitle = isUnconfirmedSubmission/);
   assert.match(feedbackModalSource, /const successSummaryText = \[state\.symbol, volumeLabel\]\.filter\(Boolean\)\.join\(' - '\)/);
@@ -301,7 +328,7 @@ test('trade buy/sell success feedback uses the shared popup without device vibra
   assert.doesNotMatch(chartSource, /ChartTradeConfirmation|CHART_TRADE_CONFIRMATION|chartTradeConfirmationStack|chartTradeConfirmationDone/);
 });
 
-test('action destination routes are warmed in non-blocking batches', () => {
+test('action destination modules warm without boot-time route prefetch', () => {
   const warmupSource = readSource('src/utils/actionRouteWarmup.ts');
   const tabsSource = readSource('app/(tabs)/_layout.tsx');
   const rootSource = readSource('app/_layout.tsx');
@@ -325,33 +352,18 @@ test('action destination routes are warmed in non-blocking batches', () => {
   const registerLaunchHostSource = readSource('src/features/settings/RegisterLaunchHost.tsx');
   const registerLaunchControllerSource = readSource('src/features/settings/registerLaunchController.ts');
 
-  assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_BATCH_SIZE = 8/);
-  assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_BATCH_DELAY_MS = 16/);
-  assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_INITIAL_DELAY_MS = 0/);
   assert.match(warmupSource, /const ACTION_DEFERRED_MODULE_WARMUP_DELAY_MS = 180/);
   assert.match(warmupSource, /ACTION_DEFERRED_MODULE_WARMUPS/);
   assert.match(warmupSource, /JOURNAL_ROUTE_CACHE_KEY/);
   assert.match(warmupSource, /preloadDeferredRouteModule\(module\.cacheKey, module\.load\)/);
   assert.match(warmupSource, /requestAnimationFrame/);
-  assert.match(warmupSource, /\/quotes/);
-  assert.match(warmupSource, /\/quotes\/details/);
-  assert.match(warmupSource, /\/quotes\/market-statistics/);
-  assert.match(warmupSource, /\/chart/);
-  assert.match(warmupSource, /\/trade/);
-  assert.match(warmupSource, /\/history/);
-  assert.match(warmupSource, /\/settings/);
-  assert.doesNotMatch(warmupSource, /\/settings\/news|\/settings\/mailbox/);
-  assert.match(warmupSource, /\/settings\/user-guide/);
-  assert.match(warmupSource, /\/settings\/help/);
-  assert.match(warmupSource, /\/settings\/about/);
-  assert.match(warmupSource, /\/settings\/brokers/);
-  assert.match(warmupSource, /\/settings\/broker-detail/);
-  assert.match(warmupSource, /\/register-entry/);
-  assert.match(warmupSource, /\/trade\/order-ticket/);
-  assert.match(warmupSource, /\/history\/filter/);
-  assert.match(warmupSource, /\/chart\/objects/);
+  assert.doesNotMatch(
+    warmupSource,
+    /ACTION_ROUTE_WARMUP_PATHS|PrefetchRouter|router\.prefetch|\.prefetch\?\.\(/,
+  );
   assert.match(tabsSource, /import \{ warmActionRoutes \} from '..\/..\/src\/utils\/actionRouteWarmup'/);
-  assert.match(tabsSource, /useEffect\(\(\) => warmActionRoutes\(router\), \[router\]\)/);
+  assert.match(tabsSource, /useEffect\(\(\) => warmActionRoutes\(\), \[\]\)/);
+  assert.doesNotMatch(tabsSource, /useRouter|warmActionRoutes\(router\)|router\.prefetch/);
   assert.match(tabsSource, /import \{ OrderTicketLaunchHost \} from/);
   assert.doesNotMatch(tabsSource, /QuoteInfoLaunchHost/);
   assert.doesNotMatch(tabsSource, /SidebarDestinationHost|BrokersLaunchHost|BrokerDetailLaunchHost|RegisterLaunchHost/);
@@ -1298,7 +1310,6 @@ test('close position actions use the immediate trade path', () => {
   assert.match(hostSource, /ModifyPositionScreen[\s\S]*hosted[\s\S]*onHostedBack=\{closeHost\}/);
   assert.match(tradeScreenSource, /import \{ showTradePositionAction \} from '\.\.\/tradePositionActionHostController'/);
   assert.match(tradeScreenSource, /showTradePositionAction\('close', item\.id\)/);
-  assert.match(tradeScreenSource, /showTradePositionAction\('close-by', item\.id\)/);
   assert.match(tradeScreenSource, /showTradePositionAction\('modify', item\.id\)/);
   assert.doesNotMatch(tradeScreenSource, /router\.push\(\{ pathname: '\/trade\/close-position'/);
   assert.doesNotMatch(tradeScreenSource, /router\.push\(\{ pathname: '\/trade\/close-by'/);
@@ -1310,7 +1321,7 @@ test('close position actions use the immediate trade path', () => {
   assert.match(rowSource, /import \{ showTradePositionAction \} from '\.\.\/\.\.\/\.\.\/features\/trade\/tradePositionActionHostController'/);
   assert.match(rowSource, /onClose=\{\(\) => runOverlayAction\(\(\) => closePositionImmediately\(item, \{[\s\S]*quote: liveQuote,[\s\S]*resolvedLogin: tradingLogin,[\s\S]*\}\)\)\}/);
   assert.match(rowSource, /showTradePositionAction\(destination, item\.id\)/);
-  assert.match(rowSource, /onCloseBy=\{\(\) => runOverlayAction\(\(\) => openPositionAction\('close-by'\)\)\}/);
+  assert.doesNotMatch(rowSource, /onCloseBy|openPositionAction\('close-by'/);
   assert.doesNotMatch(rowSource, /router\.push\(\{ pathname: '\/trade\/close-by'/);
   assert.doesNotMatch(rowSource, /router\.push\(\{ pathname: '\/trade\/modify-position'/);
   assert.match(closeFlowSource, /beginOptimisticClose\(ticketId\)[\s\S]*void positionsApi[\s\S]*\.closePosition\(ticketId\)/);
@@ -1324,10 +1335,9 @@ test('close position actions use the immediate trade path', () => {
   assert.match(closePositionSource, /finishOptimisticClose\(ticketId\)/);
   assert.match(closePositionSource, /rollbackOptimisticClose\(closeSnapshot\)/);
   assert.match(closePositionSource, /Alert\.alert\(feedback\.title, feedback\.message\)/);
-  assert.match(closeBySource, /beginOptimisticClose\(sourcePosition\.id\)[\s\S]*beginOptimisticClose\(selectedPair\.id\)[\s\S]*leaveScreen\(\)[\s\S]*void positionsApi\.closePosition\(sourcePosition\.id, selectedPair\.id\)/);
+  assert.match(closeBySource, /Close By is unavailable for this API contract/);
+  assert.doesNotMatch(closeBySource, /positionsApi|beginOptimisticClose|ticket_by/);
   assert.match(closeBySource, /const leaveScreen = useCallback\(\(\) => \{[\s\S]*if \(hosted\) \{[\s\S]*hideTradePositionActionHost/);
-  assert.match(closeBySource, /finishOptimisticClose\(sourcePosition\.id\)[\s\S]*finishOptimisticClose\(selectedPair\.id\)/);
-  assert.match(closeBySource, /rollbackOptimisticClose\(sourceSnapshot\)[\s\S]*rollbackOptimisticClose\(pairSnapshot\)/);
   assert.match(positionsStateSource, /const OPTIMISTIC_CLOSE_SUPPRESS_MS = 60_000/);
   assert.match(positionsStateSource, /const optimisticCloseUntilByPositionId = new Map<string, number>\(\)/);
   assert.match(positionsStateSource, /beginOptimisticClose: \(positionId\) => \{[\s\S]*markPositionOptimisticallyClosing\(positionId\)[\s\S]*get\(\)\.removePosition\(positionId\)/);

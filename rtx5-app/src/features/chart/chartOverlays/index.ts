@@ -18,7 +18,7 @@ export {
   type ChartOverlayCandle,
 } from './types';
 export { normalizeChartOverlaySymbol } from './symbolUtils';
-export { buildChartOverlayPayload } from './buildPayload';
+export { buildChartOverlayMarkers, buildChartOverlayPayload } from './buildPayload';
 export {
   buildChartPositionStopDragKey,
   parseChartPositionStopDragKey,

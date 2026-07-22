@@ -18,7 +18,8 @@ const DESTINATION_ORDER: ChartConfigDestination[] = [
 
 /**
  * Sidebar-style retained host for Chart Preferences configuration rows.
- * Screens stay mounted; taps only flip visibility so opens feel instant.
+ * Native destination layers stay retained; only the active interactive screen
+ * is mounted.
  */
 export const ChartConfigDestinationHost = memo(function ChartConfigDestinationHost() {
   const layerRefs = useRef<Partial<Record<ChartConfigDestination, View | null>>>({});
@@ -82,31 +83,31 @@ export const ChartConfigDestinationHost = memo(function ChartConfigDestinationHo
             style={[styles.layer, active ? styles.layerVisible : styles.layerHidden]}
             testID={`chart-config-destination-${destination}`}
           >
-            {destination === 'schema-colors' ? (
+            {active && destination === 'schema-colors' ? (
               <ChartPropertiesScreen
                 hosted
-                hostedActive={active}
+                hostedActive
                 onHostedBack={closeHost}
               />
             ) : null}
-            {destination === 'price-source' ? (
+            {active && destination === 'price-source' ? (
               <ChartPriceSourceScreen
                 hosted
-                hostedActive={active}
+                hostedActive
                 onHostedBack={closeHost}
               />
             ) : null}
-            {destination === 'open-order-mode' ? (
+            {active && destination === 'open-order-mode' ? (
               <ChartOpenOrderModeScreen
                 hosted
-                hostedActive={active}
+                hostedActive
                 onHostedBack={closeHost}
               />
             ) : null}
-            {destination === 'alerts' ? (
+            {active && destination === 'alerts' ? (
               <PriceAlertsScreen
                 hosted
-                hostedActive={active}
+                hostedActive
                 onHostedBack={closeHost}
               />
             ) : null}

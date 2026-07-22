@@ -22,14 +22,21 @@ test('login submit uses the shared stable fast press path', () => {
   assert.match(source, /const scheduleLoginKeyboardDismiss = \(\) => \{/);
   assert.match(source, /const dismissKeyboard = \(\) => Keyboard\.dismiss\(\)/);
   assert.match(source, /globalThis\.requestAnimationFrame\(dismissKeyboard\)/);
-  assert.match(source, /runImmediateAction\('login\.submit\.touch'[\s\S]*setIsLoading\(true\);[\s\S]*const snapshot = getLoginCredentialsSnapshot\(\);[\s\S]*void handleLogin\(snapshot\);[\s\S]*scheduleLoginKeyboardDismiss\(\)/);
+  assert.match(source, /runImmediateAction\('login\.submit\.touch'[\s\S]*const snapshot = getLoginCredentialsSnapshot\(\);[\s\S]*void handleLogin\(snapshot\);[\s\S]*scheduleLoginKeyboardDismiss\(\)/);
   assert.match(source, /Keyboard\.dismiss\(\)/);
   assert.doesNotMatch(source, /setIsLoading\(true\);\s*Keyboard\.dismiss\(\);/);
   assert.match(source, /const snapshot = getLoginCredentialsSnapshot\(\)/);
   assert.match(source, /void handleLogin\(snapshot\)/);
-  assert.match(source, /onPress=\{handleLoginPress\}[\s\S]*activateOnTouchStart/);
+  assert.match(source, /onPress=\{handleLoginPress\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart/);
   assert.doesNotMatch(source, /onPressIn=\{handleLoginPress\}/);
-  assert.match(source, /const isLoginSubmitDisabled = isLoading[\s\S]*\|\| isBrokerHealthChecking[\s\S]*\|\| Boolean\(brokerSelectionError\)[\s\S]*\|\| !isSelectedBrokerHealthVerified/);
+  assert.match(
+    source,
+    /const isLoginSubmitDisabled = isLoading\s*\|\|\s*Boolean\(brokerSelectionError\)\s*\|\|\s*!isSelectedBrokerHealthVerified;/,
+  );
+  assert.doesNotMatch(
+    source,
+    /const isLoginSubmitDisabled = isLoading[\s\S]{0,120}isBrokerHealthChecking/,
+  );
   assert.match(source, /disabled=\{isLoginSubmitDisabled\}/);
   assert.match(source, /hitSlop=\{LOGIN_BUTTON_HIT_SLOP\}/);
   assert.match(source, /pressRetentionOffset=\{LOGIN_BUTTON_PRESS_RETENTION_OFFSET\}/);
@@ -152,6 +159,8 @@ test('login validation snapshots the latest committed native field values', () =
   assert.doesNotMatch(source, /globalThis\.requestAnimationFrame\(task\)/);
   assert.doesNotMatch(source, /globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(task, 0\);/);
   assert.match(source, /runImmediateAction\('login\.submit\.touch'[\s\S]*const snapshot = getLoginCredentialsSnapshot\(\);[\s\S]*void handleLogin\(snapshot\);/);
+  assert.match(source, /const loginRequestPromise = loginAPI\(\{/);
+  assert.match(source, /const loginRequestPromise = loginAPI\([\s\S]*setIsLoading\(true\);[\s\S]*const response: any = await loginRequestPromise/);
   assert.match(source, /const brokerIdValueRef = useRef<string \| null>\(null\)/);
   assert.match(source, /const brokerServerUrlValueRef = useRef<string \| null>\(null\)/);
   assert.match(source, /const brokerLogoUrlValueRef = useRef<string \| null>\(null\)/);
@@ -200,7 +209,7 @@ test('login submit has a synchronous duplicate request guard', () => {
 
   assert.match(source, /const loginRequestInFlightRef = useRef\(false\)/);
   assert.match(source, /const loginSubmitPressGuardRef = useRef\(false\)/);
-  assert.match(source, /const LOGIN_SUBMIT_PRESS_GUARD_MS = 350/);
+  assert.match(source, /const LOGIN_SUBMIT_PRESS_GUARD_MS = 120/);
   assert.match(source, /loginSubmitPressGuardTimerRef\.current = setTimeout\(\(\) => \{/);
   assert.match(source, /loginSubmitPressGuardRef\.current = false/);
   assert.match(source, /if \(loginRequestInFlightRef\.current\) \{\s*return;\s*\}/);
@@ -210,7 +219,7 @@ test('login submit has a synchronous duplicate request guard', () => {
 
 test('login atomically commits the validated secure session before navigation', () => {
   const source = readSource('app/login.tsx');
-  const loginRequestIndex = source.indexOf('const response: any = await loginAPI');
+  const loginRequestIndex = source.indexOf('const loginRequestPromise = loginAPI');
   const sessionCommitIndex = source.indexOf('await commitBrokerSession({', loginRequestIndex);
   const routerReplaceIndex = source.indexOf("router.replace('/(tabs)/quotes');", loginRequestIndex);
   const postLoginWorkIndex = source.indexOf('schedulePostLoginWork(() => {', routerReplaceIndex);

@@ -9,14 +9,21 @@ export const baseStyles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     paddingHorizontal: 10, paddingVertical: 6,
   },
-  chartTradeMarketActionButtonBusy: { opacity: 0.5 },
+  // Busy cue without dimming the whole tile (dimming reads as blink/shrink).
+  chartTradeMarketActionButtonBusy: {
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.55)',
+  },
+  // Invalid lot: keep height/layout; only reduce opacity slightly.
+  actionBtnLotInvalid: { opacity: 0.7 },
   chartTradeMarketActionTitle: {
-    color: '#FFFFFF', fontSize: 12, fontWeight: '600',
+    color: '#FFFFFF', fontSize: 12, fontWeight: '700',
     letterSpacing: 0.2, textTransform: 'uppercase', textAlign: 'center',
   },
   chartTradeMarketActionMeta: {
-    color: 'rgba(255,255,255,0.88)', fontSize: 10, fontWeight: '600',
+    color: '#FFFFFF', fontSize: 10, fontWeight: '700',
     marginTop: 1, fontVariant: ['tabular-nums'], textAlign: 'center',
+    opacity: 0.95,
   },
   tradeControlsRow: {
     flexDirection: 'row', direction: 'ltr', alignItems: 'stretch',

@@ -17,14 +17,31 @@ import {
 } from './reconnectBackoff';
 import { redactDiagnosticValue } from '../../utils/securityRedaction';
 import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope';
+import {
+  filterRealtimePositionRows,
+  isAuthoritativeRealtimePositionsBatch,
+} from './realtimePositionPolicy';
+import { extractLiveAccountMetrics } from './accountSocket.helpers';
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 15000;
 const STABLE_CONNECTION_MS = 10_000;
+const POSITIONS_RECONCILE_COOLDOWN_MS = 5_000;
 const AUTH_SESSION_UNAVAILABLE_PATTERN =
   /No authenticated broker session available|Refresh token invalid or expired|No refresh token available/i;
-const ACCOUNT_LIFECYCLE_CHANNELS = ['positions', 'account', 'metrics', 'orders', 'deals', 'history'] as const;
-const LIFECYCLE_CACHE_KEYS = ['orders', 'positionHistory', 'accountDeals', 'deals', 'accountSummary'] as const;
+const ACTIVE_TRADE_CHANNELS = ['positions', 'metrics'] as const;
+const LIFECYCLE_CACHE_KEYS = ['accountSummary'] as const;
+
+export const buildBrokerRealtimeSubscriptionMessages = (
+  accountLogin: string | number,
+): ReadonlyArray<Readonly<{ action: 'subscribe'; channel: string }>> => {
+  const login = String(accountLogin).trim();
+  if (!login) return [];
+  return ACTIVE_TRADE_CHANNELS.map((channel) => Object.freeze({
+    action: 'subscribe' as const,
+    channel: `${channel}.${login}`,
+  }));
+};
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' && !Array.isArray(value)
@@ -90,6 +107,9 @@ class BrokerRealtimeService {
   private activeChannels: string[] = [];
   private connectedAt = 0;
   private acceptedPayloadCount = 0;
+  private positionsReconcileTimer: ReturnType<typeof setTimeout> | null = null;
+  private positionsReconcileIdentity: ActiveBrokerSessionIdentity | null = null;
+  private lastPositionsReconcileAt = 0;
 
   static getInstance(): BrokerRealtimeService {
     if (!BrokerRealtimeService.instance) {
@@ -142,6 +162,7 @@ class BrokerRealtimeService {
     this.reconnectAttempts = 0;
     this.activeChannels = [];
     this.clearReconnectTimer();
+    this.clearPositionsReconcileTimer(true);
     this.teardownSocket();
   }
 
@@ -256,8 +277,8 @@ class BrokerRealtimeService {
   }
 
   private resolveChannels(identity: ActiveBrokerSessionIdentity): string[] {
-    const login = identity.accountLogin;
-    return ACCOUNT_LIFECYCLE_CHANNELS.map((channel) => `${channel}.${login}`);
+    return buildBrokerRealtimeSubscriptionMessages(identity.accountLogin)
+      .map((message) => message.channel);
   }
 
   private subscribe(identity: ActiveBrokerSessionIdentity): void {
@@ -270,9 +291,8 @@ class BrokerRealtimeService {
       return;
     }
 
-    this.send({
-      action: 'subscribe',
-      channels: this.activeChannels,
+    this.activeChannels.forEach((channel) => {
+      this.send({ action: 'subscribe', channel });
     });
   }
 
@@ -293,8 +313,8 @@ class BrokerRealtimeService {
     const data = getPayloadData(record);
     const dataRecord = asRecord(data);
     const eventName =
-      normalizeEventName(record.event ?? record.type ?? record.action) ||
-      normalizeEventName(dataRecord?.event ?? dataRecord?.type ?? dataRecord?.action);
+      normalizeEventName(dataRecord?.type ?? dataRecord?.event ?? dataRecord?.action) ||
+      normalizeEventName(record.type ?? record.event ?? record.action);
 
     let accepted = false;
     if (channel.startsWith('positions.') || eventName.includes('position')) {
@@ -302,23 +322,10 @@ class BrokerRealtimeService {
     }
 
     if (
-      channel.startsWith('account.') ||
       channel.startsWith('metrics.') ||
-      eventName.includes('account') ||
       eventName.includes('metrics')
     ) {
       accepted = this.handleAccount(dataRecord ?? record, identity) || accepted;
-    }
-
-    if (
-      channel.startsWith('orders.') ||
-      channel.startsWith('deals.') ||
-      channel.startsWith('history.') ||
-      eventName.startsWith('order.') ||
-      eventName.startsWith('deal.') ||
-      eventName.startsWith('history.')
-    ) {
-      accepted = this.handleLifecycleEvent(dataRecord ?? record, eventName, identity) || accepted;
     }
     return accepted;
   }
@@ -329,9 +336,7 @@ class BrokerRealtimeService {
     identity: ActiveBrokerSessionIdentity,
   ): boolean {
     if (Array.isArray(data)) {
-      usePositionsState.getState().applyPositionsSnapshot(data, identity.accountLogin, {
-        preserveMissingExisting: false,
-      });
+      this.applyRealtimePositionsBatch(data, eventName, identity);
       return true;
     }
 
@@ -342,47 +347,136 @@ class BrokerRealtimeService {
 
     const positions = record.positions ?? record.items ?? record.data;
     if (Array.isArray(positions)) {
-      usePositionsState.getState().applyPositionsSnapshot(positions, identity.accountLogin, {
-        preserveMissingExisting: false,
-      });
+      this.applyRealtimePositionsBatch(positions, eventName, identity, record);
       return true;
     }
 
     const lifecycleHints = this.getLifecycleHints(record, eventName);
     const nestedPosition = asRecord(record.position) ?? asRecord(record.item);
     if (nestedPosition) {
-      usePositionsState.getState().upsertPosition({
+      this.applyRealtimePositionUpdate({
         ...lifecycleHints,
         ...nestedPosition,
         ticket: nestedPosition.ticket ?? lifecycleHints.ticket,
         position_ticket: nestedPosition.position_ticket ?? lifecycleHints.position_ticket ?? lifecycleHints.ticket,
-      });
+      }, identity);
       this.invalidateLifecycleQueries(eventName, identity);
       return true;
     }
 
-    usePositionsState.getState().upsertPosition({
+    this.applyRealtimePositionUpdate({
       ...lifecycleHints,
       ...record,
-    });
+    }, identity);
     this.invalidateLifecycleQueries(eventName, identity);
     return true;
+  }
+
+  private applyRealtimePositionsBatch(
+    rows: unknown[],
+    eventName: string,
+    identity: ActiveBrokerSessionIdentity,
+    envelope?: Record<string, unknown>,
+  ): void {
+    const positionsState = usePositionsState.getState();
+    const { acceptedRows, rejectedRows } = filterRealtimePositionRows(
+      rows,
+      positionsState.positions,
+    );
+    if (rejectedRows > 0) {
+      this.schedulePositionsReconciliation(identity);
+    }
+
+    // A clean, explicitly full/snapshot batch may replace the ledger. Any
+    // scoped/default batch preserves missing rows. A malformed full batch also
+    // preserves them until canonical REST reconciliation arrives, avoiding a
+    // second disappear/reappear blink while rejecting unsafe event ids.
+    const isAuthoritative =
+      rejectedRows === 0 &&
+      isAuthoritativeRealtimePositionsBatch(eventName, envelope);
+    positionsState.applyPositionsSnapshot(acceptedRows, identity.accountLogin, {
+      preserveMissingExisting: !isAuthoritative,
+    });
+  }
+
+  private applyRealtimePositionUpdate(
+    row: Record<string, unknown>,
+    identity: ActiveBrokerSessionIdentity,
+  ): void {
+    const positionsState = usePositionsState.getState();
+    const { acceptedRows, rejectedRows } = filterRealtimePositionRows(
+      [row],
+      positionsState.positions,
+    );
+    if (rejectedRows > 0) {
+      this.schedulePositionsReconciliation(identity);
+      return;
+    }
+
+    if (acceptedRows[0]) {
+      positionsState.upsertPosition(acceptedRows[0]);
+    }
+  }
+
+  private schedulePositionsReconciliation(identity: ActiveBrokerSessionIdentity): void {
+    if (this.positionsReconcileTimer) {
+      if (sameIdentity(this.positionsReconcileIdentity, identity)) {
+        return;
+      }
+      clearTimeout(this.positionsReconcileTimer);
+      this.positionsReconcileTimer = null;
+    }
+
+    if (!sameIdentity(this.positionsReconcileIdentity, identity)) {
+      this.positionsReconcileIdentity = identity;
+      this.lastPositionsReconcileAt = 0;
+    }
+
+    const delayMs = Math.max(
+      0,
+      this.lastPositionsReconcileAt + POSITIONS_RECONCILE_COOLDOWN_MS - Date.now(),
+    );
+    this.positionsReconcileTimer = setTimeout(() => {
+      this.positionsReconcileTimer = null;
+      const currentIdentity = this.resolveIdentity();
+      if (
+        !currentIdentity ||
+        !sameIdentity(currentIdentity, identity) ||
+        !isActiveBrokerSessionCurrent(identity)
+      ) {
+        this.positionsReconcileIdentity = null;
+        this.lastPositionsReconcileAt = 0;
+        return;
+      }
+
+      this.lastPositionsReconcileAt = Date.now();
+      void usePositionsState.getState().refreshPositions(identity.accountLogin);
+    }, delayMs);
+  }
+
+  private clearPositionsReconcileTimer(resetIdentity = false): void {
+    if (this.positionsReconcileTimer) {
+      clearTimeout(this.positionsReconcileTimer);
+      this.positionsReconcileTimer = null;
+    }
+    if (resetIdentity) {
+      this.positionsReconcileIdentity = null;
+      this.lastPositionsReconcileAt = 0;
+    }
   }
 
   private handleAccount(
     data: Record<string, unknown>,
     identity: ActiveBrokerSessionIdentity,
   ): boolean {
-    const metricsRecord = asRecord(data.metrics) ?? asRecord(data.account) ?? data;
-    const login = numberFrom(metricsRecord.login, metricsRecord.account_login, identity.accountLogin);
+    // Use the same tested normalizer as the legacy account socket. It handles
+    // nested envelopes, numeric strings, snake/camel aliases, and skips blank
+    // fields so a partial event cannot clear a valid metric with a fake zero.
+    const extractedMetrics = extractLiveAccountMetrics(data);
+    const login = extractedMetrics?.login ?? numberFrom(identity.accountLogin);
     const metrics = {
+      ...(extractedMetrics ?? {}),
       ...(login !== undefined ? { login } : {}),
-      ...(numberFrom(metricsRecord.balance) !== undefined ? { balance: numberFrom(metricsRecord.balance)! } : {}),
-      ...(numberFrom(metricsRecord.equity) !== undefined ? { equity: numberFrom(metricsRecord.equity)! } : {}),
-      ...(numberFrom(metricsRecord.margin, metricsRecord.usedMargin) !== undefined ? { margin: numberFrom(metricsRecord.margin, metricsRecord.usedMargin)! } : {}),
-      ...(numberFrom(metricsRecord.margin_free, metricsRecord.freeMargin) !== undefined ? { margin_free: numberFrom(metricsRecord.margin_free, metricsRecord.freeMargin)! } : {}),
-      ...(numberFrom(metricsRecord.margin_level, metricsRecord.marginLevel) !== undefined ? { margin_level: numberFrom(metricsRecord.margin_level, metricsRecord.marginLevel)! } : {}),
-      ...(numberFrom(metricsRecord.floating, metricsRecord.pnl, metricsRecord.profit) !== undefined ? { floating: numberFrom(metricsRecord.floating, metricsRecord.pnl, metricsRecord.profit)! } : {}),
     };
     if (Object.keys(metrics).length === 0) return false;
     useLiveAccountState.getState().updateMetrics(metrics);
@@ -415,26 +509,6 @@ class BrokerRealtimeService {
     return hints;
   }
 
-  private handleLifecycleEvent(
-    data: Record<string, unknown>,
-    eventName: string,
-    identity: ActiveBrokerSessionIdentity,
-  ): boolean {
-    let accepted = false;
-    const position = asRecord(data.position);
-    if (position) {
-      accepted = this.handlePositions(data, eventName, identity) || accepted;
-    }
-
-    const metrics = asRecord(data.metrics) ?? asRecord(data.account);
-    if (metrics) {
-      accepted = this.handleAccount(metrics, identity) || accepted;
-    }
-
-    this.invalidateLifecycleQueries(eventName, identity);
-    return accepted || Boolean(eventName);
-  }
-
   private invalidateLifecycleQueries(
     eventName: string,
     identity: ActiveBrokerSessionIdentity,
@@ -444,9 +518,6 @@ class BrokerRealtimeService {
     }
 
     const shouldInvalidate =
-      eventName.startsWith('order.') ||
-      eventName.startsWith('deal.') ||
-      eventName.startsWith('history.') ||
       eventName.includes('partial.closed') ||
       eventName.includes('closed') ||
       eventName.includes('filled') ||
@@ -591,6 +662,7 @@ class BrokerRealtimeService {
     this.activeChannels = [];
     this.activeIdentity = null;
     this.clearReconnectTimer();
+    this.clearPositionsReconcileTimer(true);
     this.clearStableConnectionTimer();
     this.teardownSocket();
   }

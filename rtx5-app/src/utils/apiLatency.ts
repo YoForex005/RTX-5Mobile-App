@@ -188,12 +188,18 @@ export async function timedFetch(
   const method = (meta.method ?? init?.method ?? 'GET').toUpperCase();
   const endpoint = meta.endpoint ?? String(input);
   const timeoutMs = meta.timeoutMs ?? API_FETCH_TIMEOUT_MS;
-  const timedRequest = createTimedFetchInit(init, timeoutMs);
+  // timeoutMs <= 0 (or non-finite) disables the client-side abort entirely.
+  // Chart candle history uses this: a slow backend must be awaited, not failed
+  // with "Request timed out". The caller's own AbortSignal still cancels.
+  const hasClientTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0;
+  const timedRequest = hasClientTimeout ? createTimedFetchInit(init, timeoutMs) : null;
 
   try {
-    const fetchPromise = fetch(input, timedRequest.init);
+    const fetchPromise = fetch(input, timedRequest ? timedRequest.init : init);
     fetchPromise.catch(() => undefined);
-    const response = await Promise.race([fetchPromise, timedRequest.timeoutPromise]);
+    const response = timedRequest
+      ? await Promise.race([fetchPromise, timedRequest.timeoutPromise])
+      : await fetchPromise;
     recordApiLatency({
       label: meta.label,
       method,
@@ -205,7 +211,7 @@ export async function timedFetch(
     });
     return response;
   } catch (error) {
-    const resolvedError = timedRequest.state.didTimeout ? createTimeoutError(timeoutMs) : error;
+    const resolvedError = timedRequest?.state.didTimeout ? createTimeoutError(timeoutMs) : error;
     recordApiLatency({
       label: meta.label,
       method,
@@ -218,7 +224,7 @@ export async function timedFetch(
     });
     throw resolvedError;
   } finally {
-    timedRequest.cleanup();
+    timedRequest?.cleanup();
   }
 }
 import { redactSensitiveString } from './securityRedaction';

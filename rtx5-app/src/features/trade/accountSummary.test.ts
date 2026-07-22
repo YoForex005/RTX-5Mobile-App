@@ -269,3 +269,21 @@ test('resolveRenderableTradeAccountSummary derives free margin and margin level 
   assert.equal(Number(summary.freeMargin.toFixed(2)), 9974.97);
   assert.equal(Number(summary.marginLevel.toFixed(2)), 39999.88);
 });
+
+test('resolveRenderableTradeAccountSummary preserves a received margin level while margin is unavailable', () => {
+  const summary = resolveRenderableTradeAccountSummary(
+    {
+      balance: 10000,
+      credit: 0,
+      floating: 0,
+      equity: 10000,
+      margin: 0,
+      freeMargin: 10000,
+      marginLevel: 8000,
+      currency: 'USD',
+    },
+    0,
+  );
+
+  assert.equal(summary.marginLevel, 8000);
+});

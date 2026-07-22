@@ -17,6 +17,10 @@ const requiredNames = [
   'EXPO_PUBLIC_DEMO_API_BASE_URL',
   'EXPO_PUBLIC_TERMS_URL',
   'EXPO_PUBLIC_PRIVACY_POLICY_URL',
+  // Chart candle history after login — without these, OTA builds fail closed
+  // ("Candle history contract is unconfigured") even when local .env is correct.
+  'EXPO_PUBLIC_CANDLE_HISTORY_PATH',
+  'EXPO_PUBLIC_CANDLE_HISTORY_QUERY_STYLE',
 ];
 
 const quoteWindowsArg = (value) => {

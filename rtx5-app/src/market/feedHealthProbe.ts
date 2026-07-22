@@ -8,7 +8,10 @@ import {
 import { resolveEffectiveFeedAuthForSession } from '../api/feedAuthContract';
 import { timedFetch } from '../utils/apiLatency';
 import { reportFeedServerStatus } from './feedHealthRuntime';
-import type { NormalizedFeedServerHealth } from './feedHealthState';
+import type {
+  FeedHealthThresholds,
+  NormalizedFeedServerHealth,
+} from './feedHealthState';
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' && !Array.isArray(value)
@@ -17,6 +20,44 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
 
 const optionalBoolean = (value: unknown): boolean | null =>
   typeof value === 'boolean' ? value : null;
+
+const cleanString = (value: unknown): string =>
+  typeof value === 'string' ? value.trim() : '';
+
+const boundedMilliseconds = (
+  value: unknown,
+  minimum: number,
+  maximum: number,
+): number | null => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return value >= minimum && value <= maximum ? value : null;
+};
+
+/**
+ * Accept only the broker-approved health policy carried by a confirmed status
+ * response. Missing, partial, string-valued, or absurd policies stay absent so
+ * execution continues to fail closed instead of inventing mobile defaults.
+ */
+export const normalizeFeedHealthThresholds = (
+  value: unknown,
+): FeedHealthThresholds | null => {
+  const policy = asRecord(value);
+  if (!policy) return null;
+  const localTickStaleAfterMs = boundedMilliseconds(
+    policy.local_tick_stale_after_ms ?? policy.localTickStaleAfterMs,
+    500,
+    60_000,
+  );
+  const serverStatusStaleAfterMs = boundedMilliseconds(
+    policy.server_status_stale_after_ms ?? policy.serverStatusStaleAfterMs,
+    5_000,
+    300_000,
+  );
+  if (localTickStaleAfterMs === null || serverStatusStaleAfterMs === null) {
+    return null;
+  }
+  return Object.freeze({ localTickStaleAfterMs, serverStatusStaleAfterMs });
+};
 
 /**
  * Status endpoints that require feed auth return auth_accepted=false without
@@ -29,6 +70,7 @@ export const buildAuthenticatedFeedStatusUrl = (
     brokerId: string;
     feedAuthContext: FeedAuthContext;
     feedToken?: string | null;
+    accessToken?: string | null;
     accountLogin?: string;
   },
 ): string => {
@@ -40,12 +82,15 @@ export const buildAuthenticatedFeedStatusUrl = (
     feedToken: input.feedToken,
   });
   const auth = effective.feedAuthContext;
-  if (auth.mode !== 'query' || !effective.feedToken) {
+  const credential = auth.mode === 'query' && auth.credential === 'access_token'
+    ? cleanString(input.accessToken)
+    : cleanString(effective.feedToken);
+  if (auth.mode !== 'query' || !credential) {
     return base;
   }
   try {
     const url = new URL(base);
-    url.searchParams.set(auth.tokenQueryParam, effective.feedToken);
+    url.searchParams.set(auth.tokenQueryParam, credential);
     if (auth.brokerIdQueryParam) {
       url.searchParams.set(auth.brokerIdQueryParam, input.brokerId);
     }
@@ -99,11 +144,22 @@ export const normalizeConfirmedFeedStatus = (
   const providers = Array.isArray(record.providers)
     ? record.providers.map(asRecord).filter((provider): provider is Record<string, unknown> => Boolean(provider))
     : [];
-  const activeProvider = typeof record.feed_provider === 'string'
-    ? providers.find((provider) => provider.id === record.feed_provider)
+  const declaredProviderId = cleanString(record.feed_provider).toLowerCase();
+  const activeProvider = declaredProviderId
+    ? providers.find((provider) => cleanString(provider.id).toLowerCase() === declaredProviderId)
     : undefined;
-  const providerConnected = optionalBoolean(activeProvider?.connected) ??
-    optionalBoolean(record.cserver_connected);
+  // `cserver_connected` describes only the cserver leg. Some broker status
+  // payloads declare a different active provider (for example rtx5_hub/t4b)
+  // without including a provider row for the declared id. Falling back to an
+  // unrelated cserver=false in that case falsely marks the live feed DOWN and
+  // prevents the quote socket from opening at all. Preserve unknown (null)
+  // unless cserver is explicitly the declared provider or no provider id was
+  // supplied by a legacy status response.
+  const providerConnected = activeProvider
+    ? optionalBoolean(activeProvider.connected)
+    : declaredProviderId === '' || declaredProviderId === 'cserver'
+      ? optionalBoolean(record.cserver_connected)
+      : null;
   const upstreamConnected = optionalBoolean(record.upstream_connected);
   const marketAvailable = optionalBoolean(
     record.market_available ?? record.marketAvailable,
@@ -132,6 +188,9 @@ export const normalizeConfirmedFeedStatus = (
     optionalBoolean(record.auth_accepted),
     credentialPresented,
   );
+  const thresholds = normalizeFeedHealthThresholds(
+    record.health_policy ?? record.healthPolicy,
+  );
 
   return Object.freeze({
     observedAt,
@@ -146,6 +205,7 @@ export const normalizeConfirmedFeedStatus = (
     scheduledMarketClosed,
     stale: record.stale === true,
     degraded: record.degraded === true,
+    ...(thresholds ? { thresholds } : {}),
   });
 };
 
@@ -177,6 +237,7 @@ export const probeActiveFeedHealth = async (
       brokerId: capture.session.brokerId,
       feedAuthContext: capture.session.feedAuthContext,
       feedToken: capture.credentials.feedToken,
+      accessToken: capture.credentials.accessToken,
       accountLogin: capture.session.accountLogin,
     });
     // Did we actually attach a feed credential to this status request?

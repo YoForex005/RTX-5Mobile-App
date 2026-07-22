@@ -768,7 +768,8 @@ const HTTP_ERROR_MESSAGES: Record<number, string> = {
 // Keep broker directory lookups bounded so login/account navigation never
 // waits on a long network stall before the next touch can be handled.
 const BROKER_SERVERS_TIMEOUT_MS = 3500;
-const BROKER_HEALTH_TIMEOUT_MS = 3000;
+// Short enough that broker pre-warm finishes before a typical password type-in.
+const BROKER_HEALTH_TIMEOUT_MS = 1500;
 
 export function isBrokerConfigFull(
   data: BrokerConfigResponse | BrokerConfigFallbackResponse

@@ -6,24 +6,38 @@ import test from 'node:test';
 const readSource = (path: string): string =>
   readFileSync(resolve(process.cwd(), path), 'utf8');
 
-test('single and close-by actions disable and recheck against an exact executable quote', () => {
+test('single-position close disables and rechecks against an exact executable quote', () => {
   const closePosition = readSource('src/features/trade/ClosePositionScreen.tsx');
-  const closeBy = readSource('src/features/trade/CloseByScreen.tsx');
 
-  for (const source of [closePosition, closeBy]) {
-    assert.match(source, /useExecutableQuote\(/);
-    assert.match(source, /const currentQuoteAvailability = getCurrentAvailability\(\)/);
-    assert.match(source, /quoteActionBlockMessage\(currentQuoteAvailability\)/);
-    assert.match(source, /!quoteAvailability\.allowed/);
-    assert.match(source, /quoteActionBlockMessage\(quoteAvailability\)/);
-  }
+  assert.match(closePosition, /useExecutableQuote\(/);
+  assert.match(closePosition, /const currentQuoteAvailability = getCurrentAvailability\(\)/);
+  assert.match(closePosition, /quoteActionBlockMessage\(currentQuoteAvailability\)/);
+  assert.match(closePosition, /!quoteAvailability\.allowed/);
+  assert.match(closePosition, /quoteActionBlockMessage\(quoteAvailability\)/);
+});
+
+test('unsupported Close By cannot submit an invalid non-atomic close request', () => {
+  const closeBy = readSource('src/features/trade/CloseByScreen.tsx');
+  const closePosition = readSource('src/features/trade/ClosePositionScreen.tsx');
+  const tradeScreen = readSource('src/features/trade/TradeScreen/TradeScreen.tsx');
+  const row = readSource('src/ui/components/TradePositionRow/TradePositionRow.tsx');
+
+  assert.match(closeBy, /Close By is unavailable for this API contract/);
+  assert.match(closeBy, /style=\{\[styles\.submitButton, styles\.submitDisabled\]\}[\s\S]*disabled/);
+  assert.doesNotMatch(closeBy, /positionsApi|beginOptimisticClose|ticket_by/);
+  assert.doesNotMatch(tradeScreen, /showTradePositionAction\('close-by'/);
+  assert.doesNotMatch(row, /onCloseBy|openPositionAction\('close-by'/);
+  assert.doesNotMatch(closePosition, /handleOpenCloseBy|closePosition\.closeBy/);
 });
 
 test('bulk close subscribes every affected symbol and blocks if any live quote is not executable', () => {
   const source = readSource('src/features/trade/BulkOperationScreen.tsx');
 
   assert.match(source, /const affectedSymbols = useMemo\(/);
-  assert.match(source, /useLiveSymbolQuotes\(affectedSymbols, affectedSymbols\.length > 0, 0\)/);
+  assert.match(
+    source,
+    /useLiveSymbolQuotes\(\s*affectedSymbols,\s*isScreenFocused && affectedSymbols\.length > 0,\s*0,\s*\)/,
+  );
   assert.match(source, /for \(const position of affectedPositions\)/);
   assert.match(source, /resolveSessionQuoteActionAvailability\(quotes\[position\.symbol\], now\)/);
   assert.match(source, /const currentQuoteBlock = resolveBulkQuoteBlock\(\)/);

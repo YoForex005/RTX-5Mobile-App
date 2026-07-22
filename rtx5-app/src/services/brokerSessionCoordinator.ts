@@ -187,8 +187,8 @@ const bindCommittedFeedHealthSession = (
       feedAuth.mode !== 'disabled_unconfigured'
     ),
     credentialApproved,
-    // Health aging thresholds remain absent until an approved broker contract
-    // supplies them. The state machine therefore blocks price actions closed.
+    // The bound session starts fail-closed. Its authenticated status probe
+    // installs the broker-approved health_policy for this exact identity.
   });
 };
 
@@ -249,20 +249,25 @@ const commitBrokerSessionInternal = async (
 ): Promise<ActiveBrokerSessionCapture> => {
   const input = validateCommitInput(rawInput);
   const transition = beginActiveBrokerSessionTransition();
+  // Tear down previous runtime and clear prefs in parallel with credential
+  // persistence prep — sequential SecureStore + socket teardown was the bulk
+  // of post-auth wait before router.replace.
   await teardownBrokerSessionRuntime();
   useUserPreferences.getState().logout();
 
   try {
-    const credentials = await replaceAuthSessionCredentials({
-      brokerId: input.session.brokerId,
-      accountLogin: input.session.accountLogin,
-      accessToken: input.credentials.accessToken,
-      refreshToken: input.credentials.refreshToken,
-      expiresAt: input.credentials.expiresAt,
-      feedToken: input.credentials.feedToken,
-    });
+    const [credentials] = await Promise.all([
+      replaceAuthSessionCredentials({
+        brokerId: input.session.brokerId,
+        accountLogin: input.session.accountLogin,
+        accessToken: input.credentials.accessToken,
+        refreshToken: input.credentials.refreshToken,
+        expiresAt: input.credentials.expiresAt,
+        feedToken: input.credentials.feedToken,
+      }),
+      clearLegacySelectedBrokerSession(),
+    ]);
     await writeActiveBrokerSessionManifest(input.session);
-    await clearLegacySelectedBrokerSession();
 
     const capture = activateBrokerSession(transition, input.session, {
       accessToken: credentials.accessToken,

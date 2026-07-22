@@ -10,8 +10,8 @@ import {
 
 /**
  * Sidebar-style retained host for About action rows that are not already
- * sidebar destinations (User Guide is). Screens stay mounted; taps only flip
- * visibility so open/back feel instant.
+ * sidebar destinations (User Guide is). Native layers stay retained, while
+ * only the active detail screen is mounted.
  */
 export const AboutDetailDestinationHost = memo(function AboutDetailDestinationHost() {
   const layerRefs = useRef<Partial<Record<AboutDetailDestination, View | null>>>({});
@@ -75,27 +75,27 @@ export const AboutDetailDestinationHost = memo(function AboutDetailDestinationHo
             style={[styles.layer, active ? styles.layerVisible : styles.layerHidden]}
             testID={`about-detail-destination-${destination}`}
           >
-            {destination === 'privacy-policy' ? (
+            {active && destination === 'privacy-policy' ? (
               <LegalDocumentScreen
                 document="privacy"
                 hosted
-                hostedActive={active}
+                hostedActive
                 onHostedBack={closeHost}
               />
             ) : null}
-            {destination === 'account-deletion' ? (
+            {active && destination === 'account-deletion' ? (
               <DeveloperContactRequestScreen
                 mode="account-deletion"
                 hosted
-                hostedActive={active}
+                hostedActive
                 onHostedBack={closeHost}
               />
             ) : null}
-            {destination === 'contact-developer' ? (
+            {active && destination === 'contact-developer' ? (
               <DeveloperContactRequestScreen
                 mode="contact-developer"
                 hosted
-                hostedActive={active}
+                hostedActive
                 onHostedBack={closeHost}
               />
             ) : null}

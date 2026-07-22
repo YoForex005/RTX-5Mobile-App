@@ -1431,6 +1431,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._hidden = false;
     this._locked = false;
     this._sticky = false;
+    // Chart Preferences → "Show object descriptions". When false, drawing
+    // price/text labels stay off on both iOS and Android.
+    this._showObjectDescriptions = true;
     this._crosshairLocked = false;
     this._crosshairVisible = false;
     // True once a touch gesture has ever had >=2 fingers down (a pinch/zoom).
@@ -4188,6 +4191,61 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         tool.remove();
       }
     }, this);
+  };
+
+  /**
+   * Apply Chart Preferences → Show object descriptions to every live drawing.
+   * Safe to call repeatedly from the RN bridge on both platforms.
+   */
+  AdvancedDrawingToolsManager.prototype.setShowObjectDescriptions = function (enabled) {
+    this._showObjectDescriptions = enabled !== false;
+    var show = this._showObjectDescriptions;
+    var self = this;
+    (this._records || []).forEach(function (record) {
+      if (!record) {
+        return;
+      }
+      var primitive = record.primitive;
+      if (!primitive) {
+        return;
+      }
+      var nextOptions = {
+        showPrice: show,
+        showPriceAxisLabel: show,
+        showLabels: show,
+        showLabel: show,
+      };
+      try {
+        if (typeof primitive.applyOptions === 'function') {
+          primitive.applyOptions(nextOptions);
+        } else if (primitive._options && typeof primitive._options === 'object') {
+          Object.keys(nextOptions).forEach(function (key) {
+            if (key in primitive._options || true) {
+              primitive._options[key] = nextOptions[key];
+            }
+          });
+          if (typeof primitive.requestUpdate === 'function') {
+            primitive.requestUpdate();
+          }
+        }
+      } catch (_applyError) {}
+      // Keep serialized record fields in sync so reloads respect the toggle.
+      if (typeof record.showPrice === 'boolean' || 'showPrice' in record) {
+        record.showPrice = show;
+      }
+      if (typeof record.showPriceAxisLabel === 'boolean' || 'showPriceAxisLabel' in record) {
+        record.showPriceAxisLabel = show;
+      }
+    });
+    if (typeof self._emitDrawingsChanged === 'function') {
+      try {
+        self._emitDrawingsChanged();
+      } catch (_emitError) {}
+    }
+  };
+
+  AdvancedDrawingToolsManager.prototype.getShowObjectDescriptions = function () {
+    return this._showObjectDescriptions !== false;
   };
 
   window.DrawingToolsManager = AdvancedDrawingToolsManager;

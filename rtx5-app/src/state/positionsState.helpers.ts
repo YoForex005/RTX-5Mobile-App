@@ -95,6 +95,91 @@ function isRenderablePosition(position: PositionItem): boolean {
   );
 }
 
+const arePositionItemsShallowEqual = (a: PositionItem, b: PositionItem): boolean => {
+  if (a === b) {
+    return true;
+  }
+  const aKeys = Object.keys(a) as Array<keyof PositionItem>;
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) {
+    return false;
+  }
+  for (const key of aKeys) {
+    if (!Object.is(a[key], (b as Record<string, unknown>)[key as string])) {
+      return false;
+    }
+  }
+  return true;
+};
+
+export function arePositionListsEquivalent(
+  current: PositionItem[],
+  next: PositionItem[],
+): boolean {
+  if (current === next) {
+    return true;
+  }
+  if (current.length !== next.length) {
+    return false;
+  }
+  for (let index = 0; index < next.length; index += 1) {
+    if (!arePositionItemsShallowEqual(current[index], next[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Builds the identity used to decide whether the recoverable open-position
+ * ledger needs another AsyncStorage write. Live currentPrice / pnl ticks are
+ * intentionally excluded: they are immediately stale after a cold start and
+ * are replaced by the next broker update. Everything that describes the
+ * position itself remains included so opens, closes, partial closes, costs,
+ * SL/TP edits, and optimistic convergence are persisted promptly.
+ */
+export function buildOpenPositionsCacheSignature(positions: PositionItem[]): string {
+  return JSON.stringify(
+    positions.map((position) => ({
+      id: String(position.id),
+      symbol: position.symbol,
+      side: position.side === 'sell' ? 'sell' : 'buy',
+      volume: Number(position.volume) || 0,
+      openPrice: Number(position.openPrice) || 0,
+      swap: Number(position.swap) || 0,
+      commission: Number(position.commission) || 0,
+      openTime: position.openTime,
+      sl: Number(position.sl) || 0,
+      tp: Number(position.tp) || 0,
+      clientCreatedAt:
+        typeof position.clientCreatedAt === 'number' && Number.isFinite(position.clientCreatedAt)
+          ? position.clientCreatedAt
+          : null,
+      clientModifiedAt:
+        typeof position.clientModifiedAt === 'number' && Number.isFinite(position.clientModifiedAt)
+          ? position.clientModifiedAt
+          : null,
+    })),
+  );
+}
+
+export function hasPositionPresenceConverged(
+  positions: PositionItem[],
+  positionId: string | number,
+  expectedPresence: boolean,
+): boolean {
+  const matchingPosition = positions.find(
+    (position) => String(position.id) === String(positionId),
+  );
+
+  // A locally inserted row still carries clientCreatedAt. Its presence proves
+  // only that the optimistic paint worked, not that authoritative REST has
+  // caught up. Full-ledger confirmation clears that marker.
+  return expectedPresence
+    ? Boolean(matchingPosition && matchingPosition.clientCreatedAt === undefined)
+    : matchingPosition === undefined;
+}
+
 export function buildMergedPositions(
   currentPositions: PositionItem[],
   dtos: any[],
@@ -125,12 +210,22 @@ export function buildMergedPositions(
 
   const mergedMapped = mapped.map((mappedPosition) => {
     const existing = currentPositions.find((position) => position.id === mappedPosition.id);
-    const { clientCreatedAt: _confirmedClientCreatedAt, ...confirmedPosition } = mappedPosition;
+    const { clientCreatedAt: mappedClientCreatedAt, ...confirmedPosition } = mappedPosition;
+    // Incremental websocket batches must not clear the post-order convergence
+    // marker. The next partial/empty batch could otherwise remove the new row
+    // before the authoritative REST ledger has caught up. Full snapshots keep
+    // the existing behavior and clear the marker once they confirm the ticket.
+    const retainedClientCreatedAt = options.preserveMissingExisting
+      ? existing?.clientCreatedAt ?? mappedClientCreatedAt
+      : undefined;
     if (existing?.clientModifiedAt) {
       const modAgeMs = now - existing.clientModifiedAt;
       if (modAgeMs >= 0 && modAgeMs < preserveModifiedMs) {
         return {
           ...confirmedPosition,
+          ...(retainedClientCreatedAt !== undefined
+            ? { clientCreatedAt: retainedClientCreatedAt }
+            : {}),
           sl: existing.sl,
           tp: existing.tp,
           clientModifiedAt: existing.clientModifiedAt,
@@ -140,11 +235,19 @@ export function buildMergedPositions(
 
     return {
       ...confirmedPosition,
+      ...(retainedClientCreatedAt !== undefined
+        ? { clientCreatedAt: retainedClientCreatedAt }
+        : {}),
       clientModifiedAt: existing?.clientModifiedAt,
     };
   });
 
-  return dedupePositionsById([...preservedMissingPositions, ...mergedMapped]).sort(
+  const merged = dedupePositionsById([...preservedMissingPositions, ...mergedMapped]).sort(
     (a, b) => new Date(b.openTime).getTime() - new Date(a.openTime).getTime(),
   );
+
+  // Refresh polls usually return the same ledger. Keeping the previous array
+  // identity lets every subscribed screen (retained tabs, warmed action
+  // routes) skip re-rendering instead of reconciling on each 3s poll.
+  return arePositionListsEquivalent(currentPositions, merged) ? currentPositions : merged;
 }

@@ -39,6 +39,39 @@ test('a websocket tick replaces REST non-tradable provenance instead of carrying
   assert.equal(next?.degraded, undefined);
 });
 
+test('live quote snapshots preserve explicit change percent and derive it from previous close', () => {
+  const explicit = applyLiveQuoteTickToSnapshot('EURUSD', undefined, {
+    symbol: 'EURUSD',
+    bid: 1.09,
+    ask: 1.0902,
+    changePct: -1.25,
+    previousClose: 1.1,
+    timestamp: 1_777_410_001,
+    receivedAt: 1_777_410_001_000,
+  }, 1);
+  const zero = applyLiveQuoteTickToSnapshot('GBPUSD', undefined, {
+    symbol: 'GBPUSD',
+    bid: 1.25,
+    ask: 1.2502,
+    changePct: 0,
+    previousClose: 1.2,
+    timestamp: 1_777_410_002,
+    receivedAt: 1_777_410_002_000,
+  }, 2);
+  const derived = applyLiveQuoteTickToSnapshot('XAUUSD', undefined, {
+    symbol: 'XAUUSD',
+    bid: 105,
+    ask: 105.1,
+    previousClose: 100,
+    timestamp: 1_777_410_003,
+    receivedAt: 1_777_410_003_000,
+  }, 3);
+
+  assert.equal(explicit?.changePct, -1.25);
+  assert.equal(zero?.changePct, 0);
+  assert.equal(derived?.changePct, 5);
+});
+
 test('applyLiveQuoteTickToSnapshot refreshes duplicate backend snapshots', () => {
   const first = applyLiveQuoteTickToSnapshot(
     'EURUSD',

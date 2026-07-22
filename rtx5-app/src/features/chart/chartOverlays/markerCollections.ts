@@ -199,6 +199,16 @@ export const buildHmrMarkers = (candles: ChartOverlayCandle[]): ChartOverlayMark
   return selected.slice(-MAX_HMR_MARKERS);
 };
 
+/** Normalize close times to candle time units (unix seconds on the chart). */
+const toChartCandleTimeSeconds = (raw: unknown): number | null => {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  // ms timestamps are ~1e12+; candle series times are unix seconds.
+  if (value > 1e12) return Math.floor(value / 1000);
+  if (value > 1e10) return Math.floor(value / 1000);
+  return Math.floor(value);
+};
+
 export const buildClosedPositionMarkers = (
   candles: ChartOverlayCandle[],
   closedPositions: ClosedPosition[],
@@ -212,28 +222,32 @@ export const buildClosedPositionMarkers = (
 
   return closedPositions
     .filter((position) => normalizeChartOverlaySymbol(position.symbol) === normalizedChartSymbol)
-    .filter((position) => {
-      const tc = Number(position.time_close);
-      const pc = Number(position.price_close ?? position.price_current);
-      return Number.isFinite(tc) && Number.isFinite(pc);
-    })
-    .filter((position) => {
-      const time = Number(position.time_close ?? 0);
-      return time >= fromTime && time <= toTime;
-    })
-    .sort((left, right) => Number(left.time_close ?? 0) - Number(right.time_close ?? 0))
+    .map((position) => ({
+      position,
+      closeTime: toChartCandleTimeSeconds(position.time_close),
+      closePrice: Number(position.price_close ?? position.price_current),
+    }))
+    .filter(
+      (entry): entry is { position: ClosedPosition; closeTime: number; closePrice: number } =>
+        entry.closeTime != null
+        && Number.isFinite(entry.closePrice)
+        && entry.closePrice > 0
+        && entry.closeTime >= fromTime
+        && entry.closeTime <= toTime,
+    )
+    .sort((left, right) => left.closeTime - right.closeTime)
     .slice(-MAX_CLOSED_POSITION_MARKERS)
-    .reduce<ChartOverlayMarker[]>((accumulator, position) => {
-      const alignedTime = findNearestCandleTime(candles, Number(position.time_close ?? 0));
+    .reduce<ChartOverlayMarker[]>((accumulator, entry) => {
+      const alignedTime = findNearestCandleTime(candles, entry.closeTime);
       if (!alignedTime) return accumulator;
 
-      const markerPrice = Number(position.price_close ?? position.price_current ?? 0);
-      const isBuy = toUpper(position.side) === 'BUY';
+      const isBuy = toUpper(entry.position.side) === 'BUY';
+      const ticket = entry.position.ticket;
       accumulator.push({
-        id: `closed-${position.ticket}`,
+        id: `closed-${ticket}`,
         time: alignedTime,
         position: 'atPriceMiddle',
-        price: markerPrice,
+        price: entry.closePrice,
         color: '#64748B',
         shape: isBuy ? 'circle' : 'square',
         text: 'Closed',

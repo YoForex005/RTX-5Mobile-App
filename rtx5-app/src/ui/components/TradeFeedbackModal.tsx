@@ -1,6 +1,6 @@
 import { FastPressable as Pressable } from './FastPressable';
 import React, { useEffect, useRef } from 'react';
-import { View, Text, Animated, StyleSheet, Modal } from 'react-native';
+import { View, Text, Animated, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -109,17 +109,11 @@ export const TradeFeedbackModal = React.memo(({
     : '';
   const successSummaryText = [state.symbol, volumeLabel].filter(Boolean).join(' - ');
   const executionLabel = sideLabel ? `${sideLabel} price` : 'Execution price';
-  const scale = slideAnim.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] });
+  // Fade/slide only — no scale. Absolute overlay (not RN Modal): on iOS a Modal
+  // presentation often forces the chart WebView to recompose and blink.
+  const translateY = slideAnim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] });
 
   return (
-    <Modal
-      visible={state.visible}
-      transparent
-      animationType="none"
-      presentationStyle="overFullScreen"
-      statusBarTranslucent
-      onRequestClose={onClose}
-    >
       <View style={tfmStyles.overlay} pointerEvents="box-none">
         <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
         <Animated.View style={[
@@ -128,7 +122,7 @@ export const TradeFeedbackModal = React.memo(({
             backgroundColor: cardBg,
             borderColor: subtleBorder,
             opacity: opacityAnim,
-            transform: [{ scale }],
+            transform: [{ translateY }],
           },
         ]}>
           <LinearGradient
@@ -209,7 +203,6 @@ export const TradeFeedbackModal = React.memo(({
           </View>
         </Animated.View>
       </View>
-    </Modal>
   );
 });
 
@@ -220,8 +213,9 @@ const tfmStyles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 18,
-    zIndex: 999,
-    elevation: 999,
+    // Above chart sheet/host so success UI never forces a WebView Modal remount.
+    zIndex: 10050,
+    elevation: 10050,
   },
   card: {
     width: '100%',

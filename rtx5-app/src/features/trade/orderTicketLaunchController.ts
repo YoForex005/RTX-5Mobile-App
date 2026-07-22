@@ -104,10 +104,15 @@ export function createOrderTicketLaunchController(
         return;
       }
 
-      clearFallbackTimer();
+      // Never tear down a visible launch shell from idle prepare() work. Chart
+      // Buy/Sell schedule router.push after a double-rAF paint; a concurrent
+      // prepare (symbol list refresh, focus effect) used to hide the shell,
+      // fail startNavigation, and leave the chart trade lock held forever.
       if (snapshot.visible) {
-        visualApplier?.(false);
+        return;
       }
+
+      clearFallbackTimer();
       publish(createSnapshot(false, normalizedSymbol, origin, false, snapshot.revision + 1));
     },
 
@@ -142,7 +147,11 @@ export function createOrderTicketLaunchController(
     isVisible: () => snapshot.visible,
 
     startNavigation: (revision: number) => {
-      if (!snapshot.visible || snapshot.revision !== revision) {
+      if (
+        !snapshot.visible
+        || snapshot.revision !== revision
+        || snapshot.navigationStarted
+      ) {
         return false;
       }
 
@@ -195,20 +204,23 @@ export function hideOrderTicketLaunch(revision?: number) {
 export function scheduleOrderTicketLaunchNavigation(
   revision: number,
   action: () => void,
+  onCancelled?: () => void,
 ) {
   const runIfCurrent = () => {
     if (orderTicketLaunchController.startNavigation(revision)) {
       action();
+      return;
     }
+    // Callers (chart Buy/Sell) must free tap locks when the shell was hidden
+    // before navigation could start — otherwise every later tap is a no-op.
+    onCancelled?.();
   };
 
-  // Shell opacity is already on the UI thread from show(). Let that paint
-  // complete (double rAF ≈ after the next frame) before router.push mounts
-  // the heavy ticket, so Buy/Sell first paint stays instant and smooth.
+  // Shell is already shown via UI-thread setNativeProps/shared value. One paint
+  // frame is enough before router.push — double-rAF added ~32ms of dead wait
+  // on every Buy/Sell open with no visual benefit.
   if (typeof globalThis.requestAnimationFrame === 'function') {
-    globalThis.requestAnimationFrame(() => {
-      globalThis.requestAnimationFrame(runIfCurrent);
-    });
+    globalThis.requestAnimationFrame(runIfCurrent);
     return;
   }
 

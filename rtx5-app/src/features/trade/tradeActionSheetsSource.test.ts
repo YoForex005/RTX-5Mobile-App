@@ -43,9 +43,8 @@ test('trade position long-press action sheet uses the MT5 plain icon action cont
   assert.match(source, /const TRADE_POSITION_CLOSE_ACTION_FONT_WEIGHT = '400'/);
   assert.match(source, /const positionCloseActionColor = isDark \? TRADE_POSITION_CLOSE_ACTION_DARK : TRADE_POSITION_CLOSE_ACTION_LIGHT/);
   assert.match(positionSheetSource, /name="close-circle-outline"[\s\S]*color=\{positionCloseActionColor\}[\s\S]*label: t\('Close position'\)[\s\S]*textColor: positionCloseActionColor[\s\S]*textFontWeight: TRADE_POSITION_CLOSE_ACTION_FONT_WEIGHT/);
-  assert.match(positionSheetSource, /name="git-compare-outline"[\s\S]*color=\{positionCloseActionColor\}[\s\S]*label: t\('Close By'\)[\s\S]*textColor: positionCloseActionColor[\s\S]*textFontWeight: TRADE_POSITION_CLOSE_ACTION_FONT_WEIGHT/);
   assert.doesNotMatch(positionSheetSource, /label: t\('Close position'\)[\s\S]*danger: true/);
-  assert.doesNotMatch(positionSheetSource, /label: t\('Close By'\)[\s\S]*danger: true/);
+  assert.doesNotMatch(positionSheetSource, /label: t\('Close By'\)|showTradePositionAction\('close-by'/);
   assert.doesNotMatch(positionSheetSource, /color=\{T\.trading\.sell\.primary\}/);
   assert.match(positionSheetSource, /name="create-outline"[\s\S]*label: t\('Modify position'\)/);
   assert.match(positionSheetSource, /name="swap-horizontal-outline"[\s\S]*label: t\('Trade'\)/);

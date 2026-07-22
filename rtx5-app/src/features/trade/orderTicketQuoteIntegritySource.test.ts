@@ -16,7 +16,13 @@ test('order ticket uses only direct quote bid and ask for displayed prices', () 
 });
 
 test('market and pending submissions recheck session feed health and quote integrity', () => {
-  assert.match(source, /resolveSessionQuoteActionAvailability\(liveQuote, Date\.now\(\)\)/);
+  // Submit must recheck the same normalized executable quote as the UI gate
+  // (not a raw liveQuote snapshot that can miss receipt/source timestamps).
+  assert.match(source, /const executableLiveQuote = liveQuote/);
+  assert.match(
+    source,
+    /const resolveCurrentQuoteAvailability = \(\) =>\s*resolveSessionQuoteActionAvailability\(executableLiveQuote, Date\.now\(\)\)/,
+  );
   const marketHandler = source.slice(
     source.indexOf('const handlePlaceOrder'),
     source.indexOf('const queryClient'),
@@ -30,4 +36,14 @@ test('market and pending submissions recheck session feed health and quote integ
   assert.match(pendingHandler, /currentQuoteAvailability\.allowed/);
   assert.match(pendingHandler, /Market Data Unavailable/);
   assert.match(source, /disabled=\{tradeActionDisabled \|\| pendingEntryPrice <= 0\}/);
+});
+
+test('market Buy and Sell surface an account-session mismatch instead of silently returning', () => {
+  const marketHandler = source.slice(
+    source.indexOf('const handlePlaceOrder'),
+    source.indexOf('const queryClient'),
+  );
+  assert.match(marketHandler, /Account Session Changed/);
+  assert.match(marketHandler, /Reopen New Order from the current account/);
+  assert.match(marketHandler, /showModal\(\{[\s\S]*side: requestedSide/);
 });

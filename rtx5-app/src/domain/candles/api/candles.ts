@@ -159,6 +159,12 @@ const fetchAuthenticatedCandleHistory = async (
   const pathSymbol = encodeURIComponent(requestedSymbol);
   const result = await apiJsonClient<unknown>(`/${route.pathPrefix}/${pathSymbol}?${params.toString()}`, {
     signal: requestOptions?.signal,
+    // No client-side timeout for chart history: the backend regularly needs
+    // more than the shared 7s budget, and aborting surfaced as a false
+    // "Unable to load chart / Request timed out" while data was still coming.
+    // The chart keeps its loading state; symbol/timeframe switches still
+    // cancel through the engine's AbortSignal above.
+    timeoutMs: 0,
   });
 
   return commitApiJson(result, cacheNamespace, (payload) =>

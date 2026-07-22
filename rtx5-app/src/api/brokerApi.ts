@@ -35,6 +35,12 @@ export type BrokerApiRequestInit = RequestInit & {
   _retry?: boolean;
   skipAuth?: boolean;
   skipRefresh?: boolean;
+  /**
+   * Client-side abort budget for this request. Defaults to the shared
+   * API_FETCH_TIMEOUT_MS; pass 0 to wait indefinitely (chart candle history —
+   * a slow backend must be awaited, not failed with a timeout error).
+   */
+  timeoutMs?: number;
 };
 
 export type BrokerApiJsonResponse<T> = Readonly<{
@@ -99,13 +105,12 @@ const parseExpiresAtMs = (expiresAt: string | undefined | null): number => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const normalizeAuthResponse = (
+export const normalizeBrokerRefreshResponse = (
   payload: Record<string, unknown>,
-  fallbackRefreshToken: string,
 ): NormalizedAuthResponse => {
   const accessToken = String(payload.access_token ?? payload.token ?? '').trim();
   const refreshToken = String(
-    payload.refresh_token ?? payload.refreshToken ?? fallbackRefreshToken ?? '',
+    payload.refresh_token ?? payload.refreshToken ?? '',
   ).trim();
   const feedToken = extractFeedBrokerToken(payload);
   const rawExpiresAt = payload.expires_at ?? payload.expiresAt;
@@ -126,6 +131,9 @@ const normalizeAuthResponse = (
   if (!accessToken) {
     throw new Error('Refresh response did not include an access token.');
   }
+  if (!refreshToken) {
+    throw new Error('Refresh response did not include a rotated refresh token.');
+  }
 
   const brokerId = typeof payload.broker_id === 'string'
     ? payload.broker_id.trim().toLowerCase()
@@ -141,6 +149,19 @@ const normalizeAuthResponse = (
     ...(feedToken ? { feedToken } : {}),
   };
 };
+
+export const createBrokerRefreshRequestInit = (
+  refreshToken: string,
+  signal?: AbortSignal,
+): RequestInit => ({
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    accept: 'application/json',
+  },
+  body: JSON.stringify({ refresh_token: refreshToken }),
+  ...(signal ? { signal } : {}),
+});
 
 const appendQueryCredential = (
   baseUrl: string,
@@ -385,6 +406,7 @@ export class BrokerAPI {
       skipAuth: _ignoredSkipAuth,
       skipRefresh: _ignoredSkipRefresh,
       signal: _ignoredSignal,
+      timeoutMs,
       ...fetchOptions
     } = options;
     const requestConfig: RequestInit = { ...fetchOptions, headers, signal };
@@ -393,6 +415,7 @@ export class BrokerAPI {
       method,
       endpoint,
       source: 'apiClient',
+      timeoutMs,
     });
     this.assertCurrent(identity);
 
@@ -416,6 +439,7 @@ export class BrokerAPI {
         method,
         endpoint,
         source: 'apiClient',
+        timeoutMs,
       });
       this.assertCurrent(identity);
     }
@@ -482,21 +506,10 @@ export class BrokerAPI {
 
     const request = this.createInFlightRequest(capture);
     try {
-      const response = await timedFetch(`${session.apiBase}/auth/refresh`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          accept: 'application/json',
-          ...(credentials.accessToken
-            ? { Authorization: `Bearer ${credentials.accessToken}` }
-            : {}),
-        },
-        body: JSON.stringify({
-          refresh_token: credentials.refreshToken,
-          broker_id: session.brokerId,
-        }),
-        signal: request.controller.signal,
-      }, {
+      const response = await timedFetch(`${session.apiBase}/auth/refresh`, createBrokerRefreshRequestInit(
+        credentials.refreshToken,
+        request.controller.signal,
+      ), {
         label: 'apiClient.refresh',
         method: 'POST',
         endpoint: '/auth/refresh',
@@ -516,7 +529,14 @@ export class BrokerAPI {
 
       const payload = await response.json() as Record<string, unknown>;
       this.assertCurrent(identity);
-      const normalized = normalizeAuthResponse(payload, credentials.refreshToken);
+      let normalized: NormalizedAuthResponse;
+      try {
+        normalized = normalizeBrokerRefreshResponse(payload);
+      } catch {
+        recordRefreshOutcome('invalid_rotation_payload');
+        await this.invalidateAuthSession(identity);
+        throw new Error(AUTH_SESSION_EXPIRED_MESSAGE);
+      }
       if (normalized.brokerId && normalized.brokerId !== session.brokerId) {
         recordRefreshOutcome('broker_identity_mismatch');
         await this.invalidateAuthSession(identity);

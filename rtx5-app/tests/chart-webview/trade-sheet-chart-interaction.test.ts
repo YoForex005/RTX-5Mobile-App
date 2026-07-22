@@ -354,6 +354,24 @@ test('pending chart CTA submits the pending order and then exposes chart-side le
   }
 });
 
+test('collapsed SL/TP sheet keeps full frame height and translateY so header tabs stay visible', () => {
+  assertSourceContains(
+    source,
+    /const chartTradeSheetCollapsedHeight = 186/,
+    'collapsed SL/TP height must fit handle + symbol header + order-type tabs',
+  );
+  assertSourceContains(
+    chartTradeFeatureSource,
+    /sheet\.chartTradeSheetAnimatedStyle,/,
+    'SL/TP sheet must always apply translateY (including collapsed mode)',
+  );
+  assert.doesNotMatch(
+    chartTradeFeatureSource,
+    /chartTradeSheetMode !== 'collapsed' && sheet\.chartTradeSheetAnimatedStyle/,
+    'must not disable translateY while the SL/TP sheet is collapsed',
+  );
+});
+
 test('collapsed SL/TP sheet drag gesture covers the pinned header surface', () => {
   const visibleSheetStart = chartTradeFeatureSource.indexOf('{mountTradeSheet ? (');
   const visibleSheetBodyStart = chartTradeFeatureSource.indexOf('{showSheetBody ? (', visibleSheetStart);
@@ -413,8 +431,8 @@ test('toolbar SL/TP tap opens the sheet immediately on a full-size touch surface
   const openSheetSource = source.slice(openSheetStart, openSheetEnd);
   assertSourceContains(
     openSheetSource,
-    /snapTradeSheet\('collapsed'\);[\s\S]*resetChartTradePanelLevels/,
-    'SL/TP must snap the sheet into view before panel level resets',
+    /snapTradeSheet\('expanded'\);[\s\S]*resetChartTradePanelLevels/,
+    'SL/TP must snap expanded (scrollable body + trade actions) into view before panel level resets',
   );
   assertSourceContains(
     source,
@@ -691,8 +709,8 @@ test('SL and TP drag starts only after a short deliberate hold', () => {
 test('compact footer lot editing keeps the chart viewport from shrinking under Android keyboard resize', () => {
   assertSourceContains(
     source,
-    /const shouldFreezeFooterLotChartViewport =[\s\S]*Platform\.OS === 'android'[\s\S]*!showChartTradeSheet[\s\S]*footerLotEditorFocused \|\| footerLotEditorOpening \|\| keyboardVisibleHeight > 0/,
-    'footer lot editing must request chart viewport freeze on Android',
+    /const shouldFreezeFooterLotChartViewport =[\s\S]*!showChartTradeSheet[\s\S]*footerLotEditorFocused \|\| footerLotEditorOpening \|\| keyboardVisibleHeight > 0/,
+    'footer lot editing must request chart viewport freeze during keyboard resize',
   );
   assertSourceContains(
     source,

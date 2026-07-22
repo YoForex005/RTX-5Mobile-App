@@ -25,56 +25,13 @@ import { preloadDeferredRouteModule } from '../ui/components/DeferredRouteMount'
 import { prefetchBrokerServers } from '../query/broker';
 import { scheduleIdleWork } from './startupScheduler';
 
-const ACTION_ROUTE_WARMUP_BATCH_SIZE = 8;
-const ACTION_ROUTE_WARMUP_BATCH_DELAY_MS = 16;
-const ACTION_ROUTE_WARMUP_INITIAL_DELAY_MS = 0;
 const ACTION_DEFERRED_MODULE_WARMUP_DELAY_MS = 180;
-
-export const ACTION_ROUTE_WARMUP_PATHS = [
-  '/quotes',
-  '/quotes/details',
-  '/quotes/market-statistics',
-  '/chart',
-  '/trade',
-  '/history',
-  '/settings',
-  '/settings/user-guide',
-  '/settings/help',
-  '/settings/about',
-  '/settings/journal',
-  '/settings/economic-calendar',
-  '/settings/accounts',
-  '/settings/brokers',
-  '/settings/broker-detail',
-  '/settings/interface',
-  '/register-entry',
-  '/register',
-  '/login',
-  '/trade/order-ticket',
-  '/trade/close-position',
-  '/trade/close-by',
-  '/trade/modify-position',
-  '/trade/bulk',
-  '/history/filter',
-  '/chart/objects',
-  '/chart/settings',
-  '/chart/schema-colors',
-  '/chart/indicators',
-  '/chart/specification',
-  '/chart/alerts',
-  '/chart/menu-order',
-  '/chart/price-source',
-  '/chart/open-order-mode',
-  '/chart/calculator',
-  '/chart/analytics',
-] as const;
 
 const ACTION_DEFERRED_MODULE_WARMUPS = [
   { cacheKey: JOURNAL_ROUTE_CACHE_KEY, load: loadJournalScreenRoute },
-  // /settings/accounts hides its heavy screen behind DeferredRouteModule; the
-  // route wrapper above is prefetched but without this module warmup the
-  // first "Manage accounts" tap stares at the launch preview while the
-  // AccountsScreen module evaluates.
+  // /settings/accounts hides its heavy screen behind DeferredRouteModule. Warm
+  // only that module so the first "Manage accounts" tap does not wait for
+  // evaluation; prefetching the route itself mounts a hidden navigation tree.
   { cacheKey: ACCOUNTS_ROUTE_MODULE_CACHE_KEY, load: loadAccountsScreenRoute },
   // Accounts' + action shows a mounted Brokers shell first; keep the real
   // screen module warm so the shell-to-route handoff completes within frames.
@@ -91,11 +48,7 @@ const ACTION_DEFERRED_MODULE_WARMUPS = [
   { cacheKey: MARKET_STATISTICS_ROUTE_MODULE_CACHE_KEY, load: loadMarketStatisticsScreenRoute },
 ] as const;
 
-type PrefetchRouter = {
-  prefetch?: (href: string) => void;
-};
-
-let actionRoutesWarmupStarted = false;
+let actionResourcesWarmupStarted = false;
 
 const scheduleNextFrame = (callback: () => void) => {
   if (typeof globalThis.requestAnimationFrame === 'function') {
@@ -105,37 +58,27 @@ const scheduleNextFrame = (callback: () => void) => {
   setTimeout(callback, 16);
 };
 
-export function warmActionRoutes(router: PrefetchRouter) {
-  if (actionRoutesWarmupStarted || typeof router.prefetch !== 'function') {
+export function warmActionRoutes() {
+  if (actionResourcesWarmupStarted) {
     return () => {};
   }
 
-  actionRoutesWarmupStarted = true;
+  actionResourcesWarmupStarted = true;
   // The Brokers preview already looks complete; warm the real directory now so
   // its interactive rows can replace that preview without a loading state.
   void prefetchBrokerServers().catch(() => undefined);
   let cancelled = false;
-  const cancelScheduledBatches = new Set<() => void>();
-  let cursor = 0;
-
-  const scheduleBatch = (delayMs: number) => {
-    let cancel: (() => void) | null = null;
-    const scheduledRun = () => {
-      if (cancel) {
-        cancelScheduledBatches.delete(cancel);
-      }
-      runBatch();
-    };
-
-    cancel = scheduleIdleWork(scheduledRun, {
-      delayMs,
-      timeoutMs: 1200,
-    });
-    cancelScheduledBatches.add(cancel);
-  };
+  let cancelDeferredModuleWarmups: (() => void) | null = null;
 
   const scheduleDeferredModuleWarmups = () => {
-    const cancel = scheduleIdleWork(() => {
+    if (cancelled) {
+      return;
+    }
+
+    cancelDeferredModuleWarmups = scheduleIdleWork(() => {
+      if (cancelled) {
+        return;
+      }
       for (const module of ACTION_DEFERRED_MODULE_WARMUPS) {
         void preloadDeferredRouteModule(module.cacheKey, module.load).catch(() => undefined);
       }
@@ -143,35 +86,15 @@ export function warmActionRoutes(router: PrefetchRouter) {
       delayMs: ACTION_DEFERRED_MODULE_WARMUP_DELAY_MS,
       timeoutMs: 1200,
     });
-    cancelScheduledBatches.add(cancel);
   };
 
-  const runBatch = () => {
-    if (cancelled) {
-      return;
-    }
-
-    const end = Math.min(cursor + ACTION_ROUTE_WARMUP_BATCH_SIZE, ACTION_ROUTE_WARMUP_PATHS.length);
-    for (; cursor < end; cursor += 1) {
-      try {
-        router.prefetch?.(ACTION_ROUTE_WARMUP_PATHS[cursor]);
-      } catch {
-        // A warm-up miss must never block or break the visible app path.
-      }
-    }
-
-    if (cursor < ACTION_ROUTE_WARMUP_PATHS.length) {
-      scheduleBatch(ACTION_ROUTE_WARMUP_BATCH_DELAY_MS);
-    } else {
-      scheduleDeferredModuleWarmups();
-    }
-  };
-
-  scheduleNextFrame(() => scheduleBatch(ACTION_ROUTE_WARMUP_INITIAL_DELAY_MS));
+  // Dynamic imports populate the module cache without creating hidden Expo
+  // Router scenes. Keep them behind the first paint and an idle delay.
+  scheduleNextFrame(scheduleDeferredModuleWarmups);
 
   return () => {
     cancelled = true;
-    cancelScheduledBatches.forEach((cancel) => cancel());
-    cancelScheduledBatches.clear();
+    cancelDeferredModuleWarmups?.();
+    cancelDeferredModuleWarmups = null;
   };
 }

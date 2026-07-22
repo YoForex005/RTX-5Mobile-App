@@ -40,7 +40,7 @@ function writeBrokersLaunchVisibilityNow(layer: View | null, visible: boolean) {
   });
 }
 
-/** Keeps the lightweight Brokers first frame mounted and ready above Accounts. */
+/** Shows the lightweight Brokers handoff above Accounts when requested. */
 export function BrokersLaunchHost() {
   const router = useRouter();
   const pathname = usePathname();
@@ -224,12 +224,14 @@ export function BrokersLaunchHost() {
         // Keep the established diagnostic id for ADB/UI automation.
         testID="brokers-launch-animated-host"
       >
-        <BrokersLaunchShell
-          onBack={closeLaunch}
-          onSelectBroker={selectBroker}
-          backLatencyLabel="brokers.launch.back"
-          dataActive={false}
-        />
+        {renderVisible ? (
+          <BrokersLaunchShell
+            onBack={closeLaunch}
+            onSelectBroker={selectBroker}
+            backLatencyLabel="brokers.launch.back"
+            dataActive={false}
+          />
+        ) : null}
       </View>
     </View>
   );

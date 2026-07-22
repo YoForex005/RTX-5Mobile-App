@@ -276,7 +276,7 @@ test('trade sidebar route defers position refresh until after route paint', () =
   assert.match(source, /const TRADE_SCREEN_FETCH_DELAY_MS = 0/);
   assert.match(source, /const TRADE_SCREEN_REFRESH_INTERVAL_MS = 3000/);
   assert.match(source, /const TRADE_BODY_PREWARM_DELAY_MS = 600/);
-  assert.match(source, /const routeBodyReady = useDeferredRouteContentReady\(TRADE_BODY_PREWARM_DELAY_MS\)/);
+  assert.match(source, /const routeBodyReady = useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : TRADE_BODY_PREWARM_DELAY_MS,\s*\)/);
   assert.match(source, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
   assert.match(source, /requestAnimationFrame\(markReady\)/);
   assert.doesNotMatch(source, /sidebarOpen = useUIState/);
@@ -634,7 +634,7 @@ test('sidebar hosts detail destinations directly and shares the fast primary-tab
   }
 });
 
-test('sidebar detail screens prewarm complete retained content before their first reveal', () => {
+test('sidebar detail screens retain immediate headers without mounting hidden native bodies', () => {
   const destinationFiles = [
     ['src/features/settings/JournalScreen/JournalScreen.tsx', 'JOURNAL_BODY_PREWARM_DELAY_MS', '0'],
     ['src/features/settings/EconomicCalendarScreen/EconomicCalendarScreen.tsx', 'ECON_CALENDAR_BODY_PREWARM_DELAY_MS', '0'],
@@ -646,7 +646,7 @@ test('sidebar detail screens prewarm complete retained content before their firs
   for (const [file, prewarmConstant, prewarmDelay] of destinationFiles) {
     const source = readSource(file);
     const headerIndex = source.indexOf('accessibilityLabel="Open menu"');
-    const bodyGateIndex = source.indexOf('routeBodyReady ?');
+    const bodyGateIndex = source.indexOf('focusedBodyReady ?');
 
     assert.match(source, /import \{ useDeferredRouteContentReady \} from/);
     assert.match(source, /const isScreenFocused = useIsFocused\(\)/);
@@ -655,10 +655,33 @@ test('sidebar detail screens prewarm complete retained content before their firs
       source,
       new RegExp(`const routeBodyReady = useDeferredRouteContentReady\\(\\s*isScreenFocused \\? 0 : ${prewarmConstant},\\s*\\)`),
     );
-    assert.doesNotMatch(source, /useDeferredRouteContentReady\(0, isScreenFocused\)/);
+    assert.match(source, /const focusedBodyReady = isScreenFocused && routeBodyReady;/);
     assert.notEqual(headerIndex, -1, `${file} must render its real menu header`);
-    assert.notEqual(bodyGateIndex, -1, `${file} must retain its complete lower body after prewarm`);
+    assert.notEqual(bodyGateIndex, -1, `${file} must focus-gate its lower native body`);
     assert.ok(headerIndex < bodyGateIndex, `${file} must paint the header before heavy body content`);
-    assert.doesNotMatch(source, /routeBodyReady \?[^:]+:\s*<SettingsRouteLaunchPreview/);
+    assert.doesNotMatch(source, /\{routeBodyReady \?/);
   }
+
+  const journalSource = readSource('src/features/settings/JournalScreen/JournalScreen.tsx');
+  assert.match(journalSource, /\{isScreenFocused && isNoteOpen \? \(/);
+  assert.match(journalSource, /\{isScreenFocused && isCalendarOpen \? \(/);
+
+  const calendarDestinationSource = readSource('src/features/settings/EconomicCalendarScreen/EconomicCalendarScreen.tsx');
+  assert.match(
+    calendarDestinationSource,
+    /\{focusedBodyReady \? <>[\s\S]*<EconomicEventFiltersSheet[\s\S]*<\/> : <View style=\{styles\.scroll\} \/>\}/,
+  );
+
+  const accountsSource = readSource('src/features/settings/AccountsScreen.tsx');
+  assert.match(accountsSource, /const focusedBodyReady = isScreenFocused && hostBodyReady;/);
+  assert.match(accountsSource, /\{focusedBodyReady \? \(\s*<FlatList/);
+  assert.match(accountsSource, /\{isScreenFocused && passwordSheetVisible && \(/);
+  assert.match(accountsSource, /\{isScreenFocused && tradeNotificationsSheetVisible && \(/);
+  assert.match(accountsSource, /\{isScreenFocused && deleteTarget && \(/);
+  assert.match(accountsSource, /\{isScreenFocused \? <AccountsActionSheetHost \/> : null\}/);
+
+  const interfaceSource = readSource('src/features/settings/InterfaceScreen.tsx');
+  assert.doesNotMatch(interfaceSource, /void isScreenFocused/);
+  assert.match(interfaceSource, /\{isScreenFocused \? \([\s\S]*<ScrollView[\s\S]*SUPPORTED_LANGUAGES\.map/);
+  assert.match(interfaceSource, /\) : <View style=\{styles\.inactiveBody\} \/>\}/);
 });

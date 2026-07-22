@@ -83,10 +83,8 @@ type ContactDetailsLayout = {
 
 type DeveloperContactMode = 'contact-developer' | 'account-deletion';
 
-// About is retained by the root sidebar host. Pre-mount its complete visual
-// body shortly after the primary Trade/Settings tabs so a drawer selection
-// reveals finished content instead of adding rows after the screen appears.
-// Hosted sidebar destination: mount body immediately so first open is never blank.
+// About's retained host keeps only its header native tree while hidden. The
+// identity and action rows mount on focus using the already-warm readiness bit.
 const ABOUT_BODY_PREWARM_DELAY_MS = 0;
 
 /**
@@ -96,6 +94,7 @@ export const AboutScreenInner = memo(function AboutScreenInner({ isScreenFocused
   const routeBodyReady = useDeferredRouteContentReady(
     isScreenFocused ? 0 : ABOUT_BODY_PREWARM_DELAY_MS,
   );
+  const focusedBodyReady = isScreenFocused && routeBodyReady;
   const router = useRouter();
   const isDark = useIsDarkTheme();
   const { t } = useTranslation();
@@ -205,14 +204,14 @@ export const AboutScreenInner = memo(function AboutScreenInner({ isScreenFocused
         <Text style={styles.headerTitle} numberOfLines={1}>{t('About')}</Text>
       </View>
 
-      <View style={styles.content}>
+      {focusedBodyReady ? <View style={styles.content}>
         <View style={styles.identity}>
           <AppLogo style={styles.logo} />
           <AppNameMark appName={appName} styles={styles} />
           <Text style={styles.buildLabel} numberOfLines={1}>{buildLabel}</Text>
         </View>
 
-        {routeBodyReady ? <View style={styles.actions}>
+        <View style={styles.actions}>
           {ABOUT_ACTIONS.map((action) => (
             <AboutActionRow
               key={action.id}
@@ -222,8 +221,8 @@ export const AboutScreenInner = memo(function AboutScreenInner({ isScreenFocused
               chevronColor={actionChevronColor}
             />
           ))}
-        </View> : null}
-      </View>
+        </View>
+      </View> : <View style={styles.content} />}
 
     </Screen>
   );

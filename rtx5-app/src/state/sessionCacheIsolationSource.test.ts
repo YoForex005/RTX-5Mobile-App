@@ -23,9 +23,27 @@ test('position reset cancels deferred writes and clears prior-session memory', (
   assert.match(source, /export const resetPositionsSessionState = \(\): void => \{/);
   assert.match(source, /clearTimeout\(openPositionsCacheWriteTimer\)/);
   assert.match(source, /pendingOpenPositionsCacheWrites\.clear\(\)/);
+  assert.match(source, /latestOpenPositionsCacheSignatureByNamespace\.clear\(\)/);
   assert.match(source, /positionsRateLimitUntilByNamespace\.clear\(\)/);
   assert.match(source, /optimisticCloseUntilByPositionId\.clear\(\)/);
   assert.match(source, /event\.type === 'transition'[\s\S]*resetPositionsSessionState\(\)/);
+});
+
+test('open-position cache skips market-only ticks before rebuilding or writing the payload', () => {
+  const source = readSource('src/state/positionsState.ts');
+  const signatureGate = source.indexOf(
+    'latestOpenPositionsCacheSignatureByNamespace.get(scope.cacheNamespace) === signature',
+  );
+  const payloadNormalization = source.indexOf(
+    'positions: normalizeCachedPositions(positions)',
+    signatureGate,
+  );
+
+  assert.ok(signatureGate >= 0);
+  assert.ok(payloadNormalization > signatureGate);
+  assert.match(source, /const signature = buildOpenPositionsCacheSignature\(positions\)/);
+  assert.match(source, /latestOpenPositionsCacheSignatureByNamespace\.set\(scope\.cacheNamespace, signature\)/);
+  assert.match(source, /latestOpenPositionsCacheSignatureByNamespace\.delete\(scope\.cacheNamespace\)/);
 });
 
 test('persisted candle cache is session-namespaced and guards async hydration and writes', () => {

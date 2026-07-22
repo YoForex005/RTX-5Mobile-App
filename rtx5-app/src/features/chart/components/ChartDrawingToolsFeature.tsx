@@ -342,7 +342,7 @@ export function ChartDrawingToolsActionSheet({
       minimumTopInset={minimumTopInset}
       detent="large"
       instantOpen
-      entryMotion="mt5Slide"
+      entryMotion="instant"
       keepFullHeightOnKeyboard
       actions={createDrawingToolsActionSheetActions({
         chartHideAll,

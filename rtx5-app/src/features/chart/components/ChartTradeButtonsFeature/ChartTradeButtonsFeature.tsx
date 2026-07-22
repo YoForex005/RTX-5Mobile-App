@@ -2,9 +2,6 @@ import { FastPressable as Pressable } from '../../../../ui/components/FastPressa
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {
-  ActivityIndicator,
-  Animated,
-  Easing,
   InputAccessoryView,
   Platform,
   Text,
@@ -23,6 +20,7 @@ import {
   resolveFooterLotChevronState,
 } from '../../chartTradeInteractionUtils';
 import {
+  resolveChartTradeButtonDisplayQuote,
   resolveChartTradeButtonQuote,
 } from './quoteFallback';
 import { baseStyles, darkStyles, lightStyles, textBaseStyles } from './styles';
@@ -35,9 +33,6 @@ const LOT_VALUE_HIT_SLOP = { top: 8, bottom: 8, left: 0, right: 0 } as const;
 // Frame-rate commits so bid/ask motion is visible while still coalescing bursts.
 const TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS = 16;
 const TRADE_BUTTON_PRICE_TEXT_COLOR = '#FFFFFF';
-const TRADE_BUTTON_PRICE_UP_FLASH = '#BBF7D0';
-const TRADE_BUTTON_PRICE_DOWN_FLASH = '#FECACA';
-const TRADE_BUTTON_PRICE_FLASH_MS = 220;
 const IOS_LOT_INPUT_ACCESSORY_ID = 'chart-trade-lot-input-accessory';
 
 type ChartTradeButtonsProps = {
@@ -83,51 +78,14 @@ const ChartTradeButtonPriceText = React.memo(function ChartTradeButtonPriceText(
   text: string;
   testID: string;
 }) {
-  const flashProgress = React.useRef(new Animated.Value(0)).current;
-  const previousTextRef = React.useRef<string | null>(null);
-  const [flashColor, setFlashColor] = React.useState(TRADE_BUTTON_PRICE_TEXT_COLOR);
-
-  React.useEffect(() => {
-    const previousText = previousTextRef.current;
-    previousTextRef.current = text;
-
-    if (previousText === null || previousText === text || text === '---' || previousText === '---') {
-      return;
-    }
-
-    const prev = Number(previousText);
-    const next = Number(text);
-    if (Number.isFinite(prev) && Number.isFinite(next) && next !== prev) {
-      setFlashColor(next > prev ? TRADE_BUTTON_PRICE_UP_FLASH : TRADE_BUTTON_PRICE_DOWN_FLASH);
-    } else {
-      setFlashColor(TRADE_BUTTON_PRICE_TEXT_COLOR);
-    }
-
-    flashProgress.stopAnimation();
-    flashProgress.setValue(1);
-    Animated.timing(flashProgress, {
-      toValue: 0,
-      duration: TRADE_BUTTON_PRICE_FLASH_MS,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: false,
-    }).start(({ finished }) => {
-      if (finished) {
-        setFlashColor(TRADE_BUTTON_PRICE_TEXT_COLOR);
-      }
-    });
-  }, [flashProgress, text]);
-
-  const animatedColor = flashProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [TRADE_BUTTON_PRICE_TEXT_COLOR, flashColor],
-  });
-
+  // No per-tick color animation. JS-thread color tweens on every bid/ask tick
+  // made the horizontal BUY/SELL strip blink on iOS and Android.
   return (
-    <Animated.Text
+    <Text
       style={[
         baseStyles.actionBtnPriceText,
         {
-          color: animatedColor,
+          color: TRADE_BUTTON_PRICE_TEXT_COLOR,
           opacity: 1,
         },
       ]}
@@ -137,7 +95,7 @@ const ChartTradeButtonPriceText = React.memo(function ChartTradeButtonPriceText(
       testID={testID}
     >
       {text}
-    </Animated.Text>
+    </Text>
   );
 });
 
@@ -154,7 +112,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   onEditLot,
   onOpenLotEditor,
   isLotEditing = false,
-  lotDraft = '',
+  lotDraft,
   lotInputRef,
   onLotDraftChange,
   onLotDraftBlur,
@@ -164,26 +122,47 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   onIncreaseLot,
   variant = 'compact',
   active = true,
-  fallbackBid,
-  fallbackAsk,
+  fallbackBid = null,
+  fallbackAsk = null,
   isDark,
   buyColor,
   sellColor,
   lotInvalid = false,
-  invalidLotDisplay,
+  invalidLotDisplay = '',
 }: ChartTradeButtonsProps) {
-  const latestQuote = useLiveSymbolQuote(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS);
-  const quoteActionAvailability = resolveSessionQuoteActionAvailability(latestQuote);
-  const { bid: latestBid, ask: latestAsk } = resolveChartTradeButtonQuote({
-    liveBid: latestQuote?.bid,
-    liveAsk: latestQuote?.ask,
+  const liveQuote = useLiveSymbolQuote(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS);
+  // Must pass a single options object — positional args crash when liveQuote is
+  // null/undefined (destructure of undefined) and tripped the trading ErrorBoundary after OTA.
+  const latestQuote = resolveChartTradeButtonQuote({
+    liveBid: liveQuote?.bid,
+    liveAsk: liveQuote?.ask,
     fallbackBid,
     fallbackAsk,
   });
-  const hasLiveBid = latestBid > 0;
-  const hasLiveAsk = latestAsk > 0;
-  const formattedBid = hasLiveBid ? latestBid.toFixed(displayDecimals) : '---';
-  const formattedAsk = hasLiveAsk ? latestAsk.toFixed(displayDecimals) : '---';
+  const displayQuote = resolveChartTradeButtonDisplayQuote({
+    liveBid: liveQuote?.bid,
+    liveAsk: liveQuote?.ask,
+    fallbackBid,
+    fallbackAsk,
+  });
+  // Quote-integrity checks need the complete websocket quote. The sanitized
+  // bid/ask pair above is only for numeric execution prices; passing it here
+  // drops transport/freshness metadata and makes every live tick look like a
+  // delayed REST snapshot.
+  const quoteActionAvailability = resolveSessionQuoteActionAvailability(liveQuote);
+  const latestBid = Number(latestQuote?.bid);
+  const latestAsk = Number(latestQuote?.ask);
+  const displayBid = Number(displayQuote?.bid);
+  const displayAsk = Number(displayQuote?.ask);
+  const hasDisplayBid = Number.isFinite(displayBid) && displayBid > 0;
+  const hasDisplayAsk = Number.isFinite(displayAsk) && displayAsk > 0;
+  // Guard toFixed range — invalid decimals throw and crash the ErrorBoundary.
+  const safeDisplayDecimals =
+    typeof displayDecimals === 'number' && Number.isFinite(displayDecimals)
+      ? Math.max(0, Math.min(10, Math.round(displayDecimals)))
+      : 5;
+  const formattedBid = hasDisplayBid ? displayBid.toFixed(safeDisplayDecimals) : '---';
+  const formattedAsk = hasDisplayAsk ? displayAsk.toFixed(safeDisplayDecimals) : '---';
   const formattedLotSize = formatTradeVolume(lotSize, volumeBounds);
   const lotDisplayText = lotInvalid && invalidLotDisplay ? invalidLotDisplay : formattedLotSize;
   const hasLotValueEditor = typeof onEditLot === 'function';
@@ -246,11 +225,13 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
     latestBid,
     latestAsk,
     quoteActionAllowed: quoteActionAvailability.allowed,
-    quoteActionQuote: latestQuote,
+    quoteActionQuote: liveQuote,
     onTradeResult,
   });
-  const tradeControlsDisabled = !isCurrentChartSymbol || !quoteActionAvailability.allowed;
-  // Block trading while the manually-typed lot is invalid (MT5 parity).
+  // Lot chrome only cares about identity + invalid draft — not quote integrity.
+  const tradeControlsDisabled = !isCurrentChartSymbol;
+  // Hard-disable only for stale symbol or invalid lot. Quote readiness is handled
+  // in the press handler so tiles stay bright and tappable.
   const tradeBlocked = chartTradeActionDisabled || lotInvalid;
 
   const themeStyles = isDark ? darkStyles : lightStyles;
@@ -258,11 +239,6 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   const buyAction = getChartTradeAction('buy');
   const sellTileColor = sellColor;
   const buyTileColor = buyColor;
-  const lotDisplayValue = (
-    <Text style={[textBaseStyles.actionLotValue, baseStyles.actionLotDisplayGhost, themeStyles.actionLotValue, lotInvalid && { color: INVALID_LOT_COLOR }]} numberOfLines={1}>
-      {lotDisplayText}
-    </Text>
-  );
   const lotControl = (
     <View
       style={[
@@ -334,25 +310,29 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
             </InputAccessoryView>
           ) : null}
         </>
-      ) : hasLotValueEditor ? (
+      ) : (
         <Pressable
           style={baseStyles.actionLotPill}
           onPress={handleLotCenterPress}
           onLongPress={handleLotCenterLongPress}
-          delayLongPress={220}
-          disabled={tradeControlsDisabled || typeof handleLotCenterPress !== 'function'}
-          hitSlop={LOT_VALUE_HIT_SLOP}
-          unstable_pressDelay={0}
+          disabled={tradeControlsDisabled}
+          accessibilityState={{ disabled: tradeControlsDisabled }}
           accessibilityLabel="Edit lot"
-          accessibilityValue={{ text: formattedLotSize }}
-          testID="chart-trade-lot-edit-button"
+          testID="chart-trade-lot-value-button"
+          hitSlop={LOT_VALUE_HIT_SLOP}
+          activateOnPressIn
         >
-          {lotDisplayValue}
+          <Text
+            style={[
+              textBaseStyles.actionLotValue,
+              themeStyles.actionLotValue,
+              lotInvalid && { color: INVALID_LOT_COLOR },
+            ]}
+            numberOfLines={1}
+          >
+            {lotDisplayText}
+          </Text>
         </Pressable>
-      ) : (
-        <View style={baseStyles.actionLotPill}>
-          {lotDisplayValue}
-        </View>
       )}
       <Pressable
         style={[
@@ -381,6 +361,12 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
     </View>
   );
 
+  // Busy state must NOT swap children (spinner) or change layout height —
+  // that blinks/shrinks the BUY/SELL tiles on iOS and Android while the order
+  // is in flight. Keep labels/prices mounted; use a thin border pulse only.
+  const sellBusy = isChartTradeActionBusy('sell') || isChartTradeActionVisuallyLocked('sell');
+  const buyBusy = isChartTradeActionBusy('buy') || isChartTradeActionVisuallyLocked('buy');
+
   if (variant === 'mt5-market') {
     return (
       <View style={baseStyles.chartTradeMarketActionRow}>
@@ -388,51 +374,45 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           style={[
             baseStyles.chartTradeMarketActionButton,
             { backgroundColor: sellColor },
-            isChartTradeActionVisuallyLocked('sell') && baseStyles.chartTradeMarketActionButtonBusy,
+            sellBusy && baseStyles.chartTradeMarketActionButtonBusy,
           ]}
           disabled={tradeBlocked}
           accessibilityState={{ disabled: tradeBlocked, busy: isChartTradeActionBusy('sell') }}
-          onPressIn={() => handleTrade('sell')}
+          onPress={() => handleTrade('sell')}
+          activateOnPressIn
+          activateOnTouchStart
           unstable_pressDelay={0}
+          latencyLabel="chart.trade.sell.market"
           accessibilityRole="button"
           accessibilityLabel={sellAction.marketAccessibilityLabel}
           testID={sellAction.marketTestID}
         >
-          {isChartTradeActionBusy('sell') ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <>
-              <Text style={baseStyles.chartTradeMarketActionTitle}>{sellAction.marketLabel}</Text>
-              <Text style={baseStyles.chartTradeMarketActionMeta}>
-                {lotDisplayText} Lots · {formattedBid}
-              </Text>
-            </>
-          )}
+          <Text style={baseStyles.chartTradeMarketActionTitle}>{sellAction.marketLabel}</Text>
+          <Text style={baseStyles.chartTradeMarketActionMeta}>
+            {lotDisplayText} Lots · {formattedBid}
+          </Text>
         </Pressable>
         <Pressable
           style={[
             baseStyles.chartTradeMarketActionButton,
             { backgroundColor: buyColor },
-            isChartTradeActionVisuallyLocked('buy') && baseStyles.chartTradeMarketActionButtonBusy,
+            buyBusy && baseStyles.chartTradeMarketActionButtonBusy,
           ]}
           disabled={tradeBlocked}
           accessibilityState={{ disabled: tradeBlocked, busy: isChartTradeActionBusy('buy') }}
-          onPressIn={() => handleTrade('buy')}
+          onPress={() => handleTrade('buy')}
+          activateOnPressIn
+          activateOnTouchStart
           unstable_pressDelay={0}
+          latencyLabel="chart.trade.buy.market"
           accessibilityRole="button"
           accessibilityLabel={buyAction.marketAccessibilityLabel}
           testID={buyAction.marketTestID}
         >
-          {isChartTradeActionBusy('buy') ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <>
-              <Text style={baseStyles.chartTradeMarketActionTitle}>{buyAction.marketLabel}</Text>
-              <Text style={baseStyles.chartTradeMarketActionMeta}>
-                {lotDisplayText} Lots · {formattedAsk}
-              </Text>
-            </>
-          )}
+          <Text style={baseStyles.chartTradeMarketActionTitle}>{buyAction.marketLabel}</Text>
+          <Text style={baseStyles.chartTradeMarketActionMeta}>
+            {lotDisplayText} Lots · {formattedAsk}
+          </Text>
         </Pressable>
       </View>
     );
@@ -444,12 +424,25 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
         <Pressable
           style={[
             baseStyles.actionBtn,
-            { backgroundColor: sellTileColor, borderWidth: 0, shadowColor: sellTileColor, shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 8, elevation: 0 },
-            (isChartTradeActionVisuallyLocked('sell') || lotInvalid) && { opacity: 0.5 },
+            {
+              backgroundColor: sellTileColor,
+              borderWidth: sellBusy ? 2 : 0,
+              borderColor: sellBusy ? 'rgba(255,255,255,0.55)' : 'transparent',
+              shadowColor: sellTileColor,
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: isDark ? 0 : 0.05,
+              shadowRadius: 8,
+              elevation: 0,
+            },
+            lotInvalid && baseStyles.actionBtnLotInvalid,
           ]}
           disabled={tradeBlocked}
           accessibilityState={{ disabled: tradeBlocked, busy: isChartTradeActionBusy('sell') }}
-          onPressIn={() => handleTrade('sell')}
+          onPress={() => handleTrade('sell')}
+          activateOnPressIn
+          activateOnTouchStart
+          unstable_pressDelay={0}
+          latencyLabel="chart.trade.sell"
           accessibilityRole="button"
           accessibilityLabel={sellAction.accessibilityLabel}
           testID={sellAction.testID}
@@ -506,12 +499,25 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
         <Pressable
           style={[
             baseStyles.actionBtn,
-            { backgroundColor: buyTileColor, borderWidth: 0, shadowColor: buyTileColor, shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 8, elevation: 0 },
-            (isChartTradeActionVisuallyLocked('buy') || lotInvalid) && { opacity: 0.5 },
+            {
+              backgroundColor: buyTileColor,
+              borderWidth: buyBusy ? 2 : 0,
+              borderColor: buyBusy ? 'rgba(255,255,255,0.55)' : 'transparent',
+              shadowColor: buyTileColor,
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: isDark ? 0 : 0.05,
+              shadowRadius: 8,
+              elevation: 0,
+            },
+            lotInvalid && baseStyles.actionBtnLotInvalid,
           ]}
           disabled={tradeBlocked}
           accessibilityState={{ disabled: tradeBlocked, busy: isChartTradeActionBusy('buy') }}
-          onPressIn={() => handleTrade('buy')}
+          onPress={() => handleTrade('buy')}
+          activateOnPressIn
+          activateOnTouchStart
+          unstable_pressDelay={0}
+          latencyLabel="chart.trade.buy"
           accessibilityRole="button"
           accessibilityLabel={buyAction.accessibilityLabel}
           testID={buyAction.testID}

@@ -19,6 +19,7 @@ import type { ChartShowOnChartSettings } from '../chartShowOnChart';
 import {
   addUniqueMarker,
   addUniquePriceLine,
+  buildClosedPositionMarkers,
   buildPatternMarkers,
   sanitizeCandles,
 } from './markerCollections';
@@ -35,7 +36,7 @@ import {
   CHART_LINE_STYLE,
   CHART_OVERLAY_DEBUG,
   EMPTY_CHART_OVERLAY_PAYLOAD,
-  EMPTY_OVERLAY_CANDLES,
+  EMPTY_OVERLAY_MARKERS,
   type ChartOverlayCandle,
   type ChartOverlayLiveAccount,
   type ChartOverlayMarker,
@@ -66,6 +67,52 @@ const isTradeSideEnabled = (
   side: 'buy' | 'sell',
   showOnChart: ChartShowOnChartSettings,
 ): boolean => (side === 'buy' ? showOnChart.buyTrade : showOnChart.sellTrade);
+
+type BuildChartOverlayMarkersInput = Pick<
+  BuildChartOverlayPayloadInput,
+  'chartSymbol' | 'candles' | 'closedPositions' | 'showOnChart' | 'activeTool'
+>;
+
+/**
+ * Build candle-anchored markers independently from quote-driven price lines.
+ *
+ * The native Chart host memoizes this result from candle-time/history inputs,
+ * so a bid/ask or open-position P/L tick cannot repeatedly scan closed history
+ * or normalize every historical symbol.
+ */
+export const buildChartOverlayMarkers = ({
+  chartSymbol,
+  candles,
+  closedPositions = [],
+  showOnChart,
+  activeTool,
+}: BuildChartOverlayMarkersInput): ChartOverlayMarker[] => {
+  const needsPatternMarkers = activeTool === 'patterns';
+  const needsClosedTradeMarkers = hasEnabledTradeSides(showOnChart) && closedPositions.length > 0;
+  if (!needsPatternMarkers && !needsClosedTradeMarkers) {
+    return EMPTY_OVERLAY_MARKERS;
+  }
+
+  const sanitizedCandles = sanitizeCandles(candles);
+  if (sanitizedCandles.length === 0) {
+    return EMPTY_OVERLAY_MARKERS;
+  }
+
+  const markers = new Map<string, ChartOverlayMarker>();
+  if (needsPatternMarkers) {
+    buildPatternMarkers(sanitizedCandles, activeTool).forEach((marker) => addUniqueMarker(markers, marker));
+  }
+  if (needsClosedTradeMarkers) {
+    buildClosedPositionMarkers(sanitizedCandles, closedPositions, chartSymbol).forEach((marker) =>
+      addUniqueMarker(markers, marker),
+    );
+  }
+
+  if (markers.size === 0) {
+    return EMPTY_OVERLAY_MARKERS;
+  }
+  return Array.from(markers.values()).sort((left, right) => left.time - right.time);
+};
 
 // MT5-parity: open-position lines stay as individual dotted lines so the
 // trader can see each entry, even when entries are clustered.
@@ -101,6 +148,7 @@ export const buildChartOverlayPayload = ({
   chartSymbol,
   candles,
   positions,
+  closedPositions = [],
   colors,
   sellColor,
   liveBid,
@@ -109,16 +157,15 @@ export const buildChartOverlayPayload = ({
   activeTool,
 }: BuildChartOverlayPayloadInput): ChartOverlayPayload => {
   const needsPatternMarkers = activeTool === 'patterns';
-  if (!hasEnabledTradeSides(showOnChart) && !needsPatternMarkers) {
+  const showTradeSides = hasEnabledTradeSides(showOnChart);
+  if (!showTradeSides && !needsPatternMarkers) {
     return EMPTY_CHART_OVERLAY_PAYLOAD;
   }
 
-  // Only the pattern drawing tool needs candle data now.
-  const sanitizedCandles = needsPatternMarkers ? sanitizeCandles(candles) : EMPTY_OVERLAY_CANDLES;
   const normalizedChartSymbol = normalizeChartOverlaySymbol(chartSymbol);
   // Show the trader's open positions for this symbol, filtered to the sides the
   // "Show buy trade" / "Show sell trade" preferences enable.
-  const symbolPositions = hasEnabledTradeSides(showOnChart)
+  const symbolPositions = showTradeSides
     ? positions.filter(
         (position) =>
           normalizeChartOverlaySymbol(position.symbol) === normalizedChartSymbol &&
@@ -130,6 +177,7 @@ export const buildChartOverlayPayload = ({
     console.log(
       `[ChartOverlay] chart=${chartSymbol} (norm=${normalizedChartSymbol}) | ` +
       `totalPositions=${positions.length} matchingPositions=${symbolPositions.length} | ` +
+      `closedPositions=${closedPositions.length} | ` +
       `flags: buy=${showOnChart.buyTrade} sell=${showOnChart.sellTrade} sltp=${showOnChart.slTpLevels}`,
     );
     if (symbolPositions.length > 0) {
@@ -142,7 +190,6 @@ export const buildChartOverlayPayload = ({
   }
 
   const priceLines = new Map<string, ChartOverlayPriceLine>();
-  const markers = new Map<string, ChartOverlayMarker>();
 
   symbolPositions.forEach((position) => {
     const parsedPrice = Number(position.openPrice);
@@ -213,15 +260,19 @@ export const buildChartOverlayPayload = ({
     }
   });
 
-  if (needsPatternMarkers) {
-    buildPatternMarkers(sanitizedCandles, activeTool).forEach((marker) => addUniqueMarker(markers, marker));
-  }
+  const markers = buildChartOverlayMarkers({
+    chartSymbol,
+    candles,
+    closedPositions,
+    showOnChart,
+    activeTool,
+  });
 
   const result = {
     priceLines: applyRightAxisLabelVisibility(
       Array.from(priceLines.values()).sort((left, right) => left.price - right.price),
     ),
-    markers: Array.from(markers.values()).sort((left, right) => left.time - right.time),
+    markers,
   };
 
   if (result.priceLines.length === 0 && result.markers.length === 0) {

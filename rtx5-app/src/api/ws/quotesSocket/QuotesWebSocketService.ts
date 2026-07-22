@@ -260,7 +260,8 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     this.clearReconnectTimer();
     this.clearNetInfoListener();
     this.teardownSocket();
-    this.scheduleReconnect(500);
+    // Resume market ticks ASAP after foreground — 500ms felt like a dead quotes list.
+    this.scheduleReconnect(0);
   }
 
   public static getInstance(): QuotesWebSocketService {
@@ -557,6 +558,18 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     const resolutionGeneration = ++this.socketResolutionGeneration;
     void this.resolveSocketUrlAsync()
       .then(async (resolved) => {
+        if (resolutionGeneration !== this.socketResolutionGeneration) return;
+        this.isResolvingSocketUrl = false;
+        if (!isActiveBrokerSessionCurrent(resolved.identity)) {
+          return;
+        }
+
+        // Open the market socket immediately after URL resolve so first ticks
+        // are not blocked behind the status probe (up to ~3s). Health still
+        // runs in parallel and can hard-stop the socket on confirmed blocks.
+        this.openResolvedSocket(resolved);
+        this.scheduleHealthProbe(resolved.identity);
+
         const healthBeforeProbe = getFeedHealthSnapshot();
         const boundedRecoveryProbe = Boolean(
           feedHealthStateMatchesIdentity(healthBeforeProbe, resolved.identity) &&
@@ -564,30 +577,34 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
         );
         const healthConfirmed = await probeActiveFeedHealth(resolved.identity);
         if (resolutionGeneration !== this.socketResolutionGeneration) return;
-        this.isResolvingSocketUrl = false;
         if (!isActiveBrokerSessionCurrent(resolved.identity)) {
           return;
         }
         if (!healthConfirmed) {
-          this.clearHealthProbeTimer();
-          this.teardownSocket(false);
+          // Probe timeout/failure: keep a live socket if already streaming.
+          // Only tear down when nothing connected, or a user-visible retry owns
+          // the failed probe and must preserve the outage affordance.
           if (boundedRecoveryProbe) {
-            // A user-visible safe retry owns exactly one health probe. Keep the
-            // truthful outage state and retry affordance when it cannot confirm.
+            this.clearHealthProbeTimer();
+            this.teardownSocket(false);
             this.shouldReconnect = false;
             return;
           }
-          reportFeedSocketClosed(resolved.identity, false);
-          this.attemptReconnect();
+          if (!this.isConnected && this.ws?.readyState !== WebSocket.OPEN) {
+            this.clearHealthProbeTimer();
+            this.teardownSocket(false);
+            reportFeedSocketClosed(resolved.identity, false);
+            this.attemptReconnect();
+          }
           return;
         }
-        this.scheduleHealthProbe(resolved.identity);
         if (this.shouldPauseForConfirmedHealth(resolved.identity)) {
           // Explicit provider/market/auth failures remain broker-scoped and
           // stopped until the visible safe-retry path requests one new probe.
           this.stopForHealthBlock();
           return;
         }
+        // Probe ok after open — ensure socket is up (no-op if already open).
         this.openResolvedSocket(resolved);
       })
       .catch((error) => {

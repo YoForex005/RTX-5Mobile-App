@@ -137,6 +137,26 @@ test('WebView resizeChartViewport replays pending init and reports geometry', ()
   assertSourceContains(body, /postChartGeometry\(\)/, 'resize must post updated chart geometry');
 });
 
+test('zero-sized WebView init retry is single-flight and bounded', () => {
+  const initBody = extractFunctionBody(source, '_doInitChart');
+
+  assertSourceContains(
+    source,
+    /var _pendingInitRaf = null;[\s\S]*var _pendingInitRetryCount = 0;[\s\S]*var MAX_PENDING_INIT_RAF_RETRIES = 60;/,
+    'pending init must track one animation frame and a finite retry budget',
+  );
+  assertSourceContains(
+    initBody,
+    /if \(w === 0 \|\| h === 0\) \{[\s\S]*if \(_pendingInitRaf === null && _pendingInitRetryCount < MAX_PENDING_INIT_RAF_RETRIES\) \{[\s\S]*_pendingInitRetryCount \+= 1;[\s\S]*_pendingInitRaf = requestAnimationFrame\(function\(\) \{[\s\S]*_pendingInitRaf = null;[\s\S]*_doInitChart\(/,
+    'zero-size init retries must be single-flight and stop at the configured limit',
+  );
+  assertSourceContains(
+    initBody,
+    /if \(_pendingInitRaf !== null\) \{\s*cancelAnimationFrame\(_pendingInitRaf\);\s*_pendingInitRaf = null;\s*\}\s*_pendingInit = null;\s*_pendingInitRetryCount = 0;/,
+    'successful layout must cancel the pending frame and reset retry state',
+  );
+});
+
 test('WebView chart creation resists cold-start internal shrink measurements', () => {
   const rememberBody = extractFunctionBody(source, 'rememberHostViewportSize');
   const resolveBody = extractFunctionBody(source, 'resolveChartViewportSize');

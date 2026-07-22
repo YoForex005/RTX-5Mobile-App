@@ -58,9 +58,9 @@ export function createActiveAwareSidebarDestinationAdapter(
 
 /**
  * The sidebar-only destinations stay mounted as lightweight, inactive-aware
- * shells. Their real bodies are focus-gated and latch after first use, so the
- * first tap reveals a real header immediately and later taps reveal the full
- * retained screen without route construction or loading previews.
+ * header shells. Their native bodies are focus-gated and unmount after hide,
+ * while readiness remains warm so the next focused reveal can build content
+ * without route construction or a loading preview.
  */
 export const SIDEBAR_DESTINATION_COMPATIBILITY_REGISTRY: SidebarDestinationRegistry = Object.freeze({
   journal: createActiveAwareSidebarDestinationAdapter(JournalScreenInner),

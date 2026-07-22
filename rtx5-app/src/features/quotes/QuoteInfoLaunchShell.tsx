@@ -144,7 +144,8 @@ export const QuoteInfoLaunchShell = memo(function QuoteInfoLaunchShell({
         <View style={styles.headerSpacer} />
       </View>
 
-      <View style={styles.body}>
+      {active ? (
+        <View style={styles.body}>
         <View style={styles.hero}>
           <View style={styles.instrumentRow}>
             <View style={styles.symbolMark}>
@@ -207,7 +208,8 @@ export const QuoteInfoLaunchShell = memo(function QuoteInfoLaunchShell({
           <LaunchRow label={t('Bid low')} value={readout.lowText} styles={styles} />
           <LaunchRow label={t('Open price')} value={readout.openText} styles={styles} last />
         </LaunchSection>
-      </View>
+        </View>
+      ) : null}
     </View>
   );
 });

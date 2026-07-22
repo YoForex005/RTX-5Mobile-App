@@ -19,7 +19,7 @@ import {
 } from '../state/activeBrokerSession';
 import { buildFeedHealthBannerModel } from './feedHealthPresentation';
 import {
-  getFeedHealthSnapshot,
+  getFeedHealthRenderSnapshot,
   requestFeedHealthRetry,
   subscribeFeedHealth,
 } from './feedHealthRuntime';
@@ -42,8 +42,8 @@ export function BrokerFeedHealthBanner({
   const T = useTheme();
   const state = useSyncExternalStore(
     subscribeFeedHealth,
-    getFeedHealthSnapshot,
-    getFeedHealthSnapshot,
+    getFeedHealthRenderSnapshot,
+    getFeedHealthRenderSnapshot,
   );
   const capture = captureActiveBrokerSession();
   const identity = capture ? getActiveBrokerSessionIdentity(capture.session) : null;

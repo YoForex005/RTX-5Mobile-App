@@ -466,6 +466,8 @@ function ToggleRow({
     <FastPressable
       style={({ pressed }) => [styles.toggleRow, pressed && styles.rowPressed]}
       onPress={() => onValueChange(!enabled)}
+      activateOnPressIn
+      unstable_pressDelay={0}
       latencyLabel={`chartSettings.showOnChart.${item.key}`}
     >
       <View style={styles.toggleLeft}>
@@ -478,6 +480,7 @@ function ToggleRow({
         </View>
       </View>
       <Switch
+        // Row press owns the toggle so iOS/Android never double-fire Switch + row.
         pointerEvents="none"
         value={enabled}
         onValueChange={onValueChange}
@@ -519,6 +522,8 @@ function PreferenceToggleRow({
     <FastPressable
       style={({ pressed }) => [styles.preferenceToggleRow, pressed && styles.rowPressed]}
       onPress={() => onValueChange(!enabled)}
+      activateOnPressIn
+      unstable_pressDelay={0}
       latencyLabel={latencyLabel}
     >
       <View style={styles.toggleLeft}>
@@ -531,6 +536,7 @@ function PreferenceToggleRow({
         </View>
       </View>
       <Switch
+        // Row press owns the toggle so iOS/Android never double-fire Switch + row.
         pointerEvents="none"
         value={enabled}
         onValueChange={onValueChange}

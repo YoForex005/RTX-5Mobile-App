@@ -31,10 +31,8 @@ import { makeJournalStyles } from './styles';
 import { useNextFrameValue } from '../../../hooks/useNextFrameValue';
 import { useTranslation } from '../../../i18n/useTranslation';
 
-// Retain the virtualized Journal body before it is selected, after the static
-// sidebar pages have prewarmed. The trade query and journal maintenance below
-// still remain strictly focus-gated by isScreenFocused.
-// Hosted sidebar destination: mount body immediately so first open is never blank.
+// Prewarm only the Journal readiness latch while hidden. The native SectionList
+// and overlays stay focus-only so the retained sidebar shell remains lightweight.
 const JOURNAL_BODY_PREWARM_DELAY_MS = 0;
 
 type JournalFilter = 'All' | 'Trades' | 'Accounts' | 'Actions' | 'Errors' | 'Notes';
@@ -204,6 +202,7 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
   const routeBodyReady = useDeferredRouteContentReady(
     isScreenFocused ? 0 : JOURNAL_BODY_PREWARM_DELAY_MS,
   );
+  const focusedBodyReady = isScreenFocused && routeBodyReady;
   const T = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => makeJournalStyles(T), [T]);
@@ -222,6 +221,15 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isNoteOpen, setIsNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState('');
+
+  useEffect(() => {
+    if (isScreenFocused) {
+      return;
+    }
+    setIsPullRefreshing(false);
+    setIsCalendarOpen(false);
+    setIsNoteOpen(false);
+  }, [isScreenFocused]);
 
   useEffect(() => {
     if (isScreenFocused) {
@@ -438,7 +446,7 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
         </View>
       </View>
 
-      {routeBodyReady ? <SectionList
+      {focusedBodyReady ? <SectionList
         sections={groups}
         keyExtractor={(item) => item.id}
         renderItem={renderJournalRow}
@@ -554,7 +562,7 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
         )}
       /> : <View style={styles.container} />}
 
-      {isNoteOpen ? (
+      {isScreenFocused && isNoteOpen ? (
         <View style={styles.noteOverlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsNoteOpen(false)} latencyLabel="journal.noteOverlay" />
           <View style={[styles.noteSheet, { paddingBottom: insets.bottom + 12 }]}>
@@ -585,7 +593,7 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
         </View>
       ) : null}
 
-      {isCalendarOpen ? (
+      {isScreenFocused && isCalendarOpen ? (
         <View style={styles.calendarOverlay}>
           <Pressable
             style={StyleSheet.absoluteFill}

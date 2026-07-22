@@ -72,7 +72,7 @@ export const HELP_FAQ_ITEMS: HelpFaqItem[] = [
     category: 'Trading',
     question: 'Where are position actions located?',
     answer:
-      'Open Trade to review positions. Position rows expose ticket actions such as modify, close, close-by, and supported bulk operation flows.',
+      'Open Trade to review positions. Position rows expose ticket actions such as modify, close, and supported bulk operation flows.',
     icon: 'briefcase-outline',
   },
   {

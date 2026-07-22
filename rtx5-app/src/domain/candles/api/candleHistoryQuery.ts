@@ -23,16 +23,41 @@ export type CandleHistoryRouteContract = Readonly<{
 }>;
 
 /**
- * Reads one release-configured candle-history contract. No path or query shape
- * is selected by trial requests; absent/invalid configuration fails closed.
+ * Release-configured candle-history contract.
+ *
+ * IMPORTANT (Expo / Metro production): `EXPO_PUBLIC_*` values are only inlined
+ * when accessed as *static* property reads (`process.env.EXPO_PUBLIC_FOO`).
+ * Passing the whole `process.env` object and reading `env.EXPO_PUBLIC_FOO`
+ * yields `undefined` on device, so chart history fails closed after login in
+ * OTA / release builds even when `.env` was correct at publish time.
+ *
+ * No path or query shape is selected by trial requests; absent/invalid
+ * configuration still fails closed.
  */
+const readCandleHistoryEnv = (
+  env?: Readonly<Record<string, string | undefined>>,
+): Readonly<{ path: string; queryStyle: string }> => {
+  // Prefer an explicit override (tests / diagnostics). Fall back to static
+  // process.env reads so Metro can replace them with string literals in OTA.
+  const path =
+    (env && typeof env.EXPO_PUBLIC_CANDLE_HISTORY_PATH === 'string'
+      ? env.EXPO_PUBLIC_CANDLE_HISTORY_PATH
+      : process.env.EXPO_PUBLIC_CANDLE_HISTORY_PATH) ?? '';
+  const queryStyle =
+    (env && typeof env.EXPO_PUBLIC_CANDLE_HISTORY_QUERY_STYLE === 'string'
+      ? env.EXPO_PUBLIC_CANDLE_HISTORY_QUERY_STYLE
+      : process.env.EXPO_PUBLIC_CANDLE_HISTORY_QUERY_STYLE) ?? '';
+  return { path, queryStyle };
+};
+
 export const resolveCandleHistoryRouteContract = (
-  env: Readonly<Record<string, string | undefined>> = process.env,
+  env?: Readonly<Record<string, string | undefined>>,
 ): CandleHistoryRouteContract | null => {
-  const pathPrefix = String(env.EXPO_PUBLIC_CANDLE_HISTORY_PATH ?? '')
+  const configured = readCandleHistoryEnv(env);
+  const pathPrefix = String(configured.path)
     .trim()
     .replace(/^\/+|\/+$/g, '');
-  const queryStyle = String(env.EXPO_PUBLIC_CANDLE_HISTORY_QUERY_STYLE ?? '').trim();
+  const queryStyle = String(configured.queryStyle).trim();
   if (
     !pathPrefix ||
     pathPrefix.includes('..') ||

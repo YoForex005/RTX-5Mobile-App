@@ -84,7 +84,10 @@ export function PriceAlertsScreen({
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makePriceAlertsStyles(T, isDark), [T, isDark]);
-  const isScreenFocused = useIsFocused() || (hosted && hostedActive);
+  const navigationFocused = useIsFocused();
+  // Host instances mount outside any navigator screen, where useIsFocused()
+  // is always true — hostedActive is the only truthful signal for them.
+  const isScreenFocused = hosted ? hostedActive : navigationFocused;
 
   // Current chart symbol pre-fills the symbol field
   const chartSymbol = useUserPreferences((s) => s.chartSymbol);

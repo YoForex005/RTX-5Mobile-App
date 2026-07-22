@@ -31,7 +31,7 @@ test('WebView candle bridge logs updateChartData updateTick and rejected stale t
 test('ChartScreen warms candle history before cold timeframe switches', () => {
   assertSourceContains(source, /import \{ liveCandlesEngine \} from '\.\.\/\.\.\/api\/ws\/liveCandlesEngine'/, 'ChartScreen must be able to warm the canonical candle engine');
   assertSourceContains(source, /const prefetchChartTimeframeHistory = useCallback[\s\S]*liveCandlesEngine\.prefetchHistory/, 'ChartScreen must prefetch through the engine, not the WebView');
-  assertSourceContains(source, /handleOpenTimeframePicker[\s\S]*prefetchChartTimeframeHistory\(chartSymbol, tf\)/, 'opening the timeframe picker must warm alternate timeframes');
+  assertSourceContains(source, /handleOpenTimeframePicker[\s\S]*showChartTimeframePicker\(\)[\s\S]*scheduleIdleWork[\s\S]*prefetchChartTimeframeHistory\(chartSymbol, tf\)/, 'opening the timeframe picker must paint first, then warm alternate timeframes off the critical path');
   assertSourceContains(source, /const prefetchSymbolPickerHistory = useCallback[\s\S]*availableSymbols[\s\S]*slice\(0, CHART_SYMBOL_PICKER_PREFETCH_LIMIT\)[\s\S]*prefetchChartTimeframeHistory\(targetSymbol, chartTimeframe\)/, 'opening the symbol picker must warm likely target symbols for the current timeframe');
   assertSourceContains(source, /handleOpenSymbolPicker[\s\S]*prefetchSymbolPickerHistory\(\)/, 'symbol picker open must start capped background symbol-history prefetch');
   assertSourceContains(source, /refreshSelectedChartHistory[\s\S]*liveCandlesEngine\.prefetchHistory\(nextSymbol, nextTimeframe\)[\s\S]*liveCandlesEngine\.refreshHistoryForContext\(nextSymbol, nextTimeframe\)/, 'selected symbol history must start before the chart context commit');

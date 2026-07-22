@@ -10,6 +10,8 @@ import { useTheme, type ThemeColors } from '../../ui/theme/useTheme';
 import type { ChartActionLaunchDestination } from './chartActionLaunchController';
 
 type ChartActionLaunchShellProps = Readonly<{
+  /** Keep the prepared header mounted, but only build the destination body while shown. */
+  active?: boolean;
   destination: ChartActionLaunchDestination;
   onBack: () => void;
   symbol: string;
@@ -21,6 +23,7 @@ type ChartActionLaunchShellProps = Readonly<{
  * without starting queries, candle calculations, timers, or editor trees.
  */
 export const ChartActionLaunchShell = memo(function ChartActionLaunchShell({
+  active = false,
   destination,
   onBack,
   symbol,
@@ -64,15 +67,17 @@ export const ChartActionLaunchShell = memo(function ChartActionLaunchShell({
         <View style={styles.backButton} />
       </View>
 
-      {destination === 'objects' ? (
-        <ObjectsLaunchBody symbol={displaySymbol} styles={styles} T={T} t={t} />
-      ) : destination === 'calculator' ? (
-        <CalculatorLaunchBody styles={styles} T={T} t={t} />
-      ) : destination === 'analytics' ? (
-        <AnalyticsLaunchBody styles={styles} T={T} t={t} />
-      ) : (
-        <SpecificationLaunchBody styles={styles} T={T} t={t} />
-      )}
+      {active ? (
+        destination === 'objects' ? (
+          <ObjectsLaunchBody symbol={displaySymbol} styles={styles} T={T} t={t} />
+        ) : destination === 'calculator' ? (
+          <CalculatorLaunchBody styles={styles} T={T} t={t} />
+        ) : destination === 'analytics' ? (
+          <AnalyticsLaunchBody styles={styles} T={T} t={t} />
+        ) : (
+          <SpecificationLaunchBody styles={styles} T={T} t={t} />
+        )
+      ) : null}
     </View>
   );
 });

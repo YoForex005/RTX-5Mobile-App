@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { resolveChartTradeButtonQuote } from './quoteFallback';
+import {
+  resolveChartTradeButtonDisplayQuote,
+  resolveChartTradeButtonQuote,
+} from './quoteFallback';
 
 test('resolveChartTradeButtonQuote prefers live websocket bid and ask', () => {
   assert.deepEqual(
@@ -37,4 +40,32 @@ test('resolveChartTradeButtonQuote keeps placeholders when neither source has us
     }),
     { bid: 0, ask: 0 },
   );
+});
+
+test('display quote may use chart bid/ask fallbacks so tiles stay bright while live warms', () => {
+  assert.deepEqual(
+    resolveChartTradeButtonDisplayQuote({
+      liveBid: undefined,
+      liveAsk: undefined,
+      fallbackBid: 79595.51,
+      fallbackAsk: 79620.51,
+    }),
+    { bid: 79595.51, ask: 79620.51 },
+  );
+  assert.deepEqual(
+    resolveChartTradeButtonDisplayQuote({
+      liveBid: 1.1,
+      liveAsk: 1.1002,
+      fallbackBid: 79595.51,
+      fallbackAsk: 79620.51,
+    }),
+    { bid: 1.1, ask: 1.1002 },
+  );
+});
+
+test('quote resolvers never throw when input is null or undefined', () => {
+  assert.deepEqual(resolveChartTradeButtonQuote(undefined), { bid: 0, ask: 0 });
+  assert.deepEqual(resolveChartTradeButtonQuote(null), { bid: 0, ask: 0 });
+  assert.deepEqual(resolveChartTradeButtonDisplayQuote(undefined), { bid: 0, ask: 0 });
+  assert.deepEqual(resolveChartTradeButtonDisplayQuote(null), { bid: 0, ask: 0 });
 });

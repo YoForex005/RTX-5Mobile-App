@@ -48,7 +48,12 @@ const CHART_TAP_MENU_DISMISS_GRACE_MS = 32;
 const CHART_TAP_MENU_OPEN_DURATION_MS = 140;
 const CHART_TAP_MENU_OPEN_SCALE_FROM = 0.58;
 const CHART_TAP_MENU_OPEN_OPACITY_FROM = 0.92;
+// Large enough for fingers on the ring, but not so large that neighbors collide.
 const CHART_TAP_ACTION_HIT_SLOP = { top: 14, bottom: 14, left: 14, right: 14 } as const;
+const CHART_TAP_TIMEFRAME_HIT_SLOP = { top: 12, bottom: 12, left: 10, right: 10 } as const;
+// Drag claim must stay looser than a normal tap — capture:true used to steal
+// Android presses from timeframe labels before onPress could fire.
+const CHART_TAP_MENU_DRAG_CLAIM_PX = 12;
 
 const TIMEFRAME_ITEMS: Array<{ key: string; angle: number; width: number }> = [
   { key: 'M1', angle: 312, width: 38 },
@@ -157,6 +162,9 @@ const createStyles = (isDark: boolean) =>
       height: CHART_TAP_TIMEFRAME_HEIGHT,
       alignItems: 'center',
       justifyContent: 'center',
+      // Above the ring + inner dismiss so TF taps never fall into a dead zone.
+      zIndex: 24,
+      elevation: 16,
     },
     timeframeText: {
       color: '#FFFFFF',
@@ -172,6 +180,8 @@ const createStyles = (isDark: boolean) =>
       textShadowColor: 'rgba(0,0,0,0.18)',
       textShadowOffset: { width: 0, height: 1 },
       textShadowRadius: 1,
+      // Text must not compete for the press responder.
+      pointerEvents: 'none',
     },
     timeframeTextActive: {
       opacity: 1,
@@ -182,8 +192,8 @@ const createStyles = (isDark: boolean) =>
       height: 30,
       alignItems: 'center',
       justifyContent: 'center',
-      zIndex: 20,
-      elevation: 12,
+      zIndex: 22,
+      elevation: 14,
     },
     centerAction: {
       position: 'absolute',
@@ -357,11 +367,15 @@ export function ChartTapRadialMenu({
   const panResponder = React.useMemo(
     () =>
       PanResponder.create({
+        // Never claim the initial touch — children (timeframes/actions) own taps.
         onStartShouldSetPanResponder: () => false,
+        onStartShouldSetPanResponderCapture: () => false,
         onMoveShouldSetPanResponder: (_event, gestureState) =>
-          Math.abs(gestureState.dx) > 4 || Math.abs(gestureState.dy) > 4,
-        onMoveShouldSetPanResponderCapture: (_event, gestureState) =>
-          Math.abs(gestureState.dx) > 4 || Math.abs(gestureState.dy) > 4,
+          Math.abs(gestureState.dx) > CHART_TAP_MENU_DRAG_CLAIM_PX
+          || Math.abs(gestureState.dy) > CHART_TAP_MENU_DRAG_CLAIM_PX,
+        // Do not capture moves: capturing cancelled FastPressable presses on
+        // Android before timeframe onPress could run.
+        onMoveShouldSetPanResponderCapture: () => false,
         onPanResponderGrant: () => {
           dragOriginRef.current = menuPositionRef.current;
         },
@@ -386,7 +400,8 @@ export function ChartTapRadialMenu({
             true,
           );
         },
-        onPanResponderTerminationRequest: () => false,
+        // Allow Pressable children to keep the responder for clean taps.
+        onPanResponderTerminationRequest: () => true,
       }),
     [applyMenuPosition],
   );
@@ -506,11 +521,19 @@ export function ChartTapRadialMenu({
               item.width,
               CHART_TAP_TIMEFRAME_HEIGHT,
             );
-            const isActive = activeTimeframe === item.key;
+            const isActive = String(activeTimeframe ?? '').toUpperCase() === item.key;
             return (
               <Pressable
                 key={item.key}
-                onPress={() => onSelectTimeframe(item.key)}
+                accessibilityRole="button"
+                accessibilityLabel={`${timeframeMenuLabel} ${item.key}`}
+                accessibilityState={{ selected: isActive }}
+                // Same fast-press path as action icons — plain onPress alone
+                // dropped many Android taps over the WebView chart surface.
+                onPress={(event) => handleActionItemPress(event, () => onSelectTimeframe(item.key))}
+                activateOnPressIn
+                activateOnTouchStart
+                hitSlop={CHART_TAP_TIMEFRAME_HIT_SLOP}
                 unstable_pressDelay={0}
                 style={[
                   styles.timeframeItem,

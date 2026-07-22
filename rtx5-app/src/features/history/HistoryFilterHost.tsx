@@ -8,7 +8,8 @@ import {
 
 /**
  * Chart-options-class retained host for History date filter (clock icon).
- * The screen stays mounted; taps only flip visibility so open/back feel instant.
+ * The native layer stays retained, while the interactive calendar only exists
+ * for the visible lifetime of the host.
  */
 export const HistoryFilterHost = memo(function HistoryFilterHost() {
   const layerRef = useRef<View | null>(null);
@@ -64,11 +65,13 @@ export const HistoryFilterHost = memo(function HistoryFilterHost() {
         style={[styles.layer, active ? styles.layerVisible : styles.layerHidden]}
         testID="history-filter-host-layer"
       >
-        <HistoryFilterScreen
-          hosted
-          hostedActive={active}
-          onHostedBack={closeHost}
-        />
+        {active ? (
+          <HistoryFilterScreen
+            hosted
+            hostedActive
+            onHostedBack={closeHost}
+          />
+        ) : null}
       </View>
     </View>
   );
