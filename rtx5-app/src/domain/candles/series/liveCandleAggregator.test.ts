@@ -247,8 +247,76 @@ test('same-price no-volume heartbeat does not open future candle buckets', () =>
     high: 4175.6,
     low: 4175.6,
     close: 4175.6,
-    volume: 1,
+    volume: 0,
   });
+});
+
+test('identical same-bucket tick without explicit volume leaves candle values unchanged', () => {
+  const candleMap = buildEmptyMap();
+  const first = applyQuoteTickExtensionToCandleMap(
+    candleMap,
+    { price: 4175.6, time: BUCKET + 1 },
+    TIMEFRAME,
+    { historyCutoffTime: BUCKET - 60 },
+  );
+  const beforeHeartbeat = { ...candleMap.get(BUCKET) };
+
+  const heartbeat = applyQuoteTickExtensionToCandleMap(
+    candleMap,
+    { price: 4175.6, time: BUCKET + 2 },
+    TIMEFRAME,
+    { historyCutoffTime: BUCKET - 60 },
+  );
+
+  assert.equal(first.changed, true);
+  assert.equal(heartbeat.ignored, false);
+  assert.equal(heartbeat.changed, false);
+  assert.deepEqual(heartbeat.candle, {
+    time: BUCKET,
+    open: 4175.6,
+    high: 4175.6,
+    low: 4175.6,
+    close: 4175.6,
+    volume: 0,
+  });
+  assert.deepEqual(
+    {
+      open: candleMap.get(BUCKET)?.open,
+      high: candleMap.get(BUCKET)?.high,
+      low: candleMap.get(BUCKET)?.low,
+      close: candleMap.get(BUCKET)?.close,
+      volume: candleMap.get(BUCKET)?.volume,
+    },
+    {
+      open: beforeHeartbeat.open,
+      high: beforeHeartbeat.high,
+      low: beforeHeartbeat.low,
+      close: beforeHeartbeat.close,
+      volume: beforeHeartbeat.volume,
+    },
+  );
+});
+
+test('identical same-bucket tick with explicit positive volume updates volume', () => {
+  const candleMap = buildEmptyMap();
+  applyQuoteTickExtensionToCandleMap(
+    candleMap,
+    { price: 4175.6, time: BUCKET + 1, volume: 2 },
+    TIMEFRAME,
+    { historyCutoffTime: BUCKET - 60 },
+  );
+
+  const tick = applyQuoteTickExtensionToCandleMap(
+    candleMap,
+    { price: 4175.6, time: BUCKET + 2, volume: 3 },
+    TIMEFRAME,
+    { historyCutoffTime: BUCKET - 60 },
+  );
+
+  assert.equal(tick.ignored, false);
+  assert.equal(tick.changed, true);
+  assert.equal(tick.candle?.volume, 5);
+  assert.equal(candleMap.get(BUCKET)?.volume, 5);
 });
 
 test('quote tick high/low span expands candle wicks beyond close-only line', () => {

@@ -46,6 +46,38 @@ function toCleanString(value: unknown): string | undefined {
   return trimmed;
 }
 
+function resolveProtectionLevel(
+  source: Record<string, unknown>,
+  keys: readonly string[],
+  existingValue: number | undefined,
+  preserveMissing: boolean,
+): number {
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) {
+      continue;
+    }
+
+    const value = source[key];
+    // Canonical REST snapshots may use null for an unset SL/TP. Treat an
+    // explicit null/blank as a cleared level, while omitted fields in sparse
+    // websocket updates continue to preserve the current value.
+    if (value === null || value === '') {
+      return 0;
+    }
+
+    const parsed = toFiniteNumber(value);
+    if (parsed !== undefined) {
+      return parsed;
+    }
+  }
+
+  return preserveMissing ? (existingValue ?? 0) : 0;
+}
+
+type MapPositionOptions = Readonly<{
+  preserveMissingProtection?: boolean;
+}>;
+
 export function isRenderablePositionSymbol(symbol: unknown): boolean {
   return toCleanString(symbol) !== undefined;
 }
@@ -91,7 +123,11 @@ function buildStableFallbackId(dto: Record<string, unknown>, existing?: Position
   return `pos_${symbol}_${dto.side || 'na'}_${dto.time_create || dto.openTime || 0}_${dto.volume || 0}_${dto.price_open || dto.openPrice || 0}`;
 }
 
-export function mapPositionToItem(dto: unknown, existing?: PositionItem): PositionItem {
+export function mapPositionToItem(
+  dto: unknown,
+  existing?: PositionItem,
+  options: MapPositionOptions = { preserveMissingProtection: true },
+): PositionItem {
   const source =
     dto && typeof dto === 'object'
       ? (dto as Record<string, unknown>)
@@ -138,8 +174,18 @@ export function mapPositionToItem(dto: unknown, existing?: PositionItem): Positi
     swap,
     commission,
     openTime: resolveOpenTime(source, existing),
-    sl: toFiniteNumber(source.price_sl ?? source.sl) ?? existing?.sl ?? 0,
-    tp: toFiniteNumber(source.price_tp ?? source.tp) ?? existing?.tp ?? 0,
+    sl: resolveProtectionLevel(
+      source,
+      ['price_sl', 'sl'],
+      existing?.sl,
+      options.preserveMissingProtection !== false,
+    ),
+    tp: resolveProtectionLevel(
+      source,
+      ['price_tp', 'tp'],
+      existing?.tp,
+      options.preserveMissingProtection !== false,
+    ),
     clientCreatedAt: existing?.clientCreatedAt,
     clientModifiedAt: existing?.clientModifiedAt,
   };

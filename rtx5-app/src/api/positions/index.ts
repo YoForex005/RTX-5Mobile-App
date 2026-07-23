@@ -189,6 +189,7 @@ export const positionsApi = {
   modifyPosition: async (
     ticketId: string | number,
     payload: ModifyPositionPayload,
+    requestOptions: Readonly<{ signal?: AbortSignal; timeoutMs?: number }> = {},
   ): Promise<Position> => {
     recordModifyPositionJournalRequest(ticketId, payload);
     let failureRecorded = false;
@@ -196,6 +197,8 @@ export const positionsApi = {
       const response = await apiClient(`/positions/${ticketId}`, {
         method: 'PUT',
         body: JSON.stringify(payload),
+        signal: requestOptions.signal,
+        timeoutMs: requestOptions.timeoutMs,
       });
 
       if (!response.ok) {

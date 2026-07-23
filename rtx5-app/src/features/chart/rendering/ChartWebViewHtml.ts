@@ -139,6 +139,7 @@ export const CH_HTML = `
       var seriesType = 'candles';
       var pendingTick = null;
       var tickFlushHandle = 0;
+      var lastAppliedLiveTickRevision = 0;
       var currentSeriesLength = 0;
       var lastDisplayDecimals = 2;
       var lastRawSeriesData = [];
@@ -5870,6 +5871,7 @@ export const CH_HTML = `
           visibleRangeIdleTimer = null;
         }
         pendingTick = null;
+        lastAppliedLiveTickRevision = 0;
         lastBarTime = 0;
         _liveBar = null;
         _liveBarHasObservedRealtimeUpdate = false;
@@ -6670,6 +6672,7 @@ export const CH_HTML = `
             tickFlushHandle = 0;
           }
           pendingTick = null;
+          lastAppliedLiveTickRevision = 0;
           var previousRawSeriesData = lastRawSeriesData && lastRawSeriesData.length > 0
             ? lastRawSeriesData.slice()
             : [];
@@ -6795,7 +6798,7 @@ export const CH_HTML = `
       var _liveBarHasObservedRealtimeUpdate = false;
 
       function applyTickUpdate(tick) {
-        if (!series || !tick || typeof tick.time !== 'number') return;
+        if (!series || !tick || typeof tick.time !== 'number') return false;
         if (tick.time < lastBarTime) {
           try {
             chartDebugLog('[WEBVIEW-CANDLE] applyTickUpdate_rejected', {
@@ -6804,7 +6807,7 @@ export const CH_HTML = `
               lastBarTime: lastBarTime,
             });
           } catch (_logErr) {}
-          return;
+          return false;
         }
         var previousSeriesLength = currentSeriesLength;
         var previousVisibleRange = getVisibleLogicalRangeSnapshot();
@@ -6817,7 +6820,7 @@ export const CH_HTML = `
               lastBarTime: lastBarTime,
             });
           } catch (_logErr) {}
-          return;
+          return false;
         }
         var appendedNewBar = currentSeriesLength === 0 || normalizedTick.time > lastBarTime;
         var shouldFollowLiveEdge = appendedNewBar && shouldFollowLiveRightEdge(previousVisibleRange, previousSeriesLength);
@@ -6864,15 +6867,30 @@ export const CH_HTML = `
         refreshDirectionPriceLine();
         refreshMoveDirectionPriceLine();
         refreshOverlayDomLabelsWhenIdle(_overlayPayload);
+        return true;
       }
 
       function flushPendingTick() {
         try {
           tickFlushHandle = 0;
-          var tick = pendingTick;
+          var pending = pendingTick;
           pendingTick = null;
-          if (!tick) return;
-          applyTickUpdate(tick);
+          if (!pending) return;
+          var tick = pending.tick || pending;
+          var revision = typeof pending.revision === 'number' && isFinite(pending.revision)
+            ? pending.revision
+            : null;
+          if (revision !== null && revision <= lastAppliedLiveTickRevision) return;
+          var applied = applyTickUpdate(tick);
+          if (!applied) return;
+          if (pending.syncLivePriceLine === true) {
+            setLivePriceLine(
+              pending.showLivePriceLine === true ? pending.livePrice : null
+            );
+          }
+          if (revision !== null) {
+            lastAppliedLiveTickRevision = revision;
+          }
         } catch (e) {
           if (typeof e.message === 'string' && e.message.indexOf('Cannot update oldest data') >= 0) {
             return; // benign race
@@ -6886,7 +6904,33 @@ export const CH_HTML = `
         try {
           chartDebugLog('[WEBVIEW-CANDLE] updateTick_queued', { time: tick.time });
         } catch (_logErr) {}
-        pendingTick = tick;
+        pendingTick = { tick: tick };
+        if (tickFlushHandle) return;
+        tickFlushHandle = requestAnimationFrame(flushPendingTick);
+      }
+
+      // Canonical live paint transaction. The native host supplies one
+      // aggregated Bid candle and that exact Bid close for the existing market
+      // line. Both are applied inside the same animation frame, so independent
+      // timers can never make the line chase or overshoot the forming candle.
+      function updateLiveTick(update) {
+        if (!update || !update.candle || typeof update.candle.time !== 'number') return;
+        var revision = Number(update.revision);
+        if (!isFinite(revision) || revision <= lastAppliedLiveTickRevision) return;
+        if (
+          pendingTick &&
+          typeof pendingTick.revision === 'number' &&
+          pendingTick.revision >= revision
+        ) {
+          return;
+        }
+        pendingTick = {
+          tick: update.candle,
+          livePrice: update.livePrice,
+          showLivePriceLine: update.showLivePriceLine === true,
+          syncLivePriceLine: true,
+          revision: revision,
+        };
         if (tickFlushHandle) return;
         tickFlushHandle = requestAnimationFrame(flushPendingTick);
       }
@@ -8471,6 +8515,7 @@ export const CH_HTML = `
       window.applyChartVisualTheme = applyChartVisualTheme;
       window.updateChartData = updateChartData;
       window.updateTick = updateTick;
+      window.updateLiveTick = updateLiveTick;
       window.setDisplayDecimals = setDisplayDecimals;
       window.setPeriodSeparators = setPeriodSeparators;
       window.setLivePriceLine = setLivePriceLine;

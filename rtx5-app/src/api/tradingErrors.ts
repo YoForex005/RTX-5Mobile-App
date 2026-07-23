@@ -235,7 +235,11 @@ const looksLikeIntegrationFailure = (status: number | undefined, detail: string 
 };
 
 const buildBackendUnavailableMessage = (action: TradingAction): string => {
-  return `The trading server did not respond while trying to ${ACTION_LABELS[action]}. This points to a backend outage or network connectivity problem.`;
+  return `The trading backend returned an unavailable response while trying to ${ACTION_LABELS[action]}.`;
+};
+
+const buildConnectionFailureMessage = (action: TradingAction): string => {
+  return `The app did not receive an HTTP response while trying to ${ACTION_LABELS[action]}. The frontend cannot tell whether the cause is the phone connection, gateway, or trading server.`;
 };
 
 const buildIntegrationMessage = (action: TradingAction, detail: string | null): string => {
@@ -353,12 +357,24 @@ export const classifyTradingError = (
     };
   }
 
-  if ((status !== undefined && status >= 502) || looksLikeNetworkFailure(detail)) {
+  if (status !== undefined && status >= 502) {
     return {
       origin: 'backend',
       kind: 'backend-unavailable',
       title: 'Trading Server Unavailable',
       message: buildBackendUnavailableMessage(options.action),
+      status,
+      detail,
+    };
+  }
+
+  if (looksLikeNetworkFailure(detail)) {
+    const timedOut = Boolean(detail && /timed out|timeout/i.test(detail));
+    return {
+      origin: 'api',
+      kind: 'backend-unavailable',
+      title: timedOut ? 'Trading Request Timed Out' : 'Trading Connection Failed',
+      message: buildConnectionFailureMessage(options.action),
       status,
       detail,
     };

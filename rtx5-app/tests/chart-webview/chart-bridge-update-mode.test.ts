@@ -79,17 +79,32 @@ test('symbol timeframe switches repaint data while visual shell changes reinit',
   );
 });
 
-test('ChartScreen routes full reload and incremental update to the correct bridge functions', () => {
-  const syncEffectStart = source.indexOf('const nextSnapshot = buildChartSeriesSnapshot');
+test('ChartScreen reserves React series commits for full reloads and uses the direct engine for live paints', () => {
+  const fullReloadEffectStart = source.indexOf('// Effect 2');
+  assert.notEqual(fullReloadEffectStart, -1, 'full-series sync effect marker was not found');
+  const syncEffectStart = source.indexOf('const nextSnapshot = buildChartSeriesSnapshot', fullReloadEffectStart);
   assert.notEqual(syncEffectStart, -1, 'series sync effect was not found');
   const syncEffect = source.slice(syncEffectStart, source.indexOf('useEffect(() => {', syncEffectStart + 1));
 
-  assertSourceContains(syncEffect, /updateMode === 'full_reload'[\s\S]*updateChartData\(/, 'full reload must call updateChartData');
-  assertSourceContains(syncEffect, /else \{[\s\S]*updateTick\(/, 'incremental mode must call updateTick');
+  assertSourceContains(
+    syncEffect,
+    /updateMode === 'noop' \|\| updateMode === 'incremental'[\s\S]*return;[\s\S]*updateChartData\(/,
+    'the slow series effect must skip live deltas and call updateChartData only for a full reload',
+  );
+  assert.doesNotMatch(
+    syncEffect,
+    /updateTick\(|updateLiveTick\(/,
+    'the throttled React series effect must not repaint a live candle after the direct engine path',
+  );
   assertSourceContains(
     source,
-    /const renderableCandles = sanitizedCandles/,
-    'incremental mode must use the same memoized sanitized OHLC series as full reload',
+    /const canonicalCandles = liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\);[\s\S]*const renderableCandles = canonicalCandles\.length > 0 \? canonicalCandles : sanitizedCandles/,
+    'full reload mode must prefer the current canonical engine series and use sanitized React data only as a bootstrap fallback',
+  );
+  assertSourceContains(
+    source,
+    /const readCanonicalCandles = \(\) => liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\)[\s\S]*const paintCanonicalLiveTick = \(\) => \{[\s\S]*updateLiveTick\([\s\S]*liveCandlesEngine\.subscribe\(chartSymbol, chartTimeframe, paintCanonicalLiveTick\)/,
+    'steady live paints must bypass the 400 ms React commit and enter the atomic WebView bridge directly',
   );
 });
 
@@ -186,7 +201,7 @@ test('native WebView uses the RTX5 custom candlestick renderer for candle modes'
   );
 });
 
-test('quote updates move price lines without mutating candle OHLC', () => {
+test('canonical candle engine updates paint one candle-and-Bid-line transaction without a delayed side path', () => {
   assert.doesNotMatch(
     source,
     /liveQuoteCandleStateRef/,
@@ -194,16 +209,16 @@ test('quote updates move price lines without mutating candle OHLC', () => {
   );
   assert.doesNotMatch(source, /resolveLivePriceCoherentCandles/, 'native chart must not fold live quotes into sanitizedCandles');
   assert.doesNotMatch(source, /price: liveChartPrice/, 'native chart must not pass quote prices to candle synthesis');
-
-  const quoteBridgeStart = source.indexOf('Quote ticks move only the live price line.');
-  assert.notEqual(quoteBridgeStart, -1, 'quote bridge contract comment was not found');
-  const quoteBridgeEnd = source.indexOf('// Watchdog', quoteBridgeStart);
-  assert.notEqual(quoteBridgeEnd, -1, 'quote bridge effect end was not found');
-  const quoteBridge = source.slice(quoteBridgeStart, quoteBridgeEnd);
-
-  assertSourceContains(quoteBridge, /pendingMarketPriceLinesRef\.current = \{[\s\S]*price: visibleLivePrice[\s\S]*requestMarketPriceLineFlush\(\)/, 'quote bridge must still schedule the live price line move');
-  assert.doesNotMatch(quoteBridge, /updateTick\(/, 'quote bridge must leave candle OHLC updates in the candle sync effect');
-  assert.doesNotMatch(quoteBridge, /buildChartTickPayload/, 'quote bridge must not create a second candle payload path');
+  assertSourceContains(
+    source,
+    /const lastCandle = canonicalCandles\[canonicalCandles\.length - 1\][\s\S]*candle: buildChartTickPayload\(lastCandle, chartType\),[\s\S]*livePrice: lastCandle\.close,[\s\S]*showLivePriceLine: chartDisplay\.showLivePriceLine,[\s\S]*revision,[\s\S]*updateLiveTick\(/,
+    'the canonical Bid candle close and the existing Bid line must cross the bridge in one revisioned payload',
+  );
+  assert.doesNotMatch(
+    source,
+    /pendingMarketPriceLinesRef|requestMarketPriceLineFlush|flushPendingMarketPriceLines|CHART_MARKET_PRICE_LINE_SYNC_INTERVAL_MS/,
+    'live Bid painting must not retain the old independently timed line queue',
+  );
 });
 
 test('horizontal zoom and pan keeps price autoscale attached to visible bars', () => {

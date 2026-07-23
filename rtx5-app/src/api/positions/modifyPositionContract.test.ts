@@ -17,27 +17,59 @@ test('modify position uses GTA broker SL/TP PUT contract', () => {
   assert.match(modifyPayloadSource, /price_tp: number;/);
   assert.doesNotMatch(modifyPayloadSource, /trailing_stop\?:/);
   assert.doesNotMatch(modifyPayloadSource, /trailing_step\?:/);
+  assert.match(modifyFunctionSource, /signal: requestOptions\.signal/);
+  assert.match(modifyFunctionSource, /timeoutMs: requestOptions\.timeoutMs/);
 });
 
 test('modify position screen submits only SL and TP fields', () => {
-  assert.match(screenSource, /positionsApi\.modifyPosition\(position\.id,\s*\{\s*price_sl: requestedSl,\s*price_tp: requestedTp,\s*\}\)/);
+  assert.match(screenSource, /positionsApi\.modifyPosition\([\s\S]*position\.id,[\s\S]*\{ price_sl: requestedSl, price_tp: requestedTp \}/);
   assert.doesNotMatch(screenSource, /trailing_stop: 0/);
   assert.doesNotMatch(screenSource, /trailing_step: 0/);
 });
 
-test('modify position screen applies confirmed backend SL and TP response to visible state', () => {
-  assert.match(screenSource, /const modifyResult = await positionsApi\.modifyPosition/);
+test('modify position screen paints immediately, confirms in background, and rolls back only its own version', () => {
+  assert.match(screenSource, /applyLocalStopPatch\(requestedSl, requestedTp, modifiedAt\)/);
+  assert.match(screenSource, /const confirmationPromise = positionsApi\.modifyPosition/);
+  assert.match(screenSource, /Promise\.race\(\[confirmationPromise, timeoutPromise\]\)/);
   assert.match(screenSource, /readModifiedStopValue\(modifyResult, \['price_sl', 'sl'\], requestedSl\)/);
   assert.match(screenSource, /readModifiedStopValue\(modifyResult, \['price_tp', 'tp'\], requestedTp\)/);
   assert.match(screenSource, /SL\/TP Not Applied/);
+  assert.match(screenSource, /applyLocalStopPatch\(previousSl, previousTp, previousPosition\.clientModifiedAt, modifiedAt\)/);
+  assert.match(screenSource, /Alert\.alert\(feedback\.title, feedback\.message\)/);
+  assert.match(screenSource, /MODIFY_CONFIRMATION_TIMEOUT_MS = 10_000/);
   assert.match(screenSource, /positionSnapshots:/);
   assert.match(screenSource, /\[positionKey\]: \{/);
+  assert.match(screenSource, /if \(requestedSl > 0 \|\| requestedTp > 0\) \{[\s\S]*chartShowOnChart\.slTpLevels[\s\S]*setChartShowOnChartItem\('slTpLevels', true\)/);
+  assert.match(screenSource, /const sideVisibilityKey = position\.side === 'buy' \? 'buyTrade' : 'sellTrade'/);
+  assert.match(screenSource, /setChartShowOnChartItem\(sideVisibilityKey, true\)/);
+  const handlerStart = screenSource.indexOf('const handleModify = () =>');
+  const handlerEnd = screenSource.indexOf('// Inactive retained layers', handlerStart);
+  const submitSource = screenSource.slice(handlerStart, handlerEnd);
+  const hideIndex = submitSource.indexOf('handleBack();');
+  const yieldIndex = submitSource.indexOf('runAfterModifyClosePaint(() =>');
+  const patchIndex = submitSource.indexOf('applyLocalStopPatch(requestedSl, requestedTp, modifiedAt)');
+  const requestIndex = submitSource.indexOf('const confirmationPromise = positionsApi.modifyPosition');
+
+  assert.ok(hideIndex > -1);
+  assert.ok(hideIndex < yieldIndex);
+  assert.ok(yieldIndex < patchIndex);
+  assert.ok(patchIndex < requestIndex);
+  assert.doesNotMatch(submitSource, /\bawait\b/);
 });
 
-test('modify position submit button activates on press-in with a double-submit guard', () => {
+test('modify position submit is docked outside the scroll view and activates on touch-down', () => {
   assert.match(screenSource, /const modifySubmittingRef = useRef\(false\)/);
   assert.match(screenSource, /if \(modifySubmittingRef\.current\) \{[\s\S]*return;[\s\S]*\}/);
-  assert.match(screenSource, /modifySubmittingRef\.current = true[\s\S]*setIsSubmitting\(true\)/);
-  assert.match(screenSource, /finally \{[\s\S]*modifySubmittingRef\.current = false[\s\S]*setIsSubmitting\(false\)/);
-  assert.match(screenSource, /onPress=\{handleModify\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="modifyPosition\.submit"/);
+  assert.match(screenSource, /modifyPositionIdsInFlight\.add\(positionKey\)[\s\S]*modifySubmittingRef\.current = true/);
+  assert.match(screenSource, /const releaseSubmissionLock = \(\) => \{[\s\S]*modifySubmittingRef\.current = false/);
+  assert.match(screenSource, /\.finally\(\(\) => \{[\s\S]*releaseSubmissionLock\(\)/);
+  const scrollCloseIndex = screenSource.lastIndexOf('</ScrollView>');
+  const submitButtonIndex = screenSource.indexOf('testID="modify-position-submit"');
+  assert.ok(scrollCloseIndex > -1);
+  assert.ok(submitButtonIndex > scrollCloseIndex);
+  assert.match(screenSource, /onPress=\{handleModify\}[\s\S]*activateOnTouchStart[\s\S]*activateOnPressIn[\s\S]*latencyLabel="modifyPosition\.submit"/);
+  assert.match(
+    screenSource,
+    /requestAnimationFrame\(\(\) => \{[\s\S]*setTimeout\(action, 0\)/,
+  );
 });

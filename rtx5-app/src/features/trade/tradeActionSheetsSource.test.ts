@@ -36,6 +36,7 @@ test('trade position long-press action sheet uses the MT5 plain icon action cont
   assert.match(positionSheetSource, /presentation:\s*'mt5Plain'/);
   assert.match(positionSheetSource, /showActionIcons:\s*true/);
   assert.match(positionSheetSource, /detent:\s*'auto'/);
+  assert.match(positionSheetSource, /runActionAfterClose:\s*false/);
   assert.doesNotMatch(positionSheetSource, /detent:\s*'adaptive'/);
   assert.doesNotMatch(positionSheetSource, /title:\s*`#\$\{item\.id\}/);
   assert.match(source, /const TRADE_POSITION_CLOSE_ACTION_LIGHT = '#000000'/);
@@ -46,9 +47,26 @@ test('trade position long-press action sheet uses the MT5 plain icon action cont
   assert.doesNotMatch(positionSheetSource, /label: t\('Close position'\)[\s\S]*danger: true/);
   assert.doesNotMatch(positionSheetSource, /label: t\('Close By'\)|showTradePositionAction\('close-by'/);
   assert.doesNotMatch(positionSheetSource, /color=\{T\.trading\.sell\.primary\}/);
-  assert.match(positionSheetSource, /name="create-outline"[\s\S]*label: t\('Modify position'\)/);
+  assert.match(positionSheetSource, /name="create-outline"[\s\S]*label: t\('Modify position'\)[\s\S]*activateOnPressIn:\s*true/);
   assert.match(positionSheetSource, /name="swap-horizontal-outline"[\s\S]*label: t\('Trade'\)/);
   assert.match(positionSheetSource, /name="analytics-outline"[\s\S]*label: t\('Chart'\)/);
+});
+
+test('retained position action screens conceal the native tab bar without collapsing its layout', () => {
+  const tabsLayoutSource = readSource('app/(tabs)/_layout.tsx');
+
+  assert.match(tabsLayoutSource, /useSyncExternalStore/);
+  assert.match(tabsLayoutSource, /tradePositionActionHostController\.subscribe/);
+  const hideMenuSource = tabsLayoutSource.slice(
+    tabsLayoutSource.indexOf('const shouldHideMenu ='),
+    tabsLayoutSource.indexOf('const shouldConcealMenuForTradeAction ='),
+  );
+  assert.doesNotMatch(hideMenuSource, /tradePositionActionSnapshot\.visible/);
+  assert.match(tabsLayoutSource, /tabBarStyle: shouldHideMenu[\s\S]*display: 'none'/);
+  assert.match(
+    tabsLayoutSource,
+    /shouldConcealMenuForTradeAction && \{[\s\S]*opacity: 0,[\s\S]*transform: \[\{ translateY: tabBarHeight \}\]/,
+  );
 });
 
 test('trade position swipe drawer stays visible on iOS', () => {

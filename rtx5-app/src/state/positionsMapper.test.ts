@@ -41,6 +41,61 @@ test('mapPositionToItem merges partial websocket updates into the existing posit
   assert.equal(mapped.tp, 3270);
 });
 
+test('mapPositionToItem clears explicit null SL/TP without letting sparse updates erase them', () => {
+  const existing: PositionItem = {
+    id: '50124',
+    symbol: 'XAUUSD',
+    side: 'buy',
+    volume: 0.2,
+    openPrice: 3245.5,
+    currentPrice: 3248.1,
+    pnl: 47.75,
+    swap: 0,
+    openTime: '2026-04-11T10:00:00.000Z',
+    sl: 3230,
+    tp: 3270,
+  };
+
+  const sparse = mapPositionToItem({ ticket: 50124, profit: 50 }, existing);
+  assert.equal(sparse.sl, 3230);
+  assert.equal(sparse.tp, 3270);
+
+  const cleared = mapPositionToItem(
+    { ticket: 50124, price_sl: null, price_tp: '' },
+    existing,
+  );
+  assert.equal(cleared.sl, 0);
+  assert.equal(cleared.tp, 0);
+});
+
+test('mapPositionToItem clears omitted protection only for authoritative rows', () => {
+  const existing: PositionItem = {
+    id: '50125',
+    symbol: 'XAUUSD',
+    side: 'sell',
+    volume: 0.1,
+    openPrice: 4140,
+    currentPrice: 4139,
+    pnl: 10,
+    swap: 0,
+    openTime: '2026-07-22T10:00:00.000Z',
+    sl: 4150,
+    tp: 4130,
+  };
+
+  const sparse = mapPositionToItem({ ticket: 50125, profit: 11 }, existing);
+  assert.equal(sparse.sl, 4150);
+  assert.equal(sparse.tp, 4130);
+
+  const authoritative = mapPositionToItem(
+    { ticket: 50125, symbol: 'XAUUSD', side: 'sell', profit: 11 },
+    existing,
+    { preserveMissingProtection: false },
+  );
+  assert.equal(authoritative.sl, 0);
+  assert.equal(authoritative.tp, 0);
+});
+
 test('mapPositionToItem builds stable ids for fresh positions without random fallbacks', () => {
   const mapped = mapPositionToItem({
     symbol: 'EURUSD',

@@ -12,7 +12,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/shallow';
 import {
-  ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Alert, Dimensions, ScrollView, StyleSheet, Text, TextInput, View,
   Platform
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -62,6 +62,19 @@ import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope
 const SETTINGS_DARK_BACKGROUND = '#121212';
 const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E';
 const MIN_STOP_DISTANCE_POINTS = DEFAULT_MIN_STOP_DISTANCE_POINTS;
+const MODIFY_CONFIRMATION_TIMEOUT_MS = 10_000;
+const modifyPositionIdsInFlight = new Set<string>();
+const runAfterModifyClosePaint = (action: () => void) => {
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(() => {
+      // rAF runs before the frame is painted. The macrotask keeps preference
+      // persistence and request setup out of the native close frame itself.
+      setTimeout(action, 0);
+    });
+    return;
+  }
+  setTimeout(action, 0);
+};
 
 type RetainedModifyPositionState = Pick<
   ReturnType<typeof usePositionsState.getState>,
@@ -133,7 +146,6 @@ export function ModifyPositionScreen({
     : (Array.isArray(params.positionId) ? params.positionId[0] : params.positionId);
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
-  const accountDetails = useUserPreferences((s) => s.accountDetails);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const themeActive = !hosted || hostedActive;
   const T = useTheme({ active: themeActive });
@@ -173,7 +185,6 @@ export function ModifyPositionScreen({
 
   const [stopLoss, setStopLoss] = useState<number | null>(null);
   const [takeProfit, setTakeProfit] = useState<number | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const modifySubmittingRef = useRef(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
   const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
@@ -420,7 +431,7 @@ export function ModifyPositionScreen({
   const closingMarketPrice = position ? (position.side === 'buy' ? BID : ASK) : 0;
   // Usable market prices for SL/TP distance — prefer the integrity gate, but do
   // not block the whole form when bid/ask are already painted on this screen.
-  const hasUsableMarketPrice = closingMarketPrice > 0 && BID > 0 && ASK > 0;
+  const hasUsableMarketPrice = closingMarketPrice > 0;
 
   const clampStopTarget = (value: number, kind: 'sl' | 'tp') => {
     if (!position || !(closingMarketPrice > 0) || !(minStopDistance > 0)) return value;
@@ -490,17 +501,11 @@ export function ModifyPositionScreen({
       MIN_STOP_DISTANCE_POINTS,
     );
   }, [closingMarketPrice, point, position, takeProfit]);
-  // Modify is only actionable when market price is known and SL/TP (if set)
-  // clear the 5-point distance rule. Do not gate the button solely on the
-  // integrity banner — false "stale" blocked Done while bid/ask were live.
+  // Keep the press target available while live ticks move. The handler below
+  // validates quote, distance, and session state and always explains a block.
   const canModifyPosition = Boolean(
     position
-    && symbolsMatch
-    && hasUsableMarketPrice
-    && !stopValidationError
-    && isSlDistanceValid
-    && isTpDistanceValid
-    && !isSubmitting,
+    && symbolsMatch,
   );
 
   /**
@@ -559,7 +564,7 @@ export function ModifyPositionScreen({
   /**
    * Submits the requested SL/TP modifications to the trade server and displays a success or error confirmation alert.
    */
-  const handleModify = async () => {
+  const handleModify = () => {
     if (modifySubmittingRef.current) {
       return;
     }
@@ -608,88 +613,194 @@ export function ModifyPositionScreen({
       return;
     }
 
-    if (!accountDetails?.credentials?.accessToken) {
+    const actionProvenance = captureActiveBrokerSessionProvenance();
+    if (!actionProvenance) {
       setSubmitMessage(
         formatTradingErrorFeedback(
           createFrontendTradingError(
             t('Authentication Error'),
-            t('The app does not have a valid local trading session. Log in again before modifying the position.'),
+            t('The active trading session is not ready. Reopen the account session and try modifying the position again.'),
           ),
         ),
       );
       return;
     }
-    const actionProvenance = captureActiveBrokerSessionProvenance();
-    if (!actionProvenance) return;
 
-    modifySubmittingRef.current = true;
-    setIsSubmitting(true);
-    setSubmitMessage(null);
-    try {
-      const requestedSl = stopLoss || 0;
-      const requestedTp = takeProfit || 0;
-      const modifyResult = await positionsApi.modifyPosition(position.id, {
-        price_sl: requestedSl,
-        price_tp: requestedTp,
-      });
-      if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) return;
+    const requestedSl = stopLoss || 0;
+    const requestedTp = takeProfit || 0;
+    const previousPosition = { ...position };
+    const previousSl = Number(position.sl) > 0 ? Number(position.sl) : 0;
+    const previousTp = Number(position.tp) > 0 ? Number(position.tp) : 0;
+    const positionKey = String(position.id);
 
-      const slResult = readModifiedStopValue(modifyResult, ['price_sl', 'sl'], requestedSl);
-      const tpResult = readModifiedStopValue(modifyResult, ['price_tp', 'tp'], requestedTp);
-      const newSl = slResult.value;
-      const newTp = tpResult.value;
+    if (requestedSl === previousSl && requestedTp === previousTp) {
+      handleBack();
+      return;
+    }
 
-      if ((requestedSl > 0 && slResult.confirmed && newSl <= 0) || (requestedTp > 0 && tpResult.confirmed && newTp <= 0)) {
-        setSubmitMessage(
-          formatTradingErrorFeedback(
-            createFrontendTradingError(
-              t('SL/TP Not Applied'),
-              t('The backend accepted the modify request but did not confirm the requested Stop Loss or Take Profit values. Please refresh positions and try again.'),
-            ),
+    if (modifyPositionIdsInFlight.has(positionKey)) {
+      setSubmitMessage(
+        formatTradingErrorFeedback(
+          createFrontendTradingError(
+            t('Modification Pending'),
+            t('The previous SL/TP change is still being confirmed. Please wait a moment.'),
           ),
-        );
-        return;
-      }
+        ),
+      );
+      return;
+    }
 
-      // Optimistic update
-      const modifiedAt = Date.now();
+    const modifiedAt = Date.now();
+    const applyLocalStopPatch = (
+      sl: number,
+      tp: number,
+      nextClientModifiedAt: number | undefined,
+      expectedClientModifiedAt?: number,
+    ): boolean => {
+      let applied = false;
       usePositionsState.setState((state) => {
-        const positionKey = String(position.id);
-        const patch = { sl: newSl, tp: newTp, clientModifiedAt: modifiedAt };
+        const current = state.positions.find((item) => String(item.id) === positionKey);
+        if (!current || (
+          expectedClientModifiedAt !== undefined
+          && current.clientModifiedAt !== expectedClientModifiedAt
+        )) {
+          return {};
+        }
+        applied = true;
+        const patch = { sl, tp, clientModifiedAt: nextClientModifiedAt };
         return {
-          positions: state.positions.map((p) =>
-            String(p.id) === positionKey
-              ? { ...p, ...patch }
-              : p
+          positions: state.positions.map((item) =>
+            String(item.id) === positionKey ? { ...item, ...patch } : item
           ),
           positionSnapshots: {
             ...state.positionSnapshots,
             [positionKey]: {
-              ...(state.positionSnapshots[positionKey] ?? position),
+              ...(state.positionSnapshots[positionKey] ?? current),
               ...patch,
             },
           },
         };
       });
+      return applied;
+    };
 
-      void invalidateSessionQueryRoots(
-        appQueryClient,
-        actionProvenance.cacheNamespace,
-        ['positions', 'positionHistory', 'deals', 'accountSummary', 'exposure', 'transactions'],
-      );
+    modifyPositionIdsInFlight.add(positionKey);
+    modifySubmittingRef.current = true;
 
-      handleBack();
-    } catch (error: any) {
-      if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) return;
-      setSubmitMessage(
-        formatTradingErrorFeedback(
-          classifyTradingError(error, { action: 'modify-position' }),
-        ),
-      );
-    } finally {
+    const releaseSubmissionLock = () => {
+      modifyPositionIdsInFlight.delete(positionKey);
       modifySubmittingRef.current = false;
-      setIsSubmitting(false);
+    };
+
+    // The native retained cover must disappear before shared-store writes,
+    // persisted preference updates, journal work, timers, or fetch setup. All
+    // of those notify other retained trees and used to sit on the return path.
+    try {
+      handleBack();
+    } catch (error) {
+      releaseSubmissionLock();
+      const feedback = classifyTradingError(error, { action: 'modify-position' });
+      Alert.alert(feedback.title, feedback.message);
+      return;
     }
+
+    runAfterModifyClosePaint(() => {
+      let optimisticPatchApplied = false;
+      try {
+        if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) {
+          releaseSubmissionLock();
+          return;
+        }
+
+        // Match the chart's established trade-edit behavior: paint requested
+        // protection after the close paint, then reconcile the broker response
+        // in the background with a version-guarded rollback.
+        optimisticPatchApplied = applyLocalStopPatch(requestedSl, requestedTp, modifiedAt);
+        if (!optimisticPatchApplied) {
+          releaseSubmissionLock();
+          return;
+        }
+
+        if (requestedSl > 0 || requestedTp > 0) {
+          const preferences = useUserPreferences.getState();
+          if (!preferences.chartShowOnChart.slTpLevels) {
+            preferences.setChartShowOnChartItem('slTpLevels', true);
+          }
+          const sideVisibilityKey = position.side === 'buy' ? 'buyTrade' : 'sellTrade';
+          if (!preferences.chartShowOnChart[sideVisibilityKey]) {
+            preferences.setChartShowOnChartItem(sideVisibilityKey, true);
+          }
+        }
+
+        const abortController = new AbortController();
+        let confirmationTimeout: ReturnType<typeof setTimeout> | null = null;
+        const timeoutPromise = new Promise<never>((_resolve, reject) => {
+          confirmationTimeout = setTimeout(() => {
+            abortController.abort();
+            const timeoutError = new Error(
+              `Request timed out after ${MODIFY_CONFIRMATION_TIMEOUT_MS}ms`,
+            );
+            timeoutError.name = 'AbortError';
+            reject(timeoutError);
+          }, MODIFY_CONFIRMATION_TIMEOUT_MS);
+        });
+
+        const confirmationPromise = positionsApi.modifyPosition(
+          position.id,
+          { price_sl: requestedSl, price_tp: requestedTp },
+          { signal: abortController.signal, timeoutMs: MODIFY_CONFIRMATION_TIMEOUT_MS },
+        );
+
+        void Promise.race([confirmationPromise, timeoutPromise])
+          .then((modifyResult) => {
+            if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) return;
+            const slResult = readModifiedStopValue(modifyResult, ['price_sl', 'sl'], requestedSl);
+            const tpResult = readModifiedStopValue(modifyResult, ['price_tp', 'tp'], requestedTp);
+            const newSl = slResult.value;
+            const newTp = tpResult.value;
+            const rejectedRequestedProtection =
+              (requestedSl > 0 && slResult.confirmed && newSl <= 0)
+              || (requestedTp > 0 && tpResult.confirmed && newTp <= 0);
+
+            if (rejectedRequestedProtection) {
+              applyLocalStopPatch(previousSl, previousTp, previousPosition.clientModifiedAt, modifiedAt);
+              const feedback = createFrontendTradingError(
+                t('SL/TP Not Applied'),
+                t('The server response did not confirm the requested Stop Loss or Take Profit values.'),
+              );
+              Alert.alert(feedback.title, feedback.message);
+              return;
+            }
+
+            applyLocalStopPatch(newSl, newTp, modifiedAt, modifiedAt);
+            void invalidateSessionQueryRoots(
+              appQueryClient,
+              actionProvenance.cacheNamespace,
+              ['positions', 'positionHistory', 'deals', 'accountSummary', 'exposure', 'transactions'],
+            );
+          })
+          .catch((error: any) => {
+            if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) return;
+            applyLocalStopPatch(previousSl, previousTp, previousPosition.clientModifiedAt, modifiedAt);
+            const feedback = classifyTradingError(error, { action: 'modify-position' });
+            Alert.alert(feedback.title, feedback.message);
+          })
+          .finally(() => {
+            if (confirmationTimeout) clearTimeout(confirmationTimeout);
+            releaseSubmissionLock();
+          });
+      } catch (error) {
+        if (
+          optimisticPatchApplied
+          && isActiveBrokerSessionProvenanceCurrent(actionProvenance)
+        ) {
+          applyLocalStopPatch(previousSl, previousTp, previousPosition.clientModifiedAt, modifiedAt);
+        }
+        releaseSubmissionLock();
+        const feedback = classifyTradingError(error, { action: 'modify-position' });
+        Alert.alert(feedback.title, feedback.message);
+      }
+    });
   };
 
   // Inactive retained layers skip heavy paint while another screen is visible.
@@ -867,7 +978,7 @@ export function ModifyPositionScreen({
         style={styles.scrollView}
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingBottom: Math.max(insets.bottom, 20) + 8 },
+          { paddingBottom: 8 },
         ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="always"
@@ -994,7 +1105,7 @@ export function ModifyPositionScreen({
                   <Text style={styles.stepperLabel}>{title}</Text>
                 </View>
                 {rawValue !== null ? (
-                  <Pressable onPress={onClear} hitSlop={10} style={styles.stepperClear}>
+                  <Pressable onPress={onClear} activateOnPressIn hitSlop={10} style={styles.stepperClear}>
                     <Ionicons name="close-circle" size={16} color={T.textMuted} />
                   </Pressable>
                 ) : null}
@@ -1002,7 +1113,7 @@ export function ModifyPositionScreen({
 
               {/* Hero Price Row */}
               <View style={styles.stepperPriceRow}>
-                <Pressable onPress={() => onStep(-pipSize * 10)} hitSlop={12} style={[styles.stepperSquareBtn, { borderColor: T.border }]}>
+                <Pressable onPress={() => onStep(-pipSize * 10)} activateOnPressIn hitSlop={12} style={[styles.stepperSquareBtn, { borderColor: T.border }]}>
                   <Ionicons name="remove" size={18} color={color} />
                 </Pressable>
 
@@ -1025,7 +1136,7 @@ export function ModifyPositionScreen({
                   />
                 </View>
 
-                <Pressable onPress={() => onStep(pipSize * 10)} hitSlop={12} style={[styles.stepperSquareBtn, { borderColor: T.border }]}>
+                <Pressable onPress={() => onStep(pipSize * 10)} activateOnPressIn hitSlop={12} style={[styles.stepperSquareBtn, { borderColor: T.border }]}>
                   <Ionicons name="add" size={18} color={color} />
                 </Pressable>
               </View>
@@ -1036,6 +1147,7 @@ export function ModifyPositionScreen({
                   <Pressable
                     key={p}
                     onPress={() => onStep(pipSize * p * (kind === 'sl' ? -1 : 1))}
+                    activateOnPressIn
                     style={[styles.stepperChip, { borderColor: T.border }]}
                     hitSlop={6}
                   >
@@ -1172,8 +1284,15 @@ export function ModifyPositionScreen({
           {!submitMessage && !positionsApi && (
             <Text style={styles.validationText}>{t('No connection')}</Text>
           )}
+        </View>
+        )}
+          </ScrollView>
+      )}
 
+      {sheetBodyReady && symbolsMatch ? (
+        <View style={[styles.submitDock, { paddingBottom: Math.max(insets.bottom, 12) }]}>
           <Pressable
+            testID="modify-position-submit"
             style={({ pressed }) => [
               styles.modifyBtn,
               pressed && canModifyPosition && { opacity: 0.8 },
@@ -1181,23 +1300,20 @@ export function ModifyPositionScreen({
             ]}
             disabled={!canModifyPosition}
             onPress={handleModify}
+            activateOnTouchStart
             activateOnPressIn
             unstable_pressDelay={0}
             hitSlop={12}
             latencyLabel="modifyPosition.submit"
             latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
+            accessibilityRole="button"
+            accessibilityLabel={t('Modify position')}
             accessibilityState={{ disabled: !canModifyPosition }}
           >
-            {isSubmitting ? (
-              <ActivityIndicator color="#FFF" />
-            ) : (
-              <Text style={styles.modifyText}>{t('Modify position').toUpperCase()}</Text>
-            )}
+            <Text style={styles.modifyText}>{t('Modify position').toUpperCase()}</Text>
           </Pressable>
         </View>
-        )}
-          </ScrollView>
-      )}
+      ) : null}
 
       <ActionSheet
         visible={positionPickerOpen}
@@ -1555,7 +1671,12 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => {
   footer: {
     paddingHorizontal: 16,
     paddingTop: 16,
-    paddingBottom: 24,
+    paddingBottom: 12,
+  },
+  submitDock: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    backgroundColor: screenBg,
   },
   disclaimerBox: {
     flexDirection: 'row',

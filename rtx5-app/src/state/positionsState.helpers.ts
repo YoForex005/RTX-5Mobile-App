@@ -15,6 +15,12 @@ const TERMINAL_POSITION_STATES = new Set([
   'CLOSE BY',
   'SL HIT',
   'TP HIT',
+  'STOP LOSS HIT',
+  'TAKE PROFIT HIT',
+  'POSITION SL HIT',
+  'POSITION TP HIT',
+  'POSITION STOP LOSS HIT',
+  'POSITION TAKE PROFIT HIT',
   'REMOVED',
   'DELETED',
 ]);
@@ -49,7 +55,21 @@ export function isTerminalPositionUpdate(dto: any): boolean {
     source.positionStatus,
     source.action,
     source.event,
+    source.type,
   ].some((value) => TERMINAL_POSITION_STATES.has(normalizeLifecycleState(value)));
+}
+
+function resolveIncomingPositionId(dto: unknown): string | null {
+  if (!dto || typeof dto !== 'object') {
+    return null;
+  }
+  const source = dto as Record<string, unknown>;
+  const value = source.ticket ?? source.position_ticket ?? source.order_ticket ?? source.id;
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const id = String(value).trim();
+  return id || null;
 }
 
 export function shouldClearPositionsForLoginSwitch(
@@ -187,13 +207,27 @@ export function buildMergedPositions(
 ): PositionItem[] {
   const preserveOptimisticMs = options.preserveOptimisticMs ?? 60000;
   const preserveModifiedMs = options.preserveModifiedMs ?? 10000;
+  const terminalPositionIds = new Set(
+    dtos
+      .filter(isTerminalPositionUpdate)
+      .map(resolveIncomingPositionId)
+      .filter((id): id is string => Boolean(id)),
+  );
   const mapped = dtos
-    .map((dto) => mapPositionToItem(dto, findExistingPosition(currentPositions, dto)))
+    .filter((dto) => !isTerminalPositionUpdate(dto))
+    .map((dto) => mapPositionToItem(
+      dto,
+      findExistingPosition(currentPositions, dto),
+      { preserveMissingProtection: options.preserveMissingExisting === true },
+    ))
     .filter(isRenderablePosition);
   const now = Date.now();
   const mappedIds = new Set(mapped.map((position) => position.id));
   const missingCurrentPositions = currentPositions.filter(
-    (position) => isRenderablePosition(position) && !mappedIds.has(position.id),
+    (position) =>
+      isRenderablePosition(position)
+      && !mappedIds.has(position.id)
+      && !terminalPositionIds.has(String(position.id)),
   );
 
   const optimisticPositions = missingCurrentPositions.filter((position) => {

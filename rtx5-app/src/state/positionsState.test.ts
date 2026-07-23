@@ -397,5 +397,50 @@ test('isTerminalPositionUpdate detects close-like lifecycle payloads so stale tr
   assert.equal(isTerminalPositionUpdate({ ticket: 502, action: 'closed_by' }), true);
   assert.equal(isTerminalPositionUpdate({ ticket: 503, event: 'position.close' }), true);
   assert.equal(isTerminalPositionUpdate({ ticket: 504, event: 'sl_hit' }), true);
-  assert.equal(isTerminalPositionUpdate({ ticket: 505, status: 'open' }), false);
+  assert.equal(isTerminalPositionUpdate({ ticket: 505, event: 'position.sl_hit' }), true);
+  assert.equal(isTerminalPositionUpdate({ ticket: 506, event: 'position.tp_hit' }), true);
+  assert.equal(isTerminalPositionUpdate({ ticket: 507, status: 'take_profit_hit' }), true);
+  assert.equal(isTerminalPositionUpdate({ ticket: 507, type: 'position.tp_hit' }), true);
+  assert.equal(isTerminalPositionUpdate({ ticket: 508, status: 'open' }), false);
+});
+
+test('buildMergedPositions removes terminal rows from incremental batches', () => {
+  const hitPosition = { ...cachedPositionFixture, id: '507' };
+  const openPosition = { ...cachedPositionFixture, id: '508', symbol: 'XAUUSD' };
+
+  const merged = buildMergedPositions(
+    [hitPosition, openPosition],
+    [
+      { ticket: 507, status: 'take_profit_hit' },
+      { ticket: 508, profit: 12 },
+    ],
+    { preserveMissingExisting: true },
+  );
+
+  assert.deepEqual(merged.map((position) => position.id), ['508']);
+});
+
+test('buildMergedPositions distinguishes authoritative protection omission from sparse updates', () => {
+  const existing = { ...cachedPositionFixture, id: '509' };
+  const row = {
+    ticket: 509,
+    symbol: 'EURUSD',
+    side: 'buy',
+    volume: 0.1,
+    price_open: 1.14,
+    price_current: 1.141,
+    profit: 2,
+    time_create: 1_775_000_000,
+  };
+
+  const sparse = buildMergedPositions([existing], [row], { preserveMissingExisting: true });
+  assert.equal(sparse[0]?.sl, existing.sl);
+  assert.equal(sparse[0]?.tp, existing.tp);
+
+  const authoritative = buildMergedPositions([existing], [row], {
+    preserveMissingExisting: false,
+    preserveModifiedMs: 0,
+  });
+  assert.equal(authoritative[0]?.sl, 0);
+  assert.equal(authoritative[0]?.tp, 0);
 });

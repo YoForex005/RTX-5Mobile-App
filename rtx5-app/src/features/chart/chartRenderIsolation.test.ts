@@ -51,7 +51,7 @@ test('marker candle signature ignores forming OHLC changes but tracks candle-tim
   );
 });
 
-test('native Chart isolates static markers and coalesces root market commits', () => {
+test('native Chart isolates static markers and slow React commits without delaying direct live paints', () => {
   const source = readFileSync(
     resolve(process.cwd(), 'src/features/chart/ChartScreen.native.tsx'),
     'utf8',
@@ -60,6 +60,12 @@ test('native Chart isolates static markers and coalesces root market commits', (
   assert.match(source, /const CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS = 400/);
   assert.match(source, /const CHART_SCREEN_CANDLE_COMMIT_INTERVAL_MS = 400/);
   assert.match(source, /useLiveCandles\(\s*chartSymbol,\s*chartTimeframe,\s*chartDataActive,\s*CHART_SCREEN_CANDLE_COMMIT_INTERVAL_MS/);
+  assert.match(
+    source,
+    /const readCanonicalCandles = \(\) => liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\)[\s\S]*const paintCanonicalLiveTick = \(\) => \{[\s\S]*updateLiveTick\([\s\S]*liveCandlesEngine\.subscribe\(chartSymbol, chartTimeframe, paintCanonicalLiveTick\)/,
+    'the WebView live-paint path must subscribe to the canonical engine directly instead of waiting for React commits',
+  );
+  assert.doesNotMatch(source, /requestMarketPriceLineFlush|pendingMarketPriceLinesRef/);
   assert.match(source, /const overlayMarkers = useMemo\([\s\S]*buildChartOverlayMarkers/);
   assert.match(source, /const overlayPriceLines = useMemo\([\s\S]*candles: EMPTY_DISPLAY_CANDLES/);
   assert.doesNotMatch(source, /data:\s*\w+\s*=\s*\[\]/);

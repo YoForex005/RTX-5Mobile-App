@@ -8,14 +8,25 @@ import {
   formatTradingErrorFeedback,
 } from './tradingErrors';
 
-test('classifyTradingError marks fetch failures as backend availability problems', () => {
+test('classifyTradingError does not falsely prove a backend outage for fetch failures', () => {
   const feedback = classifyTradingError(new Error('Failed to fetch'), {
     action: 'place-order',
   });
 
-  assert.equal(feedback.origin, 'backend');
+  assert.equal(feedback.origin, 'api');
   assert.equal(feedback.kind, 'backend-unavailable');
-  assert.equal(feedback.title, 'Trading Server Unavailable');
+  assert.equal(feedback.title, 'Trading Connection Failed');
+  assert.match(feedback.message, /cannot tell whether the cause is the phone connection, gateway, or trading server/i);
+});
+
+test('classifyTradingError identifies a frontend confirmation timeout without inventing its source', () => {
+  const feedback = classifyTradingError(new Error('Request timed out after 10000ms'), {
+    action: 'modify-position',
+  });
+
+  assert.equal(feedback.origin, 'api');
+  assert.equal(feedback.title, 'Trading Request Timed Out');
+  assert.match(feedback.message, /did not receive an HTTP response/i);
 });
 
 test('classifyTradingError marks instrument routing failures as API integration issues', () => {

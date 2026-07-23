@@ -411,10 +411,47 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
       const nextPositions = withoutOptimisticallyClosingPositions(
         buildMergedPositions(state.positions, incomingDtos, options),
       );
+      const terminalPositionIds = new Set(
+        incomingDtos
+          .filter(isTerminalPositionUpdate)
+          .map(resolvePositionId)
+          .filter((id): id is string => Boolean(id)),
+      );
+      const isAuthoritative = options?.preserveMissingExisting !== true;
+      const nextPositionIds = new Set(nextPositions.map((position) => String(position.id)));
+      const removedPositionIds = new Set(terminalPositionIds);
+      if (isAuthoritative) {
+        for (const position of state.positions) {
+          const id = String(position.id);
+          if (!nextPositionIds.has(id)) {
+            removedPositionIds.add(id);
+          }
+        }
+      }
+      for (const id of [...removedPositionIds]) {
+        if (isPositionOptimisticallyClosing(id)) {
+          removedPositionIds.delete(id);
+        }
+      }
+
+      if (removedPositionIds.size > 0) {
+        void invalidateCurrentSessionQueryRoots(appQueryClient, [
+          'positionHistory',
+          'accountDeals',
+          'deals',
+          'accountSummary',
+        ]);
+      }
+
       const nextLogin = accountLogin ?? state.lastFetchLogin ?? state.hydratedLogin ?? resolveTradingLoginString();
       scheduleOpenPositionsCacheWrite(nextLogin, nextPositions);
       return {
         positions: nextPositions,
+        positionSnapshots: removedPositionIds.size > 0
+          ? Object.fromEntries(
+            Object.entries(state.positionSnapshots).filter(([id]) => !removedPositionIds.has(id)),
+          )
+          : state.positionSnapshots,
         lastFetchLogin: accountLogin ?? state.lastFetchLogin,
         hydratedLogin: accountLogin ?? state.hydratedLogin,
         lastError: null,

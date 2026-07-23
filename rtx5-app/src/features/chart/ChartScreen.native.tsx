@@ -211,7 +211,7 @@ import { LiveQuotePairHeader } from "./components/ChartLiveHeaders";
 import { ChartStepperModal, ChartFooterLotPicker, ChartTradeVolumeSlider } from "./components/ChartTradeControls";
 import { resolveChartTradeButtonQuote } from "./components/ChartTradeButtonsFeature/quoteFallback";
 import { TvLayers } from "./components/ChartToolbarIcons";
-import { ChartTapMenuViewport, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_DRAWING_MAGNET_THRESHOLD_PX, CHART_GRID_LINE_STYLE, CHART_MARKET_PRICE_LINE_SYNC_INTERVAL_MS, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_SYMBOL_PICKER_PREFETCH_DELAY_MS, CHART_SYMBOL_PICKER_PREFETCH_LIMIT, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent } from "./ChartScreen.constants";
+import { ChartTapMenuViewport, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_DRAWING_MAGNET_THRESHOLD_PX, CHART_GRID_LINE_STYLE, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_SYMBOL_PICKER_PREFETCH_DELAY_MS, CHART_SYMBOL_PICKER_PREFETCH_LIMIT, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent } from "./ChartScreen.constants";
 import {
   DEFAULT_CHART_SYMBOLS,
   SYMBOL_FLAGS,
@@ -269,9 +269,10 @@ const CHART_DEV_SOURCE_KEY = getDevRefreshKey(
   hashDevRefreshSource(CH_HTML),
 );
 const CHART_BRIDGE_DEBUG = false;
-// The tiny Buy/Sell button component owns its own 16 ms quote subscription.
-// Coalesce the giant Chart host at the same cadence as its label-only WebView
-// bridge so feed metadata/tick IDs cannot force a 7k-line render per tick.
+// The tiny Buy/Sell button and canonical WebView live-paint bridge own their
+// own frame-cadence subscriptions. These intervals isolate only the giant
+// Chart host's metadata/overlay React renders; they never delay candle/line
+// painting.
 const CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS = 400;
 const CHART_SCREEN_CANDLE_COMMIT_INTERVAL_MS = 400;
 const CHART_SYMBOL_HEADER_HIT_SLOP = { top: 10, bottom: 18, left: 16, right: 48 };
@@ -506,6 +507,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     setChartTradeVolumeDisplayMode,
     chartLockAll,
     chartHideAll,
+    isLoggedIn,
     setChartLockAll,
     setChartHideAll,
     setChartDrawingRecordsForSymbol,
@@ -538,6 +540,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       setChartTradeVolumeDisplayMode: state.setChartTradeVolumeDisplayMode,
       chartLockAll: state.chartLockAll,
       chartHideAll: state.chartHideAll,
+      isLoggedIn: state.isLoggedIn,
       setChartLockAll: state.setChartLockAll,
       setChartHideAll: state.setChartHideAll,
       setChartDrawingRecordsForSymbol: state.setChartDrawingRecordsForSymbol,
@@ -1655,14 +1658,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       }),
     [chartLiveQuote?.ask, chartLiveQuote?.bid, hasLiveChartQuote, latestChartClose],
   );
-  const chartLivePriceLine = useMemo(() => {
-    return hasLiveChartQuote &&
-      typeof chartLiveQuote?.bid === 'number' &&
-      Number.isFinite(chartLiveQuote.bid) &&
-      chartLiveQuote.bid > 0
-      ? chartLiveQuote.bid
-      : null;
-  }, [chartLiveQuote?.bid, hasLiveChartQuote]);
   // Trade P/L labels should follow the fresh quote feed even when candle
   // history is still catching up. Display precision stays guarded by
   // hasCoherentLiveChartQuote above so bad quote metadata cannot churn chart
@@ -5030,35 +5025,15 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const renderedSeriesSnapshotRef = useRef(EMPTY_CHART_SERIES_SNAPSHOT);
   const renderedDataContextSigRef = useRef('');
   const lastInjectedLiveQuoteSignatureRef = useRef('');
-  const pendingMarketPriceLinesRef = useRef<{
-    price: number | null;
-    signature: string;
-  } | null>(null);
-  const marketPriceLineFlushFrameRef = useRef<number | null>(null);
-  const marketPriceLineFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastMarketPriceLineFlushAtRef = useRef(0);
+  const livePaintRevisionRef = useRef(0);
   const chartCandleFrontendPaintRef = useRef<{
     availableAt: number;
     length: number;
     signature: string;
   } | null>(null);
 
-  const clearPendingMarketPriceLineSync = useCallback(() => {
-    if (marketPriceLineFlushFrameRef.current !== null) {
-      cancelAnimationFrame(marketPriceLineFlushFrameRef.current);
-      marketPriceLineFlushFrameRef.current = null;
-    }
-    if (marketPriceLineFlushTimerRef.current) {
-      clearTimeout(marketPriceLineFlushTimerRef.current);
-      marketPriceLineFlushTimerRef.current = null;
-    }
-    pendingMarketPriceLinesRef.current = null;
-  }, []);
-
   const clearRenderedMarketPriceLines = useCallback(() => {
-    clearPendingMarketPriceLineSync();
     lastInjectedLiveQuoteSignatureRef.current = '';
-    pendingMarketPriceLinesRef.current = null;
     try {
       webViewRef.current?.injectJavaScript(`
         try {
@@ -5071,79 +5046,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     } catch (_e) {
       /* WebView may have been disposed */
     }
-  }, [clearPendingMarketPriceLineSync]);
-
-  const flushPendingMarketPriceLines = useCallback(() => {
-    marketPriceLineFlushFrameRef.current = null;
-    if (marketPriceLineFlushTimerRef.current) {
-      clearTimeout(marketPriceLineFlushTimerRef.current);
-      marketPriceLineFlushTimerRef.current = null;
-    }
-
-    const pending = pendingMarketPriceLinesRef.current;
-    if (!pending) {
-      return;
-    }
-    if (!webViewRef.current || !chartInitializedRef.current || !chartCanvasReady) {
-      return;
-    }
-    if (lastInjectedLiveQuoteSignatureRef.current === pending.signature) {
-      pendingMarketPriceLinesRef.current = null;
-      return;
-    }
-
-    // Quote updates are limited to the live Bid guide line here; candle OHLC is
-    // synchronized through the canonical candle stream.
-    try {
-      if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
-        console.log('[CHART-BRIDGE] inject_setLivePriceLine', {
-          symbol: chartSymbol,
-          timeframe: chartTimeframe,
-          livePrice: pending.price,
-        });
-      }
-      webViewRef.current.injectJavaScript(`
-        try {
-          if (typeof setLivePriceLine === 'function') {
-            setLivePriceLine(${pending.price ?? 'null'});
-          }
-        } catch (_) {}
-        true;
-      `);
-      lastInjectedLiveQuoteSignatureRef.current = pending.signature;
-      lastMarketPriceLineFlushAtRef.current = Date.now();
-      pendingMarketPriceLinesRef.current = null;
-    } catch (_e) {
-      pendingMarketPriceLinesRef.current = null;
-      /* WebView may have been disposed */
-    }
-  }, [chartCanvasReady, chartSymbol, chartTimeframe]);
-
-  const requestMarketPriceLineFlush = useCallback(() => {
-    if (marketPriceLineFlushFrameRef.current !== null || marketPriceLineFlushTimerRef.current) {
-      return;
-    }
-
-    const scheduleFrame = () => {
-      if (typeof requestAnimationFrame === 'function') {
-        marketPriceLineFlushFrameRef.current = requestAnimationFrame(flushPendingMarketPriceLines);
-      } else {
-        marketPriceLineFlushTimerRef.current = setTimeout(flushPendingMarketPriceLines, 0);
-      }
-    };
-
-    const elapsedMs = Date.now() - lastMarketPriceLineFlushAtRef.current;
-    const waitMs = Math.max(0, CHART_MARKET_PRICE_LINE_SYNC_INTERVAL_MS - elapsedMs);
-    if (waitMs > 0) {
-      marketPriceLineFlushTimerRef.current = setTimeout(() => {
-        marketPriceLineFlushTimerRef.current = null;
-        scheduleFrame();
-      }, waitMs);
-      return;
-    }
-
-    scheduleFrame();
-  }, [flushPendingMarketPriceLines]);
+  }, []);
 
   const resetChartBridgeState = () => {
     chartInitializedRef.current = false;
@@ -5154,7 +5057,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
     renderedDataContextSigRef.current = '';
     lastInjectedLiveQuoteSignatureRef.current = '';
-    clearPendingMarketPriceLineSync();
+    livePaintRevisionRef.current = 0;
     if (chartViewportTouchFailsafeTimerRef.current) {
       clearTimeout(chartViewportTouchFailsafeTimerRef.current);
       chartViewportTouchFailsafeTimerRef.current = null;
@@ -5164,12 +5067,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     setChartPlotArea(null);
   };
 
-  useEffect(() => () => {
-    clearPendingMarketPriceLineSync();
-  }, [clearPendingMarketPriceLineSync]);
-
   useEffect(() => {
-    candlesRef.current = sanitizedCandles;
+    const canonicalCandles = liveCandlesEngine.getCandles(chartSymbol, chartTimeframe);
+    candlesRef.current = canonicalCandles.length > 0 ? canonicalCandles : sanitizedCandles;
     if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
       const last = sanitizedCandles[sanitizedCandles.length - 1];
       console.log('[CHART-CANDLES]', {
@@ -5264,6 +5164,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
       renderedDataContextSigRef.current = '';
       lastInjectedLiveQuoteSignatureRef.current = '';
+      livePaintRevisionRef.current = 0;
       clearRenderedMarketPriceLines();
       setChartCanvasReady(false);
       setChartPlotArea(null);
@@ -5272,6 +5173,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   useEffect(() => {
     renderedDataContextSigRef.current = '';
+    livePaintRevisionRef.current = 0;
     lastInjectedDrawingSyncRef.current = { signature: '', epoch: -1 };
     lastWebViewDrawingSignatureRef.current = '';
     clearRenderedMarketPriceLines();
@@ -5337,14 +5239,134 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     }
   }, [chartCanvasReady, chartReadyEpoch, displayDecimals]);
 
-  // Effect 2 — keep the WebView aligned with the canonical candle stream.
+  // Fast live paint path. The canonical candle engine has already consumed and
+  // aggregated every accepted broker tick before this listener runs. Keep the
+  // expensive ChartScreen React tree on its slower isolation cadence, while
+  // sending only the newest canonical Bid candle to the WebView once per engine
+  // frame. Candle and the existing single Bid line travel in one transaction.
+  useEffect(() => {
+    if (!chartDataActive || !isLoggedIn) {
+      return;
+    }
+
+    const readCanonicalCandles = () => liveCandlesEngine.getCandles(chartSymbol, chartTimeframe);
+
+    const syncLivePriceLineVisibility = () => {
+      if (!webViewRef.current || !chartInitializedRef.current || !chartCanvasReady) {
+        return;
+      }
+      const canonicalCandles = readCanonicalCandles();
+      const lastCandle = canonicalCandles[canonicalCandles.length - 1];
+      const visiblePrice =
+        chartDisplay.showLivePriceLine &&
+        lastCandle &&
+        Number.isFinite(lastCandle.close) &&
+        lastCandle.close > 0
+          ? lastCandle.close
+          : null;
+      try {
+        webViewRef.current.injectJavaScript(`
+          if (typeof setLivePriceLine === 'function') {
+            setLivePriceLine(${visiblePrice ?? 'null'});
+          }
+          true;
+        `);
+        lastInjectedLiveQuoteSignatureRef.current =
+          visiblePrice === null
+            ? (chartDisplay.showLivePriceLine ? 'na' : 'off')
+            : visiblePrice.toFixed(displayDecimals);
+      } catch (_e) {
+        /* WebView may have been disposed */
+      }
+    };
+
+    const paintCanonicalLiveTick = () => {
+      const canonicalCandles = readCanonicalCandles();
+      if (canonicalCandles.length === 0) {
+        return;
+      }
+
+      // Recovery/init must always see the newest engine state, not the slower
+      // React snapshot retained for the rest of the large screen.
+      candlesRef.current = canonicalCandles;
+
+      if (
+        !webViewRef.current ||
+        !chartInitializedRef.current ||
+        !chartCanvasReady ||
+        renderedDataContextSigRef.current !== chartDataContextSig
+      ) {
+        return;
+      }
+
+      const nextSnapshot = buildChartSeriesSnapshot(canonicalCandles);
+      const updateMode = getChartSeriesUpdateMode(renderedSeriesSnapshotRef.current, nextSnapshot);
+      if (updateMode !== 'incremental') {
+        // History replacement, pagination, and first paint remain owned by the
+        // full-series React bridge. This listener is the single writer only for
+        // forming-candle patches and one-bar rollovers.
+        return;
+      }
+
+      const lastCandle = canonicalCandles[canonicalCandles.length - 1];
+      if (!lastCandle) {
+        return;
+      }
+
+      const revision = livePaintRevisionRef.current + 1;
+      const liveUpdate = {
+        candle: buildChartTickPayload(lastCandle, chartType),
+        livePrice: lastCandle.close,
+        showLivePriceLine: chartDisplay.showLivePriceLine,
+        revision,
+      };
+
+      try {
+        webViewRef.current.injectJavaScript(`
+          if (typeof updateLiveTick === 'function') {
+            updateLiveTick(${JSON.stringify(liveUpdate)});
+          }
+          true;
+        `);
+        livePaintRevisionRef.current = revision;
+        renderedSeriesSnapshotRef.current = nextSnapshot;
+        lastInjectedLiveQuoteSignatureRef.current = chartDisplay.showLivePriceLine
+          ? lastCandle.close.toFixed(displayDecimals)
+          : 'off';
+      } catch (_e) {
+        /* WebView may have been disposed */
+      }
+    };
+
+    syncLivePriceLineVisibility();
+    const unsubscribe = liveCandlesEngine.subscribe(chartSymbol, chartTimeframe, paintCanonicalLiveTick);
+    return unsubscribe;
+  }, [
+    chartCanvasReady,
+    chartDataActive,
+    chartDataContextSig,
+    chartDisplay.showLivePriceLine,
+    chartReadyEpoch,
+    chartSymbol,
+    chartTimeframe,
+    chartType,
+    displayDecimals,
+    isLoggedIn,
+  ]);
+
+  // Effect 2 — keep full history/replacement data aligned with the WebView.
 
   useEffect(() => {
     if (!webViewRef.current || !chartInitializedRef.current || !chartCanvasReady) {
       return;
     }
 
-    const renderableCandles = sanitizedCandles;
+    // The React notification is intentionally isolated at 400 ms, so always
+    // read the engine's current series when a full replacement is required.
+    // This prevents history/pagination paint from overwriting a newer live tick
+    // with the older React snapshot that merely triggered this effect.
+    const canonicalCandles = liveCandlesEngine.getCandles(chartSymbol, chartTimeframe);
+    const renderableCandles = canonicalCandles.length > 0 ? canonicalCandles : sanitizedCandles;
     const contextChanged = renderedDataContextSigRef.current !== chartDataContextSig;
     if (renderableCandles.length === 0) {
       if (contextChanged) {
@@ -5379,7 +5401,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       });
     }
 
-    if (updateMode === 'noop') {
+    if (updateMode === 'noop' || updateMode === 'incremental') {
+      // Incremental live candles are painted by the direct canonical listener
+      // above. Keeping this effect full-reload-only prevents a delayed 400 ms
+      // React snapshot from rewinding a newer Bid candle/line transaction.
       return;
     }
 
@@ -5398,22 +5423,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           }
           webViewRef.current.injectJavaScript(`
             updateChartData(${JSON.stringify(mapped)}, { resetVisibleRange: ${contextChanged} });
-            true;
-          `);
-          didInject = true;
-        }
-      } else {
-        const lastCandle = renderableCandles[renderableCandles.length - 1];
-        if (lastCandle) {
-          if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
-            console.log('[CHART-BRIDGE] inject_updateTick', {
-              symbol: chartSymbol,
-              timeframe: chartTimeframe,
-              time: lastCandle.time,
-            });
-          }
-          webViewRef.current.injectJavaScript(`
-            updateTick(${JSON.stringify(buildChartTickPayload(lastCandle, chartType))});
             true;
           `);
           didInject = true;
@@ -5446,41 +5455,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       `);
     } catch (_e) { /* WebView may have been disposed */ }
   }, [webViewReady, chartReadyEpoch, periodSeparatorOptions, periodSeparatorPayload, periodSeparatorPayloadSignature]);
-
-  useEffect(() => {
-    if (!webViewRef.current || !chartInitializedRef.current || !chartCanvasReady) {
-      return;
-    }
-
-    const visibleLivePrice = chartDisplay.showLivePriceLine && chartLivePriceLine !== null ? chartLivePriceLine : null;
-    const nextSignature =
-      visibleLivePrice !== null ? visibleLivePrice.toFixed(displayDecimals) : chartDisplay.showLivePriceLine ? 'na' : 'off';
-
-    if (
-      lastInjectedLiveQuoteSignatureRef.current === nextSignature ||
-      pendingMarketPriceLinesRef.current?.signature === nextSignature
-    ) {
-      return;
-    }
-
-    // Quote ticks move only the live price line. Candle bodies stay tied to
-    // backend OHLC history/live candle messages.
-    // The scheduled bridge flush calls setLivePriceLine after coalescing.
-    pendingMarketPriceLinesRef.current = {
-      price: visibleLivePrice,
-      signature: nextSignature,
-    };
-    requestMarketPriceLineFlush();
-  }, [
-    chartCanvasReady,
-    chartDisplay.showLivePriceLine,
-    chartLivePriceLine,
-    chartReadyEpoch,
-    chartSymbol,
-    chartTimeframe,
-    displayDecimals,
-    requestMarketPriceLineFlush,
-  ]);
 
   useEffect(() => {
     if (!webViewRef.current || !chartInitializedRef.current || !chartCanvasReady) {
@@ -6467,7 +6441,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                           // without waiting for the next React effect cycle.
                           try {
                             const latestOverlay = overlayPayloadRef.current ?? { priceLines: [], markers: [] };
-                            const visibleLivePrice = chartDisplay.showLivePriceLine && chartLivePriceLine !== null ? chartLivePriceLine : null;
+                            const readyLiveCandle = candlesRef.current[candlesRef.current.length - 1];
+                            const visibleLivePrice =
+                              chartDisplay.showLivePriceLine &&
+                              readyLiveCandle &&
+                              Number.isFinite(readyLiveCandle.close) &&
+                              readyLiveCandle.close > 0
+                                ? readyLiveCandle.close
+                                : null;
                             const nextMarketLineSignature =
                               visibleLivePrice !== null ? visibleLivePrice.toFixed(displayDecimals) : chartDisplay.showLivePriceLine ? 'na' : 'off';
                             if (webViewRef.current) {
@@ -6481,8 +6462,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                             true;
                           `);
                               lastInjectedLiveQuoteSignatureRef.current = nextMarketLineSignature;
-                              lastMarketPriceLineFlushAtRef.current = Date.now();
-                              pendingMarketPriceLinesRef.current = null;
                             }
                           } catch (_) { }
                         } else if (msg.type === 'DRAWING_TEXT_EDIT_REQUEST') {

@@ -44,7 +44,11 @@ test('webview bridge: candles arriving before READY are retained and sent after 
   assertSourceContains(source, /buildChartOverlayMarkers\(\{[\s\S]*candles: overlayMarkerCandles/, 'candle/history markers must be isolated from live quote ticks');
   assertSourceContains(source, /buildChartOverlayPayload\(\{[\s\S]*candles: EMPTY_DISPLAY_CANDLES/, 'quote-driven overlay work must build price lines without rescanning candle history');
   assertSourceContains(source, /const candlesRef = useRef\(sanitizedCandles\)/, 'sanitized candles must be retained outside render timing');
-  assertSourceContains(source, /useEffect\(\(\) => \{[\s\S]*candlesRef\.current = sanitizedCandles;[\s\S]*\}, \[[^\]]*sanitizedCandles[^\]]*\]\)/, 'latest sanitized candles must update the retained ref');
+  assertSourceContains(
+    source,
+    /useEffect\(\(\) => \{[\s\S]*const canonicalCandles = liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\);[\s\S]*candlesRef\.current = canonicalCandles\.length > 0 \? canonicalCandles : sanitizedCandles;[\s\S]*\}, \[[^\]]*sanitizedCandles[^\]]*\]\)/,
+    'the retained READY snapshot must prefer the newest canonical candle state over the slower React snapshot',
+  );
   assertSourceContains(source, /const data = candlesRef\.current[\s\S]*const mapped = data\.length > 0 \? buildMappedData\(data\) : \[\][\s\S]*initChart\(/, 'sendInit must initialize the chart shell even before candles arrive');
 });
 
@@ -265,6 +269,7 @@ test('webview bridge: exposes required bridge methods for updates and recovery',
     'applyChartVisualTheme',
     'updateChartData',
     'updateTick',
+    'updateLiveTick',
     'setLivePriceLine',
     'setMarketPriceLines',
     'resizeChartViewport',
@@ -377,13 +382,41 @@ test('webview bridge: updateChartData resets symbol switches while fresh loads u
   assertSourceContains(body, /didPrependHistory \|\| didReplaceVisibleSeries \? 5 : 1/, 'replacement reloads must retry price-scale recovery like history prepends');
 });
 
-test('webview bridge: updateTick uses an incremental requestAnimationFrame path', () => {
-  const body = extractFunctionBody(chartWebViewHtmlSource, 'updateTick');
+test('webview bridge: updateLiveTick paints the forming candle and Bid line atomically on one frame', () => {
+  const legacyBody = extractFunctionBody(chartWebViewHtmlSource, 'updateTick');
+  const body = extractFunctionBody(chartWebViewHtmlSource, 'updateLiveTick');
   const flushBody = extractFunctionBody(chartWebViewHtmlSource, 'flushPendingTick');
 
-  assertSourceContains(body, /pendingTick = tick/, 'updateTick must coalesce the latest tick');
-  assertSourceContains(body, /requestAnimationFrame\(flushPendingTick\)/, 'updateTick must paint incrementally on rAF');
-  assertSourceContains(flushBody, /applyTickUpdate\(tick\)/, 'pending tick flush must update only the active candle');
+  assertSourceContains(
+    body,
+    /pendingTick = \{[\s\S]*tick: update\.candle,[\s\S]*livePrice: update\.livePrice,[\s\S]*showLivePriceLine: update\.showLivePriceLine === true,[\s\S]*syncLivePriceLine: true,[\s\S]*revision: revision/,
+    'the live bridge must queue one object containing both the canonical candle and its Bid line value',
+  );
+  assertSourceContains(
+    body,
+    /revision <= lastAppliedLiveTickRevision[\s\S]*pendingTick\.revision >= revision/,
+    'the live bridge must reject stale revisions both before and while a newer frame is queued',
+  );
+  assertSourceContains(
+    body,
+    /requestAnimationFrame\(flushPendingTick\)/,
+    'the live transaction must coalesce only at the WebView paint boundary',
+  );
+  assertSourceContains(
+    flushBody,
+    /var applied = applyTickUpdate\(tick\)[\s\S]*if \(!applied\) return;[\s\S]*setLivePriceLine\([\s\S]*pending\.showLivePriceLine === true \? pending\.livePrice : null/,
+    'one frame must apply the candle first and then move the existing Bid line from the same transaction',
+  );
+  assertSourceContains(
+    flushBody,
+    /lastAppliedLiveTickRevision = revision/,
+    'the atomic frame must commit its revision only after both paints succeed',
+  );
+  assertSourceContains(
+    legacyBody,
+    /pendingTick = \{ tick: tick \}/,
+    'the legacy candle-only bridge must remain isolated from live Bid-line synchronization',
+  );
 });
 
 test('webview bridge: lower move bars show the current amount without a separate volume price scale', () => {
@@ -743,7 +776,16 @@ test('webview bridge: setLivePriceLine hides native market badges and paints one
   assertSourceContains(healPriceScaleBody, /marketPriceBadgesOutOfRange[\s\S]*rangeContainsMarketPriceBadges\(currentRange, candleDataRange\)[\s\S]*setRecoveredRightPriceRange\(dataRange\)/, 'price-scale healing must recover only for near live price badges outside the visible axis range');
   assertSourceContains(refreshBody, /refreshMarketPriceScaleDom\(\)/, 'overlay refresh must render custom market price-scale DOM');
   assertSourceContains(chartWebViewHtmlSource, /function refreshMarketPriceScaleDom\(\)[\s\S]*renderMarketPriceScaleExtensions\(layer\)[\s\S]*renderMarketPriceScaleBadges\(layer\)/, 'overlay refresh must render MT5-style custom market price-scale badges after the line accents');
-  assertSourceContains(source, /Quote ticks move only the live price line\.[\s\S]*Candle bodies stay tied to[\s\S]*backend OHLC history\/live candle messages\./, 'native quote bridge must not mutate candle bodies from live quotes');
+  assertSourceContains(
+    source,
+    /const readCanonicalCandles = \(\) => liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\)[\s\S]*const paintCanonicalLiveTick = \(\) => \{[\s\S]*updateLiveTick\([\s\S]*liveCandlesEngine\.subscribe\(chartSymbol, chartTimeframe, paintCanonicalLiveTick\)/,
+    'native live paints must subscribe directly to the canonical candle engine and use the atomic WebView bridge',
+  );
+  assert.doesNotMatch(
+    source,
+    /pendingMarketPriceLinesRef|requestMarketPriceLineFlush|flushPendingMarketPriceLines|CHART_MARKET_PRICE_LINE_SYNC_INTERVAL_MS/,
+    'the live Bid line must not use an independently scheduled queue',
+  );
   assertSourceContains(source, /const clearRenderedMarketPriceLines = useCallback[\s\S]*setLivePriceLine\(null\)[\s\S]*renderedDataContextSigRef\.current = '';[\s\S]*clearRenderedMarketPriceLines\(\)/, 'symbol/timeframe changes must clear stale live price lines before fresh quotes arrive');
 });
 

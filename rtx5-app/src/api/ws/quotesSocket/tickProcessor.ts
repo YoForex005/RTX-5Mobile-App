@@ -392,23 +392,12 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
   // Quotes screen relies on for live bid/ask updates — it doesn't need to
   // wait for the rAF/setTimeout-driven Zustand flush.
   bridge.emitSymbolTick(normalizedUpdate.rawSymbol || normalizedUpdate.symbol, tickEvent);
-  // Quote-driven active candle: use last when present, otherwise bid for close.
-  // High/low span the full bid/ask quote so the forming bar grows real wicks
-  // instead of looking like a flat line when only one side is sampled.
+  // Quote-driven active candle: RTX5 renders one Bid price line, so the live
+  // candle must use that exact same Bid basis for O/H/L/C. Mixing Ask/Last into
+  // the candle makes spread changes look like candle ticks even when Bid did
+  // not move.
   const bidPrice = Number.isFinite(normalizedUpdate.bid) ? normalizedUpdate.bid : null;
-  const askPrice = Number.isFinite(normalizedUpdate.ask) ? normalizedUpdate.ask : null;
-  const lastPrice = Number.isFinite(normalizedUpdate.last) ? Number(normalizedUpdate.last) : null;
-  const tickPriceForCandle = lastPrice ?? bidPrice ?? askPrice;
-  const tickHighForCandle = Math.max(
-    ...[bidPrice, askPrice, lastPrice, tickPriceForCandle].filter(
-      (value): value is number => value !== null && Number.isFinite(value),
-    ),
-  );
-  const tickLowForCandle = Math.min(
-    ...[bidPrice, askPrice, lastPrice, tickPriceForCandle].filter(
-      (value): value is number => value !== null && Number.isFinite(value),
-    ),
-  );
+  const tickPriceForCandle = bidPrice;
   const useServerCandleStream = shouldRouteBackendCandlePayloads();
   if (
     !useServerCandleStream &&
@@ -418,8 +407,8 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
     try {
       liveCandleStream.extendActiveCandlesFromQuoteTick(normalizedUpdate.symbol, {
         price: tickPriceForCandle,
-        high: tickHighForCandle,
-        low: tickLowForCandle,
+        high: tickPriceForCandle,
+        low: tickPriceForCandle,
         time: candleExtensionTimestamp,
         volume: normalizedUpdate.volume,
       });

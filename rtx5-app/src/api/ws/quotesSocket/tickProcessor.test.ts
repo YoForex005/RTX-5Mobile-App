@@ -29,7 +29,7 @@ test('quote tick processor carries websocket envelope context into nested tick p
   assert.match(source, /let data: any = \{[\s\S]*transport: 'websocket'/);
 });
 
-test('quote tick processor builds live candles from bid/ask range and fresh receipt time when feed clock lags', () => {
+test('quote tick processor builds Bid-only live candles and uses fresh receipt time when feed clock lags', () => {
   const source = readSource('src/api/ws/quotesSocket/tickProcessor.ts');
 
   assert.match(source, /const CANDLE_FEED_TIME_MAX_AGE_MS = 5_000/);
@@ -39,14 +39,16 @@ test('quote tick processor builds live candles from bid/ask range and fresh rece
     source,
     /candleExtensionTimestamp =[\s\S]*normalizedUpdate\.timestampSource === 'feed' &&[\s\S]*!feedTimeTooOld[\s\S]*\? normalizedTimestamp[\s\S]*: receivedAt/,
   );
-  assert.match(source, /const tickPriceForCandle = lastPrice \?\? bidPrice \?\? askPrice/);
-  assert.match(source, /const tickHighForCandle = Math\.max/);
-  assert.match(source, /const tickLowForCandle = Math\.min/);
+  assert.match(source, /const bidPrice = Number\.isFinite\(normalizedUpdate\.bid\) \? normalizedUpdate\.bid : null/);
+  assert.match(source, /const tickPriceForCandle = bidPrice/);
+  assert.doesNotMatch(source, /const tickPriceForCandle = lastPrice \?\? bidPrice \?\? askPrice/);
+  assert.doesNotMatch(source, /const tickHighForCandle = Math\.max/);
+  assert.doesNotMatch(source, /const tickLowForCandle = Math\.min/);
   assert.match(source, /const useServerCandleStream = shouldRouteBackendCandlePayloads\(\)/);
   assert.match(source, /!useServerCandleStream &&[\s\S]*tickPriceForCandle !== null &&[\s\S]*candleExtensionTimestamp !== null/);
   assert.match(
     source,
-    /extendActiveCandlesFromQuoteTick\(normalizedUpdate\.symbol,[\s\S]*price: tickPriceForCandle,[\s\S]*high: tickHighForCandle,[\s\S]*low: tickLowForCandle,[\s\S]*time: candleExtensionTimestamp/,
+    /extendActiveCandlesFromQuoteTick\(normalizedUpdate\.symbol,[\s\S]*price: tickPriceForCandle,[\s\S]*high: tickPriceForCandle,[\s\S]*low: tickPriceForCandle,[\s\S]*time: candleExtensionTimestamp/,
   );
   assert.match(source, /tick_candle_time_receipt_fallback/);
 });

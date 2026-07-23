@@ -10,7 +10,10 @@
  *
  *   - Updates an existing backend-opened bucket when present.
  *   - Opens the current tick bucket when the quote feed is ahead of the
- *     candle socket, without fabricating any missing backend buckets.
+ *     candle socket, seeded entirely from the first accepted tick without
+ *     fabricating any missing backend buckets.
+ *   - Does not invent volume or report a candle-value change for identical
+ *     same-bucket ticks unless the broker sends explicit positive volume.
  *   - Never modifies closed history (gated by `historyCutoffTime`).
  *   - Fresh backend `applyLiveCandleToCandleMap` calls can own the latest
  *     close and OHLC geometry when their update time is newer than quote ticks.
@@ -113,7 +116,7 @@ test('quote tick falls back to seeding from REST current candle when no live can
   assert.equal(active.low, 1.103);
 });
 
-test('quote tick opens the next contiguous live bucket from the previous real close', () => {
+test('first accepted tick seeds the next contiguous live bucket with O=H=L=C=tick', () => {
   const map = createCandleMap([makeTrustedHistoryCandle(t1000, { close: 1.105 })]);
 
   const result = applyQuoteTickExtensionToCandleMap(
@@ -129,11 +132,11 @@ test('quote tick opens the next contiguous live bucket from the previous real cl
   assert.deepEqual(candles.map((c) => c.time), [t1000, t1001]);
   assert.deepEqual(candles[1], {
     time: t1001,
-    open: 1.105,
+    open: 1.115,
     high: 1.115,
-    low: 1.105,
+    low: 1.115,
     close: 1.115,
-    volume: 1,
+    volume: 0,
   });
 });
 
@@ -199,7 +202,7 @@ test('quote tick falls back to tick-open candle when same-bucket REST geometry i
       high: 81_224.54,
       low: 81_224.54,
       close: 81_224.54,
-      volume: 1,
+      volume: 0,
     },
   ]);
 });
@@ -287,7 +290,7 @@ test('quote tick with invalid timestamp is dropped without mutating the map', ()
   assert.equal(active.close, 1.106);
 });
 
-test('repeated identical quote ticks keep OHLC stable while preserving tick-volume contributions', () => {
+test('repeated identical same-bucket ticks without explicit volume leave candle values unchanged', () => {
   const map = createCandleMap();
   applyLiveCandleToCandleMap(
     map,
@@ -295,24 +298,24 @@ test('repeated identical quote ticks keep OHLC stable while preserving tick-volu
     'M1',
   );
 
-  // First tick at 1.106 — same close as backend, same high/low. Map already
-  // contains the bucket, but tick volume still changes.
+  // This tick is identical to the backend candle and carries no broker volume.
   const first = applyQuoteTickExtensionToCandleMap(
     map,
     { price: 1.106, time: t1001 + 5 },
     'M1',
   );
   assert.equal(first.ignored, false);
-  assert.equal(first.changed, true);
+  assert.equal(first.changed, false);
 
-  // Subsequent identical ticks keep OHLC stable while adding tick volume.
+  // Subsequent no-volume heartbeats also avoid scheduling a candle repaint.
   for (let i = 0; i < 5; i += 1) {
     const result = applyQuoteTickExtensionToCandleMap(
       map,
       { price: 1.106, time: t1001 + 6 + i },
       'M1',
     );
-    assert.equal(result.changed, true);
+    assert.equal(result.ignored, false);
+    assert.equal(result.changed, false);
   }
 
   const active = materializeCandleMap(map).find((candle) => candle.time === t1001);
@@ -321,7 +324,39 @@ test('repeated identical quote ticks keep OHLC stable while preserving tick-volu
   assert.equal(active.high, 1.106);
   assert.equal(active.low, 1.104);
   assert.equal(active.close, 1.106);
-  assert.equal(active.volume, 16);
+  assert.equal(active.volume, 10);
+});
+
+test('identical same-bucket tick with explicit positive volume updates only volume', () => {
+  const map = createCandleMap();
+  applyLiveCandleToCandleMap(
+    map,
+    makeBackendLiveCandle(t1001, {
+      open: 1.105,
+      high: 1.106,
+      low: 1.104,
+      close: 1.106,
+      volume: 10,
+    }),
+    'M1',
+  );
+
+  const result = applyQuoteTickExtensionToCandleMap(
+    map,
+    { price: 1.106, time: t1001 + 5, volume: 3 },
+    'M1',
+  );
+
+  assert.equal(result.ignored, false);
+  assert.equal(result.changed, true);
+  assert.deepEqual(result.candle, {
+    time: t1001,
+    open: 1.105,
+    high: 1.106,
+    low: 1.104,
+    close: 1.106,
+    volume: 13,
+  });
 });
 
 test('delayed quote tick cannot rewind close or create a false wick', () => {
@@ -412,11 +447,11 @@ test('quote tick reaching the next live-tail bucket keeps visible candles genera
   assert.deepEqual(candles.map((c) => c.time), [t1000, t1001, t1002]);
   assert.deepEqual(candles[2], {
     time: t1002,
-    open: 1.106,
+    open: 1.11,
     high: 1.11,
-    low: 1.106,
+    low: 1.11,
     close: 1.11,
-    volume: 1,
+    volume: 0,
   });
 });
 
@@ -440,7 +475,7 @@ test('quote tick far ahead opens only the current bucket and preserves backend g
     high: 1.11,
     low: 1.11,
     close: 1.11,
-    volume: 1,
+    volume: 0,
   });
 });
 

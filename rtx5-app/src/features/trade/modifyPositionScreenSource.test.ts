@@ -38,25 +38,35 @@ test('modify position validates SL and TP at least five points from market close
   assert.doesNotMatch(source, /SL\/TP must be at least 10 points away/);
 });
 
-test('modify position SL/TP uses market price and five-point distance for the modify button', () => {
-  // Bid/ask on screen + 5-point rule drive the button. Full integrity is only
-  // required when there is no usable market price (avoids false "stale" blocks).
+test('modify position keeps the button pressable and validates market price and stops in its handler', () => {
   assert.match(source, /useExecutableQuote\(viewSymbol, isScreenFocused && Boolean\(viewSymbol\)\)/);
-  assert.match(source, /const hasUsableMarketPrice = closingMarketPrice > 0 && BID > 0 && ASK > 0/);
+  assert.match(source, /const hasUsableMarketPrice = closingMarketPrice > 0/);
   assert.match(source, /const stopValidationError = useMemo\(\(\) => validateStopTargets\(\)/);
   assert.match(
     source,
-    /const canModifyPosition = Boolean\([\s\S]*hasUsableMarketPrice[\s\S]*!stopValidationError[\s\S]*isSlDistanceValid[\s\S]*isTpDistanceValid/,
+    /const canModifyPosition = Boolean\([\s\S]*position[\s\S]*symbolsMatch/,
   );
+  const eligibilitySource = source.slice(
+    source.indexOf('const canModifyPosition = Boolean('),
+    source.indexOf('/**', source.indexOf('const canModifyPosition = Boolean(')),
+  );
+  assert.doesNotMatch(eligibilitySource, /hasUsableMarketPrice|stopValidationError|isSlDistanceValid|isTpDistanceValid|isSubmitting/);
   assert.match(source, /disabled=\{!canModifyPosition\}/);
   assert.match(source, /stopValidationError \? \([\s\S]*\{stopValidationError\}/);
   assert.match(source, /stepperDistanceError/);
   assert.match(source, /modifyBtnDisabled/);
-  assert.match(source, /onPress=\{handleModify\}[\s\S]*activateOnPressIn/);
+  assert.match(source, /onPress=\{onClear\} activateOnPressIn/);
+  assert.match(source, /onPress=\{\(\) => onStep\(-pipSize \* 10\)\} activateOnPressIn/);
+  assert.match(source, /onPress=\{\(\) => onStep\(pipSize \* 10\)\} activateOnPressIn/);
+  assert.match(source, /onPress=\{\(\) => onStep\(pipSize \* p \* \(kind === 'sl' \? -1 : 1\)\)\}[\s\S]*activateOnPressIn/);
+  assert.match(source, /onPress=\{handleModify\}[\s\S]*activateOnTouchStart[\s\S]*activateOnPressIn/);
   assert.match(
     source,
     /!submitMessage && !stopValidationError && !hasUsableMarketPrice && !quoteAvailability\.allowed/,
   );
   assert.match(source, /if \(!hasUsableMarketPrice\) \{[\s\S]*getCurrentAvailability\(\)/);
   assert.match(source, /distanceError \|\| !isSlDistanceValid \|\| !isTpDistanceValid/);
+  assert.match(source, /if \(!actionProvenance\) \{[\s\S]*Authentication Error[\s\S]*setSubmitMessage/);
+  assert.doesNotMatch(source, /if \(!actionProvenance\) return/);
+  assert.doesNotMatch(source, /accountDetails\?\.credentials\?\.accessToken/);
 });

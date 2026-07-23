@@ -3,7 +3,7 @@ import type { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import type { NavigationHelpers, ParamListBase } from '@react-navigation/native';
 import { PlatformPressable } from '@react-navigation/elements';
 import { usePathname } from 'expo-router';
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import { View, StyleSheet, Text, useWindowDimensions, type GestureResponderEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUIState } from '../../src/state/uiState';
@@ -25,7 +25,10 @@ import { hideChartSettingsHost } from '../../src/features/chart/chartSettingsHos
 import { hideChartConfigDestination } from '../../src/features/chart/chartConfigDestinationController';
 import { hideAboutDetailDestination } from '../../src/features/settings/aboutDetailDestinationController';
 import { hideHistoryFilterHost } from '../../src/features/history/historyFilterHostController';
-import { hideTradePositionActionHost } from '../../src/features/trade/tradePositionActionHostController';
+import {
+  hideTradePositionActionHost,
+  tradePositionActionHostController,
+} from '../../src/features/trade/tradePositionActionHostController';
 import { OrderTicketLaunchHost } from '../../src/features/trade/OrderTicketLaunchHost';
 
 import { FastTabs as Tabs } from '../../src/ui/navigation/FastTabNavigator';
@@ -410,6 +413,11 @@ const ThemedTabsChrome = memo(function ThemedTabsChrome({
   const isSearchActive = useUIState((s) => s.isSearchActive);
   const isChartInlineInputActive = useUIState((s) => s.isChartInlineInputActive);
   const chartTabBarKeyboardLift = useUIState((s) => s.chartTabBarKeyboardLift);
+  const tradePositionActionSnapshot = useSyncExternalStore(
+    tradePositionActionHostController.subscribe,
+    tradePositionActionHostController.getSnapshot,
+    tradePositionActionHostController.getSnapshot,
+  );
   const themeMode = useThemeMode();
   const isDark = themeMode === 'dark';
   const T = themeMode === 'light' ? GLight : GDark;
@@ -433,6 +441,7 @@ const ThemedTabsChrome = memo(function ThemedTabsChrome({
     (isChartFullscreen && isChartTab) ||
     (isChartTab && isChartInlineInputActive) ||
     isSearchActive;
+  const shouldConcealMenuForTradeAction = tradePositionActionSnapshot.visible;
   const shouldLiftChartTabBar =
     isChartTab &&
     !shouldHideMenu &&
@@ -471,6 +480,10 @@ const ThemedTabsChrome = memo(function ThemedTabsChrome({
           ? { display: 'none' }
           : [
             tabBarStyle,
+            shouldConcealMenuForTradeAction && {
+              opacity: 0,
+              transform: [{ translateY: tabBarHeight }],
+            },
             shouldLiftChartTabBar && {
               position: 'absolute',
               left: 0,

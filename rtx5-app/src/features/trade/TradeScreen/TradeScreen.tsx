@@ -400,6 +400,7 @@ const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused 
         showActionIcons: true,
         detent: 'auto',
         instantOpen: true,
+        runActionAfterClose: false,
         actions: [
           {
             icon: <Ionicons name="close-circle-outline" size={20} color={positionCloseActionColor} />,
@@ -414,6 +415,7 @@ const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused 
           {
             icon: <Ionicons name="create-outline" size={20} color={T.textMuted} />,
             label: t('Modify position'),
+            activateOnPressIn: true,
             onPress: () => {
               primePositionSnapshot(item);
               showTradePositionAction('modify', item.id);

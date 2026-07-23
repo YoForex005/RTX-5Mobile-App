@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
@@ -8,22 +9,24 @@ import {
 
 const source = readChartScreenSource();
 
-test('ChartScreen logs the canonical useLiveCandles to WebView candle bridge path', () => {
+test('ChartScreen keeps full-series diagnostics and exposes the canonical atomic live bridge path', () => {
   assertSourceContains(source, /\[CHART-CANDLES\]/, 'ChartScreen must log direct useLiveCandles output');
   assertSourceContains(source, /\[CHART-BRIDGE\] useLiveCandles_update/, 'ChartScreen must log candle hook updates');
   assertSourceContains(source, /\[CHART-BRIDGE\] candle_sync_mode/, 'ChartScreen must log update mode decisions');
   assertSourceContains(source, /\[CHART-BRIDGE\] inject_updateChartData/, 'ChartScreen must log full candle reload injections');
-  assertSourceContains(source, /\[CHART-BRIDGE\] inject_updateTick/, 'ChartScreen must log incremental candle injections');
-  assertSourceContains(source, /\[CHART-BRIDGE\] inject_setLivePriceLine/, 'ChartScreen must log live price line injections separately');
+  assertSourceContains(source, /const liveUpdate = \{[\s\S]*livePrice: lastCandle\.close,[\s\S]*revision,[\s\S]*updateLiveTick\(/, 'the direct live path must expose the Bid close and ordered revision in one bridge payload');
+  assert.doesNotMatch(source, /\[CHART-BRIDGE\] inject_setLivePriceLine/, 'live Bid-line paints must not be logged as a separate delayed bridge call');
 });
 
-test('WebView candle bridge logs updateChartData updateTick and rejected stale ticks', () => {
+test('WebView candle bridge keeps diagnostics while the live path is one atomic queued update', () => {
   const updateDataBody = extractFunctionBody(source, 'updateChartData');
   const applyTickBody = extractFunctionBody(source, 'applyTickUpdate');
   const updateTickBody = extractFunctionBody(source, 'updateTick');
+  const updateLiveTickBody = extractFunctionBody(source, 'updateLiveTick');
 
   assertSourceContains(updateDataBody, /\[WEBVIEW-CANDLE\] updateChartData/, 'WebView full reload must log candle data receipt');
   assertSourceContains(updateTickBody, /\[WEBVIEW-CANDLE\] updateTick_queued/, 'WebView incremental path must log queued ticks');
+  assertSourceContains(updateLiveTickBody, /pendingTick = \{[\s\S]*tick: update\.candle[\s\S]*livePrice: update\.livePrice/, 'WebView live diagnostics must share the same queued transaction used for painting');
   assertSourceContains(applyTickBody, /\[WEBVIEW-CANDLE\] applyTickUpdate/, 'WebView must log applied candle ticks');
   assertSourceContains(applyTickBody, /tick\.time < lastBarTime[\s\S]*\[WEBVIEW-CANDLE\] applyTickUpdate_rejected/, 'WebView must log stale tick rejection');
 });

@@ -82,21 +82,6 @@ const getLastRealtimeUpdateTime = (candle: MutableCandle | undefined): number | 
   return Math.max(backendTime, quoteTime);
 };
 
-const seedFromCandleClose = (
-  bucketStart: number,
-  seed: Pick<Candle, 'close'>,
-  price: number,
-): MutableCandle => ({
-  time: bucketStart,
-  open: seed.close,
-  high: Math.max(seed.close, price),
-  low: Math.min(seed.close, price),
-  close: price,
-  volume: 0,
-  source: 'live_candle',
-  closed: false,
-});
-
 const seedFromTick = (bucketStart: number, price: number): MutableCandle => ({
   time: bucketStart,
   open: price,
@@ -352,13 +337,10 @@ export const applyQuoteTickExtensionToCandleMap = (
           : 'tick_older_than_live_tail',
       };
     } else if (latestKnownBucket !== null && bucketStart === getExpectedNextCandleTime(latestKnownBucket, timeframe)) {
-      const liveTail = liveTailTime === latestKnownBucket ? candleMap.get(latestKnownBucket) : undefined;
-      const seed = liveTail ?? (restTailBucket === latestKnownBucket ? restTail : null);
-      if (seed && !isPriceCoherentWithCandle(seed, tick.price)) {
-        existing = seedFromTick(bucketStart, tick.price);
-      } else {
-        existing = seed ? seedFromCandleClose(bucketStart, seed, tick.price) : seedFromTick(bucketStart, tick.price);
-      }
+      // A timeframe boundary does not itself create price movement. The first
+      // accepted tick owns the new candle's open, matching standard tick-built
+      // OHLC semantics: O=H=L=C=tick price until a later Bid tick moves it.
+      existing = seedFromTick(bucketStart, tick.price);
       existing = {
         ...existing,
         high: Math.max(existing.high, tickHigh),
@@ -383,7 +365,10 @@ export const applyQuoteTickExtensionToCandleMap = (
     }
   }
 
-  const volumeContribution = hasPositiveTickVolume ? tick.volume as number : 1;
+  // Do not invent tick volume when the broker did not send volume. Besides
+  // being synthetic data, a fabricated +1 made identical Bid heartbeats report
+  // a candle change and schedule a paint even though OHLC had not moved.
+  const volumeContribution = hasPositiveTickVolume ? tick.volume as number : 0;
   const next: MutableCandle = {
     ...existing,
     high: Math.max(existing.high, tickHigh, tick.price),
