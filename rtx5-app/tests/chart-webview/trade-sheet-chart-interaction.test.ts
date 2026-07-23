@@ -62,8 +62,8 @@ test('SL and TP preview lines are draggable chart overlays', () => {
     source.indexOf('const chartType = chartVisualType'),
   );
 
-  assertSourceContains(previewSource, /const chartTradeSlDragKey = chartTradePositionStopTarget[\s\S]*: 'sl'/, 'SL preview line must carry a fallback drag key');
-  assertSourceContains(previewSource, /const chartTradeTpDragKey = chartTradePositionStopTarget[\s\S]*: 'tp'/, 'TP preview line must carry a fallback drag key');
+  assertSourceContains(previewSource, /const chartTradeSlDragKey = chartProtectionBackendLocked\s*\? undefined\s*:\s*chartTradePositionStopTarget[\s\S]*: 'sl'/, 'SL preview must expose a drag key only when its broker capability is enabled');
+  assertSourceContains(previewSource, /const chartTradeTpDragKey = chartProtectionBackendLocked\s*\? undefined\s*:\s*chartTradePositionStopTarget[\s\S]*: 'tp'/, 'TP preview must expose a drag key only when its broker capability is enabled');
   assertSourceContains(previewSource, /chartTradeSlEnabled[\s\S]*chartTradeSlPrice/, 'SL line must be driven by sheet state');
   assertSourceContains(previewSource, /chartTradeTpEnabled[\s\S]*chartTradeTpPrice/, 'TP line must be driven by sheet state');
   assertSourceContains(previewSource, /id: 'chart-trade-sl-preview'[\s\S]*labelPlacement: 'line'[\s\S]*dragKey: chartTradeSlDragKey/, 'SL preview must draw a full-width guide line');
@@ -80,6 +80,11 @@ test('drag messages from WebView reach chart trade preview state handler', () =>
     source,
     /const handleChartTradePreviewDragMessage = useCallback[\s\S]*const dragKey = msg\?\.dragKey[\s\S]*applyChartTradePreviewDragPrice\(dragKey, nextPrice\)/,
     'drag handler must apply the dragged SL/TP price',
+  );
+  assertSourceContains(
+    source,
+    /if \(\(dragKey === 'sl' \|\| dragKey === 'tp'\) && chartProtectionBackendLocked\) \{\s*return;\s*\}/,
+    'stale SL/TP preview drag messages must be ignored while the broker capability is locked',
   );
 });
 
@@ -326,6 +331,11 @@ test('pending chart CTA submits the pending order and then exposes chart-side le
 
   assertSourceContains(
     handlerSource,
+    /if \(isPendingOrderTypeBackendLocked\(chartTradeOrderType\)\) \{\s*return;\s*\}/,
+    'pending CTA must fail closed until backend readiness is explicitly enabled',
+  );
+  assertSourceContains(
+    handlerSource,
     /ordersApi\.placePendingOrder\(payload\)/,
     'pending CTA must submit to the pending-order API',
   );
@@ -349,7 +359,7 @@ test('pending chart CTA submits the pending order and then exposes chart-side le
     /snapTradeSheet\('collapsed'\)/,
     'pending CTA must expose chart-side draggable levels after submission',
   );
-  if (/Pending Order Preview|Chart-side pending submission is still preview-only in this build|Alert\.alert/.test(source)) {
+  if (/Pending Order Preview|Chart-side pending submission is still preview-only in this build|Alert\.alert/.test(handlerSource)) {
     throw new Error('pending CTA must not show the old preview-only blocking alert');
   }
 });
@@ -408,7 +418,7 @@ test('tap menu is suppressed while lot input or picker interaction is active', (
   );
 });
 
-test('toolbar SL/TP tap opens the sheet immediately on a full-size touch surface', () => {
+test('toolbar SL/TP shows a disabled lock until backend readiness while preserving the sheet', () => {
   const openHandlerStart = source.indexOf('const handleOpenChartTradeSheet = useCallback');
   const openHandlerEnd = source.indexOf('const scrollChartTradeTypeTabsToOrderType', openHandlerStart);
   assert.notEqual(openHandlerStart, -1, 'SL/TP toolbar open handler was not found');
@@ -417,9 +427,10 @@ test('toolbar SL/TP tap opens the sheet immediately on a full-size touch surface
   const openHandlerSource = source.slice(openHandlerStart, openHandlerEnd);
   assertSourceContains(
     openHandlerSource,
-    /runImmediateAction\('chart\.tradeSheet\.open'[\s\S]*openChartTradeSheet\(\);/,
-    'SL/TP toolbar action must open the sheet from the first handled tap frame',
+    /runImmediateAction\('chart\.tradeSheet\.open'[\s\S]*if \(isChartTradeProtectionBackendLocked\(\)\) \{\s*return;\s*\}[\s\S]*openChartTradeSheet\(\);/,
+    'SL/TP toolbar handler must use the order-type-specific broker capability before opening',
   );
+  assert.doesNotMatch(openHandlerSource, /Alert\.alert/);
   assert.doesNotMatch(
     openHandlerSource,
     /requestAnimationFrame/,
@@ -441,8 +452,8 @@ test('toolbar SL/TP tap opens the sheet immediately on a full-size touch surface
   );
   assertSourceContains(
     source,
-    /accessibilityLabel="SL\/TP"[\s\S]*style=\{styles\.toolbarTradeButton\}[\s\S]*onPressIn=\{handleOpenChartTradeSheet\}/,
-    'SL/TP toolbar button must open directly from press-in so Android dropped press/release events cannot leave it inert',
+    /accessibilityLabel=\{chartSlTpBackendLocked \? 'SL\/TP locked' : 'SL\/TP'\}[\s\S]*accessibilityState=\{\{ disabled: chartSlTpBackendLocked \}\}[\s\S]*disabled=\{chartSlTpBackendLocked\}[\s\S]*styles\.toolbarTradeButtonLocked[\s\S]*onPressIn=\{handleOpenChartTradeSheet\}[\s\S]*<Ionicons name="lock-closed" size=\{10\}/,
+    'SL/TP toolbar must visibly lock and disable interaction while the backend is unavailable',
   );
 
   const stylesPath = (() => {
@@ -457,8 +468,42 @@ test('toolbar SL/TP tap opens the sheet immediately on a full-size touch surface
 
   assertSourceContains(
     stylesSource,
-    /toolbarTradeButton: \{[\s\S]*width: '100%'[\s\S]*minHeight: 44/,
+    /toolbarTradeButton: \{[\s\S]*width: '100%'[\s\S]*minHeight: 44[\s\S]*flexDirection: 'row'[\s\S]*gap: 2/,
     'SL/TP toolbar touch target must fill its slot with a reliable mobile tap height',
+  );
+  assertSourceContains(
+    stylesSource,
+    /toolbarTradeButtonLocked: \{[\s\S]*opacity: 0\.58/,
+    'locked SL/TP toolbar styling must communicate its unavailable state',
+  );
+});
+
+test('chart trade sheet keeps Market Execution available and locks pending order tabs', () => {
+  const selectHandlerStart = source.indexOf('const handleChartTradeOrderTypeSelect = useCallback');
+  const selectHandlerEnd = source.indexOf('useEffect(() => {', selectHandlerStart);
+  assert.notEqual(selectHandlerStart, -1, 'chart order type handler was not found');
+  assert.notEqual(selectHandlerEnd, -1, 'chart order type handler boundary was not found');
+
+  const selectHandlerSource = source.slice(selectHandlerStart, selectHandlerEnd);
+  assertSourceContains(
+    selectHandlerSource,
+    /if \(isPendingOrderTypeBackendLocked\(orderType\)\) \{\s*return;\s*\}[\s\S]*setChartTradeOrderType\(orderType\)/,
+    'pending order type must not change selection before backend readiness',
+  );
+  assert.equal(
+    chartTradeFeatureSource.match(/const isBackendLocked = isPendingOrderTypeBackendLocked\(option\)/g)?.length,
+    2,
+    'both chart order-tab render paths must resolve the backend lock',
+  );
+  assert.equal(
+    chartTradeFeatureSource.match(/disabled=\{isBackendLocked\}/g)?.length,
+    2,
+    'both chart order-tab render paths must disable locked pending tabs',
+  );
+  assert.equal(
+    chartTradeFeatureSource.match(/<Ionicons name="lock-closed" size=\{13\}/g)?.length,
+    2,
+    'both chart order-tab render paths must show a lock icon',
   );
 });
 

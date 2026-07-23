@@ -9,17 +9,16 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/shallow';
 import {
   ActivityIndicator, Alert, Dimensions, ScrollView, StyleSheet, Text, TextInput, View,
+  type LayoutChangeEvent, type StyleProp, type ViewStyle,
   Platform
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Line, Path, Text as SvgText, Rect, G } from 'react-native-svg';
 
-import { positionsApi } from '../../api/positions';
-import { appQueryClient } from '../../state/providers/AppProviders';
 import { useLiveCandles } from '../../domain/candles/hooks/useLiveCandles';
 import { normalizeSymbol } from '../../domain/symbols';
 import { useInstrumentMeta } from '../../query/instruments';
@@ -39,11 +38,9 @@ import { safeRouterBack } from '../../utils/navigation';
 import { useTranslation } from '../../i18n/useTranslation';
 import { resolveModifyPositionMarkerYPositions } from './modifyPositionChartLayout';
 import {
-  clampStopTargetToMinDistance,
-  DEFAULT_MIN_STOP_DISTANCE_POINTS,
-  isStopTargetDistanceValid,
-  resolveStopTargetDistancePoints,
-  validateStopTargetsDistance,
+  isStopTargetOnCorrectSide,
+  resolveStopTargetPresetDirection,
+  snapStopTargetToTickSize,
 } from './modifyPositionStopDistance';
 import {
   classifyTradingError,
@@ -54,21 +51,24 @@ import { hideTradePositionActionHost } from './tradePositionActionHostController
 import { useExecutableQuote } from '../quotes/useExecutableQuote';
 import { quoteActionBlockMessage, recordBlockedPriceAction } from '../../market/quoteIntegrity';
 import {
-  captureActiveBrokerSessionProvenance,
-  isActiveBrokerSessionProvenanceCurrent,
-} from '../../state/activeBrokerSession';
-import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope';
+  submitModifyPosition,
+  useModifyPositionTicketState,
+} from './modifyPositionCoordinator';
+import {
+  isExistingPositionModifyBackendLocked,
+  SLTP_COMING_SOON_MESSAGE,
+  SLTP_COMING_SOON_TITLE,
+} from './tradeBackendCapabilities';
 
 const SETTINGS_DARK_BACKGROUND = '#121212';
 const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E';
-const MIN_STOP_DISTANCE_POINTS = DEFAULT_MIN_STOP_DISTANCE_POINTS;
-const MODIFY_CONFIRMATION_TIMEOUT_MS = 10_000;
-const modifyPositionIdsInFlight = new Set<string>();
+const MODIFY_POSITION_QUOTE_COMMIT_INTERVAL_MS = 50;
+const MODIFY_POSITION_CHART_COMMIT_INTERVAL_MS = 100;
 const runAfterModifyClosePaint = (action: () => void) => {
   if (typeof globalThis.requestAnimationFrame === 'function') {
     globalThis.requestAnimationFrame(() => {
-      // rAF runs before the frame is painted. The macrotask keeps preference
-      // persistence and request setup out of the native close frame itself.
+      // rAF runs before the frame is painted. The macrotask keeps optimistic
+      // store updates and preference persistence out of the close frame.
       setTimeout(action, 0);
     });
     return;
@@ -88,37 +88,6 @@ export type ModifyPositionScreenProps = Readonly<{
   onHostedBack?: () => void;
 }>;
 
-const hasOwn = (source: Record<string, unknown>, key: string): boolean =>
-  Object.prototype.hasOwnProperty.call(source, key);
-
-const normalizeModifiedStopValue = (value: unknown): number => {
-  if (value === null || value === undefined || value === '') {
-    return 0;
-  }
-
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-};
-
-const readModifiedStopValue = (
-  response: unknown,
-  keys: string[],
-  fallback: number,
-): { value: number; confirmed: boolean } => {
-  if (!response || typeof response !== 'object') {
-    return { value: fallback, confirmed: false };
-  }
-
-  const record = response as Record<string, unknown>;
-  for (const key of keys) {
-    if (hasOwn(record, key)) {
-      return { value: normalizeModifiedStopValue(record[key]), confirmed: true };
-    }
-  }
-
-  return { value: fallback, confirmed: false };
-};
-
 function formatModifyPrice(val: number, decimals: number) {
   if (!Number.isFinite(val) || val <= 0) {
     return { main: '—', huge: '' };
@@ -131,6 +100,246 @@ function formatModifyPrice(val: number, decimals: number) {
   };
 }
 
+type ModifyPositionChartTick = Readonly<{ bid: number; ask: number }>;
+type ModifyPositionChartLiveInput = Readonly<{
+  symbol: string;
+  bid: number;
+  ask: number;
+  stopLoss: number | null;
+  takeProfit: number | null;
+}>;
+
+type ModifyPositionTickChartProps = Readonly<{
+  active: boolean;
+  symbol: string;
+  liveInputRef: Readonly<{ current: ModifyPositionChartLiveInput }>;
+  symbolsMatch: boolean;
+  decimals: number;
+  point: number;
+  slColor: string;
+  tpColor: string;
+  borderColor: string;
+  buyColor: string;
+  sellColor: string;
+  containerStyle: StyleProp<ViewStyle>;
+}>;
+
+/**
+ * Decorative price chart isolated from the interactive SL/TP form.
+ *
+ * Quote renders are coalesced by the parent at 20 fps and candle commits here
+ * at 10 fps. The controls can therefore commit on the touch frame without
+ * rebuilding SVG paths for every raw websocket tick.
+ */
+const ModifyPositionTickChart = memo(function ModifyPositionTickChart({
+  active,
+  symbol,
+  liveInputRef,
+  symbolsMatch,
+  decimals,
+  point,
+  slColor: SL_COLOR,
+  tpColor: TP_COLOR,
+  borderColor,
+  buyColor,
+  sellColor,
+  containerStyle,
+}: ModifyPositionTickChartProps) {
+  const tickChartReady = useDeferredRouteContentReady(450);
+  const [committedLiveInput, setCommittedLiveInput] = useState<ModifyPositionChartLiveInput>(
+    () => liveInputRef.current,
+  );
+  useEffect(() => {
+    const commitLatestInput = () => {
+      const latest = liveInputRef.current;
+      setCommittedLiveInput((previous) => (
+        previous.symbol === latest.symbol
+        && previous.bid === latest.bid
+        && previous.ask === latest.ask
+        && previous.stopLoss === latest.stopLoss
+        && previous.takeProfit === latest.takeProfit
+          ? previous
+          : latest
+      ));
+    };
+
+    commitLatestInput();
+    if (!active || !tickChartReady) {
+      return undefined;
+    }
+    const interval = setInterval(
+      commitLatestInput,
+      MODIFY_POSITION_CHART_COMMIT_INTERVAL_MS,
+    );
+    return () => clearInterval(interval);
+  }, [active, liveInputRef, tickChartReady]);
+  // A symbol switch must never paint one frame on the previous price scale.
+  const liveInput = committedLiveInput.symbol === symbol
+    ? committedLiveInput
+    : liveInputRef.current;
+  const {
+    bid: BID,
+    ask: ASK,
+    stopLoss,
+    takeProfit,
+  } = liveInput;
+  const { candles } = useLiveCandles(
+    symbol,
+    '1',
+    active && tickChartReady,
+    MODIFY_POSITION_CHART_COMMIT_INTERVAL_MS,
+  );
+  const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
+  const ticks = useMemo<ModifyPositionChartTick[]>(() => {
+    if (!tickChartReady || !(BID > 0) || !(ASK > 0)) return [];
+    if (candles.length > 0) {
+      const slice = candles.slice(-40);
+      const spread = ASK - BID;
+      const history = slice.map((candle) => ({
+        bid: candle.close,
+        ask: candle.close + spread,
+      }));
+      while (history.length < 40) {
+        history.unshift({ bid: history[0].bid, ask: history[0].ask });
+      }
+      history[history.length - 1] = { bid: BID, ask: ASK };
+      return history;
+    }
+    // History normally hydrates before the delayed chart mounts. A flat live
+    // seed avoids a second state/effect render during the brief cold-start gap.
+    return Array.from({ length: 40 }, () => ({ bid: BID, ask: ASK }));
+  }, [ASK, BID, candles, tickChartReady]);
+
+  const handleChartLayout = useCallback((event: LayoutChangeEvent) => {
+    const next = {
+      width: event.nativeEvent.layout.width,
+      height: event.nativeEvent.layout.height,
+    };
+    setChartLayout((previous) => (
+      previous.width === next.width && previous.height === next.height
+        ? previous
+        : next
+    ));
+  }, []);
+
+  const chartHeight = Math.max(220, Math.min(Dimensions.get('window').height * 0.32, 340));
+  const w = chartLayout.width;
+  const h = chartLayout.height;
+  let minPrice = Math.min(BID, ASK);
+  let maxPrice = Math.max(BID, ASK);
+  ticks.forEach((tick) => {
+    minPrice = Math.min(minPrice, tick.bid, tick.ask);
+    maxPrice = Math.max(maxPrice, tick.bid, tick.ask);
+  });
+  if (stopLoss !== null && Number.isFinite(stopLoss)) {
+    minPrice = Math.min(minPrice, stopLoss);
+    maxPrice = Math.max(maxPrice, stopLoss);
+  }
+  if (takeProfit !== null && Number.isFinite(takeProfit)) {
+    minPrice = Math.min(minPrice, takeProfit);
+    maxPrice = Math.max(maxPrice, takeProfit);
+  }
+
+  const padding = (maxPrice - minPrice) * 0.2;
+  const chartMin = minPrice - padding;
+  const chartMax = maxPrice + padding;
+  const priceRange = chartMax - chartMin || 0.001;
+  const yPos = (value: number) => (
+    h === 0 ? 0 : h - ((value - chartMin) / priceRange) * h
+  );
+  const xPos = (index: number, total: number) => (
+    w === 0 || total <= 1 ? 0 : (index / (total - 1)) * (w - 70)
+  );
+
+  let bidPath = '';
+  let askPath = '';
+  if (ticks.length > 0 && w > 0 && h > 0) {
+    bidPath = ticks
+      .map((tick, index) => `${index === 0 ? 'M' : 'L'} ${xPos(index, ticks.length)} ${yPos(tick.bid)}`)
+      .join(' ');
+    askPath = ticks
+      .map((tick, index) => `${index === 0 ? 'M' : 'L'} ${xPos(index, ticks.length)} ${yPos(tick.ask)}`)
+      .join(' ');
+    bidPath += ` L ${w - 60} ${yPos(BID)}`;
+    askPath += ` L ${w - 60} ${yPos(ASK)}`;
+  }
+
+  const markerYPositions = resolveModifyPositionMarkerYPositions(
+    [
+      { key: 'ask', value: ASK, y: yPos(ASK) },
+      { key: 'bid', value: BID, y: yPos(BID) },
+      ...(symbolsMatch && stopLoss !== null ? [{ key: 'sl' as const, value: stopLoss, y: yPos(stopLoss) }] : []),
+      ...(symbolsMatch && takeProfit !== null ? [{ key: 'tp' as const, value: takeProfit, y: yPos(takeProfit) }] : []),
+    ],
+    {
+      chartHeight: h,
+      sameValueEpsilon: Math.max(point / 2, Number.EPSILON),
+    },
+  );
+  const lineY = (
+    key: 'ask' | 'bid' | 'sl' | 'tp',
+    fallbackValue: number,
+  ) => markerYPositions[key] ?? yPos(fallbackValue);
+
+  return (
+    <View
+      style={[containerStyle, { height: chartHeight }]}
+      onLayout={handleChartLayout}
+    >
+      {tickChartReady && w > 0 && h > 0 ? (
+        <Svg width={w} height={h}>
+          <Line x1="0" y1={yPos(maxPrice)} x2={w} y2={yPos(maxPrice)} stroke={borderColor} strokeDasharray="4 4" strokeWidth="1" />
+          <Line x1="0" y1={yPos((maxPrice + minPrice) / 2)} x2={w} y2={yPos((maxPrice + minPrice) / 2)} stroke={borderColor} strokeDasharray="4 4" strokeWidth="1" />
+          <Line x1="0" y1={yPos(minPrice)} x2={w} y2={yPos(minPrice)} stroke={borderColor} strokeDasharray="4 4" strokeWidth="1" />
+
+          {bidPath ? <Path d={bidPath} stroke={buyColor} strokeWidth="1.5" fill="none" /> : null}
+          {askPath ? <Path d={askPath} stroke={sellColor} strokeWidth="1.5" fill="none" /> : null}
+
+          {symbolsMatch && stopLoss !== null ? (
+            <G>
+              <Line x1="0" y1={lineY('sl', stopLoss)} x2={w} y2={lineY('sl', stopLoss)} stroke={SL_COLOR} strokeDasharray="6 6" strokeWidth="1" />
+              <G x={w - 60} y={lineY('sl', stopLoss) - 10}>
+                <Rect width={60} height={20} fill={SL_COLOR} />
+                <SvgText x={30} y={14} fill="#FFF" fontSize="10" fontWeight="bold" textAnchor="middle">
+                  SL
+                </SvgText>
+              </G>
+            </G>
+          ) : null}
+
+          {symbolsMatch && takeProfit !== null ? (
+            <G>
+              <Line x1="0" y1={lineY('tp', takeProfit)} x2={w} y2={lineY('tp', takeProfit)} stroke={TP_COLOR} strokeDasharray="6 6" strokeWidth="1" />
+              <G x={w - 60} y={lineY('tp', takeProfit) - 10}>
+                <Rect width={60} height={20} fill={TP_COLOR} />
+                <SvgText x={30} y={14} fill="#FFF" fontSize="10" fontWeight="bold" textAnchor="middle">
+                  TP
+                </SvgText>
+              </G>
+            </G>
+          ) : null}
+
+          <Line x1="0" y1={lineY('ask', ASK)} x2={w - 60} y2={lineY('ask', ASK)} stroke={sellColor} strokeWidth="1" />
+          <Line x1="0" y1={lineY('bid', BID)} x2={w - 60} y2={lineY('bid', BID)} stroke={buyColor} strokeWidth="1" />
+
+          <G x={w - 60} y={lineY('ask', ASK) - 10}>
+            <Rect width={60} height={20} fill={sellColor} />
+            <SvgText x={30} y={14} fill="#FFF" fontSize="11" fontWeight="bold" textAnchor="middle">
+              {ASK.toFixed(decimals)}
+            </SvgText>
+          </G>
+          <G x={w - 60} y={lineY('bid', BID) - 10}>
+            <Rect width={60} height={20} fill={buyColor} />
+            <SvgText x={30} y={14} fill="#FFF" fontSize="11" fontWeight="bold" textAnchor="middle">
+              {BID.toFixed(decimals)}
+            </SvgText>
+          </G>
+        </Svg>
+      ) : null}
+    </View>
+  );
+});
+
 /**
  * Screen used to adjust the Stop Loss (SL) and Take Profit (TP) parameters for an active, open position.
  */
@@ -141,9 +350,20 @@ export function ModifyPositionScreen({
   onHostedBack,
 }: ModifyPositionScreenProps = {}) {
   const params = useLocalSearchParams<{ positionId?: string }>();
+  const routePositionId = Array.isArray(params.positionId)
+    ? params.positionId[0]
+    : params.positionId;
+  const [hostedSelectedPositionId, setHostedSelectedPositionId] = useState<string | null>(
+    hostedPositionId,
+  );
+  useEffect(() => {
+    if (hosted) {
+      setHostedSelectedPositionId(hostedPositionId);
+    }
+  }, [hosted, hostedPositionId]);
   const positionId = hosted
-    ? (hostedPositionId ?? undefined)
-    : (Array.isArray(params.positionId) ? params.positionId[0] : params.positionId);
+    ? (hostedSelectedPositionId ?? undefined)
+    : routePositionId;
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
@@ -182,12 +402,29 @@ export function ModifyPositionScreen({
     () => findPositionById(positions, positionId) ?? primedPosition,
     [positions, positionId, primedPosition]
   );
+  const modifyTicketState = useModifyPositionTicketState(position?.id);
+  const [modifyRateLimitClock, setModifyRateLimitClock] = useState(() => Date.now());
+  useEffect(() => {
+    const retryAfterUntil = modifyTicketState.retryAfterUntil ?? 0;
+    const remainingMs = retryAfterUntil - Date.now();
+    if (remainingMs <= 0) return undefined;
+    const timer = setTimeout(
+      () => setModifyRateLimitClock(Date.now()),
+      remainingMs + 25,
+    );
+    return () => clearTimeout(timer);
+  }, [modifyTicketState.retryAfterUntil]);
+  const coordinatorRateLimited =
+    (modifyTicketState.retryAfterUntil ?? 0) > modifyRateLimitClock;
+  const coordinatorBusy =
+    modifyTicketState.mutationInFlight ||
+    modifyTicketState.phase === 'pending' ||
+    modifyTicketState.phase === 'reconciling';
 
   const [stopLoss, setStopLoss] = useState<number | null>(null);
   const [takeProfit, setTakeProfit] = useState<number | null>(null);
   const modifySubmittingRef = useRef(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
-  const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
   const [positionPickerOpen, setPositionPickerOpen] = useState(false);
   // Symbol being VIEWED on this sheet (live bid/ask + tick chart). Defaults to
   // the modified position's symbol; the top-right picker can point it at any
@@ -202,6 +439,7 @@ export function ModifyPositionScreen({
     setViewSymbolOverride(null);
   }, [positionSymbol]);
   const resolvedLogin = resolveTradingLoginString();
+  const existingPositionModifyLocked = isExistingPositionModifyBackendLocked();
 
   // Fetch position if not natively loaded in cache (e.g. direct deep link or cold start)
   useEffect(() => {
@@ -216,16 +454,16 @@ export function ModifyPositionScreen({
     quote: executableQuote,
     availability: quoteAvailability,
     getCurrentAvailability,
-  } = useExecutableQuote(viewSymbol, isScreenFocused && Boolean(viewSymbol));
+  } = useExecutableQuote(
+    viewSymbol,
+    isScreenFocused && Boolean(viewSymbol),
+    MODIFY_POSITION_QUOTE_COMMIT_INTERVAL_MS,
+  );
 
   const isJpy = viewSymbol.includes('JPY');
-  // The route is a transparentModal with animation:'none', so nothing paints
-  // until the whole tree commits — every mount cost lands on the tap path.
-  // Mount the sheet shell first and defer the body by a couple of frames;
-  // the decorative tick chart (and its candle subscription) comes in last.
-  const sheetBodyReady = useDeferredRouteContentReady(0);
-  const tickChartReady = useDeferredRouteContentReady(450);
-  const { candles } = useLiveCandles(viewSymbol, '1', isScreenFocused && tickChartReady); // Fetch REAL 1M histories!
+  // The interactive form mounts with the route so the first visible frame is
+  // already usable. The expensive decorative chart defers its own subscription
+  // and paint inside ModifyPositionTickChart.
   const BID = typeof executableQuote?.bid === 'number' && executableQuote.bid > 0
     ? executableQuote.bid
     : 0;
@@ -233,63 +471,56 @@ export function ModifyPositionScreen({
     ? executableQuote.ask
     : 0;
 
-  // Symbol precision comes from the backend instrument meta (digits/point);
-  // fall back to the app-wide JPY heuristic when the endpoint has no record.
-  // A hardcoded precision breaks 5-decimal symbols: pip steps round away to
-  // nothing and SL/TP would be submitted as coarse 2-decimal prices.
+  // Display precision may use the app's harmless formatting fallback. Price
+  // mutation steps, however, use only a positive backend tick_size; the app
+  // must not invent an executable point/stops/freeze contract.
   const { data: instrumentMeta } = useInstrumentMeta(viewSymbol, isScreenFocused);
   const decimals = useMemo(() => {
     const metaDigits = normalizePriceDigits(instrumentMeta?.digits);
     if (metaDigits !== undefined && metaDigits > 0) return metaDigits;
-    const stepDigits = resolveDecimalsFromPriceStep(instrumentMeta?.point ?? instrumentMeta?.tickSize);
+    const stepDigits = resolveDecimalsFromPriceStep(instrumentMeta?.tickSize);
     if (stepDigits !== undefined && stepDigits > 0) return stepDigits;
     return isJpy ? 3 : 5;
-  }, [instrumentMeta?.digits, instrumentMeta?.point, instrumentMeta?.tickSize, isJpy]);
-  const point = useMemo(() => {
-    const metaPoint = instrumentMeta?.point;
-    if (typeof metaPoint === 'number' && metaPoint > 0) return metaPoint;
-    return Math.pow(10, -decimals);
-  }, [instrumentMeta?.point, decimals]);
-  const pipSize = point * 10;
-  const minStopDistance = point * MIN_STOP_DISTANCE_POINTS;
+  }, [instrumentMeta?.digits, instrumentMeta?.tickSize, isJpy]);
+  const tickSize = useMemo(() => {
+    const rawTickSize = (
+      instrumentMeta as (Record<string, unknown> & { tick_size?: unknown }) | undefined
+    )?.tick_size;
+    const candidates = [rawTickSize, executableQuote?.tickSize];
+    for (const candidate of candidates) {
+      if (
+        (typeof candidate === 'number' || typeof candidate === 'string') &&
+        String(candidate).trim()
+      ) {
+        const value = Number(candidate);
+        if (Number.isFinite(value) && value > 0) return value;
+      }
+    }
+    return null;
+  }, [executableQuote?.tickSize, instrumentMeta]);
+  const pipSize = tickSize ? tickSize * 10 : 0;
+  // Parent renders keep immediate values for text/validation. The decorative
+  // chart reads this stable ref on its own bounded 100ms cadence, so raw quote
+  // traffic cannot pull SVG work into a control-state commit.
+  const chartLiveInputRef = useRef<ModifyPositionChartLiveInput>({
+    symbol: viewSymbol,
+    bid: BID,
+    ask: ASK,
+    stopLoss,
+    takeProfit,
+  });
+  chartLiveInputRef.current = {
+    symbol: viewSymbol,
+    bid: BID,
+    ask: ASK,
+    stopLoss,
+    takeProfit,
+  };
   // Header open-price precision always follows the POSITION's symbol, even
   // while the live view is pointed at another instrument.
   const positionHeaderDecimals = symbolsMatch
     ? decimals
     : (positionSymbol.includes('JPY') ? 3 : 5);
-
-  const [ticks, setTicks] = useState<{ bid: number; ask: number }[]>([]);
-
-  useEffect(() => {
-    if (!tickChartReady) return;
-    if (BID > 0 && ASK > 0) {
-      // If we have actual historical candles from the live WebSocket, map them perfectly!
-      if (candles && candles.length > 0) {
-        const slice = candles.slice(-40);
-        const spread = ASK - BID;
-        const histPath = slice.map(c => ({ bid: c.close, ask: c.close + spread }));
-
-        // Pad to ensure full chart width if we don't have exactly 40 minutes of history yet
-        while (histPath.length < 40) {
-          histPath.unshift({ bid: histPath[0].bid, ask: histPath[0].ask });
-        }
-
-        // Ensure the absolute final active tick is precisely the live, sub-minute WebSocket tick!
-        histPath[histPath.length - 1] = { bid: BID, ask: ASK };
-
-        setTicks(histPath);
-      } else {
-        // Fallback tick accumulator if history hasn't loaded yet
-        setTicks((prev) => {
-          if (prev.length === 0) return Array(40).fill({ bid: BID, ask: ASK });
-
-          const next = [...prev, { bid: BID, ask: ASK }];
-          if (next.length > 40) next.shift();
-          return next;
-        });
-      }
-    }
-  }, [BID, ASK, candles, tickChartReady]);
 
   // Init S/L and T/P from existing
   useEffect(() => {
@@ -340,8 +571,12 @@ export function ModifyPositionScreen({
     if (!nextPositionId || nextPositionId === String(position?.id ?? '')) {
       return;
     }
+    if (hosted) {
+      setHostedSelectedPositionId(nextPositionId);
+      return;
+    }
     router.setParams({ positionId: nextPositionId });
-  }, [position?.id]);
+  }, [hosted, position?.id]);
 
   /**
    * Navigates the user to the Chart screen to view the price action of the currently selected position's symbol.
@@ -393,126 +628,125 @@ export function ModifyPositionScreen({
       }];
     }
 
-    return symbolOptions.map((candidate) => {
+    return symbolOptions.flatMap((candidate) => {
       const symbolPositions = positionsBySymbol.get(candidate) ?? [];
       if (!symbolPositions.length) {
         const isViewing = !symbolsMatch && candidate === viewSymbol;
-        return {
+        return [{
           label: candidate,
           subtitle: isViewing
             ? `${t('Viewing')} - ${resolveChartSymbolFullName(candidate)}`
             : `${resolveChartSymbolFullName(candidate)} - ${t('No open position')}`,
           onPress: () => handlePickViewSymbol(candidate),
-        };
+        }];
       }
 
-      const currentIndex = symbolPositions.findIndex((p) => String(p.id) === currentPositionId);
-      const target = symbolPositions[(currentIndex + 1) % symbolPositions.length];
-      const targetLabel = `${target.side} ${(target.volume || 0).toFixed(2)} #${String(target.id)}`;
-      return {
-        label: candidate,
-        subtitle: currentIndex >= 0 && symbolPositions.length === 1
-          ? `${t('Selected')} - ${targetLabel}`
-          : targetLabel,
-        onPress: () => handlePickPosition(String(target.id)),
-      };
+      return symbolPositions.map((target) => {
+        const targetId = String(target.id);
+        const targetLabel =
+          `${target.side.toUpperCase()} ${(target.volume || 0).toFixed(2)} ` +
+          `#${targetId} @ ${fmt.price(target.openPrice, 8)}`;
+        return {
+          label: candidate,
+          subtitle: targetId === currentPositionId
+            ? `${t('Selected')} - ${targetLabel}`
+            : targetLabel,
+          onPress: () => handlePickPosition(targetId),
+        };
+      });
     });
   }, [handlePickPosition, handlePickViewSymbol, marketSymbols, marketSymbolsFetching, position?.id, position?.symbol, positions, symbolsMatch, t, viewSymbol]);
 
-  // A viewed-symbol switch changes the price scale; drop the old symbol's
-  // tick trail so the chart never mixes scales.
-  useEffect(() => {
-    setTicks([]);
-  }, [viewSymbol]);
-
   // A buy closes at the Bid and a sell closes at the Ask — the broker validates
-  // SL/TP against that closing price. Stepping clamps to at least five points
-  // on the valid side so chips/steppers can never build a value the server rejects.
+  // SL/TP against that closing price. The client validates only the correct
+  // side and snaps to broker-provided tick size; the broker owns distance rules.
   const closingMarketPrice = position ? (position.side === 'buy' ? BID : ASK) : 0;
   // Usable market prices for SL/TP distance — prefer the integrity gate, but do
   // not block the whole form when bid/ask are already painted on this screen.
   const hasUsableMarketPrice = closingMarketPrice > 0;
 
-  const clampStopTarget = (value: number, kind: 'sl' | 'tp') => {
-    if (!position || !(closingMarketPrice > 0) || !(minStopDistance > 0)) return value;
-    return clampStopTargetToMinDistance(
-      value,
-      kind,
-      position.side,
-      closingMarketPrice,
-      minStopDistance,
-    );
-  };
+  const reportUnavailableMarketPrice = useCallback(() => {
+    const currentQuoteAvailability = getCurrentAvailability();
+    recordBlockedPriceAction('modify_position', currentQuoteAvailability);
+    setSubmitMessage(t(
+      quoteActionBlockMessage(currentQuoteAvailability)
+      || 'A live tradable quote is required before placing this order.',
+    ));
+  }, [getCurrentAvailability, t]);
+
+  const snapStopTarget = useCallback((value: number): number => {
+    if (value === 0) return 0;
+    if (!tickSize || !Number.isFinite(value)) return value;
+    return snapStopTargetToTickSize(value, tickSize, decimals);
+  }, [decimals, tickSize]);
 
   const validateStopTargets = useCallback((): string | null => {
-    if (!position || !(closingMarketPrice > 0) || !(point > 0)) return null;
+    if (!position || !(closingMarketPrice > 0)) return null;
     const priceLabel = closingMarketPrice.toFixed(decimals);
-    const stopMessage = (key: string) =>
-      t(key)
-        .replace('{points}', String(MIN_STOP_DISTANCE_POINTS))
-        .replace('{price}', priceLabel);
-    return validateStopTargetsDistance({
-      side: position.side,
-      marketPrice: closingMarketPrice,
-      point,
-      minPoints: MIN_STOP_DISTANCE_POINTS,
-      stopLoss,
-      takeProfit,
-      messages: {
-        buySl: stopMessage('Stop Loss must be at least {points} points below the current Bid ({price}) for a buy position.'),
-        sellSl: stopMessage('Stop Loss must be at least {points} points above the current Ask ({price}) for a sell position.'),
-        buyTp: stopMessage('Take Profit must be at least {points} points above the current Bid ({price}) for a buy position.'),
-        sellTp: stopMessage('Take Profit must be at least {points} points below the current Ask ({price}) for a sell position.'),
-      },
-    });
-  }, [closingMarketPrice, decimals, point, position, stopLoss, t, takeProfit]);
+    if (
+      stopLoss !== null &&
+      stopLoss > 0 &&
+      !isStopTargetOnCorrectSide('sl', position.side, stopLoss, closingMarketPrice)
+    ) {
+      return position.side === 'buy'
+        ? t('Stop Loss must be below the current Bid ({price}) for a buy position.').replace('{price}', priceLabel)
+        : t('Stop Loss must be above the current Ask ({price}) for a sell position.').replace('{price}', priceLabel);
+    }
+    if (
+      takeProfit !== null &&
+      takeProfit > 0 &&
+      !isStopTargetOnCorrectSide('tp', position.side, takeProfit, closingMarketPrice)
+    ) {
+      return position.side === 'buy'
+        ? t('Take Profit must be above the current Bid ({price}) for a buy position.').replace('{price}', priceLabel)
+        : t('Take Profit must be below the current Ask ({price}) for a sell position.').replace('{price}', priceLabel);
+    }
+    return null;
+  }, [closingMarketPrice, decimals, position, stopLoss, t, takeProfit]);
 
   const stopValidationError = useMemo(() => validateStopTargets(), [validateStopTargets]);
-  // Prefer the live 5-point banner over a stale submit-time message so the
-  // rule stays visible as the market ticks and levels move.
+  // Prefer the live side-direction banner over a stale submit-time message.
   useEffect(() => {
     if (stopValidationError) {
       setSubmitMessage(null);
     }
   }, [stopValidationError]);
   const isSlDistanceValid = useMemo(() => {
-    if (!position || stopLoss === null || !(closingMarketPrice > 0) || !(point > 0)) {
+    if (!position || stopLoss === null || stopLoss === 0 || !(closingMarketPrice > 0)) {
       return true;
     }
-    return isStopTargetDistanceValid(
-      'sl',
-      position.side,
-      stopLoss,
-      closingMarketPrice,
-      point,
-      MIN_STOP_DISTANCE_POINTS,
-    );
-  }, [closingMarketPrice, point, position, stopLoss]);
+    return isStopTargetOnCorrectSide('sl', position.side, stopLoss, closingMarketPrice);
+  }, [closingMarketPrice, position, stopLoss]);
   const isTpDistanceValid = useMemo(() => {
-    if (!position || takeProfit === null || !(closingMarketPrice > 0) || !(point > 0)) {
+    if (!position || takeProfit === null || takeProfit === 0 || !(closingMarketPrice > 0)) {
       return true;
     }
-    return isStopTargetDistanceValid(
-      'tp',
-      position.side,
-      takeProfit,
-      closingMarketPrice,
-      point,
-      MIN_STOP_DISTANCE_POINTS,
-    );
-  }, [closingMarketPrice, point, position, takeProfit]);
+    return isStopTargetOnCorrectSide('tp', position.side, takeProfit, closingMarketPrice);
+  }, [closingMarketPrice, position, takeProfit]);
   // Keep the press target available while live ticks move. The handler below
   // validates quote, distance, and session state and always explains a block.
   const canModifyPosition = Boolean(
     position
-    && symbolsMatch,
+    && symbolsMatch
+    && !existingPositionModifyLocked
+    && !coordinatorBusy
+    && !coordinatorRateLimited
   );
 
   /**
    * Incrementally steps the Stop Loss value up or down by a predefined point amount when tapping the +/- buttons.
    */
-  const handleStepSl = (delta: number) => {
-    if (!position || !hasUsableMarketPrice) return;
+  const handleStepSl = useCallback((delta: number) => {
+    if (!position) return;
+    if (!hasUsableMarketPrice) {
+      reportUnavailableMarketPrice();
+      return;
+    }
+    if (!tickSize) {
+      setSubmitMessage(t('Instrument tick size is unavailable. Wait for broker instrument metadata before setting SL/TP.'));
+      return;
+    }
+    setSubmitMessage(null);
     setStopLoss((prev) => {
       // If setting for the first time, bias it directly against the live matching price for the position side
       const livePrice = closingMarketPrice;
@@ -521,16 +755,35 @@ export function ModifyPositionScreen({
         // Auto offset properly based on side
         base = position.side === 'buy' ? livePrice - (pipSize * 100) : livePrice + (pipSize * 100);
       }
-      const val = clampStopTarget((base as number) + delta, 'sl');
+      const val = snapStopTarget((base as number) + delta);
       return parseFloat(val.toFixed(decimals));
     });
-  };
+  }, [
+    closingMarketPrice,
+    decimals,
+    hasUsableMarketPrice,
+    pipSize,
+    position,
+    reportUnavailableMarketPrice,
+    snapStopTarget,
+    t,
+    tickSize,
+  ]);
 
   /**
    * Incrementally steps the Take Profit value up or down by a predefined point amount when tapping the +/- buttons.
    */
-  const handleStepTp = (delta: number) => {
-    if (!position || !hasUsableMarketPrice) return;
+  const handleStepTp = useCallback((delta: number) => {
+    if (!position) return;
+    if (!hasUsableMarketPrice) {
+      reportUnavailableMarketPrice();
+      return;
+    }
+    if (!tickSize) {
+      setSubmitMessage(t('Instrument tick size is unavailable. Wait for broker instrument metadata before setting SL/TP.'));
+      return;
+    }
+    setSubmitMessage(null);
     setTakeProfit((prev) => {
       const livePrice = closingMarketPrice;
       let base = prev;
@@ -538,10 +791,20 @@ export function ModifyPositionScreen({
         // Auto offset properly based on side
         base = position.side === 'buy' ? livePrice + (pipSize * 100) : livePrice - (pipSize * 100);
       }
-      const val = clampStopTarget((base as number) + delta, 'tp');
+      const val = snapStopTarget((base as number) + delta);
       return parseFloat(val.toFixed(decimals));
     });
-  };
+  }, [
+    closingMarketPrice,
+    decimals,
+    hasUsableMarketPrice,
+    pipSize,
+    position,
+    reportUnavailableMarketPrice,
+    snapStopTarget,
+    t,
+    tickSize,
+  ]);
 
   /**
    * Callback fired when the user manually types a new Stop Loss price into the input field.
@@ -565,7 +828,22 @@ export function ModifyPositionScreen({
    * Submits the requested SL/TP modifications to the trade server and displays a success or error confirmation alert.
    */
   const handleModify = () => {
-    if (modifySubmittingRef.current) {
+    if (modifySubmittingRef.current || coordinatorBusy) {
+      return;
+    }
+    if (coordinatorRateLimited) {
+      setSubmitMessage(t('Wait for the broker retry period before submitting again.'));
+      return;
+    }
+    if (existingPositionModifyLocked) {
+      setSubmitMessage(
+        formatTradingErrorFeedback(
+          createFrontendTradingError(
+            t(SLTP_COMING_SOON_TITLE),
+            t(SLTP_COMING_SOON_MESSAGE),
+          ),
+        ),
+      );
       return;
     }
     if (!position || !symbolsMatch) {
@@ -597,14 +875,11 @@ export function ModifyPositionScreen({
       return;
     }
 
-    // Typed values bypass the stepper clamp, so re-validate before submitting.
-    // Always surface the 5-point rule in the footer even if a fast-press path
-    // races a disabled state update.
+    // Typed values bypass the stepper, so re-validate before submitting.
     const distanceError = validateStopTargets();
     if (distanceError || !isSlDistanceValid || !isTpDistanceValid) {
       const message = distanceError
-        ?? t('SL/TP must be at least {points} points away from the market price. Orders are executed by the broker.')
-          .replace('{points}', String(MIN_STOP_DISTANCE_POINTS));
+        ?? t('SL/TP is on the wrong side of the current executable market price.');
       setSubmitMessage(
         formatTradingErrorFeedback(
           createFrontendTradingError(t('Invalid Stop Levels'), message),
@@ -613,8 +888,7 @@ export function ModifyPositionScreen({
       return;
     }
 
-    const actionProvenance = captureActiveBrokerSessionProvenance();
-    if (!actionProvenance) {
+    if (!resolvedLogin) {
       setSubmitMessage(
         formatTradingErrorFeedback(
           createFrontendTradingError(
@@ -625,103 +899,61 @@ export function ModifyPositionScreen({
       );
       return;
     }
-
-    const requestedSl = stopLoss || 0;
-    const requestedTp = takeProfit || 0;
-    const previousPosition = { ...position };
-    const previousSl = Number(position.sl) > 0 ? Number(position.sl) : 0;
-    const previousTp = Number(position.tp) > 0 ? Number(position.tp) : 0;
-    const positionKey = String(position.id);
-
-    if (requestedSl === previousSl && requestedTp === previousTp) {
-      handleBack();
-      return;
-    }
-
-    if (modifyPositionIdsInFlight.has(positionKey)) {
+    if (((stopLoss ?? 0) > 0 || (takeProfit ?? 0) > 0) && !tickSize) {
       setSubmitMessage(
         formatTradingErrorFeedback(
           createFrontendTradingError(
-            t('Modification Pending'),
-            t('The previous SL/TP change is still being confirmed. Please wait a moment.'),
+            t('Instrument Data Unavailable'),
+            t('A positive broker tick size is required before setting SL/TP. Clearing remains available after the backend quote check passes.'),
           ),
         ),
       );
       return;
     }
 
-    const modifiedAt = Date.now();
-    const applyLocalStopPatch = (
-      sl: number,
-      tp: number,
-      nextClientModifiedAt: number | undefined,
-      expectedClientModifiedAt?: number,
-    ): boolean => {
-      let applied = false;
-      usePositionsState.setState((state) => {
-        const current = state.positions.find((item) => String(item.id) === positionKey);
-        if (!current || (
-          expectedClientModifiedAt !== undefined
-          && current.clientModifiedAt !== expectedClientModifiedAt
-        )) {
-          return {};
-        }
-        applied = true;
-        const patch = { sl, tp, clientModifiedAt: nextClientModifiedAt };
-        return {
-          positions: state.positions.map((item) =>
-            String(item.id) === positionKey ? { ...item, ...patch } : item
-          ),
-          positionSnapshots: {
-            ...state.positionSnapshots,
-            [positionKey]: {
-              ...(state.positionSnapshots[positionKey] ?? current),
-              ...patch,
-            },
-          },
-        };
-      });
-      return applied;
-    };
+    const requestedSl = snapStopTarget(stopLoss ?? 0);
+    const requestedTp = snapStopTarget(takeProfit ?? 0);
+    const previousSl = Number(position.sl) > 0 ? Number(position.sl) : 0;
+    const previousTp = Number(position.tp) > 0 ? Number(position.tp) : 0;
 
-    modifyPositionIdsInFlight.add(positionKey);
-    modifySubmittingRef.current = true;
-
-    const releaseSubmissionLock = () => {
-      modifyPositionIdsInFlight.delete(positionKey);
-      modifySubmittingRef.current = false;
-    };
-
-    // The native retained cover must disappear before shared-store writes,
-    // persisted preference updates, journal work, timers, or fetch setup. All
-    // of those notify other retained trees and used to sit on the return path.
-    try {
+    if (requestedSl === previousSl && requestedTp === previousTp) {
       handleBack();
-    } catch (error) {
-      releaseSubmissionLock();
-      const feedback = classifyTradingError(error, { action: 'modify-position' });
-      Alert.alert(feedback.title, feedback.message);
       return;
     }
 
+    modifySubmittingRef.current = true;
+    let submission: ReturnType<typeof submitModifyPosition>;
+    try {
+      // The session-scoped coordinator starts the PUT synchronously, owns it
+      // beyond this component's lifetime, and serializes this exact ticket with
+      // chart-originated intents.
+      submission = submitModifyPosition({
+        ticket: position.id,
+        symbol: position.symbol,
+        accountLogin: resolvedLogin,
+        request: {
+          price_sl: requestedSl,
+          price_tp: requestedTp,
+        },
+      });
+    } catch (error) {
+      modifySubmittingRef.current = false;
+      const feedback = classifyTradingError(error, { action: 'modify-position' });
+      setSubmitMessage(formatTradingErrorFeedback(feedback));
+      return;
+    }
+
+    // Close immediately for touch latency. Unmount/navigation only detaches
+    // this view; it never owns or aborts the dispatched coordinator job.
+    try {
+      handleBack();
+    } catch (error) {
+      const feedback = classifyTradingError(error, { action: 'modify-position' });
+      Alert.alert(feedback.title, feedback.message);
+    }
     runAfterModifyClosePaint(() => {
-      let optimisticPatchApplied = false;
-      try {
-        if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) {
-          releaseSubmissionLock();
-          return;
-        }
-
-        // Match the chart's established trade-edit behavior: paint requested
-        // protection after the close paint, then reconcile the broker response
-        // in the background with a version-guarded rollback.
-        optimisticPatchApplied = applyLocalStopPatch(requestedSl, requestedTp, modifiedAt);
-        if (!optimisticPatchApplied) {
-          releaseSubmissionLock();
-          return;
-        }
-
-        if (requestedSl > 0 || requestedTp > 0) {
+      if (requestedSl > 0 || requestedTp > 0) {
+        try {
           const preferences = useUserPreferences.getState();
           if (!preferences.chartShowOnChart.slTpLevels) {
             preferences.setChartShowOnChartItem('slTpLevels', true);
@@ -730,77 +962,49 @@ export function ModifyPositionScreen({
           if (!preferences.chartShowOnChart[sideVisibilityKey]) {
             preferences.setChartShowOnChartItem(sideVisibilityKey, true);
           }
+        } catch {
+          // Chart visibility is non-critical and must never cancel/rollback an
+          // already-dispatched broker modification.
         }
-
-        const abortController = new AbortController();
-        let confirmationTimeout: ReturnType<typeof setTimeout> | null = null;
-        const timeoutPromise = new Promise<never>((_resolve, reject) => {
-          confirmationTimeout = setTimeout(() => {
-            abortController.abort();
-            const timeoutError = new Error(
-              `Request timed out after ${MODIFY_CONFIRMATION_TIMEOUT_MS}ms`,
-            );
-            timeoutError.name = 'AbortError';
-            reject(timeoutError);
-          }, MODIFY_CONFIRMATION_TIMEOUT_MS);
-        });
-
-        const confirmationPromise = positionsApi.modifyPosition(
-          position.id,
-          { price_sl: requestedSl, price_tp: requestedTp },
-          { signal: abortController.signal, timeoutMs: MODIFY_CONFIRMATION_TIMEOUT_MS },
-        );
-
-        void Promise.race([confirmationPromise, timeoutPromise])
-          .then((modifyResult) => {
-            if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) return;
-            const slResult = readModifiedStopValue(modifyResult, ['price_sl', 'sl'], requestedSl);
-            const tpResult = readModifiedStopValue(modifyResult, ['price_tp', 'tp'], requestedTp);
-            const newSl = slResult.value;
-            const newTp = tpResult.value;
-            const rejectedRequestedProtection =
-              (requestedSl > 0 && slResult.confirmed && newSl <= 0)
-              || (requestedTp > 0 && tpResult.confirmed && newTp <= 0);
-
-            if (rejectedRequestedProtection) {
-              applyLocalStopPatch(previousSl, previousTp, previousPosition.clientModifiedAt, modifiedAt);
-              const feedback = createFrontendTradingError(
-                t('SL/TP Not Applied'),
-                t('The server response did not confirm the requested Stop Loss or Take Profit values.'),
-              );
-              Alert.alert(feedback.title, feedback.message);
-              return;
-            }
-
-            applyLocalStopPatch(newSl, newTp, modifiedAt, modifiedAt);
-            void invalidateSessionQueryRoots(
-              appQueryClient,
-              actionProvenance.cacheNamespace,
-              ['positions', 'positionHistory', 'deals', 'accountSummary', 'exposure', 'transactions'],
-            );
-          })
-          .catch((error: any) => {
-            if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) return;
-            applyLocalStopPatch(previousSl, previousTp, previousPosition.clientModifiedAt, modifiedAt);
-            const feedback = classifyTradingError(error, { action: 'modify-position' });
-            Alert.alert(feedback.title, feedback.message);
-          })
-          .finally(() => {
-            if (confirmationTimeout) clearTimeout(confirmationTimeout);
-            releaseSubmissionLock();
-          });
-      } catch (error) {
-        if (
-          optimisticPatchApplied
-          && isActiveBrokerSessionProvenanceCurrent(actionProvenance)
-        ) {
-          applyLocalStopPatch(previousSl, previousTp, previousPosition.clientModifiedAt, modifiedAt);
-        }
-        releaseSubmissionLock();
-        const feedback = classifyTradingError(error, { action: 'modify-position' });
-        Alert.alert(feedback.title, feedback.message);
       }
     });
+
+    void submission
+      .then((result) => {
+        if (result.status === 'saved' || result.status === 'superseded' || result.status === 'session_changed') {
+          return;
+        }
+        if (result.status === 'rejected' && result.error) {
+          const feedback = classifyTradingError(result.error, { action: 'modify-position' });
+          Alert.alert(feedback.title, feedback.message);
+          return;
+        }
+        if (result.status === 'position_unavailable') {
+          Alert.alert(
+            t('Position Unavailable'),
+            t('The selected position is no longer available in the latest broker position list.'),
+          );
+          return;
+        }
+        if (result.status === 'changed_elsewhere') {
+          Alert.alert(
+            t('Position Changed'),
+            t('The latest broker position has different SL/TP values. The app kept those newer observed values.'),
+          );
+          return;
+        }
+        if (result.status === 'rate_limited') {
+          Alert.alert(t('Rate Limited'), t('Wait for the broker retry period before submitting again.'));
+          return;
+        }
+        Alert.alert(
+          t('Outcome Unknown'),
+          t('The app could not confirm the final SL/TP outcome. It refreshed the exact position and did not retry the change automatically.'),
+        );
+      })
+      .finally(() => {
+        modifySubmittingRef.current = false;
+      });
   };
 
   // Inactive retained layers skip heavy paint while another screen is visible.
@@ -845,76 +1049,9 @@ export function ModifyPositionScreen({
   const slDisplay = stopLoss ? stopLoss.toFixed(decimals) : 'SL';
   const tpDisplay = takeProfit ? takeProfit.toFixed(decimals) : 'TP';
   const isBuy = position.side === 'buy';
-  const chartHeight = Math.max(220, Math.min(Dimensions.get('window').height * 0.32, 340));
 
   const bidFmt = formatModifyPrice(BID, decimals);
   const askFmt = formatModifyPrice(ASK, decimals);
-
-  // Chart Rendering calculations
-  const w = chartLayout.width;
-  const h = chartLayout.height;
-
-  // Find min and max values to dynamically scale tick chart
-  let minPrice = Math.min(BID, ASK);
-  let maxPrice = Math.max(BID, ASK);
-  ticks.forEach(t => {
-    minPrice = Math.min(minPrice, t.bid, t.ask);
-    maxPrice = Math.max(maxPrice, t.bid, t.ask);
-  });
-
-  // Stretch bounds gently so active stop constraints visibly sit on the chart
-  if (stopLoss !== null && Number.isFinite(stopLoss)) {
-    minPrice = Math.min(minPrice, stopLoss);
-    maxPrice = Math.max(maxPrice, stopLoss);
-  }
-  if (takeProfit !== null && Number.isFinite(takeProfit)) {
-    minPrice = Math.min(minPrice, takeProfit);
-    maxPrice = Math.max(maxPrice, takeProfit);
-  }
-
-  // padding
-  const padding = (maxPrice - minPrice) * 0.2;
-  const chartMin = minPrice - padding;
-  const chartMax = maxPrice + padding;
-  const priceRange = chartMax - chartMin || 0.001;
-
-  const yPos = (val: number) => {
-    if (h === 0) return 0;
-    return h - ((val - chartMin) / priceRange) * h;
-  };
-
-  const xPos = (idx: number, total: number) => {
-    if (w === 0 || total <= 1) return 0;
-    // Map points across width minus 50 right padding for labels
-    return (idx / (total - 1)) * (w - 70);
-  };
-
-  let bidPath = '';
-  let askPath = '';
-  if (ticks.length > 0 && w > 0 && h > 0) {
-    bidPath = ticks.map((t, i) => `${i === 0 ? 'M' : 'L'} ${xPos(i, ticks.length)} ${yPos(t.bid)}`).join(' ');
-    askPath = ticks.map((t, i) => `${i === 0 ? 'M' : 'L'} ${xPos(i, ticks.length)} ${yPos(t.ask)}`).join(' ');
-
-    // Mathematically anchor the end of the history path directly to the live nanosecond Bid/Ask box coordinates
-    // This perfectly closes the frame gap and guarantees the stroke touches the bounding box!
-    bidPath += ` L ${w - 60} ${yPos(BID)}`;
-    askPath += ` L ${w - 60} ${yPos(ASK)}`;
-  }
-
-  const markerYPositions = resolveModifyPositionMarkerYPositions(
-    [
-      { key: 'ask', value: ASK, y: yPos(ASK) },
-      { key: 'bid', value: BID, y: yPos(BID) },
-      ...(symbolsMatch && stopLoss !== null ? [{ key: 'sl' as const, value: stopLoss, y: yPos(stopLoss) }] : []),
-      ...(symbolsMatch && takeProfit !== null ? [{ key: 'tp' as const, value: takeProfit, y: yPos(takeProfit) }] : []),
-    ],
-    {
-      chartHeight: h,
-      sameValueEpsilon: Math.max(point / 2, Number.EPSILON),
-    },
-  );
-
-  const lineY = (key: 'ask' | 'bid' | 'sl' | 'tp', fallbackValue: number) => markerYPositions[key] ?? yPos(fallbackValue);
 
   return (
     <View style={styles.screen}>
@@ -968,12 +1105,7 @@ export function ModifyPositionScreen({
         </View>
       </View>
 
-      {!sheetBodyReady ? (
-            <View style={styles.bodyLoadingWrap}>
-              <ActivityIndicator color={T.accent} />
-            </View>
-          ) : (
-          <ScrollView
+      <ScrollView
         canCancelContentTouches={Platform.OS === 'ios'}
         style={styles.scrollView}
         contentContainerStyle={[
@@ -1030,11 +1162,10 @@ export function ModifyPositionScreen({
           const lots = position.volume || 0;
 
           const computeImpact = (target: number | null, kind: 'sl' | 'tp') => {
-            if (!target || !(closingMarketPrice > 0) || !(point > 0)) return null;
-            // Distance for the 5-point rule is vs the closing market price, not open.
-            const marketPoints = resolveStopTargetDistancePoints(target, closingMarketPrice, point);
+            if (!target || !(closingMarketPrice > 0)) return null;
+            const marketPoints = tickSize ? Math.abs(target - closingMarketPrice) / tickSize : 0;
             const distance = Math.abs(target - closingMarketPrice);
-            const pips = Math.round(distance / pipSize);
+            const pips = pipSize > 0 ? Math.round(distance / pipSize) : 0;
             // Prefer the broker's tick economics (exact, in account currency).
             // Fallback: contract-size math gives the quote-currency amount; for
             // JPY-quoted symbols convert by the live rate instead of assuming 100.
@@ -1051,13 +1182,11 @@ export function ModifyPositionScreen({
                 : quoteCurrencyAmount;
             }
             const sign = kind === 'sl' ? '−' : '+';
-            const distanceValid = isStopTargetDistanceValid(
+            const distanceValid = isStopTargetOnCorrectSide(
               kind,
               position.side,
               target,
               closingMarketPrice,
-              point,
-              MIN_STOP_DISTANCE_POINTS,
             );
             return { pips, marketPoints, usd, sign, distanceValid };
           };
@@ -1105,7 +1234,20 @@ export function ModifyPositionScreen({
                   <Text style={styles.stepperLabel}>{title}</Text>
                 </View>
                 {rawValue !== null ? (
-                  <Pressable onPress={onClear} activateOnPressIn hitSlop={10} style={styles.stepperClear}>
+                  <Pressable
+                    testID={`modify-position-${kind}-clear`}
+                    onPress={onClear}
+                    activateOnPressIn
+                    latencyLabel={`modifyPosition.${kind}.clear`}
+                    latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
+                    hitSlop={0}
+                    style={({ pressed }) => [
+                      styles.stepperClear,
+                      pressed && styles.stepperControlPressed,
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${title} ${t('Clear')}`}
+                  >
                     <Ionicons name="close-circle" size={16} color={T.textMuted} />
                   </Pressable>
                 ) : null}
@@ -1113,7 +1255,21 @@ export function ModifyPositionScreen({
 
               {/* Hero Price Row */}
               <View style={styles.stepperPriceRow}>
-                <Pressable onPress={() => onStep(-pipSize * 10)} activateOnPressIn hitSlop={12} style={[styles.stepperSquareBtn, { borderColor: T.border }]}>
+                <Pressable
+                  testID={`modify-position-${kind}-step-down`}
+                  onPress={() => onStep(-pipSize * 10)}
+                  activateOnPressIn
+                  latencyLabel={`modifyPosition.${kind}.stepDown`}
+                  latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
+                  hitSlop={0}
+                  style={({ pressed }) => [
+                    styles.stepperSquareBtn,
+                    { borderColor: T.border },
+                    pressed && styles.stepperControlPressed,
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${title} ${t('Decrease')}`}
+                >
                   <Ionicons name="remove" size={18} color={color} />
                 </Pressable>
 
@@ -1136,7 +1292,21 @@ export function ModifyPositionScreen({
                   />
                 </View>
 
-                <Pressable onPress={() => onStep(pipSize * 10)} activateOnPressIn hitSlop={12} style={[styles.stepperSquareBtn, { borderColor: T.border }]}>
+                <Pressable
+                  testID={`modify-position-${kind}-step-up`}
+                  onPress={() => onStep(pipSize * 10)}
+                  activateOnPressIn
+                  latencyLabel={`modifyPosition.${kind}.stepUp`}
+                  latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
+                  hitSlop={0}
+                  style={({ pressed }) => [
+                    styles.stepperSquareBtn,
+                    { borderColor: T.border },
+                    pressed && styles.stepperControlPressed,
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${title} ${t('Increase')}`}
+                >
                   <Ionicons name="add" size={18} color={color} />
                 </Pressable>
               </View>
@@ -1146,13 +1316,28 @@ export function ModifyPositionScreen({
                 {PRESET_PIPS.map((p) => (
                   <Pressable
                     key={p}
-                    onPress={() => onStep(pipSize * p * (kind === 'sl' ? -1 : 1))}
+                    testID={`modify-position-${kind}-preset-${p}`}
+                    onPress={() => {
+                      const direction = resolveStopTargetPresetDirection(kind, position.side);
+                      onStep(pipSize * p * direction);
+                    }}
                     activateOnPressIn
-                    style={[styles.stepperChip, { borderColor: T.border }]}
-                    hitSlop={6}
+                    latencyLabel={`modifyPosition.${kind}.preset.${p}`}
+                    latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
+                    style={({ pressed }) => [
+                      styles.stepperChip,
+                      { borderColor: T.border },
+                      pressed && styles.stepperControlPressed,
+                    ]}
+                    hitSlop={0}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${title} ${p}`}
                   >
                     <Text style={[styles.stepperChipText, { color }]}>
-                      {kind === 'sl' ? '−' : '+'}{p}
+                      {position.side === 'buy'
+                        ? (kind === 'sl' ? '−' : '+')
+                        : (kind === 'sl' ? '+' : '−')}
+                      {p}
                     </Text>
                   </Pressable>
                 ))}
@@ -1163,14 +1348,13 @@ export function ModifyPositionScreen({
                 <Text style={styles.stepperFootLabel}>{t('Distance')}</Text>
                 <Text style={[styles.stepperFootValue, impact && { color: distanceColor }]}>
                   {impact
-                    ? `${Math.round(impact.marketPoints)} ${t('pts')}`
+                    ? `${Math.round(impact.marketPoints)} ${t('ticks')}`
                     : '—'}
                 </Text>
               </View>
               {distanceInvalid ? (
                 <Text style={styles.stepperDistanceError} accessibilityRole="alert">
-                  {t('SL/TP must be at least {points} points away from the market price. Orders are executed by the broker.')
-                    .replace('{points}', String(MIN_STOP_DISTANCE_POINTS))}
+                  {t('SL/TP is on the wrong side of the live closing price. Orders are executed by the broker.')}
                 </Text>
               ) : null}
               <View style={styles.stepperFootRow}>
@@ -1191,69 +1375,20 @@ export function ModifyPositionScreen({
           );
         })()}
 
-        {/* SVG Tick Chart Area */}
-        <View
-          style={[styles.chartContainer, { height: chartHeight }]}
-          onLayout={(e) => setChartLayout({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
-        >
-          {tickChartReady && w > 0 && h > 0 && (
-            <Svg width={w} height={h}>
-              {/* Horizontal Grid lines */}
-              <Line x1="0" y1={yPos(maxPrice)} x2={w} y2={yPos(maxPrice)} stroke={T.border} strokeDasharray="4 4" strokeWidth="1" />
-              <Line x1="0" y1={yPos((maxPrice + minPrice) / 2)} x2={w} y2={yPos((maxPrice + minPrice) / 2)} stroke={T.border} strokeDasharray="4 4" strokeWidth="1" />
-              <Line x1="0" y1={yPos(minPrice)} x2={w} y2={yPos(minPrice)} stroke={T.border} strokeDasharray="4 4" strokeWidth="1" />
-
-              {/* Historical Point Paths (The actual Signal) */}
-              {bidPath ? <Path d={bidPath} stroke={T.trading.buy.primary} strokeWidth="1.5" fill="none" /> : null}
-              {askPath ? <Path d={askPath} stroke={T.trading.sell.primary} strokeWidth="1.5" fill="none" /> : null}
-
-              {/* Stop Loss & Take Profit Visual Overlays — only meaningful on
-                  the position's own price scale */}
-              {symbolsMatch && stopLoss !== null ? (
-                <G>
-                  <Line x1="0" y1={lineY('sl', stopLoss)} x2={w} y2={lineY('sl', stopLoss)} stroke={SL_COLOR} strokeDasharray="6 6" strokeWidth="1" />
-                  <G x={w - 60} y={lineY('sl', stopLoss) - 10}>
-                    <Rect width={60} height={20} fill={SL_COLOR} />
-                    <SvgText x={30} y={14} fill="#FFF" fontSize="10" fontWeight="bold" textAnchor="middle">
-                      SL
-                    </SvgText>
-                  </G>
-                </G>
-              ) : null}
-
-              {symbolsMatch && takeProfit !== null ? (
-                <G>
-                  <Line x1="0" y1={lineY('tp', takeProfit)} x2={w} y2={lineY('tp', takeProfit)} stroke={TP_COLOR} strokeDasharray="6 6" strokeWidth="1" />
-                  <G x={w - 60} y={lineY('tp', takeProfit) - 10}>
-                    <Rect width={60} height={20} fill={TP_COLOR} />
-                    <SvgText x={30} y={14} fill="#FFF" fontSize="10" fontWeight="bold" textAnchor="middle">
-                      TP
-                    </SvgText>
-                  </G>
-                </G>
-              ) : null}
-
-              {/* Active Live Price Lines */}
-              <Line x1="0" y1={lineY('ask', ASK)} x2={w - 60} y2={lineY('ask', ASK)} stroke={T.trading.sell.primary} strokeWidth="1" />
-              <Line x1="0" y1={lineY('bid', BID)} x2={w - 60} y2={lineY('bid', BID)} stroke={T.trading.buy.primary} strokeWidth="1" />
-
-              {/* Price Tags on Right Axis */}
-              <G x={w - 60} y={lineY('ask', ASK) - 10}>
-                <Rect width={60} height={20} fill={T.trading.sell.primary} />
-                <SvgText x={30} y={14} fill="#FFF" fontSize="11" fontWeight="bold" textAnchor="middle">
-                  {ASK.toFixed(decimals)}
-                </SvgText>
-              </G>
-
-              <G x={w - 60} y={lineY('bid', BID) - 10}>
-                <Rect width={60} height={20} fill={T.trading.buy.primary} />
-                <SvgText x={30} y={14} fill="#FFF" fontSize="11" fontWeight="bold" textAnchor="middle">
-                  {BID.toFixed(decimals)}
-                </SvgText>
-              </G>
-            </Svg>
-          )}
-        </View>
+        <ModifyPositionTickChart
+          active={isScreenFocused}
+          symbol={viewSymbol}
+          liveInputRef={chartLiveInputRef}
+          symbolsMatch={symbolsMatch}
+          decimals={decimals}
+          point={tickSize ?? Number.EPSILON}
+          slColor={SL_COLOR}
+          tpColor={TP_COLOR}
+          borderColor={T.border}
+          buyColor={T.trading.buy.primary}
+          sellColor={T.trading.sell.primary}
+          containerStyle={styles.chartContainer}
+        />
 
         {/* Footer / Controls — submitting SL/TP only applies to the position's
             own symbol view */}
@@ -1262,15 +1397,15 @@ export function ModifyPositionScreen({
           <View style={styles.disclaimerBox}>
             <Ionicons name="information-circle-outline" size={16} color={T.textMuted} style={styles.disclaimerIcon} />
             <Text style={styles.disclaimer}>
-              {t('SL/TP must be at least {points} points away from the market price. Orders are executed by the broker.').replace('{points}', String(MIN_STOP_DISTANCE_POINTS))}
+              {t('Prices are snapped only to the broker tick size. Final trading-rule validation is performed by the broker.')}
             </Text>
           </View>
 
           {submitMessage ? (
             <Text style={styles.validationText} accessibilityRole="alert">{submitMessage}</Text>
           ) : null}
-          {/* Always keep the live 5-point rule visible above Modify when either
-              level is too close — even if a previous submit message is clear. */}
+          {/* Keep side-of-market validation visible above Modify even when a
+              previous submit message is clear. */}
           {stopValidationError ? (
             <Text style={styles.validationText} accessibilityRole="alert">
               {stopValidationError}
@@ -1281,15 +1416,11 @@ export function ModifyPositionScreen({
               {t(quoteActionBlockMessage(quoteAvailability))}
             </Text>
           )}
-          {!submitMessage && !positionsApi && (
-            <Text style={styles.validationText}>{t('No connection')}</Text>
-          )}
         </View>
         )}
-          </ScrollView>
-      )}
+      </ScrollView>
 
-      {sheetBodyReady && symbolsMatch ? (
+      {symbolsMatch ? (
         <View style={[styles.submitDock, { paddingBottom: Math.max(insets.bottom, 12) }]}>
           <Pressable
             testID="modify-position-submit"
@@ -1310,7 +1441,14 @@ export function ModifyPositionScreen({
             accessibilityLabel={t('Modify position')}
             accessibilityState={{ disabled: !canModifyPosition }}
           >
-            <Text style={styles.modifyText}>{t('Modify position').toUpperCase()}</Text>
+            {coordinatorBusy ? (
+              <>
+                <ActivityIndicator size="small" color="#FFF" />
+                <Text style={styles.modifyText}>{t('Reconciling').toUpperCase()}</Text>
+              </>
+            ) : (
+              <Text style={styles.modifyText}>{t('Modify position').toUpperCase()}</Text>
+            )}
           </Pressable>
         </View>
       ) : null}
@@ -1360,12 +1498,6 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => {
   scrollView: {
     flex: 1,
     backgroundColor: screenBg,
-  },
-  bodyLoadingWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 48,
   },
   positionPickerBtn: {
     width: 44,
@@ -1540,7 +1672,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    minHeight: 44,
+    marginBottom: 4,
   },
   stepperHeadLeft: {
     flexDirection: 'row',
@@ -1567,8 +1700,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => {
     letterSpacing: 0.5,
   },
   stepperClear: {
-    width: 20,
-    height: 20,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1578,6 +1711,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => {
     justifyContent: 'space-between',
     gap: 6,
     marginBottom: 8,
+    minHeight: 44,
   },
   stepperPriceWrap: {
     flex: 1,
@@ -1616,9 +1750,9 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => {
     fontSize: 1,
   },
   stepperSquareBtn: {
-    width: 26,
-    height: 26,
-    borderRadius: 7,
+    width: 44,
+    height: 44,
+    borderRadius: 10,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1626,18 +1760,25 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => {
   },
   stepperChipRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     gap: 4,
     marginBottom: 8,
   },
   stepperChip: {
-    flex: 1,
+    flexBasis: '47%',
+    flexGrow: 1,
+    minHeight: 44,
     paddingVertical: 4,
     borderRadius: 6,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: insetCardBg,
+  },
+  stepperControlPressed: {
+    opacity: 0.72,
+    transform: [{ scale: 0.96 }],
   },
   stepperChipText: {
     fontSize: 10,
@@ -1709,6 +1850,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => {
   },
   modifyBtn: {
     paddingVertical: 18,
+    flexDirection: 'row',
+    gap: 8,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 16,

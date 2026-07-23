@@ -8,7 +8,7 @@ import { FastPressable as Pressable } from '../FastPressable';
  * trade list to re-render on every market tick.
  */
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, View, LayoutAnimation, Platform, UIManager, PanResponder } from 'react-native';
+import { Alert, StyleSheet, Text, View, LayoutAnimation, Platform, UIManager, PanResponder } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
@@ -29,6 +29,11 @@ import {
 } from '../../../features/trade/livePositionMetrics';
 import { closePositionImmediately } from '../../../features/trade/closePositionFlow';
 import { showTradePositionAction } from '../../../features/trade/tradePositionActionHostController';
+import {
+  isExistingPositionModifyBackendLocked,
+  SLTP_COMING_SOON_MESSAGE,
+  SLTP_COMING_SOON_TITLE,
+} from '../../../features/trade/tradeBackendCapabilities';
 import { OverlayActions } from './OverlayActions';
 import { tradePositionRowStyles as styles } from './styles';
 
@@ -369,6 +374,10 @@ function TradePositionRowComponent({
   };
 
   const navigateToModifyPosition = () => {
+    if (isExistingPositionModifyBackendLocked()) {
+      Alert.alert(SLTP_COMING_SOON_TITLE, SLTP_COMING_SOON_MESSAGE);
+      return;
+    }
     openPositionAction('modify');
   };
 

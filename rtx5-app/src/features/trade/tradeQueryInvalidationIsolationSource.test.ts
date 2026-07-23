@@ -11,7 +11,6 @@ const readTradeSource = (name: string) => readFileSync(
 test('trade completions invalidate only their captured broker/account/epoch namespace', () => {
   const files = [
     'OrderTicketScreen.tsx',
-    'ModifyPositionScreen.tsx',
     'ClosePositionScreen.tsx',
     'BulkOperationScreen.tsx',
     'closePositionFlow.ts',
@@ -24,6 +23,17 @@ test('trade completions invalidate only their captured broker/account/epoch name
     assert.match(source, /invalidateSessionQueryRoots\(/, file);
     assert.doesNotMatch(source, /\.invalidateQueries\(/, file);
   }
+
+  const modifyScreenSource = readTradeSource('ModifyPositionScreen.tsx');
+  const modifyCoordinatorSource = readTradeSource('modifyPositionCoordinator.ts');
+  assert.match(modifyScreenSource, /submitModifyPosition\(\{/);
+  assert.doesNotMatch(
+    modifyScreenSource,
+    /invalidateSessionQueryRoots|\.invalidateQueries\(|positionsApi\.modifyPosition/,
+  );
+  assert.match(modifyCoordinatorSource, /captureActiveBrokerSession\(\)/);
+  assert.match(modifyCoordinatorSource, /capture\.session\.cacheNamespace/);
+  assert.match(modifyCoordinatorSource, /positionsApi\.getPositionsForReconciliation/);
 
   const unsupportedCloseBy = readTradeSource('CloseByScreen.tsx');
   assert.match(unsupportedCloseBy, /Close By is unavailable for this API contract/);

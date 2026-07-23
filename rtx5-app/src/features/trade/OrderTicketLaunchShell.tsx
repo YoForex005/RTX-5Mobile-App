@@ -107,11 +107,13 @@ export const OrderTicketLaunchShell = memo(function OrderTicketLaunchShell({
           <View style={[styles.orderTypeTab, styles.orderTypeTabActive, { borderColor: buyColor }]}>
             <Text style={[styles.orderTypeText, styles.orderTypeTextActive]}>Market Execution</Text>
           </View>
-          <View style={styles.orderTypeTab}>
+          <View style={[styles.orderTypeTab, styles.orderTypeTabLocked]}>
             <Text style={styles.orderTypeText}>Buy Limit</Text>
+            <Ionicons name="lock-closed" size={12} color={T.textMuted} />
           </View>
-          <View style={styles.orderTypeTab}>
+          <View style={[styles.orderTypeTab, styles.orderTypeTabLocked]}>
             <Text style={styles.orderTypeText}>Sell Limit</Text>
+            <Ionicons name="lock-closed" size={12} color={T.textMuted} />
           </View>
         </View>
 
@@ -285,6 +287,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     orderTypeTab: {
       flexDirection: 'row',
       alignItems: 'center',
+      gap: 4,
       paddingHorizontal: 10,
       paddingVertical: 10,
       borderRadius: 999,
@@ -294,6 +297,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     orderTypeTabActive: {
       backgroundColor: isDark ? 'rgba(34,211,238,0.1)' : T.glass3,
+    },
+    orderTypeTabLocked: {
+      opacity: 0.58,
     },
     orderTypeText: {
       color: T.textSub,

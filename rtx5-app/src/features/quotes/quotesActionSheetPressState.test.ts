@@ -163,8 +163,8 @@ test('quote details paints an exact shell before mounting its focused heavy body
   assert.match(source, /backNavigationStartedRef\.current = true;[\s\S]*beginQuoteInfoBackCover\('properties', symbol\);[\s\S]*scheduleBackNavigationAfterVisualFrame\(\(\) => \{[\s\S]*safeRouterBack\(router, '\/\(tabs\)\/quotes'\);[\s\S]*scheduleQuoteInfoBackCoverRemoval\(coverRevision\)/);
   assert.notEqual(backControlStart, -1);
   assert.notEqual(backControlEnd, -1);
-  assert.match(backControlSource, /onPress=\{onBack\}[\s\S]*latencyLabel="quoteInfo\.properties\.back"[\s\S]*latencyBudgetMs=\{50\}/);
-  assert.doesNotMatch(backControlSource, /activateOnPressIn|activateOnTouchStart/);
+  assert.match(backControlSource, /onPress=\{onBack\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="quoteInfo\.properties\.back"[\s\S]*latencyBudgetMs=\{50\}/);
+  assert.doesNotMatch(backControlSource, /activateOnTouchStart/);
   assert.doesNotMatch(source, /SYMBOL_DETAILS_FULL_CONTENT_DELAY_MS/);
 });
 
@@ -225,7 +225,7 @@ test('market statistics paints an exact shell before mounting its focused heavy 
   assert.match(source, /backNavigationStartedRef\.current = true;[\s\S]*beginQuoteInfoBackCover\('market-statistics', symbol\);[\s\S]*scheduleBackNavigationAfterVisualFrame\(\(\) => \{[\s\S]*safeRouterBack\(router, '\/\(tabs\)\/quotes'\);[\s\S]*scheduleQuoteInfoBackCoverRemoval\(coverRevision\)/);
   assert.notEqual(backControlStart, -1);
   assert.notEqual(backControlEnd, -1);
-  assert.match(backControlSource, /onPress=\{onBack\}[\s\S]*latencyLabel="quoteInfo\.marketStatistics\.back"[\s\S]*latencyBudgetMs=\{50\}/);
-  assert.doesNotMatch(backControlSource, /activateOnPressIn|activateOnTouchStart/);
+  assert.match(backControlSource, /onPress=\{onBack\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="quoteInfo\.marketStatistics\.back"[\s\S]*latencyBudgetMs=\{50\}/);
+  assert.doesNotMatch(backControlSource, /activateOnTouchStart/);
   assert.doesNotMatch(source, /MARKET_STATISTICS_FULL_CONTENT_DELAY_MS/);
 });

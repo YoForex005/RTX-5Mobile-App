@@ -1,6 +1,7 @@
 /**
  * Types for the Trading Positions & History API (V2).
  */
+import type { ModifyPositionRequest } from './modifyPositionWire';
 
 /**
  * Raw position object returned by GET /api/v2/positions/{login}.
@@ -14,8 +15,8 @@ export interface Position {
   volume: number;
   price_open: number;
   price_current: number;
-  price_sl?: number;
-  price_tp?: number;
+  price_sl?: number | null;
+  price_tp?: number | null;
   profit: number;
   swap: number;
   commission?: number;
@@ -40,8 +41,8 @@ export interface ClosedPosition {
   price_open: number;
   price_close?: number;
   price_current?: number;
-  price_sl?: number;
-  price_tp?: number;
+  price_sl?: number | null;
+  price_tp?: number | null;
   profit: number;
   swap: number;
   commission?: number;
@@ -90,9 +91,6 @@ export interface ClosePositionResponse {
 /**
  * Payload for PUT /api/v2/positions/{id} to modify SL/TP on an open position.
  */
-export interface ModifyPositionPayload {
-  price_sl: number;
-  price_tp: number;
-}
+export type ModifyPositionPayload = ModifyPositionRequest;
 
 export type JsonRecord = Record<string, unknown>;

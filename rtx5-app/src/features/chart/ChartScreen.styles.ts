@@ -543,9 +543,14 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       width: '100%',
       minWidth: 48,
       minHeight: 44,
+      flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
+      gap: 2,
       paddingHorizontal: 2,
+    },
+    toolbarTradeButtonLocked: {
+      opacity: 0.58,
     },
     toolbarTradeText: {
       color: TEXT_MUTED,
@@ -952,6 +957,11 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       borderColor: isDark ? 'rgba(96,165,250,0.45)' : '#BFD3F7',
       backgroundColor: TRADE_SHEET_PANEL_ACTIVE,
     },
+    chartTradeTypeTabLocked: {
+      flexDirection: 'row',
+      gap: 6,
+      opacity: 0.58,
+    },
     chartTradeTypeTabText: {
       color: TRADE_SHEET_TEXT_MUTED,
       fontSize: 14,
@@ -973,6 +983,10 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartTradeTypeTabTextPendingActive: {
       color: '#1D6DE8',
+    },
+    chartTradeTypeTabTextLocked: {
+      width: 'auto',
+      flexShrink: 1,
     },
     chartTradeCard: {
       marginHorizontal: 12,
@@ -1156,6 +1170,50 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     chartTradeMetaTextPending: {
       color: TRADE_SHEET_TEXT_MUTED,
       fontSize: 12,
+    },
+    chartTradePositionSelector: {
+      gap: 7,
+      marginTop: 2,
+    },
+    chartTradePositionSelectorList: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 7,
+    },
+    chartTradePositionSelectorItem: {
+      minWidth: 132,
+      minHeight: 48,
+      flexGrow: 1,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: TRADE_SHEET_BORDER_SOFT,
+      backgroundColor: TRADE_SHEET_PANEL_SOFT,
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+      justifyContent: 'center',
+      gap: 2,
+    },
+    chartTradePositionSelectorItemSelected: {
+      borderColor: BLUE,
+      backgroundColor: isDark ? 'rgba(37,99,235,0.18)' : '#E8F0FF',
+    },
+    chartTradePositionSelectorTicket: {
+      color: TRADE_SHEET_TEXT,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    chartTradePositionSelectorTicketSelected: {
+      color: isDark ? '#93C5FD' : '#1D4ED8',
+    },
+    chartTradePositionSelectorMeta: {
+      color: TRADE_SHEET_TEXT_MUTED,
+      fontSize: 11,
+      fontWeight: '500',
+    },
+    chartTradePositionSelectorError: {
+      color: isDark ? '#FCA5A5' : '#B91C1C',
+      fontSize: 11,
+      lineHeight: 15,
     },
     chartTradeProtectionHeader: {
       flexDirection: 'row',

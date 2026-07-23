@@ -109,13 +109,13 @@ test('overlay bridge: draggable SL and TP lines emit CHART_TRADE_LINE_DRAG', () 
   assertSourceContains(postDragBody, /type: 'CHART_TRADE_LINE_DRAG'/, 'drag events must use the chart trade-line event type');
   assertSourceContains(postDragBody, /phase: phase/, 'drag events must include phase');
   assertSourceContains(postDragBody, /dragKey: dragKey/, 'drag events must include dragKey');
-  assertSourceContains(previewLinesSource, /const chartTradeSlDragKey = chartTradePositionStopTarget[\s\S]*buildChartPositionStopDragKey\(chartTradePositionStopTarget\.id, 'sl'\)[\s\S]*: 'sl'/, 'SL preview must use a real position drag key when one chart position is targeted');
-  assertSourceContains(previewLinesSource, /const chartTradeTpDragKey = chartTradePositionStopTarget[\s\S]*buildChartPositionStopDragKey\(chartTradePositionStopTarget\.id, 'tp'\)[\s\S]*: 'tp'/, 'TP preview must use a real position drag key when one chart position is targeted');
+  assertSourceContains(previewLinesSource, /const chartTradeSlDragKey = chartProtectionBackendLocked\s*\? undefined\s*:\s*chartTradePositionStopTarget[\s\S]*buildChartPositionStopDragKey\(chartTradePositionStopTarget\.id, 'sl'\)[\s\S]*: 'sl'/, 'SL preview must be non-draggable while its broker capability is locked');
+  assertSourceContains(previewLinesSource, /const chartTradeTpDragKey = chartProtectionBackendLocked\s*\? undefined\s*:\s*chartTradePositionStopTarget[\s\S]*buildChartPositionStopDragKey\(chartTradePositionStopTarget\.id, 'tp'\)[\s\S]*: 'tp'/, 'TP preview must be non-draggable while its broker capability is locked');
   assertSourceContains(previewLinesSource, /id: 'chart-trade-sl-preview'[\s\S]*labelPlacement: 'line'[\s\S]*dragKey: chartTradeSlDragKey/, 'SL preview line must draw to the right price scale');
   assertSourceContains(previewLinesSource, /id: 'chart-trade-tp-preview'[\s\S]*labelPlacement: 'line'[\s\S]*dragKey: chartTradeTpDragKey/, 'TP preview line must draw to the right price scale');
 });
 
-test('overlay bridge: dragged open-position SL/TP commits through modify-position API', () => {
+test('overlay bridge: dragged open-position SL/TP commits through the shared exact-ticket coordinator', () => {
   const sharedCommitStart = nativeSource.indexOf('const commitChartPositionStopLevels = useCallback');
   const commitStart = nativeSource.indexOf('const commitChartPositionStopDrag = useCallback');
   const sharedCommitEnd = nativeSource.indexOf('const commitChartTradeSheetStopsForPosition = useCallback', sharedCommitStart);
@@ -136,6 +136,11 @@ test('overlay bridge: dragged open-position SL/TP commits through modify-positio
     'open-position SL/TP drag messages must parse the position key and commit only on release',
   );
   assertSourceContains(
+    handlerSource,
+    /if \(existingPositionModifyBackendLocked\) \{\s*return true;\s*\}/,
+    'stale position drag messages must be consumed without local state changes while modification is locked',
+  );
+  assertSourceContains(
     commitSource,
     /const requestedSl = target\.kind === 'sl' \? nextPrice : previousSl[\s\S]*const requestedTp = target\.kind === 'tp' \? nextPrice : previousTp/,
     'dragging one stop level must preserve the other stop level',
@@ -147,8 +152,18 @@ test('overlay bridge: dragged open-position SL/TP commits through modify-positio
   );
   assertSourceContains(
     sharedCommitSource,
-    /applyLocalStopPatch\(requestedSl, requestedTp\)[\s\S]*positionsApi\s*\.modifyPosition\(position\.id,\s*\{\s*price_sl: requestedSl,\s*price_tp: requestedTp,\s*\}\)/,
-    'shared stop commit must optimistically move the chart line and submit the backend SL/TP modify request',
+    /submitModifyPosition\(\{\s*ticket: position\.id,\s*symbol: position\.symbol,\s*accountLogin: sessionCapture\.session\.accountLogin,\s*request: \{\s*price_sl: requestedSl,\s*price_tp: requestedTp,\s*\},\s*\}\)/,
+    'shared stop commit must submit the exact position through the session coordinator',
+  );
+  assert.doesNotMatch(
+    sharedCommitSource,
+    /positionsApi\s*\.modifyPosition|applyLocalStopPatch|clientModifiedAt/,
+    'chart must not bypass the coordinator or paint proposed SL/TP as confirmed state',
+  );
+  assertSourceContains(
+    sharedCommitSource,
+    /pointSize: chartProtectionTickSize \?\? 0/,
+    'existing-position validation must not invent point or minimum-distance metadata',
   );
   assertSourceContains(
     nativeSource,
@@ -159,6 +174,57 @@ test('overlay bridge: dragged open-position SL/TP commits through modify-positio
     nativeSource,
     /msg\.type === 'CHART_TRADE_LINE_DRAG'[\s\S]*if \(!handleChartPositionStopDragMessage\(msg\)\) \{[\s\S]*handleChartTradePreviewDragMessage\(msg\)/,
     'position stop drags must be handled before falling back to the new-trade preview drag handler',
+  );
+  assertSourceContains(
+    nativeSource,
+    /allowPositionStopDragging: !existingPositionModifyBackendLocked/,
+    'persisted position SL/TP lines must receive drag keys only when the active broker capability is enabled',
+  );
+});
+
+test('chart modify selection stays ticket-durable and exposes coordinator reconciliation state', () => {
+  assertSourceContains(
+    nativeSource,
+    /setSelectedChartPositionTicket\(String\(chartMatchingPositionCandidates\[0\]\.id\)\)/,
+    'the sole same-symbol position must be materialized as an exact selected ticket',
+  );
+  const targetResolverStart = nativeSource.indexOf('const resolveSingleChartPositionStopTarget = useCallback');
+  const targetResolverEnd = nativeSource.indexOf('const chartTradePositionStopTarget = useMemo', targetResolverStart);
+  const targetResolverSource = nativeSource.slice(targetResolverStart, targetResolverEnd);
+  assertSourceContains(
+    targetResolverSource,
+    /if \(selectedChartPosition\) \{\s*return selectedChartPosition;\s*\}[\s\S]*return null;/,
+    'the resolver must use only the durable selected ticket',
+  );
+  assert.doesNotMatch(
+    targetResolverSource,
+    /chartMatchingPositionCandidates\[0\]/,
+    'a same-symbol replacement must not silently become the selected ticket',
+  );
+  assertSourceContains(
+    nativeSource,
+    /useModifyPositionTicketState\(\s*selectedChartPositionTicket,\s*\)/,
+    'chart must subscribe to the same per-ticket coordinator state as the hosted screen',
+  );
+  assertSourceContains(
+    nativeSource,
+    /const hasChartExistingPositionProtectionContext =\s*chartMatchingPositionCandidates\.length > 0\s*\|\|\s*!!selectedChartPositionTicket\s*\|\|\s*invalidatedChartPositionSymbol === normalizedChartPositionSymbol;[\s\S]*const chartStopsTargetExistingPosition =\s*!isPendingChartOrderType\(chartTradeOrderType\)\s*&&\s*hasChartExistingPositionProtectionContext/,
+    'market-sheet stop controls must retain their existing-position context through ticket invalidation',
+  );
+  assertSourceContains(
+    chartTradeFeatureSource,
+    /modifyPhase === 'pending'[\s\S]*modifyPhase === 'reconciling'[\s\S]*modifyPhase === 'unknown'[\s\S]*modifyPhase === 'changed_elsewhere'/,
+    'the chart sheet must visibly expose shared pending and reconciliation outcomes',
+  );
+  assert.doesNotMatch(
+    chartTradeFeatureSource,
+    /queuedLatestIntent|price_sl.*chartModifyTicketState|price_tp.*chartModifyTicketState/,
+    'proposed coordinator intent must never be rendered as confirmed SL/TP',
+  );
+  assertSourceContains(
+    nativeSource,
+    /recordMarketDataEvent\('modify_position', \{\s*phase: 'chart_repaint_dispatched'[\s\S]*reconciliationSequence: modifyState\.latestEligibleSequence/,
+    'eligible reconciled overlay injection must emit a chart repaint-dispatch timestamp',
   );
 });
 
@@ -262,7 +328,12 @@ test('chart pending CTA submits the pending order and then exposes chart-side le
 
   assert.doesNotMatch(source, /Pending Order Preview/);
   assert.doesNotMatch(source, /Chart-side pending submission is still preview-only in this build/);
-  assert.doesNotMatch(source, /Alert\.alert/);
+  assert.doesNotMatch(handlerSource, /Alert\.alert/);
+  assertSourceContains(
+    handlerSource,
+    /if \(isPendingOrderTypeBackendLocked\(chartTradeOrderType\)\) \{\s*return;\s*\}/,
+    'pending CTA must fail closed until backend readiness is explicitly enabled',
+  );
   assertSourceContains(handlerSource, /ordersApi\.placePendingOrder\(payload\)/, 'pending CTA must submit to the pending-order API');
   assert.doesNotMatch(handlerSource, /Unsupported Order Type|not supported by the current trading API/);
   assertSourceContains(handlerSource, /price_sl: chartTradeSlPrice/, 'pending CTA must include enabled SL price');
@@ -273,20 +344,25 @@ test('chart pending CTA submits the pending order and then exposes chart-side le
   assert.doesNotMatch(handlerSource, /\|\|\s*isStopLimitChartOrder/);
 });
 
-test('chart market execution submits selected sheet SL and TP levels', () => {
+test('chart market execution only submits SL and TP that target a new order', () => {
   const chartTradeResultSource = source.slice(
     source.indexOf('const handleChartTradeResult = useCallback'),
     source.indexOf('const [showSignalDetails', source.indexOf('const handleChartTradeResult = useCallback')),
   );
   assertSourceContains(
     chartTradeFeatureSource,
-    /stopLossPrice=\{sheet\.chartTradeSlEnabled \? sheet\.chartTradeSlPrice : undefined\}/,
-    'market buttons must receive enabled sheet SL price',
+    /stopLossPrice=\{\s*!stopsTargetExistingPosition &&\s*!sheet\.newMarketOrderProtectionBackendLocked &&\s*sheet\.chartTradeSlEnabled\s*\? sheet\.chartTradeSlPrice\s*: undefined\s*\}/,
+    'market buttons must receive SL only when the sheet levels target a new order and that capability is enabled',
   );
   assertSourceContains(
     chartTradeFeatureSource,
-    /takeProfitPrice=\{sheet\.chartTradeTpEnabled \? sheet\.chartTradeTpPrice : undefined\}/,
-    'market buttons must receive enabled sheet TP price',
+    /takeProfitPrice=\{\s*!stopsTargetExistingPosition &&\s*!sheet\.newMarketOrderProtectionBackendLocked &&\s*sheet\.chartTradeTpEnabled\s*\? sheet\.chartTradeTpPrice\s*: undefined\s*\}/,
+    'market buttons must receive TP only when the sheet levels target a new order and that capability is enabled',
+  );
+  assertSourceContains(
+    chartTradeFeatureSource,
+    /pointSize=\{sheet\.chartProtectionTickSize \?\? 0\}/,
+    'market protection validation must not receive a synthetic display point',
   );
   assertSourceContains(
     chartTradeButtonsFeatureSource,

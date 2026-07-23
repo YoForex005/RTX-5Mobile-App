@@ -46,7 +46,12 @@ export function IndicatorConfigScreen() {
     return (
       <Screen style={styles.screen}>
         <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
-          <Pressable onPress={() => safeRouterBack(router, '/chart/indicators')} hitSlop={16} style={styles.headerBackBtn}>
+          <Pressable
+            onPress={() => safeRouterBack(router, '/chart/indicators')}
+            activateOnPressIn
+            hitSlop={16}
+            style={styles.headerBackBtn}
+          >
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">

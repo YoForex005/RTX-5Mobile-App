@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
 import React, { useMemo, useEffect, useCallback, useRef, useState } from 'react';
-import { Text, View, FlatList, Platform } from 'react-native';
+import { Alert, Text, View, FlatList, Platform } from 'react-native';
 import { useShallow } from 'zustand/shallow';
 import { Screen } from '../../../ui/components/Screen';
 import { AppHeader } from '../../../ui/components/AppHeader';
@@ -38,6 +38,11 @@ import { useDeferredActiveFlag } from '../../../hooks/useDeferredActiveFlag';
 import { useNextFrameValue } from '../../../hooks/useNextFrameValue';
 import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
 import { showTradePositionAction } from '../tradePositionActionHostController';
+import {
+  isExistingPositionModifyBackendLocked,
+  SLTP_COMING_SOON_MESSAGE,
+  SLTP_COMING_SOON_TITLE,
+} from '../tradeBackendCapabilities';
 import { TradeSummaryHeader } from './SummaryHeader';
 import { makeTradeScreenStyles } from './styles';
 import {
@@ -417,6 +422,10 @@ const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused 
             label: t('Modify position'),
             activateOnPressIn: true,
             onPress: () => {
+              if (isExistingPositionModifyBackendLocked()) {
+                Alert.alert(t(SLTP_COMING_SOON_TITLE), t(SLTP_COMING_SOON_MESSAGE));
+                return;
+              }
               primePositionSnapshot(item);
               showTradePositionAction('modify', item.id);
             },

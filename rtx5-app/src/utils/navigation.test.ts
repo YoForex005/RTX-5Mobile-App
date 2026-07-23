@@ -55,6 +55,30 @@ test('feature screens do not dispatch router.back directly', () => {
   assert.deepEqual(offenders, []);
 });
 
+test('visible arrow-back controls start navigation on press-in', () => {
+  const offenders = ['app', 'src/features']
+    .flatMap(collectSourceFiles)
+    .flatMap((file) => {
+      const source = readFileSync(resolve(process.cwd(), file), 'utf8');
+      return [...source.matchAll(/<Ionicons\s+name=["']arrow-back["']/g)]
+        .filter((match) => {
+          const iconStart = match.index ?? -1;
+          const fastPressableStart = source.lastIndexOf('<FastPressable', iconStart);
+          const pressableStart = source.lastIndexOf('<Pressable', iconStart);
+          const controlStart = Math.max(fastPressableStart, pressableStart);
+          if (controlStart < 0) return true;
+          const controlSource = source.slice(controlStart, iconStart);
+          return !/\bactivateOnPressIn\b|\bactivateOnTouchStart\b/.test(controlSource);
+        })
+        .map((match) => {
+          const line = source.slice(0, match.index ?? 0).split(/\r?\n/).length;
+          return `${file}:${line}`;
+        });
+    });
+
+  assert.deepEqual(offenders, []);
+});
+
 test('back navigation work starts only after the touch frame can paint', async () => {
   const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'requestAnimationFrame');
   let frameCallback: (() => void) | null = null;

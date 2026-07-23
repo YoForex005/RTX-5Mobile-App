@@ -69,7 +69,7 @@ test('normalizeChartOverlaySymbol strips broker suffix variants consistently', (
 });
 
 test('buildChartOverlayPayload maps open positions for the chart symbol with their SL/TP', () => {
-  const payload = buildChartOverlayPayload({
+  const input: Parameters<typeof buildChartOverlayPayload>[0] = {
     chartSymbol: 'EURUSD',
     candles,
     positions: [
@@ -102,6 +102,10 @@ test('buildChartOverlayPayload maps open positions for the chart symbol with the
     sellColor: '#EF5350',
     liveAccount: null,
     showOnChart: BOTH_SIDES,
+  };
+  const payload = buildChartOverlayPayload({
+    ...input,
+    allowPositionStopDragging: true,
   });
 
   // Only the EURUSD position is in-symbol; the GBPUSD one is excluded.
@@ -123,6 +127,16 @@ test('buildChartOverlayPayload maps open positions for the chart symbol with the
   assert.equal(payload.priceLines.find((line: any) => line.id === 'tp-1')?.dragKey, buildChartPositionStopDragKey('1', 'tp'));
   assert.equal(payload.priceLines.find((line: any) => line.id === 'sl-1')?.dragKey, buildChartPositionStopDragKey('1', 'sl'));
   assert.equal(payload.markers.length, 0);
+
+  const lockedPayload = buildChartOverlayPayload(input);
+  assert.equal(
+    lockedPayload.priceLines.find((line: any) => line.id === 'tp-1')?.dragKey,
+    undefined,
+  );
+  assert.equal(
+    lockedPayload.priceLines.find((line: any) => line.id === 'sl-1')?.dragKey,
+    undefined,
+  );
 });
 
 test('buildPendingOrderLines anchors pending SL, TP, and stop-limit labels to visible guide lines', () => {

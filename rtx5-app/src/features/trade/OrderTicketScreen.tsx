@@ -10,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -84,6 +84,13 @@ import {
   resolveOrderTicketStopLimitOffset,
   roundOrderTicketPrice,
 } from './orderTicketPreviewUtils';
+import {
+  isPendingOrderTypeBackendLocked,
+  isNewMarketOrderProtectionBackendLocked,
+  isPendingOrderProtectionBackendLocked,
+  SLTP_COMING_SOON_MESSAGE,
+  SLTP_COMING_SOON_TITLE,
+} from './tradeBackendCapabilities';
 
 /* Main screen */
 // A single action model keeps BUY and SELL button behavior consistent across
@@ -233,8 +240,17 @@ function OrderTicketInteractiveContent() {
   const routeSide = normalizeTradeSide(routeSideParam);
   const initialRouteSlPrice = Number(routeSlParam);
   const initialRouteTpPrice = Number(routeTpParam);
-  const initialSlPrice = Number.isFinite(initialRouteSlPrice) && initialRouteSlPrice > 0 ? initialRouteSlPrice : 0;
-  const initialTpPrice = Number.isFinite(initialRouteTpPrice) && initialRouteTpPrice > 0 ? initialRouteTpPrice : 0;
+  const initialMarketProtectionBackendLocked = isNewMarketOrderProtectionBackendLocked();
+  const initialSlPrice = !initialMarketProtectionBackendLocked
+    && Number.isFinite(initialRouteSlPrice)
+    && initialRouteSlPrice > 0
+    ? initialRouteSlPrice
+    : 0;
+  const initialTpPrice = !initialMarketProtectionBackendLocked
+    && Number.isFinite(initialRouteTpPrice)
+    && initialRouteTpPrice > 0
+    ? initialRouteTpPrice
+    : 0;
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const isScreenFocused = useIsFocused();
@@ -572,6 +588,28 @@ function OrderTicketInteractiveContent() {
   const lastConfiguredPendingOrderTypeRef = useRef<ChartOrderType | null>(null);
   const isPendingOrderType = isPendingChartOrderType(orderType);
   const isStopLimitOrderType = isStopLimitChartOrderType(orderType);
+  const newMarketOrderProtectionBackendLocked =
+    isNewMarketOrderProtectionBackendLocked();
+  const pendingOrderProtectionBackendLocked =
+    isPendingOrderProtectionBackendLocked();
+  const protectionBackendLocked = isPendingOrderType
+    ? pendingOrderProtectionBackendLocked
+    : newMarketOrderProtectionBackendLocked;
+  const hasProtectionIntent =
+    slEnabled
+    || tpEnabled
+    || (Number.isFinite(slPrice) && slPrice > 0)
+    || (Number.isFinite(tpPrice) && tpPrice > 0);
+
+  useEffect(() => {
+    if (!protectionBackendLocked) {
+      return;
+    }
+    setSlEnabled(false);
+    setSlPrice(0);
+    setTpEnabled(false);
+    setTpPrice(0);
+  }, [protectionBackendLocked]);
 
   const previousSymbolRef = useRef(symbol);
   useEffect(() => {
@@ -768,6 +806,18 @@ function OrderTicketInteractiveContent() {
       });
       return;
     }
+    const marketProtectionLockedAtSubmit =
+      isNewMarketOrderProtectionBackendLocked();
+    if (marketProtectionLockedAtSubmit && hasProtectionIntent) {
+      showModal({
+        visible: true,
+        type: 'error',
+        title: t(SLTP_COMING_SOON_TITLE),
+        message: t(SLTP_COMING_SOON_MESSAGE),
+        side: requestedSide,
+      });
+      return;
+    }
     const currentQuoteAvailability = resolveCurrentQuoteAvailability();
     if (!currentQuoteAvailability.allowed) {
       recordBlockedPriceAction('order_ticket_market_order', currentQuoteAvailability);
@@ -882,8 +932,8 @@ function OrderTicketInteractiveContent() {
         symbol: symbol,
         side: requestedSide,
         volume: volume,
-        ...(slEnabled && slPrice > 0 ? { price_sl: slPrice } : {}),
-        ...(tpEnabled && tpPrice > 0 ? { price_tp: tpPrice } : {}),
+        ...(!marketProtectionLockedAtSubmit && slEnabled && slPrice > 0 ? { price_sl: slPrice } : {}),
+        ...(!marketProtectionLockedAtSubmit && tpEnabled && tpPrice > 0 ? { price_tp: tpPrice } : {}),
         comment: routeComment?.trim() || '',
       };
       logOrderTicketDiagnostic('[TRADE-PAYLOAD]', {
@@ -1087,11 +1137,44 @@ function OrderTicketInteractiveContent() {
     [pricePointSize, resolveProtectionPriceSeed, roundPendingPrice, tpEnabled, tpPrice],
   );
 
+  const handleStopLevelAdjustment = useCallback(
+    (target: 'sl' | 'tp', direction: -1 | 1) => {
+      // Backend capability gate: keep both complete adjustment functions and
+      // payload wiring intact, but do not expose values the API cannot apply.
+      if (protectionBackendLocked) {
+        Alert.alert(t(SLTP_COMING_SOON_TITLE), t(SLTP_COMING_SOON_MESSAGE));
+        return;
+      }
+
+      if (target === 'sl') {
+        adjustStopLoss(direction);
+        return;
+      }
+      adjustTakeProfit(direction);
+    },
+    [adjustStopLoss, adjustTakeProfit, protectionBackendLocked, t],
+  );
+
   /* Pending order placement */
   // Pending orders share market-order safety checks, then add price_open and
   // type so the backend can create the correct pending order.
   const handlePlacePendingOrder = async () => {
+    // Defense in depth: the visible tabs are locked too, but a stale retained
+    // screen must never reach the dormant API path before backend readiness.
+    if (isPendingOrderTypeBackendLocked(orderType)) return;
     if (isMarketExecution) return;
+    const pendingProtectionLockedAtSubmit =
+      isPendingOrderProtectionBackendLocked();
+    if (pendingProtectionLockedAtSubmit && hasProtectionIntent) {
+      showModal({
+        visible: true,
+        type: 'error',
+        title: t(SLTP_COMING_SOON_TITLE),
+        message: t(SLTP_COMING_SOON_MESSAGE),
+        side: getChartOrderSide(orderType),
+      });
+      return;
+    }
     const currentQuoteAvailability = resolveCurrentQuoteAvailability();
     if (!currentQuoteAvailability.allowed) {
       const pendingSideValue = getChartOrderSide(orderType);
@@ -1155,8 +1238,8 @@ function OrderTicketInteractiveContent() {
         volume,
         ...(pendingEntryPrice > 0 ? { price: pendingEntryPrice } : {}),
         ...(isStopLimitOrderType && pendingStopLimitPrice > 0 ? { stopLimitPrice: pendingStopLimitPrice } : {}),
-        ...(slEnabled && slPrice > 0 ? { price_sl: slPrice } : {}),
-        ...(tpEnabled && tpPrice > 0 ? { price_tp: tpPrice } : {}),
+        ...(!pendingProtectionLockedAtSubmit && slEnabled && slPrice > 0 ? { price_sl: slPrice } : {}),
+        ...(!pendingProtectionLockedAtSubmit && tpEnabled && tpPrice > 0 ? { price_tp: tpPrice } : {}),
         comment: routeComment?.trim() || '',
         type: orderType.toLowerCase().replace(/\s+/g, '_'),
       };
@@ -1224,6 +1307,7 @@ function OrderTicketInteractiveContent() {
       <View style={[styles.header, { paddingTop: insets.top + 6, zIndex: 10 }]}>
         <FastPressable
           onPress={handleOrderTicketBack}
+          activateOnPressIn
           latencyLabel="orderTicket.back"
           latencyBudgetMs={50}
           unstable_pressDelay={0}
@@ -1323,6 +1407,7 @@ function OrderTicketInteractiveContent() {
           {CHART_ORDER_TYPES.map((option) => {
             const active = option === orderType;
             const isSell = option.toLowerCase().startsWith('sell');
+            const isBackendLocked = isPendingOrderTypeBackendLocked(option);
             return (
               <FastPressable
                 key={option}
@@ -1336,14 +1421,28 @@ function OrderTicketInteractiveContent() {
                   styles.orderTypeTab,
                   active && styles.orderTypeTabActive,
                   active && { borderColor: isSell ? SELL_C : BUY_C },
+                  isBackendLocked && styles.orderTypeTabLocked,
                 ]}
+                disabled={isBackendLocked}
+                accessibilityRole="button"
+                accessibilityLabel={isBackendLocked ? `${option}. Locked` : option}
+                accessibilityState={{ selected: active, disabled: isBackendLocked }}
                 onPress={() => {
+                  // Preserve the complete pending-order path below. This UI
+                  // gate lifts automatically when the backend-ready flag is
+                  // enabled after API integration and verification.
+                  if (isPendingOrderTypeBackendLocked(option)) {
+                    return;
+                  }
                   setOrderType(option);
                   scrollOrderTypeTabsToSelection(option, true);
                 }}
                 latencyLabel={`orderTicket.orderType.${option}`}
               >
                 <Text style={[styles.orderTypeTabText, active && styles.orderTypeTabTextActive]}>{option}</Text>
+                {isBackendLocked ? (
+                  <Ionicons name="lock-closed" size={13} color={T.textMuted} />
+                ) : null}
               </FastPressable>
             );
           })}
@@ -1392,27 +1491,59 @@ function OrderTicketInteractiveContent() {
         <View style={styles.hairline} />
 
         {/* MT5-style protection controls: compact SL/TP steppers above Fill policy. */}
-        <View style={styles.sltpRow}>
+        <View style={[styles.sltpRow, protectionBackendLocked && styles.sltpRowDisabled]}>
           <View style={styles.sltpGroup}>
-            <FastPressable style={styles.sltpBtn} onPress={() => adjustStopLoss(-1)} latencyLabel="orderTicket.sl.decrement" hitSlop={8}>
+            <FastPressable
+              style={styles.sltpBtn}
+              onPress={() => handleStopLevelAdjustment('sl', -1)}
+              latencyLabel="orderTicket.sl.decrement"
+              hitSlop={8}
+              disabled={protectionBackendLocked}
+              accessibilityLabel={t('Decrease Stop Loss')}
+              accessibilityState={{ disabled: protectionBackendLocked }}
+            >
               <Text style={styles.sltpAction}>-</Text>
             </FastPressable>
             <Text style={[styles.sltpLabel, slEnabled && styles.sltpValue]} numberOfLines={1}>
               {slEnabled && slPrice > 0 ? slPrice.toFixed(priceDecimals) : 'SL'}
             </Text>
-            <FastPressable style={styles.sltpBtn} onPress={() => adjustStopLoss(1)} latencyLabel="orderTicket.sl.increment" hitSlop={8}>
+            <FastPressable
+              style={styles.sltpBtn}
+              onPress={() => handleStopLevelAdjustment('sl', 1)}
+              latencyLabel="orderTicket.sl.increment"
+              hitSlop={8}
+              disabled={protectionBackendLocked}
+              accessibilityLabel={t('Increase Stop Loss')}
+              accessibilityState={{ disabled: protectionBackendLocked }}
+            >
               <Text style={styles.sltpAction}>+</Text>
             </FastPressable>
           </View>
 
           <View style={styles.sltpGroup}>
-            <FastPressable style={styles.sltpBtn} onPress={() => adjustTakeProfit(-1)} latencyLabel="orderTicket.tp.decrement" hitSlop={8}>
+            <FastPressable
+              style={styles.sltpBtn}
+              onPress={() => handleStopLevelAdjustment('tp', -1)}
+              latencyLabel="orderTicket.tp.decrement"
+              hitSlop={8}
+              disabled={protectionBackendLocked}
+              accessibilityLabel={t('Decrease Take Profit')}
+              accessibilityState={{ disabled: protectionBackendLocked }}
+            >
               <Text style={styles.sltpAction}>-</Text>
             </FastPressable>
             <Text style={[styles.sltpLabel, tpEnabled && styles.sltpValue]} numberOfLines={1}>
               {tpEnabled && tpPrice > 0 ? tpPrice.toFixed(priceDecimals) : 'TP'}
             </Text>
-            <FastPressable style={styles.sltpBtn} onPress={() => adjustTakeProfit(1)} latencyLabel="orderTicket.tp.increment" hitSlop={8}>
+            <FastPressable
+              style={styles.sltpBtn}
+              onPress={() => handleStopLevelAdjustment('tp', 1)}
+              latencyLabel="orderTicket.tp.increment"
+              hitSlop={8}
+              disabled={protectionBackendLocked}
+              accessibilityLabel={t('Increase Take Profit')}
+              accessibilityState={{ disabled: protectionBackendLocked }}
+            >
               <Text style={styles.sltpAction}>+</Text>
             </FastPressable>
           </View>
@@ -1726,6 +1857,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     orderTypeTabActive: {
       backgroundColor: isDark ? 'rgba(34,211,238,0.1)' : T.glass3,
     },
+    orderTypeTabLocked: {
+      opacity: 0.58,
+    },
     orderTypeTabText: {
       color: SUB,
       fontSize: 13,
@@ -1747,6 +1881,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     quickTxtActive: { color: ACCENT },
 
     sltpRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 18, paddingVertical: 16 },
+    sltpRowDisabled: { opacity: 0.4 },
     sltpGroup: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     sltpBtn: { width: 42, height: 40, alignItems: 'center', justifyContent: 'center' },
     sltpAction: { color: ACCENT, fontSize: 24, lineHeight: 28, fontWeight: '700' },

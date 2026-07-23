@@ -31,16 +31,25 @@ test('broker realtime subscribes to positions and metrics with singular channel 
   assert.match(brokerRealtimeSource, /this\.send\(\{ action: 'ping' \}\)/);
 });
 
-test('broker realtime position batches reject unsafe ids and replace only explicit clean snapshots', () => {
+test('broker realtime position batches are filtered, hint-only for SL/TP, and never replace by absence', () => {
   const brokerRealtimeSource = source();
 
   assert.match(brokerRealtimeSource, /filterRealtimePositionRows\([\s\S]*positionsState\.positions/);
   assert.match(brokerRealtimeSource, /rejectedRows > 0[\s\S]*schedulePositionsReconciliation\(identity\)/);
+  assert.match(brokerRealtimeSource, /notifyModifyPositionSocketHint\(/);
+  assert.match(brokerRealtimeSource, /acceptedRows\.map\(stripUnversionedPositionProtection\)/);
+  assert.match(brokerRealtimeSource, /preserveMissingExisting: true/);
+  assert.match(brokerRealtimeSource, /price_sl: _priceSl[\s\S]*price_tp: _priceTp/);
   assert.match(
     brokerRealtimeSource,
-    /rejectedRows === 0[\s\S]*isAuthoritativeRealtimePositionsBatch\(eventName, envelope\)/,
+    /status: _status[\s\S]*position_state: _positionState[\s\S]*action: _action[\s\S]*event: _event/,
   );
-  assert.match(brokerRealtimeSource, /preserveMissingExisting: !isAuthoritative/);
+  assert.match(
+    brokerRealtimeSource,
+    /acceptedRows\.some\(isTerminalPositionUpdate\)[\s\S]*schedulePositionsReconciliation\(identity\)/,
+  );
+  assert.doesNotMatch(brokerRealtimeSource, /isAuthoritativeRealtimePositionsBatch/);
+  assert.doesNotMatch(brokerRealtimeSource, /preserveMissingExisting: false/);
   assert.match(brokerRealtimeSource, /POSITIONS_RECONCILE_COOLDOWN_MS = 5_000/);
 });
 

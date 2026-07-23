@@ -10,7 +10,8 @@
       "channel": "development",
       "environment": "development",
       "env": {
-        "EXPO_PUBLIC_APP_ENV": "development"
+        "EXPO_PUBLIC_APP_ENV": "development",
+        "EXPO_PUBLIC_BROKER_SLTP_CAPABILITIES": "{}"
       }
     },
     "preview": {
@@ -18,7 +19,8 @@
       "channel": "preview",
       "environment": "preview",
       "env": {
-        "EXPO_PUBLIC_APP_ENV": "preview"
+        "EXPO_PUBLIC_APP_ENV": "preview",
+        "EXPO_PUBLIC_BROKER_SLTP_CAPABILITIES": "{}"
       },
       "ios": {
         "simulator": false
@@ -32,7 +34,8 @@
       "channel": "staging",
       "environment": "staging",
       "env": {
-        "EXPO_PUBLIC_APP_ENV": "staging"
+        "EXPO_PUBLIC_APP_ENV": "staging",
+        "EXPO_PUBLIC_BROKER_SLTP_CAPABILITIES": "{}"
       },
       "ios": {
         "simulator": false
@@ -47,7 +50,8 @@
       "environment": "production",
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_APP_ENV": "production"
+        "EXPO_PUBLIC_APP_ENV": "production",
+        "EXPO_PUBLIC_BROKER_SLTP_CAPABILITIES": "{}"
       },
       "ios": {
         "simulator": false
@@ -62,7 +66,8 @@
       "environment": "production",
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_APP_ENV": "production"
+        "EXPO_PUBLIC_APP_ENV": "production",
+        "EXPO_PUBLIC_BROKER_SLTP_CAPABILITIES": "{}"
       },
       "android": {
         "buildType": "apk"
@@ -75,6 +80,7 @@
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_APP_ENV": "production",
+        "EXPO_PUBLIC_BROKER_SLTP_CAPABILITIES": "{}",
         "EXPO_PUBLIC_DISABLE_OTA_UPDATES": "true"
       },
       "ios": {
@@ -91,6 +97,7 @@
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_APP_ENV": "production",
+        "EXPO_PUBLIC_BROKER_SLTP_CAPABILITIES": "{}",
         "EXPO_PUBLIC_DISABLE_OTA_UPDATES": "true"
       },
       "android": {

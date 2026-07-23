@@ -41,6 +41,12 @@ export type BrokerApiRequestInit = RequestInit & {
    * a slow backend must be awaited, not failed with a timeout error).
    */
   timeoutMs?: number;
+  /**
+   * Defaults to true for idempotent reads and backend-deduplicated mutations.
+   * Existing-position SL/TP PUT has no replay contract, so it refreshes the
+   * session after a 401 but returns that response without replaying the write.
+   */
+  replayAfterAuthRefresh?: boolean;
 };
 
 export type BrokerApiJsonResponse<T> = Readonly<{
@@ -407,6 +413,7 @@ export class BrokerAPI {
       skipRefresh: _ignoredSkipRefresh,
       signal: _ignoredSignal,
       timeoutMs,
+      replayAfterAuthRefresh: _ignoredReplayAfterAuthRefresh,
       ...fetchOptions
     } = options;
     const requestConfig: RequestInit = { ...fetchOptions, headers, signal };
@@ -431,6 +438,9 @@ export class BrokerAPI {
       }
       this.assertCurrent(identity);
       if (!refreshedToken || refreshedToken === activeToken) return response;
+      if (options.replayAfterAuthRefresh === false) {
+        return response;
+      }
 
       const retryHeaders = new Headers(headers);
       retryHeaders.set('Authorization', `Bearer ${refreshedToken}`);

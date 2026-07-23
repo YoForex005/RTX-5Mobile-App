@@ -432,6 +432,7 @@ export function HistoryNetProfitLossScreen() {
       >
         <Pressable
           onPress={() => safeRouterBack(router, '/(tabs)/history')}
+          activateOnPressIn
           hitSlop={16}
           style={styles.headerBtn}
         >

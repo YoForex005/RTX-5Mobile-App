@@ -95,7 +95,12 @@ export function IndicatorsScreen() {
   return (
     <Screen style={s.screen}>
       <View style={[s.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
-        <Pressable onPress={() => safeRouterBack(router, '/(tabs)/chart')} hitSlop={16} style={s.headerBackBtn}>
+        <Pressable
+          onPress={() => safeRouterBack(router, '/(tabs)/chart')}
+          activateOnPressIn
+          hitSlop={16}
+          style={s.headerBackBtn}
+        >
           <Ionicons name="arrow-back" size={24} color={T.text} />
         </Pressable>
         <Text style={s.headerTitle} numberOfLines={1}>{t('Indicators')}</Text>

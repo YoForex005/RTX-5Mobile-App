@@ -6,6 +6,7 @@ import {
   createFrontendTradingError,
   createTradingApiError,
   formatTradingErrorFeedback,
+  parseRetryAfterSeconds,
 } from './tradingErrors';
 
 test('classifyTradingError does not falsely prove a backend outage for fetch failures', () => {
@@ -94,6 +95,37 @@ test('classifyTradingError keeps retry-after information for rate limiting', () 
   assert.equal(feedback.kind, 'rate-limit');
   assert.equal(feedback.retryAfterSeconds, 17);
   assert.match(feedback.message, /17 seconds/);
+});
+
+test('retry-after accepts only strict positive integer delta-seconds', () => {
+  assert.equal(parseRetryAfterSeconds('17'), 17);
+  assert.equal(parseRetryAfterSeconds(' 17 '), 17);
+  assert.equal(parseRetryAfterSeconds('00017'), 17);
+  assert.equal(parseRetryAfterSeconds(17), 17);
+
+  for (const malformed of [
+    undefined,
+    null,
+    '',
+    '0',
+    '-1',
+    '+17',
+    '1.5',
+    '60junk',
+    '1e2',
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.MAX_SAFE_INTEGER + 1,
+  ]) {
+    assert.equal(parseRetryAfterSeconds(malformed), null, String(malformed));
+  }
+
+  const feedback = classifyTradingError(
+    createTradingApiError(429, { message: 'Too many requests' }, { 'retry-after': '60junk' }),
+    { action: 'modify-position' },
+  );
+  assert.equal(feedback.retryAfterSeconds, null);
+  assert.doesNotMatch(feedback.message, /60 seconds/);
 });
 
 test('classifyTradingError redacts secrets before returning UI-safe detail', () => {

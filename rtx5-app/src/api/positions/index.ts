@@ -37,6 +37,13 @@ import type {
   ModifyPositionPayload,
   Position,
 } from './types';
+import {
+  AmbiguousModifyPositionOutcomeError,
+  normalizeModifyPositionRequest,
+  normalizePositiveSafeIntegerPathSegment,
+  parseModifyPositionAck,
+  type ModifyPositionAckWire,
+} from './modifyPositionWire';
 import { redactDiagnosticValue } from '../../utils/securityRedaction';
 
 const DEBUG_POSITIONS_API =
@@ -94,6 +101,21 @@ export type {
   ClosePositionResponse,
   ModifyPositionPayload,
 } from './types';
+export type {
+  KnownModifyPositionErrorCode,
+  ModifyPositionAckWire,
+  ModifyPositionErrorWire,
+  ModifyPositionRequest,
+  ReconciliablePosition,
+} from './modifyPositionWire';
+export {
+  AmbiguousModifyPositionOutcomeError,
+  normalizeModifyPositionRequest,
+  normalizePositiveSafeIntegerPathSegment,
+  normalizeReconciledProtectionValue,
+  parseModifyPositionAck,
+  parseModifyPositionError,
+} from './modifyPositionWire';
 
 export const positionsApi = {
   /**
@@ -135,6 +157,51 @@ export const positionsApi = {
     }
     warnPositionsApiDiagnostic('[PositionsAPI] Unexpected response shape:', JSON.stringify(json).slice(0, 200));
     return [];
+  },
+
+  /**
+   * Strict authoritative read used after every existing-position SL/TP PUT.
+   *
+   * The current gateway contract is an unwrapped array. Unlike the general
+   * polling compatibility method above, an ambiguous wrapper or invalid JSON
+   * must fail closed because treating it as an empty ledger could delete a
+   * still-open position.
+   */
+  getPositionsForReconciliation: async (
+    login: string | number,
+    requestOptions: Readonly<{ signal?: AbortSignal; timeoutMs?: number }> = {},
+  ): Promise<Position[]> => {
+    const normalizedLogin = normalizePositiveSafeIntegerPathSegment(login, 'Account login');
+    const response = await apiClient(`/positions/${normalizedLogin.path}`, {
+      method: 'GET',
+      signal: requestOptions.signal,
+      timeoutMs: requestOptions.timeoutMs,
+      headers: { accept: 'application/json' },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const headers: Record<string, string> = {};
+      if (response.status === 429) headers['retry-after'] = response.headers.get('retry-after') || '';
+      throw createTradingApiError(response.status, errorData, headers);
+    }
+
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
+      throw new AmbiguousModifyPositionOutcomeError(
+        'Positions reconciliation returned an unreadable JSON body.',
+        response.status,
+      );
+    }
+    if (!Array.isArray(data)) {
+      throw new AmbiguousModifyPositionOutcomeError(
+        'Positions reconciliation returned an unexpected wrapped response.',
+        response.status,
+      );
+    }
+    return data as Position[];
   },
 
   /**
@@ -184,39 +251,99 @@ export const positionsApi = {
    *
    * @param ticketId - The position ticket number to modify
    * @param payload  - New SL/TP values
-   * @returns Updated position object
+   * @returns Strict partial database acknowledgement; authoritative state comes
+   *          only from the mandatory positions-list reconciliation.
    */
   modifyPosition: async (
     ticketId: string | number,
     payload: ModifyPositionPayload,
-    requestOptions: Readonly<{ signal?: AbortSignal; timeoutMs?: number }> = {},
-  ): Promise<Position> => {
-    recordModifyPositionJournalRequest(ticketId, payload);
+    requestOptions: Readonly<{
+      expectedSymbol: string;
+      signal?: AbortSignal;
+      timeoutMs?: number;
+      onResponseMetadata?: (metadata: Readonly<{
+        status: number;
+        requestId?: string;
+        serverTiming?: string;
+      }>) => void;
+    }>,
+  ): Promise<ModifyPositionAckWire> => {
+    const normalizedTicket = normalizePositiveSafeIntegerPathSegment(ticketId, 'Position ticket');
+    const normalizedPayload = normalizeModifyPositionRequest(payload);
+    recordModifyPositionJournalRequest(normalizedTicket.path, normalizedPayload);
     let failureRecorded = false;
     try {
-      const response = await apiClient(`/positions/${ticketId}`, {
+      const response = await apiClient(`/positions/${normalizedTicket.path}`, {
         method: 'PUT',
-        body: JSON.stringify(payload),
+        headers: {
+          accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(normalizedPayload),
         signal: requestOptions.signal,
         timeoutMs: requestOptions.timeoutMs,
+        replayAfterAuthRefresh: false,
       });
+      try {
+        const requestId = response.headers.get('x-request-id')?.trim();
+        const serverTiming = response.headers.get('server-timing')?.trim();
+        requestOptions.onResponseMetadata?.(Object.freeze({
+          status: response.status,
+          ...(requestId ? { requestId } : {}),
+          ...(serverTiming ? { serverTiming } : {}),
+        }));
+      } catch {
+        // Observability is best-effort and must never alter mutation handling.
+      }
 
-      if (!response.ok) {
+      if (response.status !== 200) {
+        if (response.status >= 200 && response.status < 300) {
+          const error = new AmbiguousModifyPositionOutcomeError(
+            `Modify Position returned ambiguous HTTP ${response.status}.`,
+            response.status,
+          );
+          failureRecorded = true;
+          recordModifyPositionJournalFailure(normalizedTicket.path, normalizedPayload, error);
+          throw error;
+        }
         const errorData = await response.json().catch(() => ({}));
         const headers: Record<string, string> = {};
         if (response.status === 429) headers['retry-after'] = response.headers.get('retry-after') || '';
         const error = createTradingApiError(response.status, errorData, headers);
         failureRecorded = true;
-        recordModifyPositionJournalFailure(ticketId, payload, error);
+        recordModifyPositionJournalFailure(normalizedTicket.path, normalizedPayload, error);
         throw error;
       }
 
-      const data = await response.json();
-      recordModifyPositionJournalSuccess(ticketId, payload, data);
-      return data;
+      let data: unknown;
+      try {
+        data = await response.json();
+      } catch {
+        const error = new AmbiguousModifyPositionOutcomeError(
+          'Modify Position returned an unreadable HTTP 200 body.',
+          response.status,
+        );
+        failureRecorded = true;
+        recordModifyPositionJournalFailure(normalizedTicket.path, normalizedPayload, error);
+        throw error;
+      }
+      let acknowledgement: ModifyPositionAckWire;
+      try {
+        acknowledgement = parseModifyPositionAck(data, {
+          ticket: normalizedTicket.path,
+          symbol: requestOptions.expectedSymbol,
+          request: normalizedPayload,
+        });
+      } catch (error) {
+        failureRecorded = true;
+        recordModifyPositionJournalFailure(normalizedTicket.path, normalizedPayload, error);
+        throw error;
+      }
+      recordModifyPositionJournalSuccess(normalizedTicket.path, normalizedPayload, acknowledgement);
+      return acknowledgement;
     } catch (error) {
       if (!failureRecorded) {
-        recordModifyPositionJournalFailure(ticketId, payload, error);
+        recordModifyPositionJournalFailure(normalizedTicket.path, normalizedPayload, error);
       }
       throw error;
     }

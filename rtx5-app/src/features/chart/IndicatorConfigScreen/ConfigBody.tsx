@@ -184,7 +184,12 @@ export function ConfigBody({
         style={{ flex: 1 }}
       >
         <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
-          <Pressable onPress={() => { onDone(); }} hitSlop={16} style={styles.headerBackBtn}>
+          <Pressable
+            onPress={() => { onDone(); }}
+            activateOnPressIn
+            hitSlop={16}
+            style={styles.headerBackBtn}
+          >
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">

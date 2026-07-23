@@ -20,6 +20,102 @@ test('order ticket pending submit uses the pending-order API contract', () => {
   assert.doesNotMatch(pendingHandler, /ordersApi\.placeMarketOrder\(payload as any\)/);
 });
 
+test('order ticket keeps Market Execution available and visibly locks every pending type', () => {
+  const source = readOrderTicketSource();
+  const tabsStart = source.indexOf('{CHART_ORDER_TYPES.map((option) => {');
+  const tabsEnd = source.indexOf('</ScrollView>', tabsStart);
+  assert.notEqual(tabsStart, -1, 'order type tabs must exist');
+  assert.notEqual(tabsEnd, -1, 'order type tab boundary must exist');
+
+  const tabsSource = source.slice(tabsStart, tabsEnd);
+  assert.match(source, /const \[orderType, setOrderType\] = useState<ChartOrderType>\('Market Execution'\)/);
+  assert.match(tabsSource, /const isBackendLocked = isPendingOrderTypeBackendLocked\(option\)/);
+  assert.match(tabsSource, /disabled=\{isBackendLocked\}/);
+  assert.match(tabsSource, /accessibilityState=\{\{ selected: active, disabled: isBackendLocked \}\}/);
+  assert.match(tabsSource, /if \(isPendingOrderTypeBackendLocked\(option\)\) \{\s*return;\s*\}[\s\S]*setOrderType\(option\)/);
+  assert.match(tabsSource, /<Ionicons name="lock-closed" size=\{13\}/);
+});
+
+test('order ticket applies independent market and pending SL/TP gates', () => {
+  const source = readOrderTicketSource();
+  const gateStart = source.indexOf('const handleStopLevelAdjustment = useCallback');
+  const gateEnd = source.indexOf('/* Pending order placement */', gateStart);
+  const marketSubmitStart = source.indexOf('const handlePlaceOrder = async');
+  const marketSubmitEnd = source.indexOf('const queryClient =', marketSubmitStart);
+  const pendingSubmitStart = source.indexOf('const handlePlacePendingOrder = async');
+  const pendingSubmitEnd = source.indexOf('const rawSpreadPoints =', pendingSubmitStart);
+  assert.notEqual(gateStart, -1, 'SL/TP availability handler must exist');
+  assert.notEqual(gateEnd, -1, 'SL/TP availability handler boundary must exist');
+  assert.notEqual(marketSubmitStart, -1, 'market submit handler must exist');
+  assert.notEqual(marketSubmitEnd, -1, 'market submit handler boundary must exist');
+  assert.notEqual(pendingSubmitStart, -1, 'pending submit handler must exist');
+  assert.notEqual(pendingSubmitEnd, -1, 'pending submit handler boundary must exist');
+
+  const gateSource = source.slice(gateStart, gateEnd);
+  const marketSubmitSource = source.slice(marketSubmitStart, marketSubmitEnd);
+  const pendingSubmitSource = source.slice(pendingSubmitStart, pendingSubmitEnd);
+  assert.match(
+    source,
+    /const newMarketOrderProtectionBackendLocked =[\s\S]*isNewMarketOrderProtectionBackendLocked\(\);[\s\S]*const pendingOrderProtectionBackendLocked =[\s\S]*isPendingOrderProtectionBackendLocked\(\);[\s\S]*const protectionBackendLocked = isPendingOrderType[\s\S]*\? pendingOrderProtectionBackendLocked[\s\S]*: newMarketOrderProtectionBackendLocked/,
+  );
+  assert.match(
+    source,
+    /useEffect\(\(\) => \{[\s\S]*if \(!protectionBackendLocked\) \{[\s\S]*return;[\s\S]*\}[\s\S]*setSlEnabled\(false\);[\s\S]*setSlPrice\(0\);[\s\S]*setTpEnabled\(false\);[\s\S]*setTpPrice\(0\);[\s\S]*\}, \[protectionBackendLocked\]\)/,
+  );
+  assert.match(gateSource, /if \(protectionBackendLocked\)/);
+  assert.match(
+    gateSource,
+    /Alert\.alert\(t\(SLTP_COMING_SOON_TITLE\), t\(SLTP_COMING_SOON_MESSAGE\)\)/,
+  );
+  assert.match(gateSource, /adjustStopLoss\(direction\)/);
+  assert.match(gateSource, /adjustTakeProfit\(direction\)/);
+  assert.equal(
+    source.match(/onPress=\{\(\) => handleStopLevelAdjustment\('(?:sl|tp)', -?1\)\}/g)?.length,
+    4,
+    'all four SL/TP stepper actions must use the availability gate',
+  );
+  assert.match(source, /const adjustStopLoss = useCallback/);
+  assert.match(source, /const adjustTakeProfit = useCallback/);
+  assert.match(
+    marketSubmitSource,
+    /const marketProtectionLockedAtSubmit =[\s\S]*isNewMarketOrderProtectionBackendLocked\(\);[\s\S]*if \(marketProtectionLockedAtSubmit && hasProtectionIntent\) \{[\s\S]*showModal\([\s\S]*SLTP_COMING_SOON_TITLE[\s\S]*SLTP_COMING_SOON_MESSAGE[\s\S]*return;/,
+  );
+  assert.match(
+    marketSubmitSource,
+    /\.\.\.\(!marketProtectionLockedAtSubmit && slEnabled && slPrice > 0 \? \{ price_sl: slPrice \} : \{\}\)/,
+  );
+  assert.match(
+    marketSubmitSource,
+    /\.\.\.\(!marketProtectionLockedAtSubmit && tpEnabled && tpPrice > 0 \? \{ price_tp: tpPrice \} : \{\}\)/,
+  );
+  assert.match(
+    pendingSubmitSource,
+    /const pendingProtectionLockedAtSubmit =[\s\S]*isPendingOrderProtectionBackendLocked\(\);[\s\S]*if \(pendingProtectionLockedAtSubmit && hasProtectionIntent\) \{[\s\S]*showModal\([\s\S]*SLTP_COMING_SOON_TITLE[\s\S]*SLTP_COMING_SOON_MESSAGE[\s\S]*return;/,
+  );
+  assert.match(
+    pendingSubmitSource,
+    /\.\.\.\(!pendingProtectionLockedAtSubmit && slEnabled && slPrice > 0 \? \{ price_sl: slPrice \} : \{\}\)/,
+  );
+  assert.match(
+    pendingSubmitSource,
+    /\.\.\.\(!pendingProtectionLockedAtSubmit && tpEnabled && tpPrice > 0 \? \{ price_tp: tpPrice \} : \{\}\)/,
+  );
+  assert.equal(
+    source.match(/disabled=\{protectionBackendLocked\}/g)?.length,
+    4,
+    'all four SL/TP stepper controls must be disabled while protection is locked',
+  );
+  assert.equal(
+    source.match(/accessibilityState=\{\{ disabled: protectionBackendLocked \}\}/g)?.length,
+    4,
+    'all four SL/TP stepper controls must expose their locked state',
+  );
+  assert.match(
+    source,
+    /style=\{\[styles\.sltpRow, protectionBackendLocked && styles\.sltpRowDisabled\]\}/,
+  );
+});
+
 test('order ticket symbol picker updates the same screen instead of routing', () => {
   const source = readOrderTicketSource();
   const pickerStart = source.indexOf('const handleSymbolSelect = useCallback');
@@ -63,12 +159,23 @@ test('order ticket spread uses the symbol point size', () => {
   assert.doesNotMatch(source, /Math\.round\(\(ASK - BID\) \/ 0\.01\)/);
 });
 
-test('order ticket seeds SL and TP from chart route params', () => {
+test('order ticket accepts route-seeded SL and TP only when market protection is unlocked', () => {
   const source = readOrderTicketSource();
 
   assert.match(source, /sl: routeSlParam/);
   assert.match(source, /tp: routeTpParam/);
-  assert.match(source, /const initialSlPrice = Number\.isFinite\(initialRouteSlPrice\)/);
+  assert.match(
+    source,
+    /const initialMarketProtectionBackendLocked = isNewMarketOrderProtectionBackendLocked\(\)/,
+  );
+  assert.match(
+    source,
+    /const initialSlPrice = !initialMarketProtectionBackendLocked[\s\S]*Number\.isFinite\(initialRouteSlPrice\)[\s\S]*initialRouteSlPrice > 0[\s\S]*\? initialRouteSlPrice[\s\S]*: 0/,
+  );
+  assert.match(
+    source,
+    /const initialTpPrice = !initialMarketProtectionBackendLocked[\s\S]*Number\.isFinite\(initialRouteTpPrice\)[\s\S]*initialRouteTpPrice > 0[\s\S]*\? initialRouteTpPrice[\s\S]*: 0/,
+  );
   assert.match(source, /const \[slEnabled, setSlEnabled\] = useState\(initialSlPrice > 0\)/);
   assert.match(source, /const \[tpEnabled, setTpEnabled\] = useState\(initialTpPrice > 0\)/);
 });

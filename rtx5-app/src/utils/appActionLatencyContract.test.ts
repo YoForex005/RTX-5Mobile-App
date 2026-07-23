@@ -605,7 +605,8 @@ test('action destination modules warm without boot-time route prefetch', () => {
   assert.match(quoteInfoLaunchHostSource, /hostVisible: \{[\s\S]*elevation: 49,[\s\S]*zIndex: 49/);
   assert.match(quoteInfoLaunchShellSource, /testID=\{'quote-info-launch-shell-' \+ destination\}/);
   assert.match(quoteInfoLaunchShellSource, /onPress=\{onBack\}[\s\S]*latencyLabel=\{backLatencyLabel\}[\s\S]*latencyBudgetMs=\{50\}[\s\S]*unstable_pressDelay=\{0\}/);
-  assert.doesNotMatch(quoteInfoLaunchShellSource, /onPress=\{onBack\}[\s\S]{0,240}(?:activateOnPressIn|activateOnTouchStart)/);
+  assert.match(quoteInfoLaunchShellSource, /onPress=\{onBack\}[\s\S]{0,240}activateOnPressIn/);
+  assert.doesNotMatch(quoteInfoLaunchShellSource, /onPress=\{onBack\}[\s\S]{0,240}activateOnTouchStart/);
   // Seed the retained shell from the already-cached live quote store so the
   // first paint after an option tap shows real bid/ask instead of placeholders.
   assert.match(quoteInfoLaunchShellSource, /useLiveQuoteSnapshot\(normalizedSymbol, active\)/);
@@ -1244,8 +1245,8 @@ test('trade ticket execution actions use the immediate fast press path', () => {
   assert.match(source, /latencyLabel="orderTicket\.back"/);
   assert.match(source, /const originHref = getOrderTicketOriginHref\(resolveOrderTicketOrigin\(origin\)\)/);
   assert.match(source, /const handleOrderTicketBack = useCallback\(\(\) => \{[\s\S]*backNavigationStartedRef\.current = true;[\s\S]*hideOrderTicketLaunch\(\);[\s\S]*scheduleBackNavigationAfterVisualFrame\(\(\) => \{[\s\S]*safeRouterBack\(router, originHref\)/);
-  assert.match(source, /onPress=\{handleOrderTicketBack\}[\s\S]*latencyLabel="orderTicket\.back"[\s\S]*latencyBudgetMs=\{50\}[\s\S]*unstable_pressDelay=\{0\}/);
-  assert.doesNotMatch(source, /onPress=\{handleOrderTicketBack\}[\s\S]{0,240}(?:activateOnPressIn|activateOnTouchStart)/);
+  assert.match(source, /onPress=\{handleOrderTicketBack\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="orderTicket\.back"[\s\S]*latencyBudgetMs=\{50\}[\s\S]*unstable_pressDelay=\{0\}/);
+  assert.doesNotMatch(source, /onPress=\{handleOrderTicketBack\}[\s\S]{0,240}activateOnTouchStart/);
   assert.match(source, /const wasFocusedRef = useRef\(false\);[\s\S]*if \(isScreenFocused\) \{[\s\S]*wasFocusedRef\.current = true;[\s\S]*if \(wasFocusedRef\.current\) \{[\s\S]*hideOrderTicketLaunch\(\)/);
   assert.match(source, /if \(!isScreenFocused \|\| !contentReady\) \{[\s\S]*return;[\s\S]*hideOrderTicketLaunch\(\)/);
   assert.match(launchShellSource, /backLatencyLabel = 'orderTicket\.shell\.back'/);

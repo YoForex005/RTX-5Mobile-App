@@ -20,6 +20,14 @@ test('native chart position SL/TP modification is live-quote and epoch guarded',
   assert.match(body, /getActiveBrokerSessionIdentity\(sessionCapture\.session\)/);
   assert.match(body, /isActiveBrokerSessionCurrent\(sessionIdentity\)/);
   assert.match(body, /position\.side === 'buy'[\s\S]*quoteAvailability\.bid[\s\S]*quoteAvailability\.ask/);
-  assert.match(body, /if \(!isModifySessionCurrent\(\)\) return;/g);
+  assert.match(
+    body,
+    /String\(accountLogin\) !== sessionCapture\.session\.accountLogin[\s\S]*!isModifySessionCurrent\(\)/,
+  );
+  assert.match(
+    body,
+    /submitModifyPosition\(\{[\s\S]*ticket: position\.id,[\s\S]*accountLogin: sessionCapture\.session\.accountLogin/,
+  );
+  assert.doesNotMatch(body, /positionsApi\.modifyPosition|applyLocalStopPatch|AbortController/);
   assert.doesNotMatch(body, /accountDetails\?\.credentials\?\.accessToken/);
 });

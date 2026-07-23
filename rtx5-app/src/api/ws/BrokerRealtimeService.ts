@@ -19,9 +19,14 @@ import { redactDiagnosticValue } from '../../utils/securityRedaction';
 import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope';
 import {
   filterRealtimePositionRows,
-  isAuthoritativeRealtimePositionsBatch,
 } from './realtimePositionPolicy';
 import { extractLiveAccountMetrics } from './accountSocket.helpers';
+import {
+  notifyModifyPositionSocketHint,
+  notifyModifyPositionSocketSubscription,
+} from '../../features/trade/modifyPositionCoordinator';
+import { hasProtectedPositionsMutation } from '../../state/positionsMutationBarrier';
+import { isTerminalPositionUpdate } from '../../state/positionsState.helpers';
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 15000;
@@ -82,6 +87,34 @@ const isAuthSessionUnavailable = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error ?? '');
   return AUTH_SESSION_UNAVAILABLE_PATTERN.test(message);
 };
+
+export const stripUnversionedPositionProtection = (
+  row: Record<string, unknown>,
+): Record<string, unknown> => {
+  const {
+    price_sl: _priceSl,
+    price_tp: _priceTp,
+    sl: _sl,
+    tp: _tp,
+    status: _status,
+    state: _state,
+    position_state: _positionState,
+    positionStatus: _positionStatus,
+    action: _action,
+    event: _event,
+    type: _type,
+    ...safe
+  } = row;
+  return safe;
+};
+
+const resolvePositionHintTickets = (
+  rows: ReadonlyArray<Record<string, unknown>>,
+): Array<string | number> => rows
+  .map((row) => row.ticket ?? row.position_ticket)
+  .filter((ticket): ticket is string | number => (
+    typeof ticket === 'string' || typeof ticket === 'number'
+  ));
 
 const sameIdentity = (
   left: ActiveBrokerSessionIdentity | null,
@@ -294,6 +327,7 @@ class BrokerRealtimeService {
     this.activeChannels.forEach((channel) => {
       this.send({ action: 'subscribe', channel });
     });
+    notifyModifyPositionSocketSubscription();
   }
 
   private handleMessage(payload: unknown, identity: ActiveBrokerSessionIdentity): boolean {
@@ -383,20 +417,29 @@ class BrokerRealtimeService {
       rows,
       positionsState.positions,
     );
+    notifyModifyPositionSocketHint(
+      resolvePositionHintTickets(acceptedRows),
+      identity.accountLogin,
+    );
     if (rejectedRows > 0) {
       this.schedulePositionsReconciliation(identity);
     }
+    if (acceptedRows.some(isTerminalPositionUpdate)) {
+      this.schedulePositionsReconciliation(identity);
+    }
 
-    // A clean, explicitly full/snapshot batch may replace the ledger. Any
-    // scoped/default batch preserves missing rows. A malformed full batch also
-    // preserves them until canonical REST reconciliation arrives, avoiding a
-    // second disappear/reappear blink while rejecting unsafe event ids.
-    const isAuthoritative =
-      rejectedRows === 0 &&
-      isAuthoritativeRealtimePositionsBatch(eventName, envelope);
-    positionsState.applyPositionsSnapshot(acceptedRows, identity.accountLogin, {
-      preserveMissingExisting: !isAuthoritative,
-    });
+    // Current positions websocket messages are unversioned hints. They may
+    // update live non-protection fields, but cannot confirm SL/TP or delete a
+    // ticket by array absence. Only an eligible REST reconciliation may do so.
+    positionsState.applyPositionsSnapshot(
+      acceptedRows.map(stripUnversionedPositionProtection),
+      identity.accountLogin,
+      {
+        preserveMissingExisting: true,
+      },
+    );
+    void eventName;
+    void envelope;
   }
 
   private applyRealtimePositionUpdate(
@@ -414,7 +457,14 @@ class BrokerRealtimeService {
     }
 
     if (acceptedRows[0]) {
-      positionsState.upsertPosition(acceptedRows[0]);
+      notifyModifyPositionSocketHint(
+        resolvePositionHintTickets(acceptedRows),
+        identity.accountLogin,
+      );
+      if (isTerminalPositionUpdate(acceptedRows[0])) {
+        this.schedulePositionsReconciliation(identity);
+      }
+      positionsState.upsertPosition(stripUnversionedPositionProtection(acceptedRows[0]));
     }
   }
 
@@ -450,6 +500,10 @@ class BrokerRealtimeService {
       }
 
       this.lastPositionsReconcileAt = Date.now();
+      if (hasProtectedPositionsMutation()) {
+        notifyModifyPositionSocketHint(undefined, identity.accountLogin);
+        return;
+      }
       void usePositionsState.getState().refreshPositions(identity.accountLogin);
     }, delayMs);
   }

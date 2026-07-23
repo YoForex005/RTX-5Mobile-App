@@ -348,6 +348,7 @@ export function MarketStatisticsInteractiveContent({
         <View style={styles.headerRow}>
           <Pressable
             onPress={onBack}
+            activateOnPressIn
             latencyLabel="quoteInfo.marketStatistics.back"
             latencyBudgetMs={50}
             unstable_pressDelay={0}

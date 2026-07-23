@@ -466,6 +466,7 @@ export function SymbolDetailsInteractiveContent({
         <View style={{ height: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10 }}>
           <Pressable
             onPress={onBack}
+            activateOnPressIn
             latencyLabel="quoteInfo.properties.back"
             latencyBudgetMs={50}
             unstable_pressDelay={0}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { apiClient } from '../../api/apiClient';
 import { normalizeQuoteTickPayload } from '../../api/ws/quoteTickNormalizer';
 import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket';
@@ -228,6 +228,16 @@ const resolveSnapshot = (symbol: string): LiveQuoteSnapshot | undefined => {
 
   return snapshots.find((snapshot) => getQuoteFreshnessAnchor(snapshot) !== undefined) ?? snapshots[0];
 };
+
+/**
+ * Imperative latest-value read for execution-time integrity checks.
+ *
+ * A screen may coalesce render notifications to keep touch work responsive,
+ * while this accessor still returns the newest in-memory websocket snapshot.
+ */
+export const getCurrentLiveQuoteSnapshot = (
+  symbol: string,
+): LiveQuoteSnapshot | undefined => resolveSnapshot(normalizeQuoteSymbolKey(symbol));
 
 export const subscribeLiveQuoteSnapshots = (
   symbols: string[],
@@ -620,19 +630,75 @@ export function useWatchlistLiveQuotes(
   return active && cacheNamespace ? subscriptionSymbols : [];
 }
 
-export function useLiveQuoteSnapshot(symbol: string, active = true): LiveQuoteSnapshot | undefined {
+export function useLiveQuoteSnapshot(
+  symbol: string,
+  active = true,
+  renderIntervalMs = 0,
+): LiveQuoteSnapshot | undefined {
   const cacheNamespace = useActiveQuoteCacheNamespace();
   const normalizedSymbol = useMemo(() => normalizeQuoteSymbolKey(symbol), [symbol]);
+  const safeRenderIntervalMs = Math.max(0, Math.floor(renderIntervalMs));
+  const renderScopeKey = active && cacheNamespace && normalizedSymbol
+    ? `${cacheNamespace}|${normalizedSymbol}`
+    : '';
+  const renderSnapshotRef = useRef<{
+    scopeKey: string;
+    value: LiveQuoteSnapshot | undefined;
+  }>({ scopeKey: '', value: undefined });
+  if (renderSnapshotRef.current.scopeKey !== renderScopeKey) {
+    renderSnapshotRef.current = {
+      scopeKey: renderScopeKey,
+      value: renderScopeKey ? resolveSnapshot(normalizedSymbol) : undefined,
+    };
+  }
 
   const subscribe = useCallback(
     (listener: SnapshotListener) => {
-      if (!active || !cacheNamespace) {
+      if (!active || !cacheNamespace || !normalizedSymbol) {
         return () => {};
       }
 
-      return subscribeSnapshot(normalizedSymbol, listener);
+      if (safeRenderIntervalMs === 0) {
+        return subscribeSnapshot(normalizedSymbol, listener);
+      }
+
+      // Catch a tick that landed between render and subscription. React's
+      // post-subscribe consistency check will observe this committed value.
+      renderSnapshotRef.current = {
+        scopeKey: renderScopeKey,
+        value: resolveSnapshot(normalizedSymbol),
+      };
+      let renderTimer: ReturnType<typeof setTimeout> | null = null;
+      let cancelled = false;
+      const notifyAtRenderCadence = () => {
+        if (renderTimer) {
+          return;
+        }
+        // Leading ticks update the in-memory snapshot synchronously; one
+        // trailing notification then commits the latest value to this screen.
+        renderTimer = setTimeout(() => {
+          renderTimer = null;
+          if (!cancelled) {
+            renderSnapshotRef.current = {
+              scopeKey: renderScopeKey,
+              value: resolveSnapshot(normalizedSymbol),
+            };
+            listener();
+          }
+        }, safeRenderIntervalMs);
+      };
+      const unsubscribe = subscribeSnapshot(normalizedSymbol, notifyAtRenderCadence);
+
+      return () => {
+        cancelled = true;
+        if (renderTimer) {
+          clearTimeout(renderTimer);
+          renderTimer = null;
+        }
+        unsubscribe();
+      };
     },
-    [active, cacheNamespace, normalizedSymbol],
+    [active, cacheNamespace, normalizedSymbol, renderScopeKey, safeRenderIntervalMs],
   );
 
   const getSnapshot = useCallback(
@@ -640,8 +706,15 @@ export function useLiveQuoteSnapshot(symbol: string, active = true): LiveQuoteSn
     // inactive instance is not subscribed, so its snapshot must not track the
     // live per-symbol object — that made every tick fail React's
     // store-consistency check and sync-re-render hidden shells and screens.
-    () => (active && cacheNamespace && normalizedSymbol ? resolveSnapshot(normalizedSymbol) : undefined),
-    [active, cacheNamespace, normalizedSymbol],
+    () => {
+      if (!active || !cacheNamespace || !normalizedSymbol) {
+        return undefined;
+      }
+      return safeRenderIntervalMs === 0
+        ? resolveSnapshot(normalizedSymbol)
+        : renderSnapshotRef.current.value;
+    },
+    [active, cacheNamespace, normalizedSymbol, safeRenderIntervalMs],
   );
 
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);

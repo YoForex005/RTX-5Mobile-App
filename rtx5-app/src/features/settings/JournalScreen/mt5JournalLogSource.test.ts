@@ -54,7 +54,10 @@ test('positions API records close and SLTP modify journal rows', () => {
   assert.match(source, /recordModifyPositionJournalSuccess/);
   assert.match(source, /recordModifyPositionJournalFailure/);
   assert.match(source, /recordClosePositionJournalRequest\(descriptor\.ticket, descriptor\.journalPayload\)/);
-  assert.match(source, /recordModifyPositionJournalRequest\(ticketId, payload\)/);
+  assert.match(
+    source,
+    /recordModifyPositionJournalRequest\(normalizedTicket\.path, normalizedPayload\)/,
+  );
 });
 
 test('terminal journal store writes MT5-like trade lines', () => {

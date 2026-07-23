@@ -1,0 +1,173 @@
+import { useSyncExternalStore } from 'react';
+
+import {
+  normalizeModifyPositionRequest,
+  normalizePositiveSafeIntegerPathSegment,
+  positionsApi,
+  type ModifyPositionRequest,
+} from '../../api/positions';
+import {
+  captureActiveBrokerSession,
+  subscribeActiveBrokerSession,
+} from '../../state/activeBrokerSession';
+import { usePositionsState } from '../../state/positionsState';
+import { beginProtectedPositionsMutation } from '../../state/positionsMutationBarrier';
+import {
+  fingerprintMarketDataHost,
+  recordMarketDataEvent,
+} from '../../market/marketDataTelemetry';
+import {
+  ModifyPositionCoordinatorCore,
+  type ModifyPositionCoordinatorResult,
+  type TicketMutationState,
+} from './modifyPositionCoordinatorCore';
+
+const MODIFY_POSITION_TIMEOUT_MS = 10_000;
+
+const coordinator = new ModifyPositionCoordinatorCore({
+  modify: (input) => positionsApi.modifyPosition(
+    input.ticket,
+    input.request,
+    {
+      expectedSymbol: input.symbol,
+      timeoutMs: MODIFY_POSITION_TIMEOUT_MS,
+      onResponseMetadata: (metadata) => {
+        const capture = captureActiveBrokerSession();
+        if (!capture || capture.session.cacheNamespace !== input.sessionKey) return;
+        recordMarketDataEvent('modify_position', {
+          phase: 'http_response',
+          brokerId: capture.session.brokerId,
+          apiHostFingerprint: fingerprintMarketDataHost(capture.session.apiBase),
+          ticket: input.ticket,
+          accountLogin: input.accountLogin,
+          ...metadata,
+        });
+      },
+    },
+  ),
+  readPositions: async (input) => (
+    await positionsApi.getPositionsForReconciliation(
+      input.accountLogin,
+      { timeoutMs: MODIFY_POSITION_TIMEOUT_MS },
+    )
+  ) as unknown as ReadonlyArray<Record<string, unknown>>,
+  commitPosition: (position, input) => {
+    usePositionsState.getState().applyPositionReconciliation(
+      input.ticket,
+      position,
+      String(input.accountLogin),
+    );
+  },
+  captureConfirmed: (input) => {
+    const position = usePositionsState.getState().positions.find(
+      (candidate) => String(candidate.id) === String(input.ticket),
+    );
+    if (!position) return undefined;
+    const priceSl = Number(position.sl);
+    const priceTp = Number(position.tp);
+    return Object.freeze({
+      price_sl: Number.isFinite(priceSl) && priceSl > 0 ? priceSl : 0,
+      price_tp: Number.isFinite(priceTp) && priceTp > 0 ? priceTp : 0,
+    });
+  },
+  isSessionCurrent: (sessionKey) =>
+    captureActiveBrokerSession()?.session.cacheNamespace === sessionKey,
+  beginProtectedMutation: beginProtectedPositionsMutation,
+  recordEvent: (phase, input, details) => {
+    const capture = captureActiveBrokerSession();
+    if (!capture || capture.session.cacheNamespace !== input.sessionKey) return;
+    recordMarketDataEvent('modify_position', {
+      phase,
+      brokerId: capture.session.brokerId,
+      apiHostFingerprint: fingerprintMarketDataHost(capture.session.apiBase),
+      ticket: input.ticket,
+      accountLogin: input.accountLogin,
+      ...details,
+    });
+  },
+});
+
+subscribeActiveBrokerSession((event) => {
+  if (event.type === 'transition') {
+    coordinator.resetSession();
+  }
+});
+
+export type SubmitModifyPositionInput = Readonly<{
+  ticket: string | number;
+  symbol: string;
+  accountLogin: string | number;
+  request: ModifyPositionRequest;
+}>;
+
+export const submitModifyPosition = (
+  input: SubmitModifyPositionInput,
+): Promise<ModifyPositionCoordinatorResult> => {
+  const capture = captureActiveBrokerSession();
+  if (!capture) {
+    throw new Error('The active broker session is unavailable.');
+  }
+  const ticket = normalizePositiveSafeIntegerPathSegment(input.ticket, 'Position ticket');
+  const accountLogin = normalizePositiveSafeIntegerPathSegment(input.accountLogin, 'Account login');
+  const symbol = input.symbol.trim();
+  if (!symbol) {
+    throw new TypeError('Modify Position requires the selected position symbol.');
+  }
+  if (accountLogin.path !== capture.session.accountLogin) {
+    throw new Error('The selected position does not belong to the active broker session.');
+  }
+
+  const request = normalizeModifyPositionRequest(input.request);
+  recordMarketDataEvent('modify_position', {
+    phase: 'user_action',
+    brokerId: capture.session.brokerId,
+    apiHostFingerprint: fingerprintMarketDataHost(capture.session.apiBase),
+    ticket: ticket.numeric,
+    accountLogin: accountLogin.numeric,
+  });
+  return coordinator.submit(Object.freeze({
+    ticket: ticket.numeric,
+    symbol,
+    accountLogin: accountLogin.numeric,
+    sessionKey: capture.session.cacheNamespace,
+    request,
+  }));
+};
+
+export const notifyModifyPositionSocketHint = (
+  tickets?: ReadonlyArray<string | number>,
+  accountLogin?: string | number,
+): void => {
+  coordinator.notifyPositionsHint(tickets, accountLogin);
+};
+
+export const notifyModifyPositionSocketSubscription = (): void => {
+  coordinator.notifySocketSubscription();
+};
+
+export const getModifyPositionTicketState = (
+  ticket: string | number,
+): TicketMutationState => coordinator.getTicketState(ticket);
+
+export const subscribeModifyPositionTicket = (
+  ticket: string | number,
+  listener: () => void,
+): (() => void) => coordinator.subscribe(ticket, listener);
+
+export const useModifyPositionTicketState = (
+  ticket: string | number | null | undefined,
+): TicketMutationState => {
+  const key = String(ticket ?? '');
+  return useSyncExternalStore(
+    (listener) => coordinator.subscribe(key, listener),
+    () => coordinator.getTicketState(key),
+    () => coordinator.getTicketState(key),
+  );
+};
+
+export type {
+  ModifyPositionCoordinatorResult,
+  ModifyPositionCoordinatorResultStatus,
+  ModifyPositionCoordinatorPhase,
+  TicketMutationState,
+} from './modifyPositionCoordinatorCore';

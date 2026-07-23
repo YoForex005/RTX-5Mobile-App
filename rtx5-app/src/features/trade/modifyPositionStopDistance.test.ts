@@ -2,91 +2,42 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  clampStopTargetToMinDistance,
-  isStopTargetDistanceValid,
   isStopTargetOnCorrectSide,
-  resolveStopTargetDistancePoints,
-  validateStopTargetsDistance,
+  resolveStopTargetPresetDirection,
+  snapStopTargetToTickSize,
 } from './modifyPositionStopDistance.ts';
 
-const POINT = 0.00001;
-const MARKET = 1.10000;
-const MESSAGES = {
-  buySl: 'buy-sl',
-  sellSl: 'sell-sl',
-  buyTp: 'buy-tp',
-  sellTp: 'sell-tp',
-} as const;
+const MARKET = 1.1;
 
-test('distance points are measured from the closing market price', () => {
-  assert.ok(Math.abs(resolveStopTargetDistancePoints(1.09995, MARKET, POINT) - 5) < 1e-6);
-  assert.ok(Math.abs(resolveStopTargetDistancePoints(1.09996, MARKET, POINT) - 4) < 1e-6);
+test('buy uses Bid-side directions and sell uses Ask-side directions', () => {
+  assert.equal(isStopTargetOnCorrectSide('sl', 'buy', 1.09999, MARKET), true);
+  assert.equal(isStopTargetOnCorrectSide('tp', 'buy', 1.10001, MARKET), true);
+  assert.equal(isStopTargetOnCorrectSide('sl', 'sell', 1.10001, MARKET), true);
+  assert.equal(isStopTargetOnCorrectSide('tp', 'sell', 1.09999, MARKET), true);
+
+  assert.equal(isStopTargetOnCorrectSide('sl', 'buy', MARKET, MARKET), false);
+  assert.equal(isStopTargetOnCorrectSide('tp', 'buy', 1.09999, MARKET), false);
+  assert.equal(isStopTargetOnCorrectSide('sl', 'sell', 1.09999, MARKET), false);
+  assert.equal(isStopTargetOnCorrectSide('tp', 'sell', 1.10001, MARKET), false);
 });
 
-test('buy SL must be below market by at least 5 points', () => {
-  assert.equal(isStopTargetOnCorrectSide('sl', 'buy', 1.09990, MARKET), true);
-  assert.equal(isStopTargetOnCorrectSide('sl', 'buy', 1.10010, MARKET), false);
-  assert.equal(isStopTargetDistanceValid('sl', 'buy', 1.09995, MARKET, POINT), true);
-  assert.equal(isStopTargetDistanceValid('sl', 'buy', 1.09996, MARKET, POINT), false);
-  assert.equal(isStopTargetDistanceValid('sl', 'buy', 1.10000, MARKET, POINT), false);
+test('preset direction is correct for every Buy/Sell SL/TP combination', () => {
+  assert.equal(resolveStopTargetPresetDirection('sl', 'buy'), -1);
+  assert.equal(resolveStopTargetPresetDirection('tp', 'buy'), 1);
+  assert.equal(resolveStopTargetPresetDirection('sl', 'sell'), 1);
+  assert.equal(resolveStopTargetPresetDirection('tp', 'sell'), -1);
 });
 
-test('sell SL must be above market by at least 5 points', () => {
-  assert.equal(isStopTargetDistanceValid('sl', 'sell', 1.10005, MARKET, POINT), true);
-  assert.equal(isStopTargetDistanceValid('sl', 'sell', 1.10004, MARKET, POINT), false);
-  assert.equal(isStopTargetDistanceValid('sl', 'sell', 1.09990, MARKET, POINT), false);
+test('tick snapping is deterministic for common precision and preserves clear zero', () => {
+  assert.equal(snapStopTargetToTickSize(123.456, 0.01, 2), 123.46);
+  assert.equal(snapStopTargetToTickSize(1.23456, 0.001, 3), 1.235);
+  assert.equal(snapStopTargetToTickSize(1.23456, 0.0001, 4), 1.2346);
+  assert.equal(snapStopTargetToTickSize(1.234567, 0.00001, 5), 1.23457);
+  assert.equal(snapStopTargetToTickSize(0, Number.NaN, 5), 0);
 });
 
-test('buy/sell TP enforce the opposite side and five-point floor', () => {
-  assert.equal(isStopTargetDistanceValid('tp', 'buy', 1.10005, MARKET, POINT), true);
-  assert.equal(isStopTargetDistanceValid('tp', 'buy', 1.10004, MARKET, POINT), false);
-  assert.equal(isStopTargetDistanceValid('tp', 'sell', 1.09995, MARKET, POINT), true);
-  assert.equal(isStopTargetDistanceValid('tp', 'sell', 1.09996, MARKET, POINT), false);
-});
-
-test('validateStopTargetsDistance reports the first invalid level', () => {
-  assert.equal(
-    validateStopTargetsDistance({
-      side: 'buy',
-      marketPrice: MARKET,
-      point: POINT,
-      stopLoss: 1.09996,
-      takeProfit: null,
-      messages: MESSAGES,
-    }),
-    'buy-sl',
-  );
-  assert.equal(
-    validateStopTargetsDistance({
-      side: 'buy',
-      marketPrice: MARKET,
-      point: POINT,
-      stopLoss: 1.09990,
-      takeProfit: 1.10004,
-      messages: MESSAGES,
-    }),
-    'buy-tp',
-  );
-  assert.equal(
-    validateStopTargetsDistance({
-      side: 'buy',
-      marketPrice: MARKET,
-      point: POINT,
-      stopLoss: 1.09990,
-      takeProfit: 1.10010,
-      messages: MESSAGES,
-    }),
-    null,
-  );
-});
-
-test('clamp snaps stepper values onto the legal side of the five-point band', () => {
-  assert.equal(
-    clampStopTargetToMinDistance(1.09999, 'sl', 'buy', MARKET, POINT * 5),
-    MARKET - POINT * 5,
-  );
-  assert.equal(
-    clampStopTargetToMinDistance(1.10001, 'tp', 'buy', MARKET, POINT * 5),
-    MARKET + POINT * 5,
-  );
+test('missing/invalid tick size never invents a point or constraint', () => {
+  assert.throws(() => snapStopTargetToTickSize(1.2, 0, 5), /positive broker tick size/);
+  assert.throws(() => snapStopTargetToTickSize(1.2, Number.NaN, 5), /positive broker tick size/);
+  assert.throws(() => snapStopTargetToTickSize(Number.POSITIVE_INFINITY, 0.01, 2), /finite non-negative/);
 });

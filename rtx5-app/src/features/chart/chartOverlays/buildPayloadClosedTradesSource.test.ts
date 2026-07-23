@@ -18,7 +18,7 @@ test('overlay payload builder wires closed-position markers when trade sides are
   );
 });
 
-test('buildClosedPositionMarkers places Closed markers on the candle series', () => {
+test('buildClosedPositionMarkers places compact unlabeled exit markers on the candle series', () => {
   const candles = [
     { time: 1_700_000_000, open: 1, high: 2, low: 0.5, close: 1.5 },
     { time: 1_700_000_060, open: 1.5, high: 2.1, low: 1.4, close: 2 },
@@ -45,7 +45,7 @@ test('buildClosedPositionMarkers places Closed markers on the candle series', ()
     'EURUSD',
   );
   assert.equal(markers.length, 1);
-  assert.equal(markers[0].text, 'Closed');
+  assert.equal(markers[0].text, undefined);
   assert.equal(markers[0].time, 1_700_000_060);
   assert.equal(markers[0].price, 1.15);
 });
@@ -82,5 +82,7 @@ test('buildChartOverlayPayload includes closed markers when buy/sell trade is en
     sellColor: '#DC2626',
     showOnChart: { buyTrade: true, sellTrade: true, slTpLevels: true },
   });
-  assert.ok(payload.markers.some((marker) => marker.text === 'Closed'));
+  const closedMarker = payload.markers.find((marker) => marker.id === 'closed-7');
+  assert.ok(closedMarker, 'the historical exit marker must remain on the chart');
+  assert.equal(closedMarker.text, undefined);
 });

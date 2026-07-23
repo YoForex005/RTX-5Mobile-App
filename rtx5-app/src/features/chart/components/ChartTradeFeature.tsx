@@ -15,6 +15,7 @@ import {
   shouldShowChartTradeSheetMarketExecutionButtons,
 } from '../chartTradeInteractionUtils';
 import { LiveOrderTickExecutionGraph } from '../../trade/OrderTickExecutionGraph';
+import { isPendingOrderTypeBackendLocked } from '../../trade/tradeBackendCapabilities';
 import { useTranslation } from '../../../i18n/useTranslation';
 
 const FOOTER_LOT_PICKER_BASE_OFFSET = 54;
@@ -45,6 +46,18 @@ function ChartTradeSheetHeaderActions({
   const { t } = useTranslation();
   const slEnabled = !!sheet.chartTradeSlEnabled;
   const tpEnabled = !!sheet.chartTradeTpEnabled;
+  const selectionRequired =
+    !isPendingChartOrderType(sheet.chartTradeOrderType) &&
+    (
+      !!sheet.chartPositionSelectionInvalid ||
+      (
+        Array.isArray(sheet.chartPositionCandidates) &&
+        sheet.chartPositionCandidates.length > 1 &&
+        !sheet.chartSelectedPositionTicket
+      )
+    );
+  const protectionControlsDisabled =
+    !!sheet.chartProtectionBackendLocked || selectionRequired;
   return (
     <View style={styles.chartTradeQuickActions}>
       <Pressable
@@ -52,12 +65,14 @@ function ChartTradeSheetHeaderActions({
           styles.chartTradeQuickChip,
           styles.chartTradeQuickChipSl,
           slEnabled && styles.chartTradeQuickChipSlActive,
+          protectionControlsDisabled && { opacity: 0.5 },
         ]}
         onPress={() => handlers.onToggleStopLevel('sl')}
+        disabled={protectionControlsDisabled}
         unstable_pressDelay={0}
         accessibilityRole="button"
         accessibilityLabel={t('Stop Loss')}
-        accessibilityState={{ selected: slEnabled }}
+        accessibilityState={{ selected: slEnabled, disabled: protectionControlsDisabled }}
       >
         <Text style={[styles.chartTradeQuickChipText, slEnabled && styles.chartTradeQuickChipTextActive]}>
           SL
@@ -68,12 +83,14 @@ function ChartTradeSheetHeaderActions({
           styles.chartTradeQuickChip,
           styles.chartTradeQuickChipTp,
           tpEnabled && styles.chartTradeQuickChipTpActive,
+          protectionControlsDisabled && { opacity: 0.5 },
         ]}
         onPress={() => handlers.onToggleStopLevel('tp')}
+        disabled={protectionControlsDisabled}
         unstable_pressDelay={0}
         accessibilityRole="button"
         accessibilityLabel={t('Take Profit')}
-        accessibilityState={{ selected: tpEnabled }}
+        accessibilityState={{ selected: tpEnabled, disabled: protectionControlsDisabled }}
       >
         <Text style={[styles.chartTradeQuickChipText, tpEnabled && styles.chartTradeQuickChipTextActive]}>
           TP
@@ -284,14 +301,106 @@ function ChartTradeStopLevelsSection({
   const slEnabled = !!sheet.chartTradeSlEnabled;
   const tpEnabled = !!sheet.chartTradeTpEnabled;
   const showStopControls = slEnabled || tpEnabled;
-  const protectionStatus = showStopControls ? t('Active') : t('Off');
+  const modifyPhase = String(sheet.chartModifyTicketState?.phase ?? 'idle');
+  const positionCandidates = Array.isArray(sheet.chartPositionCandidates)
+    ? sheet.chartPositionCandidates
+    : [];
+  const positionSelectionRequired =
+    !isPendingChartOrderType(sheet.chartTradeOrderType) &&
+    (
+      !!sheet.chartPositionSelectionInvalid ||
+      (positionCandidates.length > 1 && !sheet.chartSelectedPositionTicket)
+    );
+  const protectionCapabilityLocked = !!sheet.chartProtectionBackendLocked;
+  const modifyRateLimited = !!sheet.chartModifyRateLimited;
+  const protectionControlsDisabled =
+    protectionCapabilityLocked || positionSelectionRequired || modifyRateLimited;
+  const protectionStatus = protectionCapabilityLocked
+    ? t('Unavailable')
+    : modifyRateLimited
+      ? t('Rate limited')
+    : positionSelectionRequired
+      ? t('Select position')
+    : modifyPhase === 'pending'
+      ? t('Saving')
+      : modifyPhase === 'reconciling'
+        ? t('Confirming')
+        : modifyPhase === 'unknown'
+          ? t('Outcome unknown')
+          : modifyPhase === 'changed_elsewhere'
+            ? t('Changed elsewhere')
+            : modifyPhase === 'position_unavailable'
+              ? t('Unavailable')
+              : modifyPhase === 'rejected'
+                ? t('Not saved')
+                : modifyPhase === 'saved'
+                  ? t('Saved')
+                  : showStopControls
+                    ? t('Active')
+                    : t('Off');
+  const showPositionSelector =
+    !isPendingChartOrderType(sheet.chartTradeOrderType) &&
+    (positionCandidates.length > 0 || !!sheet.chartPositionSelectionInvalid);
+  const stopsTargetExistingPosition = !!sheet.chartStopsTargetExistingPosition;
+  const protectionContextLabel = stopsTargetExistingPosition
+    ? t('Position protection')
+    : isPendingChartOrderType(sheet.chartTradeOrderType)
+      ? t('Pending order protection')
+      : t('New order protection');
 
   return (
     <>
+      {showPositionSelector ? (
+        <View style={styles.chartTradePositionSelector}>
+          <Text style={styles.chartTradeProtectionEyebrow}>{t('Position')}</Text>
+          <View style={styles.chartTradePositionSelectorList}>
+            {positionCandidates.map((position: any) => {
+              const ticket = String(position.id);
+              const selected = String(sheet.chartSelectedPositionTicket ?? '') === ticket;
+              return (
+                <Pressable
+                  key={ticket}
+                  style={[
+                    styles.chartTradePositionSelectorItem,
+                    selected && styles.chartTradePositionSelectorItemSelected,
+                  ]}
+                  onPress={() => handlers.onSelectPositionTicket(ticket)}
+                  unstable_pressDelay={0}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={`${t('Position')} ${ticket}`}
+                >
+                  <Text
+                    style={[
+                      styles.chartTradePositionSelectorTicket,
+                      selected && styles.chartTradePositionSelectorTicketSelected,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    #{ticket} {String(position.side ?? '').toUpperCase()}
+                  </Text>
+                  <Text style={styles.chartTradePositionSelectorMeta} numberOfLines={1}>
+                    {Number(position.volume ?? 0).toFixed(2)} @ {String(position.openPrice ?? 0)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {sheet.chartPositionSelectionInvalid ? (
+            <Text style={styles.chartTradePositionSelectorError}>
+              {t('The selected position is no longer available. Select another ticket.')}
+            </Text>
+          ) : positionCandidates.length > 1 && !sheet.chartSelectedPositionTicket ? (
+            <Text style={styles.chartTradePositionSelectorError}>
+              {t('Select the exact position ticket before changing SL/TP.')}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
       <View style={styles.chartTradeProtectionHeader}>
         <View style={styles.chartTradeProtectionTitleGroup}>
           <Text style={styles.chartTradeProtectionEyebrow} numberOfLines={1}>
-            {t('Protection')}
+            {protectionContextLabel}
           </Text>
           <Text style={styles.chartTradeProtectionTitle} numberOfLines={1}>
             {t('Stop Loss')} / {t('Take Profit')}
@@ -316,11 +425,17 @@ function ChartTradeStopLevelsSection({
       </View>
 
       <Pressable
-        style={[styles.chartTradeStopButton, useMtPendingTradeSheetLayout && styles.chartTradeStopButtonPending]}
+        style={[
+          styles.chartTradeStopButton,
+          useMtPendingTradeSheetLayout && styles.chartTradeStopButtonPending,
+          protectionControlsDisabled && { opacity: 0.5 },
+        ]}
         onPress={handlers.onEnableStops}
+        disabled={protectionControlsDisabled}
         unstable_pressDelay={0}
         accessibilityRole="button"
         accessibilityLabel={slEnabled || tpEnabled ? t('Edit Stop Levels') : t('Add Stop Levels')}
+        accessibilityState={{ disabled: protectionControlsDisabled }}
       >
         <View style={styles.chartTradeStopButtonContent}>
           <View style={styles.chartTradeStopButtonIcon}>
@@ -343,6 +458,7 @@ function ChartTradeStopLevelsSection({
                   key={unit.key}
                   style={[styles.chartTradeStopUnitTab, active && styles.chartTradeStopUnitTabActive]}
                   onPress={() => handlers.onSelectStopUnit(unit.key)}
+                  disabled={protectionControlsDisabled}
                   unstable_pressDelay={0}
                 >
                   <Text style={[styles.chartTradeStopUnitTabText, active && styles.chartTradeStopUnitTabTextActive]}>{t(unit.label)}</Text>
@@ -358,6 +474,7 @@ function ChartTradeStopLevelsSection({
                 !slEnabled && styles.chartTradeStopPairCardInactive,
               ]}
               onPress={handlers.onOpenSlStepper}
+              disabled={protectionControlsDisabled}
               unstable_pressDelay={0}
               accessibilityRole="button"
               accessibilityLabel={t('Stop Loss')}
@@ -373,6 +490,7 @@ function ChartTradeStopLevelsSection({
                       event.stopPropagation?.();
                       handlers.onToggleSlLock();
                     }}
+                    disabled={protectionControlsDisabled}
                     style={[styles.chartTradeStopPairLock, sheet.chartTradeSlLocked && styles.chartTradeStopPairLockActive]}
                     unstable_pressDelay={0}
                     accessibilityRole="button"
@@ -406,6 +524,7 @@ function ChartTradeStopLevelsSection({
                 !tpEnabled && styles.chartTradeStopPairCardInactive,
               ]}
               onPress={handlers.onOpenTpStepper}
+              disabled={protectionControlsDisabled}
               unstable_pressDelay={0}
               accessibilityRole="button"
               accessibilityLabel={t('Take Profit')}
@@ -421,6 +540,7 @@ function ChartTradeStopLevelsSection({
                       event.stopPropagation?.();
                       handlers.onToggleTpLock();
                     }}
+                    disabled={protectionControlsDisabled}
                     style={[styles.chartTradeStopPairLock, sheet.chartTradeTpLocked && styles.chartTradeStopPairLockActive]}
                     unstable_pressDelay={0}
                     accessibilityRole="button"
@@ -530,6 +650,7 @@ function ChartTradeSheetContent({
         {CHART_ORDER_TYPES.map((option) => {
           const active = option === sheet.chartTradeOrderType;
           const isMarketExecution = option === 'Market Execution';
+          const isBackendLocked = isPendingOrderTypeBackendLocked(option);
           return (
             <Pressable
               key={option}
@@ -545,7 +666,12 @@ function ChartTradeSheetContent({
                 useMtPendingTradeSheetLayout && isMarketExecution && styles.chartTradeTypeTabPendingMarketExecution,
                 active && styles.chartTradeTypeTabActive,
                 useMtPendingTradeSheetLayout && active && styles.chartTradeTypeTabPendingActive,
+                isBackendLocked && styles.chartTradeTypeTabLocked,
               ]}
+              disabled={isBackendLocked}
+              accessibilityRole="button"
+              accessibilityLabel={isBackendLocked ? `${t(option)}. ${t('Locked')}` : t(option)}
+              accessibilityState={{ selected: active, disabled: isBackendLocked }}
               onPress={() => handlers.onSelectOrderType(option)}
               unstable_pressDelay={0}
             >
@@ -558,11 +684,15 @@ function ChartTradeSheetContent({
                   && styles.chartTradeTypeTabTextPendingMarketExecution,
                   active && styles.chartTradeTypeTabTextActive,
                   useMtPendingTradeSheetLayout && active && styles.chartTradeTypeTabTextPendingActive,
+                  isBackendLocked && styles.chartTradeTypeTabTextLocked,
                 ]}
                 numberOfLines={1}
               >
                 {t(option)}
               </Text>
+              {isBackendLocked ? (
+                <Ionicons name="lock-closed" size={13} color={colors.textMuted} />
+              ) : null}
             </Pressable>
           );
         })}
@@ -916,6 +1046,7 @@ function ChartTradeSheetPinnedHeader({
         {CHART_ORDER_TYPES.map((option) => {
           const active = option === sheet.chartTradeOrderType;
           const isMarketExecution = option === 'Market Execution';
+          const isBackendLocked = isPendingOrderTypeBackendLocked(option);
           return (
             <Pressable
               key={option}
@@ -931,7 +1062,12 @@ function ChartTradeSheetPinnedHeader({
                 useMtPendingTradeSheetLayout && isMarketExecution && styles.chartTradeTypeTabPendingMarketExecution,
                 active && styles.chartTradeTypeTabActive,
                 useMtPendingTradeSheetLayout && active && styles.chartTradeTypeTabPendingActive,
+                isBackendLocked && styles.chartTradeTypeTabLocked,
               ]}
+              disabled={isBackendLocked}
+              accessibilityRole="button"
+              accessibilityLabel={isBackendLocked ? `${t(option)}. ${t('Locked')}` : t(option)}
+              accessibilityState={{ selected: active, disabled: isBackendLocked }}
               onPress={() => handlers.onSelectOrderType(option)}
               unstable_pressDelay={0}
             >
@@ -944,11 +1080,15 @@ function ChartTradeSheetPinnedHeader({
                   && styles.chartTradeTypeTabTextPendingMarketExecution,
                   active && styles.chartTradeTypeTabTextActive,
                   useMtPendingTradeSheetLayout && active && styles.chartTradeTypeTabTextPendingActive,
+                  isBackendLocked && styles.chartTradeTypeTabTextLocked,
                 ]}
                 numberOfLines={1}
               >
                 {t(option)}
               </Text>
+              {isBackendLocked ? (
+                <Ionicons name="lock-closed" size={13} color={colors.textMuted} />
+              ) : null}
             </Pressable>
           );
         })}
@@ -994,6 +1134,7 @@ function ChartTradeSheetBody({
     chartTradeOrderType: sheet.chartTradeOrderType,
     showInlineFooterWhileSheetOpen: !!sheet.showInlineFooterWhileSheetOpen,
   });
+  const stopsTargetExistingPosition = !!sheet.chartStopsTargetExistingPosition;
 
   return (
     <View style={[styles.chartTradeSheetBody, useMtPendingTradeSheetLayout && styles.chartTradeSheetBodyPending]}>
@@ -1201,9 +1342,21 @@ function ChartTradeSheetBody({
             lotSize={sheet.tradeVolume}
             volumeBounds={sheet.tradeVolumeBounds}
             comment={sheet.chartTradeComment}
-            stopLossPrice={sheet.chartTradeSlEnabled ? sheet.chartTradeSlPrice : undefined}
-            takeProfitPrice={sheet.chartTradeTpEnabled ? sheet.chartTradeTpPrice : undefined}
-            pointSize={sheet.chartPointSize}
+            stopLossPrice={
+              !stopsTargetExistingPosition &&
+              !sheet.newMarketOrderProtectionBackendLocked &&
+              sheet.chartTradeSlEnabled
+                ? sheet.chartTradeSlPrice
+                : undefined
+            }
+            takeProfitPrice={
+              !stopsTargetExistingPosition &&
+              !sheet.newMarketOrderProtectionBackendLocked &&
+              sheet.chartTradeTpEnabled
+                ? sheet.chartTradeTpPrice
+                : undefined
+            }
+            pointSize={sheet.chartProtectionTickSize ?? 0}
             variant='mt5-market'
             onTradeResult={sheet.onTradeResult}
             fallbackBid={sheet.chartBid}

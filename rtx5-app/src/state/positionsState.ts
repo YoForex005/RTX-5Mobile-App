@@ -12,6 +12,7 @@ import { invalidateCurrentSessionQueryRoots } from '../query/authenticatedQueryS
 import {
   classifyTradingError,
   createFrontendTradingError,
+  parseRetryAfterSeconds,
   type TradingApiError,
   type TradingErrorFeedback,
 } from '../api/tradingErrors';
@@ -31,6 +32,10 @@ import {
   subscribeActiveBrokerSession,
   type ActiveBrokerSessionIdentity,
 } from './activeBrokerSession';
+import {
+  canCommitUncoordinatedPositionsRead,
+  capturePositionsMutationBarrier,
+} from './positionsMutationBarrier';
 
 type PositionsState = {
   positions: PositionItem[];
@@ -51,6 +56,11 @@ type PositionsState = {
     dtos: any[],
     accountLogin?: string,
     options?: Parameters<typeof buildMergedPositions>[2],
+  ) => void;
+  applyPositionReconciliation: (
+    positionId: string | number,
+    dto: Record<string, unknown> | undefined,
+    accountLogin?: string,
   ) => void;
   upsertPosition: (dto: any) => void;
   hydrateCachedPositions: (accountLogin: string) => Promise<void>;
@@ -322,8 +332,7 @@ const getRetryAfterSeconds = (error: unknown): number | null => {
     return null;
   }
 
-  const seconds = Number.parseInt(retryAfter, 10);
-  return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+  return parseRetryAfterSeconds(retryAfter);
 };
 
 export const usePositionsState = create<PositionsState>((set, get) => ({
@@ -452,6 +461,93 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
             Object.entries(state.positionSnapshots).filter(([id]) => !removedPositionIds.has(id)),
           )
           : state.positionSnapshots,
+        lastFetchLogin: accountLogin ?? state.lastFetchLogin,
+        hydratedLogin: accountLogin ?? state.hydratedLogin,
+        lastError: null,
+      };
+    }),
+
+  applyPositionReconciliation: (positionId, dto, accountLogin) =>
+    set((state) => {
+      const targetId = String(positionId).trim();
+      if (!targetId) {
+        return {};
+      }
+      if (dto && resolvePositionId(dto) !== targetId) {
+        // The coordinator must never let one ticket write another ticket.
+        return {};
+      }
+
+      const existingIndex = state.positions.findIndex(
+        (position) => String(position.id) === targetId,
+      );
+      const nextLogin =
+        accountLogin ??
+        state.lastFetchLogin ??
+        state.hydratedLogin ??
+        resolveTradingLoginString();
+
+      if (!dto || isTerminalPositionUpdate(dto)) {
+        const hasPrimedSnapshot = Object.prototype.hasOwnProperty.call(
+          state.positionSnapshots,
+          targetId,
+        );
+        if (existingIndex < 0 && !hasPrimedSnapshot) {
+          return {
+            lastFetchLogin: accountLogin ?? state.lastFetchLogin,
+            hydratedLogin: accountLogin ?? state.hydratedLogin,
+            lastError: null,
+          };
+        }
+
+        const nextPositions = state.positions.filter(
+          (position) => String(position.id) !== targetId,
+        );
+        if (existingIndex >= 0) {
+          scheduleOpenPositionsCacheWrite(nextLogin, nextPositions);
+          void invalidateCurrentSessionQueryRoots(appQueryClient, [
+            'positionHistory',
+            'accountDeals',
+            'deals',
+            'accountSummary',
+          ]);
+        }
+        return {
+          positions: nextPositions,
+          positionSnapshots: Object.fromEntries(
+            Object.entries(state.positionSnapshots).filter(([id]) => id !== targetId),
+          ),
+          lastFetchLogin: accountLogin ?? state.lastFetchLogin,
+          hydratedLogin: accountLogin ?? state.hydratedLogin,
+          lastError: null,
+        };
+      }
+
+      const existing = existingIndex >= 0 ? state.positions[existingIndex] : undefined;
+      const reconciled = mapPositionToItem(
+        dto,
+        existing,
+        { preserveMissingProtection: false },
+      );
+      if (
+        String(reconciled.id) !== targetId ||
+        reconciled.symbol === UNKNOWN_POSITION_SYMBOL
+      ) {
+        return {};
+      }
+
+      const nextPositions = [...state.positions];
+      if (existingIndex >= 0) {
+        nextPositions[existingIndex] = reconciled;
+      } else {
+        nextPositions.push(reconciled);
+      }
+      const normalizedPositions = sortPositionsNewestFirst(
+        dedupePositionsById(nextPositions),
+      );
+      scheduleOpenPositionsCacheWrite(nextLogin, normalizedPositions);
+      return {
+        positions: normalizedPositions,
         lastFetchLogin: accountLogin ?? state.lastFetchLogin,
         hydratedLogin: accountLogin ?? state.hydratedLogin,
         lastError: null,
@@ -708,8 +804,17 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
           return;
         }
 
+        const mutationBarrierSnapshot = capturePositionsMutationBarrier();
         const data = await positionsApi.getPositions(login);
         if (!isPositionsCacheScopeCurrent(cacheScope)) {
+          return;
+        }
+        if (!canCommitUncoordinatedPositionsRead(mutationBarrierSnapshot)) {
+          // The shared Modify Position coordinator owns the authoritative read
+          // while its PUT/reconciliation job is active. A poll that overlapped
+          // that job must never commit later and roll the eligible snapshot
+          // backward.
+          set({ isLoading: false });
           return;
         }
 

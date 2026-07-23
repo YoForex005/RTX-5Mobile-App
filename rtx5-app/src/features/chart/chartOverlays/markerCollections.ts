@@ -250,7 +250,9 @@ export const buildClosedPositionMarkers = (
         price: entry.closePrice,
         color: '#64748B',
         shape: isBuy ? 'circle' : 'square',
-        text: 'Closed',
+        // The marker itself records the historical exit without covering live
+        // candles with a persistent "Closed" word.
+        text: undefined,
         size: 1,
       });
       return accumulator;

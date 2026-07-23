@@ -48,6 +48,10 @@ test('trade position long-press action sheet uses the MT5 plain icon action cont
   assert.doesNotMatch(positionSheetSource, /label: t\('Close By'\)|showTradePositionAction\('close-by'/);
   assert.doesNotMatch(positionSheetSource, /color=\{T\.trading\.sell\.primary\}/);
   assert.match(positionSheetSource, /name="create-outline"[\s\S]*label: t\('Modify position'\)[\s\S]*activateOnPressIn:\s*true/);
+  assert.match(
+    positionSheetSource,
+    /if \(isExistingPositionModifyBackendLocked\(\)\) \{[\s\S]*Alert\.alert\(t\(SLTP_COMING_SOON_TITLE\), t\(SLTP_COMING_SOON_MESSAGE\)\);[\s\S]*return;[\s\S]*\}[\s\S]*primePositionSnapshot\(item\);[\s\S]*showTradePositionAction\('modify', item\.id\)/,
+  );
   assert.match(positionSheetSource, /name="swap-horizontal-outline"[\s\S]*label: t\('Trade'\)/);
   assert.match(positionSheetSource, /name="analytics-outline"[\s\S]*label: t\('Chart'\)/);
 });
@@ -73,7 +77,7 @@ test('trade position swipe drawer stays visible on iOS', () => {
   const tradeScreenSource = readSource('src/features/trade/TradeScreen/TradeScreen.tsx');
   const rowSource = readSource('src/ui/components/TradePositionRow/TradePositionRow.tsx');
 
-  assert.match(tradeScreenSource, /import \{ Text, View, FlatList, Platform \} from 'react-native'/);
+  assert.match(tradeScreenSource, /import \{ Alert, Text, View, FlatList, Platform \} from 'react-native'/);
   assert.match(tradeScreenSource, /removeClippedSubviews=\{Platform\.OS === 'android'\}/);
   assert.match(rowSource, /const TRADE_ROW_SWIPE_ACTIVE_OFFSET_X: \[number, number\] = Platform\.OS === 'ios' \? \[-10, 10\] : \[-18, 18\]/);
   assert.match(rowSource, /const TRADE_ROW_SWIPE_FAIL_OFFSET_Y: \[number, number\] = Platform\.OS === 'ios' \? \[-28, 28\] : \[-10, 10\]/);

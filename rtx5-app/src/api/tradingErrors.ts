@@ -186,15 +186,24 @@ const getErrorMessage = (error: unknown): string | null => {
   return extractDataMessage(getErrorData(error)) || cleanMessage(record.message);
 };
 
-const getRetryAfterSeconds = (headers: Record<string, string>): number | null => {
-  const retryAfter = headers['retry-after'];
-  if (!retryAfter) {
+export const parseRetryAfterSeconds = (value: unknown): number | null => {
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value > 0 ? value : null;
+  }
+  if (typeof value !== 'string') {
     return null;
   }
 
-  const seconds = Number.parseInt(retryAfter, 10);
-  return Number.isFinite(seconds) ? seconds : null;
+  const normalized = value.trim();
+  if (!/^\d+$/.test(normalized)) {
+    return null;
+  }
+  const seconds = Number(normalized);
+  return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : null;
 };
+
+const getRetryAfterSeconds = (headers: Record<string, string>): number | null =>
+  parseRetryAfterSeconds(headers['retry-after']);
 
 const looksLikeNetworkFailure = (detail: string | null): boolean => {
   if (!detail) {

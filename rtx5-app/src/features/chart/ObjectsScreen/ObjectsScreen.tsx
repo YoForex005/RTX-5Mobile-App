@@ -1211,6 +1211,7 @@ export function ObjectsScreen() {
         <View style={styles.headerRow}>
           <Pressable
             onPress={editorOpen ? closeOpenEditor : () => safeRouterBack(router, '/(tabs)/chart')}
+            activateOnPressIn
             hitSlop={16}
             style={styles.headerButton}
           >

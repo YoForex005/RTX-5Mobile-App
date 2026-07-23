@@ -10,6 +10,7 @@ import {
   type QuoteActionAvailability,
 } from '../../market/quoteIntegrity';
 import {
+  getCurrentLiveQuoteSnapshot,
   useLiveQuoteSnapshot,
   useLiveQuoteSubscription,
 } from './useLiveQuotes';
@@ -56,9 +57,13 @@ export function toExecutableQuoteInput(
  * The health subscription and one-second clock make controls disable as
  * status/freshness changes even without a tick.
  */
-export function useExecutableQuote(symbol: string, active = true) {
+export function useExecutableQuote(
+  symbol: string,
+  active = true,
+  renderIntervalMs = 0,
+) {
   useLiveQuoteSubscription(symbol, active);
-  const quote = useLiveQuoteSnapshot(symbol, active);
+  const quote = useLiveQuoteSnapshot(symbol, active, renderIntervalMs);
   // Render snapshot: stable identity between notifications (uSES contract).
   // Availability below still reads the always-fresh state internally.
   const health = useSyncExternalStore(
@@ -81,10 +86,17 @@ export function useExecutableQuote(symbol: string, active = true) {
     [health, now, executableQuote],
   );
   const getCurrentAvailability = useCallback(
-    () => resolveSessionQuoteActionAvailability(executableQuote, Date.now()),
-    [executableQuote],
+    () => {
+      const latestQuote = active
+        ? getCurrentLiveQuoteSnapshot(symbol)
+        : quote;
+      return resolveSessionQuoteActionAvailability(
+        toExecutableQuoteInput(latestQuote),
+        Date.now(),
+      );
+    },
+    [active, quote, symbol],
   );
 
   return { quote, availability, getCurrentAvailability } as const;
 }
-

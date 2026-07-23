@@ -130,6 +130,7 @@ export const QuoteInfoLaunchShell = memo(function QuoteInfoLaunchShell({
       <View style={[styles.header, { paddingTop: insets.top }]}>
         <FastPressable
           onPress={onBack}
+          activateOnPressIn
           latencyLabel={backLatencyLabel}
           latencyBudgetMs={50}
           unstable_pressDelay={0}

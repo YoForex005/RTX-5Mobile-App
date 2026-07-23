@@ -158,6 +158,98 @@ test('trade idempotency preserves a caller-provided retry key', async () => {
   api.dispose();
 });
 
+test('non-replayable mutation refreshes authentication after 401 without replaying the write', async () => {
+  activate();
+  const api = new BrokerAPI();
+  const tokenChecks: boolean[] = [];
+  const requests: Array<{ url: string; authorization: string }> = [];
+  const testApi = api as unknown as {
+    getValidAccessTokenForCapture: (
+      capture: unknown,
+      identity: unknown,
+      forceRefresh: boolean,
+    ) => Promise<string>;
+  };
+  testApi.getValidAccessTokenForCapture = async (_capture, _identity, forceRefresh) => {
+    tokenChecks.push(forceRefresh);
+    return forceRefresh ? 'access-refreshed' : 'access-broker-a';
+  };
+  globalThis.fetch = (async (input, init) => {
+    requests.push({
+      url: String(input),
+      authorization: new Headers(init?.headers).get('Authorization') ?? '',
+    });
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(init ?? {}, 'replayAfterAuthRefresh'),
+      false,
+    );
+    return new Response(
+      JSON.stringify({ error: 'UNAUTHORIZED', message: 'Expired token.' }),
+      {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
+  }) as typeof globalThis.fetch;
+
+  const response = await api.request('/positions/12345', {
+    method: 'PUT',
+    body: '{"price_sl":0,"price_tp":1.091}',
+    replayAfterAuthRefresh: false,
+  });
+
+  assert.equal(response.status, 401);
+  assert.deepEqual(tokenChecks, [false, true]);
+  assert.deepEqual(requests, [{
+    url: 'https://services.broker-a.com/api/v2/positions/12345',
+    authorization: 'Bearer access-broker-a',
+  }]);
+  api.dispose();
+});
+
+test('default 401 handling still replays eligible requests once with the refreshed token', async () => {
+  activate();
+  const api = new BrokerAPI();
+  const tokenChecks: boolean[] = [];
+  const authorizations: string[] = [];
+  const testApi = api as unknown as {
+    getValidAccessTokenForCapture: (
+      capture: unknown,
+      identity: unknown,
+      forceRefresh: boolean,
+    ) => Promise<string>;
+  };
+  testApi.getValidAccessTokenForCapture = async (_capture, _identity, forceRefresh) => {
+    tokenChecks.push(forceRefresh);
+    return forceRefresh ? 'access-refreshed' : 'access-broker-a';
+  };
+  globalThis.fetch = (async (_input, init) => {
+    authorizations.push(new Headers(init?.headers).get('Authorization') ?? '');
+    return authorizations.length === 1
+      ? new Response(
+        JSON.stringify({ error: 'UNAUTHORIZED', message: 'Expired token.' }),
+        {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      )
+      : new Response('{"ok":true}', {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+  }) as typeof globalThis.fetch;
+
+  const response = await api.request('/positions', { method: 'GET' });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(tokenChecks, [false, true]);
+  assert.deepEqual(authorizations, [
+    'Bearer access-broker-a',
+    'Bearer access-refreshed',
+  ]);
+  api.dispose();
+});
+
 test('epoch transition aborts in-flight work and discards its completion', async () => {
   activate();
   const api = new BrokerAPI();

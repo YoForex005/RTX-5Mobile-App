@@ -12,7 +12,8 @@ export type MarketDataEventName =
   | 'subscribe_ack'
   | 'health_transition'
   | 'payload_dropped'
-  | 'trade_blocked';
+  | 'trade_blocked'
+  | 'modify_position';
 
 export type MarketDataTelemetryEvent = Readonly<{
   name: MarketDataEventName;

@@ -58,6 +58,12 @@ type BuildChartOverlayPayloadInput = {
   liveAccount?: ChartOverlayLiveAccount | null;
   showOnChart: ChartShowOnChartSettings;
   activeTool?: string;
+  /**
+   * Existing-position protection remains visible while backend modification is
+   * locked, but it must not expose a drag entry point. Callers must opt in
+   * only after the active broker's existing-position capability is enabled.
+   */
+  allowPositionStopDragging?: boolean;
 };
 
 const hasEnabledTradeSides = (showOnChart: ChartShowOnChartSettings): boolean =>
@@ -155,6 +161,7 @@ export const buildChartOverlayPayload = ({
   liveAsk,
   showOnChart,
   activeTool,
+  allowPositionStopDragging = false,
 }: BuildChartOverlayPayloadInput): ChartOverlayPayload => {
   const needsPatternMarkers = activeTool === 'patterns';
   const showTradeSides = hasEnabledTradeSides(showOnChart);
@@ -239,7 +246,9 @@ export const buildChartOverlayPayload = ({
           axisLabelVisible: false,
           title: formatTpSlOverlayLabel('tp', position.symbol, parsedPrice, tpValue, Number(position.volume)),
           labelPlacement: 'line',
-          dragKey: buildChartPositionStopDragKey(position.id, 'tp'),
+          ...(allowPositionStopDragging
+            ? { dragKey: buildChartPositionStopDragKey(position.id, 'tp') }
+            : {}),
         });
       }
 
@@ -254,7 +263,9 @@ export const buildChartOverlayPayload = ({
           axisLabelVisible: false,
           title: formatTpSlOverlayLabel('sl', position.symbol, parsedPrice, slValue, Number(position.volume)),
           labelPlacement: 'line',
-          dragKey: buildChartPositionStopDragKey(position.id, 'sl'),
+          ...(allowPositionStopDragging
+            ? { dragKey: buildChartPositionStopDragKey(position.id, 'sl') }
+            : {}),
         });
       }
     }

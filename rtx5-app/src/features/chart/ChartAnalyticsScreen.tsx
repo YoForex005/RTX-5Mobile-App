@@ -218,7 +218,12 @@ export function ChartAnalyticsScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
         <View style={styles.headerRow}>
-          <Pressable onPress={() => safeRouterBack(router, '/(tabs)/chart')} hitSlop={16} style={styles.headerBackBtn}>
+          <Pressable
+            onPress={() => safeRouterBack(router, '/(tabs)/chart')}
+            activateOnPressIn
+            hitSlop={16}
+            style={styles.headerBackBtn}
+          >
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">
