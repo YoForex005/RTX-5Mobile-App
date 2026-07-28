@@ -15,7 +15,10 @@ test('quote runtime reset clears session-scoped memory state and pending timers'
   assert.match(snapshotsSource, /listenersBySymbol\.clear\(\)/);
   assert.match(snapshotsSource, /pendingNotifySymbols\.clear\(\)/);
   assert.match(snapshotsSource, /clearTimeout\(notifyTimer\)/);
-  assert.match(snapshotsSource, /captureActiveBrokerSession\(\)\?\.session\.cacheNamespace/);
+  assert.match(snapshotsSource, /captureActiveBrokerSessionOwnerStamp\(\)/);
+  assert.match(snapshotsSource, /owner\.cacheNamespace/);
+  assert.match(snapshotsSource, /owner\.credentialGeneration/);
+  assert.match(snapshotsSource, /owner\.credentialIdentity/);
   assert.match(snapshotsSource, /const scopeQuoteSnapshotKey = \(symbolKey: string\): string =>/);
   assert.doesNotMatch(
     snapshotsSource,

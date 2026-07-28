@@ -12,10 +12,27 @@ if (!CHANNELS.has(channel)) {
   process.exit(1);
 }
 
-const easBin = process.platform === "win32" ? "eas.cmd" : "eas";
 const updateArgs = ["update", "--channel", channel, "--environment", channel, "--platform", "all"];
 
-updateArgs.push(...process.argv.slice(3));
+const extraArgs = process.argv.slice(3);
+const protectedFlags = [
+  "--branch",
+  "--channel",
+  "--environment",
+  "--platform",
+  "--runtime-version",
+];
+const protectedOverride = extraArgs.find((arg) =>
+  protectedFlags.some((flag) => arg === flag || arg.startsWith(`${flag}=`)),
+);
+if (protectedOverride) {
+  console.error(
+    `Refusing protected OTA override ${protectedOverride}. The selected script owns channel, environment, platform, and runtime policy.`,
+  );
+  process.exit(2);
+}
+
+updateArgs.push(...extraArgs);
 const env = {
   ...process.env,
   CI: process.env.CI || "1",
@@ -49,24 +66,11 @@ if (channel === "production" || process.env.RTX5_OTA_BASE_REF) {
   );
 }
 
-const quoteWindowsShellArg = (value) => {
-  const arg = String(value);
-  if (!arg) return '""';
-  if (!/[\s&()<>^|"]/.test(arg)) return arg;
-  return `"${arg.replace(/"/g, '\\"')}"`;
-};
-
-const result =
-  process.platform === "win32"
-    ? spawnSync([easBin, ...updateArgs].map(quoteWindowsShellArg).join(" "), {
-        env,
-        stdio: "inherit",
-        shell: true,
-      })
-    : spawnSync(easBin, updateArgs, {
-        env,
-        stdio: "inherit",
-      });
+const easWrapper = path.join(__dirname, "run-eas-cli.js");
+const result = spawnSync(process.execPath, [easWrapper, ...updateArgs], {
+  env,
+  stdio: "inherit",
+});
 
 if (result.error) {
   console.error(result.error.message);

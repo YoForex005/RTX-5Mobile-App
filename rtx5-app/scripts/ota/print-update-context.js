@@ -24,20 +24,7 @@ const safeRun = (command, commandArgs) => {
   }
 };
 
-const quoteWindowsArg = (value) => {
-  const arg = String(value);
-  if (!arg) return '""';
-  if (!/[\s&()<>^|"]/.test(arg)) return arg;
-  return `"${arg.replace(/"/g, '\\"')}"`;
-};
-
-const runNpx = (commandArgs) => {
-  const argsWithNpx = ['npx', '--yes', ...commandArgs];
-  if (process.platform === 'win32') {
-    return run('cmd.exe', ['/d', '/s', '/c', argsWithNpx.map(quoteWindowsArg).join(' ')]);
-  }
-  return run('npx', argsWithNpx.slice(1));
-};
+const expoUpdatesCliPath = require.resolve('expo-updates/bin/cli.js');
 
 const gitSha = safeRun('git', ['rev-parse', '--short=12', 'HEAD']);
 const gitDirty = Boolean(safeRun('git', ['status', '--short']));
@@ -46,7 +33,12 @@ const appJson = JSON.parse(fs.readFileSync('app.json', 'utf8')).expo;
 const resolveRuntime = (platform) => {
   let output = '';
   try {
-    output = runNpx(['expo-updates', 'runtimeversion:resolve', '--platform', platform]);
+    output = run(process.execPath, [
+      expoUpdatesCliPath,
+      'runtimeversion:resolve',
+      '--platform',
+      platform,
+    ]);
   } catch {
     output = '';
   }

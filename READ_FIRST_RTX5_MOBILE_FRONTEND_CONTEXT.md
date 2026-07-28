@@ -35,7 +35,7 @@ This prompt is intentionally broader than a backend endpoint contract. It is als
 ## Repository Tree
 
 ```text
-C:\Users\ADMIN\RTX-5Mobile-App
+<repository-root>
 |-- BACKEND_CANDLE_HISTORY_FRONTEND_CONTRACT_PROMPT.md
 |-- BACKEND_LIVE_CANDLE_SPEED_FRONTEND_CONTRACT_PROMPT.md
 |-- READ_FIRST_RTX5_MOBILE_FRONTEND_CONTEXT.md            <-- this file
@@ -1780,7 +1780,8 @@ When backend changes are complete, return a concise but evidence-heavy report:
 
 ## Useful Frontend Verification Commands
 
-Run from `C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app` when validating frontend compatibility after backend changes.
+Run from `<repository-root>/rtx5-app` when validating frontend compatibility
+after backend changes.
 
 ```powershell
 npm run typecheck
@@ -1789,10 +1790,10 @@ npm run typecheck
 Focused contract tests:
 
 ```powershell
-npx --yes tsx --test src/api/auth.test.ts src/api/brokerRouting.test.ts src/api/feedAuth.test.ts src/api/feedStatus.test.ts
-npx --yes tsx --test src/api/ws/quoteTickNormalizer.test.ts src/api/ws/quotesSocket/tickProcessor.test.ts src/api/ws/quotesSocket/flushPipeline.test.ts
-npx --yes tsx --test src/domain/candles/api/candles.test.ts src/domain/candles/ws/candlesSocket.test.ts src/domain/candles/series/liveCandleAggregator.test.ts
-npx --yes tsx --test src/api/orders/placeMarketOrder.test.ts src/api/orders/pendingOrderPayload.test.ts src/api/accounts.test.ts src/api/instruments.test.ts
+npx.cmd --yes tsx --test src/api/auth.test.ts src/api/brokerRouting.test.ts src/api/feedAuth.test.ts src/api/feedStatus.test.ts
+npx.cmd --yes tsx --test src/api/ws/quoteTickNormalizer.test.ts src/api/ws/quotesSocket/tickProcessor.test.ts src/api/ws/quotesSocket/flushPipeline.test.ts
+npx.cmd --yes tsx --test src/domain/candles/api/candles.test.ts src/domain/candles/ws/candlesSocket.test.ts src/domain/candles/series/liveCandleAggregator.test.ts
+npx.cmd --yes tsx --test src/api/orders/placeMarketOrder.test.ts src/api/orders/pendingOrderPayload.test.ts src/api/accounts.test.ts src/api/instruments.test.ts
 npm run test:stability
 ```
 

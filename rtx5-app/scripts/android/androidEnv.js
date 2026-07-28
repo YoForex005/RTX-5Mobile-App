@@ -141,9 +141,9 @@ function inspectAndroidEnv(projectRoot, env = process.env) {
   }
 
   if (sdk.path && !fs.existsSync(tools.emulator)) {
-    issues.push({
+    warnings.push({
       code: 'missing-emulator',
-      message: `Android emulator binary is missing at ${tools.emulator}. Install the Android Emulator package or use a physical device.`,
+      message: `Android emulator binary is missing at ${tools.emulator}. This is optional when using a physical device.`,
     });
   }
 

@@ -16,7 +16,7 @@ Last verified: `2026-07-28` (Asia/Calcutta)
 - Production app working directory: `rtx5-app`
 - Expo config: `rtx5-app/app.json`
 - EAS profiles: `rtx5-app/eas.json`
-- Expo owner/project: `yoforex/rtx5-app`
+- Expo owner/project: see `owner` and `slug` in `rtx5-app/app.json`
 - EAS project ID: `092a58db-dea9-469a-a383-f27300598812`
 - Update URL: `https://u.expo.dev/092a58db-dea9-469a-a383-f27300598812`
 - Runtime policy: `fingerprint`
@@ -158,9 +158,9 @@ the intended release source.
 First verify the live production channel and updates:
 
 ```powershell
-npx eas-cli@latest whoami
-npx eas-cli@latest channel:view production --json --non-interactive
-npx eas-cli@latest update:list --branch production --limit 20 --json --non-interactive
+npx.cmd --yes eas-cli@21.4.0 whoami
+npx.cmd --yes eas-cli@21.4.0 channel:view production --json --non-interactive
+npx.cmd --yes eas-cli@21.4.0 update:list --branch production --limit 20 --json --non-interactive
 ```
 
 Then verify environment, native-change safety, and runtime compatibility:
@@ -174,9 +174,9 @@ npm test
 node .\scripts\ota\check-eas-env.js production
 node .\scripts\ota\check-ota-safety.js --base $binaryCommit
 node .\scripts\ota\print-update-context.js --channel production
-npx expo-updates runtimeversion:resolve --platform android
-npx expo-updates runtimeversion:resolve --platform ios
-npx expo-doctor
+npx.cmd expo-updates runtimeversion:resolve --platform android
+npx.cmd expo-updates runtimeversion:resolve --platform ios
+npx.cmd expo-doctor
 ```
 
 Publishing is blocked unless:

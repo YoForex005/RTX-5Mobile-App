@@ -43,5 +43,5 @@ This folder is the permanent project guide for RTX5 frontend delivery. It is des
 - OTA via EAS Update using staged channels.
 
 ## Source Assets
-- Screenshot reference folder: `/Users/epic1st/Documents/rtx5 mobileapp/screenshots`
+- Screenshot reference folder: `<repository-root>/screenshots`
 

@@ -40,7 +40,7 @@ If native code changes, make a new EAS build instead of only an OTA update.
 2. Configure EAS Update.
 
    ```bash
-   eas update:configure
+   node ./scripts/run-eas-cli.js update:configure
    ```
 
    This adds these important values to `app.json`:
@@ -89,14 +89,14 @@ If native code changes, make a new EAS build instead of only an OTA update.
    OTA only works in installed native builds, not in Expo Go.
 
    ```bash
-   eas build --platform android --profile preview
-   eas build --platform ios --profile preview
+   npm run build:android
+   npm run build:ios
    ```
 
 6. Publish an OTA update to a channel.
 
    ```bash
-   eas update --channel preview --platform all --message "Fix preview bug"
+   npm run update:preview -- --message "Fix preview bug"
    ```
 
 7. Test the installed app.
@@ -163,23 +163,21 @@ npm run update:prod -- --message "Production OTA update"
 
 Use this path when you want to publish from your local terminal instead of GitHub.
 
-1. Open terminal in the real app folder.
+1. Open PowerShell anywhere inside the cloned repository, then enter the app
+   folder without relying on a user-specific checkout path.
 
-   ```bash
-   cd C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app
+   ```powershell
+   Set-Location (Join-Path (git rev-parse --show-toplevel) 'rtx5-app')
    ```
 
 2. Confirm Expo login.
 
-   ```bash
-   npx eas-cli@latest whoami
+   ```powershell
+   npx.cmd --yes eas-cli@21.4.0 whoami
    ```
 
-   Current verified login on this machine:
-
-   ```text
-   yoforex
-   ```
+   Confirm that the output is an Expo account authorized to access the project
+   configured in `app.json`. Do not require one machine-specific account name.
 
 3. Run release checks against the verified installed-binary commit.
 
@@ -191,9 +189,9 @@ Use this path when you want to publish from your local terminal instead of GitHu
    node .\scripts\ota\check-eas-env.js production
    node .\scripts\ota\check-ota-safety.js --base $binaryCommit
    node .\scripts\ota\print-update-context.js --channel production
-   npx expo-updates runtimeversion:resolve --platform android
-   npx expo-updates runtimeversion:resolve --platform ios
-   npx expo-doctor
+   npx.cmd expo-updates runtimeversion:resolve --platform android
+   npx.cmd expo-updates runtimeversion:resolve --platform ios
+   npx.cmd expo-doctor
    ```
 
 4. Publish only if the resolved runtimes exactly match the intended installed
@@ -207,7 +205,9 @@ Use this path when you want to publish from your local terminal instead of GitHu
 Credentials needed for direct Expo OTA:
 
 - If `whoami` shows the Expo account, no password is needed.
-- If `whoami` says you are not logged in, run `npx eas-cli@latest login` and enter the Expo account email/password.
+- If `whoami` says you are not logged in, run
+  `npx.cmd --yes eas-cli@21.4.0 login` and authenticate with an Expo account
+  authorized for the configured project.
 - The manual GitHub workflow requires the repository secret `EXPO_TOKEN`.
 
 ## RTX5 GitHub Manual OTA
@@ -233,7 +233,8 @@ Before this works, add this GitHub repository secret:
 EXPO_TOKEN
 ```
 
-Create the token from the Expo account that owns `@yoforex/rtx5-app`, then add it in GitHub:
+Create the token from an Expo account authorized for the project configured in
+`app.json`, then add it in GitHub:
 
 ```text
 GitHub repository -> Settings -> Secrets and variables -> Actions -> New repository secret

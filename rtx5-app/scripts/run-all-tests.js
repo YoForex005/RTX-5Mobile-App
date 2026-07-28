@@ -1,4 +1,4 @@
-const { existsSync, readdirSync } = require('node:fs');
+const { existsSync, readFileSync, readdirSync } = require('node:fs');
 const { dirname, join, relative } = require('node:path');
 const { spawnSync } = require('node:child_process');
 
@@ -30,10 +30,29 @@ if (testFiles.length === 0) {
   process.exit(1);
 }
 
-const npxCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-const npmExecPath = process.env.npm_execpath;
-const npxCliPath = npmExecPath ? join(dirname(npmExecPath), 'npx-cli.js') : '';
-const useNpxCli = process.platform === 'win32' && Boolean(npxCliPath) && existsSync(npxCliPath);
+const repositoryRoot = dirname(PROJECT_ROOT);
+const toolchain = JSON.parse(
+  readFileSync(join(repositoryRoot, 'WORKSPACE_TOOLCHAIN.json'), 'utf8'),
+);
+const toolRoot = join(repositoryRoot, toolchain.jsToolchainDirectory);
+const toolPackagePath = join(toolRoot, 'node_modules', 'tsx', 'package.json');
+if (!existsSync(toolPackagePath)) {
+  console.error('The locked RTX5 JavaScript tools are missing. Run SETUP_NEW_WINDOWS_MACHINE.ps1.');
+  process.exit(1);
+}
+const installedTsxVersion = JSON.parse(readFileSync(toolPackagePath, 'utf8')).version;
+if (installedTsxVersion !== toolchain.tsx) {
+  console.error('The installed tsx version differs from WORKSPACE_TOOLCHAIN.json.');
+  process.exit(1);
+}
+
+let tsxCliPath = '';
+try {
+  tsxCliPath = require.resolve('tsx/cli', { paths: [toolRoot] });
+} catch {
+  console.error('The pinned tsx test runner is missing. Run npm ci.');
+  process.exit(1);
+}
 let failed = false;
 
 for (let start = 0; start < testFiles.length; start += BATCH_SIZE) {
@@ -43,8 +62,8 @@ for (let start = 0; start < testFiles.length; start += BATCH_SIZE) {
   console.log(`Running test batch ${batchNumber}/${batchCount} (${batch.length} files)`);
 
   const result = spawnSync(
-    useNpxCli ? process.execPath : npxCommand,
-    [...(useNpxCli ? [npxCliPath] : []), '--yes', 'tsx', '--test', ...batch],
+    process.execPath,
+    [tsxCliPath, '--test', ...batch],
     {
       cwd: PROJECT_ROOT,
       encoding: 'utf8',

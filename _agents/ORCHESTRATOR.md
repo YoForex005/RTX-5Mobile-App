@@ -84,7 +84,7 @@ This agent operates under `AUTO_PILOT.md` rules:
 ## Project Context
 
 - **Project:** RTX5 Mobile App (React Native / Expo / TypeScript)
-- **Root:** `/Users/epic1st/Documents/rtx5 mobileapp/`
+- **Root:** repository root (`.`)
 - **App root:** `rtx5-app/`
 - **Key dirs:** `app/`, `src/components/`, `src/features/`, `src/state/`, `src/theme/`
 - **Design system:** `src/theme/` + `DESIGN_SYSTEM.md`

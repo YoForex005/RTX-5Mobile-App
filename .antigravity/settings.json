@@ -1,7 +1,7 @@
 {
     "workspace": {
         "name": "RTX5 Mobile App",
-        "root": "/Users/epic1st/Documents/rtx5 mobileapp"
+        "root": "."
     },
     "agents": {
         "enabled": true,

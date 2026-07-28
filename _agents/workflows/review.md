@@ -12,7 +12,8 @@ Use this workflow to get a structured AI code review of any recent changes, stag
 
 1. **Orchestrator: Identify files to review**
    - If specific files mentioned → review those
-   - Otherwise → get recently changed files: `cd /Users/epic1st/Documents/rtx5\ mobileapp && git diff --name-only HEAD~1`
+   - Otherwise → from the repository root, get recently changed files:
+     `git diff --name-only HEAD~1`
 
 2. **QA Agent: Deep code review**
    For each file, check:
@@ -25,8 +26,9 @@ Use this workflow to get a structured AI code review of any recent changes, stag
    - **RTX5 rules**: no hardcoded user data, persistence rules followed (per AGENTS.md)
 
 3. **QA Agent: Run automated checks**
-   - `cd rtx5-app && npx tsc --noEmit`
-   - `cd rtx5-app && npx eslint [files] --ext .ts,.tsx`
+   - PowerShell: `Push-Location .\rtx5-app; npx.cmd tsc --noEmit; Pop-Location`
+   - PowerShell:
+     `Push-Location .\rtx5-app; npx.cmd eslint [files] --ext .ts,.tsx; Pop-Location`
 
 4. **QA Agent: Produce structured review report**
    Format:

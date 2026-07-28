@@ -1,6 +1,7 @@
 # UI Parity Screen Map
 
-This file maps each screenshot in `/Users/epic1st/Documents/rtx5 mobileapp/screenshots` to target frontend implementation scope and acceptance criteria.
+This file maps each screenshot in `<repository-root>/screenshots` to target
+frontend implementation scope and acceptance criteria.
 
 | Screenshot | Target Screen | Components to Implement | Acceptance Criteria | Primary Phase |
 |---|---|---|---|---|

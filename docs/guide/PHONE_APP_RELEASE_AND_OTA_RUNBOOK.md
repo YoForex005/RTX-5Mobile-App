@@ -9,8 +9,7 @@ runtime, binary-commit, and update-ID baseline used across computers.
 ## Current Setup
 
 - Real app folder: `rtx5-app`
-- Expo project owner: `yoforex`
-- Expo project slug: `rtx5-app`
+- Expo project owner and slug: see `owner` and `slug` in `rtx5-app/app.json`
 - OTA system: Expo EAS Update through `expo-updates`
 - Runtime version policy: `fingerprint`
 - Current native config version: see `rtx5-app/app.json`
@@ -83,7 +82,8 @@ Follow these steps when the change is OTA-safe.
 1. Open PowerShell in the project root.
 
    ```powershell
-   cd C:\Users\ADMIN\RTX-5Mobile-App
+   $repoRoot = git rev-parse --show-toplevel
+   Set-Location $repoRoot
    ```
 
 2. Verify that the remote `release` branch exists and then switch to it.
@@ -116,18 +116,18 @@ Follow these steps when the change is OTA-safe.
 5. Run checks before pushing.
 
    ```powershell
-   cd C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app
+   Set-Location (Join-Path $repoRoot 'rtx5-app')
    npm run typecheck
    node .\scripts\ota\check-eas-env.js production
    node .\scripts\ota\check-ota-safety.js --base <installed-binary-git-sha>
    node .\scripts\ota\print-update-context.js --channel production
-   npx expo-doctor
+   npx.cmd expo-doctor
    ```
 
 6. Go back to repo root.
 
    ```powershell
-   cd C:\Users\ADMIN\RTX-5Mobile-App
+   Set-Location $repoRoot
    ```
 
 7. Add only the files you intentionally changed.
@@ -202,23 +202,23 @@ Use this if you want to manually start OTA from the GitHub website.
 
 Use this if GitHub is not working and you want to publish from this computer.
 
-1. Open PowerShell.
+1. Open PowerShell anywhere inside the cloned repository.
 
    ```powershell
-   cd C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app
+   Set-Location (Join-Path (git rev-parse --show-toplevel) 'rtx5-app')
    ```
 
 2. Confirm Expo login.
 
    ```powershell
-   npx eas-cli@latest whoami
+   npx.cmd --yes eas-cli@21.4.0 whoami
    ```
 
 3. Run checks.
 
    ```powershell
    npm run typecheck
-   npx expo-doctor
+   npx.cmd expo-doctor
    ```
 
 4. Publish production OTA.
@@ -236,23 +236,23 @@ Use this if GitHub is not working and you want to publish from this computer.
 
 Use this when OTA is not enough.
 
-1. Open PowerShell.
+1. Open PowerShell anywhere inside the cloned repository.
 
    ```powershell
-   cd C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app
+   Set-Location (Join-Path (git rev-parse --show-toplevel) 'rtx5-app')
    ```
 
 2. Run checks.
 
    ```powershell
    npm run typecheck
-   npx expo-doctor
+   npx.cmd expo-doctor
    ```
 
 3. Build Android and iOS production binaries.
 
    ```powershell
-   npx eas-cli@latest build --platform all --profile production
+   npx.cmd --yes eas-cli@21.4.0 build --platform all --profile production
    ```
 
 4. Android output is an `.aab` for Play Store.

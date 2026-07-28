@@ -1,5 +1,14 @@
 # RTX5 Mobile App
 
+## New Windows laptop or desktop
+
+Use the repository-root
+[`SETUP_NEW_WINDOWS_MACHINE.ps1`](../SETUP_NEW_WINDOWS_MACHINE.ps1) entry point.
+The complete clone, Node/npm, Android, EAS, secret, and OTA-parity instructions
+are in
+[`docs/guide/NEW_WINDOWS_MACHINE_SETUP.md`](../docs/guide/NEW_WINDOWS_MACHINE_SETUP.md).
+Run npm, Expo, EAS, test, and release commands from this `rtx5-app` directory.
+
 ## MyProp market data
 
 MyProp quote traffic uses the broker-hosted webterminal path:
@@ -27,6 +36,6 @@ Quotes remain displayable after their last update, but trading actions are disab
 Run the focused automated checks with:
 
 ```powershell
-npx.cmd --yes tsx --test src/api/feedAuth.test.ts src/api/ws/quoteTickNormalizer.test.ts src/api/ws/quoteSubscriptionState.test.ts src/features/quotes/liveQuoteSnapshot.test.ts src/market/quotePolicy.test.ts
+node .\scripts\run-tsx-cli.js --test src/api/feedAuth.test.ts src/api/ws/quoteTickNormalizer.test.ts src/api/ws/quoteSubscriptionState.test.ts src/features/quotes/liveQuoteSnapshot.test.ts src/market/quotePolicy.test.ts
 npm.cmd run typecheck
 ```
