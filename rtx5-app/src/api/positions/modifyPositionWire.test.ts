@@ -83,14 +83,19 @@ test('modify request normalization preserves literal zero and strips forbidden e
   assert.deepEqual(Object.keys(normalized).sort(), ['price_sl', 'price_tp']);
   assert.equal(Object.isFrozen(normalized), true);
   assert.equal(JSON.stringify(normalized), '{"price_sl":0,"price_tp":1.091}');
+
+  assert.deepEqual(normalizeModifyPositionRequest({ price_sl: null }), {
+    price_sl: null,
+  });
+  assert.deepEqual(normalizeModifyPositionRequest({ price_tp: 1.095 }), {
+    price_tp: 1.095,
+  });
 });
 
-test('modify request normalization rejects missing, non-number, non-finite, and negative values', () => {
+test('modify request normalization rejects empty, non-number, non-finite, and negative values', () => {
   const invalidRequests: unknown[] = [
     {},
-    { price_sl: 1.08 },
-    { price_tp: 1.09 },
-    { price_sl: null, price_tp: 1.09 },
+    { price_sl: undefined },
     { price_sl: '', price_tp: 1.09 },
     { price_sl: '1.08', price_tp: 1.09 },
     { price_sl: Number.NaN, price_tp: 1.09 },
@@ -150,18 +155,64 @@ test('strict acknowledgement parser accepts exact set and null-clear echoes only
   );
   assert.equal(clearAck.sl, null);
   assert.equal(clearAck.tp, null);
+
+  const partialAck = parseModifyPositionAck(
+    {
+      ticket: EXPECTED_TICKET,
+      symbol: 'EURUSD',
+      status: 'modified',
+      time: 1_784_800_001,
+      price_sl: 1.083,
+    },
+    {
+      ticket: EXPECTED_TICKET,
+      symbol: EXPECTED_SYMBOL,
+      request: { price_sl: 1.083 },
+    },
+  );
+  assert.deepEqual(partialAck, {
+    ticket: EXPECTED_TICKET,
+    symbol: 'EURUSD',
+    status: 'modified',
+    time: 1_784_800_001,
+    sl: 1.083,
+    price_sl: 1.083,
+  });
+
+  const partialClearAck = parseModifyPositionAck(
+    {
+      ticket: EXPECTED_TICKET,
+      symbol: 'EURUSD',
+      status: 'modified',
+      time: 1_784_800_002,
+      tp: null,
+    },
+    {
+      ticket: EXPECTED_TICKET,
+      symbol: EXPECTED_SYMBOL,
+      request: { price_tp: null },
+    },
+  );
+  assert.equal(partialClearAck.tp, null);
+  assert.equal(partialClearAck.price_tp, null);
 });
 
 test('strict acknowledgement parser rejects ambiguous HTTP 200 body shapes and echoes', () => {
   const base = makeAcknowledgement();
-  const { tp: _omittedTp, ...missingTp } = base;
+  const {
+    tp: _omittedTp,
+    price_tp: _omittedPriceTp,
+    ...missingTp
+  } = base;
+  const { time: _omittedTime, ...missingRequiredTime } = base;
   const inheritedOnly = Object.create(base) as Record<string, unknown>;
   const invalidCases: ReadonlyArray<readonly [string, unknown]> = [
     ['null', null],
     ['array', [base]],
     ['wrapper', { data: base }],
     ['inherited required fields', inheritedOnly],
-    ['missing required key', missingTp],
+    ['missing required key', missingRequiredTime],
+    ['missing touched echo', missingTp],
     ['wrong ticket', makeAcknowledgement({ ticket: EXPECTED_TICKET + 1 })],
     ['unsafe ticket', makeAcknowledgement({ ticket: Number.MAX_SAFE_INTEGER + 1 })],
     ['wrong symbol', makeAcknowledgement({ symbol: 'GBPUSD' })],

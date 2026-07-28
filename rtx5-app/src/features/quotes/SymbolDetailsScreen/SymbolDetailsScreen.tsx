@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { Alert, ScrollView, Share, StyleSheet, Text, View, Platform } from 'react-native';
 import type { QuoteItem } from '../../../dev/mock/tradingData';
 import { useMarketData } from '../../../query/websocket';
+import { useIsDarkTheme } from '../../../state/themeMode';
 import { useUserPreferences } from '../../../state/userPreferences';
 import {
   captureActiveBrokerSessionProvenance,
@@ -199,7 +200,7 @@ export function SymbolDetailsInteractiveContent({
   const quoteActionAvailability = resolveSessionQuoteActionAvailability(liveQuote);
 
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const insets = useSafeAreaInsets();
   const s = useMemo(() => makeSymbolDetailsStyles(T, isDark), [T, isDark]);
   const screenBg = isDark ? '#121212' : T.bg;

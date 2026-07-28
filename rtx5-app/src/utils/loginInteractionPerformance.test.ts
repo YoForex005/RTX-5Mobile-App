@@ -121,6 +121,8 @@ test('login broker id can be selected from the broker directory dropdown', () =>
   assert.match(source, /const brokerOptions = useMemo<LoginBrokerOption\[\]>\(\(\) => \{/);
   assert.match(source, /const selectedBrokerOption = useMemo\(\(\) => \{/);
   assert.match(source, /const brokerPickerActions = useMemo\(\(\) => \{/);
+  assert.match(source, /error: brokerServersError/);
+  assert.match(source, /const brokerDirectoryFailureMessage = useMemo\(\(\) => \{/);
   assert.match(source, /const selectBrokerOption = useCallback\(\(option: LoginBrokerOption\) => \{/);
   assert.match(source, /const resolution = resolveBrokerEndpointSet\(broker\)/);
   assert.match(source, /if \(!resolution\.ok\) continue/);
@@ -130,7 +132,8 @@ test('login broker id can be selected from the broker directory dropdown', () =>
   assert.match(source, /endpoints: resolution\.endpoints/);
   assert.match(source, /const resolveBrokerSelectionError = useCallback\(\(candidateBrokerId: string, candidateServerUrl = ''\) => \{/);
   assert.match(source, /const matchedBrokerOption = brokerOptions\.find\(\(option\) => option\.key === candidateKey\)/);
-  assert.match(source, /Broker list unavailable\. Retry broker list and select your broker before login\./);
+  assert.match(source, /Unable to reach the broker directory\. Check this device\\'s internet connection and retry\./);
+  assert.match(source, /No available brokers were returned\. Retry the broker list before login\./);
   assert.match(source, /Please select your broker from the broker list before login\./);
   assert.doesNotMatch(source, /You can still type the Broker ID manually\./);
   assert.match(source, /brokerServerUrlValueRef\.current = option\.serverUrl/);
@@ -243,7 +246,7 @@ test('login atomically commits the validated secure session before navigation', 
   assert.match(loginCriticalPath, /feedWsBase: selectedEndpoints\.feedWsBase/);
   assert.match(loginCriticalPath, /feedStatusUrl: selectedEndpoints\.feedStatusUrl/);
   assert.match(loginCriticalPath, /accessToken,[\s\S]*refreshToken: refreshToken \?\? ''/);
-  assert.match(loginCriticalPath, /isDemoAccount: accountType === 'demo'/);
+  assert.match(loginCriticalPath, /accountType,[\s\S]*accountEnvironmentSource,/);
   assert.doesNotMatch(loginCriticalPath, /persistSelectedBrokerSession|persistAuthSessionTokens|setBrokerConnection/);
   assert.match(source, /let didStartSuccessNavigation = false/);
   assert.match(source, /didStartSuccessNavigation = true/);
@@ -304,7 +307,7 @@ test('broker detail login atomically commits the selected directory session befo
   assert.match(brokerDetailCriticalPath, /apiBase: selectedEndpoints\.apiBase/);
   assert.match(brokerDetailCriticalPath, /feedWsBase: selectedEndpoints\.feedWsBase/);
   assert.match(brokerDetailCriticalPath, /feedStatusUrl: selectedEndpoints\.feedStatusUrl/);
-  assert.match(brokerDetailCriticalPath, /isDemoAccount: accountType === 'demo'/);
+  assert.match(brokerDetailCriticalPath, /accountType,[\s\S]*accountEnvironmentSource,/);
   assert.doesNotMatch(brokerDetailCriticalPath, /persistSelectedBrokerSession|persistAuthSessionTokens|setBrokerConnection/);
   assert.match(source, /let didStartSuccessNavigation = false/);
   assert.match(source, /didStartSuccessNavigation = true/);

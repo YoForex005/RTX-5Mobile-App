@@ -8,6 +8,7 @@ import {
 } from '../../api/positions';
 import {
   captureActiveBrokerSession,
+  captureActiveBrokerSessionOwnerStamp,
   subscribeActiveBrokerSession,
 } from '../../state/activeBrokerSession';
 import { usePositionsState } from '../../state/positionsState';
@@ -16,6 +17,7 @@ import {
   fingerprintMarketDataHost,
   recordMarketDataEvent,
 } from '../../market/marketDataTelemetry';
+import { assertActiveExistingPositionSltpAllowed } from '../../api/sltpCapabilityGuard';
 import {
   ModifyPositionCoordinatorCore,
   type ModifyPositionCoordinatorResult,
@@ -23,6 +25,20 @@ import {
 } from './modifyPositionCoordinatorCore';
 
 const MODIFY_POSITION_TIMEOUT_MS = 10_000;
+
+const getActiveModifySessionKey = (): string | null => {
+  const owner = captureActiveBrokerSessionOwnerStamp();
+  if (!owner) return null;
+  return JSON.stringify([
+    owner.brokerId,
+    owner.apiBase,
+    owner.accountLogin,
+    owner.cacheNamespace,
+    owner.sessionEpoch,
+    owner.credentialGeneration,
+    owner.credentialIdentity,
+  ]);
+};
 
 const coordinator = new ModifyPositionCoordinatorCore({
   modify: (input) => positionsApi.modifyPosition(
@@ -33,7 +49,7 @@ const coordinator = new ModifyPositionCoordinatorCore({
       timeoutMs: MODIFY_POSITION_TIMEOUT_MS,
       onResponseMetadata: (metadata) => {
         const capture = captureActiveBrokerSession();
-        if (!capture || capture.session.cacheNamespace !== input.sessionKey) return;
+        if (!capture || getActiveModifySessionKey() !== input.sessionKey) return;
         recordMarketDataEvent('modify_position', {
           phase: 'http_response',
           brokerId: capture.session.brokerId,
@@ -71,11 +87,11 @@ const coordinator = new ModifyPositionCoordinatorCore({
     });
   },
   isSessionCurrent: (sessionKey) =>
-    captureActiveBrokerSession()?.session.cacheNamespace === sessionKey,
+    getActiveModifySessionKey() === sessionKey,
   beginProtectedMutation: beginProtectedPositionsMutation,
   recordEvent: (phase, input, details) => {
     const capture = captureActiveBrokerSession();
-    if (!capture || capture.session.cacheNamespace !== input.sessionKey) return;
+    if (!capture || getActiveModifySessionKey() !== input.sessionKey) return;
     recordMarketDataEvent('modify_position', {
       phase,
       brokerId: capture.session.brokerId,
@@ -88,7 +104,7 @@ const coordinator = new ModifyPositionCoordinatorCore({
 });
 
 subscribeActiveBrokerSession((event) => {
-  if (event.type === 'transition') {
+  if (event.type === 'transition' || event.type === 'credentials_updated') {
     coordinator.resetSession();
   }
 });
@@ -103,8 +119,12 @@ export type SubmitModifyPositionInput = Readonly<{
 export const submitModifyPosition = (
   input: SubmitModifyPositionInput,
 ): Promise<ModifyPositionCoordinatorResult> => {
+  // Do not create coordinator state or a reconciliation job for a capability
+  // that is fail-closed for the selected broker runtime.
+  assertActiveExistingPositionSltpAllowed();
   const capture = captureActiveBrokerSession();
-  if (!capture) {
+  const owner = captureActiveBrokerSessionOwnerStamp();
+  if (!capture || !owner) {
     throw new Error('The active broker session is unavailable.');
   }
   const ticket = normalizePositiveSafeIntegerPathSegment(input.ticket, 'Position ticket');
@@ -129,7 +149,7 @@ export const submitModifyPosition = (
     ticket: ticket.numeric,
     symbol,
     accountLogin: accountLogin.numeric,
-    sessionKey: capture.session.cacheNamespace,
+    sessionKey: getActiveModifySessionKey()!,
     request,
   }));
 };

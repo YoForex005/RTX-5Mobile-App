@@ -17,15 +17,18 @@ import {
   recordMarketOrderJournalSuccess,
 } from '../../state/terminalJournalState';
 import {
-  captureActiveBrokerSession,
-  getActiveBrokerSessionIdentity,
-  isActiveBrokerSessionCurrent,
+  captureActiveBrokerSessionOwnerStamp,
+  isActiveBrokerSessionOwnerStampCurrent,
 } from '../../state/activeBrokerSession';
+import { usePositionsState } from '../../state/positionsState';
 import { getApiLatencyNow, recordApiLatency } from '../../utils/apiLatency';
 import { resolveBrokerSymbol, resolveBrokerSymbolFromCache } from './symbolResolver';
 import { buildMarketOrderSymbolCandidates, getAcceptedSymbolCacheKey } from './placeMarketOrderCandidates';
 import type { PlaceOrderPayload, PlaceOrderResponse } from './types';
 import { redactDiagnosticValue } from '../../utils/securityRedaction';
+import { assertActiveMarketProtectionAllowed } from '../sltpCapabilityGuard';
+import { createTradeIdempotencyKey } from '../tradeIdempotency';
+import { positionsApi } from '../positions';
 
 const acceptedOrderSymbolCache = new Map<string, string>();
 const ORDER_DIAGNOSTICS_ENABLED =
@@ -43,13 +46,80 @@ const warnOrderDiagnostic = (...args: Parameters<typeof console.warn>) => {
   }
 };
 
+const toCanonicalDecimalString = (
+  value: number | string,
+  label: string,
+): string => {
+  const numeric = typeof value === 'number' ? value : Number(value.trim());
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    throw createTradingApiError(400, {
+      error: 'INVALID_INPUT',
+      message: `${label} must be a positive decimal.`,
+    });
+  }
+  const normalized = numeric.toFixed(8).replace(/(?:\.0+|(\.\d+?)0+)$/, '$1');
+  if (!normalized || Number(normalized) !== numeric) {
+    throw createTradingApiError(400, {
+      error: 'INVALID_INPUT',
+      message: `${label} supports at most 8 fractional digits.`,
+    });
+  }
+  return normalized;
+};
+
+const hasOwn = (value: object, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(value, key);
+
+const utf8ByteLength = (value: string): number => {
+  let bytes = 0;
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    bytes += codePoint <= 0x7f
+      ? 1
+      : codePoint <= 0x7ff
+        ? 2
+        : codePoint <= 0xffff
+          ? 3
+          : 4;
+  }
+  return bytes;
+};
+
+const normalizeMarketOrderSymbol = (value: unknown): string => {
+  const symbol = String(value ?? '').trim().toUpperCase();
+  if (!symbol) {
+    throw createTradingApiError(400, {
+      error: 'INVALID_INPUT',
+      message: 'Order symbol is required.',
+    });
+  }
+  if (utf8ByteLength(symbol) > 20) {
+    throw createTradingApiError(400, {
+      error: 'INVALID_INPUT',
+      message: 'Order symbol must not exceed 20 bytes.',
+    });
+  }
+  return symbol;
+};
+
+const createPayloadBoundIdempotencyKeyResolver = (action: string) => {
+  const keysBySerializedBody = new Map<string, string>();
+  return (serializedBody: string): string => {
+    const existing = keysBySerializedBody.get(serializedBody);
+    if (existing) return existing;
+    const created = createTradeIdempotencyKey(action);
+    keysBySerializedBody.set(serializedBody, created);
+    return created;
+  };
+};
+
 export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<PlaceOrderResponse> => {
-  const sessionCapture = captureActiveBrokerSession();
-  if (!sessionCapture) throw new StaleBrokerSessionError();
-  const sessionIdentity = getActiveBrokerSessionIdentity(sessionCapture.session);
-  const cacheNamespace = sessionCapture.session.cacheNamespace;
+  const owner = captureActiveBrokerSessionOwnerStamp();
+  if (!owner) throw new StaleBrokerSessionError();
+  assertActiveMarketProtectionAllowed(payload as unknown as Record<string, unknown>);
+  const cacheNamespace = owner.cacheNamespace;
   const assertOrderSessionCurrent = () => {
-    if (!isActiveBrokerSessionCurrent(sessionIdentity)) {
+    if (!isActiveBrokerSessionOwnerStampCurrent(owner)) {
       throw new StaleBrokerSessionError();
     }
   };
@@ -66,7 +136,7 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
       message: 'A valid trading account login is required to place an order.',
     });
   }
-  if (String(loginInt) !== sessionCapture.session.accountLogin) {
+  if (String(loginInt) !== owner.accountLogin) {
     throw createTradingApiError(403, {
       error: 'BROKER_REQUIRED',
       message: 'Order account does not match the active broker session.',
@@ -76,7 +146,7 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
   // Symbol routing must stay out of the tap-to-POST critical path. The first
   // attempt uses already-known local data. A network /instruments lookup is
   // only performed after the server reports a market-data/symbol miss.
-  const callerSymbol = (payload.symbol ?? '').trim();
+  const callerSymbol = normalizeMarketOrderSymbol(payload.symbol);
 
   // Remove broker_id from the body. The server resolves broker context from
   // the JWT claim; apiClient owns token refresh and broker-context recovery.
@@ -87,19 +157,56 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
     account_login: loginInt,
     symbol: callerSymbol,
     side: requestedSide,
-    volume: restWithoutBroker.volume,
+    volume: toCanonicalDecimalString(restWithoutBroker.volume, 'Order volume'),
     type: 'market',
   };
 
-  // Optional order fields are omitted when disabled. Sending zero can make
-  // some bridges validate against a real zero price and reject the trade.
-  if (typeof restWithoutBroker.price_sl === 'number' && restWithoutBroker.price_sl > 0) {
-    orderBody.price_sl = restWithoutBroker.price_sl;
+  // Caller-facing legacy names are translated into the gateway's one
+  // canonical field family. The API-level capability guard above prevents
+  // these fields from reaching transport while the broker runtime is locked.
+  for (const family of [
+    ['sl', 'price_sl', 'Stop Loss'],
+    ['tp', 'price_tp', 'Take Profit'],
+  ] as const) {
+    const [canonicalKey, legacyKey, label] = family;
+    if (hasOwn(restWithoutBroker, canonicalKey) && hasOwn(restWithoutBroker, legacyKey)) {
+      throw createTradingApiError(400, {
+        error: 'INVALID_INPUT',
+        message: `Use only the canonical market ${label} field.`,
+      });
+    }
+    const usesCanonical = hasOwn(restWithoutBroker, canonicalKey);
+    const value = usesCanonical
+      ? restWithoutBroker[canonicalKey]
+      : restWithoutBroker[legacyKey];
+    if (value === undefined || value === null) continue;
+    // Compatibility-only price_sl/price_tp historically use literal zero as
+    // "unset". Canonical sl/tp zero is submitted input and remains invalid.
+    if (!usesCanonical && Number(value) === 0) continue;
+    orderBody[canonicalKey] = toCanonicalDecimalString(
+      value as number | string,
+      label,
+    );
   }
-  if (typeof restWithoutBroker.price_tp === 'number' && restWithoutBroker.price_tp > 0) {
-    orderBody.price_tp = restWithoutBroker.price_tp;
+  if (restWithoutBroker.fill_mode !== undefined) {
+    if (
+      restWithoutBroker.fill_mode !== 'return' &&
+      restWithoutBroker.fill_mode !== 'fok'
+    ) {
+      throw createTradingApiError(400, {
+        error: 'INVALID_INPUT',
+        message: 'Order fill mode must be return or fok.',
+      });
+    }
+    orderBody.fill_mode = restWithoutBroker.fill_mode;
   }
   if (typeof restWithoutBroker.comment === 'string' && restWithoutBroker.comment.length > 0) {
+    if (utf8ByteLength(restWithoutBroker.comment) > 1024) {
+      throw createTradingApiError(400, {
+        error: 'INVALID_INPUT',
+        message: 'Order comment must not exceed 1024 bytes.',
+      });
+    }
     orderBody.comment = restWithoutBroker.comment;
   }
   if (typeof restWithoutBroker.trailing_stop === 'number' && restWithoutBroker.trailing_stop > 0) {
@@ -111,7 +218,7 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
   // `magic` is intentionally never copied. The trader gateway strictly
   // rejects that manager/EA-only field as unknown input.
 
-  logOrderDiagnostic('[RTX5 Order] active broker session:', sessionCapture.session.brokerId);
+  logOrderDiagnostic('[RTX5 Order] active broker session:', owner.brokerId);
   logOrderDiagnostic('[TRADE-PAYLOAD]', {
     symbol: callerSymbol,
     side: requestedSide,
@@ -132,6 +239,8 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
     price_tp: restWithoutBroker.price_tp,
   };
   recordMarketOrderJournalRequest(journalPayload);
+  const resolveIdempotencyKey = createPayloadBoundIdempotencyKeyResolver('order');
+  let createRequestStarted = false;
 
   type Attempt = {
     symbol: string;
@@ -153,22 +262,27 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
 
   const sendOrder = async (symbolToSend: string): Promise<Attempt> => {
     assertOrderSessionCurrent();
-    const body = { ...orderBody, symbol: symbolToSend };
-    logOrderDiagnostic('[RTX5 Order] POST /orders body:', JSON.stringify(body));
+    const canonicalSymbol = normalizeMarketOrderSymbol(symbolToSend);
+    const body = { ...orderBody, symbol: canonicalSymbol };
+    const serializedBody = JSON.stringify(body);
+    const idempotencyKey = resolveIdempotencyKey(serializedBody);
+    logOrderDiagnostic('[RTX5 Order] POST /orders body:', serializedBody);
     const startedAtMs = getApiLatencyNow();
     let response: Response | null = null;
 
     try {
+      createRequestStarted = true;
       response = await apiClient('/orders', {
         method: 'POST',
-        body: JSON.stringify(body),
+        headers: { 'Idempotency-Key': idempotencyKey },
+        body: serializedBody,
       });
       const raw = await response.json().catch(() => ({}));
       assertOrderSessionCurrent();
       const inner = unwrap(raw);
       const bodyStatus = typeof inner?.status === 'string' ? inner.status.toLowerCase() : '';
-      const graceful = response.ok && ['rejected', 'failed', 'error'].includes(bodyStatus);
-      const ok = response.ok && !graceful;
+      const graceful = response.status === 200 && ['rejected', 'failed', 'error'].includes(bodyStatus);
+      const ok = response.status === 200 && !graceful;
       recordApiLatency({
         label: `trade.placeMarketOrder.${requestedSide}`,
         method: 'POST',
@@ -179,7 +293,7 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
         durationMs: getApiLatencyNow() - startedAtMs,
       });
       return {
-        symbol: symbolToSend,
+        symbol: canonicalSymbol,
         status: response.status,
         body: raw,
         response,
@@ -230,111 +344,135 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
   let accepted: Attempt | null = null;
   let lastBad: Attempt | null = null;
 
-  for (const candidate of candidates) {
-    const attempt = await sendOrder(candidate);
-    if (attempt.ok) {
-      accepted = attempt;
-      if (candidate !== callerSymbol) {
-        logOrderDiagnostic('[RTX5 Order] symbol accepted after fallback:', candidate);
-      }
-      break;
-    }
-
-    logOrderDiagnostic(
-      '[RTX5 Order] attempt failed',
-      JSON.stringify({
-        symbol: candidate,
-        status: attempt.status,
-        graceful: attempt.graceful,
-        body: attempt.body,
-      }),
-    );
-    lastBad = attempt;
-
-    // Auth, ownership, rate-limit, and SL/TP errors are real failures; retrying
-    // another symbol would only hide the actual rejection reason.
-    if (!isMarketDataMiss(attempt)) break;
-  }
-
-  if (!accepted && lastBad && isMarketDataMiss(lastBad)) {
-    const catalogSymbol = await resolveBrokerSymbol(callerSymbol, cacheNamespace);
-    assertOrderSessionCurrent();
-    if (catalogSymbol && !candidates.includes(catalogSymbol)) {
-      const attempt = await sendOrder(catalogSymbol);
+  try {
+    for (const candidate of candidates) {
+      const attempt = await sendOrder(candidate);
       if (attempt.ok) {
         accepted = attempt;
-        logOrderDiagnostic('[RTX5 Order] symbol accepted after /instruments fallback:', catalogSymbol);
-      } else {
-        logOrderDiagnostic(
-          '[RTX5 Order] /instruments fallback failed',
-          JSON.stringify({
-            symbol: catalogSymbol,
-            status: attempt.status,
-            graceful: attempt.graceful,
-            body: attempt.body,
-          }),
-        );
-        lastBad = attempt;
+        if (candidate !== callerSymbol) {
+          logOrderDiagnostic('[RTX5 Order] symbol accepted after fallback:', candidate);
+        }
+        break;
+      }
+
+      logOrderDiagnostic(
+        '[RTX5 Order] attempt failed',
+        JSON.stringify({
+          symbol: candidate,
+          status: attempt.status,
+          graceful: attempt.graceful,
+          body: attempt.body,
+        }),
+      );
+      lastBad = attempt;
+
+      // Auth, ownership, rate-limit, and SL/TP errors are real failures; retrying
+      // another symbol would only hide the actual rejection reason.
+      if (!isMarketDataMiss(attempt)) break;
+    }
+
+    if (!accepted && lastBad && isMarketDataMiss(lastBad)) {
+      const catalogSymbol = await resolveBrokerSymbol(callerSymbol, cacheNamespace);
+      assertOrderSessionCurrent();
+      if (catalogSymbol && !candidates.includes(catalogSymbol)) {
+        const attempt = await sendOrder(catalogSymbol);
+        if (attempt.ok) {
+          accepted = attempt;
+          logOrderDiagnostic('[RTX5 Order] symbol accepted after /instruments fallback:', catalogSymbol);
+        } else {
+          logOrderDiagnostic(
+            '[RTX5 Order] /instruments fallback failed',
+            JSON.stringify({
+              symbol: catalogSymbol,
+              status: attempt.status,
+              graceful: attempt.graceful,
+              body: attempt.body,
+            }),
+          );
+          lastBad = attempt;
+        }
       }
     }
-  }
 
-  if (!accepted) {
-    const status = lastBad?.status ?? 400;
-    const rejectedBody = lastBad ? unwrap(lastBad.body) : null;
-    const body = lastBad?.graceful
-      ? {
-        ...(typeof rejectedBody?.error === 'string' ? { error: rejectedBody.error } : {}),
-        message: rejectedBody?.comment
-          || rejectedBody?.message
-          || 'Order rejected by the trading server.',
+    if (!accepted) {
+      const status = lastBad?.status ?? 400;
+      const rejectedBody = lastBad ? unwrap(lastBad.body) : null;
+      const body = lastBad?.graceful
+        ? {
+          ...(typeof rejectedBody?.error === 'string' ? { error: rejectedBody.error } : {}),
+          message: rejectedBody?.comment
+            || rejectedBody?.message
+            || 'Order rejected by the trading server.',
+        }
+        : (lastBad?.body ?? { message: 'Order rejected before a valid symbol candidate was available.' });
+      const headers: Record<string, string> = {};
+      if (status === 429 && lastBad?.response) {
+        headers['retry-after'] = lastBad.response.headers.get('retry-after') || '';
       }
-      : (lastBad?.body ?? { message: 'Order rejected before a valid symbol candidate was available.' });
-    const headers: Record<string, string> = {};
-    if (status === 429 && lastBad?.response) {
-      headers['retry-after'] = lastBad.response.headers.get('retry-after') || '';
+      const error = createTradingApiError(lastBad?.graceful ? 400 : status, body, headers);
+      recordMarketOrderJournalFailure(journalPayload, error);
+      throw error;
     }
-    const error = createTradingApiError(lastBad?.graceful ? 400 : status, body, headers);
-    recordMarketOrderJournalFailure(journalPayload, error);
-    throw error;
-  }
 
-  assertOrderSessionCurrent();
-  acceptedOrderSymbolCache.set(brokerCacheKey, accepted.symbol);
-  const finalData = unwrap(accepted.body);
+    assertOrderSessionCurrent();
+    acceptedOrderSymbolCache.set(brokerCacheKey, accepted.symbol);
+    const finalData = unwrap(accepted.body);
 
-  // The handler's canonical execution response already contains
-  // order_ticket, position_ticket, and price. Preserve only safe aliases for
-  // older Position-shaped broker deployments: a legacy `ticket` can identify
-  // a position, but an order ticket must never be promoted to position ID.
-  if (finalData && typeof finalData === 'object') {
-    if (finalData.position_ticket == null && finalData.ticket != null) {
-      finalData.position_ticket = finalData.ticket;
+    // The handler's canonical execution response already contains
+    // order_ticket, position_ticket, and price. Preserve only safe aliases for
+    // older Position-shaped broker deployments: a legacy `ticket` can identify
+    // a position, but an order ticket must never be promoted to position ID.
+    if (finalData && typeof finalData === 'object') {
+      if (finalData.position_ticket == null && finalData.ticket != null) {
+        finalData.position_ticket = finalData.ticket;
+      }
+      if (finalData.price == null && finalData.price_open != null) {
+        finalData.price = finalData.price_open;
+      }
     }
-    if (finalData.price == null && finalData.price_open != null) {
-      finalData.price = finalData.price_open;
-    }
-  }
 
-  logOrderDiagnostic('[TRADE-RESPONSE]', {
-    requestSide: requestedSide,
-    result: finalData?.status ?? accepted.status,
-    backendSide: finalData?.side ?? null,
-    rawResponse: finalData,
-  });
-  if (finalData?.side && finalData.side !== requestedSide) {
-    warnOrderDiagnostic('[TRADE-RESPONSE] backend side differs from request', {
+    logOrderDiagnostic('[TRADE-RESPONSE]', {
       requestSide: requestedSide,
-      backendSide: finalData.side,
-      symbol: finalData.symbol ?? accepted.symbol ?? callerSymbol,
+      result: finalData?.status ?? accepted.status,
+      backendSide: finalData?.side ?? null,
+      rawResponse: finalData,
     });
-  }
+    if (finalData?.side && finalData.side !== requestedSide) {
+      warnOrderDiagnostic('[TRADE-RESPONSE] backend side differs from request', {
+        requestSide: requestedSide,
+        backendSide: finalData.side,
+        symbol: finalData.symbol ?? accepted.symbol ?? callerSymbol,
+      });
+    }
 
-  recordMarketOrderJournalSuccess(
-    { ...journalPayload, symbol: accepted.symbol || callerSymbol },
-    finalData,
-  );
-  return finalData;
+    recordMarketOrderJournalSuccess(
+      { ...journalPayload, symbol: accepted.symbol || callerSymbol },
+      finalData,
+    );
+    return finalData;
+  } finally {
+    // A market POST can have an unknown result after timeout, abort, or a
+    // network break. Start an authoritative read for the immutable owner on
+    // every transport outcome, but never let reconciliation replace the
+    // primary response/error and never query whichever broker is selected now.
+    if (createRequestStarted && isActiveBrokerSessionOwnerStampCurrent(owner)) {
+      // Start the REST call immediately while the immutable owner is current.
+      // `refreshPositions` can wait behind another login-keyed refresh before
+      // it captures a session, so using the strict existing positions client
+      // here prevents a same-login broker switch from redirecting this read.
+      void positionsApi.getPositionsForReconciliation(owner.accountLogin)
+        .then((positions) => {
+          if (!isActiveBrokerSessionOwnerStampCurrent(owner)) return;
+          usePositionsState.getState().applyPositionsSnapshot(
+            positions,
+            owner.accountLogin,
+          );
+        })
+        .catch((error) => {
+          warnOrderDiagnostic('[RTX5 Order] captured-owner reconciliation failed', error);
+        });
+    }
+  }
 };
 
 export function resetAcceptedMarketOrderSymbolCache(): void {

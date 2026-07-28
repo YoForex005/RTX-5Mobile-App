@@ -649,7 +649,7 @@ test('shouldHideChartTabBarForTradeInput hides the bottom menu while the SL/TP c
   );
 });
 
-test('chart trade preview stays visible only while the trade sheet is collapsed', () => {
+test('chart trade preview stays visible for direct SL/TP while the trade sheet is hidden', () => {
   assert.equal(
     shouldShowChartTradePreviewOnChart({
       showChartTradeSheet: true,
@@ -669,7 +669,17 @@ test('chart trade preview stays visible only while the trade sheet is collapsed'
   assert.equal(
     shouldShowChartTradePreviewOnChart({
       showChartTradeSheet: false,
-      chartTradeSheetMode: 'collapsed',
+      chartTradeSheetMode: 'hidden',
+      directProtectionActive: true,
+    }),
+    true,
+  );
+
+  assert.equal(
+    shouldShowChartTradePreviewOnChart({
+      showChartTradeSheet: false,
+      chartTradeSheetMode: 'hidden',
+      directProtectionActive: false,
     }),
     false,
   );

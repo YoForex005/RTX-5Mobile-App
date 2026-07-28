@@ -12,7 +12,7 @@ import { useEffect, useMemo } from 'react';
 import { Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../../ui/components/Screen';
-import { useUserPreferences } from '../../../state/userPreferences';
+import { useIsDarkTheme } from '../../../state/themeMode';
 import { useTranslation } from '../../../i18n/useTranslation';
 import { useTheme } from '../../../ui/theme/useTheme';
 import { safeRouterBack } from '../../../utils/navigation';
@@ -25,7 +25,7 @@ export function IndicatorConfigScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { t } = useTranslation();
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const insets = useSafeAreaInsets();
 
   const meta = useMemo(() => getIndicatorMeta(id as string), [id]);

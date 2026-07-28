@@ -12,7 +12,7 @@ import {
   KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
-import { useUserPreferences } from '../../state/userPreferences';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useTheme } from '../../ui/theme/useTheme';
 import { safeRouterBack } from '../../utils/navigation';
@@ -34,7 +34,7 @@ export function IndicatorLevelScreen() {
   const { levelId } = useLocalSearchParams<{ levelId: string }>();
   const { t } = useTranslation();
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const insets = useSafeAreaInsets();
 
   const level = useIndicatorEditState((s) => s.levels.find((l) => l.id === levelId));

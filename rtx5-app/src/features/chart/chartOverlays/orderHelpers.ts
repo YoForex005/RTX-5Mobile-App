@@ -71,25 +71,95 @@ export const calculateOpenPositionLivePnl = ({
   return grossPnl + toFiniteOrZero(swap) + toFiniteOrZero(commission);
 };
 
-export const formatTpSlOverlayLabel = (
-  kind: 'tp' | 'sl',
+type PositionTargetPnlInput = {
+  symbol: string;
+  side: 'buy' | 'sell';
+  volume: number;
+  entryPrice: number;
+  targetPrice: number;
+};
+
+export const calculatePositionTargetPnl = ({
+  symbol,
+  side,
+  volume,
+  entryPrice,
+  targetPrice,
+}: PositionTargetPnlInput): number | null => {
+  const safeEntryPrice = Number(entryPrice);
+  const safeTargetPrice = Number(targetPrice);
+  const safeVolume = Number(volume);
+
+  if (
+    !Number.isFinite(safeEntryPrice) ||
+    safeEntryPrice <= 0 ||
+    !Number.isFinite(safeTargetPrice) ||
+    safeTargetPrice <= 0 ||
+    !Number.isFinite(safeVolume) ||
+    safeVolume <= 0
+  ) {
+    return null;
+  }
+
+  const directionMultiplier = side === 'sell' ? -1 : 1;
+  return (
+    (safeTargetPrice - safeEntryPrice) *
+    directionMultiplier *
+    inferContractSize(symbol) *
+    safeVolume
+  );
+};
+
+export const formatTpSlOverlayValueLabel = (
   symbol: string,
+  side: 'buy' | 'sell',
   entryPrice: number,
   targetPrice: number,
   volume: number,
 ): string => {
-  if (!Number.isFinite(entryPrice) || entryPrice <= 0 || !Number.isFinite(targetPrice) || targetPrice <= 0) {
+  const projectedPnl = calculatePositionTargetPnl({
+    symbol,
+    side,
+    volume,
+    entryPrice,
+    targetPrice,
+  });
+  if (projectedPnl === null) {
+    return '';
+  }
+
+  const pointSize = resolvePointSize(symbol);
+  const pointDistance = Math.max(
+    1,
+    Math.round(Math.abs(targetPrice - entryPrice) / pointSize),
+  );
+  const normalizedPnl = Object.is(projectedPnl, -0) ? 0 : projectedPnl;
+  const sign = normalizedPnl > 0 ? '+' : normalizedPnl < 0 ? '-' : '';
+  const signedUsd = `${sign}${sign ? ' ' : ''}${Math.abs(normalizedPnl).toFixed(2)} USD`;
+
+  return `${signedUsd}, ${pointDistance} points`;
+};
+
+export const formatTpSlOverlayLabel = (
+  kind: 'tp' | 'sl',
+  symbol: string,
+  side: 'buy' | 'sell',
+  entryPrice: number,
+  targetPrice: number,
+  volume: number,
+): string => {
+  const valueLabel = formatTpSlOverlayValueLabel(
+    symbol,
+    side,
+    entryPrice,
+    targetPrice,
+    volume,
+  );
+  if (!valueLabel) {
     return kind.toUpperCase();
   }
 
-  const contractSize = inferContractSize(symbol);
-  const pointSize = resolvePointSize(symbol);
-  const safeVolume = Number.isFinite(volume) && volume > 0 ? volume : 0;
-  const usdValue = Math.abs(targetPrice - entryPrice) * contractSize * safeVolume;
-  const pointDistance = Math.max(1, Math.round(Math.abs(targetPrice - entryPrice) / pointSize));
-  const sign = kind === 'tp' ? '+' : '-';
-
-  return `${kind.toUpperCase()}, ${sign} ${usdValue.toFixed(2)} USD, ${pointDistance} points`;
+  return `${kind.toUpperCase()}, ${valueLabel}`;
 };
 
 export const normalizeOrderType = (value: string | undefined): string =>

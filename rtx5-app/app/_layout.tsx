@@ -13,7 +13,11 @@ import { AppLogo } from '../src/ui/components/AppLogo';
 import { FastPressable } from '../src/ui/components/FastPressable';
 import { SidebarDrawer } from '../src/ui/components/SidebarDrawer';
 import { useUserPreferences } from '../src/state/userPreferences';
-import { useIsDarkTheme, useThemeMode } from '../src/state/themeMode';
+import {
+  ThemeModeRenderPriorityContext,
+  useIsDarkTheme,
+  useThemeMode,
+} from '../src/state/themeMode';
 import { GDark, GLight } from '../src/ui/theme/glass';
 import { useTranslation } from '../src/i18n/useTranslation';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
@@ -215,23 +219,25 @@ function InnerLayout() {
     <>
       <AppStatusBar />
       <ThemedNavigatorShell />
-      {/* Root-level retained handoffs cover every native broker-flow route. */}
-      <SidebarDestinationHost />
-      {/* About row details (Privacy / Contact / Deletion) — above About host. */}
-      <AboutDetailDestinationHost />
-      <BrokersLaunchHost />
-      <BrokerDetailLaunchHost />
-      <RegisterLaunchHost />
-      {/* Properties / Market Statistics — root-level so open/back covers the stack. */}
-      <QuoteInfoLaunchHost />
-      {/* History clock filter — retained host like Chart options. */}
-      <HistoryFilterHost />
-      {/* Close / Close By / Modify — retained host (no stack push on open/back). */}
-      <TradePositionActionHost />
-      <ChartActionLaunchHost />
-      {/* Chart Preferences + nested config rows (sidebar-style instant open/back). */}
-      <ChartSettingsHost />
-      <ChartConfigDestinationHost />
+      <ThemeModeRenderPriorityContext.Provider value="retained">
+        {/* Root-level retained handoffs cover every native broker-flow route. */}
+        <SidebarDestinationHost />
+        {/* About row details (Privacy / Contact / Deletion) — above About host. */}
+        <AboutDetailDestinationHost />
+        <BrokersLaunchHost />
+        <BrokerDetailLaunchHost />
+        <RegisterLaunchHost />
+        {/* Properties / Market Statistics — root-level so open/back covers the stack. */}
+        <QuoteInfoLaunchHost />
+        {/* History clock filter — retained host like Chart options. */}
+        <HistoryFilterHost />
+        {/* Close / Close By / Modify — retained host (no stack push on open/back). */}
+        <TradePositionActionHost />
+        <ChartActionLaunchHost />
+        {/* Chart Preferences + nested config rows (sidebar-style instant open/back). */}
+        <ChartSettingsHost />
+        <ChartConfigDestinationHost />
+      </ThemeModeRenderPriorityContext.Provider>
       <SidebarDrawer />
     </>
   );
@@ -242,12 +248,11 @@ import { brokerApi } from '../src/api/brokerApi';
 import { accountWsService } from '../src/api/ws/accountSocket';
 import { wsService } from '../src/api/ws/socket';
 import { candlesWsService } from '../src/domain/candles/ws/candlesSocket';
-import { getAccountById } from '../src/api/accounts';
+import { getAccountByIdResult } from '../src/api/accounts';
 import { useLiveAccountState } from '../src/state/liveAccountState';
 import { usePositionsState } from '../src/state/positionsState';
 import { prefetchAccountSummary } from '../src/utils/navigationPrefetch';
 import { useOtaUpdateOnLaunch } from '../src/utils/otaUpdates';
-import { isDemoTradingAccount } from '../src/domain/accountType';
 import { hydratePersistedCandleCache } from '../src/domain/candles/state/persistedCandleCache';
 import { useDataAnalyzer } from '../src/features/chart/DataAnalyzer';
 import { OtaUpdateModal } from '../src/ui/components/OtaUpdateModal';
@@ -257,9 +262,15 @@ import { installGlobalStartupErrorHandlers, logStartupDiagnostic } from '../src/
 import { restoreBrokerSession } from '../src/services/brokerSessionCoordinator';
 import {
   captureActiveBrokerSession,
+  captureActiveBrokerSessionProvenance,
   getActiveBrokerSessionIdentity,
   isActiveBrokerSessionCurrent,
+  isActiveBrokerSessionProvenanceCurrent,
 } from '../src/state/activeBrokerSession';
+import {
+  beginAccountEnvironmentRefresh,
+  commitActiveAccountEnvironmentPayload,
+} from '../src/services/accountEnvironmentSession';
 import { redactDiagnosticValue } from '../src/utils/securityRedaction';
 import { installSecurityRedactedConsole } from '../src/utils/securityRedactedConsole';
 
@@ -447,11 +458,11 @@ function RootLayout() {
       const bootAccountData = async () => {
         if (!accountDetails?.id) return;
 
-        let mt5LoginNumber = Number(accountDetails.id);
+        const mt5Login = String(accountDetails.id).trim();
+        const mt5LoginNumber = Number(mt5Login);
 
         if (cancelled) return;
-        if (Number.isFinite(mt5LoginNumber) && mt5LoginNumber > 0) {
-          const mt5Login = String(mt5LoginNumber);
+        if (mt5Login && Number.isFinite(mt5LoginNumber) && mt5LoginNumber > 0) {
           logStartupDiagnostic('trading.bootstrap.started', {
             accountLoginPresent: true,
           });
@@ -479,9 +490,24 @@ function RootLayout() {
 
           scheduleBootWork(scheduleIdleWork(async () => {
             if (cancelled) return;
+            const expectedProvenance = captureActiveBrokerSessionProvenance();
+            if (
+              !expectedProvenance ||
+              expectedProvenance.identity.accountLogin !== mt5Login
+            ) {
+              return;
+            }
+            const environmentRefreshToken = beginAccountEnvironmentRefresh(expectedProvenance);
+            if (!environmentRefreshToken) return;
             try {
-              const acct = await getAccountById(mt5LoginNumber);
-              if (cancelled) return;
+              const { raw: accountPayload, account: acct } =
+                await getAccountByIdResult(mt5Login);
+              if (
+                cancelled ||
+                !isActiveBrokerSessionProvenanceCurrent(expectedProvenance)
+              ) {
+                return;
+              }
               useUserPreferences.getState().updateAccountDetails({
                 name: acct.name || `Account ${acct.login}`,
               });
@@ -494,10 +520,11 @@ function RootLayout() {
                 margin_level: acct.marginLevel,
                 floating: acct.floatingPnl
               });
-
-              // Automatically determine if it's a demo or real account based on the backend group name
-              const isDemo = isDemoTradingAccount(acct.group);
-              useUserPreferences.getState().setIsDemoAccount(isDemo);
+              commitActiveAccountEnvironmentPayload(
+                accountPayload,
+                expectedProvenance,
+                environmentRefreshToken,
+              );
             } catch (e) {
               if (cancelled) return;
               console.warn(

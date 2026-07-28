@@ -6,6 +6,8 @@ import {
   activateBrokerSession,
   beginActiveBrokerSessionTransition,
   getActiveBrokerSessionProvenance,
+  getActiveBrokerSessionIdentity,
+  updateActiveBrokerSessionCredentials,
 } from '../state/activeBrokerSession';
 import { commitQuoteSnapshotIfSessionCurrent } from './quoteCommitProvenance';
 
@@ -70,6 +72,23 @@ test('queued quote commit from broker A is discarded after broker B activates', 
       accessToken: 'access-b',
       refreshToken: 'refresh-b',
       expiresAt: '2099-01-01T00:00:00.000Z',
+    },
+  );
+  let committed = 0;
+
+  assert.equal(commitQuoteSnapshotIfSessionCurrent(provenance, () => committed += 1), false);
+  assert.equal(committed, 0);
+});
+
+test('queued quote commit is discarded after credentials rotate in the same session', () => {
+  const capture = activate();
+  const provenance = getActiveBrokerSessionProvenance(capture.session);
+  updateActiveBrokerSessionCredentials(
+    getActiveBrokerSessionIdentity(capture.session),
+    {
+      accessToken: 'access-rotated',
+      refreshToken: 'refresh-rotated',
+      expiresAt: '2099-01-02T00:00:00.000Z',
     },
   );
   let committed = 0;

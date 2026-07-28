@@ -17,9 +17,16 @@ import {
   removeSecureItemAsync,
   setSecureItemAsync,
 } from '../utils/secureStorage';
+import {
+  buildAccountEnvironmentKey,
+  mergeAccountEnvironment,
+  type AccountEnvironment,
+  type AccountEnvironmentSource,
+  type AccountEnvironmentState,
+} from '../domain/accountType';
 import { recordAccountJournalEvent } from './terminalJournalState';
 
-export type SavedAccountType = 'demo' | 'real' | 'contest';
+export type SavedAccountType = AccountEnvironment;
 
 export type SavedAccountSnapshot = {
   balance: number;
@@ -40,6 +47,8 @@ export type SavedAccount = {
   serverUrl?: string;
   logoUrl?: string;
   accountType: SavedAccountType;
+  accountEnvironmentSource: AccountEnvironmentSource;
+  rawGroup?: string;
   lastUsedAt: number;
   snapshot?: SavedAccountSnapshot;
   /**
@@ -78,7 +87,15 @@ const asBoolean = (value: unknown, fallback = false): boolean =>
   typeof value === 'boolean' ? value : fallback;
 
 const isSavedAccountType = (value: unknown): value is SavedAccountType =>
-  value === 'demo' || value === 'real' || value === 'contest';
+  value === 'demo' || value === 'real' || value === 'contest' || value === 'unknown';
+
+const isAccountEnvironmentSource = (value: unknown): value is AccountEnvironmentSource =>
+  value === 'backend-explicit'
+  || value === 'backend-group'
+  || value === 'demo-registration'
+  || value === 'initial-fallback'
+  || value === 'legacy-persisted'
+  || value === 'unknown';
 
 const normalizeSavedAccountSnapshot = (value: unknown): SavedAccountSnapshot | undefined => {
   const snapshot = asRecord(value);
@@ -103,6 +120,15 @@ const normalizeSavedAccount = (value: unknown): SavedAccount | null => {
   if (!login || !brokerId) return null;
 
   const snapshot = normalizeSavedAccountSnapshot(account.snapshot);
+  const accountType = isSavedAccountType(account.accountType)
+    ? account.accountType
+    : 'unknown';
+  const accountEnvironmentSource = isAccountEnvironmentSource(account.accountEnvironmentSource)
+    ? account.accountEnvironmentSource
+    : accountType === 'unknown'
+      ? 'unknown'
+      : 'legacy-persisted';
+  const rawGroup = typeof account.rawGroup === 'string' ? account.rawGroup : '';
 
   return {
     login,
@@ -111,7 +137,9 @@ const normalizeSavedAccount = (value: unknown): SavedAccount | null => {
     server: asString(account.server),
     serverUrl: asString(account.serverUrl) || undefined,
     logoUrl: asString(account.logoUrl) || undefined,
-    accountType: isSavedAccountType(account.accountType) ? account.accountType : 'demo',
+    accountType,
+    accountEnvironmentSource,
+    ...(rawGroup ? { rawGroup } : {}),
     lastUsedAt: asFiniteNumber(account.lastUsedAt),
     ...(snapshot ? { snapshot } : {}),
     hasCredentials: asBoolean(account.hasCredentials),
@@ -135,22 +163,44 @@ export const useSavedAccounts = create<SavedAccountsState>()(
       accounts: [],
       hasHydrated: false,
       upsertAccount: (account) => {
+        const accountKey = buildAccountEnvironmentKey(account.brokerId, account.login);
         const existingBeforeUpdate = get().accounts.find(
-          (a) => a.login === account.login && a.brokerId === account.brokerId,
+          (a) => buildAccountEnvironmentKey(a.brokerId, a.login) === accountKey,
         );
         set((state) => {
           const existing = state.accounts.find(
-            (a) => a.login === account.login && a.brokerId === account.brokerId,
+            (a) => buildAccountEnvironmentKey(a.brokerId, a.login) === accountKey,
           );
-          const others = state.accounts.filter((a) => a !== existing);
+          const others = state.accounts.filter(
+            (a) => buildAccountEnvironmentKey(a.brokerId, a.login) !== accountKey,
+          );
           // hasCredentials should never regress from true → false on a
           // backfill upsert (e.g. AccountsScreen recording the current
           // session before the user has typed their password into the form
           // post-update). A true value can only be cleared by removeAccount.
+          const previousEnvironment: AccountEnvironmentState | null =
+            existing && existing.accountType !== 'unknown'
+              ? {
+                  accountKey,
+                  accountType: existing.accountType,
+                  accountEnvironmentSource: existing.accountEnvironmentSource,
+                  isDemoAccount: existing.accountType === 'demo',
+                }
+              : null;
+          const mergedEnvironment = mergeAccountEnvironment(previousEnvironment, {
+            accountKey,
+            resolved: account.accountType,
+            source: account.accountEnvironmentSource,
+          });
           const merged: SavedAccount = {
             ...account,
             serverUrl: account.serverUrl || existing?.serverUrl,
             logoUrl: account.logoUrl || existing?.logoUrl,
+            accountType: mergedEnvironment?.accountType ?? account.accountType,
+            accountEnvironmentSource:
+              mergedEnvironment?.accountEnvironmentSource
+              ?? account.accountEnvironmentSource,
+            rawGroup: account.rawGroup || existing?.rawGroup,
             hasCredentials: account.hasCredentials || !!existing?.hasCredentials,
           };
           return { accounts: [merged, ...others] };

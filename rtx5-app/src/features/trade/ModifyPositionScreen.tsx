@@ -28,6 +28,7 @@ import { normalizePriceDigits, resolveDecimalsFromPriceStep } from '../../utils/
 import { usePositionsState } from '../../state/positionsState';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 import { ActionSheet } from '../../ui/components/ActionSheet';
 import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
@@ -55,10 +56,14 @@ import {
   useModifyPositionTicketState,
 } from './modifyPositionCoordinator';
 import {
+  getActiveSltpUnavailableMessage,
   isExistingPositionModifyBackendLocked,
-  SLTP_COMING_SOON_MESSAGE,
   SLTP_COMING_SOON_TITLE,
 } from './tradeBackendCapabilities';
+import {
+  captureActiveBrokerSessionProvenance,
+  isActiveBrokerSessionProvenanceCurrent,
+} from '../../state/activeBrokerSession';
 
 const SETTINGS_DARK_BACKGROUND = '#121212';
 const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E';
@@ -366,7 +371,7 @@ export function ModifyPositionScreen({
     : routePositionId;
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const themeActive = !hosted || hostedActive;
   const T = useTheme({ active: themeActive });
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
@@ -416,10 +421,12 @@ export function ModifyPositionScreen({
   }, [modifyTicketState.retryAfterUntil]);
   const coordinatorRateLimited =
     (modifyTicketState.retryAfterUntil ?? 0) > modifyRateLimitClock;
-  const coordinatorBusy =
+  const coordinatorSaving =
     modifyTicketState.mutationInFlight ||
-    modifyTicketState.phase === 'pending' ||
+    modifyTicketState.phase === 'pending';
+  const coordinatorReconciling =
     modifyTicketState.phase === 'reconciling';
+  const coordinatorBusy = coordinatorSaving || coordinatorReconciling;
 
   const [stopLoss, setStopLoss] = useState<number | null>(null);
   const [takeProfit, setTakeProfit] = useState<number | null>(null);
@@ -840,7 +847,7 @@ export function ModifyPositionScreen({
         formatTradingErrorFeedback(
           createFrontendTradingError(
             t(SLTP_COMING_SOON_TITLE),
-            t(SLTP_COMING_SOON_MESSAGE),
+            t(getActiveSltpUnavailableMessage()),
           ),
         ),
       );
@@ -922,6 +929,19 @@ export function ModifyPositionScreen({
     }
 
     modifySubmittingRef.current = true;
+    const actionProvenance = captureActiveBrokerSessionProvenance();
+    if (!actionProvenance) {
+      modifySubmittingRef.current = false;
+      setSubmitMessage(
+        formatTradingErrorFeedback(
+          createFrontendTradingError(
+            t('Authentication Error'),
+            t('The active broker session is unavailable. Log in again before modifying a position.'),
+          ),
+        ),
+      );
+      return;
+    }
     let submission: ReturnType<typeof submitModifyPosition>;
     try {
       // The session-scoped coordinator starts the PUT synchronously, owns it
@@ -952,6 +972,9 @@ export function ModifyPositionScreen({
       Alert.alert(feedback.title, feedback.message);
     }
     runAfterModifyClosePaint(() => {
+      if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) {
+        return;
+      }
       if (requestedSl > 0 || requestedTp > 0) {
         try {
           const preferences = useUserPreferences.getState();
@@ -971,6 +994,9 @@ export function ModifyPositionScreen({
 
     void submission
       .then((result) => {
+        if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) {
+          return;
+        }
         if (result.status === 'saved' || result.status === 'superseded' || result.status === 'session_changed') {
           return;
         }
@@ -1401,7 +1427,11 @@ export function ModifyPositionScreen({
             </Text>
           </View>
 
-          {submitMessage ? (
+          {existingPositionModifyLocked ? (
+            <Text style={styles.validationText} accessibilityRole="alert">
+              {t(getActiveSltpUnavailableMessage())}
+            </Text>
+          ) : submitMessage ? (
             <Text style={styles.validationText} accessibilityRole="alert">{submitMessage}</Text>
           ) : null}
           {/* Keep side-of-market validation visible above Modify even when a
@@ -1411,7 +1441,7 @@ export function ModifyPositionScreen({
               {stopValidationError}
             </Text>
           ) : null}
-          {!submitMessage && !stopValidationError && !hasUsableMarketPrice && !quoteAvailability.allowed && (
+          {!existingPositionModifyLocked && !submitMessage && !stopValidationError && !hasUsableMarketPrice && !quoteAvailability.allowed && (
             <Text style={styles.validationText} accessibilityRole="alert">
               {t(quoteActionBlockMessage(quoteAvailability))}
             </Text>
@@ -1441,7 +1471,12 @@ export function ModifyPositionScreen({
             accessibilityLabel={t('Modify position')}
             accessibilityState={{ disabled: !canModifyPosition }}
           >
-            {coordinatorBusy ? (
+            {coordinatorSaving ? (
+              <>
+                <ActivityIndicator size="small" color="#FFF" />
+                <Text style={styles.modifyText}>{t('Saving…').toUpperCase()}</Text>
+              </>
+            ) : coordinatorReconciling ? (
               <>
                 <ActivityIndicator size="small" color="#FFF" />
                 <Text style={styles.modifyText}>{t('Reconciling').toUpperCase()}</Text>

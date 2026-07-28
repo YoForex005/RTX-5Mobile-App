@@ -10,7 +10,7 @@ test('saved account switch promotes the selected account and refreshes account-s
   const coordinatorSource = readSource('src/services/brokerSessionCoordinator.ts');
 
   assert.match(source, /const ACCOUNT_SWITCH_ACCOUNT_MISSING_MESSAGE =\s*'Account does not exist/);
-  assert.match(source, /const normalizeSwitchLogin = \(login: string\) => \{/);
+  assert.match(source, /const normalizeSwitchLogin = \(login: string\) => login\.trim\(\)/);
   assert.match(source, /const accountSwitchInFlightRef = React\.useRef\(false\)/);
   assert.match(source, /const warmSavedAccountBroker = React\.useCallback/);
   assert.match(source, /const savedServerUrl = normalizeBrokerServerUrl\(row\.serverUrl\)/);
@@ -45,7 +45,10 @@ test('saved account switch promotes the selected account and refreshes account-s
   assert.match(switchBody, /serverUrl: exactServerUrl,/);
   assert.match(switchBody, /await commitBrokerSession\(\{[\s\S]*brokerId: endpoints\.brokerId,[\s\S]*apiBase: endpoints\.apiBase,[\s\S]*feedWsBase: endpoints\.feedWsBase,[\s\S]*feedStatusUrl: endpoints\.feedStatusUrl,[\s\S]*servicesDomain: endpoints\.servicesDomain,[\s\S]*configVersion: endpoints\.configVersion/);
   assert.match(switchBody, /credentials: \{[\s\S]*accessToken: result\.accessToken,[\s\S]*refreshToken: result\.refreshToken,[\s\S]*expiresAt: result\.expiresAtIso/);
-  assert.match(switchBody, /account: \{[\s\S]*isDemoAccount: result\.accountType === 'demo'/);
+  assert.match(
+    switchBody,
+    /const switchedAccountEnvironment = mergeAccountEnvironment\([\s\S]*account: \{[\s\S]*accountType: switchedAccountEnvironment\.accountType,[\s\S]*accountEnvironmentSource: switchedAccountEnvironment\.accountEnvironmentSource/,
+  );
   assert.doesNotMatch(switchBody, /persistSelectedBrokerSession|persistAuthSessionTokens|userLogin\(/);
   assert.match(switchBody, /const commitAuthorization = authorizeBrokerSessionCommit\(\)/);
   assert.match(switchBody, /signal: loginAbortController\.signal/);
@@ -184,6 +187,11 @@ test('accounts screen backfill normalizes optional metadata before saved-account
   assert.match(effectBody, /\(existing\.serverUrl \?\? ''\) === nextServerUrl/);
   assert.match(effectBody, /\(existing\.logoUrl \?\? ''\) === nextLogoUrl/);
   assert.match(effectBody, /serverUrl: nextServerUrl \|\| undefined/);
+  assert.match(
+    effectBody,
+    /const nextEnvironment: AccountEnvironmentState = activeAccountType === 'unknown'[\s\S]*accountType: activeAccountType,[\s\S]*accountEnvironmentSource: activeAccountEnvironmentSource/,
+  );
+  assert.doesNotMatch(effectBody, /mergeAccountEnvironmentForAccount\(/);
   assert.doesNotMatch(effectBody, /existing\.serverUrl === brokerServerUrl/);
   assert.doesNotMatch(effectBody, /existing\.logoUrl === nextLogoUrl/);
 });

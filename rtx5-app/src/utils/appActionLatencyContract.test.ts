@@ -223,11 +223,15 @@ test('chart trade one-click and ticket paths keep heavy work out of the tap pain
 
   assert.match(ordersSource, /const TRADE_POST_SUCCESS_REFRESH_DELAY_MS = 250/);
   assert.match(ordersSource, /export const usePlaceOrderExecutor = \(\) => \{/);
-  assert.match(ordersSource, /submitPlaceOrderWithCacheUpdate\(queryClient, payload, cacheNamespace\)/);
-  assert.match(ordersSource, /const scheduleTradePostSuccessRefresh = \(work: \(\) => void\) => \{[\s\S]*setTimeout\(work, TRADE_POST_SUCCESS_REFRESH_DELAY_MS\)/);
   assert.match(
     ordersSource,
-    /state\.upsertPosition\(newPos\);[\s\S]*scheduleTradePostSuccessRefresh\(\(\) => \{[\s\S]*refreshPositions\(mt5Login\)[\s\S]*invalidateSessionQueryRoots\(queryClient, cacheNamespace, \[[\s\S]*'positions'/,
+    /submitPlaceOrderWithCacheUpdate\([\s\S]*queryClient,[\s\S]*payload,[\s\S]*cacheNamespace,[\s\S]*owner/,
+  );
+  assert.match(ordersSource, /const scheduleTradePostSuccessRefresh = \(work: \(\) => void\) => \{[\s\S]*setTimeout\(work, TRADE_POST_SUCCESS_REFRESH_DELAY_MS\)/);
+  assert.doesNotMatch(ordersSource, /\.upsertPosition\(/);
+  assert.match(
+    ordersSource,
+    /getPositionsForReconciliation\([\s\S]*owner\.accountLogin[\s\S]*scheduleTradePostSuccessRefresh\(\(\) => \{[\s\S]*reconcileCapturedMarketOwner\(owner\)[\s\S]*invalidateSessionQueryRoots\(queryClient, cacheNamespace, \[[\s\S]*'positions'/,
   );
   assert.match(
     chartTradeHandlerSource,
@@ -295,14 +299,14 @@ test('trade buy/sell success feedback uses the shared popup without device vibra
   assert.doesNotMatch(feedbackModalSource, /\bVibration\b|\.vibrate\(/);
   assert.match(ticketSource, /without device vibration/);
   assert.match(ticketSource, /const \[tradeConfirmations, setTradeConfirmations\] = useState<OrderTicketTradeConfirmation\[\]>/);
-  assert.match(ticketSource, /Market BUY\/SELL executions and broker rejections share the same detailed popup/);
+  assert.match(ticketSource, /Market BUY\/SELL executions and broker rejections share one feedback surface/);
   assert.match(
     ticketSource,
     /const successFeedback: TradeFeedbackState = executionEvidence\.confirmed[\s\S]*executionConfirmed:\s*true,[\s\S]*side:\s*requestedSide[\s\S]*symbol:\s*displaySymbol[\s\S]*executedAt:\s*new Date\(\)\.toLocaleTimeString\(\)[\s\S]*executionConfirmed:\s*false,[\s\S]*Confirmation Pending[\s\S]*if \(positionTicket\) \{[\s\S]*successFeedback\.ticket = String\(positionTicket\);[\s\S]*if \(executionPrice !== undefined\) \{[\s\S]*successFeedback\.price = executionPrice;[\s\S]*showModal\(successFeedback\)/,
   );
   assert.doesNotMatch(ticketSource, /showTradeConfirmation\(\{ side: requestedSide/);
   assert.match(ticketSource, /showTradeConfirmation\(\{ side: pendingSideValue, symbol, volume \}\)/);
-  assert.match(ticketSource, /Shared modal overlay for market execution success and rejected order feedback/);
+  assert.match(ticketSource, /Shared RTX5 execution receipt plus detailed rejected\/unconfirmed feedback/);
   assert.doesNotMatch(
     feedbackModalSource,
     /import\s*\{[^}]*\bModal\b[^}]*\}\s*from ["']react-native["']/,
@@ -310,16 +314,21 @@ test('trade buy/sell success feedback uses the shared popup without device vibra
   assert.doesNotMatch(feedbackModalSource, /<Modal\b/);
   assert.match(
     feedbackModalSource,
-    /<View style=\{tfmStyles\.overlay\} pointerEvents="box-none">/,
+    /if \(receipt\)[\s\S]*tfmStyles\.receiptOverlay[\s\S]*pointerEvents="box-none"/,
   );
   assert.match(
     feedbackModalSource,
-    /overlay:\s*\{[\s\S]*\.\.\.StyleSheet\.absoluteFillObject,[\s\S]*zIndex:\s*10050,[\s\S]*elevation:\s*10050/,
+    /receiptOverlay:\s*\{[\s\S]*\.\.\.StyleSheet\.absoluteFillObject,[\s\S]*zIndex:\s*10050,[\s\S]*elevation:\s*10050/,
   );
-  assert.match(feedbackModalSource, /const confirmedSuccessTitle = sideLabel[\s\S]*`\$\{sideLabel\} Order Executed`[\s\S]*["']Order Executed["'][\s\S]*const successTitle = isUnconfirmedSubmission/);
-  assert.match(feedbackModalSource, /const successSummaryText = \[state\.symbol, volumeLabel\]\.filter\(Boolean\)\.join\(' - '\)/);
-  assert.match(feedbackModalSource, /tfmStyles\.successSummary[\s\S]*tfmStyles\.executionRow[\s\S]*tfmStyles\.executionPrice[\s\S]*Done/);
-  assert.doesNotMatch(feedbackModalSource, /tfmStyles\.detailsGrid|View Position|router\.push\('\/trade'\)/);
+  assert.match(feedbackModalSource, /const receipt = resolveConfirmedTradeReceipt\(state\)/);
+  assert.match(
+    feedbackModalSource,
+    /tfmStyles\.receiptSideTile[\s\S]*tfmStyles\.receiptSymbol[\s\S]*tfmStyles\.receiptVolume[\s\S]*tfmStyles\.receiptDoneButton/,
+  );
+  assert.doesNotMatch(
+    feedbackModalSource,
+    /progressAnim|LinearGradient|headerProgress|headerStrip|setTimeout|setInterval|Animated\.loop|Animated\.repeat|tfmStyles\.executionPrice|View Position|router\.push\('\/trade'\)/,
+  );
   assert.match(
     chartResultSource,
     /if \(feedback\.type !== 'success'\) \{[\s\S]*setTradeFeedback\(feedback\);[\s\S]*return;[\s\S]*\}[\s\S]*setTradeFeedback\(feedback\);[\s\S]*refreshPositions\(String\(accountLogin\)\)[\s\S]*refetchOrders\(\)[\s\S]*refetchAccountSummary\(\)/,
@@ -466,10 +475,11 @@ test('action destination modules warm without boot-time route prefetch', () => {
   assert.match(brokersLaunchShellSource, /useBrokerDirectory\(dataActive\)/);
   assert.match(brokersLaunchHostSource, /<BrokersLaunchShell[\s\S]*dataActive=\{false\}/);
   assert.match(brokersLaunchShellSource, /sortBrokerDirectoryRows\([\s\S]*buildBrokerDirectoryRows\(brokerDirectory\?\.entries\)/);
-  assert.match(brokersLaunchShellSource, /Image\.prefetch\(logoUrl\)/);
+  assert.doesNotMatch(brokersLaunchShellSource, /Image\.prefetch|brokerLogoPrefetches/);
   assert.match(brokersLaunchShellSource, /onSelectBroker\?: \(broker: BrokerDirectoryRow\) => void/);
   assert.match(brokersLaunchShellSource, /if \(onSelectBroker && row\.selectable\)[\s\S]*onPress=\{\(\) => \{[\s\S]*if \(!row\.selectable\) return;[\s\S]*onSelectBroker\(row\)[\s\S]*activateOnPressIn[\s\S]*latencyLabel=\{`brokers\.launch\.row\.\$\{row\.brokerId\}`\}/);
-  assert.match(brokersLaunchShellSource, /<Image[\s\S]*source=\{\{ uri: logoUri, cache: 'force-cache' \}\}[\s\S]*fadeDuration=\{0\}/);
+  assert.match(brokersLaunchShellSource, /<Image[\s\S]*source=\{\{ uri: logoUri, cache: 'reload' \}\}[\s\S]*fadeDuration=\{0\}/);
+  assert.doesNotMatch(brokersLaunchShellSource, /cache: 'force-cache'/);
   assert.doesNotMatch(brokersLaunchShellSource, /row\.initials|styles\.avatarText/);
   assert.doesNotMatch(brokersLaunchShellSource, /SKELETON_ROWS|Skeleton|ActivityIndicator|Loading brokers/);
   assert.doesNotMatch(brokersLaunchShellSource, /TextInput|FlatList/);
@@ -921,10 +931,8 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   assert.doesNotMatch(settingsSource.slice(registerRowStart, marketUpdatesStart), /onTouchStart=\{\(\) => showRouteLaunchPreview\('\/register-entry'\)\}|activateOnPressIn/);
   assert.match(backBarSource, /<FastPressable[\s\S]*safeRouterBack\(router, '\/\(tabs\)\/settings'\)[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart[\s\S]*latencyLabel="settings\.back"/);
   assert.doesNotMatch(settingsSource, /SETTINGS_LOWER_CONTENT_DELAY_MS|lowerSettingsReady/);
-  assert.match(settingsSource, /import \{ useDeferredRouteContentReady \} from/);
-  assert.match(settingsSource, /const SETTINGS_BODY_PREWARM_DELAY_MS = 1200/);
-  assert.match(settingsSource, /const routeBodyReady = useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : SETTINGS_BODY_PREWARM_DELAY_MS,\s*\)/);
-  assert.match(settingsSource, /\{routeBodyReady \? <>/);
+  assert.doesNotMatch(settingsSource, /SETTINGS_BODY_PREWARM_DELAY_MS|routeBodyReady|useDeferredRouteContentReady/);
+  assert.match(settingsSource, /<ScrollView[\s\S]*style=\{styles\.container\}[\s\S]*contentContainerStyle=\{styles\.content\}/);
   assert.match(settingsSource, /const SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/register-entry'[\s\S]*'\/register'[\s\S]*'\/settings\/economic-calendar'[\s\S]*'\/settings\/journal'[\s\S]*'\/settings\/help'[\s\S]*\] as const/);
   assert.doesNotMatch(settingsSource, /SettingsRegisterOpeningShell|registerOpeningShellVisible|SETTINGS_REGISTER_ROUTE_HANDOFF_DELAY_MS/);
   assert.doesNotMatch(settingsSource, /SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/settings\/user-guide'/);
@@ -1430,69 +1438,129 @@ test('fast action surfaces keep light and dark theme styling wired', () => {
   assert.match(orderTicketSource, /function makeStyles\(T: ThemeColors, isDark: boolean\)/);
   assert.match(orderTicketSource, /root: \{ flex: 1, backgroundColor: BG \}/);
   assert.match(sidebarSource, /const themeMode = useThemeMode\(\)/);
-  assert.match(sidebarSource, /const T = useMemo\(\(\) => \(themeMode === 'light' \? GLight : GDark\), \[themeMode\]\)/);
-  assert.match(sidebarSource, /const isDark = themeMode === 'dark'/);
+  assert.match(sidebarSource, /const T = themeMode === 'light' \? GLight : GDark/);
+  assert.match(sidebarSource, /const ds = SIDEBAR_STYLES_BY_MODE\[themeMode\]/);
 });
 
-test('theme toggles apply immediate visuals and commit the preference mirror in the same press turn', () => {
+test('theme toggles paint drawer chrome before retained scenes and preference persistence', () => {
   const storeSource = readSource('src/state/userPreferences/store.ts');
   const themeModeSource = readSource('src/state/themeMode.ts');
   const rootSource = readSource('app/_layout.tsx');
   const tabsSource = readSource('app/(tabs)/_layout.tsx');
+  const fastTabNavigatorSource = readSource('src/ui/navigation/FastTabNavigator.tsx');
   const sidebarSource = readSource('src/ui/components/SidebarDrawer.tsx');
+  const sidebarDestinationHostSource = readSource('src/ui/components/SidebarDestinationHost.tsx');
   const settingsSource = readSource('src/features/settings/SettingsScreen/SettingsScreen.tsx');
   const settingRowSource = readSource('src/features/settings/SettingsScreen/SettingRow.tsx');
+  const directPreferenceThemeSubscribers = [
+    ...walkSourceFiles('app'),
+    ...walkSourceFiles('src'),
+  ].filter(
+    (file) =>
+      !file.endsWith('.test.ts')
+      && !file.endsWith('.test.tsx')
+      && file !== 'src/state/userPreferences/store.ts',
+  ).filter((file) => {
+    const source = readSource(file);
+    return (
+      /useUserPreferences\(\s*\([^)]*\)\s*=>\s*[^)]*?\.themeMode\s*\)/.test(source)
+      || /themeMode:\s*state\.themeMode/.test(source)
+    );
+  });
 
+  assert.deepEqual(
+    directPreferenceThemeSubscribers,
+    [],
+    'rendering code must use the priority-aware theme clock, not the persisted preference mirror',
+  );
   assert.match(storeSource, /const pendingPreferenceWrites = new Map<string, StorageValue<PersistedUserPreferencesState>>\(\)/);
   assert.match(storeSource, /function schedulePreferenceWriteFlush\(\)/);
   assert.match(storeSource, /requestAnimationFrame/);
   assert.match(storeSource, /setTimeout\(flushPendingPreferenceWrites, 0\)/);
+  assert.match(storeSource, /preferenceWriteFlushFallbackTimer = setTimeout\(flushPendingPreferenceWrites, 100\)/);
   assert.match(storeSource, /partialize: partializeUserPreferences/);
-  // No deferred theme preference commit — every screen must flip with the toggle.
-  assert.doesNotMatch(storeSource, /pendingThemeModeCommit/);
-  assert.doesNotMatch(storeSource, /scheduleThemeModePreferenceCommit/);
-  assert.doesNotMatch(storeSource, /THEME_MODE_PREFERENCE_COMMIT_DELAY_MS/);
-  assert.doesNotMatch(storeSource, /themeModeCommitScheduled/);
+  assert.match(
+    storeSource,
+    /function flushPendingPreferenceWrites\(\) \{[\s\S]*sanitizePreferenceAuthStorageValue\(value\)[\s\S]*AsyncStorage\.setItem\(name, JSON\.stringify\(sanitized\)\)/,
+  );
+  const storageSetterStart = storeSource.indexOf('setItem: (name, value) => {');
+  const storageSetterEnd = storeSource.indexOf('\n  removeItem:', storageSetterStart);
+  assert.notEqual(storageSetterStart, -1);
+  assert.notEqual(storageSetterEnd, -1);
+  const storageSetterSource = storeSource.slice(storageSetterStart, storageSetterEnd);
+  assert.match(storageSetterSource, /pendingPreferenceWrites\.set\(name, value\)/);
+  assert.doesNotMatch(storageSetterSource, /sanitizePreferenceAuthStorageValue|JSON\.stringify/);
   const preferenceThemeSetterStart = storeSource.indexOf('setThemeMode: (mode) => {');
   const preferenceThemeSetterEnd = storeSource.indexOf('\n      addQuoteSymbol:', preferenceThemeSetterStart);
   assert.notEqual(preferenceThemeSetterStart, -1);
   assert.notEqual(preferenceThemeSetterEnd, -1);
   const preferenceThemeSetterSource = storeSource.slice(preferenceThemeSetterStart, preferenceThemeSetterEnd);
   assert.match(preferenceThemeSetterSource, /setImmediateThemeMode\(mode\)/);
-  assert.match(preferenceThemeSetterSource, /set\(\{ themeMode: mode \}\)/);
+  assert.match(preferenceThemeSetterSource, /if \(get\(\)\.themeMode !== mode\) \{\s*set\(\{ themeMode: mode \}\)/);
+  assert.doesNotMatch(preferenceThemeSetterSource, /scheduleThemeModePreferenceCommit/);
   assert.ok(
     preferenceThemeSetterSource.indexOf('setImmediateThemeMode(mode)')
       < preferenceThemeSetterSource.indexOf('set({ themeMode: mode })'),
-    'the lightweight visible theme must update before the preference mirror in the same turn',
+    'the lightweight theme clock must update before its persisted preference mirror',
   );
+  assert.match(storeSource, /setImmediateThemeMode\(state\.themeMode, \{ deferRetained: false \}\)/);
   assert.doesNotMatch(storeSource, /createJSONStorage\(\(\) => AsyncStorage\)/);
   assert.match(themeModeSource, /const immediateThemeVisualAppliers = new Set<ImmediateThemeVisualApplier>\(\)/);
   assert.match(themeModeSource, /export function registerImmediateThemeVisualApplier\(applier: ImmediateThemeVisualApplier\)[\s\S]*immediateThemeVisualAppliers\.add\(applier\)[\s\S]*immediateThemeVisualAppliers\.delete\(applier\)/);
-  const immediateThemeSetterStart = themeModeSource.indexOf('export function setImmediateThemeMode(mode: ThemeMode)');
-  const immediateThemeSetterEnd = themeModeSource.indexOf('\n/**', immediateThemeSetterStart + 1);
-  assert.notEqual(immediateThemeSetterStart, -1);
-  assert.notEqual(immediateThemeSetterEnd, -1);
-  const immediateThemeSetterSource = themeModeSource.slice(immediateThemeSetterStart, immediateThemeSetterEnd);
-  assert.match(immediateThemeSetterSource, /applyImmediateThemeVisuals\(mode\)/);
-  assert.match(immediateThemeSetterSource, /useThemeModeState\.getState\(\)\.setImmediateThemeMode\(mode\)/);
+  assert.match(themeModeSource, /retainedThemeMode: ThemeMode/);
+  assert.match(
+    themeModeSource,
+    /ThemeModeRenderPriorityContext =\s*createContext<ThemeModeRenderPriority>\('immediate'\)/,
+  );
+  assert.match(themeModeSource, /const themeModePostPaintTasks = new Set<ThemeModePostPaintTask>\(\)/);
+  assert.match(themeModeSource, /let themeModePostPaintFlushing = false/);
+  assert.match(
+    themeModeSource,
+    /function scheduleThemeModePostPaintFlush\(\)[\s\S]*requestAnimationFrame[\s\S]*setTimeout\(flushThemeModePostPaintWork, 0\)/,
+  );
+  assert.match(
+    themeModeSource,
+    /export function scheduleAfterImmediateThemePaint\(task: ThemeModePostPaintTask\)[\s\S]*themeModePostPaintTasks\.add\(task\)[\s\S]*scheduleThemeModePostPaintFlush\(\)/,
+  );
+  assert.match(
+    themeModeSource,
+    /export function setImmediateThemeMode\([\s\S]*state\.setImmediateThemeMode\(mode\)[\s\S]*pendingRetainedThemeMode =[\s\S]*scheduleThemeModePostPaintFlush\(\)/,
+  );
+  assert.match(
+    themeModeSource,
+    /if \(retainedMode !== null\) \{[\s\S]*applyImmediateThemeVisuals\(retainedMode\)[\s\S]*setRetainedThemeMode\(retainedMode\)/,
+  );
   assert.ok(
-    immediateThemeSetterSource.indexOf('applyImmediateThemeVisuals(mode)')
-      < immediateThemeSetterSource.indexOf('useThemeModeState.getState().setImmediateThemeMode(mode)'),
-    'imperative surfaces must receive the new palette before Zustand starts React reconciliation',
+    themeModeSource.indexOf('postPaintTasks.forEach((task) => {')
+      < themeModeSource.indexOf('const retainedMode = pendingRetainedThemeMode;'),
+    'queued rapid reversals must resolve before the retained mode is captured',
   );
   assert.match(themeModeSource, /export function useDeferredThemeMode\(delayMs = 750\): ThemeMode/);
   // Live by default — do not freeze on navigation blur. Only explicit active:false freezes.
   assert.doesNotMatch(themeModeSource, /NavigationContext|NavigationRouteContext|useNavigationFocusState/);
   assert.match(themeModeSource, /const active = options\?\.active !== false/);
-  assert.match(themeModeSource, /const frozenThemeModeRef = useRef\(useThemeModeState\.getState\(\)\.themeMode\)/);
-  assert.match(themeModeSource, /\(state\) => \(active \? state\.themeMode : frozenThemeModeRef\.current\)/);
-  assert.match(themeModeSource, /\[active\]/);
+  assert.match(themeModeSource, /const renderPriority = useContext\(ThemeModeRenderPriorityContext\)/);
+  assert.match(themeModeSource, /!active \|\| renderPriority === 'frozen'/);
+  assert.match(themeModeSource, /active && renderPriority !== 'frozen'/);
+  assert.match(themeModeSource, /renderPriority === 'retained'[\s\S]*state\.retainedThemeMode[\s\S]*state\.themeMode/);
+  assert.match(themeModeSource, /\[active, renderPriority\]/);
   assert.match(themeModeSource, /setTimeout\(\(\) => \{[\s\S]*setThemeMode\(state\.themeMode\);[\s\S]*\}, delayMs\)/);
   assert.match(readSource('src/ui/theme/useTheme.ts'), /const themeMode = useThemeMode\(options\)/);
   assert.match(rootSource, /function AppStatusBar\(\)[\s\S]*const isDark = useIsDarkTheme\(\)/);
   assert.match(rootSource, /function ThemedNavigatorShell\(\)[\s\S]*const navigationThemeMode = useThemeMode\(\)/);
-  assert.match(rootSource, /function InnerLayout\(\) \{[\s\S]*<ThemedNavigatorShell \/>[\s\S]*<TradePositionActionHost \/>[\s\S]*<ChartSettingsHost \/>[\s\S]*<ChartConfigDestinationHost \/>/);
+  assert.match(
+    rootSource,
+    /<ThemeModeRenderPriorityContext\.Provider value="retained">[\s\S]*<SidebarDestinationHost \/>[\s\S]*<TradePositionActionHost \/>[\s\S]*<ChartConfigDestinationHost \/>[\s\S]*<\/ThemeModeRenderPriorityContext\.Provider>[\s\S]*<SidebarDrawer \/>/,
+  );
   assert.doesNotMatch(rootSource, /function InnerLayout\(\) \{\s*const T = useTheme\(\)/);
+  assert.match(
+    fastTabNavigatorSource,
+    /<ThemeModeRenderPriorityContext\.Provider[\s\S]*value=\{visualFocused \? 'retained' : 'frozen'\}[\s\S]*<SceneContent[\s\S]*<\/ThemeModeRenderPriorityContext\.Provider>/,
+  );
+  assert.match(
+    sidebarDestinationHostSource,
+    /<ThemeModeRenderPriorityContext\.Provider[\s\S]*value=\{active \|\| visualActive \? 'retained' : 'frozen'\}[\s\S]*<DestinationView active=\{active\} \/>/,
+  );
   assert.match(tabsSource, /ThemedTabsChrome/);
   assert.match(tabsSource, /const themeMode = useThemeMode\(\)/);
   assert.match(tabsSource, /const isDark = themeMode === 'dark'/);
@@ -1500,18 +1568,32 @@ test('theme toggles apply immediate visuals and commit the preference mirror in 
   assert.doesNotMatch(tabsSource, /useDeferredThemeMode\(\)/);
   assert.doesNotMatch(tabsSource, /const T = useTheme\(\)/);
   assert.doesNotMatch(sidebarSource, /SIDEBAR_THEME_COMMIT_DELAY_MS/);
-  assert.match(sidebarSource, /function SidebarThemeSelector\(\{ ds, T \}: SidebarThemeSelectorProps\)/);
-  assert.match(sidebarSource, /<SidebarThemeSelector ds=\{ds\} T=\{T\} \/>/);
-  assert.match(sidebarSource, /const selectedThemeMode = pendingThemeMode \?\? appliedThemeMode/);
+  assert.match(sidebarSource, /const themeMode = useThemeMode\(\)/);
   assert.match(sidebarSource, /const \[pendingThemeMode, setPendingThemeMode\] = useState<ThemeMode \| null>\(null\)/);
-  assert.match(sidebarSource, /setPendingThemeMode\(nextMode\)/);
-  assert.match(sidebarSource, /setThemeMode\(nextMode\)/);
-  assert.doesNotMatch(sidebarSource, /requestAnimationFrame\(scheduleCommitTimer\)/);
+  assert.match(sidebarSource, /const selectedThemeMode = pendingThemeMode \?\? appliedThemeMode/);
+  assert.match(sidebarSource, /const themeCommitGenerationRef = useRef\(0\)/);
+  assert.match(
+    sidebarSource,
+    /scheduleAfterImmediateThemePaint\(\(\) => \{[\s\S]*setPreferenceThemeMode\(nextMode\)/,
+  );
+  assert.match(
+    sidebarSource,
+    /setPendingThemeMode\(nextMode\);[\s\S]*onSelectThemeMode\(nextMode\)/,
+  );
+  assert.match(
+    sidebarSource,
+    /<SidebarThemeSelector[\s\S]*appliedThemeMode=\{themeMode\}[\s\S]*onSelectThemeMode=\{handleThemeModePress\}/,
+  );
+  assert.match(
+    sidebarSource,
+    /function SidebarThemeSelector\(\{[\s\S]*appliedThemeMode,[\s\S]*onSelectThemeMode,[\s\S]*\}: SidebarThemeSelectorProps\)/,
+  );
+  assert.match(sidebarSource, /const SIDEBAR_STYLES_BY_MODE: Record<ThemeMode, ReturnType<typeof makeStyles>>/);
   assert.doesNotMatch(sidebarSource, /setTimeout\(commitPendingThemeMode/);
   assert.match(sidebarSource, /onPress=\{\(\) => handleThemeModePress\('light'\)\}/);
   assert.match(sidebarSource, /onPress=\{\(\) => handleThemeModePress\('dark'\)\}/);
-  assert.match(sidebarSource, /<Pressable[\s\S]*style=\{!selectedIsDark \? ds\.themeOptActive : ds\.themeOptInactive\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="sidebar\.themeLight"[\s\S]*unstable_pressDelay=\{0\}/);
-  assert.match(sidebarSource, /<Pressable[\s\S]*style=\{selectedIsDark \? ds\.themeOptActive : ds\.themeOptInactive\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="sidebar\.themeDark"[\s\S]*unstable_pressDelay=\{0\}/);
+  assert.match(sidebarSource, /<Pressable[\s\S]*style=\{!selectedIsDark \? ds\.themeOptActive : ds\.themeOptInactive\}[\s\S]*activateOnTouchStart[\s\S]*latencyLabel="sidebar\.themeLight"[\s\S]*unstable_pressDelay=\{0\}/);
+  assert.match(sidebarSource, /<Pressable[\s\S]*style=\{selectedIsDark \? ds\.themeOptActive : ds\.themeOptInactive\}[\s\S]*activateOnTouchStart[\s\S]*latencyLabel="sidebar\.themeDark"[\s\S]*unstable_pressDelay=\{0\}/);
   assert.match(settingsSource, /const appliedThemeMode = useThemeMode\(\)/);
   assert.match(settingsSource, /const \[pendingThemeMode, setPendingThemeMode\] = useState/);
   assert.match(settingsSource, /const applyThemeMode = useCallback\(\(nextMode: 'light' \| 'dark'\) => \{/);

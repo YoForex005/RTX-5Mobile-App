@@ -14,6 +14,7 @@ import { useShallow } from 'zustand/shallow';
 import { ActionSheet } from '../../../ui/components/ActionSheet';
 import { useTranslation } from '../../../i18n/useTranslation';
 import { Screen } from '../../../ui/components/Screen';
+import { useThemeMode } from '../../../state/themeMode';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useUIState } from '../../../state/uiState';
 import { useTheme } from '../../../ui/theme/useTheme';
@@ -181,7 +182,6 @@ export function ObjectsScreen() {
     removeChartDrawing,
     setChartDrawingRecordsForSymbol,
     removeChartDrawingRecordForSymbol,
-    themeMode,
   } = useUserPreferences(
     useShallow((state) => ({
       chartSymbol: state.chartSymbol,
@@ -195,13 +195,13 @@ export function ObjectsScreen() {
       removeChartDrawing: state.removeChartDrawing,
       setChartDrawingRecordsForSymbol: state.setChartDrawingRecordsForSymbol,
       removeChartDrawingRecordForSymbol: state.removeChartDrawingRecordForSymbol,
-      themeMode: state.themeMode,
     })),
   );
   const { t } = useTranslation();
   const queueChartDrawingTool = useUIState((state) => state.queueChartDrawingTool);
   const clearPendingChartDrawingTool = useUIState((state) => state.clearPendingChartDrawingTool);
   const T = useTheme();
+  const themeMode = useThemeMode();
   const isDark = themeMode === 'dark';
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeObjectsScreenStyles(T, isDark), [T, isDark]);

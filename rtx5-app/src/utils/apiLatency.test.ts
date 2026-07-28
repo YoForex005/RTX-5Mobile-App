@@ -31,6 +31,16 @@ test('sanitizeApiLatencyEndpoint strips host and redacts sensitive query values'
     sanitizeApiLatencyEndpoint('/feed?sig=backend-declared-secret&instrument=EURUSD'),
     '/feed?sig=[redacted]&instrument=[redacted]',
   );
+  assert.equal(
+    sanitizeApiLatencyEndpoint('/account/000200082'),
+    '/account/:login',
+  );
+  assert.equal(
+    sanitizeApiLatencyEndpoint('https://broker.example/api/v2/accounts/200082?token=secret'),
+    '/api/v2/accounts/:login?token=[redacted]',
+  );
+  assert.equal(sanitizeApiLatencyEndpoint('/positions/000200082'), '/positions/:login');
+  assert.equal(sanitizeApiLatencyEndpoint('/orders/200082'), '/orders/:login');
 });
 
 test('recordApiLatency redacts credential-bearing URLs from error messages', () => {

@@ -18,6 +18,7 @@ import { useTheme } from '../../theme/useTheme';
 import { fmt } from '../../../utils/format';
 import { formatBrokerTime } from '../../../utils/brokerTime';
 import { useUserPreferences } from '../../../state/userPreferences';
+import { useIsDarkTheme } from '../../../state/themeMode';
 import { useLiveSymbolQuote } from '../../../query/websocket';
 import { useInstrumentMeta } from '../../../query/instruments';
 import { resolveTradingLoginString } from '../../../state/tradingLogin';
@@ -30,8 +31,8 @@ import {
 import { closePositionImmediately } from '../../../features/trade/closePositionFlow';
 import { showTradePositionAction } from '../../../features/trade/tradePositionActionHostController';
 import {
+  getActiveSltpUnavailableMessage,
   isExistingPositionModifyBackendLocked,
-  SLTP_COMING_SOON_MESSAGE,
   SLTP_COMING_SOON_TITLE,
 } from '../../../features/trade/tradeBackendCapabilities';
 import { OverlayActions } from './OverlayActions';
@@ -222,7 +223,7 @@ function TradePositionRowComponent({
   accountLeverage?: number | null;
 }) {
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const setChartSymbol = useUserPreferences((s) => s.setChartSymbol);
   const primePositionSnapshot = usePositionsState((state) => state.primePositionSnapshot);
   const isBuy = item.side === 'buy';
@@ -375,7 +376,7 @@ function TradePositionRowComponent({
 
   const navigateToModifyPosition = () => {
     if (isExistingPositionModifyBackendLocked()) {
-      Alert.alert(SLTP_COMING_SOON_TITLE, SLTP_COMING_SOON_MESSAGE);
+      Alert.alert(SLTP_COMING_SOON_TITLE, getActiveSltpUnavailableMessage());
       return;
     }
     openPositionAction('modify');

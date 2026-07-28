@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { resetSessionMarketData, useTradingState } from './tradingState.ts';
+import {
+  resetQuoteMarketData,
+  resetSessionMarketData,
+  useTradingState,
+} from './tradingState.ts';
 
 const resetTradingState = () => {
   useTradingState.setState({
@@ -64,4 +68,22 @@ test('resetSessionMarketData atomically clears quote, candle, account, and tick 
   assert.deepEqual(state.candles, {});
   assert.equal(state.account, null);
   assert.equal(state.tickCount, 0);
+});
+
+test('credential rotation clears quotes without discarding account or candle history', () => {
+  const candles = [{ time: 1, open: 1, high: 1, low: 1, close: 1 }] as any;
+  const account = { balance: 10 } as any;
+  useTradingState.setState({
+    quotes: { EURUSD: { symbol: 'EURUSD', bid: 1.1, ask: 1.1002 } as any },
+    candles: { 'EURUSD.M1': candles },
+    account,
+    tickCount: 7,
+  });
+
+  resetQuoteMarketData();
+  const state = useTradingState.getState();
+  assert.deepEqual(state.quotes, {});
+  assert.equal(state.tickCount, 0);
+  assert.strictEqual(state.candles['EURUSD.M1'], candles);
+  assert.strictEqual(state.account, account);
 });

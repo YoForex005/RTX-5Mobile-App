@@ -67,6 +67,7 @@ import {
   useFastTabVisualSnapshot,
   type FastTabRouteName,
 } from './fastTabVisualController';
+import { ThemeModeRenderPriorityContext } from '../../state/themeMode';
 
 type DescriptorMap = BottomTabBarProps['descriptors'];
 type TabNavigation = BottomTabBarProps['navigation'];
@@ -179,13 +180,17 @@ const SceneLayer = memo(function SceneLayer({
       ]}
       pointerEvents={visualFocused ? 'auto' : 'none'}
     >
-      <SceneContent
-        descriptor={descriptor}
-        navigationFocused={navigationFocused}
-        layout={layout}
-        tabBarHeight={tabBarHeight}
-        tabBarPosition={tabBarPosition}
-      />
+      <ThemeModeRenderPriorityContext.Provider
+        value={visualFocused ? 'retained' : 'frozen'}
+      >
+        <SceneContent
+          descriptor={descriptor}
+          navigationFocused={navigationFocused}
+          layout={layout}
+          tabBarHeight={tabBarHeight}
+          tabBarPosition={tabBarPosition}
+        />
+      </ThemeModeRenderPriorityContext.Provider>
     </View>
   );
 }, (previous, next) => {

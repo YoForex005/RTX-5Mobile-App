@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import { memo, useEffect, useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useBrokerDirectory } from '../../query/broker';
-import { useUserPreferences } from '../../state/userPreferences';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { useTheme, type ThemeColors } from '../../ui/theme/useTheme';
 import {
@@ -22,22 +22,10 @@ type BrokersLaunchShellProps = Readonly<{
   dataActive?: boolean;
 }>;
 
-const brokerLogoPrefetches = new Map<string, Promise<boolean>>();
-
-function prefetchBrokerLogo(logoUrl: string) {
-  if (!logoUrl || brokerLogoPrefetches.has(logoUrl)) return;
-
-  const request = Image.prefetch(logoUrl).catch(() => false);
-  brokerLogoPrefetches.set(logoUrl, request);
-  void request.then((loaded) => {
-    if (!loaded) brokerLogoPrefetches.delete(logoUrl);
-  });
-}
-
 /**
  * Ready Brokers first frame kept mounted for the Accounts "+" action.
- * Its backend Image sources warm while hidden, so the first visible frame
- * already matches the live directory instead of flashing broker initials.
+ * Backend-managed logos bypass stale native bytes when the backend replaces an
+ * image at the same URL.
  */
 export const BrokersLaunchShell = memo(function BrokersLaunchShell({
   onBack,
@@ -48,7 +36,7 @@ export const BrokersLaunchShell = memo(function BrokersLaunchShell({
   const T = useTheme();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const isDark = useUserPreferences((state) => state.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const { data: brokerDirectory } = useBrokerDirectory(dataActive);
   const styles = useMemo(
     () => makeStyles(T, isDark, insets.top),
@@ -64,13 +52,6 @@ export const BrokersLaunchShell = memo(function BrokersLaunchShell({
     return liveRows.slice(0, 8);
   }, [brokerDirectory?.entries]);
   const isIdentityOnlyDirectory = brokerDirectory?.mode === 'identity_only';
-
-  useEffect(() => {
-    for (const row of previewRows) {
-      if (!row.selectable) continue;
-      prefetchBrokerLogo(row.logoUrl || buildBrokerDomainLogoUrl(row.domain));
-    }
-  }, [previewRows]);
 
   return (
     <View style={styles.root} testID="brokers-launch-shell">
@@ -118,7 +99,7 @@ export const BrokersLaunchShell = memo(function BrokersLaunchShell({
               <View style={styles.avatar}>
                 {logoUri ? (
                   <Image
-                    source={{ uri: logoUri, cache: 'force-cache' }}
+                    source={{ uri: logoUri, cache: 'reload' }}
                     style={styles.avatarImage}
                     resizeMode="contain"
                     fadeDuration={0}

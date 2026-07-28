@@ -5,6 +5,7 @@ import {
   buildChartPositionStopDragKey,
   buildChartOverlayPayload,
   CHART_LINE_STYLE,
+  formatTpSlOverlayLabel,
   normalizeChartOverlaySymbol,
   type ChartOverlayCandle,
 } from './chartOverlays';
@@ -136,6 +137,25 @@ test('buildChartOverlayPayload maps open positions for the chart symbol with the
   assert.equal(
     lockedPayload.priceLines.find((line: any) => line.id === 'sl-1')?.dragKey,
     undefined,
+  );
+});
+
+test('SL/TP projected labels use the position side instead of assuming every SL loses', () => {
+  assert.equal(
+    formatTpSlOverlayLabel('sl', 'XAUUSD', 'buy', 4053.25, 4057.76, 0.01),
+    'SL, + 4.51 USD, 451 points',
+  );
+  assert.equal(
+    formatTpSlOverlayLabel('sl', 'XAUUSD', 'buy', 4053.25, 4048.74, 0.01),
+    'SL, - 4.51 USD, 451 points',
+  );
+  assert.equal(
+    formatTpSlOverlayLabel('sl', 'XAUUSD', 'sell', 4053.25, 4048.74, 0.01),
+    'SL, + 4.51 USD, 451 points',
+  );
+  assert.equal(
+    formatTpSlOverlayLabel('sl', 'XAUUSD', 'sell', 4053.25, 4057.76, 0.01),
+    'SL, - 4.51 USD, 451 points',
   );
 });
 

@@ -23,6 +23,7 @@ test('trade and account diagnostics are opt-in and centrally redacted', () => {
   for (const source of [chart, market, pending, positions, orderQueries]) {
     assert.match(source, /args\.map\(redactDiagnosticValue\)/);
   }
-  assert.match(accounts, /redactDiagnosticValue\(data\)/);
-  assert.match(accounts, /redactDiagnosticValue\(mapped\)/);
+  assert.match(accounts, /Accounts response received[\s\S]*accountCount: mapped\.length/);
+  assert.doesNotMatch(accounts, /console\.log\([\s\S]{0,120}(?:data|mapped)\)/);
+  assert.doesNotMatch(accounts, /Raw backend response:|Mapped accounts:/);
 });

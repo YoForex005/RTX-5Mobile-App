@@ -8,7 +8,7 @@ const source = readFileSync(
   'utf8',
 );
 
-test('native chart position SL/TP modification is live-quote and epoch guarded', () => {
+test('native chart position SL/TP modification is live-quote and owner-provenance guarded', () => {
   const start = source.indexOf('const commitChartPositionStopLevels = useCallback');
   const end = source.indexOf('const commitChartTradeSheetStopsForPosition', start);
   assert.notEqual(start, -1);
@@ -17,8 +17,8 @@ test('native chart position SL/TP modification is live-quote and epoch guarded',
 
   assert.match(body, /resolveSessionQuoteActionAvailability\(chartLiveQuote, Date\.now\(\)\)/);
   assert.match(body, /quoteActionBlockMessage\(quoteAvailability\)/);
-  assert.match(body, /getActiveBrokerSessionIdentity\(sessionCapture\.session\)/);
-  assert.match(body, /isActiveBrokerSessionCurrent\(sessionIdentity\)/);
+  assert.match(body, /getActiveBrokerSessionProvenance\(sessionCapture\.session\)/);
+  assert.match(body, /isActiveBrokerSessionProvenanceCurrent\(sessionProvenance\)/);
   assert.match(body, /position\.side === 'buy'[\s\S]*quoteAvailability\.bid[\s\S]*quoteAvailability\.ask/);
   assert.match(
     body,

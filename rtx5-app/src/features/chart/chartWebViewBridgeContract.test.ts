@@ -31,6 +31,11 @@ const liveCandleHistoryFetchingSource = readProjectSource('src/domain/candles/st
 const enhancedDrawingToolsSource = readProjectSource('src/features/chart/plugins/enhancedDrawingToolsString.ts');
 
 test('webview bridge: ChartScreen initializes chart only after WebView READY enables bridge', () => {
+  assertSourceContains(
+    source,
+    /onLoadStart=\{\(\) => \{[\s\S]*resetChartBridgeState\(\);[\s\S]*setWebViewReady\(false\);[\s\S]*\}\}[\s\S]*onContentProcessDidTerminate/,
+    'every real WebView document load must clear stale bridge readiness before READY',
+  );
   assertSourceContains(source, /msg\.type === 'READY'[\s\S]*resetChartBridgeState\(\)[\s\S]*setWebViewReady\(true\)/, 'READY must reset bridge state and enable WebView');
   assertSourceContains(source, /const sendInit = useCallback[\s\S]*if \(!webViewRef\.current \|\| !webViewReady\) return/, 'sendInit must wait for WebView readiness');
   assertSourceContains(source, /useEffect\(\(\) => \{[\s\S]*sendInit\(\);[\s\S]*\}, \[sanitizedCandles, sendInit\]\)/, 'sanitized candle arrival must trigger init after READY');
@@ -778,8 +783,8 @@ test('webview bridge: setLivePriceLine hides native market badges and paints one
   assertSourceContains(chartWebViewHtmlSource, /function refreshMarketPriceScaleDom\(\)[\s\S]*renderMarketPriceScaleExtensions\(layer\)[\s\S]*renderMarketPriceScaleBadges\(layer\)/, 'overlay refresh must render MT5-style custom market price-scale badges after the line accents');
   assertSourceContains(
     source,
-    /const readCanonicalCandles = \(\) => liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\)[\s\S]*const paintCanonicalLiveTick = \(\) => \{[\s\S]*updateLiveTick\([\s\S]*liveCandlesEngine\.subscribe\(chartSymbol, chartTimeframe, paintCanonicalLiveTick\)/,
-    'native live paints must subscribe directly to the canonical candle engine and use the atomic WebView bridge',
+    /const readCanonicalCandles = \(\) => liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\)[\s\S]*const paintCanonicalLiveTick = \(allowUnchangedSnapshot = false\) => \{[\s\S]*allowUnchangedSnapshot && updateMode === 'noop'[\s\S]*updateLiveTick\([\s\S]*paintCanonicalLiveTick\(true\);[\s\S]*liveCandlesEngine\.subscribe\(\s*chartSymbol,\s*chartTimeframe,\s*paintCanonicalLiveTick/,
+    'native live paints must atomically repaint the current candle and Bid line on route resume before subscribing for later ticks',
   );
   assert.doesNotMatch(
     source,
@@ -848,8 +853,8 @@ test('native chart status overlays do not block symbol recovery controls', () =>
   );
   assertSourceContains(
     source,
-    /const hasPaintedCurrentChartContext =[\s\S]*hasPaintedChartOnce && lastPaintedChartDataContextSig === chartDataContextSig[\s\S]*const shouldShowChartLoadingOverlay =[\s\S]*!hasPaintedCurrentChartContext &&[\s\S]*!hasChartDataError &&[\s\S]*\(!chartSurfaceReady \|\| isLoading \|\| candlesAvailable\)/,
-    'loading overlay must cover a cold symbol/timeframe until that exact context paints',
+    /const hasPaintedCurrentChartContext =[\s\S]*hasPaintedChartOnce && lastPaintedChartDataContextSig === chartDataContextSig[\s\S]*const hasUsableRetainedChart =[\s\S]*hasPaintedCurrentChartContext && webViewReady && chartCanvasReady[\s\S]*const shouldShowChartLoadingOverlay =[\s\S]*!hasUsableRetainedChart &&[\s\S]*!hasChartDataError &&[\s\S]*\(!chartSurfaceReady \|\| isLoading \|\| candlesAvailable\)/,
+    'loading overlay must cover a cold context or reloading WebView until its current chart is usable',
   );
   assertSourceContains(
     source,
@@ -1321,7 +1326,19 @@ test('webview bridge: recent viewport reserves a bounded live-edge gap before th
   );
 });
 
-test('webview bridge: WebView process reload resets bridge and reloads chart', () => {
-  assertSourceContains(source, /onContentProcessDidTerminate=\{\(\) => \{[\s\S]*resetChartBridgeState\(\)[\s\S]*setWebViewReady\(false\)[\s\S]*webViewRef\.current\?\.reload\(\)/, 'iOS process termination must reload');
-  assertSourceContains(source, /onRenderProcessGone=\{\(\) => \{[\s\S]*resetChartBridgeState\(\)[\s\S]*setWebViewReady\(false\)[\s\S]*webViewRef\.current\?\.reload\(\)/, 'Android render process loss must reload');
+test('webview bridge: process loss recreates the surface only while Chart is focused', () => {
+  assertSourceContains(
+    source,
+    /const handleChartWebViewProcessLoss = useCallback\([\s\S]*failedGeneration: number[\s\S]*lastRecoveredChartWebViewGenerationRef\.current === failedGeneration[\s\S]*lastRecoveredChartWebViewGenerationRef\.current = failedGeneration[\s\S]*resetChartBridgeState\(\);[\s\S]*setWebViewReady\(false\);[\s\S]*if \(!isScreenFocused\) \{[\s\S]*pendingChartWebViewRecoveryRef\.current = true;[\s\S]*return;[\s\S]*setChartWebViewGeneration\(\(generation\) => generation \+ 1\)/,
+    'renderer loss must deduplicate each failed generation, reset the bridge, and defer recreation while another tab is active',
+  );
+  assertSourceContains(
+    source,
+    /useEffect\(\(\) => \{[\s\S]*!isScreenFocused \|\| !pendingChartWebViewRecoveryRef\.current[\s\S]*pendingChartWebViewRecoveryRef\.current = false;[\s\S]*setChartWebViewGeneration\(\(generation\) => generation \+ 1\);[\s\S]*\}, \[isScreenFocused\]\)/,
+    'a deferred renderer recovery must recreate the WebView on the next real Chart focus',
+  );
+  assertSourceContains(source, /key=\{`\$\{CHART_DEV_SOURCE_KEY\}:\$\{chartWebViewGeneration\}`\}/, 'WebView recreation must use a new React key');
+  assertSourceContains(source, /onContentProcessDidTerminate=\{\(\) => \{[\s\S]*handleChartWebViewProcessLoss\('iOS', chartWebViewGeneration\)/, 'iOS process termination must use generation-deduplicated focus-gated recovery');
+  assertSourceContains(source, /onRenderProcessGone=\{\(\) => \{[\s\S]*handleChartWebViewProcessLoss\('Android', chartWebViewGeneration\)/, 'Android process loss must recreate rather than reuse a dead WebView generation');
+  assert.doesNotMatch(source, /webViewRef\.current\?\.reload\(\)/, 'a terminated Android WebView must never be reused');
 });

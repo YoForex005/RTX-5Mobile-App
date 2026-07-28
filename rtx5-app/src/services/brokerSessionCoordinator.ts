@@ -54,12 +54,18 @@ import {
   normalizeBrokerHttpsUrl,
   normalizeBrokerWssUrl,
 } from '../api/brokerRouting';
+import {
+  buildAccountEnvironmentKey,
+  type AccountEnvironment,
+  type AccountEnvironmentSource,
+} from '../domain/accountType';
 
 export type BrokerSessionAccountProfile = Readonly<{
   name: string;
   serverName: string;
   logoUrl?: string;
-  isDemoAccount?: boolean;
+  accountType: AccountEnvironment;
+  accountEnvironmentSource: AccountEnvironmentSource;
 }>;
 
 export type CommitBrokerSessionInput = Readonly<{
@@ -104,6 +110,9 @@ const cleanString = (value: unknown): string =>
     ? String(value).trim()
     : '';
 
+const preserveNonBlankFeedToken = (value: unknown): string =>
+  typeof value === 'string' && value.trim() ? value : '';
+
 const validateCommitInput = (
   input: CommitBrokerSessionInput,
 ): CommitBrokerSessionInput => {
@@ -117,13 +126,18 @@ const validateCommitInput = (
     : '';
   const feedStatusUrl = normalizeBrokerHttpsUrl(manifest.feedStatusUrl);
   const accessToken = cleanString(input.credentials.accessToken);
+  const feedToken = preserveNonBlankFeedToken(input.credentials.feedToken);
+  const feedTokenRequired =
+    manifest.feedAuthContext.mode === 'query' &&
+    manifest.feedAuthContext.credential === 'feed_token';
 
   if (
     !apiBase ||
     !feedWsBase ||
     !feedStatusUrl ||
     (manifest.tradeWsBase && !tradeWsBase) ||
-    !accessToken
+    !accessToken ||
+    (feedTokenRequired && !feedToken)
   ) {
     throw new Error('Broker session handoff is missing a validated endpoint or access token.');
   }
@@ -144,8 +158,8 @@ const validateCommitInput = (
       accessToken,
       refreshToken: cleanString(input.credentials.refreshToken),
       expiresAt: cleanString(input.credentials.expiresAt),
-      ...(cleanString(input.credentials.feedToken)
-        ? { feedToken: cleanString(input.credentials.feedToken) }
+      ...(feedTokenRequired && feedToken
+        ? { feedToken }
         : {}),
     }),
     account: Object.freeze({
@@ -154,9 +168,8 @@ const validateCommitInput = (
       ...(cleanString(input.account.logoUrl)
         ? { logoUrl: cleanString(input.account.logoUrl) }
         : {}),
-      ...(typeof input.account.isDemoAccount === 'boolean'
-        ? { isDemoAccount: input.account.isDemoAccount }
-        : {}),
+      accountType: input.account.accountType,
+      accountEnvironmentSource: input.account.accountEnvironmentSource,
     }),
   });
 };
@@ -264,6 +277,7 @@ const commitBrokerSessionInternal = async (
         refreshToken: input.credentials.refreshToken,
         expiresAt: input.credentials.expiresAt,
         feedToken: input.credentials.feedToken,
+        feedAuthContext: input.session.feedAuthContext,
       }),
       clearLegacySelectedBrokerSession(),
     ]);
@@ -290,7 +304,8 @@ const commitBrokerSessionInternal = async (
       {
         serverUrl: input.session.apiBase,
         logoUrl: input.account.logoUrl,
-        isDemoAccount: input.account.isDemoAccount,
+        accountType: input.account.accountType,
+        accountEnvironmentSource: input.account.accountEnvironmentSource,
       },
     );
     return capture;
@@ -368,18 +383,35 @@ export const restoreBrokerSession = (): Promise<BrokerSessionRestoreResult> =>
       return failClosed('Stored broker credentials are missing or belong to another identity.');
     }
 
+    const expectedAccountEnvironmentKey = buildAccountEnvironmentKey(
+      manifest.brokerId,
+      manifest.accountLogin,
+    );
+    const hasMatchingAccountEnvironment =
+      preferences.accountEnvironmentKey === expectedAccountEnvironmentKey;
     const profile: BrokerSessionAccountProfile = {
       name: preferences.accountDetails.name,
       serverName: preferences.accountDetails.server,
       logoUrl: preferences.brokerLogoUrl,
-      isDemoAccount: preferences.isDemoAccount,
+      accountType: hasMatchingAccountEnvironment
+        ? preferences.accountType
+        : 'unknown',
+      accountEnvironmentSource: hasMatchingAccountEnvironment
+        ? preferences.accountEnvironmentSource
+        : 'unknown',
     };
     const transition = beginActiveBrokerSessionTransition();
     await teardownBrokerSessionRuntime();
     useUserPreferences.getState().logout();
 
     try {
-      const capture = activateBrokerSession(transition, manifest, {
+      const restoredSession = Object.freeze({
+        ...manifest,
+        // The feed token and context are one secure atomic pair. The manifest
+        // remains endpoint provenance only during restore.
+        feedAuthContext: credentials.feedAuthContext,
+      });
+      const capture = activateBrokerSession(transition, restoredSession, {
         accessToken: credentials.accessToken,
         refreshToken: credentials.refreshToken,
         expiresAt: credentials.expiresAt,
@@ -399,7 +431,8 @@ export const restoreBrokerSession = (): Promise<BrokerSessionRestoreResult> =>
         {
           serverUrl: manifest.apiBase,
           logoUrl: profile.logoUrl,
-          isDemoAccount: profile.isDemoAccount,
+          accountType: profile.accountType,
+          accountEnvironmentSource: profile.accountEnvironmentSource,
         },
       );
       return { status: 'restored', capture };
@@ -437,6 +470,15 @@ export const isCommittedBrokerSessionCurrent = (
 ): boolean => isActiveBrokerSessionCurrent(
   getActiveBrokerSessionIdentity(capture.session),
 );
+
+/** Recomputes fail-closed feed readiness after an atomic credential rotation. */
+export const rebindActiveBrokerFeedHealthSession = (
+  capture: ActiveBrokerSessionCapture,
+): void => {
+  if (isCommittedBrokerSessionCurrent(capture)) {
+    bindCommittedFeedHealthSession(capture);
+  }
+};
 
 brokerApi.setSessionInvalidationHandler((identity) =>
   invalidateBrokerSession(

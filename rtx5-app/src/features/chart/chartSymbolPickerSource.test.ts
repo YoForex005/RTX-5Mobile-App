@@ -433,7 +433,7 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
     /requestAnimationFrame/,
   );
   assert.match(source, /onPress=\{handleOpenTimeframePicker\}[\s\S]*activateOnPressIn/);
-  assert.match(source, /onPressIn=\{handleOpenChartTradeSheet\}/);
+  assert.match(source, /onPressIn=\{handleActivateDirectChartProtection\}/);
   assert.match(source, /onPress=\{handleOpenDrawingTools\}[\s\S]*activateOnPressIn/);
   assert.match(source, /accessibilityLabel="Chart settings"[\s\S]*onPress=\{handleOpenSettingsScreen\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart/);
   assert.match(source, /onPress=\{handleOpenMoreMenu\}[\s\S]*activateOnPressIn/);

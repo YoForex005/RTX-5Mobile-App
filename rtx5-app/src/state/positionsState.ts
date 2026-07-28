@@ -473,6 +473,9 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
       if (!targetId) {
         return {};
       }
+      if (isPositionOptimisticallyClosing(targetId)) {
+        return {};
+      }
       if (dto && resolvePositionId(dto) !== targetId) {
         // The coordinator must never let one ticket write another ticket.
         return {};
@@ -562,19 +565,20 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
 
       const accountLogin = state.lastFetchLogin ?? state.hydratedLogin ?? resolveTradingLoginString();
       if (isTerminalPositionUpdate(dto)) {
-        const existing = findExistingPosition(state.positions, dto);
-        if (!existing) {
-          return {};
-        }
-
         // A position was closed (SL/TP hit, server-side close, etc.).
-        // Invalidate history caches so the History tab shows it immediately.
+        // Invalidate history even if the open event was never observed. This
+        // lets an exact terminal ticket clear an awaiting Chart SL/TP draft
+        // instead of waiting for the normal history polling interval.
         void invalidateCurrentSessionQueryRoots(appQueryClient, [
           'positionHistory',
           'accountDeals',
           'deals',
           'accountSummary',
         ]);
+        const existing = findExistingPosition(state.positions, dto);
+        if (!existing) {
+          return {};
+        }
 
         const nextPositions = state.positions.filter((position) => position.id !== existing.id);
         scheduleOpenPositionsCacheWrite(accountLogin, nextPositions);
@@ -862,7 +866,9 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
           if (!isPositionsCacheScopeCurrent(cacheScope)) {
             return {};
           }
-          const nextPositions = buildMergedPositions(latestState.positions, positionsArray);
+          const nextPositions = withoutOptimisticallyClosingPositions(
+            buildMergedPositions(latestState.positions, positionsArray),
+          );
           scheduleOpenPositionsCacheWrite(normalizedLogin, nextPositions);
           return {
             positions: nextPositions,

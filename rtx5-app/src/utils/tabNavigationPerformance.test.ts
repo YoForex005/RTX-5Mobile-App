@@ -117,7 +117,7 @@ test('tab layout declares only the five primary cached scenes', () => {
   assert.doesNotMatch(source, /<Tabs\.Screen name='(?:journal|economic-calendar|user-guide|help|about)'/);
 });
 
-test('retained Trade and Settings bodies prewarm without activating hidden work', () => {
+test('retained Trade prewarms while Settings stays complete without activating hidden work', () => {
   const tradeSource = readSource('src/features/trade/TradeScreen/TradeScreen.tsx');
   const settingsSource = readSource('src/features/settings/SettingsScreen/SettingsScreen.tsx');
 
@@ -127,10 +127,9 @@ test('retained Trade and Settings bodies prewarm without activating hidden work'
   assert.match(tradeSource, /const tradeFetchActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady, TRADE_SCREEN_FETCH_DELAY_MS\)/);
   assert.doesNotMatch(tradeSource, /useDeferredRouteContentReady\([^)]*, isScreenFocused\)/);
 
-  assert.match(settingsSource, /const SETTINGS_BODY_PREWARM_DELAY_MS = 1200/);
-  assert.match(settingsSource, /const routeBodyReady = useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : SETTINGS_BODY_PREWARM_DELAY_MS,\s*\)/);
+  assert.doesNotMatch(settingsSource, /SETTINGS_BODY_PREWARM_DELAY_MS|routeBodyReady|useDeferredRouteContentReady/);
+  assert.match(settingsSource, /<ScrollView[\s\S]*style=\{styles\.container\}[\s\S]*contentContainerStyle=\{styles\.content\}/);
   assert.match(settingsSource, /isAccountConnected && isScreenFocused && firstPaintReady/);
-  assert.doesNotMatch(settingsSource, /useDeferredRouteContentReady\([^)]*, isScreenFocused\)/);
 });
 
 test('custom fast tabs retain Expo Router and TabRouter navigation contracts', () => {

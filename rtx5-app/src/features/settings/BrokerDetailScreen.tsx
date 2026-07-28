@@ -32,6 +32,7 @@ import { Screen } from '../../ui/components/Screen';
 import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import { useTheme } from '../../ui/theme/useTheme';
 import type { ThemeColors } from '../../ui/theme/glass';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -49,7 +50,13 @@ import { getBrokerConfigQueryKey, useBrokerServers } from '../../query/broker';
 import {
   invalidateSessionQueryRoots,
 } from '../../query/authenticatedQueryScope';
-import { getTradingAccountTypeFromBackend } from '../../domain/accountType';
+import {
+  buildAccountEnvironmentKey,
+  mergeAccountEnvironment,
+  readRawAccountGroup,
+  resolveAccountEnvironment,
+  type AccountEnvironmentState,
+} from '../../domain/accountType';
 import {
   safeRouterBack,
   scheduleBackNavigationAfterVisualFrame,
@@ -70,7 +77,7 @@ import {
   scheduleBrokerDetailLaunchCoverRemoval,
 } from './brokerDetailLaunchController';
 import { showBrokersReturnLaunch } from './brokersLaunchController';
-import { redactAuthPayload, redactSensitiveString } from '../../api/authRedaction';
+import { redactSensitiveString } from '../../api/authRedaction';
 import {
   scheduleRegisterLaunchNavigation,
   showRegisterLaunch,
@@ -82,6 +89,7 @@ import {
   isStaleBrokerSessionCommitError,
   type BrokerSessionCommitAuthorization,
 } from '../../services/brokerSessionCoordinator';
+import { refreshActiveAccountEnvironment } from '../../services/accountEnvironmentSession';
 import { resolveSessionFeedAuth } from '../../api/feedAuthContract';
 import {
   getActiveBrokerSessionProvenance,
@@ -313,12 +321,12 @@ function BrokerDetailInteractiveContent({
   const params = useLocalSearchParams<BrokerDetailRouteParams>();
   const T = useTheme();
   const { t } = useTranslation();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
 
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
-  const isDemoAccount = useUserPreferences((s) => s.isDemoAccount);
+  const activeAccountType = useUserPreferences((s) => s.accountType);
   const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
   const queryClient = useQueryClient();
   const showBrokerDetailActionSheet = useUIState((s) => s.showBrokerDetailActionSheet);
@@ -329,7 +337,7 @@ function BrokerDetailInteractiveContent({
   // Real-account option is disabled while the active session is a real
   // account, matching MT5: it shows as muted so the user knows they already
   // have a live connection.
-  const hasActiveRealAccount = isLoggedIn && !isDemoAccount;
+  const hasActiveRealAccount = isLoggedIn && activeAccountType === 'real';
 
   const brokerName = params.brokerName ? String(params.brokerName) : t('Broker');
   const brokerIdSlug = params.brokerId ? String(params.brokerId) : '';
@@ -705,12 +713,40 @@ function BrokerDetailInteractiveContent({
       ) {
         throw new Error(t('Login response did not match the selected broker.'));
       }
-      const accountType = getTradingAccountTypeFromBackend(response);
       const effectiveServerName = serverNameFromApi || selectedServer.label || canonicalBrokerId;
       const savedLogin = String(accountLogin);
+      const accountEnvironmentEvidence = resolveAccountEnvironment(response, true);
+      const resolvedAccountType = accountEnvironmentEvidence.accountType;
+      const accountEnvironmentKey = buildAccountEnvironmentKey(
+        selectedEndpoints.brokerId,
+        savedLogin,
+      );
+      const matchingSavedAccount = useSavedAccounts.getState().accounts.find(
+        (account) =>
+          buildAccountEnvironmentKey(account.brokerId, account.login) === accountEnvironmentKey,
+      );
+      const previousAccountEnvironment: AccountEnvironmentState | null =
+        matchingSavedAccount && matchingSavedAccount.accountType !== 'unknown'
+          ? {
+              accountKey: accountEnvironmentKey,
+              accountType: matchingSavedAccount.accountType,
+              accountEnvironmentSource: matchingSavedAccount.accountEnvironmentSource,
+              isDemoAccount: matchingSavedAccount.accountType === 'demo',
+            }
+          : null;
+      const initialAccountEnvironment = mergeAccountEnvironment(previousAccountEnvironment, {
+        accountKey: accountEnvironmentKey,
+        resolved: resolvedAccountType,
+        source: accountEnvironmentEvidence.source,
+        allowInitialFallback: true,
+      })!;
+      const accountType = initialAccountEnvironment.accountType;
+      const accountEnvironmentSource = initialAccountEnvironment.accountEnvironmentSource;
+      const responseAccountGroup = readRawAccountGroup(response);
       const sessionFeed = resolveSessionFeedAuth({
         response,
         brokerId: selectedEndpoints.brokerId,
+        accountLogin: trimmedLogin,
       });
 
       const committedSession = await commitBrokerSession({
@@ -735,7 +771,8 @@ function BrokerDetailInteractiveContent({
           name: accountName,
           serverName: effectiveServerName,
           logoUrl: effectiveLogoUrl,
-          isDemoAccount: accountType === 'demo',
+          accountType,
+          accountEnvironmentSource,
         },
       }, commitAuthorization);
       const committedProvenance = getActiveBrokerSessionProvenance(committedSession.session);
@@ -754,9 +791,14 @@ function BrokerDetailInteractiveContent({
           serverUrl: effectiveServerUrl,
           logoUrl: effectiveLogoUrl,
           accountType,
+          accountEnvironmentSource,
+          ...(responseAccountGroup ? { rawGroup: responseAccountGroup } : {}),
           lastUsedAt: Date.now(),
           hasCredentials: true,
         });
+        // Seed persistence before the refresh starts so even a synchronous
+        // test/mock response has a matching row to update.
+        void refreshActiveAccountEnvironment(committedProvenance).catch(() => undefined);
         setSavedAccountPassword(canonicalBrokerId, savedLogin, trimmedPassword).catch(() => undefined);
 
         void invalidateSessionQueryRoots(
@@ -801,7 +843,9 @@ function BrokerDetailInteractiveContent({
       ) {
         return;
       }
-      console.error('--- LOGIN ERROR ---', redactAuthPayload(error));
+      console.error('[Broker Detail] Login failed', {
+        errorName: error instanceof Error ? error.name : 'LoginError',
+      });
       const safeErrorMessage = redactSensitiveString(
         typeof error?.message === 'string' && error.message.trim()
           ? error.message

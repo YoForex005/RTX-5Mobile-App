@@ -1,35 +1,26 @@
-import { FastPressable as Pressable } from './FastPressable';
-import React, { useEffect, useRef } from 'react';
-import { View, Text, Animated, StyleSheet } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import React, { useEffect, useRef } from 'react';
+import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { FastPressable as Pressable } from './FastPressable';
+import { GDark, GLight } from '../theme/glass';
+import {
+  resolveConfirmedTradeReceipt,
+  type TradeFeedbackPresentationInput,
+} from './tradeFeedbackPresentation';
 
-export interface TradeFeedbackState {
-  visible: boolean;
-  type: 'success' | 'error';
+export interface TradeFeedbackState extends TradeFeedbackPresentationInput {
   title?: string;
   message?: string;
-  side?: 'buy' | 'sell';
-  symbol?: string;
-  ticket?: string;
-  price?: number;
-  volume?: number;
   executedAt?: string;
-  /** False means the API accepted the request without complete broker fill evidence. */
-  executionConfirmed?: boolean;
+  /** Exact Chart SL/TP draft that produced this execution result. */
+  protectionDraftId?: string;
 }
 
 export const TRADE_MODAL_INITIAL: TradeFeedbackState = {
   visible: false,
   type: 'success',
 };
-
-export function priceDecimalsFor(symbol?: string): number {
-  if (!symbol) return 5;
-  if (symbol.includes('JPY')) return 3;
-  if (symbol.includes('XAU') || symbol.includes('BTC') || symbol.includes('ETH')) return 2;
-  return 5;
-}
 
 export const TradeFeedbackModal = React.memo(({
   state,
@@ -40,83 +31,180 @@ export const TradeFeedbackModal = React.memo(({
   onClose: () => void;
   isDark?: boolean;
 }) => {
+  const insets = useSafeAreaInsets();
   const slideAnim = useRef(new Animated.Value(0)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
-  const progressAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     if (!state.visible) return;
+
     slideAnim.setValue(0);
     opacityAnim.setValue(0);
-    progressAnim.setValue(1);
-
     Animated.parallel([
-      Animated.spring(slideAnim, { toValue: 1, tension: 80, friction: 11, useNativeDriver: true }),
-      Animated.timing(opacityAnim, { toValue: 1, duration: 180, useNativeDriver: true }),
+      Animated.timing(slideAnim, {
+        toValue: 1,
+        duration: 170,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacityAnim, {
+        toValue: 1,
+        duration: 160,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
     ]).start();
-
-    if (state.type === 'success') {
-      Animated.timing(progressAnim, { toValue: 0, duration: 5000, useNativeDriver: false }).start();
-      const timer = setTimeout(onClose, 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [state.visible, slideAnim, opacityAnim, progressAnim, state.type, onClose]);
+  }, [
+    opacityAnim,
+    slideAnim,
+    state.executedAt,
+    state.side,
+    state.symbol,
+    state.ticket,
+    state.visible,
+    state.volume,
+  ]);
 
   if (!state.visible) return null;
 
+  const receipt = resolveConfirmedTradeReceipt(state);
   const isBuy = state.side === 'buy';
   const isSell = state.side === 'sell';
   const isSuccess = state.type === 'success';
-  const isUnconfirmedSubmission = isSuccess && state.executionConfirmed === false;
-  const sideLabel = state.side === 'buy' ? 'BUY' : state.side === 'sell' ? 'SELL' : '';
-  const confirmedSuccessTitle = sideLabel && (!state.title || state.title === 'Order Executed')
-    ? `${sideLabel} Order Executed`
-    : state.title || 'Order Executed';
-  const successTitle = isUnconfirmedSubmission
-    ? state.title || 'Order Submitted'
-    : confirmedSuccessTitle;
+  const isUnconfirmedSubmission = isSuccess && receipt === null;
+  const palette = isDark ? GDark : GLight;
+  const BUY_HEX = palette.trading.buy.primary;
+  const BUY_SOFT_RGBA = isDark
+    ? 'rgba(52,125,255,0.14)'
+    : 'rgba(37,99,235,0.10)';
+  const SELL_HEX = palette.trading.sell.primary;
+  const SELL_SOFT_RGBA = isDark
+    ? 'rgba(220,38,38,0.14)'
+    : 'rgba(220,38,38,0.08)';
+  const SUCCESS_HEX = palette.trading.profit;
+  const SUCCESS_SOFT_RGBA = isDark
+    ? 'rgba(16,185,129,0.14)'
+    : 'rgba(5,150,105,0.10)';
+  const ERR_HEX = palette.trading.loss;
+  const ERR_SOFT_RGBA = isDark
+    ? 'rgba(239,68,68,0.14)'
+    : 'rgba(220,38,38,0.10)';
 
-  const BUY_HEX = '#2563EB';
-  const BUY_GRADIENT_HEX = '#60A5FA';
-  const BUY_SOFT_RGBA = 'rgba(37,99,235,0.14)';
-  const SELL_HEX = '#DC2626';
-  const SELL_GRADIENT_HEX = '#F87171';
-  const SELL_SOFT_RGBA = 'rgba(220,38,38,0.14)';
-  const SUCCESS_HEX = '#10B981';
-  const SUCCESS_GRADIENT_HEX = '#34D399';
-  const SUCCESS_SOFT_RGBA = 'rgba(16,185,129,0.14)';
-  const ERR_HEX = '#EF4444';
-  const ERR_GRADIENT_HEX = '#F87171';
-  const ERR_SOFT_RGBA = 'rgba(239,68,68,0.14)';
-
-  const accent = isSuccess ? (isBuy ? BUY_HEX : isSell ? SELL_HEX : SUCCESS_HEX) : ERR_HEX;
+  const accent = isSuccess
+    ? (isBuy ? BUY_HEX : isSell ? SELL_HEX : SUCCESS_HEX)
+    : ERR_HEX;
   const accentSoft = isSuccess
     ? (isBuy ? BUY_SOFT_RGBA : isSell ? SELL_SOFT_RGBA : SUCCESS_SOFT_RGBA)
     : ERR_SOFT_RGBA;
-  const gradientTo = isSuccess
-    ? (isBuy ? BUY_GRADIENT_HEX : isSell ? SELL_GRADIENT_HEX : SUCCESS_GRADIENT_HEX)
-    : ERR_GRADIENT_HEX;
-
-  const cardBg = isDark ? '#1E1E1E' : '#FFFFFF';
-  const subtleBorder = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)';
-  const textPrimary = isDark ? '#F8FAFC' : '#0F172A';
-  const textMuted = isDark ? '#94A3B8' : '#64748B';
-
-  const hasExecutionPrice = typeof state.price === 'number' && Number.isFinite(state.price);
-  const formattedPrice = hasExecutionPrice ? state.price!.toFixed(priceDecimalsFor(state.symbol)) : '';
+  const cardBg = palette.glass2;
+  const subtleBorder = palette.border;
+  const textPrimary = palette.text;
+  const textMuted = palette.textSub;
+  const doneSurface = isDark ? 'rgba(255,255,255,0.08)' : palette.inputBg;
+  const donePressedSurface = isDark ? 'rgba(255,255,255,0.13)' : '#E8EEF7';
   const volumeLabel = typeof state.volume === 'number' && Number.isFinite(state.volume)
-    ? `${state.volume.toFixed(2)} lot`
+    ? state.volume.toFixed(2)
     : '';
-  const successSummaryText = [state.symbol, volumeLabel].filter(Boolean).join(' - ');
-  const executionLabel = sideLabel ? `${sideLabel} price` : 'Execution price';
-  // Fade/slide only — no scale. Absolute overlay (not RN Modal): on iOS a Modal
+  const detailedVolumeLabel = volumeLabel ? `${volumeLabel} lot` : '';
+  const successSummaryText = [state.symbol, detailedVolumeLabel].filter(Boolean).join(' - ');
+  const detailedTitle = isUnconfirmedSubmission
+    ? (
+      state.executionConfirmed === false
+        ? state.title || 'Order Submitted - Confirmation Pending'
+        : 'Order Confirmation Pending'
+    )
+    : state.title || 'Order Rejected';
+  const detailedMessage = state.message || (
+    isUnconfirmedSubmission
+      ? 'The broker did not return complete execution evidence. Verify the order before acting on it.'
+      : 'The broker rejected this order.'
+  );
+
+  // Fade/slide only - no scale. Absolute overlay (not RN Modal): on iOS a Modal
   // presentation often forces the chart WebView to recompose and blink.
-  const translateY = slideAnim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] });
+  const translateY = slideAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [8, 0],
+  });
+
+  if (receipt) {
+    const sideColor = receipt.side === 'buy' ? BUY_HEX : SELL_HEX;
+    const sideSurface = receipt.side === 'buy' ? BUY_SOFT_RGBA : SELL_SOFT_RGBA;
+    return (
+      <View
+        style={[
+          tfmStyles.receiptOverlay,
+          { paddingBottom: Math.max(112, insets.bottom + 104) },
+        ]}
+        pointerEvents="box-none"
+      >
+        <Animated.View
+          accessibilityLiveRegion="polite"
+          accessibilityRole="alert"
+          accessibilityLabel={
+            `${receipt.symbol}, ${receipt.sideAccessibilityLabel}, `
+            + `${receipt.volumeLabel} lots, ${receipt.doneLabel}`
+          }
+          style={[
+            tfmStyles.receiptCard,
+            {
+              backgroundColor: cardBg,
+              borderColor: subtleBorder,
+              shadowColor: isDark ? '#000000' : '#64748B',
+              shadowOpacity: isDark ? 0.30 : 0.12,
+              opacity: opacityAnim,
+              transform: [{ translateY }],
+            },
+          ]}
+        >
+          <View style={[tfmStyles.receiptSideTile, { backgroundColor: sideSurface }]}>
+            <Text style={[tfmStyles.receiptSideText, { color: sideColor }]}>
+              {receipt.sideLabel}
+            </Text>
+          </View>
+
+          <View style={tfmStyles.receiptCopy}>
+            <Text
+              style={[tfmStyles.receiptSymbol, { color: textPrimary }]}
+              numberOfLines={1}
+            >
+              {receipt.symbol}
+            </Text>
+            <Text
+              style={[tfmStyles.receiptVolume, { color: textMuted }]}
+              numberOfLines={1}
+            >
+              {receipt.volumeLabel}
+            </Text>
+          </View>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss trade confirmation"
+            hitSlop={10}
+            onPress={onClose}
+            style={({ pressed }) => [
+              tfmStyles.receiptDoneButton,
+              {
+                backgroundColor: pressed ? donePressedSurface : doneSurface,
+                borderColor: subtleBorder,
+              },
+            ]}
+          >
+            <Text style={[tfmStyles.receiptDoneText, { color: textPrimary }]}>
+              {receipt.doneLabel}
+            </Text>
+          </Pressable>
+        </Animated.View>
+      </View>
+    );
+  }
 
   return (
-      <View style={tfmStyles.overlay} pointerEvents="box-none">
-        <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
-        <Animated.View style={[
+    <View style={tfmStyles.overlay} pointerEvents="box-none">
+      <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
+      <Animated.View
+        style={[
           tfmStyles.card,
           {
             backgroundColor: cardBg,
@@ -124,96 +212,136 @@ export const TradeFeedbackModal = React.memo(({
             opacity: opacityAnim,
             transform: [{ translateY }],
           },
-        ]}>
-          <LinearGradient
-            colors={[accent, gradientTo]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={tfmStyles.headerStrip}
+        ]}
+      >
+        <View style={tfmStyles.statusRow}>
+          <View style={[tfmStyles.statusIcon, { backgroundColor: accentSoft, borderColor: accent }]}>
+            <Ionicons
+              name={isUnconfirmedSubmission ? 'time-outline' : isSuccess ? 'checkmark' : 'close'}
+              size={21}
+              color={accent}
+            />
+          </View>
+          <View style={tfmStyles.statusTextCol}>
+            <Text style={[tfmStyles.statusTitle, { color: textPrimary }]} numberOfLines={2}>
+              {detailedTitle}
+            </Text>
+            {isSuccess && successSummaryText ? (
+              <Text style={[tfmStyles.statusSubtitle, { color: textMuted }]} numberOfLines={1}>
+                {successSummaryText}
+              </Text>
+            ) : null}
+          </View>
+          <Pressable style={tfmStyles.closeBtn} onPress={onClose} hitSlop={10}>
+            <Ionicons name="close" size={18} color={textMuted} />
+          </Pressable>
+        </View>
+
+        <View style={[tfmStyles.errorBox, { backgroundColor: accentSoft, borderColor: accent }]}>
+          <Ionicons
+            name={isUnconfirmedSubmission ? 'information-circle' : 'alert-circle'}
+            size={18}
+            color={accent}
+            style={tfmStyles.errorIcon}
+          />
+          <Text style={[tfmStyles.errorMsg, { color: textPrimary }]}>
+            {detailedMessage}
+          </Text>
+        </View>
+
+        <View style={tfmStyles.actionsRow}>
+          <Pressable
+            style={[tfmStyles.actionBtnPrimary, { backgroundColor: accent }]}
+            onPress={onClose}
           >
-            {isSuccess && (
-              <Animated.View style={[
-                tfmStyles.headerProgress,
-                {
-                  width: progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
-                },
-              ]} />
-            )}
-          </LinearGradient>
-
-          <View style={tfmStyles.statusRow}>
-            <View style={[tfmStyles.statusIcon, { backgroundColor: accentSoft, borderColor: accent }]}>
-              <Ionicons
-                name={isUnconfirmedSubmission ? 'time-outline' : isSuccess ? 'checkmark' : 'close'}
-                size={21}
-                color={accent}
-              />
-            </View>
-            <View style={tfmStyles.statusTextCol}>
-              <Text style={[tfmStyles.statusTitle, { color: textPrimary }]} numberOfLines={1}>
-                {isSuccess ? successTitle : (state.title || 'Order Rejected')}
-              </Text>
-              {isSuccess && successSummaryText ? (
-                <Text style={[tfmStyles.statusSubtitle, { color: textMuted }]} numberOfLines={1}>
-                  {successSummaryText}
-                </Text>
-              ) : null}
-            </View>
-            <Pressable style={tfmStyles.closeBtn} onPress={onClose} hitSlop={10}>
-              <Ionicons name="close" size={18} color={textMuted} />
-            </Pressable>
-          </View>
-
-          {isUnconfirmedSubmission && state.message ? (
-            <View style={[tfmStyles.errorBox, { backgroundColor: accentSoft, borderColor: accent }]}>
-              <Ionicons name="information-circle" size={18} color={accent} style={tfmStyles.errorIcon} />
-              <Text style={[tfmStyles.errorMsg, { color: textPrimary }]}>
-                {state.message}
-              </Text>
-            </View>
-          ) : isSuccess ? (
-            <View style={tfmStyles.successSummary}>
-              {hasExecutionPrice ? (
-                <View style={[tfmStyles.executionRow, { borderColor: subtleBorder }]}>
-                  <Text style={[tfmStyles.executionLabel, { color: textMuted }]} numberOfLines={1}>
-                    {executionLabel}
-                  </Text>
-                  <Text style={[tfmStyles.executionPrice, { color: textPrimary }]} numberOfLines={1} adjustsFontSizeToFit>
-                    {formattedPrice}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-          ) : (
-            <View style={[tfmStyles.errorBox, { backgroundColor: accentSoft, borderColor: accent }]}>
-              <Ionicons name="alert-circle" size={18} color={accent} style={tfmStyles.errorIcon} />
-              <Text style={[tfmStyles.errorMsg, { color: textPrimary }]}>
-                {state.message || 'The broker rejected this order.'}
-              </Text>
-            </View>
-          )}
-
-          <View style={tfmStyles.actionsRow}>
-            <Pressable
-              style={[tfmStyles.actionBtnPrimary, { backgroundColor: accent }]}
-              onPress={onClose}
-            >
-              <Text style={tfmStyles.actionBtnPrimaryText}>{isSuccess ? 'Done' : 'Dismiss'}</Text>
-            </Pressable>
-          </View>
-        </Animated.View>
-      </View>
+            <Text style={tfmStyles.actionBtnPrimaryText}>
+              {isUnconfirmedSubmission ? 'Close' : 'Dismiss'}
+            </Text>
+          </Pressable>
+        </View>
+      </Animated.View>
+    </View>
   );
 });
 
 const tfmStyles = StyleSheet.create({
+  receiptOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    // Above the chart footer/order ticket actions without blocking the screen.
+    zIndex: 10050,
+    elevation: 10050,
+  },
+  receiptCard: {
+    width: '100%',
+    maxWidth: 328,
+    minHeight: 68,
+    flexDirection: 'row',
+    alignItems: 'center',
+    direction: 'ltr',
+    gap: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 18,
+    elevation: 14,
+  },
+  receiptSideTile: {
+    width: 42,
+    height: 42,
+    flexShrink: 0,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  receiptSideText: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '800',
+    letterSpacing: 0.7,
+  },
+  receiptCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  receiptSymbol: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  receiptVolume: {
+    marginTop: 1,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'] as any,
+  },
+  receiptDoneButton: {
+    width: 62,
+    minHeight: 44,
+    flexShrink: 0,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  receiptDoneText: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '700',
+  },
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(3,6,16,0.55)',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 18,
-    // Above chart sheet/host so success UI never forces a WebView Modal remount.
+    // Above chart sheet/host so feedback never forces a WebView Modal remount.
     zIndex: 10050,
     elevation: 10050,
   },
@@ -229,18 +357,6 @@ const tfmStyles = StyleSheet.create({
     shadowOpacity: 0.28,
     shadowRadius: 26,
     elevation: 20,
-  },
-  headerStrip: {
-    height: 4,
-    width: '100%',
-    overflow: 'hidden',
-  },
-  headerProgress: {
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(255,255,255,0.28)',
   },
   statusRow: {
     flexDirection: 'row',
@@ -280,35 +396,6 @@ const tfmStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 8,
-  },
-  successSummary: {
-    paddingHorizontal: 16,
-    paddingBottom: 14,
-  },
-  executionRow: {
-    minHeight: 42,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    paddingVertical: 9,
-  },
-  executionLabel: {
-    flexShrink: 0,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0,
-    textTransform: 'uppercase',
-  },
-  executionPrice: {
-    flex: 1,
-    textAlign: 'right',
-    fontSize: 18,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'] as any,
-    letterSpacing: 0,
   },
   errorBox: {
     flexDirection: 'row',

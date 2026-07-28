@@ -16,6 +16,7 @@ import { Screen } from '../../ui/components/Screen';
 import { hideSidebarDestination } from '../../ui/components/sidebarDestinationHostController';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useUserPreferences, type LanguageCode } from '../../state/userPreferences';
 import {
   SUPPORTED_LANGUAGES,
@@ -92,7 +93,7 @@ export const InterfaceScreenInner = memo(function InterfaceScreenInner({
   isScreenFocused: boolean;
 }) {
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const insets = useSafeAreaInsets();
   // Read store language without useTranslation() so this screen is not forced
   // through the shared t() callback identity churn on every language field tick.

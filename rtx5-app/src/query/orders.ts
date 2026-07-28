@@ -14,11 +14,18 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tansta
 import { ordersApi, type PlaceOrderPayload, type PlaceOrderResponse } from '../api/orders';
 import { resolveBrokerExecutionEvidence } from '../api/orders/executionEvidence';
 import { StaleBrokerSessionError } from '../api/brokerApi';
+import { positionsApi } from '../api/positions';
 import { redactDiagnosticValue } from '../utils/securityRedaction';
+import {
+  captureActiveBrokerSessionOwnerStamp,
+  isActiveBrokerSessionOwnerStampCurrent,
+  type ActiveBrokerSessionOwnerStamp,
+} from '../state/activeBrokerSession';
+import { usePositionsState } from '../state/positionsState';
+import { hasPositionPresenceConverged } from '../state/positionsState.helpers';
 import {
   getSessionQueryCacheNamespace,
   invalidateSessionQueryRoots,
-  isSessionQueryCacheNamespaceCurrent,
   runSessionBoundQuery,
   useActiveBrokerQuerySession,
 } from './authenticatedQueryScope';
@@ -103,9 +110,6 @@ export function useAccountOrdersQuery(options: PollingQueryOptions = {}) {
     refetchInterval: resolvePollingRefetchInterval(enabled, 10_000, options.refetchInterval),
   });
 }
-import { usePositionsState } from '../state/positionsState';
-import { hasPositionPresenceConverged } from '../state/positionsState.helpers';
-import { resolveTradingLoginString } from '../state/tradingLogin';
 
 const ORDER_DIAGNOSTICS_ENABLED =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CHART_TRADE === 'true';
@@ -117,38 +121,30 @@ const logOrderDiagnostic = (...args: Parameters<typeof console.log>) => {
   }
 };
 
+const reconcileCapturedMarketOwner = async (
+  owner: ActiveBrokerSessionOwnerStamp,
+): Promise<void> => {
+  if (!isActiveBrokerSessionOwnerStampCurrent(owner)) {
+    throw new StaleBrokerSessionError();
+  }
+  const positions = await positionsApi.getPositionsForReconciliation(
+    owner.accountLogin,
+  );
+  if (!isActiveBrokerSessionOwnerStampCurrent(owner)) {
+    throw new StaleBrokerSessionError();
+  }
+  usePositionsState.getState().applyPositionsSnapshot(
+    positions,
+    owner.accountLogin,
+  );
+};
+
 const scheduleTradePostSuccessRefresh = (work: () => void) => {
   setTimeout(work, TRADE_POST_SUCCESS_REFRESH_DELAY_MS);
 };
 
-const firstPositiveFiniteNumber = (...values: unknown[]): number | null => {
-  for (const value of values) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed) && parsed > 0) return parsed;
-  }
-  return null;
-};
-
-const getConfirmedMarketOrderValues = (data: PlaceOrderResponse) => {
-  const evidence = resolveBrokerExecutionEvidence(data);
-  const ticket = evidence.ticket ?? null;
-  const executionPrice = evidence.executionPrice ?? null;
-  const currentPrice = firstPositiveFiniteNumber(data.price_current) ?? executionPrice;
-  return { ticket, executionPrice, currentPrice } as const;
-};
-
 const normalizeMarketOrderAction = (data: PlaceOrderResponse): string =>
   typeof data.action === 'string' ? data.action.trim().toLowerCase() : '';
-
-const canOptimisticallyInsertPosition = (data: PlaceOrderResponse): boolean => {
-  const action = normalizeMarketOrderAction(data);
-  // Netting buy/sell can increase, decrease, close, or reverse an existing
-  // position — those must not be modeled as a brand-new row. Explicit opens,
-  // legacy empty action, and unknown actions (or side-like "buy"/"sell") with
-  // full execution evidence are injected so Trade/Chart show the fill before
-  // REST catches up.
-  return !['closed', 'increased', 'decreased', 'reversed'].includes(action);
-};
 
 const positionPresenceExpectedAfterAction = (action: string): boolean | null => {
   if (action === 'closed') return false;
@@ -175,100 +171,58 @@ const handlePlaceOrderSuccess = (
   queryClient: QueryClient,
   data: PlaceOrderResponse,
   variables: PlaceOrderPayload,
-  cacheNamespace: string,
+  owner: ActiveBrokerSessionOwnerStamp,
 ) => {
-  if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) {
+  if (!isActiveBrokerSessionOwnerStampCurrent(owner)) {
     throw new StaleBrokerSessionError();
   }
+  const cacheNamespace = owner.cacheNamespace;
   logOrderDiagnostic('[TRADE-RESPONSE]', {
     requestSide: variables.side,
     result: data?.status ?? 'success',
     backendSide: data?.side ?? null,
     rawResponse: data,
   });
-  // â”€â”€ Optimistic UI Update â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  // Instantly inject the trade into the Zustand store so the Chart Screen
-  // renders the new position line without waiting for the next data poll.
-  const {
-    ticket: positionTicket,
-    executionPrice,
-    currentPrice,
-  } = getConfirmedMarketOrderValues(data);
-  if (
-    canOptimisticallyInsertPosition(data)
-    && positionTicket !== null
-    && executionPrice !== null
-    && currentPrice !== null
-  ) {
-    const state = usePositionsState.getState();
-    const responseVolume = Number(data.volume);
-    const responseSl = Number(data.price_sl);
-    const responseTp = Number(data.price_tp);
-    const newPos = {
-      id: String(positionTicket),
-      symbol: (typeof data.symbol === 'string' && data.symbol.trim())
-        ? data.symbol
-        : variables.symbol,
-      side: data.side === 'buy' || data.side === 'sell' ? data.side : variables.side,
-      volume: Number.isFinite(responseVolume) && responseVolume > 0
-        ? responseVolume
-        : variables.volume,
-      openPrice: executionPrice,
-      currentPrice,
-      pnl: 0,
-      swap: 0,
-      openTime: new Date().toISOString(),
-      sl: Number.isFinite(responseSl) && responseSl > 0 ? responseSl : 0,
-      tp: Number.isFinite(responseTp) && responseTp > 0 ? responseTp : 0,
-      clientCreatedAt: Date.now(),
-    };
-    state.upsertPosition(newPos);
-  }
+  // ExecutionResult is only a mutation hint. Netting can open, increase,
+  // decrease, close, or reverse and the response does not echo SL/TP.
+  // Never append or decorate a local position from this response.
+  const positionTicket = resolveBrokerExecutionEvidence(data).ticket ?? null;
 
-  // Kick REST reconciliation immediately so the Trade tab is not empty while
-  // waiting for the 250ms paint-friendly delay. The delayed pass still runs
-  // invalidation + multi-attempt sync for broker commit lag.
-  const mt5LoginImmediate = resolveTradingLoginString();
-  if (mt5LoginImmediate && isSessionQueryCacheNamespaceCurrent(cacheNamespace)) {
-    void usePositionsState.getState().refreshPositions(mt5LoginImmediate);
-  }
-
+  // The API mutation starts an immediate owner-stamped reconciliation on every
+  // transport outcome. This success-only delayed pass is a broker-commit-lag
+  // backstop and must keep using the account captured at dispatch.
   scheduleTradePostSuccessRefresh(() => {
-    if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) return;
+    if (!isActiveBrokerSessionOwnerStampCurrent(owner)) return;
 
-    // Fire a background sync loop to eventually replace the optimistic record
-    // with the fully-hydrated backend record after the chart has painted.
-    const mt5Login = resolveTradingLoginString();
-    if (mt5Login) {
-      const action = normalizeMarketOrderAction(data);
-      const expectedPresence = positionPresenceExpectedAfterAction(action);
-      const requiresContentReconciliation = ['increased', 'decreased', 'reversed'].includes(action);
-      const syncLoop = async () => {
-        for (let i = 0; i < 8; i++) {
-          if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) return;
-          await usePositionsState.getState().refreshPositions(mt5Login);
-          if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) return;
-          // Refresh is unconditional. When the canonical position ticket and
-          // action let us prove convergence, stop early; otherwise perform a
-          // second REST backstop because the first read may race broker commit.
-          if (positionTicket !== null && expectedPresence !== null) {
-            const presenceConverged = hasPositionPresenceConverged(
-              usePositionsState.getState().positions,
-              positionTicket,
-              expectedPresence,
-            );
-            // Presence alone cannot prove that an existing netting position's
-            // volume or side changed. Require the one-second REST backstop for
-            // increase/decrease/reverse even when the ticket already exists.
-            if (presenceConverged && (!requiresContentReconciliation || i >= 1)) break;
-          } else if (i >= 1) {
-            break;
-          }
-          await new Promise(r => setTimeout(r, 1000));
+    // Fire a background sync loop to obtain the authoritative position state.
+    const action = normalizeMarketOrderAction(data);
+    const expectedPresence = positionPresenceExpectedAfterAction(action);
+    const requiresContentReconciliation = ['increased', 'decreased', 'reversed'].includes(action);
+    const syncLoop = async () => {
+      for (let i = 0; i < 8; i++) {
+        if (!isActiveBrokerSessionOwnerStampCurrent(owner)) return;
+        await reconcileCapturedMarketOwner(owner);
+        if (!isActiveBrokerSessionOwnerStampCurrent(owner)) return;
+        // Refresh is unconditional. When the canonical position ticket and
+        // action let us prove convergence, stop early; otherwise perform a
+        // second REST backstop because the first read may race broker commit.
+        if (positionTicket !== null && expectedPresence !== null) {
+          const presenceConverged = hasPositionPresenceConverged(
+            usePositionsState.getState().positions,
+            positionTicket,
+            expectedPresence,
+          );
+          // Presence alone cannot prove that an existing netting position's
+          // volume or side changed. Require the one-second REST backstop for
+          // increase/decrease/reverse even when the ticket already exists.
+          if (presenceConverged && (!requiresContentReconciliation || i >= 1)) break;
+        } else if (i >= 1) {
+          break;
         }
-      };
-      syncLoop().catch(() => {});
-    }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    };
+    syncLoop().catch(() => {});
 
     // Invalidate queries that should update after a new trade.
     void invalidateSessionQueryRoots(queryClient, cacheNamespace, [
@@ -288,13 +242,25 @@ const submitPlaceOrderWithCacheUpdate = async (
   queryClient: QueryClient,
   payload: PlaceOrderPayload,
   cacheNamespace: string,
+  owner: ActiveBrokerSessionOwnerStamp,
 ) => {
+  if (
+    owner.cacheNamespace !== cacheNamespace ||
+    !isActiveBrokerSessionOwnerStampCurrent(owner)
+  ) {
+    throw new StaleBrokerSessionError();
+  }
   logPlaceOrderPayload(payload);
   const data = await runSessionBoundQuery(
     cacheNamespace,
     () => ordersApi.placeMarketOrder(payload),
   );
-  handlePlaceOrderSuccess(queryClient, data, payload, cacheNamespace);
+  handlePlaceOrderSuccess(
+    queryClient,
+    data,
+    payload,
+    owner,
+  );
   return data;
 };
 
@@ -322,11 +288,23 @@ export const usePlaceOrderMutation = () => {
         () => ordersApi.placeMarketOrder(payload),
       );
     },
-    onSuccess: (data, variables) => {
-      // Shared success path owns optimistic insert + post-trade refresh so the
+    onMutate: () => {
+      const owner = captureActiveBrokerSessionOwnerStamp();
+      if (!owner || owner.cacheNamespace !== cacheNamespace) {
+        throw new StaleBrokerSessionError();
+      }
+      return owner;
+    },
+    onSuccess: (data, variables, owner) => {
+      // Shared success path owns the delayed authoritative backstop so the
       // Trade screen stays in lockstep with chart / executor placements.
       try {
-        handlePlaceOrderSuccess(queryClient, data, variables, cacheNamespace);
+        handlePlaceOrderSuccess(
+          queryClient,
+          data,
+          variables,
+          owner,
+        );
       } catch {
         // Stale session is ignored here; the mutation already completed on the broker.
       }
@@ -340,13 +318,23 @@ export const usePlaceOrderExecutor = () => {
   const cacheNamespace = getSessionQueryCacheNamespace(session);
 
   return useCallback((payload: PlaceOrderPayload, options: PlaceOrderExecutorOptions = {}) => {
-    void submitPlaceOrderWithCacheUpdate(queryClient, payload, cacheNamespace)
+    const owner = captureActiveBrokerSessionOwnerStamp();
+    if (!owner || owner.cacheNamespace !== cacheNamespace) {
+      options.onError?.(new StaleBrokerSessionError());
+      return;
+    }
+    void submitPlaceOrderWithCacheUpdate(
+      queryClient,
+      payload,
+      cacheNamespace,
+      owner,
+    )
       .then((data) => {
-        if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) return;
+        if (!isActiveBrokerSessionOwnerStampCurrent(owner)) return;
         options.onSuccess?.(data);
       })
       .catch((error) => {
-        if (!isSessionQueryCacheNamespaceCurrent(cacheNamespace)) return;
+        if (!isActiveBrokerSessionOwnerStampCurrent(owner)) return;
         options.onError?.(error);
       });
   }, [cacheNamespace, queryClient]);

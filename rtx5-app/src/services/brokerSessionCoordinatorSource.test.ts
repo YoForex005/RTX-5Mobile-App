@@ -13,7 +13,8 @@ test('session coordinator carries approved services-domain provenance through co
   assert.match(source, /servicesDomain: manifest\.servicesDomain/);
   assert.match(source, /await writeActiveBrokerSessionManifest\(input\.session\)/);
   assert.match(source, /manifest = await readActiveBrokerSessionManifest\(\)/);
-  assert.match(source, /activateBrokerSession\(transition, manifest/);
+  assert.match(source, /feedAuthContext: credentials\.feedAuthContext/);
+  assert.match(source, /activateBrokerSession\(transition, restoredSession/);
 });
 
 test('secure restore failures advance the epoch and stay logged out', () => {
@@ -42,4 +43,28 @@ test('interactive session commits are authorized at queued coordinator execution
     commitBody.indexOf('consumeBrokerSessionCommitAuthorization') < commitBody.indexOf('commitBrokerSessionInternal'),
     'authorization must be consumed before the queued session mutation starts',
   );
+});
+
+test('session coordinator commits and restores account-scoped environment state', () => {
+  assert.match(
+    source,
+    /BrokerSessionAccountProfile = Readonly<\{[\s\S]*accountType: AccountEnvironment;[\s\S]*accountEnvironmentSource: AccountEnvironmentSource;/,
+  );
+  assert.match(
+    source,
+    /accountType: input\.account\.accountType,[\s\S]*accountEnvironmentSource: input\.account\.accountEnvironmentSource/,
+  );
+  assert.match(
+    source,
+    /const expectedAccountEnvironmentKey = buildAccountEnvironmentKey\([\s\S]*manifest\.brokerId,[\s\S]*manifest\.accountLogin,[\s\S]*\)/,
+  );
+  assert.match(
+    source,
+    /preferences\.accountEnvironmentKey === expectedAccountEnvironmentKey/,
+  );
+  assert.match(
+    source,
+    /accountType: hasMatchingAccountEnvironment[\s\S]*preferences\.accountType[\s\S]*: 'unknown'/,
+  );
+  assert.doesNotMatch(source, /isDemoAccount: input\.account|isDemoAccount: profile/);
 });

@@ -34,6 +34,16 @@ import {
 import { redactDiagnosticValue } from '../../../../utils/securityRedaction';
 import { resolveBrokerExecutionEvidence } from '../../../../api/orders/executionEvidence';
 import { normalizeSymbol } from '../../../../domain/symbols';
+import {
+  publishChartProtectionDraftSubmission,
+  releaseChartProtectionDraftSubmission,
+  tryBeginChartProtectionDraftSubmission,
+} from '../../chartProtectionDraftLifecycle';
+import {
+  getActiveSltpUnavailableMessage,
+  isNewMarketOrderProtectionBackendLocked,
+  SLTP_COMING_SOON_TITLE,
+} from '../../../trade/tradeBackendCapabilities';
 
 const CHART_TRADE_DIAGNOSTICS_ENABLED =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CHART_TRADE === 'true';
@@ -64,6 +74,7 @@ type TradeFeedback = {
   volume?: number;
   executedAt?: string;
   executionConfirmed?: boolean;
+  protectionDraftId?: string;
 };
 
 type QueuedChartTrade = {
@@ -75,6 +86,7 @@ type QueuedChartTrade = {
   comment: string;
   stopLossPrice?: number;
   takeProfitPrice?: number;
+  protectionDraftId?: string;
   queuedAtMs: number;
 };
 
@@ -84,6 +96,7 @@ export type TradeHandlerOptions = {
   comment?: string;
   stopLossPrice?: number | null;
   takeProfitPrice?: number | null;
+  protectionDraftId?: string;
   pointSize?: number;
   lotSize: number;
   latestBid: number;
@@ -99,6 +112,7 @@ export function useTradeHandler({
   comment,
   stopLossPrice,
   takeProfitPrice,
+  protectionDraftId,
   pointSize = 0.00001,
   lotSize,
   latestBid,
@@ -121,6 +135,14 @@ export function useTradeHandler({
   quoteActionQuoteRef.current = quoteActionQuote;
   const isCurrentChartSymbol =
     normalizeSymbol(currentChartSymbol) === normalizeSymbol(symbol);
+  const clearQueuedTrades = React.useCallback(() => {
+    tradeQueueRef.current.forEach((queuedTrade) => {
+      if (queuedTrade.protectionDraftId) {
+        releaseChartProtectionDraftSubmission(queuedTrade.protectionDraftId);
+      }
+    });
+    tradeQueueRef.current = [];
+  }, []);
 
   React.useEffect(() => () => {
     if (activeSideResetTimeoutRef.current) {
@@ -132,12 +154,12 @@ export function useTradeHandler({
       releaseChartTradeButtonSharedLock(tradeTapLockSideRef.current);
       tradeTapLockSideRef.current = null;
     }
-    tradeQueueRef.current = [];
+    clearQueuedTrades();
     if (tradeQueueDrainTimerRef.current) {
       clearTimeout(tradeQueueDrainTimerRef.current);
       tradeQueueDrainTimerRef.current = null;
     }
-  }, []);
+  }, [clearQueuedTrades]);
 
   React.useEffect(() => {
     if (activeSideResetTimeoutRef.current) {
@@ -150,12 +172,12 @@ export function useTradeHandler({
       releaseChartTradeButtonSharedLock(tradeTapLockSideRef.current);
       tradeTapLockSideRef.current = null;
     }
-    tradeQueueRef.current = [];
+    clearQueuedTrades();
     if (tradeQueueDrainTimerRef.current) {
       clearTimeout(tradeQueueDrainTimerRef.current);
       tradeQueueDrainTimerRef.current = null;
     }
-  }, [symbol]);
+  }, [clearQueuedTrades, symbol]);
 
   const clearActiveTradeSide = (side: TradeSide, delayMs = 0) => {
     if (activeSideResetTimeoutRef.current) {
@@ -216,7 +238,7 @@ export function useTradeHandler({
       const currentQuoteAvailability = resolveSessionQuoteActionAvailability(quoteActionQuoteRef.current);
       if (!currentQuoteAvailability.allowed) {
         recordBlockedPriceAction('chart_queued_trade', currentQuoteAvailability);
-        tradeQueueRef.current = [];
+        clearQueuedTrades();
         onTradeResult?.({
           visible: true,
           type: 'error',
@@ -229,6 +251,23 @@ export function useTradeHandler({
 
     const queuedTrade = tradeQueueRef.current.shift();
     if (!queuedTrade) {
+      return;
+    }
+    if (
+      (queuedTrade.stopLossPrice !== undefined || queuedTrade.takeProfitPrice !== undefined) &&
+      isNewMarketOrderProtectionBackendLocked()
+    ) {
+      if (queuedTrade.protectionDraftId) {
+        releaseChartProtectionDraftSubmission(queuedTrade.protectionDraftId);
+      }
+      onTradeResult?.({
+        visible: true,
+        type: 'error',
+        title: SLTP_COMING_SOON_TITLE,
+        message: getActiveSltpUnavailableMessage(),
+        side: queuedTrade.side,
+      });
+      scheduleProcessNextQueuedTrade();
       return;
     }
 
@@ -278,6 +317,9 @@ export function useTradeHandler({
       rawPayload: payload,
     });
 
+    if (queuedTrade.protectionDraftId) {
+      publishChartProtectionDraftSubmission(queuedTrade.protectionDraftId);
+    }
     placeOrder(payload, {
       onSuccess: (data: any) => {
         const backendMs = Math.max(0, Math.round(getApiLatencyNow() - requestStartedAtMs));
@@ -291,6 +333,31 @@ export function useTradeHandler({
           remainingQueue: tradeQueueRef.current.length,
           rawResponse: data,
         });
+        const responseStatus = String(data?.status ?? '').trim().toLowerCase();
+        if (['rejected', 'failed', 'error'].includes(responseStatus)) {
+          const feedback = classifyTradingError(
+            {
+              status: 400,
+              data: {
+                message: data?.comment || `Server returned status: ${data?.status}`,
+              },
+            },
+            { action: 'place-order' },
+          );
+          onTradeResult?.({
+            visible: true,
+            type: 'error',
+            title: feedback.title,
+            message: feedback.message,
+            side: action.side,
+          });
+          if (queuedTrade.protectionDraftId) {
+            releaseChartProtectionDraftSubmission(queuedTrade.protectionDraftId);
+          }
+          releaseTradeTapLock();
+          scheduleProcessNextQueuedTrade();
+          return;
+        }
         const executionEvidence = resolveBrokerExecutionEvidence(data);
         onTradeResult?.(executionEvidence.confirmed
           ? {
@@ -304,6 +371,9 @@ export function useTradeHandler({
             price: executionEvidence.executionPrice,
             volume: queuedTrade.volume,
             executedAt: new Date().toLocaleTimeString(),
+            ...(queuedTrade.protectionDraftId
+              ? { protectionDraftId: queuedTrade.protectionDraftId }
+              : {}),
           }
           : {
             visible: true,
@@ -320,6 +390,9 @@ export function useTradeHandler({
               ? { price: executionEvidence.executionPrice }
               : {}),
             volume: queuedTrade.volume,
+            ...(queuedTrade.protectionDraftId
+              ? { protectionDraftId: queuedTrade.protectionDraftId }
+              : {}),
           });
         releaseTradeTapLock();
         scheduleProcessNextQueuedTrade();
@@ -345,9 +418,12 @@ export function useTradeHandler({
           message: feedback.message,
           side: action.side,
         });
+        if (queuedTrade.protectionDraftId) {
+          releaseChartProtectionDraftSubmission(queuedTrade.protectionDraftId);
+        }
         releaseTradeTapLock();
         if (feedback.kind === 'session-expired' || feedback.kind === 'rate-limit' || feedback.kind === 'backend-unavailable') {
-          tradeQueueRef.current = [];
+          clearQueuedTrades();
           return;
         }
         scheduleProcessNextQueuedTrade();
@@ -447,6 +523,7 @@ export function useTradeHandler({
                 side: action.side,
                 ...(hasStopLossPrice ? { sl: String(normalizedStopLossPrice) } : {}),
                 ...(hasTakeProfitPrice ? { tp: String(normalizedTakeProfitPrice) } : {}),
+                ...(protectionDraftId ? { protectionDraftId } : {}),
                 ...(trimmedComment ? { comment: trimmedComment } : {}),
               },
             });
@@ -540,6 +617,20 @@ export function useTradeHandler({
       return;
     }
 
+    if (
+      (hasStopLossPrice || hasTakeProfitPrice) &&
+      isNewMarketOrderProtectionBackendLocked()
+    ) {
+      onTradeResult?.({
+        visible: true,
+        type: 'error',
+        title: SLTP_COMING_SOON_TITLE,
+        message: getActiveSltpUnavailableMessage(),
+        side: action.side,
+      });
+      return;
+    }
+
     // Skip SL/TP math when neither protection is set (common one-click path).
     if (hasStopLossPrice || hasTakeProfitPrice) {
       const protectionValidation = validateChartTradeProtectionLevels({
@@ -574,6 +665,7 @@ export function useTradeHandler({
       comment: trimmedComment,
       ...(hasStopLossPrice ? { stopLossPrice: normalizedStopLossPrice } : {}),
       ...(hasTakeProfitPrice ? { takeProfitPrice: normalizedTakeProfitPrice } : {}),
+      ...(protectionDraftId ? { protectionDraftId } : {}),
       queuedAtMs: getApiLatencyNow(),
     };
     const pendingTradeCount = tradeQueueRef.current.length + (tradeTapLockRef.current ? 1 : 0);
@@ -590,6 +682,19 @@ export function useTradeHandler({
         type: 'error',
         title: 'Trade Queue Full',
         message: `Wait for the current orders to finish before sending more than ${CHART_TRADE_QUEUE_LIMIT} rapid trades.`,
+        side: action.side,
+      });
+      return;
+    }
+    if (
+      queuedTrade.protectionDraftId &&
+      !tryBeginChartProtectionDraftSubmission(queuedTrade.protectionDraftId)
+    ) {
+      onTradeResult?.({
+        visible: true,
+        type: 'error',
+        title: 'Order Already Submitted',
+        message: 'Wait for this protected Market Execution order to reconcile before submitting it again.',
         side: action.side,
       });
       return;

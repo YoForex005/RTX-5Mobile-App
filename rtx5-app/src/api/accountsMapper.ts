@@ -1,3 +1,10 @@
+import {
+  readRawAccountGroup,
+  resolveAccountEnvironment,
+  type AccountEnvironment,
+  type BackendAccountEnvironmentSource,
+} from '../domain/accountType';
+
 type NumericAccountField = number | string | null | undefined;
 
 function parseFiniteNumber(value: unknown): number | undefined {
@@ -42,6 +49,24 @@ export interface TradingAccountRaw {
   login: NumericAccountField;
   name?: string | null;
   group?: string | null;
+  Group?: unknown;
+  account_group?: unknown;
+  accountGroup?: unknown;
+  account_type?: unknown;
+  accountType?: unknown;
+  type?: unknown;
+  kind?: unknown;
+  account_kind?: unknown;
+  accountKind?: unknown;
+  mode?: unknown;
+  is_demo?: unknown;
+  isDemo?: unknown;
+  demo?: unknown;
+  is_contest?: unknown;
+  isContest?: unknown;
+  contest?: unknown;
+  account?: unknown;
+  user?: unknown;
   currency?: string | null;
   leverage: NumericAccountField;
   balance: NumericAccountField;
@@ -75,6 +100,8 @@ export interface TradingAccount {
   login: number;
   name: string;
   group: string;
+  accountEnvironment: AccountEnvironment;
+  accountEnvironmentSource: BackendAccountEnvironmentSource;
   currency: string;
   leverage: number;
   balance: number;
@@ -96,6 +123,7 @@ export interface TradingAccount {
  */
 export function mapRawAccount(raw: TradingAccountRaw): TradingAccount {
   const login = Math.trunc(toFiniteNumber(raw.login));
+  const accountEnvironmentEvidence = resolveAccountEnvironment(raw, true);
   const equity = toFiniteNumber(raw.equity);
   const usedMargin = pickFiniteNumber(
     raw.margin_used,
@@ -118,7 +146,11 @@ export function mapRawAccount(raw: TradingAccountRaw): TradingAccount {
   return {
     login,
     name: raw.name || `Account ${login}`,
-    group: raw.group || 'standard',
+    // Preserve the backend value. A missing group is unknown environment
+    // evidence; fabricating "standard" would conflate lot type with Real.
+    group: readRawAccountGroup(raw) ?? '',
+    accountEnvironment: accountEnvironmentEvidence.accountType,
+    accountEnvironmentSource: accountEnvironmentEvidence.source,
     currency: raw.currency || 'USD',
     leverage: toFiniteNumber(raw.leverage),
     balance: toFiniteNumber(raw.balance),

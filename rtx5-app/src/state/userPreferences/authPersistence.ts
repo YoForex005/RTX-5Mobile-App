@@ -136,7 +136,10 @@ export function failClosedPersistedAuthState(
   const state = asRecord(envelope.state);
   state.isLoggedIn = false;
   state.accountDetails = null;
+  state.accountType = 'unknown';
+  state.accountEnvironmentSource = 'unknown';
+  state.accountEnvironmentKey = '';
+  state.isDemoAccount = false;
   envelope.state = state;
   return envelope;
 }
-

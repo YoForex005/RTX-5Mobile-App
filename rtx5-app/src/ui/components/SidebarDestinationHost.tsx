@@ -14,6 +14,7 @@ import {
   type SidebarDestinationController,
   type SidebarHostDestination,
 } from './sidebarDestinationHostController';
+import { ThemeModeRenderPriorityContext } from '../../state/themeMode';
 
 export type SidebarDestinationViewProps = Readonly<{
   /**
@@ -115,7 +116,11 @@ const SidebarDestinationLayer = memo(function SidebarDestinationLayer({
       importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
       testID={`sidebar-destination-${destination}`}
     >
-      <DestinationView active={active} />
+      <ThemeModeRenderPriorityContext.Provider
+        value={active || visualActive ? 'retained' : 'frozen'}
+      >
+        <DestinationView active={active} />
+      </ThemeModeRenderPriorityContext.Provider>
     </View>
   );
 });

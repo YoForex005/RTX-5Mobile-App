@@ -73,8 +73,13 @@ import {
   isStaleBrokerSessionCommitError,
   type BrokerSessionCommitAuthorization,
 } from '../src/services/brokerSessionCoordinator';
-import { resolveFeedAuthContextFromAuthResponse } from '../src/api/feedAuthContract';
+import { resolveSessionFeedAuth } from '../src/api/feedAuthContract';
 import { redactAuthPayload, redactSensitiveString } from '../src/api/authRedaction';
+import {
+  buildAccountEnvironmentKey,
+  mergeAccountEnvironment,
+  type AccountEnvironmentSource,
+} from '../src/domain/accountType';
 
 type RegisterFieldKey =
   | 'firstName'
@@ -606,6 +611,16 @@ export default function RegisterScreen() {
         origin_broker: trimmedOriginBroker || undefined,
       });
       if (isRegisterAttemptCancelled()) return;
+      const createdAccountGroup =
+        typeof response.group === 'string' && response.group.trim()
+          ? response.group
+          : typeof response.Group === 'string' && response.Group.trim()
+            ? response.Group
+            : selectedDemoGroup.name;
+      const createdAccountLogin = String(response.login ?? '').trim();
+      if (!createdAccountLogin) {
+        throw new Error(t('Demo account was created, but the account login was not returned.'));
+      }
 
       // Use the broker_id from the API response as canonical
       const canonicalBrokerId = response.broker_id || ORRNN_DEMO_BROKER_ID;
@@ -628,7 +643,7 @@ export default function RegisterScreen() {
       }
 
       const accountName = `${trimmedFirstName} ${trimmedLastName}`.trim();
-      let sessionLogin = response.login;
+      let sessionLogin = createdAccountLogin;
       let sessionToken = response.api_key ?? '';
       let sessionRefreshToken = '';
       let sessionExpiresAt = new Date(Date.now() + 86400 * 1000).toISOString();
@@ -642,7 +657,7 @@ export default function RegisterScreen() {
         // authenticate it through the existing V2 login endpoint using the
         // master password the user just supplied.
         const authResponse: any = await loginAPI({
-          username: String(response.login),
+          username: createdAccountLogin,
           password,
           broker_id: canonicalBrokerId,
         }, {
@@ -653,11 +668,16 @@ export default function RegisterScreen() {
         sessionRefreshToken = authResponse.refresh_token ?? authResponse.refreshToken ?? '';
         sessionFeedToken = extractFeedBrokerToken(authResponse) || sessionFeedToken;
         feedAuthContractSource = authResponse;
-        sessionLogin =
+        const authenticatedAccountLogin = String(
           authResponse.account_login ??
           authResponse.accountLogin ??
           authResponse.user?.account_login ??
-          response.login;
+          createdAccountLogin,
+        ).trim();
+        if (authenticatedAccountLogin !== createdAccountLogin) {
+          throw new Error(t('Demo account login did not match the newly created account.'));
+        }
+        sessionLogin = authenticatedAccountLogin;
         if (typeof authResponse.expires_at === 'number' && authResponse.expires_at > 0) {
           const ms = authResponse.expires_at > 1e12 ? authResponse.expires_at : authResponse.expires_at * 1000;
           sessionExpiresAt = new Date(ms).toISOString();
@@ -670,6 +690,19 @@ export default function RegisterScreen() {
       if (!sessionToken) {
         throw new Error(t('Demo account was created, but the login token was not returned.'));
       }
+      const demoRegistrationSource: AccountEnvironmentSource = 'demo-registration';
+      const initialAccountEnvironment = mergeAccountEnvironment(null, {
+        accountKey: buildAccountEnvironmentKey(canonicalBrokerId, String(sessionLogin)),
+        resolved: 'demo',
+        source: demoRegistrationSource,
+        allowInitialFallback: true,
+      })!;
+      const sessionFeed = resolveSessionFeedAuth({
+        response: feedAuthContractSource,
+        brokerId: demoAuthRoute.endpoints.brokerId,
+        accountLogin: sessionLogin,
+        existingFeedToken: sessionFeedToken,
+      });
 
       const committedSession = await commitBrokerSession({
         session: {
@@ -680,23 +713,21 @@ export default function RegisterScreen() {
           tradeWsBase: demoAuthRoute.endpoints.tradeWsBase,
           feedStatusUrl: demoAuthRoute.endpoints.feedStatusUrl,
           servicesDomain: demoAuthRoute.endpoints.servicesDomain,
-          feedAuthContext: resolveFeedAuthContextFromAuthResponse(
-            feedAuthContractSource,
-            Boolean(sessionFeedToken),
-          ),
+          feedAuthContext: sessionFeed.feedAuthContext,
           configVersion: demoAuthRoute.endpoints.configVersion,
         },
         credentials: {
           accessToken: sessionToken,
           refreshToken: sessionRefreshToken,
           expiresAt: sessionExpiresAt,
-          ...(sessionFeedToken ? { feedToken: sessionFeedToken } : {}),
+          ...(sessionFeed.feedToken ? { feedToken: sessionFeed.feedToken } : {}),
         },
         account: {
           name: accountName,
           serverName: brokerConfig?.server_name || canonicalBrokerId,
           logoUrl: demoAuthRoute.logoUrl,
-          isDemoAccount: true,
+          accountType: initialAccountEnvironment.accountType,
+          accountEnvironmentSource: initialAccountEnvironment.accountEnvironmentSource,
         },
       }, commitAuthorization);
       recordAccountJournalEvent(`demo account created and signed in on ${canonicalBrokerId}`, {
@@ -714,7 +745,9 @@ export default function RegisterScreen() {
         server: brokerConfig?.server_name || canonicalBrokerId,
         serverUrl: demoAuthRoute.serverUrl,
         logoUrl: demoAuthRoute.logoUrl,
-        accountType: 'demo',
+        accountType: initialAccountEnvironment.accountType,
+        accountEnvironmentSource: initialAccountEnvironment.accountEnvironmentSource,
+        rawGroup: createdAccountGroup,
         lastUsedAt: Date.now(),
         hasCredentials: true,
       });

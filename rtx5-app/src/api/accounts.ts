@@ -10,10 +10,18 @@ import { apiClient } from './apiClient';
 const DEBUG_ACCOUNTS_API = process.env.EXPO_PUBLIC_DEBUG_ACCOUNTS_API === 'true';
 import { mapRawAccount, type TradingAccount, type TradingAccountRaw } from './accountsMapper';
 import { ACCOUNTS_LIST_PATH, buildAccountDetailPath } from './accountsRoutes';
-import { redactDiagnosticValue } from '../utils/securityRedaction';
 
 export { mapRawAccount };
 export type { TradingAccount, TradingAccountRaw };
+
+export type AccountDetailResult = Readonly<{
+  /**
+   * Original backend object. Classification must use this value so explicit
+   * aliases such as `account_type` and `is_demo` are not lost by UI mapping.
+   */
+  raw: TradingAccountRaw;
+  account: TradingAccount;
+}>;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // V2 Accounts API — https://backend.orrnn.com/api/v2/accounts
@@ -124,11 +132,15 @@ export async function getAccounts(): Promise<TradingAccount[]> {
   }
 
   // API returns a flat array, not { accounts: [...] }
-  const data: TradingAccountRaw[] = await response.json();
-  const mapped = (data || []).map(mapRawAccount);
+  const data: unknown = await response.json();
+  if (!Array.isArray(data)) {
+    throw new AccountsApiError(0, 'Invalid accounts response — expected an array');
+  }
+  const mapped = (data as TradingAccountRaw[]).map(mapRawAccount);
   if (DEBUG_ACCOUNTS_API) {
-    console.log('[Accounts API] Raw backend response:', redactDiagnosticValue(data));
-    console.log('[Accounts API] Mapped accounts:', redactDiagnosticValue(mapped));
+    console.log('[Accounts API] Accounts response received', {
+      accountCount: mapped.length,
+    });
   }
   return mapped;
 }
@@ -153,7 +165,9 @@ export async function getAccounts(): Promise<TradingAccount[]> {
  *         - 503: Service unavailable / maintenance mode
  *         - Network: Connection failure
  */
-export async function getAccountById(login: number): Promise<TradingAccount> {
+export async function getAccountByIdResult(
+  login: number | string,
+): Promise<AccountDetailResult> {
   let response: Response;
 
   try {
@@ -188,6 +202,19 @@ export async function getAccountById(login: number): Promise<TradingAccount> {
   }
 
   // API returns a single account object
-  const raw: TradingAccountRaw = await response.json();
-  return mapRawAccount(raw);
+  const raw: unknown = await response.json();
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new AccountsApiError(0, 'Invalid account response — expected an object');
+  }
+
+  const typedRaw = raw as TradingAccountRaw;
+  return Object.freeze({
+    raw: typedRaw,
+    account: mapRawAccount(typedRaw),
+  });
+}
+
+export async function getAccountById(login: number | string): Promise<TradingAccount> {
+  const result = await getAccountByIdResult(login);
+  return result.account;
 }

@@ -13,10 +13,13 @@ import NetInfo from '@react-native-community/netinfo';
 import { brokerApi } from '../../brokerApi';
 import {
   captureActiveBrokerSession,
+  captureActiveBrokerSessionOwnerStamp,
   getActiveBrokerSessionIdentity,
   isActiveBrokerSessionCurrent,
+  isActiveBrokerSessionOwnerStampCurrent,
   subscribeActiveBrokerSession,
   type ActiveBrokerSessionIdentity,
+  type ActiveBrokerSessionOwnerStamp,
 } from '../../../state/activeBrokerSession';
 import { recordUiFeedGap } from '../../../dev/uiInteractionDiagnostics';
 import {
@@ -37,6 +40,7 @@ import {
   processIncomingPayload,
   type TickProcessorBridge,
 } from './tickProcessor';
+import { isQuoteSocketAuthenticationFailure } from './quoteSocketFailurePolicy';
 import {
   buildCandleChannelSubscriptionMessages,
   createCandleFeedSubscription,
@@ -61,7 +65,6 @@ import {
 } from '../../../market/feedHealthState';
 import {
   redactDiagnosticValue,
-  redactSensitiveString,
 } from '../../../utils/securityRedaction';
 import {
   cancelActiveFeedHealthProbe,
@@ -74,6 +77,8 @@ import {
   setLiveQuoteSocketConnected,
 } from '../../../market/marketDataTelemetry';
 import { resolveNextReconnectAttempt } from '../reconnectBackoff';
+import { resetQuoteMarketData } from '../../../state/tradingState';
+import { redactMarketSocketUrl } from './quoteSocketDiagnostics';
 
 const shouldLogCandleDiagnostics = (): boolean =>
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CANDLE_FEED === 'true';
@@ -89,7 +94,7 @@ const QUOTE_WS_RECONNECT_COOLDOWN_MS = 10_000;
 const QUOTE_WS_SILENT_STALE_MS = 8_000;
 const QUOTE_WS_WATCHDOG_INTERVAL_MS = 3_000;
 const QUOTE_WS_INTERACTION_RECONNECT_DEFER_MS = 2_500;
-const BROKER_MARKET_AUTH_FAILURE_CLOSE_CODES = new Set([1008, 4001]);
+const QUOTE_WS_PREOPEN_ERROR_CLOSE_WAIT_MS = 1_500;
 
 type BrokerMarketBlockReason = 'logged_out' | 'auth_session' | 'broker_domain' | null;
 
@@ -114,8 +119,6 @@ const extractSymbolList = (value: unknown): string[] => {
   const symbol = String(value ?? '').trim();
   return symbol ? [symbol] : [];
 };
-
-const redactMarketSocketUrl = (url: string): string => redactSensitiveString(url);
 
 const createTickChannel = (symbol: string): string => `ticks.${symbol}`;
 
@@ -197,6 +200,10 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   private symbolListeners: Map<string, Set<SymbolTickListener>> = new Map();
   private diagnosticLogCounts: Map<string, number> = new Map();
   private socketIdentity: ActiveBrokerSessionIdentity | null = null;
+  private socketOwnerStamp: ActiveBrokerSessionOwnerStamp | null = null;
+  private authRefreshAttemptedCredentialIdentity: string | null = null;
+  private rejectedSocketUrl: string | null = null;
+  private preOpenErrorTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly lastAcceptedTickBySymbol = new Map<string, QuoteOrderCursor>();
   private isAppActive = AppState.currentState === 'active';
   private connectedAt = 0;
@@ -230,6 +237,11 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       }
 
       reportFeedCredentialsRefreshed(identity);
+      // A credential refresh advances the feed generation while keeping the
+      // account/session cache namespace. Old websocket quotes must become
+      // immediately ineligible until the replacement socket proves itself.
+      resetQuoteMarketData();
+      this.authRefreshAttemptedCredentialIdentity = null;
       this.socketResolutionGeneration += 1;
       this.isResolvingSocketUrl = false;
       this.pendingBrokerMarketBlockReason = null;
@@ -238,6 +250,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       this.clearHealthProbeTimer();
       this.clearNetInfoListener();
       this.teardownSocket(false);
+      this.lastAcceptedTickBySymbol.clear();
       this.socketIdentity = identity;
       this.shouldReconnect = this.hasActiveDemand();
       if (this.isAppActive && this.shouldReconnect) {
@@ -325,25 +338,28 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   private async resolveSocketUrlAsync(): Promise<{
     url: string;
     identity: ActiveBrokerSessionIdentity;
+    owner: ActiveBrokerSessionOwnerStamp;
   }> {
     const capture = captureActiveBrokerSession();
-    if (!capture) {
+    const owner = captureActiveBrokerSessionOwnerStamp();
+    if (!capture || !owner) {
       this.pendingBrokerMarketBlockReason = 'logged_out';
       throw new Error('No active broker session is available.');
     }
     const identity = getActiveBrokerSessionIdentity(capture.session);
     this.socketIdentity = identity;
+    this.socketOwnerStamp = owner;
 
     try {
       const socketUrl = await brokerApi.getQuoteWebSocketUrl();
-      if (!isActiveBrokerSessionCurrent(identity)) {
+      if (!isActiveBrokerSessionOwnerStampCurrent(owner)) {
         throw new Error('Broker session changed while resolving the quote socket.');
       }
       this.pendingBrokerMarketBlockReason = null;
-      return { url: socketUrl, identity };
+      return { url: socketUrl, identity, owner };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error ?? '');
-      if (isActiveBrokerSessionCurrent(identity)) {
+      if (isActiveBrokerSessionOwnerStampCurrent(owner)) {
         this.pendingBrokerMarketBlockReason = /domain is missing|domain unavailable|backend domain/i.test(message)
           ? 'broker_domain'
           : 'auth_session';
@@ -355,7 +371,8 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   private shouldStayOnBrokerMarketSocket(socketUrl: string): boolean {
     return Boolean(
       this.socketIdentity &&
-      isActiveBrokerSessionCurrent(this.socketIdentity) &&
+      this.socketOwnerStamp &&
+      isActiveBrokerSessionOwnerStampCurrent(this.socketOwnerStamp) &&
       /\/ws\/(?:feed|v2)(?:\?|$)/.test(socketUrl),
     );
   }
@@ -468,7 +485,8 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     receivedAt: number,
   ): boolean {
     const identity = this.socketIdentity;
-    if (!identity || !isActiveBrokerSessionCurrent(identity)) {
+    const owner = this.socketOwnerStamp;
+    if (!identity || !owner || !isActiveBrokerSessionOwnerStampCurrent(owner)) {
       return false;
     }
     const symbol = normalizeSymbol(update.symbol);
@@ -517,9 +535,11 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   /** @internal Rejects explicit candle payloads for another socket identity. */
   public acceptCandlePayload(raw: unknown): boolean {
     const identity = this.socketIdentity;
+    const owner = this.socketOwnerStamp;
     return Boolean(
       identity &&
-      isActiveBrokerSessionCurrent(identity) &&
+      owner &&
+      isActiveBrokerSessionOwnerStampCurrent(owner) &&
       payloadMatchesSocketIdentity(raw, identity),
     );
   }
@@ -531,7 +551,9 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
 
   /** @internal Prevents a queued frame from committing after an epoch change. */
   public canCommitPendingUpdates = (): boolean => Boolean(
-    this.socketIdentity && isActiveBrokerSessionCurrent(this.socketIdentity),
+    this.socketIdentity &&
+    this.socketOwnerStamp &&
+    isActiveBrokerSessionOwnerStampCurrent(this.socketOwnerStamp),
   );
 
   /** Dispatches the initial connection sequence and applies auto-reconnect logic. */
@@ -560,7 +582,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       .then(async (resolved) => {
         if (resolutionGeneration !== this.socketResolutionGeneration) return;
         this.isResolvingSocketUrl = false;
-        if (!isActiveBrokerSessionCurrent(resolved.identity)) {
+        if (!isActiveBrokerSessionOwnerStampCurrent(resolved.owner)) {
           return;
         }
 
@@ -568,16 +590,16 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
         // are not blocked behind the status probe (up to ~3s). Health still
         // runs in parallel and can hard-stop the socket on confirmed blocks.
         this.openResolvedSocket(resolved);
-        this.scheduleHealthProbe(resolved.identity);
+        this.scheduleHealthProbe(resolved.owner);
 
         const healthBeforeProbe = getFeedHealthSnapshot();
         const boundedRecoveryProbe = Boolean(
           feedHealthStateMatchesIdentity(healthBeforeProbe, resolved.identity) &&
           feedHealthCanSafelyRetry(healthBeforeProbe)
         );
-        const healthConfirmed = await probeActiveFeedHealth(resolved.identity);
+        const healthConfirmed = await probeActiveFeedHealth(resolved.owner);
         if (resolutionGeneration !== this.socketResolutionGeneration) return;
-        if (!isActiveBrokerSessionCurrent(resolved.identity)) {
+        if (!isActiveBrokerSessionOwnerStampCurrent(resolved.owner)) {
           return;
         }
         if (!healthConfirmed) {
@@ -629,14 +651,22 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   private openResolvedSocket(resolved: {
     url: string;
     identity: ActiveBrokerSessionIdentity;
+    owner: ActiveBrokerSessionOwnerStamp;
   }): void {
-    const { url: nextUrl, identity } = resolved;
+    const { url: nextUrl, identity, owner } = resolved;
     if (
       !this.isAppActive ||
       !this.shouldReconnect ||
       !this.hasActiveDemand() ||
-      !isActiveBrokerSessionCurrent(identity)
+      !isActiveBrokerSessionOwnerStampCurrent(owner)
     ) {
+      return;
+    }
+
+    // A refresh that returns the exact credential just rejected by the broker
+    // must not create a new deterministic auth loop.
+    if (this.rejectedSocketUrl && this.rejectedSocketUrl === nextUrl) {
+      this.shouldReconnect = false;
       return;
     }
 
@@ -676,12 +706,17 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       const socketUrl = this.url;
       let didOpen = false;
       this.socketIdentity = identity;
+      this.socketOwnerStamp = owner;
       reportFeedConnecting(identity);
-      this.ws = new WebSocket(socketUrl);
+      const socket = new WebSocket(socketUrl);
+      this.ws = socket;
 
-      this.ws.onopen = () => {
-        if (!isActiveBrokerSessionCurrent(identity)) {
-          this.teardownSocket(false);
+      socket.onopen = () => {
+        if (
+          this.ws !== socket ||
+          !isActiveBrokerSessionOwnerStampCurrent(owner)
+        ) {
+          this.disposeStaleSocket(socket);
           return;
         }
         recordMarketDataEvent('socket_open', {
@@ -690,6 +725,8 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
           sessionEpoch: identity.sessionEpoch,
         });
         didOpen = true;
+        this.clearPreOpenErrorTimer();
+        this.rejectedSocketUrl = null;
         if (shouldLogQuotesWsLifecycle()) {
           console.log('[Quotes WS] Connected to', redactMarketSocketUrl(socketUrl));
         }
@@ -712,9 +749,12 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
         requestQuoteSnapshotReconcile(identity);
       };
 
-      this.ws.onmessage = (event) => {
-        if (!isActiveBrokerSessionCurrent(identity)) {
-          this.teardownSocket(false);
+      socket.onmessage = (event) => {
+        if (
+          this.ws !== socket ||
+          !isActiveBrokerSessionOwnerStampCurrent(owner)
+        ) {
+          this.disposeStaleSocket(socket);
           return;
         }
         try {
@@ -732,12 +772,23 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
         }
       };
 
-      this.ws.onclose = (event) => {
-        if (!isActiveBrokerSessionCurrent(identity)) {
-          this.teardownSocket(false);
+      socket.onclose = (event) => {
+        this.clearPreOpenErrorTimer();
+        if (
+          this.ws !== socket ||
+          !isActiveBrokerSessionOwnerStampCurrent(owner)
+        ) {
+          this.disposeStaleSocket(socket);
           return;
         }
-        if (this.isBrokerMarketAuthFailure(socketUrl, event?.code)) {
+        if (
+          this.isBrokerMarketAuthFailure(
+            socketUrl,
+            event?.code,
+            event?.reason,
+            didOpen,
+          )
+        ) {
           recordMarketDataEvent('socket_close', {
             transport: 'quotes_ws',
             category: 'authentication',
@@ -750,11 +801,13 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
             socketUrl: redactMarketSocketUrl(socketUrl),
           });
           this.shouldReconnect = false;
+          this.rejectedSocketUrl = socketUrl;
           this.reconnectAttempts = 0;
           this.clearReconnectTimer();
           this.clearHealthProbeTimer();
           reportFeedSocketClosed(identity, true);
           this.teardownSocket(false);
+          this.attemptSingleAuthRefresh(owner);
           return;
         }
         if (!didOpen && this.markBrokerSocketUnavailable(socketUrl, 'closed before open')) {
@@ -775,8 +828,12 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
         this.attemptReconnect();
       };
 
-      this.ws.onerror = () => {
-        if (!didOpen && this.markBrokerSocketUnavailable(socketUrl, 'connection error before open')) {
+      socket.onerror = () => {
+        if (!didOpen) {
+          // React Native follows a failed handshake error with a close event
+          // containing the HTTP rejection detail. Let onclose classify it so
+          // a 401/403 is not hidden by teardown and retried forever.
+          this.schedulePreOpenErrorFallback(socket, owner, identity);
           return;
         }
         console.warn('[Quotes WS] Connection error (will auto-reconnect)');
@@ -791,12 +848,71 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     }
   }
 
-  private isBrokerMarketAuthFailure(socketUrl: string, code: number | undefined): boolean {
+  private isBrokerMarketAuthFailure(
+    socketUrl: string,
+    code: number | undefined,
+    reason: string | undefined,
+    didOpen: boolean,
+  ): boolean {
     return (
-      typeof code === 'number' &&
-      BROKER_MARKET_AUTH_FAILURE_CLOSE_CODES.has(code) &&
+      isQuoteSocketAuthenticationFailure({ code, reason, didOpen }) &&
       this.shouldStayOnBrokerMarketSocket(socketUrl)
     );
+  }
+
+  private attemptSingleAuthRefresh(owner: ActiveBrokerSessionOwnerStamp): void {
+    if (
+      !isActiveBrokerSessionOwnerStampCurrent(owner) ||
+      this.authRefreshAttemptedCredentialIdentity === owner.credentialIdentity
+    ) {
+      return;
+    }
+    this.authRefreshAttemptedCredentialIdentity = owner.credentialIdentity;
+    void brokerApi.getValidAccessToken(true).catch(() => {
+      // Authentication remains latched for this credential generation. A new
+      // validated login/refresh handoff is the only event allowed to reconnect.
+    });
+  }
+
+  private schedulePreOpenErrorFallback(
+    socket: WebSocket,
+    owner: ActiveBrokerSessionOwnerStamp,
+    identity: ActiveBrokerSessionIdentity,
+  ): void {
+    this.clearPreOpenErrorTimer();
+    this.preOpenErrorTimer = setTimeout(() => {
+      this.preOpenErrorTimer = null;
+      if (
+        this.ws !== socket ||
+        !isActiveBrokerSessionOwnerStampCurrent(owner)
+      ) {
+        this.disposeStaleSocket(socket);
+        return;
+      }
+      console.warn('[Quotes WS] Broker market socket closed without handshake details. Retrying with transport backoff.');
+      reportFeedSocketClosed(identity, false);
+      this.teardownSocket(false);
+      this.attemptReconnect();
+    }, QUOTE_WS_PREOPEN_ERROR_CLOSE_WAIT_MS);
+  }
+
+  private clearPreOpenErrorTimer(): void {
+    if (this.preOpenErrorTimer) {
+      clearTimeout(this.preOpenErrorTimer);
+      this.preOpenErrorTimer = null;
+    }
+  }
+
+  private disposeStaleSocket(socket: WebSocket): void {
+    socket.onopen = null;
+    socket.onmessage = null;
+    socket.onerror = null;
+    socket.onclose = null;
+    try {
+      socket.close();
+    } catch {
+      // Stale socket cleanup is best-effort and never mutates the new owner.
+    }
   }
 
   public disconnect(): void {
@@ -804,6 +920,8 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     this.socketResolutionGeneration += 1;
     this.isResolvingSocketUrl = false;
     this.pendingBrokerMarketBlockReason = null;
+    this.authRefreshAttemptedCredentialIdentity = null;
+    this.rejectedSocketUrl = null;
     this.shouldReconnect = false;
     this.reconnectAttempts = 0;
     this.clearReconnectTimer();
@@ -844,6 +962,13 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     this.watchdogInterval = setInterval(() => {
       if (!this.isConnected || this.ws?.readyState !== WebSocket.OPEN) return;
       if (!this.hasActiveDemand()) return;
+      if (
+        !this.socketOwnerStamp ||
+        !isActiveBrokerSessionOwnerStampCurrent(this.socketOwnerStamp)
+      ) {
+        this.teardownSocket(false);
+        return;
+      }
 
       const staleFor = Date.now() - this.lastMessageAt;
       if (staleFor > QUOTE_WS_SILENT_STALE_MS) {
@@ -872,14 +997,19 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
    * supplies its aging window. The probe cadence is derived from that window;
    * no mobile health threshold is invented and background polling stays off.
    */
-  private scheduleHealthProbe(identity: ActiveBrokerSessionIdentity): void {
+  private scheduleHealthProbe(owner: ActiveBrokerSessionOwnerStamp): void {
     this.clearHealthProbeTimer();
+    const identity: ActiveBrokerSessionIdentity = {
+      brokerId: owner.brokerId,
+      accountLogin: owner.accountLogin,
+      sessionEpoch: owner.sessionEpoch,
+    };
     const health = getFeedHealthSnapshot();
     if (
       !this.isAppActive ||
       !this.shouldReconnect ||
       !this.hasActiveDemand() ||
-      !isActiveBrokerSessionCurrent(identity) ||
+      !isActiveBrokerSessionOwnerStampCurrent(owner) ||
       !feedHealthStateMatchesIdentity(health, identity) ||
       !health.thresholds
     ) {
@@ -893,18 +1023,18 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
         !this.isAppActive ||
         !this.shouldReconnect ||
         !this.hasActiveDemand() ||
-        !isActiveBrokerSessionCurrent(identity)
+        !isActiveBrokerSessionOwnerStampCurrent(owner)
       ) {
         return;
       }
 
-      void probeActiveFeedHealth(identity).then((confirmed) => {
-        if (!isActiveBrokerSessionCurrent(identity)) return;
+      void probeActiveFeedHealth(owner).then((confirmed) => {
+        if (!isActiveBrokerSessionOwnerStampCurrent(owner)) return;
         if (confirmed && this.shouldPauseForConfirmedHealth(identity)) {
           this.stopForHealthBlock();
           return;
         }
-        this.scheduleHealthProbe(identity);
+        this.scheduleHealthProbe(owner);
       });
     }, delayMs);
   }
@@ -1141,7 +1271,8 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     }
 
     const identity = this.socketIdentity;
-    if (!identity || !isActiveBrokerSessionCurrent(identity)) {
+    const owner = this.socketOwnerStamp;
+    if (!identity || !owner || !isActiveBrokerSessionOwnerStampCurrent(owner)) {
       return;
     }
 
@@ -1189,6 +1320,10 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     if (!this.isAppActive || !this.shouldReconnect || !this.hasActiveDemand() || this.reconnectTimer) {
       return;
     }
+    const owner = captureActiveBrokerSessionOwnerStamp();
+    if (!owner || !isActiveBrokerSessionOwnerStampCurrent(owner)) {
+      return;
+    }
 
     const deferredMs = this.getInteractionReconnectDelay();
     if (deferredMs > 0) {
@@ -1198,7 +1333,11 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
 
     NetInfo.fetch()
       .then((state) => {
-        if (!this.shouldReconnect || !this.hasActiveDemand()) {
+        if (
+          !isActiveBrokerSessionOwnerStampCurrent(owner) ||
+          !this.shouldReconnect ||
+          !this.hasActiveDemand()
+        ) {
           return;
         }
 
@@ -1208,7 +1347,12 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
           }
           if (!this.netInfoUnsubscribe) {
             this.netInfoUnsubscribe = NetInfo.addEventListener((nextState) => {
-              if (nextState.isConnected && this.shouldReconnect && this.hasActiveDemand()) {
+              if (
+                nextState.isConnected &&
+                isActiveBrokerSessionOwnerStampCurrent(owner) &&
+                this.shouldReconnect &&
+                this.hasActiveDemand()
+              ) {
                 if (shouldLogQuotesWsLifecycle()) {
                   console.log('[Quotes WS] Network restored. Resuming connection...');
                 }
@@ -1223,7 +1367,11 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
         this.scheduleNextBackoffReconnect('network_ready');
       })
       .catch(() => {
-        if (!this.shouldReconnect || !this.hasActiveDemand()) {
+        if (
+          !isActiveBrokerSessionOwnerStampCurrent(owner) ||
+          !this.shouldReconnect ||
+          !this.hasActiveDemand()
+        ) {
           return;
         }
 
@@ -1304,9 +1452,16 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       return;
     }
 
+    const owner = captureActiveBrokerSessionOwnerStamp();
+    if (!owner || !isActiveBrokerSessionOwnerStampCurrent(owner)) {
+      return;
+    }
     const resolvedDelayMs = Math.max(delayMs, this.getInteractionReconnectDelay());
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
+      if (!isActiveBrokerSessionOwnerStampCurrent(owner)) {
+        return;
+      }
       this.connect();
     }, resolvedDelayMs);
   }
@@ -1330,10 +1485,12 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
 
     this.stopHeartbeat();
     this.stopWatchdog();
+    this.clearPreOpenErrorTimer();
     cancelFlush(this);
     this.isConnected = false;
     setLiveQuoteSocketConnected(false);
     this.ws = null;
+    this.socketOwnerStamp = null;
     this.resetTransportSubscriptionState();
 
     if (currentSocket) {

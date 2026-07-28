@@ -31,8 +31,11 @@ test('trade completions invalidate only their captured broker/account/epoch name
     modifyScreenSource,
     /invalidateSessionQueryRoots|\.invalidateQueries\(|positionsApi\.modifyPosition/,
   );
-  assert.match(modifyCoordinatorSource, /captureActiveBrokerSession\(\)/);
-  assert.match(modifyCoordinatorSource, /capture\.session\.cacheNamespace/);
+  assert.match(modifyCoordinatorSource, /captureActiveBrokerSessionOwnerStamp\(\)/);
+  assert.match(modifyCoordinatorSource, /owner\.cacheNamespace/);
+  assert.match(modifyCoordinatorSource, /owner\.apiBase/);
+  assert.match(modifyCoordinatorSource, /owner\.credentialGeneration/);
+  assert.match(modifyCoordinatorSource, /owner\.credentialIdentity/);
   assert.match(modifyCoordinatorSource, /positionsApi\.getPositionsForReconciliation/);
 
   const unsupportedCloseBy = readTradeSource('CloseByScreen.tsx');

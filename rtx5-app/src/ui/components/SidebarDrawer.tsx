@@ -13,7 +13,10 @@ import {
 } from 'react-native';
 import { GDark, GLight, ThemeColors } from '../theme/glass';
 import { useUserPreferences } from '../../state/userPreferences';
-import { useThemeMode } from '../../state/themeMode';
+import {
+  scheduleAfterImmediateThemePaint,
+  useThemeMode,
+} from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
 import { useBrokerConfig } from '../../query/broker';
 import { useDeferredActiveFlag } from '../../hooks/useDeferredActiveFlag';
@@ -177,7 +180,9 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
   const router = useRouter();
   const pathnameRef = useRef('/');
   const themeMode = useThemeMode();
-  const T = useMemo(() => (themeMode === 'light' ? GLight : GDark), [themeMode]);
+  const setPreferenceThemeMode = useUserPreferences((s) => s.setThemeMode);
+  const themeCommitGenerationRef = useRef(0);
+  const T = themeMode === 'light' ? GLight : GDark;
   const { t } = useTranslation();
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const accountDetails = useUserPreferences((s) => s.accountDetails);
@@ -185,7 +190,6 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
   const brokerLogoUrl = useUserPreferences((s) => s.brokerLogoUrl);
   const sidebarProfileDataActive = useDeferredActiveFlag(interactive && isLoggedIn, SIDEBAR_PROFILE_DATA_DELAY_MS);
   const { data: brokerConfig } = useBrokerConfig(brokerId, sidebarProfileDataActive && !!brokerId);
-  const isDark = themeMode === 'dark';
   const displayAccountName = accountDetails?.name?.trim() || (accountDetails?.id ? `Account ${accountDetails.id}` : '---');
   const supportEmail = getConfiguredSupportEmail();
   const appName = Constants.expoConfig?.name ?? 'RTX5';
@@ -209,6 +213,27 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
   const liveSymbolPauseReleaseRef = useRef<(() => void) | null>(null);
   const liveWorkResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<View>(null);
+
+  useEffect(() => () => {
+    themeCommitGenerationRef.current += 1;
+  }, []);
+
+  const handleThemeModePress = useCallback((nextMode: ThemeMode) => {
+    const generation = themeCommitGenerationRef.current + 1;
+    themeCommitGenerationRef.current = generation;
+    if (themeMode === nextMode) {
+      return;
+    }
+
+    // Let the selector's tiny local tree paint first. Updating the app-wide
+    // theme in this touch turn would batch it with the navigator and every
+    // immediate subscriber, delaying the visible acknowledgement.
+    scheduleAfterImmediateThemePaint(() => {
+      if (themeCommitGenerationRef.current === generation) {
+        setPreferenceThemeMode(nextMode);
+      }
+    });
+  }, [setPreferenceThemeMode, themeMode]);
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -592,7 +617,7 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
     }
   }, [navigateSidebarRoute, openSupportEmailFromSidebar]);
 
-  const ds = useMemo(() => makeStyles(T, isDark), [T, isDark]);
+  const ds = SIDEBAR_STYLES_BY_MODE[themeMode];
 
   return (
     <View
@@ -683,7 +708,10 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
           </View>
 
           {/* ── Theme Toggle ── */}
-          <SidebarThemeSelector ds={ds} T={T} />
+          <SidebarThemeSelector
+            appliedThemeMode={themeMode}
+            onSelectThemeMode={handleThemeModePress}
+          />
 
           {/* ── Divider ── */}
           <View style={ds.divider} />
@@ -715,19 +743,22 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
 
 // ─── Dynamic Styles ──────────────────────────────────────────────────────────
 type SidebarThemeSelectorProps = {
-  ds: ReturnType<typeof makeStyles>;
-  T: ThemeColors;
+  appliedThemeMode: ThemeMode;
+  onSelectThemeMode: (mode: ThemeMode) => void;
 };
 
 /**
  * A segmented control component allowing the user to select their app-wide color theme preference (System, Light, Dark).
  */
-function SidebarThemeSelector({ ds, T }: SidebarThemeSelectorProps) {
-  const appliedThemeMode = useThemeMode();
-  const setThemeMode = useUserPreferences((s) => s.setThemeMode);
+function SidebarThemeSelector({
+  appliedThemeMode,
+  onSelectThemeMode,
+}: SidebarThemeSelectorProps) {
   const [pendingThemeMode, setPendingThemeMode] = useState<ThemeMode | null>(null);
   const selectedThemeMode = pendingThemeMode ?? appliedThemeMode;
   const selectedIsDark = selectedThemeMode === 'dark';
+  const T = selectedIsDark ? GDark : GLight;
+  const ds = SIDEBAR_STYLES_BY_MODE[selectedThemeMode];
 
   useEffect(() => {
     if (pendingThemeMode === appliedThemeMode) {
@@ -735,21 +766,14 @@ function SidebarThemeSelector({ ds, T }: SidebarThemeSelectorProps) {
     }
   }, [appliedThemeMode, pendingThemeMode]);
 
-  /**
-   * Dispatches the selected theme mode to the global state and triggers the UI re-render for the new theme.
-   */
   const handleThemeModePress = useCallback((nextMode: ThemeMode) => {
     if (selectedThemeMode === nextMode && appliedThemeMode === nextMode) {
       return;
     }
 
     setPendingThemeMode(nextMode);
-    setThemeMode(nextMode);
-  }, [
-    appliedThemeMode,
-    selectedThemeMode,
-    setThemeMode,
-  ]);
+    onSelectThemeMode(nextMode);
+  }, [appliedThemeMode, onSelectThemeMode, selectedThemeMode]);
 
   return (
     <View style={ds.themeSection}>
@@ -758,7 +782,7 @@ function SidebarThemeSelector({ ds, T }: SidebarThemeSelectorProps) {
         <Pressable
           style={!selectedIsDark ? ds.themeOptActive : ds.themeOptInactive}
           onPress={() => handleThemeModePress('light')}
-          activateOnPressIn
+          activateOnTouchStart
           latencyLabel="sidebar.themeLight"
           unstable_pressDelay={0}
         >
@@ -768,7 +792,7 @@ function SidebarThemeSelector({ ds, T }: SidebarThemeSelectorProps) {
         <Pressable
           style={selectedIsDark ? ds.themeOptActive : ds.themeOptInactive}
           onPress={() => handleThemeModePress('dark')}
-          activateOnPressIn
+          activateOnTouchStart
           latencyLabel="sidebar.themeDark"
           unstable_pressDelay={0}
         >
@@ -969,3 +993,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
 
   });
 }
+
+const SIDEBAR_STYLES_BY_MODE: Record<ThemeMode, ReturnType<typeof makeStyles>> = {
+  light: makeStyles(GLight, false),
+  dark: makeStyles(GDark, true),
+};

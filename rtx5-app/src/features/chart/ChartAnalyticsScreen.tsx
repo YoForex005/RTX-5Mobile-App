@@ -18,6 +18,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 import { Screen } from '../../ui/components/Screen';
 import { useTranslation } from '../../i18n/useTranslation';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 import { spacing } from '../../ui/theme/index';
@@ -122,7 +123,7 @@ export function ChartAnalyticsScreen() {
   }>();
   const router = useRouter();
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const isScreenFocused = useIsFocused();

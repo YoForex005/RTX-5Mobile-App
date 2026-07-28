@@ -8,9 +8,8 @@ import { StaleBrokerSessionError } from '../brokerApi';
 import { assertTradeSide } from '../../domain/tradeSide';
 import { createTradingApiError } from '../tradingErrors';
 import {
-  captureActiveBrokerSession,
-  getActiveBrokerSessionIdentity,
-  isActiveBrokerSessionCurrent,
+  captureActiveBrokerSessionOwnerStamp,
+  isActiveBrokerSessionOwnerStampCurrent,
 } from '../../state/activeBrokerSession';
 import { getApiLatencyNow, recordApiLatency } from '../../utils/apiLatency';
 import { resolveBrokerSymbol, resolveBrokerSymbolFromCache } from './symbolResolver';
@@ -21,6 +20,9 @@ import {
 } from './pendingOrderPayload';
 import type { PlacePendingOrderPayload, PlacePendingOrderResponse } from './types';
 import { redactDiagnosticValue } from '../../utils/securityRedaction';
+import { assertActivePendingProtectionAllowed } from '../sltpCapabilityGuard';
+import { createTradeIdempotencyKey } from '../tradeIdempotency';
+import { listPendingOrdersForCapturedOwner } from './pendingOrders';
 
 const acceptedPendingOrderSymbolCache = new Map<string, string>();
 const ORDER_DIAGNOSTICS_ENABLED =
@@ -32,15 +34,74 @@ const logOrderDiagnostic = (...args: Parameters<typeof console.log>) => {
   }
 };
 
+const warnOrderDiagnostic = (...args: Parameters<typeof console.warn>) => {
+  if (ORDER_DIAGNOSTICS_ENABLED) {
+    console.warn(...args.map(redactDiagnosticValue));
+  }
+};
+
+const assertActivePendingCreateProtectionAllowed = (
+  payload: PlacePendingOrderPayload,
+): void => {
+  const createIntent = {
+    ...payload,
+  } as unknown as Record<string, unknown>;
+  // For pending POST only, explicit null means "unset". Pending PUT keeps null
+  // in its body and uses the shared assertion as an explicitly gated clear.
+  for (const key of ['sl', 'tp', 'price_sl', 'price_tp'] as const) {
+    if (createIntent[key] === null) delete createIntent[key];
+  }
+  assertActivePendingProtectionAllowed(createIntent);
+};
+
+const createPayloadBoundIdempotencyKeyResolver = (action: string) => {
+  const keysBySerializedBody = new Map<string, string>();
+  return (serializedBody: string): string => {
+    const existing = keysBySerializedBody.get(serializedBody);
+    if (existing) return existing;
+    const created = createTradeIdempotencyKey(action);
+    keysBySerializedBody.set(serializedBody, created);
+    return created;
+  };
+};
+
+const utf8ByteLength = (value: string): number => {
+  let bytes = 0;
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    bytes += codePoint <= 0x7f
+      ? 1
+      : codePoint <= 0x7ff
+        ? 2
+        : codePoint <= 0xffff
+          ? 3
+          : 4;
+  }
+  return bytes;
+};
+
+const normalizePendingOrderSymbolCandidate = (value: unknown): string => {
+  const symbol = String(value ?? '').trim().toUpperCase();
+  if (!symbol || utf8ByteLength(symbol) > 20) {
+    throw createTradingApiError(400, {
+      error: 'INVALID_INPUT',
+      message: !symbol
+        ? 'Pending order symbol is required.'
+        : 'Pending order symbol must not exceed 20 bytes.',
+    });
+  }
+  return symbol;
+};
+
 export const placePendingOrder = async (
   payload: PlacePendingOrderPayload,
 ): Promise<PlacePendingOrderResponse> => {
-  const sessionCapture = captureActiveBrokerSession();
-  if (!sessionCapture) throw new StaleBrokerSessionError();
-  const sessionIdentity = getActiveBrokerSessionIdentity(sessionCapture.session);
-  const cacheNamespace = sessionCapture.session.cacheNamespace;
+  const owner = captureActiveBrokerSessionOwnerStamp();
+  if (!owner) throw new StaleBrokerSessionError();
+  assertActivePendingCreateProtectionAllowed(payload);
+  const cacheNamespace = owner.cacheNamespace;
   const assertOrderSessionCurrent = () => {
-    if (!isActiveBrokerSessionCurrent(sessionIdentity)) {
+    if (!isActiveBrokerSessionOwnerStampCurrent(owner)) {
       throw new StaleBrokerSessionError();
     }
   };
@@ -57,7 +118,7 @@ export const placePendingOrder = async (
   }
 
   const callerSymbol = String(orderBody.symbol ?? '').trim();
-  if (String(orderBody.login ?? '') !== sessionCapture.session.accountLogin) {
+  if (String(orderBody.account_login ?? '') !== owner.accountLogin) {
     throw createTradingApiError(403, {
       message: 'Pending-order account does not match the active broker session.',
     });
@@ -71,6 +132,8 @@ export const placePendingOrder = async (
     ok: boolean;
     graceful: boolean;
   };
+  const resolveIdempotencyKey = createPayloadBoundIdempotencyKeyResolver('pending');
+  let createRequestStarted = false;
 
   const unwrap = (json: any): any => {
     if (!json || typeof json !== 'object') return json;
@@ -83,22 +146,27 @@ export const placePendingOrder = async (
 
   const sendOrder = async (symbolToSend: string): Promise<Attempt> => {
     assertOrderSessionCurrent();
-    const body = { ...orderBody, symbol: symbolToSend };
-    logOrderDiagnostic('[RTX5 Pending Order] POST /orders/pending body:', JSON.stringify(body));
+    const canonicalSymbol = normalizePendingOrderSymbolCandidate(symbolToSend);
+    const body = { ...orderBody, symbol: canonicalSymbol };
+    const serializedBody = JSON.stringify(body);
+    const idempotencyKey = resolveIdempotencyKey(serializedBody);
+    logOrderDiagnostic('[RTX5 Pending Order] POST /orders/pending body:', serializedBody);
     const startedAtMs = getApiLatencyNow();
     let response: Response | null = null;
 
     try {
+      createRequestStarted = true;
       response = await apiClient('/orders/pending', {
         method: 'POST',
-        body: JSON.stringify(body),
+        headers: { 'Idempotency-Key': idempotencyKey },
+        body: serializedBody,
       });
       const raw = await response.json().catch(() => ({}));
       assertOrderSessionCurrent();
       const inner = unwrap(raw);
       const bodyStatus = typeof inner?.status === 'string' ? inner.status.toLowerCase() : '';
-      const graceful = response.ok && ['rejected', 'failed', 'error'].includes(bodyStatus);
-      const ok = response.ok && !graceful;
+      const graceful = response.status === 200 && ['rejected', 'failed', 'error'].includes(bodyStatus);
+      const ok = response.status === 200 && !graceful;
       recordApiLatency({
         label: `trade.placePendingOrder.${requestedSide}`,
         method: 'POST',
@@ -109,7 +177,7 @@ export const placePendingOrder = async (
         durationMs: getApiLatencyNow() - startedAtMs,
       });
       return {
-        symbol: symbolToSend,
+        symbol: canonicalSymbol,
         status: response.status,
         body: raw,
         response,
@@ -158,52 +226,66 @@ export const placePendingOrder = async (
   let accepted: Attempt | null = null;
   let lastBad: Attempt | null = null;
 
-  for (const candidate of candidates) {
-    const attempt = await sendOrder(candidate);
-    if (attempt.ok) {
-      accepted = attempt;
-      break;
-    }
-    lastBad = attempt;
-    if (!isSymbolMiss(attempt)) break;
-  }
-
-  if (!accepted && lastBad && isSymbolMiss(lastBad)) {
-    const catalogSymbol = await resolveBrokerSymbol(callerSymbol, cacheNamespace);
-    assertOrderSessionCurrent();
-    if (catalogSymbol && !candidates.includes(catalogSymbol)) {
-      const attempt = await sendOrder(catalogSymbol);
+  try {
+    for (const candidate of candidates) {
+      const attempt = await sendOrder(candidate);
       if (attempt.ok) {
         accepted = attempt;
-      } else {
-        lastBad = attempt;
+        break;
+      }
+      lastBad = attempt;
+      if (!isSymbolMiss(attempt)) break;
+    }
+
+    if (!accepted && lastBad && isSymbolMiss(lastBad)) {
+      const catalogSymbol = await resolveBrokerSymbol(callerSymbol, cacheNamespace);
+      assertOrderSessionCurrent();
+      if (catalogSymbol && !candidates.includes(catalogSymbol)) {
+        const attempt = await sendOrder(catalogSymbol);
+        if (attempt.ok) {
+          accepted = attempt;
+        } else {
+          lastBad = attempt;
+        }
       }
     }
-  }
 
-  if (!accepted) {
-    const status = lastBad?.status ?? 400;
-    const body = lastBad?.graceful
-      ? {
-        message: unwrap(lastBad.body)?.comment
-          || unwrap(lastBad.body)?.message
-          || 'Pending order rejected by the trading server.',
+    if (!accepted) {
+      const status = lastBad?.status ?? 400;
+      const body = lastBad?.graceful
+        ? {
+          message: unwrap(lastBad.body)?.comment
+            || unwrap(lastBad.body)?.message
+            || 'Pending order rejected by the trading server.',
+        }
+        : (lastBad?.body ?? { message: 'Pending order rejected before a valid symbol candidate was available.' });
+      const headers: Record<string, string> = {};
+      if (status === 429 && lastBad?.response) {
+        headers['retry-after'] = lastBad.response.headers.get('retry-after') || '';
       }
-      : (lastBad?.body ?? { message: 'Pending order rejected before a valid symbol candidate was available.' });
-    const headers: Record<string, string> = {};
-    if (status === 429 && lastBad?.response) {
-      headers['retry-after'] = lastBad.response.headers.get('retry-after') || '';
+      throw createTradingApiError(lastBad?.graceful ? 400 : status, body, headers);
     }
-    throw createTradingApiError(lastBad?.graceful ? 400 : status, body, headers);
-  }
 
-  assertOrderSessionCurrent();
-  acceptedPendingOrderSymbolCache.set(brokerCacheKey, accepted.symbol);
-  const finalData = unwrap(accepted.body);
-  if (finalData && typeof finalData === 'object' && finalData.price_open == null && finalData.price != null) {
-    finalData.price_open = finalData.price;
+    assertOrderSessionCurrent();
+    acceptedPendingOrderSymbolCache.set(brokerCacheKey, accepted.symbol);
+    const finalData = unwrap(accepted.body);
+    if (finalData && typeof finalData === 'object' && finalData.price_open == null && finalData.price != null) {
+      finalData.price_open = finalData.price;
+    }
+    return finalData;
+  } finally {
+    // Pending-create responses and failures are hints only. A captured-owner
+    // list is authoritative, including timeout/abort/network unknown outcomes.
+    // Start it without delaying or replacing the primary result.
+    if (createRequestStarted && isActiveBrokerSessionOwnerStampCurrent(owner)) {
+      void listPendingOrdersForCapturedOwner(owner).catch((error) => {
+        warnOrderDiagnostic(
+          '[RTX5 Pending Order] captured-owner reconciliation failed',
+          error,
+        );
+      });
+    }
   }
-  return finalData;
 };
 
 export function resetAcceptedPendingOrderSymbolCache(): void {

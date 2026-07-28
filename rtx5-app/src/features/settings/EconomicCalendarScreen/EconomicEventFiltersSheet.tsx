@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useImperativeHandle, useRef, useState } 
 import { BackHandler, Modal, StyleSheet, Text, View } from 'react-native';
 import type { ImpactLevel } from '../../../dev/mock/calendarData';
 import { useTranslation } from '../../../i18n/useTranslation';
-import { useUserPreferences } from '../../../state/userPreferences';
+import { useIsDarkTheme } from '../../../state/themeMode';
 import { FastPressable } from '../../../ui/components/FastPressable';
 import { OVERLAY_MODAL_PROPS } from '../../../ui/overlayModalProps';
 import { useTheme } from '../../../ui/theme/useTheme';
@@ -37,7 +37,7 @@ export const EconomicEventFiltersSheet = React.memo(React.forwardRef<
   EconomicEventFiltersSheetProps
 >(function EconomicEventFiltersSheet({ selectedImpacts, onApply }, ref) {
   const T = useTheme();
-  const isDark = useUserPreferences((state) => state.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const styles = React.useMemo(
     () => makeEconomicCalendarStyles(T, isDark),
     [T, isDark],

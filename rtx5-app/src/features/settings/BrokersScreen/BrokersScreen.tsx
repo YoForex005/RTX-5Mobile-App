@@ -31,7 +31,7 @@ import {
 } from '../../../ui/components/sidebarDestinationHostController';
 import { useTheme } from '../../../ui/theme/useTheme';
 import type { ThemeColors } from '../../../ui/theme/glass';
-import { useUserPreferences } from '../../../state/userPreferences';
+import { useIsDarkTheme } from '../../../state/themeMode';
 import { useTranslation } from '../../../i18n/useTranslation';
 import {
   safeRouterBack,
@@ -108,7 +108,7 @@ export function BrokersScreen() {
   const [logoFailed, setLogoFailed] = useState<Record<string, boolean>>({});
   const T = useTheme();
   const { t } = useTranslation();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const insets = useSafeAreaInsets();
   const routerInstance = useRouter();
   const isScreenFocused = useIsFocused();
@@ -595,7 +595,7 @@ function BrokerAvatar({
   return (
     <View style={styles.avatar}>
       <Image
-        source={{ uri: logoUri, cache: 'force-cache' }}
+        source={{ uri: logoUri, cache: 'reload' }}
         style={styles.avatarImage}
         resizeMode="contain"
         fadeDuration={0}

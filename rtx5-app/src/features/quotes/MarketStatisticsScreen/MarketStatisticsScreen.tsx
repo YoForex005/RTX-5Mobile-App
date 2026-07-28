@@ -17,7 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { QuoteItem } from '../../../dev/mock/tradingData';
 import { useMarketData } from '../../../query/websocket';
-import { useUserPreferences } from '../../../state/userPreferences';
+import { useIsDarkTheme } from '../../../state/themeMode';
 import { useTheme } from '../../../ui/theme/useTheme';
 import { fmt } from '../../../utils/format';
 import {
@@ -200,7 +200,7 @@ export function MarketStatisticsInteractiveContent({
   );
 
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const insets = useSafeAreaInsets();
   const isScreenFocused = useIsFocused();
   const active = activeOverride ?? isScreenFocused;

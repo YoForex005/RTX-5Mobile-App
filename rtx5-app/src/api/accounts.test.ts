@@ -122,4 +122,61 @@ test('mapRawAccount falls back to zero for missing numeric fields', () => {
   assert.equal(account.balance, 0);
   assert.equal(account.currency, 'USD');
   assert.equal(account.status, 'active');
+  assert.equal(account.group, '');
+});
+
+test('mapRawAccount preserves raw group values without inventing a lot type', () => {
+  const demo = mapRawAccount({
+    login: 200082,
+    group: 'demo\\RTX5-Demo',
+    leverage: 500,
+    balance: 10000,
+    credit: 0,
+    equity: 10000,
+  } satisfies TradingAccountRaw);
+  const missing = mapRawAccount({
+    login: 200083,
+    leverage: 500,
+    balance: 10000,
+    credit: 0,
+    equity: 10000,
+  } satisfies TradingAccountRaw);
+
+  assert.equal(demo.group, 'demo\\RTX5-Demo');
+  assert.equal(demo.accountEnvironment, 'demo');
+  assert.equal(demo.accountEnvironmentSource, 'backend-group');
+  assert.equal(missing.group, '');
+  assert.equal(missing.accountEnvironment, 'unknown');
+  assert.equal(missing.accountEnvironmentSource, 'unknown');
+});
+
+test('mapRawAccount preserves explicit environment aliases before UI normalization', () => {
+  const explicitDemo = mapRawAccount({
+    login: 200084,
+    is_demo: true,
+    group: 'standard',
+    leverage: 500,
+    balance: 10000,
+    credit: 0,
+    equity: 10000,
+  } satisfies TradingAccountRaw);
+  const nestedContest = mapRawAccount({
+    login: 200085,
+    user: {
+      account: {
+        account_type: 'competition-pro',
+        account_group: '  contest/raw-group  ',
+      },
+    },
+    leverage: 500,
+    balance: 10000,
+    credit: 0,
+    equity: 10000,
+  } satisfies TradingAccountRaw);
+
+  assert.equal(explicitDemo.accountEnvironment, 'demo');
+  assert.equal(explicitDemo.accountEnvironmentSource, 'backend-explicit');
+  assert.equal(nestedContest.accountEnvironment, 'contest');
+  assert.equal(nestedContest.accountEnvironmentSource, 'backend-explicit');
+  assert.equal(nestedContest.group, '  contest/raw-group  ');
 });

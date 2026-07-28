@@ -78,13 +78,17 @@ test('trade and registration paths record backend response latency', () => {
   assert.match(candlesSource, /apiJsonClient<unknown>\(`\/\$\{route\.pathPrefix\}\/\$\{pathSymbol\}\?\$\{params\.toString\(\)\}`/);
   assert.match(candlesSource, /commitApiJson\(result, cacheNamespace,/);
   assert.doesNotMatch(candlesSource, /label: 'candles\.publicHistory'/);
-  assert.match(brokerSource, /const BROKER_SERVERS_TIMEOUT_MS = 3500/);
+  assert.match(brokerSource, /const BROKER_SERVERS_TIMEOUT_MS = 10000/);
   // Login-critical path: keep health probe short so a slow/down broker does not
   // block submit for the full multi-second window (see login latency work).
   assert.match(brokerSource, /const BROKER_HEALTH_TIMEOUT_MS = 1500/);
   assert.match(brokerSource, /const controller = new AbortController\(\)/);
   assert.match(brokerSource, /timedFetch\(`\$\{PUBLIC_BROKER_DIRECTORY_BASE_URL\}\/broker\/servers`/);
   assert.match(brokerSource, /label: 'broker\.servers'/);
+  assert.match(
+    brokerSource,
+    /label: 'broker\.servers'[\s\S]*timeoutMs: BROKER_SERVERS_TIMEOUT_MS/,
+  );
   assert.match(brokerSource, /label: 'broker\.health'/);
   assert.match(brokerSource, /Broker list request timed out\. Please check your connection and try again\./);
   assert.match(brokerSource, /clearTimeout\(timeout\)/);

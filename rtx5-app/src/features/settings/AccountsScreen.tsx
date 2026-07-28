@@ -20,6 +20,7 @@ import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useMemo } from 'react';
 import { useShallow } from 'zustand/shallow';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
 import {
@@ -68,9 +69,10 @@ import { useDeferredActiveFlag } from '../../hooks/useDeferredActiveFlag';
 import { runImmediateAction } from '../../utils/actionLatency';
 import { bootstrapApp } from '../../services/bootstrapApp';
 import {
-  getTradingAccountBadgeLabel,
-  getTradingAccountType,
-  isDemoTradingAccount,
+  buildAccountEnvironmentKey,
+  mergeAccountEnvironment,
+  type AccountEnvironmentState,
+  type AccountEnvironmentSource,
 } from '../../domain/accountType';
 import type { TradingAccount } from '../../api/accounts';
 import { checkBrokerServerHealth, type BrokerServer } from '../../api/broker';
@@ -104,15 +106,6 @@ import {
   type BrokerSessionCommitAuthorization,
 } from '../../services/brokerSessionCoordinator';
 import { getActiveBrokerSessionProvenance } from '../../state/activeBrokerSession';
-
-const ACCOUNTS_SCREEN_DIAGNOSTICS_ENABLED =
-  typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_ACCOUNTS_SCREEN === 'true';
-
-const logAccountsScreenDiagnostic = (...args: Parameters<typeof console.log>) => {
-  if (ACCOUNTS_SCREEN_DIAGNOSTICS_ENABLED) {
-    console.log(...args);
-  }
-};
 
 const ACCOUNT_SWITCH_ACCOUNT_MISSING_MESSAGE =
   'Account does not exist on this broker anymore. It was removed from this device.';
@@ -187,10 +180,7 @@ const schedulePostAccountSwitchWork = (work: () => void) => {
   setTimeout(work, 0);
 };
 
-const normalizeSwitchLogin = (login: string) => {
-  const numeric = Number(login);
-  return Number.isFinite(numeric) ? String(numeric) : login.trim();
-};
+const normalizeSwitchLogin = (login: string) => login.trim();
 
 const formatBrokerInitials = (name: string) => {
   const words = name
@@ -365,6 +355,8 @@ type OtherAccountRow = {
   serverUrl: string;
   logoUrl: string;
   accountType: SavedAccountType;
+  accountEnvironmentSource: AccountEnvironmentSource;
+  rawGroup?: string;
   hasSavedCredentials: boolean;
   snapshot: SavedAccountSnapshot | null;
   liveAccount: TradingAccount | null;
@@ -429,8 +421,9 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
   pathnameRef.current = pathname;
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const showAccountsActionSheet = useUIState((s) => s.showAccountsActionSheet);
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
-  const isDemoAccount = useUserPreferences((s) => s.isDemoAccount);
+  const isDark = useIsDarkTheme();
+  const activeAccountType = useUserPreferences((s) => s.accountType);
+  const activeAccountEnvironmentSource = useUserPreferences((s) => s.accountEnvironmentSource);
   const savedAccounts = useSavedAccounts((s) => s.accounts);
   const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
   const removeSavedAccount = useSavedAccounts((s) => s.removeAccount);
@@ -526,9 +519,21 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
   const activeLogin = listedAccount?.login ?? currentLogin;
   const { data: activeAccountDetails } = useAccountDetails(activeLogin, screenDataActive && !!activeLogin);
   const activeAccount = activeAccountDetails ?? listedAccount;
-  const activeIsDemo = activeAccount ? isDemoTradingAccount(activeAccount.group) : isDemoAccount;
-  const activeRibbonLabel = t(activeIsDemo ? 'Demo' : 'Real');
-  const activeBadgeLabel = t(activeAccount ? getTradingAccountBadgeLabel(activeAccount.group) : (isDemoAccount ? 'Demo' : 'Live'));
+  const activeIsDemo = activeAccountType === 'demo';
+  const activeRibbonLabel = t(
+    activeAccountType === 'demo'
+      ? 'Demo'
+      : activeAccountType === 'contest'
+        ? 'Contest'
+        : 'Real',
+  );
+  const activeBadgeLabel = t(
+    activeAccountType === 'demo'
+      ? 'Demo'
+      : activeAccountType === 'contest'
+        ? 'Contest'
+        : 'Live',
+  );
   const hasConnectedAccount = hasAuthenticatedAccountSession(isLoggedIn, accountDetails);
 
   // Build the unified "Other Connected Accounts" list. We merge two sources:
@@ -542,13 +547,13 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
   const activeLoginStr = activeAccount
     ? String(activeAccount.login)
     : accountDetails?.id ?? '';
-  const activeKey = `${activeBrokerId}:${activeLoginStr}`;
+  const activeKey = buildAccountEnvironmentKey(activeBrokerId, activeLoginStr);
 
   const otherRows: OtherAccountRow[] = useMemo(() => {
     const map = new Map<string, OtherAccountRow>();
 
     for (const sa of savedAccounts) {
-      const key = `${sa.brokerId}:${sa.login}`;
+      const key = buildAccountEnvironmentKey(sa.brokerId, sa.login);
       if (key === activeKey) continue;
       const savedLogoUrl = sa.brokerId === activeBrokerId
         ? resolveAccountBrokerLogoUrl(
@@ -581,6 +586,8 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
         serverUrl: sa.serverUrl ?? '',
         logoUrl: savedLogoUrl,
         accountType: sa.accountType,
+        accountEnvironmentSource: sa.accountEnvironmentSource,
+        ...(sa.rawGroup ? { rawGroup: sa.rawGroup } : {}),
         hasSavedCredentials: sa.hasCredentials,
         snapshot: sa.snapshot ?? null,
         liveAccount: null,
@@ -589,10 +596,29 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
 
     for (const a of accounts ?? []) {
       const loginStr = String(a.login);
-      const key = `${activeBrokerId}:${loginStr}`;
+      const key = buildAccountEnvironmentKey(activeBrokerId, loginStr);
       if (key === activeKey) continue;
       const existing = map.get(key);
-      const accountType: SavedAccountType = existing?.accountType ?? getTradingAccountType(a.group);
+      const resolvedAccountType = a.accountEnvironment;
+      const resolvedSource = a.accountEnvironmentSource;
+      const previousListedEnvironment: AccountEnvironmentState | null =
+        existing && existing.accountType !== 'unknown'
+          ? {
+              accountKey: key,
+              accountType: existing.accountType,
+              accountEnvironmentSource: existing.accountEnvironmentSource,
+              isDemoAccount: existing.accountType === 'demo',
+            }
+          : null;
+      const mergedAccountEnvironment = mergeAccountEnvironment(
+        previousListedEnvironment,
+        {
+          accountKey: key,
+          resolved: resolvedAccountType,
+          source: resolvedSource,
+          allowInitialFallback: !previousListedEnvironment,
+        },
+      )!;
       const rowServerUrl = existing?.serverUrl || brokerServerUrl;
       const rowLogoUrl = resolveAccountBrokerLogoUrl(
         brokerLogoIndex,
@@ -613,7 +639,9 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
         server: existing?.server || brokerConfig?.server_name || '',
         serverUrl: rowServerUrl,
         logoUrl: rowLogoUrl,
-        accountType,
+        accountType: mergedAccountEnvironment.accountType,
+        accountEnvironmentSource: mergedAccountEnvironment.accountEnvironmentSource,
+        rawGroup: a.group,
         hasSavedCredentials: existing?.hasSavedCredentials ?? false,
         snapshot: buildSavedAccountSnapshot(a),
         liveAccount: a,
@@ -642,14 +670,31 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
     const nextServer = brokerConfig?.server_name || activeBrokerId;
     const nextServerUrl = brokerServerUrl || existing?.serverUrl || '';
     const nextLogoUrl = activeBrokerLogoUrl || existing?.logoUrl || '';
-    const nextType = getTradingAccountType(activeAccount.group);
+    // The polled list/detail query is display data, not a canonical session
+    // refresh. Reuse the already provenance-guarded active environment so a
+    // delayed list response cannot overwrite a newer singular-route result.
+    const nextEnvironment: AccountEnvironmentState = activeAccountType === 'unknown'
+      ? mergeAccountEnvironment(null, {
+          accountKey: activeKey,
+          resolved: 'unknown',
+          source: 'unknown',
+          allowInitialFallback: true,
+        })!
+      : {
+          accountKey: activeKey,
+          accountType: activeAccountType,
+          accountEnvironmentSource: activeAccountEnvironmentSource,
+          isDemoAccount: activeAccountType === 'demo',
+        };
     if (
       existing
       && existing.name === nextName
       && existing.server === nextServer
       && (existing.serverUrl ?? '') === nextServerUrl
       && (existing.logoUrl ?? '') === nextLogoUrl
-      && existing.accountType === nextType
+      && existing.accountType === nextEnvironment.accountType
+      && existing.accountEnvironmentSource === nextEnvironment.accountEnvironmentSource
+      && (existing.rawGroup ?? '') === activeAccount.group
       && areSavedAccountSnapshotsEqual(existing.snapshot, snapshot)
     ) {
       return;
@@ -661,14 +706,19 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
       server: nextServer,
       serverUrl: nextServerUrl || undefined,
       logoUrl: nextLogoUrl,
-      accountType: nextType,
+      accountType: nextEnvironment.accountType,
+      accountEnvironmentSource: nextEnvironment.accountEnvironmentSource,
+      rawGroup: activeAccount.group,
       lastUsedAt: existing?.lastUsedAt ?? Date.now(),
       hasCredentials: existing?.hasCredentials ?? false,
       snapshot,
     });
   }, [
     activeAccount,
+    activeAccountEnvironmentSource,
+    activeAccountType,
     activeBrokerId,
+    activeKey,
     activeLoginStr,
     brokerConfig?.server_name,
     activeBrokerLogoUrl,
@@ -827,10 +877,6 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
   }, [screenDataActive, resolvedAccountLogin]);
   const displayBrokerName = brokerConfig?.broker_name ?? '---';
   const displayServerName = brokerConfig?.server_name ?? '---';
-
-  logAccountsScreenDiagnostic('[AccountsScreen] activeAccount:', activeAccount ? { login: activeAccount.login, balance: activeAccount.balance, equity: activeAccount.equity, freeMargin: activeAccount.freeMargin, floatingPnl: activeAccount.floatingPnl, currency: activeAccount.currency } : 'none');
-  logAccountsScreenDiagnostic('[AccountsScreen] live WS metrics:', { liveBalance, liveEquity, liveMarginFree, liveFloating });
-  logAccountsScreenDiagnostic('[AccountsScreen] display values:', { displayBalance, displayEquity, displayFreeMargin, displayFloatingPnl, displayCurrency });
 
   const { data: health } = useHealth(screenDataActive);
   const { data: mt5Status } = useMt5Status(screenDataActive);
@@ -1114,6 +1160,28 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
       if (normalizeSwitchLogin(result.accountLogin) !== normalizeSwitchLogin(row.login)) {
         throw new Error(ACCOUNT_SWITCH_ACCOUNT_MISSING_MESSAGE);
       }
+      const switchedAccountKey = buildAccountEnvironmentKey(
+        endpoints.brokerId,
+        result.accountLogin,
+      );
+      const previousSwitchedEnvironment: AccountEnvironmentState | null =
+        row.accountType !== 'unknown'
+          ? {
+              accountKey: switchedAccountKey,
+              accountType: row.accountType,
+              accountEnvironmentSource: row.accountEnvironmentSource,
+              isDemoAccount: row.accountType === 'demo',
+            }
+          : null;
+      const switchedAccountEnvironment = mergeAccountEnvironment(
+        previousSwitchedEnvironment,
+        {
+          accountKey: switchedAccountKey,
+          resolved: result.accountType,
+          source: result.accountEnvironmentSource,
+          allowInitialFallback: true,
+        },
+      )!;
 
       const committedSession = await commitBrokerSession({
         session: {
@@ -1137,7 +1205,8 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
           name: result.accountName,
           serverName: result.serverName || row.server || result.brokerId,
           logoUrl: approvedLogoUrl,
-          isDemoAccount: result.accountType === 'demo',
+          accountType: switchedAccountEnvironment.accountType,
+          accountEnvironmentSource: switchedAccountEnvironment.accountEnvironmentSource,
         },
       }, commitAuthorization);
       const committedProvenance = getActiveBrokerSessionProvenance(committedSession.session);
@@ -1158,7 +1227,9 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
           server: result.serverName || row.server,
           serverUrl: exactServerUrl,
           logoUrl: approvedLogoUrl,
-          accountType: result.accountType,
+          accountType: switchedAccountEnvironment.accountType,
+          accountEnvironmentSource: switchedAccountEnvironment.accountEnvironmentSource,
+          ...(result.accountGroup ? { rawGroup: result.accountGroup } : {}),
           lastUsedAt: Date.now(),
           hasCredentials: true,
         });

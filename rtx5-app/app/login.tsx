@@ -12,7 +12,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeMode } from '../src/state/themeMode';
 import { useSavedAccounts, setSavedAccountPassword } from '../src/state/savedAccounts';
 import { isLoginRequestAbortedError, loginAPI } from '../src/api/auth';
-import { extractFeedBrokerToken } from '../src/api/feedAuth';
 import { redactAuthPayload, redactSensitiveString } from '../src/api/authRedaction';
 // Broker config API — validates broker_id before login and provides server_name
 import { checkBrokerServerHealth, getBrokerConfig, type BrokerServer } from '../src/api/broker';
@@ -30,7 +29,13 @@ import {
   invalidateSessionQueryRoots,
 } from '../src/query/authenticatedQueryScope';
 import { useTranslation } from '../src/i18n/useTranslation';
-import { getTradingAccountTypeFromBackend } from '../src/domain/accountType';
+import {
+  buildAccountEnvironmentKey,
+  mergeAccountEnvironment,
+  readRawAccountGroup,
+  resolveAccountEnvironment,
+  type AccountEnvironmentState,
+} from '../src/domain/accountType';
 import { safeRouterBack } from '../src/utils/navigation';
 import { runImmediateAction } from '../src/utils/actionLatency';
 import { ActionSheet } from '../src/ui/components/ActionSheet';
@@ -44,7 +49,7 @@ import {
   isStaleBrokerSessionCommitError,
   type BrokerSessionCommitAuthorization,
 } from '../src/services/brokerSessionCoordinator';
-import { resolveFeedAuthContextFromAuthResponse } from '../src/api/feedAuthContract';
+import { resolveSessionFeedAuth } from '../src/api/feedAuthContract';
 import {
   getActiveBrokerSessionProvenance,
   isActiveBrokerSessionProvenanceCurrent,
@@ -195,6 +200,7 @@ export function AccountLoginScreen() {
     isLoading: isBrokerServersLoading,
     isFetching: isBrokerServersFetching,
     isError: isBrokerServersError,
+    error: brokerServersError,
     refetch: refetchBrokerServers,
   } = useBrokerServers(true);
 
@@ -437,6 +443,26 @@ export function AccountLoginScreen() {
   );
   const isBrokerDirectoryBusy = isBrokerServersLoading || isBrokerServersFetching;
   const isBrokerDirectoryUnavailable = !isBrokerDirectoryBusy && brokerOptions.length === 0;
+  const brokerDirectoryFailureMessage = useMemo(() => {
+    if (!isBrokerServersError) return '';
+
+    const message = brokerServersError instanceof Error
+      ? brokerServersError.message
+      : '';
+    if (/not configured/i.test(message)) {
+      return t('Broker directory configuration is missing. Reload after correcting the local app configuration.');
+    }
+    if (/timed out|abort/i.test(message)) {
+      return t('Broker list request timed out. Check this device\'s internet connection and retry.');
+    }
+    if (/network|fetch|connection/i.test(message)) {
+      return t('Unable to reach the broker directory. Check this device\'s internet connection and retry.');
+    }
+    if (/contract|invalid json|schema/i.test(message)) {
+      return t('Broker directory returned invalid data. Retry or contact support.');
+    }
+    return t('Broker list could not be loaded. Retry before login.');
+  }, [brokerServersError, isBrokerServersError, t]);
 
   // Pre-warm the broker connection (DNS + TCP + TLS) as soon as the screen
   // knows which server the login POST will target. With saved credentials the
@@ -485,10 +511,12 @@ export function AccountLoginScreen() {
       return t('Please wait while the broker list loads.');
     }
     if (isBrokerDirectoryUnavailable) {
-      return t('Broker list unavailable. Retry broker list and select your broker before login.');
+      return brokerDirectoryFailureMessage
+        || t('No available brokers were returned. Retry the broker list before login.');
     }
     return t('Please select your broker from the broker list before login.');
   }, [
+    brokerDirectoryFailureMessage,
     brokerOptions,
     isBrokerDirectoryBusy,
     isBrokerDirectoryUnavailable,
@@ -570,7 +598,8 @@ export function AccountLoginScreen() {
         label: isBusy ? 'Loading brokers...' : 'Retry broker list',
         subtitle: isBusy
           ? t('Please wait while the broker list loads.')
-          : t('Broker list is unavailable. Retry before login.'),
+          : brokerDirectoryFailureMessage
+            || t('No available brokers were returned. Retry before login.'),
         disabled: isBusy,
         onPress: () => {
           void refetchBrokerServers();
@@ -584,6 +613,7 @@ export function AccountLoginScreen() {
       onPress: () => selectBrokerOption(option),
     }));
   }, [
+    brokerDirectoryFailureMessage,
     brokerOptions,
     isBrokerServersFetching,
     isBrokerServersLoading,
@@ -724,7 +754,6 @@ export function AccountLoginScreen() {
       // can't silently break login and leave trades with an undefined JWT.
       const accessToken = response.access_token ?? response.token;
       const refreshToken = response.refresh_token ?? response.refreshToken;
-      const feedToken = extractFeedBrokerToken(response);
       const accountLogin =
         response.account_login ??
         response.accountLogin ??
@@ -750,7 +779,10 @@ export function AccountLoginScreen() {
         // Without a token or a resolvable account login every downstream
         // REST/WS call is broken. Fail the login here with a clear message
         // instead of allowing a half-authenticated session.
-        console.warn('[Login] Unexpected auth response shape:', redactAuthPayload(response));
+        console.warn('[Login] Unexpected auth response shape', {
+          hasAccessToken: Boolean(accessToken),
+          hasAccountLogin: Boolean(accountLogin),
+        });
         throw new Error(
           !accessToken
             ? t('Login server did not return an access token.')
@@ -777,9 +809,41 @@ export function AccountLoginScreen() {
       if (normalizeBrokerKey(canonicalBrokerId) !== normalizeBrokerKey(selectedEndpoints.brokerId)) {
         throw new Error(t('Login response did not match the selected broker.'));
       }
-      const accountType = getTradingAccountTypeFromBackend(response);
       const immediateServerName = serverName || canonicalBrokerId;
       const savedLogin = String(accountLogin);
+      const accountEnvironmentEvidence = resolveAccountEnvironment(response, true);
+      const resolvedAccountType = accountEnvironmentEvidence.accountType;
+      const accountEnvironmentKey = buildAccountEnvironmentKey(
+        selectedEndpoints.brokerId,
+        savedLogin,
+      );
+      const matchingSavedAccount = useSavedAccounts.getState().accounts.find(
+        (account) =>
+          buildAccountEnvironmentKey(account.brokerId, account.login) === accountEnvironmentKey,
+      );
+      const previousAccountEnvironment: AccountEnvironmentState | null =
+        matchingSavedAccount && matchingSavedAccount.accountType !== 'unknown'
+          ? {
+              accountKey: accountEnvironmentKey,
+              accountType: matchingSavedAccount.accountType,
+              accountEnvironmentSource: matchingSavedAccount.accountEnvironmentSource,
+              isDemoAccount: matchingSavedAccount.accountType === 'demo',
+            }
+          : null;
+      const initialAccountEnvironment = mergeAccountEnvironment(previousAccountEnvironment, {
+        accountKey: accountEnvironmentKey,
+        resolved: resolvedAccountType,
+        source: accountEnvironmentEvidence.source,
+        allowInitialFallback: true,
+      })!;
+      const accountType = initialAccountEnvironment.accountType;
+      const accountEnvironmentSource = initialAccountEnvironment.accountEnvironmentSource;
+      const responseAccountGroup = readRawAccountGroup(response);
+      const sessionFeed = resolveSessionFeedAuth({
+        response,
+        brokerId: selectedEndpoints.brokerId,
+        accountLogin: normalizedAccountId,
+      });
 
       const committedSession = await commitBrokerSession({
         session: {
@@ -790,20 +854,21 @@ export function AccountLoginScreen() {
           tradeWsBase: selectedEndpoints.tradeWsBase,
           feedStatusUrl: selectedEndpoints.feedStatusUrl,
           servicesDomain: selectedEndpoints.servicesDomain,
-          feedAuthContext: resolveFeedAuthContextFromAuthResponse(response, Boolean(feedToken)),
+          feedAuthContext: sessionFeed.feedAuthContext,
           configVersion: selectedEndpoints.configVersion,
         },
         credentials: {
           accessToken,
           refreshToken: refreshToken ?? '',
           expiresAt: expiresAtIso,
-          ...(feedToken ? { feedToken } : {}),
+          ...(sessionFeed.feedToken ? { feedToken: sessionFeed.feedToken } : {}),
         },
         account: {
           name: accountName,
           serverName: immediateServerName,
           logoUrl: selectedLogoUrl,
-          isDemoAccount: accountType === 'demo',
+          accountType,
+          accountEnvironmentSource,
         },
       }, commitAuthorization);
       const committedProvenance = getActiveBrokerSessionProvenance(committedSession.session);
@@ -815,12 +880,6 @@ export function AccountLoginScreen() {
       router.replace('/(tabs)/quotes');
       didStartSuccessNavigation = true;
       schedulePostLoginWork(() => {
-        void bootstrapApp({
-          accountLogin: savedLogin,
-          expectedProvenance: committedProvenance,
-        }).catch((err) => {
-          console.warn('[Login] Post-login bootstrap failed', redactAuthPayload(err));
-        });
         // Record this account in the persistent directory and stash the master
         // password securely so the user can one-tap switch back to it later
         // from the Accounts screen.
@@ -832,8 +891,19 @@ export function AccountLoginScreen() {
           serverUrl: normalizedServerUrl,
           logoUrl: selectedLogoUrl,
           accountType,
+          accountEnvironmentSource,
+          ...(responseAccountGroup ? { rawGroup: responseAccountGroup } : {}),
           lastUsedAt: Date.now(),
           hasCredentials: true,
+        });
+        // The saved row must exist before bootstrap can return classification
+        // evidence; otherwise a fast response would update only canonical
+        // session state and the following seed write could persist stale data.
+        void bootstrapApp({
+          accountLogin: savedLogin,
+          expectedProvenance: committedProvenance,
+        }).catch((err) => {
+          console.warn('[Login] Post-login bootstrap failed', redactAuthPayload(err));
         });
         setSavedAccountPassword(canonicalBrokerId, savedLogin, currentPassword).catch((err) => {
           console.warn('[Login] Failed to persist saved-account credential', redactAuthPayload(err));
@@ -877,6 +947,17 @@ export function AccountLoginScreen() {
               );
             }
             if (brokerConfig.server_name && brokerConfig.server_name !== immediateServerName) {
+              // Bootstrap may have refreshed the environment while this
+              // independent broker-config request was in flight. Re-read the
+              // account row so this late metadata write cannot restore stale
+              // login-time classification evidence.
+              const latestSavedAccount = useSavedAccounts.getState().accounts.find(
+                (account) =>
+                  buildAccountEnvironmentKey(account.brokerId, account.login)
+                  === accountEnvironmentKey,
+              );
+              const latestRawGroup =
+                latestSavedAccount?.rawGroup ?? responseAccountGroup;
               upsertSavedAccount({
                 login: savedLogin,
                 name: accountName,
@@ -884,7 +965,10 @@ export function AccountLoginScreen() {
                 server: brokerConfig.server_name,
                 serverUrl: normalizedServerUrl,
                 logoUrl: selectedLogoUrl,
-                accountType,
+                accountType: latestSavedAccount?.accountType ?? accountType,
+                accountEnvironmentSource:
+                  latestSavedAccount?.accountEnvironmentSource ?? accountEnvironmentSource,
+                ...(latestRawGroup ? { rawGroup: latestRawGroup } : {}),
                 lastUsedAt: Date.now(),
                 hasCredentials: true,
               });
@@ -1080,7 +1164,7 @@ export function AccountLoginScreen() {
                       </Text>
                     ) : isBrokerServersError ? (
                       <Text style={[styles.brokerInlineHint, styles.brokerInlineHintError]} numberOfLines={2}>
-                        {t('Broker list unavailable. Retry broker list before login.')}
+                        {brokerDirectoryFailureMessage}
                       </Text>
                     ) : null}
                     {isBrokerHealthChecking ? (

@@ -10,8 +10,8 @@ import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { Image, ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useTheme } from '../../ui/theme/useTheme';
-import { useUserPreferences } from '../../state/userPreferences';
 
 type Props = {
   visible: boolean;
@@ -21,7 +21,7 @@ type Props = {
 
 export function TradingSignalDetailsModal({ visible, onClose, symbol }: Props) {
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const styles = React.useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const insets = useSafeAreaInsets();
 

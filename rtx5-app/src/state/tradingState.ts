@@ -83,6 +83,8 @@ type TradingState = {
    * Raw history snapshots should be routed through `state/candleCache.ts`.
    */
   setCandleHistory: (symbol: string, timeframe: string, history: Candle[]) => void;
+  /** Clears quote-only state when the credential/feed generation rotates. */
+  resetQuoteMarketData: () => void;
   /** Atomically clears every account/session-scoped market-data value. */
   resetSessionMarketData: () => void;
 };
@@ -233,6 +235,12 @@ export const useTradingState = create<TradingState>((set) => ({
       };
     }),
 
+  resetQuoteMarketData: () =>
+    set({
+      quotes: {},
+      tickCount: 0,
+    }),
+
   resetSessionMarketData: () =>
     set({
       quotes: {},
@@ -246,4 +254,9 @@ export const useTradingState = create<TradingState>((set) => ({
 /** Public coordinator seam for atomic logout/account-switch teardown. */
 export const resetSessionMarketData = (): void => {
   useTradingState.getState().resetSessionMarketData();
+};
+
+/** Public seam for invalidating old-generation quotes without clearing account/candles. */
+export const resetQuoteMarketData = (): void => {
+  useTradingState.getState().resetQuoteMarketData();
 };

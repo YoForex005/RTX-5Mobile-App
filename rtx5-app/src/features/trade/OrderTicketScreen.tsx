@@ -14,6 +14,7 @@ import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, TextI
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { usePositionsState } from '../../state/positionsState';
 import { hasPositionPresenceConverged } from '../../state/positionsState.helpers';
 import { resolveTradingLogin, resolveTradingLoginString, useResolvedTradingLogin } from '../../state/tradingLogin';
@@ -85,12 +86,18 @@ import {
   roundOrderTicketPrice,
 } from './orderTicketPreviewUtils';
 import {
+  getActiveSltpUnavailableMessage,
   isPendingOrderTypeBackendLocked,
   isNewMarketOrderProtectionBackendLocked,
   isPendingOrderProtectionBackendLocked,
-  SLTP_COMING_SOON_MESSAGE,
   SLTP_COMING_SOON_TITLE,
 } from './tradeBackendCapabilities';
+import {
+  publishChartProtectionDraftExecution,
+  publishChartProtectionDraftSubmission,
+  releaseChartProtectionDraftSubmission,
+  tryBeginChartProtectionDraftSubmission,
+} from '../chart/chartProtectionDraftLifecycle';
 
 /* Main screen */
 // A single action model keeps BUY and SELL button behavior consistent across
@@ -231,10 +238,24 @@ function OrderTicketInteractiveContent() {
     side: routeSideParam,
     sl: routeSlParam,
     tp: routeTpParam,
+    protectionDraftId: routeProtectionDraftIdParam,
     origin,
-  } = useLocalSearchParams<{ symbol?: string; comment?: string; side?: string; sl?: string; tp?: string; origin?: string }>();
-  const originHref = getOrderTicketOriginHref(resolveOrderTicketOrigin(origin));
+  } = useLocalSearchParams<{
+    symbol?: string;
+    comment?: string;
+    side?: string;
+    sl?: string;
+    tp?: string;
+    protectionDraftId?: string;
+    origin?: string;
+  }>();
+  const resolvedOrigin = resolveOrderTicketOrigin(origin);
+  const originHref = getOrderTicketOriginHref(resolvedOrigin);
   const routeInitialSymbol = normalizeSymbol(routeSymbol || 'EURUSD');
+  const routeProtectionDraftId =
+    typeof routeProtectionDraftIdParam === 'string'
+      ? routeProtectionDraftIdParam.trim()
+      : '';
   const [symbol, setSymbol] = useState(routeInitialSymbol);
   const routeSymbolRef = useRef(routeInitialSymbol);
   const routeSide = normalizeTradeSide(routeSideParam);
@@ -259,12 +280,11 @@ function OrderTicketInteractiveContent() {
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const tradeVolume = useUserPreferences((s) => s.tradeVolume);
   const setTradeVolume = useUserPreferences((s) => s.setTradeVolume);
-  const themeMode = useUserPreferences((s) => s.themeMode);
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
   const brokerId = useUserPreferences((s) => s.brokerId);
   const T = useTheme();
   const { t } = useTranslation();
-  const isDark = themeMode === 'dark';
+  const isDark = useIsDarkTheme();
   const styles = makeStyles(T, isDark);
   const routeDataReady = useDeferredRouteContentReady(ORDER_TICKET_DATA_READY_DELAY_MS);
   const heavyContentReady = useDeferredRouteContentReady(ORDER_TICKET_HEAVY_CONTENT_DELAY_MS);
@@ -384,8 +404,8 @@ function OrderTicketInteractiveContent() {
     }));
   }, [availableSymbols, handleSymbolSelect, marketSymbolsFetching, symbol, t]);
 
-  // Market BUY/SELL executions and broker rejections share the same detailed popup,
-  // without device vibration. Pending-order success still uses the compact strip.
+  // Market BUY/SELL executions and broker rejections share one feedback surface,
+  // without device vibration. Confirmed fills use its RTX5 execution receipt.
   const [modalState, setModalState] = useState<TradeFeedbackState>({
     visible: false,
     type: 'error',
@@ -813,7 +833,7 @@ function OrderTicketInteractiveContent() {
         visible: true,
         type: 'error',
         title: t(SLTP_COMING_SOON_TITLE),
-        message: t(SLTP_COMING_SOON_MESSAGE),
+        message: t(getActiveSltpUnavailableMessage()),
         side: requestedSide,
       });
       return;
@@ -908,6 +928,7 @@ function OrderTicketInteractiveContent() {
       return;
     }
 
+    let releaseProtectionSubmissionOnExit = false;
     try {
       // Live API Integration: POST /api/v2/orders
       // Places a market order via the centralized ordersApi.
@@ -948,6 +969,24 @@ function OrderTicketInteractiveContent() {
         rawPayload: payload,
       });
 
+      if (
+        routeProtectionDraftId &&
+        resolvedOrigin === 'chart' &&
+        normalizeSymbol(symbol) === routeInitialSymbol
+      ) {
+        if (!tryBeginChartProtectionDraftSubmission(routeProtectionDraftId)) {
+          showModal({
+            visible: true,
+            type: 'error',
+            title: 'Order Already Submitted',
+            message: 'Wait for this protected Market Execution order to reconcile before submitting it again.',
+            side: requestedSide,
+          });
+          return;
+        }
+        releaseProtectionSubmissionOnExit = true;
+        publishChartProtectionDraftSubmission(routeProtectionDraftId);
+      }
       const data = await ordersApi.placeMarketOrder(payload);
       if (!isActiveBrokerSessionProvenanceCurrent(marketActionProvenance)) return;
       logOrderTicketDiagnostic('[TRADE-RESPONSE]', {
@@ -967,50 +1006,17 @@ function OrderTicketInteractiveContent() {
       }
 
       const executionEvidence = resolveBrokerExecutionEvidence(data);
-      const currentPriceValue = Number(data.price_current);
       const positionTicket = executionEvidence.ticket;
       const executionPrice = executionEvidence.executionPrice;
       const executionAction = typeof data.action === 'string'
         ? data.action.trim().toLowerCase()
         : '';
-      // Netting lifecycle actions must not invent a brand-new row. Everything
-      // else with full broker evidence is injected so Trade shows the fill
-      // immediately (including gateways that omit action or send "open"/"buy").
-      const canOptimisticallyInsertPosition = !['closed', 'increased', 'decreased', 'reversed'].includes(executionAction);
       const expectedPositionPresence = executionAction === 'closed' ? false : true;
       const requiresContentReconciliation = ['increased', 'decreased', 'reversed'].includes(executionAction);
-      const confirmedCurrentPrice = Number.isFinite(currentPriceValue) && currentPriceValue > 0
-        ? currentPriceValue
-        : executionPrice;
-
-      // Optimistic update: add the position immediately so the trading UI does
-      // not wait for the background positions refresh. A backend-confirmed
-      // ticket and execution price are mandatory; live quote values are not
-      // evidence of the broker's actual fill.
-      if (
-        canOptimisticallyInsertPosition &&
-        executionEvidence.confirmed &&
-        positionTicket !== undefined &&
-        executionPrice !== undefined &&
-        confirmedCurrentPrice !== undefined
-      ) {
-        const state = usePositionsState.getState();
-        const responseVolume = Number(data.volume);
-        state.upsertPosition({
-          id: String(positionTicket),
-          symbol: (typeof data.symbol === 'string' && data.symbol.trim()) ? data.symbol : symbol,
-          side: requestedSide,
-          volume: Number.isFinite(responseVolume) && responseVolume > 0 ? responseVolume : volume,
-          openPrice: executionPrice,
-          currentPrice: confirmedCurrentPrice,
-          pnl: 0,
-          swap: 0,
-          openTime: new Date().toISOString(),
-          sl: slEnabled ? slPrice : (Number(data.price_sl) > 0 ? Number(data.price_sl) : 0),
-          tp: tpEnabled ? tpPrice : (Number(data.price_tp) > 0 ? Number(data.price_tp) : 0),
-          clientCreatedAt: Date.now(),
-        });
-      }
+      // ExecutionResult is a mutation hint only. Netting can open, increase,
+      // decrease, close, or reverse an existing position, and it does not echo
+      // authoritative SL/TP. Never append or decorate the local ledger here;
+      // the owner-bound REST reconciliation below is the source of truth.
 
       void invalidateSessionQueryRoots(
         queryClient,
@@ -1058,6 +1064,20 @@ function OrderTicketInteractiveContent() {
       if (executionPrice !== undefined) {
         successFeedback.price = executionPrice;
       }
+      if (
+        routeProtectionDraftId &&
+        resolvedOrigin === 'chart' &&
+        normalizeSymbol(symbol) === routeInitialSymbol
+      ) {
+        publishChartProtectionDraftExecution({
+          draftId: routeProtectionDraftId,
+          executionConfirmed: executionEvidence.confirmed,
+          ...(positionTicket !== undefined
+            ? { ticket: String(positionTicket) }
+            : {}),
+        });
+        releaseProtectionSubmissionOnExit = false;
+      }
       showModal(successFeedback);
     } catch (error: any) {
       if (!isActiveBrokerSessionProvenanceCurrent(marketActionProvenance)) return;
@@ -1075,6 +1095,9 @@ function OrderTicketInteractiveContent() {
       });
       showModal({ visible: true, type: 'error', title: feedback.title, message: displayMsg, side: requestedSide });
     } finally {
+      if (releaseProtectionSubmissionOnExit && routeProtectionDraftId) {
+        releaseChartProtectionDraftSubmission(routeProtectionDraftId);
+      }
       releaseTradeTapLock();
     }
   };
@@ -1142,7 +1165,7 @@ function OrderTicketInteractiveContent() {
       // Backend capability gate: keep both complete adjustment functions and
       // payload wiring intact, but do not expose values the API cannot apply.
       if (protectionBackendLocked) {
-        Alert.alert(t(SLTP_COMING_SOON_TITLE), t(SLTP_COMING_SOON_MESSAGE));
+        Alert.alert(t(SLTP_COMING_SOON_TITLE), t(getActiveSltpUnavailableMessage()));
         return;
       }
 
@@ -1170,7 +1193,7 @@ function OrderTicketInteractiveContent() {
         visible: true,
         type: 'error',
         title: t(SLTP_COMING_SOON_TITLE),
-        message: t(SLTP_COMING_SOON_MESSAGE),
+        message: t(getActiveSltpUnavailableMessage()),
         side: getChartOrderSide(orderType),
       });
       return;
@@ -1548,6 +1571,11 @@ function OrderTicketInteractiveContent() {
             </FastPressable>
           </View>
         </View>
+        {protectionBackendLocked ? (
+          <Text style={styles.sltpUnavailableText} accessibilityRole="alert">
+            {t(getActiveSltpUnavailableMessage())}
+          </Text>
+        ) : null}
 
         {/* Fill policy: mirrors MT5's compact order-ticket row before the graph. */}
         <InfoRow label={t('Fill Policy')} value={t('Immediate or Cancel')} styles={styles} />
@@ -1733,7 +1761,7 @@ function OrderTicketInteractiveContent() {
         </View>
       ) : null}
 
-      {/* Shared modal overlay for market execution success and rejected order feedback. */}
+      {/* Shared RTX5 execution receipt plus detailed rejected/unconfirmed feedback. */}
       <TradeFeedbackModal
         state={modalState}
         onClose={handleModalClose}
@@ -1887,6 +1915,13 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     sltpAction: { color: ACCENT, fontSize: 24, lineHeight: 28, fontWeight: '700' },
     sltpLabel: { flex: 1, color: DIM, fontSize: 18, fontWeight: '500', textAlign: 'center', fontVariant: ['tabular-nums'] },
     sltpValue: { color: WHITE, fontSize: 15, fontWeight: '700' },
+    sltpUnavailableText: {
+      color: T.textMuted,
+      fontSize: 12,
+      lineHeight: 17,
+      paddingBottom: 12,
+      textAlign: 'center',
+    },
 
     disclaimer: { alignItems: 'center', marginTop: 12, paddingHorizontal: 16 },
     disclaimerTxt: { color: T.textMuted, fontSize: 12, lineHeight: 16, textAlign: 'center' },

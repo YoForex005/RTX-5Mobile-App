@@ -13,7 +13,12 @@ import { getOrdersByLoginQueryKey } from '../query/orders';
 import { brokerRealtimeService } from '../api/ws/BrokerRealtimeService';
 import { quotesWsService } from '../api/ws/quotesSocket';
 import { buildAccountDetailPath } from '../api/accountsRoutes';
-import { redactDiagnosticValue } from '../utils/securityRedaction';
+import {
+  mapRawAccount,
+  type TradingAccount,
+  type TradingAccountRaw,
+} from '../api/accounts';
+import { sanitizeApiLatencyEndpoint } from '../utils/apiLatency';
 import {
   captureActiveBrokerSession,
   getActiveBrokerSessionProvenance,
@@ -23,6 +28,10 @@ import {
 import { recordMarketDataEvent } from '../market/marketDataTelemetry';
 import { normalizeQuoteSymbolKey } from '../domain/symbols';
 import { extractLiveAccountMetrics } from '../api/ws/accountSocket.helpers';
+import {
+  beginAccountEnvironmentRefresh,
+  commitActiveAccountEnvironmentPayload,
+} from './accountEnvironmentSession';
 
 type BootstrapResult = {
   me: unknown;
@@ -73,10 +82,21 @@ const requestJson = async <T>(endpoint: string): Promise<BrokerApiJsonResponse<T
     }
     return result;
   } catch (error) {
-    console.warn(`[Bootstrap] ${endpoint} failed`, redactDiagnosticValue(error));
+    console.warn('[Bootstrap] Request failed', {
+      endpoint: sanitizeApiLatencyEndpoint(endpoint),
+      errorName: error instanceof Error ? error.name : 'RequestError',
+    });
     return null;
   }
 };
+
+const mapBootstrapAccountRows = (value: unknown): TradingAccount[] =>
+  unwrapAccountRows(value)
+    .filter(
+      (row): row is TradingAccountRaw =>
+        Boolean(row) && typeof row === 'object' && !Array.isArray(row),
+    )
+    .map(mapRawAccount);
 
 const commitBootstrapResponse = <T, R>(
   result: BrokerApiJsonResponse<T> | null,
@@ -202,6 +222,7 @@ export async function bootstrapApp(options: BootstrapOptions = {}): Promise<Boot
   const accountLogin = requestedAccountLogin;
   const encodedAccountLogin = encodeURIComponent(accountLogin);
   const cacheNamespace = sessionCapture.session.cacheNamespace;
+  const accountEnvironmentRefresh = beginAccountEnvironmentRefresh(activeProvenance);
 
   const state = useUserPreferences.getState();
   if (state.isLoggedIn && state.accountDetails?.credentials?.accessToken) {
@@ -227,11 +248,19 @@ export async function bootstrapApp(options: BootstrapOptions = {}): Promise<Boot
   const accountsPromise = accountLogin
     ? requestJson(buildAccountDetailPath(accountLogin)).then((result) =>
       commitBootstrapResponse(result, cacheNamespace, (accounts) => {
-        appQueryClient.setQueryData(
+        const mappedAccounts = mapBootstrapAccountRows(accounts);
+        appQueryClient.setQueryData<TradingAccount[]>(
           getAccountsListQueryKey(cacheNamespace),
-          unwrapAccountRows(accounts),
+          (existing) => existing ?? mappedAccounts,
         );
         updateAccountMetricsFromBootstrap(accounts, accountLogin);
+        if (accountEnvironmentRefresh) {
+          commitActiveAccountEnvironmentPayload(
+            accounts,
+            activeProvenance,
+            accountEnvironmentRefresh,
+          );
+        }
         return accounts;
       }))
     : Promise.resolve(null);

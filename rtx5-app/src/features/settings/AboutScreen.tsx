@@ -83,8 +83,8 @@ type ContactDetailsLayout = {
 
 type DeveloperContactMode = 'contact-developer' | 'account-deletion';
 
-// About's retained host keeps only its header native tree while hidden. The
-// identity and action rows mount on focus using the already-warm readiness bit.
+// Mount About's retained identity and action rows before it is selected so the
+// first sidebar reveal is complete.
 const ABOUT_BODY_PREWARM_DELAY_MS = 0;
 
 /**
@@ -94,7 +94,6 @@ export const AboutScreenInner = memo(function AboutScreenInner({ isScreenFocused
   const routeBodyReady = useDeferredRouteContentReady(
     isScreenFocused ? 0 : ABOUT_BODY_PREWARM_DELAY_MS,
   );
-  const focusedBodyReady = isScreenFocused && routeBodyReady;
   const router = useRouter();
   const isDark = useIsDarkTheme();
   const { t } = useTranslation();
@@ -204,7 +203,7 @@ export const AboutScreenInner = memo(function AboutScreenInner({ isScreenFocused
         <Text style={styles.headerTitle} numberOfLines={1}>{t('About')}</Text>
       </View>
 
-      {focusedBodyReady ? <View style={styles.content}>
+      {routeBodyReady ? <View style={styles.content}>
         <View style={styles.identity}>
           <AppLogo style={styles.logo} />
           <AppNameMark appName={appName} styles={styles} />

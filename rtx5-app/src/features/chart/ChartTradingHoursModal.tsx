@@ -12,7 +12,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View, ScrollView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useUserPreferences } from '../../state/userPreferences';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 
 type Props = {
@@ -110,7 +110,7 @@ const FALLBACK_SESSIONS: Array<[string, string]> = [
 
 export function ChartTradingHoursModal({ visible, onClose, sessions, isLoading }: Props) {
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const [segment, setSegment] = useState<'GMT' | 'Local time'>('GMT');

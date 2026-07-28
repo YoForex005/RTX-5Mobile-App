@@ -62,8 +62,8 @@ test('SL and TP preview lines are draggable chart overlays', () => {
     source.indexOf('const chartType = chartVisualType'),
   );
 
-  assertSourceContains(previewSource, /const chartTradeSlDragKey = chartProtectionBackendLocked\s*\? undefined\s*:\s*chartTradePositionStopTarget[\s\S]*: 'sl'/, 'SL preview must expose a drag key only when its broker capability is enabled');
-  assertSourceContains(previewSource, /const chartTradeTpDragKey = chartProtectionBackendLocked\s*\? undefined\s*:\s*chartTradePositionStopTarget[\s\S]*: 'tp'/, 'TP preview must expose a drag key only when its broker capability is enabled');
+  assertSourceContains(previewSource, /const previewPositionTarget = chartDirectProtectionActive\s*\? null\s*: chartTradePositionStopTarget[\s\S]*const chartTradeSlDragKey = chartProtectionBackendLocked\s*\? undefined\s*:\s*previewPositionTarget[\s\S]*: 'sl'/, 'SL preview must expose a generic drag key for direct Market Execution protection');
+  assertSourceContains(previewSource, /const chartTradeTpDragKey = chartProtectionBackendLocked\s*\? undefined\s*:\s*previewPositionTarget[\s\S]*: 'tp'/, 'TP preview must expose a generic drag key for direct Market Execution protection');
   assertSourceContains(previewSource, /chartTradeSlEnabled[\s\S]*chartTradeSlPrice/, 'SL line must be driven by sheet state');
   assertSourceContains(previewSource, /chartTradeTpEnabled[\s\S]*chartTradeTpPrice/, 'TP line must be driven by sheet state');
   assertSourceContains(previewSource, /id: 'chart-trade-sl-preview'[\s\S]*labelPlacement: 'line'[\s\S]*dragKey: chartTradeSlDragKey/, 'SL preview must draw a full-width guide line');
@@ -418,32 +418,66 @@ test('tap menu is suppressed while lot input or picker interaction is active', (
   );
 });
 
-test('toolbar SL/TP shows a disabled lock until backend readiness while preserving the sheet', () => {
-  const openHandlerStart = source.indexOf('const handleOpenChartTradeSheet = useCallback');
+test('toolbar SL/TP opens the Market Execution panel without activating either level', () => {
+  const openHandlerStart = source.indexOf('const handleActivateDirectChartProtection = useCallback');
   const openHandlerEnd = source.indexOf('const scrollChartTradeTypeTabsToOrderType', openHandlerStart);
-  assert.notEqual(openHandlerStart, -1, 'SL/TP toolbar open handler was not found');
-  assert.notEqual(openHandlerEnd, -1, 'SL/TP toolbar open handler end was not found');
+  assert.notEqual(openHandlerStart, -1, 'direct SL/TP toolbar handler was not found');
+  assert.notEqual(openHandlerEnd, -1, 'direct SL/TP toolbar handler end was not found');
 
   const openHandlerSource = source.slice(openHandlerStart, openHandlerEnd);
   assertSourceContains(
     openHandlerSource,
-    /runImmediateAction\('chart\.tradeSheet\.open'[\s\S]*if \(isChartTradeProtectionBackendLocked\(\)\) \{\s*return;\s*\}[\s\S]*openChartTradeSheet\(\);/,
-    'SL/TP toolbar handler must use the order-type-specific broker capability before opening',
+    /runImmediateAction\('chart\.sltp\.direct'[\s\S]*if \(isNewMarketOrderProtectionBackendLocked\(\)\) \{\s*return;\s*\}[\s\S]*activateDirectChartProtection\(\);/,
+    'SL/TP toolbar handler must check the new Market Execution protection capability before activation',
   );
   assert.doesNotMatch(openHandlerSource, /Alert\.alert/);
-  assert.doesNotMatch(
-    openHandlerSource,
-    /requestAnimationFrame/,
-    'SL/TP toolbar action must not defer opening until a later frame',
-  );
-  // Visual snap first; panel resets may wait one frame so they cannot block open.
-  const openSheetStart = source.indexOf('const openChartTradeSheet = useCallback');
-  const openSheetEnd = source.indexOf('const handleOpenChartTradeSheet', openSheetStart);
+  const openSheetStart = source.indexOf('const activateDirectChartProtection = useCallback');
+  const openSheetEnd = source.indexOf('const handleActivateDirectChartProtection', openSheetStart);
   const openSheetSource = source.slice(openSheetStart, openSheetEnd);
   assertSourceContains(
     openSheetSource,
-    /snapTradeSheet\('expanded'\);[\s\S]*resetChartTradePanelLevels/,
-    'SL/TP must snap expanded (scrollable body + trade actions) into view before panel level resets',
+    /const orderType: ChartOrderType = 'Market Execution'[\s\S]*if \(!chartDirectProtectionActive\) \{[\s\S]*setSelectedChartPositionTicket\(null\)[\s\S]*resetChartTradePanelLevels\(orderType, \{\s*enableProtectionDrafts: false,\s*positionTargetOverride: null,\s*\}\)[\s\S]*setChartShowOnChartItem\('slTpLevels', true\)[\s\S]*setChartDirectProtectionActive\(true\)[\s\S]*\}\s*snapTradeSheet\('collapsed'\)/,
+    'SL/TP must force Market Execution, keep both guides off, and reveal the collapsed panel',
+  );
+  assertSourceContains(
+    openSheetSource,
+    /if \(!chartDirectProtectionActive\) \{[\s\S]*resetChartTradePanelLevels[\s\S]*\}\s*snapTradeSheet\('collapsed'\)/,
+    'reopening the panel must preserve an already-enabled or dragged direct SL/TP draft',
+  );
+  assert.doesNotMatch(
+    openSheetSource,
+    /chartMatchingPositionCandidates\[0\]|setChartTradeSlEnabled\(true\)|setChartTradeTpEnabled\(true\)|finalizeChartTradeSheetHide\(\)/,
+    'opening the panel must not guess an existing ticket, activate a guide, or hide the panel',
+  );
+  assert.doesNotMatch(
+    openSheetSource,
+    /commitChartPositionStopLevels|commitChartTradeSheetStopsForPosition|submitModifyPosition|positionsApi|placeOrder/,
+    'opening SL/TP must remain draft-only and must not mutate an order or position',
+  );
+  const toggleHandlerStart = source.indexOf('const handleToggleChartTradeStopLevel = useCallback');
+  const toggleHandlerEnd = source.indexOf('const handleSubmitPendingTradeFromSheet', toggleHandlerStart);
+  assert.notEqual(toggleHandlerStart, -1, 'individual SL/TP toggle handler was not found');
+  assert.notEqual(toggleHandlerEnd, -1, 'individual SL/TP toggle handler end was not found');
+  const toggleHandlerSource = source.slice(toggleHandlerStart, toggleHandlerEnd);
+  assertSourceContains(
+    toggleHandlerSource,
+    /const isDirectMarketProtection =\s*chartDirectProtectionActive[\s\S]*const protectionBackendLocked = isDirectMarketProtection\s*\? isNewMarketOrderProtectionBackendLocked\(\)[\s\S]*const positionTarget =\s*isPendingChartOrderType\(chartTradeOrderType\) \|\| isDirectMarketProtection\s*\? null/,
+    'direct Market Execution chips must use new-order capability and never target an existing position',
+  );
+  assertSourceContains(
+    toggleHandlerSource,
+    /if \(kind === 'sl'\) \{[\s\S]*setChartTradeSlEnabled\(true\);[\s\S]*setChartTradeSlPrice\(nextPrice\);[\s\S]*return;[\s\S]*setChartTradeTpEnabled\(true\);[\s\S]*setChartTradeTpPrice\(nextPrice\)/,
+    'the SL and TP chips must activate their own guide independently',
+  );
+  assertSourceContains(
+    chartTradeFeatureSource,
+    /const isDirectMarketProtection = !!sheet\.chartDirectProtectionActive[\s\S]*onPress=\{\(\) => handlers\.onToggleStopLevel\('sl'\)\}[\s\S]*onPress=\{\(\) => handlers\.onToggleStopLevel\('tp'\)\}/,
+    'the visible panel header must expose independent SL and TP chips',
+  );
+  assertSourceContains(
+    chartTradeFeatureSource,
+    /\{!isDirectMarketProtection \? \([\s\S]*onPress=\{handlers\.onEnableStops\}[\s\S]*\) : null\}/,
+    'direct Market Execution must hide the legacy combined Add Stop Levels action',
   );
   assertSourceContains(
     source,
@@ -452,7 +486,17 @@ test('toolbar SL/TP shows a disabled lock until backend readiness while preservi
   );
   assertSourceContains(
     source,
-    /accessibilityLabel=\{chartSlTpBackendLocked \? 'SL\/TP locked' : 'SL\/TP'\}[\s\S]*accessibilityState=\{\{ disabled: chartSlTpBackendLocked \}\}[\s\S]*disabled=\{chartSlTpBackendLocked\}[\s\S]*styles\.toolbarTradeButtonLocked[\s\S]*onPressIn=\{handleOpenChartTradeSheet\}[\s\S]*<Ionicons name="lock-closed" size=\{10\}/,
+    /const chartSlTpBackendLocked = newMarketOrderProtectionBackendLocked/,
+    'the toolbar lock must always represent the Market Execution SL/TP path',
+  );
+  assertSourceContains(
+    source,
+    /const showChartMarketExecutionFooter =\s*chartDisplay\.showQuickTradingButtons \|\| chartDirectProtectionActive[\s\S]*!isChartExpanded && showChartMarketExecutionFooter && !chartOneClickPanelAtBottom[\s\S]*!isChartExpanded && showChartMarketExecutionFooter && chartOneClickPanelAtBottom/,
+    'direct SL/TP mode must expose Market Execution even when quick-trading display was previously hidden',
+  );
+  assertSourceContains(
+    source,
+    /accessibilityLabel=\{chartSlTpBackendLocked \? 'SL\/TP locked' : 'SL\/TP'\}[\s\S]*disabled: chartSlTpBackendLocked[\s\S]*selected: chartDirectProtectionActive[\s\S]*disabled=\{chartSlTpBackendLocked\}[\s\S]*styles\.toolbarTradeButtonLocked[\s\S]*onPressIn=\{handleActivateDirectChartProtection\}[\s\S]*<Ionicons name="lock-closed" size=\{10\}/,
     'SL/TP toolbar must visibly lock and disable interaction while the backend is unavailable',
   );
 
@@ -487,7 +531,7 @@ test('chart trade sheet keeps Market Execution available and locks pending order
   const selectHandlerSource = source.slice(selectHandlerStart, selectHandlerEnd);
   assertSourceContains(
     selectHandlerSource,
-    /if \(isPendingOrderTypeBackendLocked\(orderType\)\) \{\s*return;\s*\}[\s\S]*setChartTradeOrderType\(orderType\)/,
+    /if \(isPendingOrderTypeBackendLocked\(orderType\)\) \{\s*return;\s*\}[\s\S]*if \(chartDirectProtectionActive && orderType === 'Market Execution'\) \{\s*return;\s*\}[\s\S]*setChartTradeOrderType\(orderType\)/,
     'pending order type must not change selection before backend readiness',
   );
   assert.equal(
@@ -723,31 +767,21 @@ test('compact footer lot editing does not add an Android pre-keyboard lift gap',
   );
 });
 
-test('SL and TP drag starts only after a short deliberate hold', () => {
+test('SL and TP drag starts immediately from pointer-down', () => {
   assertSourceContains(
     source,
-    /var CHART_TRADE_LINE_DRAG_HOLD_MS = 300/,
-    'SL/TP drag must require a short hold before moving the line',
+    /var beginTradeLineDragFromHit = function\(event, resolvedHit\)[\s\S]*return beginTradeLineDrag\(event, resolvedHit\.hit\)/,
+    'SL/TP drag must begin immediately from the resolved line hit',
   );
   assertSourceContains(
     source,
-    /shouldDelayTradeLineDragForHold[\s\S]*dragKey === 'sl'[\s\S]*dragKey === 'tp'[\s\S]*\^position-stop:\(sl\|tp\):/,
-    'new-trade and open-position SL/TP lines must be hold-gated',
+    /var onPointerDown = function\(event\)[\s\S]*resolveTradeLineDragHitFromEvent\(event\)[\s\S]*beginTradeLineDragFromHit\(event, tradeLineHit\)/,
+    'pointer-down must directly claim new-trade and open-position SL/TP lines',
   );
-  assertSourceContains(
+  assert.doesNotMatch(
     source,
-    /scheduleTradeLineDragHold[\s\S]*setTimeout\(function\(\)[\s\S]*beginTradeLineDrag\(pending\.event, pending\.hit\)[\s\S]*CHART_TRADE_LINE_DRAG_HOLD_MS/,
-    'line drag must start from the hold timer instead of pointer-down',
-  );
-  assertSourceContains(
-    source,
-    /cancelPendingTradeLineHoldIfMoved[\s\S]*TRADE_LINE_HOLD_MOVE_CANCEL_PX/,
-    'moving before the hold completes must cancel the pending SL/TP drag',
-  );
-  assertSourceContains(
-    source,
-    /var onPointerDown = function\(event\)[\s\S]*resolveTradeLineDragHitFromEvent\(event\)[\s\S]*scheduleTradeLineDragHold\(event, tradeLineHit\)/,
-    'pointer-down must schedule the hold gate for SL/TP lines',
+    /CHART_TRADE_LINE_DRAG_HOLD_MS|shouldDelayTradeLineDragForHold|pendingTradeLineHold/,
+    'normal vertical movement must not be cancelled by a hidden hold timer',
   );
 });
 

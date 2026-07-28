@@ -39,8 +39,8 @@ import { useNextFrameValue } from '../../../hooks/useNextFrameValue';
 import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
 import { showTradePositionAction } from '../tradePositionActionHostController';
 import {
+  getActiveSltpUnavailableMessage,
   isExistingPositionModifyBackendLocked,
-  SLTP_COMING_SOON_MESSAGE,
   SLTP_COMING_SOON_TITLE,
 } from '../tradeBackendCapabilities';
 import { TradeSummaryHeader } from './SummaryHeader';
@@ -423,7 +423,7 @@ const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused 
             activateOnPressIn: true,
             onPress: () => {
               if (isExistingPositionModifyBackendLocked()) {
-                Alert.alert(t(SLTP_COMING_SOON_TITLE), t(SLTP_COMING_SOON_MESSAGE));
+                Alert.alert(t(SLTP_COMING_SOON_TITLE), t(getActiveSltpUnavailableMessage()));
                 return;
               }
               primePositionSnapshot(item);

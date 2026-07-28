@@ -7,7 +7,7 @@ import React, { useMemo, useState } from 'react';
 import { Image, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useUserPreferences } from '../../../state/userPreferences';
+import { useIsDarkTheme } from '../../../state/themeMode';
 import { useTheme } from '../../../ui/theme/useTheme';
 import type { MarketSentimentSnapshot } from '../../../domain/marketSentiment';
 import { ASSET_ICONS, CC, flagUrl } from './instrumentMeta';
@@ -15,7 +15,7 @@ import { makeSymbolDetailsStyles } from './styles';
 
 export function SymbolFlags({ symbol }: { symbol: string }) {
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const fl = useMemo(() => makeSymbolDetailsStyles(T, isDark).fl, [T, isDark]);
 
   const core = symbol.replace(/m$/i, '');
@@ -49,7 +49,7 @@ export function SymbolFlags({ symbol }: { symbol: string }) {
 
 export function Section({ title, icon, children }: { title: string; icon: keyof typeof Ionicons.glyphMap; children: React.ReactNode }) {
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const sec = useMemo(() => makeSymbolDetailsStyles(T, isDark).sec, [T, isDark]);
   const [expanded, setExpanded] = useState(true);
 
@@ -72,7 +72,7 @@ export function Section({ title, icon, children }: { title: string; icon: keyof 
 
 export function Row({ label, value, accent, last = false }: { label: string; value: string; accent?: string; last?: boolean }) {
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const rw = useMemo(() => makeSymbolDetailsStyles(T, isDark).rw, [T, isDark]);
 
   return (
@@ -85,7 +85,7 @@ export function Row({ label, value, accent, last = false }: { label: string; val
 
 export function MetricPill({ label, value, accent, icon }: { label: string; value: string; accent?: string; icon: keyof typeof Ionicons.glyphMap }) {
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const mp = useMemo(() => makeSymbolDetailsStyles(T, isDark).mp, [T, isDark]);
 
   return (
@@ -101,7 +101,7 @@ export function MetricPill({ label, value, accent, icon }: { label: string; valu
 
 export function RangeBar({ pos, color }: { pos: number; color: string }) {
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const rangeB = useMemo(() => makeSymbolDetailsStyles(T, isDark).rangeB, [T, isDark]);
 
   return (
@@ -118,7 +118,7 @@ export function RangeBar({ pos, color }: { pos: number; color: string }) {
 
 export function MomentumBar({ sentiment }: { sentiment: MarketSentimentSnapshot }) {
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const mom = useMemo(() => makeSymbolDetailsStyles(T, isDark).mom, [T, isDark]);
   const { buyPct, sellPct } = sentiment;
 

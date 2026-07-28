@@ -135,3 +135,90 @@ test('unbound individual legacy tokens are erased rather than rebound to a broke
   assert.equal(storage.values.has(AUTH_CREDENTIAL_BUNDLE_KEY), false);
   LEGACY_AUTH_CREDENTIAL_KEYS.forEach((key) => assert.equal(storage.values.has(key), false));
 });
+
+test('Achiever stores the feed token and context as one exact atomic pair', async () => {
+  const storage = new MemorySecureStorage();
+  const store = new SecureCredentialBundleStore(storage);
+  const exactToken = '  opaque+achiever==  ';
+
+  const stored = await store.replace({
+    ...credentials('achiever-financials', '1001', 'access-a'),
+    feedToken: exactToken,
+    feedAuthContext: {
+      mode: 'query',
+      credential: 'feed_token',
+      tokenQueryParam: 'token',
+      brokerIdQueryParam: 'broker_id',
+    },
+  });
+
+  assert.equal(stored.feedToken, exactToken);
+  assert.deepEqual(stored.feedAuthContext, {
+    mode: 'query',
+    credential: 'feed_token',
+    tokenQueryParam: 'token',
+    brokerIdQueryParam: 'broker_id',
+  });
+  assert.equal(
+    JSON.parse(storage.values.get(AUTH_CREDENTIAL_BUNDLE_KEY) ?? '{}').feedToken,
+    exactToken,
+  );
+});
+
+test('Achiever secure storage never persists an access token as a feed credential', async () => {
+  const storage = new MemorySecureStorage();
+  const store = new SecureCredentialBundleStore(storage);
+  const stored = await store.replace({
+    ...credentials('achiever-financials', '1001', 'same-credential'),
+    feedToken: 'same-credential',
+    feedAuthContext: {
+      mode: 'query',
+      credential: 'feed_token',
+      tokenQueryParam: 'token',
+      brokerIdQueryParam: 'broker_id',
+    },
+  });
+
+  assert.equal(stored.feedToken, undefined);
+  assert.deepEqual(stored.feedAuthContext, {
+    mode: 'disabled_unconfigured',
+    reason: 'missing_credential',
+  });
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      JSON.parse(storage.values.get(AUTH_CREDENTIAL_BUNDLE_KEY) ?? '{}'),
+      'feedToken',
+    ),
+    false,
+  );
+});
+
+test('Achiever never retains an old or unpaired feed token', async () => {
+  const storage = new MemorySecureStorage();
+  const store = new SecureCredentialBundleStore(storage);
+  await store.replace({
+    ...credentials('achiever-financials', '1001', 'access-a'),
+    feedToken: 'old-valid-feed',
+    feedAuthContext: {
+      mode: 'query',
+      credential: 'feed_token',
+      tokenQueryParam: 'token',
+      brokerIdQueryParam: 'broker_id',
+    },
+  });
+
+  const replaced = await store.replace({
+    ...credentials('achiever-financials', '1001', 'access-b'),
+    feedToken: 'must-be-dropped-without-context',
+  });
+
+  assert.equal(replaced.feedToken, undefined);
+  assert.deepEqual(replaced.feedAuthContext, {
+    mode: 'disabled_unconfigured',
+    reason: 'missing_contract',
+  });
+  assert.doesNotMatch(
+    storage.values.get(AUTH_CREDENTIAL_BUNDLE_KEY) ?? '',
+    /old-valid-feed|must-be-dropped-without-context/,
+  );
+});

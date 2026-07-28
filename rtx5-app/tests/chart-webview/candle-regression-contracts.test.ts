@@ -328,7 +328,7 @@ test('canonical live candle updates move the forming candle and Bid line togethe
   );
   assertSourceContains(
     chartSource,
-    /const readCanonicalCandles = \(\) => liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\)[\s\S]*candle: buildChartTickPayload\(lastCandle, chartType\),[\s\S]*livePrice: lastCandle\.close,[\s\S]*updateLiveTick\([\s\S]*liveCandlesEngine\.subscribe\(chartSymbol, chartTimeframe, paintCanonicalLiveTick\)/,
+    /const readCanonicalCandles = \(\) => liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\)[\s\S]*candle: buildChartTickPayload\(lastCandle, chartType\),[\s\S]*livePrice: lastCandle\.close,[\s\S]*updateLiveTick\([\s\S]*liveCandlesEngine\.subscribe\(\s*chartSymbol,\s*chartTimeframe,\s*paintCanonicalLiveTick,\s*\)/,
     'ChartScreen must paint canonical candle OHLC and its exact Bid close through one atomic bridge call',
   );
   assert.doesNotMatch(

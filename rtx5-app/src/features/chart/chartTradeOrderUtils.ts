@@ -216,33 +216,25 @@ export const isPendingChartTradeValid = ({
     return false;
   }
 
-  const epsilon = Math.max(pointSize / 10, 1e-9);
   const liveBid = Number.isFinite(bid) && bid > 0 ? bid : null;
   const liveAsk = Number.isFinite(ask) && ask > 0 ? ask : null;
+  void pointSize;
 
   switch (orderType) {
     case 'Buy Limit':
-      return liveAsk === null ? true : entryPrice <= liveAsk + epsilon;
+      return liveAsk !== null && entryPrice < liveAsk;
     case 'Sell Limit':
-      return liveBid === null ? true : entryPrice >= liveBid - epsilon;
+      return liveBid !== null && entryPrice > liveBid;
     case 'Buy Stop':
-      return liveAsk === null ? true : entryPrice >= liveAsk - epsilon;
+      return liveAsk !== null && entryPrice > liveAsk;
     case 'Sell Stop':
-      return liveBid === null ? true : entryPrice <= liveBid + epsilon;
+      return liveBid !== null && entryPrice < liveBid;
     case 'Buy Stop Limit':
-      return (
-        (liveAsk === null || entryPrice >= liveAsk - epsilon) &&
-        Number.isFinite(stopLimitPrice) &&
-        stopLimitPrice! > 0 &&
-        stopLimitPrice! < entryPrice - epsilon
-      );
     case 'Sell Stop Limit':
-      return (
-        (liveBid === null || entryPrice <= liveBid + epsilon) &&
-        Number.isFinite(stopLimitPrice) &&
-        stopLimitPrice! > 0 &&
-        stopLimitPrice! > entryPrice + epsilon
-      );
+      // The strict Gateway contract supports only limit and stop pending
+      // orders; stop-limit values must never become a frontend fallback.
+      void stopLimitPrice;
+      return false;
     default:
       return false;
   }
@@ -257,49 +249,15 @@ export const resolveStablePendingChartTradeEnabled = ({
   pointSize,
   previouslyEnabled,
 }: StablePendingChartTradeValidationInput) => {
-  if (!isPendingChartOrderType(orderType) || !Number.isFinite(entryPrice) || entryPrice <= 0) {
-    return false;
-  }
-
-  const epsilon = Math.max(pointSize / 10, 1e-9);
-  const hysteresisBuffer = Math.max(pointSize * 25, epsilon);
-  const liveBid = Number.isFinite(bid) && bid > 0 ? bid : null;
-  const liveAsk = Number.isFinite(ask) && ask > 0 ? ask : null;
-
-  const applyDirectionalHysteresis = (distanceFromBoundary: number | null) => {
-    if (distanceFromBoundary === null) {
-      return true;
-    }
-
-    return previouslyEnabled
-      ? distanceFromBoundary >= -hysteresisBuffer
-      : distanceFromBoundary >= hysteresisBuffer;
-  };
-
-  switch (orderType) {
-    case 'Buy Limit':
-      return applyDirectionalHysteresis(liveAsk === null ? null : liveAsk - entryPrice);
-    case 'Sell Limit':
-      return applyDirectionalHysteresis(liveBid === null ? null : entryPrice - liveBid);
-    case 'Buy Stop':
-      return applyDirectionalHysteresis(liveAsk === null ? null : entryPrice - liveAsk);
-    case 'Sell Stop':
-      return applyDirectionalHysteresis(liveBid === null ? null : liveBid - entryPrice);
-    case 'Buy Stop Limit':
-      return (
-        Number.isFinite(stopLimitPrice) &&
-        stopLimitPrice! > 0 &&
-        stopLimitPrice! < entryPrice - epsilon &&
-        applyDirectionalHysteresis(liveAsk === null ? null : entryPrice - liveAsk)
-      );
-    case 'Sell Stop Limit':
-      return (
-        Number.isFinite(stopLimitPrice) &&
-        stopLimitPrice! > 0 &&
-        stopLimitPrice! > entryPrice + epsilon &&
-        applyDirectionalHysteresis(liveBid === null ? null : liveBid - entryPrice)
-      );
-    default:
-      return false;
-  }
+  // UI stability must not invent a broker minimum distance. Re-evaluate the
+  // same strict backend rule against the latest authoritative quote.
+  void previouslyEnabled;
+  return isPendingChartTradeValid({
+    orderType,
+    entryPrice,
+    stopLimitPrice,
+    bid,
+    ask,
+    pointSize,
+  });
 };

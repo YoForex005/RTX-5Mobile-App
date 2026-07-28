@@ -16,7 +16,7 @@ import { Screen } from '../../ui/components/Screen';
 import { useInstrumentMeta } from '../../query/instruments';
 import { useMarketData } from '../../query/websocket';
 import { useMarginCalculation, useProfitCalculation } from '../../query/calculators';
-import { useUserPreferences } from '../../state/userPreferences';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { resolveTradingLogin } from '../../state/tradingLogin';
 import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -40,7 +40,7 @@ export function ChartTradingCalculatorScreen() {
   }>();
   const T = useTheme();
   const { t } = useTranslation();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const isScreenFocused = useIsFocused();

@@ -17,8 +17,8 @@ test('modify position uses GTA broker SL/TP PUT contract', () => {
   );
   assert.doesNotMatch(modifyFunctionSource, /\/positions\/\$\{ticketId\}\/modify/);
   assert.doesNotMatch(modifyFunctionSource, /method: 'POST'/);
-  assert.match(modifyPayloadSource, /price_sl: number;/);
-  assert.match(modifyPayloadSource, /price_tp: number;/);
+  assert.match(modifyPayloadSource, /price_sl\?: number \| null;/);
+  assert.match(modifyPayloadSource, /price_tp\?: number \| null;/);
   assert.doesNotMatch(modifyPayloadSource, /trailing_stop\?:/);
   assert.doesNotMatch(modifyPayloadSource, /trailing_step\?:/);
   assert.match(modifyFunctionSource, /signal: requestOptions\.signal/);

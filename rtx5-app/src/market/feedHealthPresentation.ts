@@ -3,6 +3,7 @@ import {
   feedHealthCanSafelyRetry,
   type FeedHealthReasonCategory,
   type FeedHealthState,
+  type FeedHealthStatus,
 } from './feedHealthState';
 
 export type FeedHealthBannerTone = 'warning' | 'critical';
@@ -16,6 +17,30 @@ export type FeedHealthBannerModel = Readonly<{
   lastSuccessAt?: number;
   canRetry: boolean;
 }>;
+
+export type CompactFeedStatusLabel = 'LIVE' | 'Connecting...' | 'Unavailable';
+
+const TERMINAL_FEED_STATUSES = new Set<FeedHealthStatus>([
+  'disabled_unconfigured',
+  'auth_failed',
+  'provider_down',
+  'market_unavailable',
+]);
+
+/**
+ * Compact status used where full feed-health banners are intentionally hidden.
+ * Terminal broker/auth states win over a retained tick from an older state so
+ * the UI never describes an unavailable feed as LIVE or endlessly connecting.
+ */
+export const resolveCompactFeedStatusLabel = (
+  status: FeedHealthStatus,
+  hasFreshTick: boolean,
+): CompactFeedStatusLabel => {
+  if (TERMINAL_FEED_STATUSES.has(status)) {
+    return 'Unavailable';
+  }
+  return hasFreshTick ? 'LIVE' : 'Connecting...';
+};
 
 const reasonLabels: Record<FeedHealthReasonCategory, string> = {
   session_unconfigured: 'Broker feed is not configured',

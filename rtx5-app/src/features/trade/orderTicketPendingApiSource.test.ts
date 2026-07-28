@@ -65,7 +65,7 @@ test('order ticket applies independent market and pending SL/TP gates', () => {
   assert.match(gateSource, /if \(protectionBackendLocked\)/);
   assert.match(
     gateSource,
-    /Alert\.alert\(t\(SLTP_COMING_SOON_TITLE\), t\(SLTP_COMING_SOON_MESSAGE\)\)/,
+    /Alert\.alert\(t\(SLTP_COMING_SOON_TITLE\), t\(getActiveSltpUnavailableMessage\(\)\)\)/,
   );
   assert.match(gateSource, /adjustStopLoss\(direction\)/);
   assert.match(gateSource, /adjustTakeProfit\(direction\)/);
@@ -78,7 +78,7 @@ test('order ticket applies independent market and pending SL/TP gates', () => {
   assert.match(source, /const adjustTakeProfit = useCallback/);
   assert.match(
     marketSubmitSource,
-    /const marketProtectionLockedAtSubmit =[\s\S]*isNewMarketOrderProtectionBackendLocked\(\);[\s\S]*if \(marketProtectionLockedAtSubmit && hasProtectionIntent\) \{[\s\S]*showModal\([\s\S]*SLTP_COMING_SOON_TITLE[\s\S]*SLTP_COMING_SOON_MESSAGE[\s\S]*return;/,
+    /const marketProtectionLockedAtSubmit =[\s\S]*isNewMarketOrderProtectionBackendLocked\(\);[\s\S]*if \(marketProtectionLockedAtSubmit && hasProtectionIntent\) \{[\s\S]*showModal\([\s\S]*SLTP_COMING_SOON_TITLE[\s\S]*getActiveSltpUnavailableMessage\(\)[\s\S]*return;/,
   );
   assert.match(
     marketSubmitSource,
@@ -90,7 +90,7 @@ test('order ticket applies independent market and pending SL/TP gates', () => {
   );
   assert.match(
     pendingSubmitSource,
-    /const pendingProtectionLockedAtSubmit =[\s\S]*isPendingOrderProtectionBackendLocked\(\);[\s\S]*if \(pendingProtectionLockedAtSubmit && hasProtectionIntent\) \{[\s\S]*showModal\([\s\S]*SLTP_COMING_SOON_TITLE[\s\S]*SLTP_COMING_SOON_MESSAGE[\s\S]*return;/,
+    /const pendingProtectionLockedAtSubmit =[\s\S]*isPendingOrderProtectionBackendLocked\(\);[\s\S]*if \(pendingProtectionLockedAtSubmit && hasProtectionIntent\) \{[\s\S]*showModal\([\s\S]*SLTP_COMING_SOON_TITLE[\s\S]*getActiveSltpUnavailableMessage\(\)[\s\S]*return;/,
   );
   assert.match(
     pendingSubmitSource,

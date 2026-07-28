@@ -4483,13 +4483,6 @@ export const CH_HTML = `
           };
         };
 
-        var shouldDelayTradeLineDragForHold = function(dragKey) {
-          if (dragKey === 'sl' || dragKey === 'tp') {
-            return true;
-          }
-          return typeof dragKey === 'string' && /^position-stop:(sl|tp):/.test(dragKey);
-        };
-
         var beginTradeLineDrag = function(event, initialHit) {
           var hit = initialHit || null;
           if (!hit) {
@@ -4499,7 +4492,6 @@ export const CH_HTML = `
           if (!hit || !hit.dragKey) return false;
           var startPrice = sanitizeOverlayDragPrice(hit.price);
           cancelChartTradeLineDragMove();
-          cancelPendingTradeLineHold();
           // Capture the pointer so subsequent move/up events route to us
           // even when the finger leaves the chart bounds. Disable the chart
           // element's default touch-action panning so the page doesn't
@@ -4536,48 +4528,13 @@ export const CH_HTML = `
           return true;
         };
 
-        var scheduleTradeLineDragHold = function(event, resolvedHit) {
+        var beginTradeLineDragFromHit = function(event, resolvedHit) {
           if (!resolvedHit || !resolvedHit.hit || !resolvedHit.hit.dragKey) {
             return false;
           }
-          if (!shouldDelayTradeLineDragForHold(resolvedHit.hit.dragKey)) {
-            return beginTradeLineDrag(event, resolvedHit.hit);
-          }
-          cancelPendingTradeLineHold();
-          pendingTradeLineHold = {
-            event: event,
-            hit: resolvedHit.hit,
-            startX: resolvedHit.pointFromEvent.x,
-            startY: resolvedHit.pointFromEvent.y,
-            timer: null,
-          };
-          pendingTradeLineHold.timer = setTimeout(function() {
-            var pending = pendingTradeLineHold;
-            if (!pending) {
-              return;
-            }
-            pendingTradeLineHold = null;
-            beginTradeLineDrag(pending.event, pending.hit);
-          }, CHART_TRADE_LINE_DRAG_HOLD_MS);
-          return true;
-        };
-
-        var cancelPendingTradeLineHoldIfMoved = function(event) {
-          if (!pendingTradeLineHold) {
-            return false;
-          }
-          var pointFromEvent = getClientPoint(event);
-          if (!pointFromEvent) {
-            cancelPendingTradeLineHold();
-            return true;
-          }
-          var dx = Math.abs(pointFromEvent.x - pendingTradeLineHold.startX);
-          var dy = Math.abs(pointFromEvent.y - pendingTradeLineHold.startY);
-          if (dx > TRADE_LINE_HOLD_MOVE_CANCEL_PX || dy > TRADE_LINE_HOLD_MOVE_CANCEL_PX) {
-            cancelPendingTradeLineHold();
-            return true;
-          }
-          return false;
+          // SL/TP is direct manipulation: capture the line on pointer-down so
+          // a normal vertical swipe cannot be cancelled by a hold timer.
+          return beginTradeLineDrag(event, resolvedHit.hit);
         };
 
         var continueTradeLineDrag = function(event) {
@@ -4656,7 +4613,7 @@ export const CH_HTML = `
             return;
           }
           var tradeLineHit = resolveTradeLineDragHitFromEvent(event);
-          if (scheduleTradeLineDragHold(event, tradeLineHit)) {
+          if (beginTradeLineDragFromHit(event, tradeLineHit)) {
             return;
           }
           var point = getClientPoint(event);
@@ -4703,9 +4660,6 @@ export const CH_HTML = `
             // Keep pinch/scale gestures light. Rebuilding every custom overlay
             // on each move drops the WebView far below MT5-like frame cadence.
             scheduleGestureRightPriceScaleFallbackRefresh();
-            return;
-          }
-          if (cancelPendingTradeLineHoldIfMoved(event)) {
             return;
           }
           if (continueTradeLineDrag(event)) {
@@ -4772,7 +4726,6 @@ export const CH_HTML = `
 
         var onPointerUp = function(event) {
           var wasScaleGesture = isScaleGestureEvent(event) || gestureHadMultitouch || Date.now() <= suppressChartTapUntil;
-          cancelPendingTradeLineHold();
           if (finishTradeLineDrag(event, false)) {
             releasePointer(event);
             finishHorizontalScrollGesture();
@@ -4839,7 +4792,6 @@ export const CH_HTML = `
         };
 
         var onPointerCancel = function(event) {
-          cancelPendingTradeLineHold();
           if (finishTradeLineDrag(event, true)) {
             releasePointer(event);
             finishHorizontalScrollGesture();
@@ -4907,14 +4859,12 @@ export const CH_HTML = `
         };
 
         var onWindowPointerMove = function(event) {
-          cancelPendingTradeLineHoldIfMoved(event);
           if (activeTradeLineDrag) {
             continueTradeLineDrag(event);
           }
         };
 
         var onWindowPointerUp = function(event) {
-          cancelPendingTradeLineHold();
           if (finishTradeLineDrag(event, false)) {
             releasePointer(event);
             if (activePointerCount <= 0) {
@@ -4933,7 +4883,6 @@ export const CH_HTML = `
         };
 
         var onWindowPointerCancel = function(event) {
-          cancelPendingTradeLineHold();
           if (finishTradeLineDrag(event, true)) {
             releasePointer(event);
             if (activePointerCount <= 0) {
@@ -5006,7 +4955,6 @@ export const CH_HTML = `
           syntheticRightPriceScaleFallbackRange = null;
           rightPriceScaleGestureActive = false;
           activeTradeLineDrag = null;
-          cancelPendingTradeLineHold();
           suppressNextChartClickUntil = 0;
           suppressChartTapUntil = 0;
           chartTouchInteractionSuspendDepth = 0;
@@ -7336,11 +7284,8 @@ export const CH_HTML = `
       // (open-trade lines are DOM-only with native lineVisible:false).
       var _overlayDomNodesByKey = Object.create(null);
       var activeTradeLineDrag = null;
-      var pendingTradeLineHold = null;
       var suppressNextChartClickUntil = 0;
       var TRADE_LINE_DRAG_HIT_SLOP = 30;
-      var CHART_TRADE_LINE_DRAG_HOLD_MS = 300;
-      var TRADE_LINE_HOLD_MOVE_CANCEL_PX = 12;
       var CHART_TRADE_LINE_DRAG_NATIVE_MOVE_INTERVAL_MS = 96;
       // The dragged price line itself moves every pointermove (lightweight-charts
       // coalesces its own paints to one frame), but the floating price label is
@@ -7350,17 +7295,6 @@ export const CH_HTML = `
       // so this can never rebuild more than once per frame — lowering the floor to
       // one frame (~60fps) just lets the label keep pace with the line.
       var CHART_TRADE_LINE_DRAG_DOM_REFRESH_INTERVAL_MS = 16;
-
-      function cancelPendingTradeLineHold() {
-        if (!pendingTradeLineHold) {
-          return false;
-        }
-        if (pendingTradeLineHold.timer) {
-          try { clearTimeout(pendingTradeLineHold.timer); } catch (_e) {}
-        }
-        pendingTradeLineHold = null;
-        return true;
-      }
 
       function clearOverlayPriceLines() {
         if (series) {
@@ -7374,7 +7308,6 @@ export const CH_HTML = `
         // payload cannot skip recreation against an empty canvas.
         _lastAppliedOverlayNativeSignature = '';
         activeTradeLineDrag = null;
-        cancelPendingTradeLineHold();
         chartTouchInteractionSuspendDepth = 0;
       }
 

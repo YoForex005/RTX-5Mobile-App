@@ -149,7 +149,7 @@ export interface AuthResponse {
 export const loginAPI = async (
   credentials: LoginRequest,
   options: LoginRequestOptions = {},
-): Promise<AuthResponse> => {
+): Promise<unknown> => {
   const controller = new AbortController();
   let didCallerAbort = Boolean(options.signal?.aborted);
   const abortFromCaller = () => {
@@ -226,7 +226,7 @@ export const loginAPI = async (
     throw error;
   }
 
-  const payload = await response.json() as AuthResponse;
+  const payload: unknown = await response.json();
   recordMarketDataEvent('auth_outcome', {
     operation: 'login', outcome: 'accepted', brokerId: credentials.broker_id,
     apiHostFingerprint, status: response.status,

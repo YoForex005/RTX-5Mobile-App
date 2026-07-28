@@ -1,4 +1,3 @@
-import { assertTradeSide } from '../../domain/tradeSide';
 import type { PendingOrderType, PlacePendingOrderPayload } from './types';
 
 const PENDING_ORDER_TYPES = new Set<PendingOrderType>([
@@ -6,13 +5,6 @@ const PENDING_ORDER_TYPES = new Set<PendingOrderType>([
   'sell_limit',
   'buy_stop',
   'sell_stop',
-  'buy_stop_limit',
-  'sell_stop_limit',
-]);
-
-const STOP_LIMIT_PENDING_ORDER_TYPES = new Set<PendingOrderType>([
-  'buy_stop_limit',
-  'sell_stop_limit',
 ]);
 
 export class PendingOrderPayloadError extends Error {
@@ -32,12 +24,45 @@ export const normalizePendingOrderType = (value: unknown): PendingOrderType | nu
 
 export const resolvePendingOrderTriggerPrice = (payload: PlacePendingOrderPayload): number => {
   const price = payload.price ?? payload.price_open;
-  return typeof price === 'number' ? price : Number(price);
+  return typeof price === 'number' ? price : Number(price?.trim());
 };
 
 export const resolvePendingOrderStopLimitPrice = (payload: PlacePendingOrderPayload): number => {
   const price = payload.stopLimitPrice ?? payload.stop_limit_price;
   return typeof price === 'number' ? price : Number(price);
+};
+
+const toCanonicalDecimalString = (
+  value: number | string,
+  label: string,
+): string => {
+  const numeric = typeof value === 'number' ? value : Number(value.trim());
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    throw new PendingOrderPayloadError(`${label} must be a positive decimal.`);
+  }
+  const normalized = numeric.toFixed(8).replace(/(?:\.0+|(\.\d+?)0+)$/, '$1');
+  if (!normalized || Number(normalized) !== numeric) {
+    throw new PendingOrderPayloadError(`${label} supports at most 8 fractional digits.`);
+  }
+  return normalized;
+};
+
+const hasOwn = (value: object, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(value, key);
+
+const utf8ByteLength = (value: string): number => {
+  let bytes = 0;
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    bytes += codePoint <= 0x7f
+      ? 1
+      : codePoint <= 0x7ff
+        ? 2
+        : codePoint <= 0xffff
+          ? 3
+          : 4;
+  }
+  return bytes;
 };
 
 export function buildPendingOrderRequestBody(payload: PlacePendingOrderPayload): Record<string, unknown> {
@@ -49,9 +74,12 @@ export function buildPendingOrderRequestBody(payload: PlacePendingOrderPayload):
     throw new PendingOrderPayloadError('Invalid account login for pending order.');
   }
 
-  const symbol = (payload.symbol ?? '').trim();
+  const symbol = (payload.symbol ?? '').trim().toUpperCase();
   if (!symbol) {
     throw new PendingOrderPayloadError('Pending order symbol is required.');
+  }
+  if (utf8ByteLength(symbol) > 20) {
+    throw new PendingOrderPayloadError('Pending order symbol must not exceed 20 bytes.');
   }
 
   const orderType = normalizePendingOrderType(payload.type);
@@ -67,49 +95,57 @@ export function buildPendingOrderRequestBody(payload: PlacePendingOrderPayload):
   }
 
   const body: Record<string, unknown> = {
-    login,
+    account_login: login,
     symbol,
-    side: assertTradeSide(payload.side),
-    volume: payload.volume,
+    volume: toCanonicalDecimalString(payload.volume, 'Pending order volume'),
     type: orderType,
-    price,
+    price: toCanonicalDecimalString(price, 'Pending order trigger price'),
   };
 
-  if (STOP_LIMIT_PENDING_ORDER_TYPES.has(orderType)) {
-    const stopLimitPrice = resolvePendingOrderStopLimitPrice(payload);
-    if (!Number.isFinite(stopLimitPrice) || stopLimitPrice <= 0) {
-      throw new PendingOrderPayloadError('Stop-limit price must be greater than 0.');
-    }
-    if (orderType === 'buy_stop_limit' && stopLimitPrice >= price) {
-      throw new PendingOrderPayloadError('Buy stop-limit price must be below the stop trigger price.');
-    }
-    if (orderType === 'sell_stop_limit' && stopLimitPrice <= price) {
-      throw new PendingOrderPayloadError('Sell stop-limit price must be above the stop trigger price.');
-    }
-    body.stopLimitPrice = stopLimitPrice;
+  if (hasOwn(payload, 'sl') && hasOwn(payload, 'price_sl')) {
+    throw new PendingOrderPayloadError('Use only the canonical pending Stop Loss field.');
+  }
+  if (hasOwn(payload, 'tp') && hasOwn(payload, 'price_tp')) {
+    throw new PendingOrderPayloadError('Use only the canonical pending Take Profit field.');
+  }
+  const sl = hasOwn(payload, 'sl') ? payload.sl : payload.price_sl;
+  const tp = hasOwn(payload, 'tp') ? payload.tp : payload.price_tp;
+  if (sl !== undefined && sl !== null) {
+    body.sl = toCanonicalDecimalString(sl, 'Pending Stop Loss');
+  }
+  if (tp !== undefined && tp !== null) {
+    body.tp = toCanonicalDecimalString(tp, 'Pending Take Profit');
   }
 
-  if (typeof payload.price_sl === 'number' && payload.price_sl > 0) {
-    body.price_sl = payload.price_sl;
+  if (hasOwn(payload, 'expiry') && hasOwn(payload, 'expiration')) {
+    throw new PendingOrderPayloadError('Use only the canonical pending expiry field.');
   }
-  if (typeof payload.price_tp === 'number' && payload.price_tp > 0) {
-    body.price_tp = payload.price_tp;
+  const expiry = hasOwn(payload, 'expiry') ? payload.expiry : payload.expiration;
+  if (expiry !== undefined && expiry !== null) {
+    if (
+      typeof expiry !== 'number' ||
+      !Number.isSafeInteger(expiry) ||
+      expiry <= Math.floor(Date.now() / 1000)
+    ) {
+      throw new PendingOrderPayloadError(
+        'Pending order expiry must be a future Unix-seconds value.',
+      );
+    }
+    body.expiry = expiry;
+  } else if (hasOwn(payload, 'expiry') && expiry === null) {
+    body.expiry = null;
   }
-  if (typeof payload.expiration === 'number' && payload.expiration > 0) {
-    body.expiration = payload.expiration;
+  if (payload.fill_mode !== undefined) {
+    if (payload.fill_mode !== 'return' && payload.fill_mode !== 'fok') {
+      throw new PendingOrderPayloadError('Pending order fill mode is invalid.');
+    }
+    body.fill_mode = payload.fill_mode;
   }
   if (typeof payload.comment === 'string' && payload.comment.length > 0) {
+    if (utf8ByteLength(payload.comment) > 1024) {
+      throw new PendingOrderPayloadError('Pending order comment must not exceed 1024 bytes.');
+    }
     body.comment = payload.comment;
   }
-  if (typeof payload.trailing_stop === 'number' && payload.trailing_stop > 0) {
-    body.trailing_stop = payload.trailing_stop;
-  }
-  if (typeof payload.trailing_step === 'number' && payload.trailing_step > 0) {
-    body.trailing_step = payload.trailing_step;
-  }
-  if (typeof payload.magic === 'number' && payload.magic > 0) {
-    body.magic = payload.magic;
-  }
-
   return body;
 }

@@ -6,6 +6,10 @@ import type {
   PersistedChartDrawing,
   PersistedChartDrawingsBySymbol,
 } from '../../features/chart/drawingPersistence';
+import type {
+  AccountEnvironment,
+  AccountEnvironmentSource,
+} from '../../domain/accountType';
 
 export type QuoteViewMode = 'list' | 'table' | 'edit';
 export type ThemeMode = 'light' | 'dark';
@@ -97,6 +101,9 @@ export type UserPreferencesState = {
   historyToMs: number | null;
   priceSource: 'bid' | 'ask';
   openOrderMode: 'Regular' | 'Risk calculator' | 'One-click';
+  accountType: AccountEnvironment;
+  accountEnvironmentSource: AccountEnvironmentSource;
+  accountEnvironmentKey: string;
   isDemoAccount: boolean;
   isLoggedIn: boolean;
   hasSetInitialSymbols: boolean;
@@ -128,7 +135,12 @@ export type UserPreferencesState = {
     server: string,
     tokens: { access_token: string; refresh_token: string; expires_at: string },
     brokerId?: string,
-    brokerConnection?: { serverUrl?: string; logoUrl?: string; isDemoAccount?: boolean },
+    brokerConnection?: {
+      serverUrl?: string;
+      logoUrl?: string;
+      accountType: AccountEnvironment;
+      accountEnvironmentSource: AccountEnvironmentSource;
+    },
   ) => void;
   logout: () => void;
   updateTokens: (accessToken: string, refreshToken: string, expiresAt: string) => void;
@@ -163,7 +175,11 @@ export type UserPreferencesState = {
   setHistoryRange: (range: string) => void;
   /** Persist the computed from/to Unix-ms timestamps alongside the range label. */
   setHistoryDateRange: (fromMs: number | null, toMs: number | null) => void;
-  setIsDemoAccount: (isDemo: boolean) => void;
+  mergeAccountEnvironmentForAccount: (
+    accountKey: string,
+    resolved: AccountEnvironment,
+    source: AccountEnvironmentSource,
+  ) => void;
   /** Persist the broker_id from the login screen for app-wide broker config access */
   setBrokerId: (id: string) => void;
   /** Persist the selected broker REST/WS origin and logo metadata */

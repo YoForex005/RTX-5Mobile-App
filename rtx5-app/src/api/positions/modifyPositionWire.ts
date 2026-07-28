@@ -1,8 +1,8 @@
 import { normalizeSymbol } from '../../domain/symbols';
 
 export type ModifyPositionRequest = Readonly<{
-  price_sl: number;
-  price_tp: number;
+  price_sl?: number | null;
+  price_tp?: number | null;
 }>;
 
 /**
@@ -17,10 +17,10 @@ export type ModifyPositionAckWire = Readonly<{
   symbol: string;
   status: 'modified';
   time: number;
-  sl: number | null;
-  price_sl: number | null;
-  tp: number | null;
-  price_tp: number | null;
+  sl?: number | null;
+  price_sl?: number | null;
+  tp?: number | null;
+  price_tp?: number | null;
 }>;
 
 export type KnownModifyPositionErrorCode =
@@ -85,35 +85,46 @@ export const normalizeModifyPositionRequest = (
   value: ModifyPositionRequest,
 ): ModifyPositionRequest => {
   const source = value as unknown as Record<string, unknown>;
-  const priceSl = source?.price_sl;
-  const priceTp = source?.price_tp;
+  const normalized: { price_sl?: number | null; price_tp?: number | null } = {};
+  let touched = 0;
 
-  if (
-    typeof priceSl !== 'number' ||
-    !Number.isFinite(priceSl) ||
-    priceSl < 0 ||
-    typeof priceTp !== 'number' ||
-    !Number.isFinite(priceTp) ||
-    priceTp < 0
-  ) {
-    throw new TypeError('Modify Position requires finite non-negative price_sl and price_tp numbers.');
+  for (const key of ['price_sl', 'price_tp'] as const) {
+    if (!hasOwn(source, key)) continue;
+    touched += 1;
+    const candidate = source[key];
+    if (candidate === null) {
+      normalized[key] = null;
+      continue;
+    }
+    if (
+      typeof candidate !== 'number' ||
+      !Number.isFinite(candidate) ||
+      candidate < 0
+    ) {
+      throw new TypeError(
+        `Modify Position ${key} must be null or a finite non-negative number.`,
+      );
+    }
+    normalized[key] = candidate;
+  }
+  if (touched === 0) {
+    throw new TypeError('Modify Position requires at least one changed SL/TP field.');
   }
 
   // Build the wire object explicitly so extra identity/concurrency fields can
   // never leak from an untyped caller.
-  return Object.freeze({
-    price_sl: priceSl,
-    price_tp: priceTp,
-  });
+  return Object.freeze(normalized);
 };
 
 const parseEcho = (
   record: Record<string, unknown>,
   currentKey: 'sl' | 'tp',
   canonicalKey: 'price_sl' | 'price_tp',
-  submitted: number,
+  submitted: number | null,
 ): number | null => {
-  if (!hasOwn(record, currentKey) || !hasOwn(record, canonicalKey)) {
+  const currentPresent = hasOwn(record, currentKey);
+  const canonicalPresent = hasOwn(record, canonicalKey);
+  if (!currentPresent && !canonicalPresent) {
     throw new AmbiguousModifyPositionOutcomeError(
       `Modify Position acknowledgement is missing ${currentKey}/${canonicalKey}.`,
       200,
@@ -122,8 +133,11 @@ const parseEcho = (
 
   const current = record[currentKey];
   const canonical = record[canonicalKey];
-  if (submitted === 0) {
-    if (current !== null || canonical !== null) {
+  if (submitted === 0 || submitted === null) {
+    if (
+      (currentPresent && current !== null) ||
+      (canonicalPresent && canonical !== null)
+    ) {
       throw new AmbiguousModifyPositionOutcomeError(
         `Modify Position clear acknowledgement has an impossible ${currentKey}/${canonicalKey} echo.`,
         200,
@@ -133,15 +147,17 @@ const parseEcho = (
   }
 
   if (
-    typeof current !== 'number' ||
-    !Number.isFinite(current) ||
-    current <= 0 ||
-    typeof canonical !== 'number' ||
-    !Number.isFinite(canonical) ||
-    canonical <= 0 ||
-    current !== submitted ||
-    canonical !== submitted ||
-    current !== canonical
+    (currentPresent && (
+      typeof current !== 'number' ||
+      !Number.isFinite(current) ||
+      current !== submitted
+    )) ||
+    (canonicalPresent && (
+      typeof canonical !== 'number' ||
+      !Number.isFinite(canonical) ||
+      canonical !== submitted
+    )) ||
+    (currentPresent && canonicalPresent && current !== canonical)
   ) {
     throw new AmbiguousModifyPositionOutcomeError(
       `Modify Position acknowledgement does not exactly echo ${currentKey}/${canonicalKey}.`,
@@ -149,7 +165,7 @@ const parseEcho = (
     );
   }
 
-  return current;
+  return submitted;
 };
 
 export const parseModifyPositionAck = (
@@ -173,10 +189,6 @@ export const parseModifyPositionAck = (
     'symbol',
     'status',
     'time',
-    'sl',
-    'price_sl',
-    'tp',
-    'price_tp',
   ] as const;
   if (requiredKeys.some((key) => !hasOwn(record, key))) {
     throw new AmbiguousModifyPositionOutcomeError(
@@ -227,17 +239,19 @@ export const parseModifyPositionAck = (
     );
   }
 
-  const sl = parseEcho(record, 'sl', 'price_sl', request.price_sl);
-  const tp = parseEcho(record, 'tp', 'price_tp', request.price_tp);
+  const sl = hasOwn(request as unknown as Record<string, unknown>, 'price_sl')
+    ? parseEcho(record, 'sl', 'price_sl', request.price_sl ?? null)
+    : undefined;
+  const tp = hasOwn(request as unknown as Record<string, unknown>, 'price_tp')
+    ? parseEcho(record, 'tp', 'price_tp', request.price_tp ?? null)
+    : undefined;
   return Object.freeze({
     ticket: record.ticket,
     symbol: record.symbol as string,
     status: 'modified',
     time: record.time,
-    sl,
-    price_sl: sl,
-    tp,
-    price_tp: tp,
+    ...(sl !== undefined ? { sl, price_sl: sl } : {}),
+    ...(tp !== undefined ? { tp, price_tp: tp } : {}),
   });
 };
 

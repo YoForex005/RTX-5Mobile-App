@@ -21,6 +21,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePositionsState } from '../../state/positionsState';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { positionsApi } from '../../api/positions';
 import { appQueryClient } from '../../state/providers/AppProviders';
@@ -67,7 +68,7 @@ export function BulkOperationScreen() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [statusError, setStatusError] = useState(false);
   const runningRef = useRef(false);
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const T = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);

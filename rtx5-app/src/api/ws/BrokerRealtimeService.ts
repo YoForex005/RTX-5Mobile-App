@@ -5,9 +5,13 @@ import { usePositionsState } from '../../state/positionsState';
 import { appQueryClient } from '../../state/providers/AppProviders';
 import {
   captureActiveBrokerSession,
+  captureActiveBrokerSessionOwnerStamp,
   getActiveBrokerSessionIdentity,
   isActiveBrokerSessionCurrent,
+  isActiveBrokerSessionOwnerStampCurrent,
+  subscribeActiveBrokerSession,
   type ActiveBrokerSessionIdentity,
+  type ActiveBrokerSessionOwnerStamp,
 } from '../../state/activeBrokerSession';
 import { isSocketAuthenticationFailure } from './socketClosePolicy';
 import { payloadMatchesSocketIdentity } from './socketPayloadIdentity';
@@ -27,6 +31,13 @@ import {
 } from '../../features/trade/modifyPositionCoordinator';
 import { hasProtectedPositionsMutation } from '../../state/positionsMutationBarrier';
 import { isTerminalPositionUpdate } from '../../state/positionsState.helpers';
+import {
+  recordProtectionTriggeredJournalEvent,
+} from '../../state/terminalJournalState';
+import {
+  normalizeProtectionTriggeredEvent,
+  type NormalizedProtectionTriggeredEvent,
+} from './protectionTriggeredEvent';
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 15000;
@@ -35,7 +46,15 @@ const POSITIONS_RECONCILE_COOLDOWN_MS = 5_000;
 const AUTH_SESSION_UNAVAILABLE_PATTERN =
   /No authenticated broker session available|Refresh token invalid or expired|No refresh token available/i;
 const ACTIVE_TRADE_CHANNELS = ['positions', 'metrics'] as const;
-const LIFECYCLE_CACHE_KEYS = ['accountSummary'] as const;
+const LIFECYCLE_CACHE_KEYS = [
+  'accountSummary',
+  'positionHistory',
+  'deals',
+  'accountDeals',
+  'ordersByLogin',
+  'accountOrders',
+] as const;
+const TERMINAL_EVENT_DEDUPE_LIMIT = 500;
 
 export const buildBrokerRealtimeSubscriptionMessages = (
   accountLogin: string | number,
@@ -126,6 +145,20 @@ const sameIdentity = (
   left.sessionEpoch === right.sessionEpoch,
 );
 
+const sameOwnerStamp = (
+  left: ActiveBrokerSessionOwnerStamp | null,
+  right: ActiveBrokerSessionOwnerStamp,
+): boolean => Boolean(
+  left &&
+  left.brokerId === right.brokerId &&
+  left.accountLogin === right.accountLogin &&
+  left.apiBase === right.apiBase &&
+  left.cacheNamespace === right.cacheNamespace &&
+  left.sessionEpoch === right.sessionEpoch &&
+  left.credentialGeneration === right.credentialGeneration &&
+  left.credentialIdentity === right.credentialIdentity,
+);
+
 class BrokerRealtimeService {
   private static instance: BrokerRealtimeService | null = null;
   private ws: WebSocket | null = null;
@@ -137,12 +170,33 @@ class BrokerRealtimeService {
   private isSuspended = AppState.currentState !== 'active';
   private isOpening = false;
   private activeIdentity: ActiveBrokerSessionIdentity | null = null;
+  private activeOwnerStamp: ActiveBrokerSessionOwnerStamp | null = null;
   private activeChannels: string[] = [];
   private connectedAt = 0;
   private acceptedPayloadCount = 0;
   private positionsReconcileTimer: ReturnType<typeof setTimeout> | null = null;
+  private positionsReconcileSocket: WebSocket | null = null;
   private positionsReconcileIdentity: ActiveBrokerSessionIdentity | null = null;
+  private positionsReconcileOwnerStamp: ActiveBrokerSessionOwnerStamp | null = null;
   private lastPositionsReconcileAt = 0;
+  private readonly processedTerminalEvents = new Set<string>();
+
+  private constructor() {
+    subscribeActiveBrokerSession((event) => {
+      if (event.type !== 'credentials_updated' || !event.activeSession) {
+        return;
+      }
+      const identity = getActiveBrokerSessionIdentity(event.activeSession);
+      if (!isActiveBrokerSessionCurrent(identity)) {
+        return;
+      }
+      // A credential rotation must not leave the trade socket authenticated
+      // with the superseded token.
+      if (this.shouldReconnect) {
+        this.reconnect();
+      }
+    });
+  }
 
   static getInstance(): BrokerRealtimeService {
     if (!BrokerRealtimeService.instance) {
@@ -235,7 +289,16 @@ class BrokerRealtimeService {
     try {
       const wsUrl = await brokerApi.getWebSocketUrl();
       this.isOpening = false;
-      if (this.isSuspended || !this.shouldReconnect || !isActiveBrokerSessionCurrent(identity)) {
+      const ownerStamp = captureActiveBrokerSessionOwnerStamp();
+      if (
+        this.isSuspended ||
+        !this.shouldReconnect ||
+        !ownerStamp ||
+        !isActiveBrokerSessionCurrent(identity) ||
+        ownerStamp.brokerId !== identity.brokerId ||
+        ownerStamp.accountLogin !== identity.accountLogin ||
+        ownerStamp.sessionEpoch !== identity.sessionEpoch
+      ) {
         const current = this.resolveIdentity();
         if (this.shouldReconnect && current) void this.open(current);
         return;
@@ -243,9 +306,14 @@ class BrokerRealtimeService {
       const socket = new WebSocket(wsUrl);
       this.ws = socket;
       this.activeIdentity = identity;
+      this.activeOwnerStamp = ownerStamp;
 
       socket.onopen = () => {
-        if (this.ws !== socket || !isActiveBrokerSessionCurrent(identity)) {
+        if (
+          this.ws !== socket ||
+          !isActiveBrokerSessionCurrent(identity) ||
+          !isActiveBrokerSessionOwnerStampCurrent(ownerStamp)
+        ) {
           socket.close();
           return;
         }
@@ -255,10 +323,16 @@ class BrokerRealtimeService {
         this.startHeartbeat(identity);
         this.startStableConnectionTimer(socket, identity);
         this.subscribe(identity);
+        this.schedulePositionsReconciliation(identity);
+        this.invalidateLifecycleQueryRoots(identity);
       };
 
       socket.onmessage = (event) => {
-        if (this.ws !== socket || !isActiveBrokerSessionCurrent(identity)) return;
+        if (
+          this.ws !== socket ||
+          !isActiveBrokerSessionCurrent(identity) ||
+          !isActiveBrokerSessionOwnerStampCurrent(ownerStamp)
+        ) return;
         try {
           const accepted = this.handleMessage(JSON.parse(event.data as string), identity);
           if (accepted) {
@@ -286,6 +360,7 @@ class BrokerRealtimeService {
         this.clearStableConnectionTimer();
         this.ws = null;
         this.activeIdentity = null;
+        this.activeOwnerStamp = null;
         this.connectedAt = 0;
         this.acceptedPayloadCount = 0;
         if (isSocketAuthenticationFailure(event?.code)) {
@@ -379,6 +454,11 @@ class BrokerRealtimeService {
       return false;
     }
 
+    const protectionTriggered = normalizeProtectionTriggeredEvent(record, eventName);
+    if (protectionTriggered) {
+      return this.handleProtectionTriggered(protectionTriggered, identity);
+    }
+
     const positions = record.positions ?? record.items ?? record.data;
     if (Array.isArray(positions)) {
       this.applyRealtimePositionsBatch(positions, eventName, identity, record);
@@ -403,6 +483,45 @@ class BrokerRealtimeService {
       ...record,
     }, identity);
     this.invalidateLifecycleQueries(eventName, identity);
+    return true;
+  }
+
+  private handleProtectionTriggered(
+    terminalEvent: NormalizedProtectionTriggeredEvent,
+    identity: ActiveBrokerSessionIdentity,
+  ): boolean {
+    if (!isActiveBrokerSessionCurrent(identity)) {
+      return false;
+    }
+
+    const dedupeKey = [
+      identity.brokerId,
+      identity.accountLogin,
+      identity.sessionEpoch,
+      terminalEvent.eventFingerprint,
+    ].join(':');
+    if (this.processedTerminalEvents.has(dedupeKey)) {
+      return true;
+    }
+    this.processedTerminalEvents.add(dedupeKey);
+    if (this.processedTerminalEvents.size > TERMINAL_EVENT_DEDUPE_LIMIT) {
+      const oldest = this.processedTerminalEvents.values().next().value;
+      if (oldest !== undefined) {
+        this.processedTerminalEvents.delete(oldest);
+      }
+    }
+
+    usePositionsState.getState().finishOptimisticClose(terminalEvent.ticket);
+    notifyModifyPositionSocketHint(
+      [terminalEvent.ticket],
+      identity.accountLogin,
+    );
+    recordProtectionTriggeredJournalEvent(
+      terminalEvent.journalPayload,
+      identity.accountLogin,
+    );
+    this.schedulePositionsReconciliation(identity);
+    this.invalidateLifecycleQueryRoots(identity);
     return true;
   }
 
@@ -469,16 +588,37 @@ class BrokerRealtimeService {
   }
 
   private schedulePositionsReconciliation(identity: ActiveBrokerSessionIdentity): void {
+    const socket = this.ws;
+    const ownerStamp = this.activeOwnerStamp;
+    if (
+      !socket ||
+      !ownerStamp ||
+      !sameIdentity(this.activeIdentity, identity) ||
+      !isActiveBrokerSessionOwnerStampCurrent(ownerStamp)
+    ) {
+      return;
+    }
+
     if (this.positionsReconcileTimer) {
-      if (sameIdentity(this.positionsReconcileIdentity, identity)) {
+      if (
+        this.positionsReconcileSocket === socket &&
+        sameIdentity(this.positionsReconcileIdentity, identity) &&
+        sameOwnerStamp(this.positionsReconcileOwnerStamp, ownerStamp)
+      ) {
         return;
       }
       clearTimeout(this.positionsReconcileTimer);
       this.positionsReconcileTimer = null;
     }
 
-    if (!sameIdentity(this.positionsReconcileIdentity, identity)) {
+    if (
+      this.positionsReconcileSocket !== socket ||
+      !sameIdentity(this.positionsReconcileIdentity, identity) ||
+      !sameOwnerStamp(this.positionsReconcileOwnerStamp, ownerStamp)
+    ) {
+      this.positionsReconcileSocket = socket;
       this.positionsReconcileIdentity = identity;
+      this.positionsReconcileOwnerStamp = ownerStamp;
       this.lastPositionsReconcileAt = 0;
     }
 
@@ -486,15 +626,25 @@ class BrokerRealtimeService {
       0,
       this.lastPositionsReconcileAt + POSITIONS_RECONCILE_COOLDOWN_MS - Date.now(),
     );
-    this.positionsReconcileTimer = setTimeout(() => {
+    const reconcileTimer = setTimeout(() => {
+      if (this.positionsReconcileTimer !== reconcileTimer) {
+        return;
+      }
       this.positionsReconcileTimer = null;
       const currentIdentity = this.resolveIdentity();
       if (
         !currentIdentity ||
+        this.ws !== socket ||
+        this.positionsReconcileSocket !== socket ||
         !sameIdentity(currentIdentity, identity) ||
-        !isActiveBrokerSessionCurrent(identity)
+        !isActiveBrokerSessionCurrent(identity) ||
+        !sameOwnerStamp(this.positionsReconcileOwnerStamp, ownerStamp) ||
+        !sameOwnerStamp(this.activeOwnerStamp, ownerStamp) ||
+        !isActiveBrokerSessionOwnerStampCurrent(ownerStamp)
       ) {
+        this.positionsReconcileSocket = null;
         this.positionsReconcileIdentity = null;
+        this.positionsReconcileOwnerStamp = null;
         this.lastPositionsReconcileAt = 0;
         return;
       }
@@ -506,6 +656,7 @@ class BrokerRealtimeService {
       }
       void usePositionsState.getState().refreshPositions(identity.accountLogin);
     }, delayMs);
+    this.positionsReconcileTimer = reconcileTimer;
   }
 
   private clearPositionsReconcileTimer(resetIdentity = false): void {
@@ -514,7 +665,9 @@ class BrokerRealtimeService {
       this.positionsReconcileTimer = null;
     }
     if (resetIdentity) {
+      this.positionsReconcileSocket = null;
       this.positionsReconcileIdentity = null;
+      this.positionsReconcileOwnerStamp = null;
       this.lastPositionsReconcileAt = 0;
     }
   }
@@ -575,14 +728,28 @@ class BrokerRealtimeService {
       eventName.includes('partial.closed') ||
       eventName.includes('closed') ||
       eventName.includes('filled') ||
-      eventName.includes('rejected');
+      eventName.includes('rejected') ||
+      eventName.includes('sl.triggered') ||
+      eventName.includes('tp.triggered');
 
     if (!shouldInvalidate) {
       return;
     }
 
+    this.invalidateLifecycleQueryRoots(identity);
+  }
+
+  private invalidateLifecycleQueryRoots(
+    identity: ActiveBrokerSessionIdentity,
+  ): void {
     const capture = captureActiveBrokerSession();
-    if (!capture || !isActiveBrokerSessionCurrent(identity)) return;
+    if (
+      !capture ||
+      !sameIdentity(getActiveBrokerSessionIdentity(capture.session), identity) ||
+      !isActiveBrokerSessionCurrent(identity)
+    ) {
+      return;
+    }
     void invalidateSessionQueryRoots(
       appQueryClient,
       capture.session.cacheNamespace,
@@ -628,6 +795,7 @@ class BrokerRealtimeService {
     const socket = this.ws;
     this.ws = null;
     this.activeIdentity = null;
+    this.activeOwnerStamp = null;
     this.connectedAt = 0;
     this.acceptedPayloadCount = 0;
     this.stopHeartbeat();
@@ -646,6 +814,13 @@ class BrokerRealtimeService {
     this.stopHeartbeat();
     this.heartbeatInterval = setInterval(() => {
       if (!isActiveBrokerSessionCurrent(identity)) {
+        this.teardownSocket();
+        return;
+      }
+      if (
+        !this.activeOwnerStamp ||
+        !isActiveBrokerSessionOwnerStampCurrent(this.activeOwnerStamp)
+      ) {
         this.teardownSocket();
         return;
       }
@@ -672,6 +847,10 @@ class BrokerRealtimeService {
         socket.readyState === WebSocket.OPEN &&
         !this.isSuspended &&
         isActiveBrokerSessionCurrent(identity) &&
+        Boolean(
+          this.activeOwnerStamp &&
+          isActiveBrokerSessionOwnerStampCurrent(this.activeOwnerStamp)
+        ) &&
         hasStableConnectionSucceeded({
           connectedAt: this.connectedAt,
           now: Date.now(),

@@ -50,7 +50,7 @@ test('trade position long-press action sheet uses the MT5 plain icon action cont
   assert.match(positionSheetSource, /name="create-outline"[\s\S]*label: t\('Modify position'\)[\s\S]*activateOnPressIn:\s*true/);
   assert.match(
     positionSheetSource,
-    /if \(isExistingPositionModifyBackendLocked\(\)\) \{[\s\S]*Alert\.alert\(t\(SLTP_COMING_SOON_TITLE\), t\(SLTP_COMING_SOON_MESSAGE\)\);[\s\S]*return;[\s\S]*\}[\s\S]*primePositionSnapshot\(item\);[\s\S]*showTradePositionAction\('modify', item\.id\)/,
+    /if \(isExistingPositionModifyBackendLocked\(\)\) \{[\s\S]*Alert\.alert\(t\(SLTP_COMING_SOON_TITLE\), t\(getActiveSltpUnavailableMessage\(\)\)\);[\s\S]*return;[\s\S]*\}[\s\S]*primePositionSnapshot\(item\);[\s\S]*showTradePositionAction\('modify', item\.id\)/,
   );
   assert.match(positionSheetSource, /name="swap-horizontal-outline"[\s\S]*label: t\('Trade'\)/);
   assert.match(positionSheetSource, /name="analytics-outline"[\s\S]*label: t\('Chart'\)/);

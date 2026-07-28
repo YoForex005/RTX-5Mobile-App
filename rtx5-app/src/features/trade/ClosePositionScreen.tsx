@@ -13,6 +13,7 @@ import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View, Platform 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/shallow';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { usePositionsState } from '../../state/positionsState';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { positionsApi } from '../../api/positions';
@@ -109,7 +110,7 @@ export function ClosePositionScreen({
   const themeActive = isScreenFocused;
   const T = useTheme({ active: themeActive });
   const { t } = useTranslation();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const insets = useSafeAreaInsets();
   const screenBg = isDark ? CANVAS_DARK : T.bg;

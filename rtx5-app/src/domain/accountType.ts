@@ -1,106 +1,306 @@
-export type TradingAccountType = 'demo' | 'contest' | 'real';
+export type AccountEnvironment = 'demo' | 'real' | 'contest' | 'unknown';
+export type KnownAccountEnvironment = Exclude<AccountEnvironment, 'unknown'>;
+export type TradingAccountType = KnownAccountEnvironment;
 
-function normalizeAccountGroup(group: string | null | undefined): string {
-  return (group ?? '').trim().toLowerCase();
-}
+export type LotType = 'standard' | 'cent' | 'micro' | 'unknown';
 
-function readRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
-}
+export type AccountEnvironmentSource =
+  | 'backend-explicit'
+  | 'backend-group'
+  | 'demo-registration'
+  | 'initial-fallback'
+  | 'legacy-persisted'
+  | 'unknown';
 
-function readBoolean(value: unknown): boolean | undefined {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') return value === 1 ? true : value === 0 ? false : undefined;
-  if (typeof value !== 'string') return undefined;
+export type BackendAccountEnvironmentSource =
+  | 'backend-explicit'
+  | 'backend-group'
+  | 'unknown';
 
-  const normalized = value.trim().toLowerCase();
-  if (['true', '1', 'yes', 'y'].includes(normalized)) return true;
-  if (['false', '0', 'no', 'n'].includes(normalized)) return false;
-  return undefined;
-}
+export type AccountEnvironmentEvidence = Readonly<{
+  accountType: AccountEnvironment;
+  source: BackendAccountEnvironmentSource;
+}>;
 
-function resolveTypeFromToken(value: unknown): TradingAccountType | undefined {
-  if (typeof value !== 'string') return undefined;
+export type AccountEnvironmentState = Readonly<{
+  accountKey: string;
+  accountType: KnownAccountEnvironment;
+  accountEnvironmentSource: AccountEnvironmentSource;
+  isDemoAccount: boolean;
+}>;
 
-  const normalized = normalizeAccountGroup(value);
+export type MergeAccountEnvironmentInput = Readonly<{
+  accountKey: string;
+  resolved: AccountEnvironment;
+  source: AccountEnvironmentSource;
+  allowInitialFallback?: boolean;
+}>;
 
-  if (normalized.includes('demo')) {
-    return 'demo';
+type UnknownRecord = Record<string, unknown>;
+
+/**
+ * Candidate containers retain the legacy backend-shape priority:
+ * root payload, root.account, root.user, then root.user.account.
+ *
+ * Within each container, textual environment aliases are evaluated in this
+ * explicit order. Unrecognized values (including lot types) do not block the
+ * next alias or container.
+ */
+const ENVIRONMENT_TEXT_ALIASES = [
+  'account_type',
+  'accountType',
+  'type',
+  'kind',
+  'account_kind',
+  'accountKind',
+  'mode',
+] as const;
+
+const DEMO_BOOLEAN_ALIASES = ['is_demo', 'isDemo', 'demo'] as const;
+const CONTEST_BOOLEAN_ALIASES = ['is_contest', 'isContest', 'contest'] as const;
+const ENVIRONMENT_GROUP_ALIASES = ['group', 'Group', 'account_group', 'accountGroup'] as const;
+
+const LOT_TYPE_ALIASES = ['account_type', 'accountType', 'lot_type', 'lotType'] as const;
+
+function readRecord(value: unknown): UnknownRecord | null {
+  try {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? value as UnknownRecord
+      : null;
+  } catch {
+    return null;
   }
+}
 
-  if (normalized.includes('contest') || normalized.includes('competition') || normalized.includes('tournament')) {
+function readField(record: UnknownRecord | null, key: string): unknown {
+  if (!record) return undefined;
+  try {
+    return record[key];
+  } catch {
+    return undefined;
+  }
+}
+
+function readCandidateRecords(payload: unknown): Array<UnknownRecord | null> {
+  const root = readRecord(payload);
+  const account = readRecord(readField(root, 'account'));
+  const user = readRecord(readField(root, 'user'));
+  const nestedUserAccount = readRecord(readField(user, 'account'));
+  return [root, account, user, nestedUserAccount];
+}
+
+function normalizeComparisonText(value: string): string {
+  return value.trim().toLowerCase().replace(/\\/g, '/');
+}
+
+function resolveEnvironmentText(value: unknown): KnownAccountEnvironment | undefined {
+  if (typeof value !== 'string') return undefined;
+
+  const normalized = normalizeComparisonText(value);
+  if (!normalized) return undefined;
+
+  // Preserve the established substring precedence for broker-specific values.
+  if (normalized.includes('demo')) return 'demo';
+  if (
+    normalized.includes('contest')
+    || normalized.includes('competition')
+    || normalized.includes('tournament')
+  ) {
     return 'contest';
   }
-
-  if (normalized.includes('real') || normalized.includes('live')) {
-    return 'real';
-  }
+  if (normalized.includes('real') || normalized.includes('live')) return 'real';
 
   return undefined;
 }
 
-function readFirstType(record: Record<string, unknown> | null, keys: string[]): TradingAccountType | undefined {
-  if (!record) return undefined;
+function resolveLotTypeText(value: unknown): Exclude<LotType, 'unknown'> | undefined {
+  if (typeof value !== 'string') return undefined;
 
-  for (const key of keys) {
-    const type = resolveTypeFromToken(record[key]);
-    if (type) return type;
-  }
+  const normalized = normalizeComparisonText(value);
+  if (!normalized) return undefined;
+
+  const tokens = normalized.split(/[^a-z0-9]+/).filter(Boolean);
+  if (normalized === 'standard' || tokens.includes('standard')) return 'standard';
+  if (normalized === 'cent' || tokens.includes('cent')) return 'cent';
+  if (normalized === 'micro' || tokens.includes('micro')) return 'micro';
 
   return undefined;
 }
 
-export function getTradingAccountType(group: string | null | undefined): TradingAccountType {
-  return resolveTypeFromToken(group) ?? 'real';
+function readFirstTextMatch<T>(
+  records: Array<UnknownRecord | null>,
+  aliases: readonly string[],
+  resolve: (value: unknown) => T | undefined,
+): T | undefined {
+  for (const record of records) {
+    for (const alias of aliases) {
+      const resolved = resolve(readField(record, alias));
+      if (resolved !== undefined) return resolved;
+    }
+  }
+  return undefined;
 }
 
-export function getTradingAccountTypeFromBackend(payload: unknown): TradingAccountType {
-  const root = readRecord(payload);
-  const user = readRecord(root?.user);
-  const account = readRecord(root?.account);
-  const nestedUserAccount = readRecord(user?.account);
-
-  const directKeys = ['account_type', 'accountType', 'account_kind', 'accountKind', 'type', 'kind', 'mode'];
-  const groupKeys = ['group', 'account_group', 'accountGroup'];
-
-  const directType =
-    readFirstType(root, directKeys) ??
-    readFirstType(account, directKeys) ??
-    readFirstType(user, directKeys) ??
-    readFirstType(nestedUserAccount, directKeys);
-  if (directType) return directType;
-
-  const isDemo =
-    readBoolean(root?.is_demo ?? root?.isDemo ?? root?.demo) ??
-    readBoolean(account?.is_demo ?? account?.isDemo ?? account?.demo) ??
-    readBoolean(user?.is_demo ?? user?.isDemo ?? user?.demo) ??
-    readBoolean(nestedUserAccount?.is_demo ?? nestedUserAccount?.isDemo ?? nestedUserAccount?.demo);
-  if (isDemo) return 'demo';
-
-  const isContest =
-    readBoolean(root?.is_contest ?? root?.isContest ?? root?.contest) ??
-    readBoolean(account?.is_contest ?? account?.isContest ?? account?.contest) ??
-    readBoolean(user?.is_contest ?? user?.isContest ?? user?.contest) ??
-    readBoolean(nestedUserAccount?.is_contest ?? nestedUserAccount?.isContest ?? nestedUserAccount?.contest);
-  if (isContest) return 'contest';
-
-  const groupType =
-    readFirstType(root, groupKeys) ??
-    readFirstType(account, groupKeys) ??
-    readFirstType(user, groupKeys) ??
-    readFirstType(nestedUserAccount, groupKeys);
-
-  return groupType ?? 'real';
+function readFirstDemoBoolean(
+  records: Array<UnknownRecord | null>,
+): KnownAccountEnvironment | undefined {
+  for (const record of records) {
+    for (const alias of DEMO_BOOLEAN_ALIASES) {
+      const value = readField(record, alias);
+      // Only JSON booleans are authoritative. String/number truthiness is not.
+      if (typeof value === 'boolean') return value ? 'demo' : 'real';
+    }
+  }
+  return undefined;
 }
 
-export function isDemoTradingAccount(group: string | null | undefined): boolean {
-  return getTradingAccountType(group) === 'demo';
+function readFirstContestBoolean(
+  records: Array<UnknownRecord | null>,
+): KnownAccountEnvironment | undefined {
+  for (const record of records) {
+    for (const alias of CONTEST_BOOLEAN_ALIASES) {
+      const value = readField(record, alias);
+      // `false` means only "not contest"; it does not prove a Real account.
+      if (value === true) return 'contest';
+    }
+  }
+  return undefined;
 }
 
-export function getTradingAccountRibbonLabel(group: string | null | undefined): 'Demo' | 'Real' {
-  return isDemoTradingAccount(group) ? 'Demo' : 'Real';
+/**
+ * Resolves only explicit backend evidence. It never applies a UI fallback.
+ *
+ * Priority:
+ * 1. textual environment aliases;
+ * 2. Demo boolean aliases (`false` is explicit Real);
+ * 3. legacy Contest boolean aliases (`true` only);
+ * 4. group aliases.
+ *
+ * Each phase uses root -> account -> user -> user.account container priority.
+ */
+export function resolveAccountEnvironment(payload: unknown): AccountEnvironment;
+export function resolveAccountEnvironment(
+  payload: unknown,
+  includeEvidence: true,
+): AccountEnvironmentEvidence;
+export function resolveAccountEnvironment(
+  payload: unknown,
+  includeEvidence = false,
+): AccountEnvironment | AccountEnvironmentEvidence {
+  const records = readCandidateRecords(payload);
+  const result = (
+    accountType: AccountEnvironment,
+    source: BackendAccountEnvironmentSource,
+  ): AccountEnvironment | AccountEnvironmentEvidence => (
+    includeEvidence ? Object.freeze({ accountType, source }) : accountType
+  );
+
+  const direct = readFirstTextMatch(records, ENVIRONMENT_TEXT_ALIASES, resolveEnvironmentText);
+  if (direct) return result(direct, 'backend-explicit');
+
+  const demoBoolean = readFirstDemoBoolean(records);
+  if (demoBoolean) return result(demoBoolean, 'backend-explicit');
+
+  const contestBoolean = readFirstContestBoolean(records);
+  if (contestBoolean) return result(contestBoolean, 'backend-explicit');
+
+  const group = readFirstTextMatch(records, ENVIRONMENT_GROUP_ALIASES, resolveEnvironmentText);
+  return group
+    ? result(group, 'backend-group')
+    : result('unknown', 'unknown');
 }
 
-export function getTradingAccountBadgeLabel(group: string | null | undefined): 'Demo' | 'Live' {
-  return isDemoTradingAccount(group) ? 'Demo' : 'Live';
+/**
+ * Returns the first raw server group using the same container and alias order
+ * as environment resolution. The returned value is intentionally not trimmed
+ * or normalized so display/API consumers retain the backend contract value.
+ */
+export function readRawAccountGroup(payload: unknown): string | undefined {
+  const records = readCandidateRecords(payload);
+  for (const record of records) {
+    for (const alias of ENVIRONMENT_GROUP_ALIASES) {
+      const value = readField(record, alias);
+      if (typeof value === 'string' && value.trim()) {
+        return value;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Resolves lot denomination independently from Demo/Real/Contest environment.
+ */
+export function resolveLotType(payload: unknown): LotType {
+  const records = readCandidateRecords(payload);
+  return readFirstTextMatch(records, LOT_TYPE_ALIASES, resolveLotTypeText) ?? 'unknown';
+}
+
+/**
+ * Stable account identity for environment state. Broker identity scopes login
+ * numbers that may repeat across brokers; neither value influences classifying
+ * the account itself.
+ */
+export function buildAccountEnvironmentKey(
+  brokerId: string | null | undefined,
+  accountLogin: string | number | null | undefined,
+): string {
+  const normalizedBrokerId = String(brokerId ?? '').trim().toLowerCase();
+  const normalizedAccountLogin = String(accountLogin ?? '').trim();
+  return `${encodeURIComponent(normalizedBrokerId)}:${encodeURIComponent(normalizedAccountLogin)}`;
+}
+
+function createAccountEnvironmentState(
+  accountKey: string,
+  accountType: KnownAccountEnvironment,
+  accountEnvironmentSource: AccountEnvironmentSource,
+): AccountEnvironmentState {
+  return Object.freeze({
+    accountKey,
+    accountType,
+    accountEnvironmentSource,
+    isDemoAccount: accountType === 'demo',
+  });
+}
+
+/**
+ * Merges fresh evidence for one account without allowing Unknown to erase a
+ * known classification or leak a prior account's classification.
+ */
+export function mergeAccountEnvironment(
+  previous: AccountEnvironmentState | null | undefined,
+  input: MergeAccountEnvironmentInput,
+): AccountEnvironmentState | null {
+  const accountKey = input.accountKey.trim();
+  const isDifferentActiveAccount = Boolean(previous && previous.accountKey !== accountKey);
+
+  // A refresh/result for another account is stale unless the caller explicitly
+  // identifies this operation as initialization of the newly active account.
+  if (isDifferentActiveAccount && !input.allowInitialFallback) {
+    return previous ?? null;
+  }
+
+  // Compatibility fallback is weak initialization evidence. It must never
+  // replace a known value already stored for this exact account.
+  if (
+    previous?.accountKey === accountKey
+    && input.source === 'initial-fallback'
+    && input.resolved === 'real'
+  ) {
+    return previous;
+  }
+
+  if (input.resolved !== 'unknown') {
+    return createAccountEnvironmentState(accountKey, input.resolved, input.source);
+  }
+
+  if (previous?.accountKey === accountKey) {
+    return previous;
+  }
+
+  if (input.allowInitialFallback) {
+    return createAccountEnvironmentState(accountKey, 'real', 'initial-fallback');
+  }
+
+  return null;
 }

@@ -157,11 +157,17 @@ test('chart trade diagnostics log pressed side, payload side, and response side'
 });
 
 test('chart trade button rows use ltr layout so buy and sell touch targets cannot mirror', () => {
-  const source = readSource('src/features/chart/components/ChartTradeButtonsFeature.tsx');
+  const source = readSource('src/features/chart/components/ChartTradeButtonsFeature/styles.ts');
+  const handlerSource = readSource(
+    'src/features/chart/components/ChartTradeButtonsFeature/useTradeHandler.ts',
+  );
 
   assert.match(source, /chartTradeMarketActionRow:\s*\{[\s\S]*?direction:\s*'ltr'/);
   assert.match(source, /tradeControlsRow:\s*\{[\s\S]*?direction:\s*'ltr'/);
-  assert.match(source, /setActiveSide\(null\);[\s\S]*?\}, \[symbol\]\);/);
+  assert.match(
+    handlerSource,
+    /setActiveSide\(null\);[\s\S]*?\}, \[clearQueuedTrades, symbol\]\);/,
+  );
   assert.doesNotMatch(
     source.slice(source.indexOf('actionButtonSlot:'), source.indexOf('actionLotSlot:')),
     /position:\s*'absolute'/,
@@ -410,21 +416,22 @@ test('trade buttons keep the busy visual state on only the pressed side', () => 
   assert.doesNotMatch(ticketSource, /pricePanelActionDisabled \? 0\.5 : 1/);
 });
 
-test('trade feedback modal clearly differentiates buy and sell success popups', () => {
+test('trade feedback uses the branded RTX5 receipt for confirmed buy and sell executions', () => {
   const source = readSource('src/ui/components/TradeFeedbackModal.tsx');
+  const presentation = readSource('src/ui/components/tradeFeedbackPresentation.ts');
 
-  assert.match(source, /const sideLabel = state\.side === 'buy' \? 'BUY' : state\.side === 'sell' \? 'SELL' : '';/);
-  assert.match(source, /const confirmedSuccessTitle = sideLabel && \(!state\.title \|\| state\.title === 'Order Executed'\)[\s\S]*`\$\{sideLabel\} Order Executed`[\s\S]*state\.title \|\| 'Order Executed';/);
-  assert.match(source, /const successTitle = isUnconfirmedSubmission[\s\S]*state\.title \|\| 'Order Submitted'[\s\S]*confirmedSuccessTitle;/);
-  assert.match(source, /const BUY_HEX = '#2563EB';/);
-  assert.match(source, /const SELL_HEX = '#DC2626';/);
-  assert.match(source, /const accent = isSuccess \? \(isBuy \? BUY_HEX : isSell \? SELL_HEX : SUCCESS_HEX\) : ERR_HEX;/);
-  assert.match(source, /\{isSuccess \? successTitle : \(state\.title \|\| 'Order Rejected'\)\}/);
-  assert.match(source, /const successSummaryText = \[state\.symbol, volumeLabel\]\.filter\(Boolean\)\.join\(' - '\);/);
-  assert.match(source, /const executionLabel = sideLabel \? `\$\{sideLabel\} price` : 'Execution price';/);
-  assert.match(source, /tfmStyles\.successSummary[\s\S]*tfmStyles\.executionRow[\s\S]*tfmStyles\.executionPrice/);
-  assert.doesNotMatch(source, /successBadgeLabel|tfmStyles\.detailsGrid|View Position/);
-  assert.doesNotMatch(source, /successful[\s\S]*share the exact same professional Green success theme/);
+  assert.match(source, /const receipt = resolveConfirmedTradeReceipt\(state\)/);
+  assert.match(
+    source,
+    /if \(receipt\)[\s\S]*tfmStyles\.receiptSideTile[\s\S]*tfmStyles\.receiptCopy[\s\S]*tfmStyles\.receiptSymbol[\s\S]*tfmStyles\.receiptVolume[\s\S]*tfmStyles\.receiptDoneButton/,
+  );
+  assert.match(source, /const palette = isDark \? GDark : GLight/);
+  assert.match(
+    presentation,
+    /state\.executionConfirmed !== true[\s\S]*const ticket =[\s\S]*const price =[\s\S]*!ticket[\s\S]*price <= 0[\s\S]*return null/,
+  );
+  assert.doesNotMatch(source, /progressAnim|LinearGradient|headerProgress|headerStrip|compactAccent/);
+  assert.doesNotMatch(source, /tfmStyles\.executionPrice|View Position/);
 });
 
 test('web chart trade buttons keep labels, prices, and payload side aligned', () => {
@@ -462,6 +469,6 @@ test('chart trade rows are remounted by symbol so first trade after symbol switc
   assert.match(handlerSource, /reason: 'shared-tap-lock'/);
   assert.match(sharedLockSource, /CHART_TRADE_TAP_RELEASE_DELAY_MS = 180/);
   assert.match(sharedLockSource, /CHART_TRADE_SHARED_LOCK_STALE_MS = 2_500/);
-  assert.match(handlerSource, /releaseChartTradeButtonSharedLock\(tradeTapLockSideRef\.current\);[\s\S]*?\}, \[symbol\]\);/);
+  assert.match(handlerSource, /releaseChartTradeButtonSharedLock\(tradeTapLockSideRef\.current\);[\s\S]*?\}, \[clearQueuedTrades, symbol\]\);/);
   assert.match(handlerSource, /currentChartSymbol: stateChartSymbol/);
 });

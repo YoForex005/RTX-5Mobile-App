@@ -64,8 +64,6 @@ test('pending order validation matches MT5-style trigger direction rules', () =>
     { orderType: 'Sell Limit', entryPrice: 1.2003 },
     { orderType: 'Buy Stop', entryPrice: 1.2004 },
     { orderType: 'Sell Stop', entryPrice: 1.1999 },
-    { orderType: 'Buy Stop Limit', entryPrice: 1.2004, stopLimitPrice: 1.2001 },
-    { orderType: 'Sell Stop Limit', entryPrice: 1.1998, stopLimitPrice: 1.2001 },
   ];
 
   validCases.forEach((input) => {
@@ -86,7 +84,7 @@ test('pending order validation matches MT5-style trigger direction rules', () =>
   });
 });
 
-test('stable pending order validation adds hysteresis around the live boundary', () => {
+test('pending order validation is strict at the live boundary without an invented distance', () => {
   const sharedInput = {
     orderType: 'Buy Limit' as ChartOrderType,
     entryPrice: 1.2,
@@ -101,7 +99,7 @@ test('stable pending order validation adds hysteresis around the live boundary',
       ask: 1.1999,
       previouslyEnabled: true,
     }),
-    true,
+    false,
   );
 
   assert.equal(
@@ -129,6 +127,25 @@ test('stable pending order validation adds hysteresis around the live boundary',
       previouslyEnabled: true,
     }),
     false,
+  );
+
+  assert.equal(
+    resolveStablePendingChartTradeEnabled({
+      ...sharedInput,
+      ask: 1.2,
+      previouslyEnabled: true,
+    }),
+    false,
+    'equality is rejected',
+  );
+  assert.equal(
+    resolveStablePendingChartTradeEnabled({
+      ...sharedInput,
+      ask: Number.NaN,
+      previouslyEnabled: false,
+    }),
+    false,
+    'a missing quote fails closed',
   );
 });
 

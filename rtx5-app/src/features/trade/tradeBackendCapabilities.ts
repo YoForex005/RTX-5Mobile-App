@@ -1,17 +1,26 @@
 import {
   isPendingChartOrderType,
+  isStopLimitChartOrderType,
   type ChartOrderType,
 } from '../chart/chartTradeOrderUtils';
 import { captureActiveBrokerSession } from '../../state/activeBrokerSession';
+import {
+  getSltpUnavailableMessage,
+  isExistingPositionSltpEnabled,
+  resolveBrokerSltpCapabilities as resolveConfiguredBrokerSltpCapabilities,
+  SLTP_UNAVAILABLE_TITLE,
+  type BrokerSltpCapabilities,
+} from '../../config/brokerSltpCapabilities';
 
-export type BrokerSltpCapabilities = Readonly<{
-  existingPositionModify: boolean;
-  newMarketOrderProtection: boolean;
-  pendingOrderProtection: boolean;
-  dynamicConstraints: boolean;
-  brokerConfirmedModify: boolean;
-  revisionedModify: boolean;
-}>;
+export type { BrokerSltpCapabilities } from '../../config/brokerSltpCapabilities';
+export {
+  BROKER_SLTP_CAPABILITIES,
+  CANONICAL_SLTP_BROKER_IDS,
+  NO_BROKER_SLTP_CAPABILITIES,
+  canonicalBrokerId,
+  getSltpUnavailableMessage,
+  isExistingPositionSltpEnabled,
+} from '../../config/brokerSltpCapabilities';
 
 export type TradeBackendCapabilities = Readonly<{
   pendingOrders: boolean;
@@ -21,67 +30,20 @@ export type TradeBackendCapabilities = Readonly<{
 export type TradeBackendCapabilityEnvironment = Readonly<{
   EXPO_PUBLIC_PENDING_ORDERS_API_READY?: string;
   /**
-   * JSON object keyed by normalized broker ID. Example:
-   * {"gta":{"existingPositionModify":true}}
-   *
-   * Every omitted broker/capability remains false. A global combined SL/TP
-   * switch is intentionally unsupported.
+   * Retained only so an older build environment remains type-compatible.
+   * Runtime SL/TP activation from a public environment variable is
+   * intentionally unsupported and this value is ignored.
    */
   EXPO_PUBLIC_BROKER_SLTP_CAPABILITIES?: string;
 }>;
 
-const LOCKED_SLTP_CAPABILITIES: BrokerSltpCapabilities = Object.freeze({
-  existingPositionModify: false,
-  newMarketOrderProtection: false,
-  pendingOrderProtection: false,
-  dynamicConstraints: false,
-  brokerConfirmedModify: false,
-  revisionedModify: false,
-});
-
 const isExplicitlyEnabled = (value: string | undefined): boolean =>
   value?.trim().toLowerCase() === 'true';
 
-const normalizeBrokerId = (value: string | undefined | null): string =>
-  String(value ?? '').trim().toLowerCase();
-
-const parseBrokerCapabilityMap = (
-  value: string | undefined,
-): Record<string, unknown> => {
-  if (!value?.trim()) return {};
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : {};
-  } catch {
-    return {};
-  }
-};
-
 export const resolveBrokerSltpCapabilities = (
-  environment: TradeBackendCapabilityEnvironment,
+  _environment: TradeBackendCapabilityEnvironment,
   brokerId: string | undefined | null,
-): BrokerSltpCapabilities => {
-  const normalizedBrokerId = normalizeBrokerId(brokerId);
-  if (!normalizedBrokerId) return LOCKED_SLTP_CAPABILITIES;
-  const brokerConfig = parseBrokerCapabilityMap(
-    environment.EXPO_PUBLIC_BROKER_SLTP_CAPABILITIES,
-  )[normalizedBrokerId];
-  if (!brokerConfig || typeof brokerConfig !== 'object' || Array.isArray(brokerConfig)) {
-    return LOCKED_SLTP_CAPABILITIES;
-  }
-  const source = brokerConfig as Record<string, unknown>;
-  const enabled = (key: keyof BrokerSltpCapabilities) => source[key] === true;
-  return Object.freeze({
-    existingPositionModify: enabled('existingPositionModify'),
-    newMarketOrderProtection: enabled('newMarketOrderProtection'),
-    pendingOrderProtection: enabled('pendingOrderProtection'),
-    dynamicConstraints: enabled('dynamicConstraints'),
-    brokerConfirmedModify: enabled('brokerConfirmedModify'),
-    revisionedModify: enabled('revisionedModify'),
-  });
-};
+): BrokerSltpCapabilities => resolveConfiguredBrokerSltpCapabilities(brokerId);
 
 export const resolveTradeBackendCapabilities = (
   environment: TradeBackendCapabilityEnvironment,
@@ -94,8 +56,6 @@ export const resolveTradeBackendCapabilities = (
 const ACTIVE_CAPABILITY_ENVIRONMENT: TradeBackendCapabilityEnvironment = Object.freeze({
   EXPO_PUBLIC_PENDING_ORDERS_API_READY:
     process.env.EXPO_PUBLIC_PENDING_ORDERS_API_READY,
-  EXPO_PUBLIC_BROKER_SLTP_CAPABILITIES:
-    process.env.EXPO_PUBLIC_BROKER_SLTP_CAPABILITIES,
 });
 
 export const getActiveTradeBackendCapabilities = (): TradeBackendCapabilities =>
@@ -107,11 +67,14 @@ export const getActiveTradeBackendCapabilities = (): TradeBackendCapabilities =>
 export const isPendingOrderTypeBackendLocked = (
   orderType: ChartOrderType,
   capabilities: TradeBackendCapabilities = getActiveTradeBackendCapabilities(),
-): boolean => isPendingChartOrderType(orderType) && !capabilities.pendingOrders;
+): boolean => (
+  isStopLimitChartOrderType(orderType) ||
+  (isPendingChartOrderType(orderType) && !capabilities.pendingOrders)
+);
 
 export const isExistingPositionModifyBackendLocked = (
   capabilities: TradeBackendCapabilities = getActiveTradeBackendCapabilities(),
-): boolean => !capabilities.sltp.existingPositionModify;
+): boolean => !isExistingPositionSltpEnabled(capabilities.sltp);
 
 export const isNewMarketOrderProtectionBackendLocked = (
   capabilities: TradeBackendCapabilities = getActiveTradeBackendCapabilities(),
@@ -125,14 +88,30 @@ export const isDynamicSltpConstraintsBackendLocked = (
   capabilities: TradeBackendCapabilities = getActiveTradeBackendCapabilities(),
 ): boolean => !capabilities.sltp.dynamicConstraints;
 
+export const isTrailingStopBackendLocked = (
+  capabilities: TradeBackendCapabilities = getActiveTradeBackendCapabilities(),
+): boolean => !capabilities.sltp.trailingStop;
+
+export const isVenueBrokerConfirmationBackendLocked = (
+  capabilities: TradeBackendCapabilities = getActiveTradeBackendCapabilities(),
+): boolean => !capabilities.sltp.venueBrokerConfirmation;
+
+/** @deprecated Venue confirmation is independent from RTX5 persistence. */
 export const isBrokerConfirmedModifyBackendLocked = (
   capabilities: TradeBackendCapabilities = getActiveTradeBackendCapabilities(),
-): boolean => !capabilities.sltp.brokerConfirmedModify;
+): boolean => isVenueBrokerConfirmationBackendLocked(capabilities);
 
 export const isRevisionedModifyBackendLocked = (
   capabilities: TradeBackendCapabilities = getActiveTradeBackendCapabilities(),
-): boolean => !capabilities.sltp.revisionedModify;
+): boolean => !capabilities.sltp.revisionIdempotencySafety;
 
-export const SLTP_COMING_SOON_TITLE = 'Coming Soon';
+export const getActiveSltpUnavailableMessage = (): string =>
+  getSltpUnavailableMessage(
+    captureActiveBrokerSession()?.session.brokerId,
+  );
+
+/** @deprecated Prefer SLTP_UNAVAILABLE_TITLE. */
+export const SLTP_COMING_SOON_TITLE = SLTP_UNAVAILABLE_TITLE;
+/** @deprecated Prefer getActiveSltpUnavailableMessage(). */
 export const SLTP_COMING_SOON_MESSAGE =
-  'This SL/TP capability is unavailable for the active broker.';
+  getSltpUnavailableMessage(null);

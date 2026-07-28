@@ -35,6 +35,7 @@ type ChartTradeInlineInputVisibilityInput = {
 type ChartTradePreviewVisibilityInput = {
   showChartTradeSheet: boolean;
   chartTradeSheetMode: 'hidden' | 'collapsed' | 'expanded';
+  directProtectionActive?: boolean;
 };
 
 type ChartTradeSheetHeaderVisibilityInput = {
@@ -220,8 +221,12 @@ export function shouldHideChartTabBarForTradeInput({
 export function shouldShowChartTradePreviewOnChart({
   showChartTradeSheet,
   chartTradeSheetMode,
+  directProtectionActive = false,
 }: ChartTradePreviewVisibilityInput) {
-  return showChartTradeSheet && chartTradeSheetMode === 'collapsed';
+  return directProtectionActive || (
+    showChartTradeSheet &&
+    chartTradeSheetMode === 'collapsed'
+  );
 }
 
 export function shouldSuppressChartTapMenu({

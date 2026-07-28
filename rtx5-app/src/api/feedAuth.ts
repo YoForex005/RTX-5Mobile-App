@@ -37,6 +37,13 @@ const cleanString = (value: unknown): string => {
   return String(value).trim();
 };
 
+/**
+ * Feed credentials are opaque. Whitespace is used only to decide whether the
+ * value is empty; a valid string is retained byte-for-byte for URL encoding.
+ */
+export const preserveNonBlankFeedToken = (value: unknown): string =>
+  typeof value === 'string' && value.trim() ? value : '';
+
 const firstConfiguredValue = (values: readonly unknown[]): string => {
   for (const value of values) {
     const cleaned = cleanString(value);
@@ -63,7 +70,7 @@ export const extractFeedBrokerToken = (payload: unknown): string => {
 
   for (const record of records) {
     for (const key of FEED_TOKEN_RESPONSE_KEYS) {
-      const token = cleanString(record[key]);
+      const token = preserveNonBlankFeedToken(record[key]);
       if (token) {
         return token;
       }
@@ -74,15 +81,13 @@ export const extractFeedBrokerToken = (payload: unknown): string => {
 };
 
 /**
- * Legacy app-config market-data token (old flow). Prefer login-issued tokens
- * when present; env is a deliberate fallback so MyProp works without backend
- * feed_auth_context yet.
+ * Legacy generic app-config market-data token (old flow). Generic aliases are
+ * unsafe until EXPO_PUBLIC_FEED_BROKER_ID binds them to one exact broker.
  */
 export const resolveConfiguredFeedBrokerToken = (): string =>
   firstConfiguredValue([
     process.env.EXPO_PUBLIC_FEED_BROKER_TOKEN,
     process.env.EXPO_PUBLIC_BROKER_FEED_TOKEN,
-    process.env.EXPO_PUBLIC_MYPROP_FEED_TOKEN,
     process.env.EXPO_PUBLIC_WS_FEED_TOKEN,
     process.env.EXPO_PUBLIC_FEED_TOKEN,
   ]);
@@ -97,10 +102,48 @@ export const resolveConfiguredFeedBrokerId = (): string =>
 const normalizeBrokerId = (value: unknown): string =>
   cleanString(value).toLowerCase();
 
-/** Env token for the active broker (optional broker-id lock). */
+const resolveBrokerSpecificConfiguredFeedToken = (brokerId: string): string => {
+  switch (brokerId) {
+    case 'gta_broker':
+      return firstConfiguredValue([
+        process.env.EXPO_PUBLIC_GTA_FEED_TOKEN,
+        process.env.EXPO_PUBLIC_GROW_TRADING_ACADEMY_FEED_TOKEN,
+      ]);
+    case 'myprop-trade':
+      return firstConfiguredValue([
+        process.env.EXPO_PUBLIC_MYPROP_FEED_TOKEN,
+      ]);
+    default:
+      return '';
+  }
+};
+
+/**
+ * Env token for the active broker. Broker-specific aliases are intrinsically
+ * scoped; generic aliases require an exact broker-id lock and otherwise fail
+ * closed so one broker's credential can never leak into another handshake.
+ */
 export const resolveConfiguredFeedBrokerTokenForBroker = (
   brokerId?: string | null,
 ): string => {
+  const normalizedBrokerId = normalizeBrokerId(brokerId);
+  if (!normalizedBrokerId) {
+    return '';
+  }
+
+  // Achiever production feed credentials must come from the authenticated
+  // backend handoff. EXPO_PUBLIC values ship in the client and must never mask
+  // an absent or malformed Achiever login/refresh contract.
+  if (normalizedBrokerId === 'achiever-financials') {
+    return '';
+  }
+
+  const brokerSpecificToken =
+    resolveBrokerSpecificConfiguredFeedToken(normalizedBrokerId);
+  if (brokerSpecificToken) {
+    return brokerSpecificToken;
+  }
+
   const token = resolveConfiguredFeedBrokerToken();
   if (!token) {
     return '';
@@ -108,10 +151,10 @@ export const resolveConfiguredFeedBrokerTokenForBroker = (
 
   const configuredBrokerId = normalizeBrokerId(resolveConfiguredFeedBrokerId());
   if (!configuredBrokerId) {
-    return token;
+    return '';
   }
 
-  return configuredBrokerId === normalizeBrokerId(brokerId) ? token : '';
+  return configuredBrokerId === normalizedBrokerId ? token : '';
 };
 
 export const appendFeedAuthToWsUrl = (
@@ -120,28 +163,23 @@ export const appendFeedAuthToWsUrl = (
   token: string,
 ): string => {
   const normalizedBrokerId = cleanString(brokerId);
-  const normalizedToken = cleanString(token);
+  const exactToken = preserveNonBlankFeedToken(token);
   if (!baseUrl || !normalizedBrokerId) {
     return baseUrl;
   }
 
-  const queryStart = baseUrl.indexOf('?');
-  const base = queryStart === -1 ? baseUrl : baseUrl.slice(0, queryStart);
-  const query = queryStart === -1 ? '' : baseUrl.slice(queryStart + 1);
-  const params = query
-    .split('&')
-    .map((entry) => entry.trim())
-    .filter((entry) => {
-      if (!entry) return false;
-      const lower = entry.toLowerCase();
-      return !lower.startsWith('broker_id=') && !lower.startsWith('token=');
-    });
-
-  params.push(`broker_id=${encodeURIComponent(normalizedBrokerId)}`);
-  if (normalizedToken) {
-    params.push(`token=${encodeURIComponent(normalizedToken)}`);
+  try {
+    const url = new URL(baseUrl);
+    url.searchParams.set('broker_id', normalizedBrokerId);
+    if (exactToken) {
+      url.searchParams.set('token', exactToken);
+    } else {
+      url.searchParams.delete('token');
+    }
+    return url.toString();
+  } catch {
+    return baseUrl;
   }
-  return `${base}?${params.join('&')}`;
 };
 
 export const redactFeedAuthFromWsUrl = (url: string): string =>

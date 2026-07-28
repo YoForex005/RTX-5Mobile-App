@@ -63,7 +63,14 @@ export const buildPendingOrderLines = (
         lineWidth: 1,
         lineStyle: CHART_LINE_STYLE.Solid,
         axisLabelVisible: false,
-        title: formatTpSlOverlayLabel('tp', order.symbol, entryPrice, tpValue, Number(order.volume)),
+        title: formatTpSlOverlayLabel(
+          'tp',
+          order.symbol,
+          order.side === 'sell' ? 'sell' : 'buy',
+          entryPrice,
+          tpValue,
+          Number(order.volume),
+        ),
         labelPlacement: 'line',
       });
     }
@@ -76,7 +83,14 @@ export const buildPendingOrderLines = (
         lineWidth: 1,
         lineStyle: CHART_LINE_STYLE.Solid,
         axisLabelVisible: false,
-        title: formatTpSlOverlayLabel('sl', order.symbol, entryPrice, slValue, Number(order.volume)),
+        title: formatTpSlOverlayLabel(
+          'sl',
+          order.symbol,
+          order.side === 'sell' ? 'sell' : 'buy',
+          entryPrice,
+          slValue,
+          Number(order.volume),
+        ),
         labelPlacement: 'line',
       });
     }

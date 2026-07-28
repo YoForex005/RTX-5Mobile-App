@@ -31,8 +31,8 @@ import { makeJournalStyles } from './styles';
 import { useNextFrameValue } from '../../../hooks/useNextFrameValue';
 import { useTranslation } from '../../../i18n/useTranslation';
 
-// Prewarm only the Journal readiness latch while hidden. The native SectionList
-// and overlays stay focus-only so the retained sidebar shell remains lightweight.
+// Mount the retained Journal body before it is selected so the first sidebar
+// reveal is complete. Live queries, maintenance and overlays remain focus-only.
 const JOURNAL_BODY_PREWARM_DELAY_MS = 0;
 
 type JournalFilter = 'All' | 'Trades' | 'Accounts' | 'Actions' | 'Errors' | 'Notes';
@@ -202,7 +202,6 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
   const routeBodyReady = useDeferredRouteContentReady(
     isScreenFocused ? 0 : JOURNAL_BODY_PREWARM_DELAY_MS,
   );
-  const focusedBodyReady = isScreenFocused && routeBodyReady;
   const T = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => makeJournalStyles(T), [T]);
@@ -446,7 +445,7 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
         </View>
       </View>
 
-      {focusedBodyReady ? <SectionList
+      {routeBodyReady ? <SectionList
         sections={groups}
         keyExtractor={(item) => item.id}
         renderItem={renderJournalRow}

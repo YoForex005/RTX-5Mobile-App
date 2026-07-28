@@ -8,7 +8,7 @@ const source = () => readFileSync(resolve(process.cwd(), 'src/state/userPreferen
 test('persisted user preferences are normalized before second-launch hydration reaches UI', () => {
   const storeSource = source();
 
-  assert.match(storeSource, /const PREFERENCES_STORAGE_VERSION = 22/);
+  assert.match(storeSource, /const PREFERENCES_STORAGE_VERSION = 23/);
   assert.match(storeSource, /const CHART_DRAWING_RECORDS_STORAGE_KEY = 'rtx5-chart-drawing-records-v1'/);
   assert.match(storeSource, /normalizePersistedUserPreferencesState/);
   assert.match(storeSource, /quoteSymbols: asStringArray\(state\.quoteSymbols\)/);
@@ -34,11 +34,26 @@ test('persisted user preferences are normalized before second-launch hydration r
   assert.match(storeSource, /readChartDrawingRecordsBySymbol\(\)[\s\S]*\.then\(\(storedRecordsBySymbol\) => \{[\s\S]*\.finally\(\(\) => \{[\s\S]*setHasHydrated\(true\)/);
   assert.doesNotMatch(storeSource, /marketNewsSavedIds|setMarketNewsSavedIds|toggleMarketNewsSavedId/);
   assert.match(storeSource, /Boolean\(accountDetails\?\.credentials\?\.accessToken\)/);
+  assert.match(storeSource, /buildAccountEnvironmentKey\(brokerId, accountDetails\.id\)/);
+  assert.match(storeSource, /source: 'legacy-persisted'/);
+  assert.match(storeSource, /allowInitialFallback: true/);
+  assert.match(storeSource, /accountType: state\.accountType/);
+  assert.match(storeSource, /accountEnvironmentSource: state\.accountEnvironmentSource/);
+  assert.match(storeSource, /accountEnvironmentKey: state\.accountEnvironmentKey/);
   assert.match(storeSource, /merge: \(persistedState, currentState\) => \(\{/);
   assert.match(storeSource, /Ignoring invalid persisted preferences/);
   assert.match(storeSource, /let preferenceWriteFlushScheduled = false/);
+  assert.match(storeSource, /let preferenceWriteFlushFallbackTimer: ReturnType<typeof setTimeout> \| null = null/);
   assert.match(storeSource, /function schedulePreferenceWriteFlush\(\) \{[\s\S]*if \(preferenceWriteFlushScheduled\) return;[\s\S]*preferenceWriteFlushScheduled = true;[\s\S]*setTimeout\(flushPendingPreferenceWrites, 0\)/);
-  assert.match(storeSource, /setItem: \(name, value\) => \{[\s\S]*sanitizePreferenceAuthStorageValue\(value\)[\s\S]*pendingPreferenceWrites\.set\([\s\S]*sanitized as StorageValue<PersistedUserPreferencesState>[\s\S]*schedulePreferenceWriteFlush\(\);[\s\S]*\}/);
+  assert.match(storeSource, /preferenceWriteFlushFallbackTimer = setTimeout\(flushPendingPreferenceWrites, 100\)/);
+  assert.match(
+    storeSource,
+    /function flushPendingPreferenceWrites\(\) \{[\s\S]*sanitizePreferenceAuthStorageValue\(value\)[\s\S]*AsyncStorage\.setItem\(name, JSON\.stringify\(sanitized\)\)/,
+  );
+  assert.match(
+    storeSource,
+    /setItem: \(name, value\) => \{\s*pendingPreferenceWrites\.set\(name, value\);\s*schedulePreferenceWriteFlush\(\);\s*\}/,
+  );
 });
 
 test('persisted preferences strip credentials and migrate the legacy blob before hydration', () => {
@@ -69,4 +84,26 @@ test('candidate broker setters cannot rebind an authenticated session', () => {
     storeSource,
     /setBrokerConnection: \(brokerId, serverUrl = '', logoUrl = ''\) =>[\s\S]*if \(state\.isLoggedIn\) \{[\s\S]*return state;/,
   );
+});
+
+test('account environment is account scoped, atomically derived, and cleared on logout', () => {
+  const storeSource = source();
+
+  assert.match(
+    storeSource,
+    /const accountEnvironment = mergeAccountEnvironment\(null,[\s\S]*allowInitialFallback: true/,
+  );
+  assert.match(
+    storeSource,
+    /mergeAccountEnvironmentForAccount: \(accountKey, resolved, source\) =>[\s\S]*accountKey !== currentAccountKey[\s\S]*state\.accountEnvironmentKey !== currentAccountKey[\s\S]*allowInitialFallback: false/,
+  );
+  assert.match(
+    storeSource,
+    /logout: \(\) => \{[\s\S]*accountType: 'unknown'[\s\S]*accountEnvironmentSource: 'unknown'[\s\S]*accountEnvironmentKey: ''[\s\S]*isDemoAccount: false/,
+  );
+  assert.match(
+    storeSource,
+    /isDemoAccount: environment\.isDemoAccount/,
+  );
+  assert.doesNotMatch(storeSource, /setIsDemoAccount/);
 });

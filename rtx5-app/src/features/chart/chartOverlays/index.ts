@@ -18,6 +18,11 @@ export {
   type ChartOverlayCandle,
 } from './types';
 export { normalizeChartOverlaySymbol } from './symbolUtils';
+export {
+  calculatePositionTargetPnl,
+  formatTpSlOverlayLabel,
+  formatTpSlOverlayValueLabel,
+} from './orderHelpers';
 export { buildChartOverlayMarkers, buildChartOverlayPayload } from './buildPayload';
 export {
   buildChartPositionStopDragKey,

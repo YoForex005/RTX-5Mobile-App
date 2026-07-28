@@ -6,9 +6,11 @@ import {
   activateBrokerSession,
   beginActiveBrokerSessionTransition,
   captureActiveBrokerSession,
+  captureActiveBrokerSessionOwnerStamp,
   captureActiveBrokerSessionProvenance,
   getActiveBrokerSessionIdentity,
   isActiveBrokerSessionCurrent,
+  isActiveBrokerSessionOwnerStampCurrent,
   isActiveBrokerSessionProvenanceCurrent,
   subscribeActiveBrokerSession,
   updateActiveBrokerSessionCredentials,
@@ -119,6 +121,75 @@ test('credential refresh can update only the matching active identity', () => {
   beginActiveBrokerSessionTransition();
   assert.equal(updateActiveBrokerSessionCredentials(identity, credentials('stale-write')), false);
   assert.equal(captureActiveBrokerSession(), null);
+});
+
+test('credential refresh replaces feed token and context in one generation', () => {
+  const capture = activateBrokerSession(
+    beginActiveBrokerSessionTransition(),
+    sessionInput(),
+    credentials(),
+  );
+  const identity = getActiveBrokerSessionIdentity(capture.session);
+  const previousOwner = captureActiveBrokerSessionOwnerStamp();
+  assert.ok(previousOwner);
+
+  assert.equal(updateActiveBrokerSessionCredentials(
+    identity,
+    {
+      ...credentials('access-new'),
+      feedToken: undefined,
+    },
+    {
+      mode: 'disabled_unconfigured',
+      reason: 'missing_contract',
+    },
+  ), true);
+
+  const current = captureActiveBrokerSession();
+  const currentOwner = captureActiveBrokerSessionOwnerStamp();
+  assert.ok(current);
+  assert.ok(currentOwner);
+  assert.equal(current.credentials.feedToken, undefined);
+  assert.deepEqual(current.session.feedAuthContext, {
+    mode: 'disabled_unconfigured',
+    reason: 'missing_contract',
+  });
+  assert.equal(isActiveBrokerSessionOwnerStampCurrent(previousOwner), false);
+  assert.equal(
+    currentOwner.credentialGeneration,
+    previousOwner.credentialGeneration + 1,
+  );
+});
+
+test('strong owner stamps include endpoint and invalidate on credential rotation', () => {
+  const capture = activateBrokerSession(
+    beginActiveBrokerSessionTransition(),
+    sessionInput(),
+    credentials(),
+  );
+  const identity = getActiveBrokerSessionIdentity(capture.session);
+  const firstOwner = captureActiveBrokerSessionOwnerStamp();
+  const firstProvenance = captureActiveBrokerSessionProvenance();
+  assert.ok(firstOwner);
+  assert.ok(firstProvenance);
+  assert.equal(firstOwner.apiBase, capture.session.apiBase);
+  assert.equal(firstOwner.cacheNamespace, capture.session.cacheNamespace);
+  assert.equal(firstProvenance.apiBase, capture.session.apiBase);
+  assert.equal(firstProvenance.credentialGeneration, firstOwner.credentialGeneration);
+  assert.equal(isActiveBrokerSessionOwnerStampCurrent(firstOwner), true);
+  assert.equal(isActiveBrokerSessionProvenanceCurrent(firstProvenance), true);
+
+  assert.equal(updateActiveBrokerSessionCredentials(identity, credentials('access-new')), true);
+  const rotatedOwner = captureActiveBrokerSessionOwnerStamp();
+  const rotatedProvenance = captureActiveBrokerSessionProvenance();
+  assert.ok(rotatedOwner);
+  assert.ok(rotatedProvenance);
+  assert.equal(isActiveBrokerSessionOwnerStampCurrent(firstOwner), false);
+  assert.equal(isActiveBrokerSessionOwnerStampCurrent(rotatedOwner), true);
+  assert.equal(isActiveBrokerSessionProvenanceCurrent(firstProvenance), false);
+  assert.equal(isActiveBrokerSessionProvenanceCurrent(rotatedProvenance), true);
+  assert.equal(rotatedOwner.credentialGeneration, firstOwner.credentialGeneration + 1);
+  assert.notEqual(rotatedOwner.credentialIdentity, firstOwner.credentialIdentity);
 });
 
 test('subscribers observe invalidation before activation', () => {

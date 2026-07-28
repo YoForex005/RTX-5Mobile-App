@@ -103,8 +103,8 @@ test('ChartScreen reserves React series commits for full reloads and uses the di
   );
   assertSourceContains(
     source,
-    /const readCanonicalCandles = \(\) => liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\)[\s\S]*const paintCanonicalLiveTick = \(\) => \{[\s\S]*updateLiveTick\([\s\S]*liveCandlesEngine\.subscribe\(chartSymbol, chartTimeframe, paintCanonicalLiveTick\)/,
-    'steady live paints must bypass the 400 ms React commit and enter the atomic WebView bridge directly',
+    /const readCanonicalCandles = \(\) => liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\)[\s\S]*const paintCanonicalLiveTick = \(allowUnchangedSnapshot = false\) => \{[\s\S]*updateLiveTick\([\s\S]*paintCanonicalLiveTick\(true\);[\s\S]*liveCandlesEngine\.subscribe\(\s*chartSymbol,\s*chartTimeframe,\s*paintCanonicalLiveTick/,
+    'resume and steady live paints must bypass the 400 ms React commit and enter the atomic WebView bridge directly',
   );
 });
 

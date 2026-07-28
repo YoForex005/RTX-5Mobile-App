@@ -11,10 +11,10 @@ test('order executor never delivers a completion callback to a later broker epoc
 
   assert.match(
     executor,
-    /\.then\(\(data\) => \{\s*if \(!isSessionQueryCacheNamespaceCurrent\(cacheNamespace\)\) return;\s*options\.onSuccess\?\.\(data\);/,
+    /\.then\(\(data\) => \{\s*if \(!isActiveBrokerSessionOwnerStampCurrent\(owner\)\) return;\s*options\.onSuccess\?\.\(data\);/,
   );
   assert.match(
     executor,
-    /\.catch\(\(error\) => \{\s*if \(!isSessionQueryCacheNamespaceCurrent\(cacheNamespace\)\) return;\s*options\.onError\?\.\(error\);/,
+    /\.catch\(\(error\) => \{\s*if \(!isActiveBrokerSessionOwnerStampCurrent\(owner\)\) return;\s*options\.onError\?\.\(error\);/,
   );
 });

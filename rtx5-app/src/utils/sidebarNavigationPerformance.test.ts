@@ -294,13 +294,13 @@ test('trade sidebar route defers position refresh until after route paint', () =
   assert.doesNotMatch(source, /if \(isScreenFocused && resolvedLogin\) \{\s*fetchPositions\(\);/);
 });
 
-test('settings sidebar route defers account-card queries until after route paint', () => {
+test('settings sidebar route renders its complete page while deferring account-card queries', () => {
   const source = readSource('src/features/settings/SettingsScreen/SettingsScreen.tsx');
 
   assert.match(source, /import \{ useDeferredActiveFlag \} from '..\/..\/..\/hooks\/useDeferredActiveFlag'/);
   assert.match(source, /const SETTINGS_SCREEN_DATA_DELAY_MS = 8000/);
-  assert.match(source, /const SETTINGS_BODY_PREWARM_DELAY_MS = 1200/);
-  assert.match(source, /const routeBodyReady = useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : SETTINGS_BODY_PREWARM_DELAY_MS,\s*\)/);
+  assert.doesNotMatch(source, /SETTINGS_BODY_PREWARM_DELAY_MS|routeBodyReady|useDeferredRouteContentReady/);
+  assert.match(source, /<ScrollView[\s\S]*style=\{styles\.container\}[\s\S]*contentContainerStyle=\{styles\.content\}/);
   assert.match(source, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
   assert.match(source, /requestAnimationFrame\(markReady\)/);
   assert.doesNotMatch(source, /sidebarOpen = useUIState/);
@@ -634,7 +634,7 @@ test('sidebar hosts detail destinations directly and shares the fast primary-tab
   }
 });
 
-test('sidebar detail screens retain immediate headers without mounting hidden native bodies', () => {
+test('sidebar detail screens prewarm complete retained content before their first reveal', () => {
   const destinationFiles = [
     ['src/features/settings/JournalScreen/JournalScreen.tsx', 'JOURNAL_BODY_PREWARM_DELAY_MS', '0'],
     ['src/features/settings/EconomicCalendarScreen/EconomicCalendarScreen.tsx', 'ECON_CALENDAR_BODY_PREWARM_DELAY_MS', '0'],
@@ -646,7 +646,7 @@ test('sidebar detail screens retain immediate headers without mounting hidden na
   for (const [file, prewarmConstant, prewarmDelay] of destinationFiles) {
     const source = readSource(file);
     const headerIndex = source.indexOf('accessibilityLabel="Open menu"');
-    const bodyGateIndex = source.indexOf('focusedBodyReady ?');
+    const bodyGateIndex = source.indexOf('routeBodyReady ?');
 
     assert.match(source, /import \{ useDeferredRouteContentReady \} from/);
     assert.match(source, /const isScreenFocused = useIsFocused\(\)/);
@@ -655,11 +655,11 @@ test('sidebar detail screens retain immediate headers without mounting hidden na
       source,
       new RegExp(`const routeBodyReady = useDeferredRouteContentReady\\(\\s*isScreenFocused \\? 0 : ${prewarmConstant},\\s*\\)`),
     );
-    assert.match(source, /const focusedBodyReady = isScreenFocused && routeBodyReady;/);
+    assert.doesNotMatch(source, /const focusedBodyReady = isScreenFocused && routeBodyReady;/);
     assert.notEqual(headerIndex, -1, `${file} must render its real menu header`);
-    assert.notEqual(bodyGateIndex, -1, `${file} must focus-gate its lower native body`);
+    assert.notEqual(bodyGateIndex, -1, `${file} must retain its complete lower body after prewarm`);
     assert.ok(headerIndex < bodyGateIndex, `${file} must paint the header before heavy body content`);
-    assert.doesNotMatch(source, /\{routeBodyReady \?/);
+    assert.match(source, /\{routeBodyReady \?/);
   }
 
   const journalSource = readSource('src/features/settings/JournalScreen/JournalScreen.tsx');
@@ -669,7 +669,7 @@ test('sidebar detail screens retain immediate headers without mounting hidden na
   const calendarDestinationSource = readSource('src/features/settings/EconomicCalendarScreen/EconomicCalendarScreen.tsx');
   assert.match(
     calendarDestinationSource,
-    /\{focusedBodyReady \? <>[\s\S]*<EconomicEventFiltersSheet[\s\S]*<\/> : <View style=\{styles\.scroll\} \/>\}/,
+    /\{routeBodyReady \? <>[\s\S]*<EconomicEventFiltersSheet[\s\S]*<\/> : <View style=\{styles\.scroll\} \/>\}/,
   );
 
   const accountsSource = readSource('src/features/settings/AccountsScreen.tsx');

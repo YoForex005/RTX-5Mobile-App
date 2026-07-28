@@ -21,6 +21,9 @@ const requiredNames = [
   // ("Candle history contract is unconfigured") even when local .env is correct.
   'EXPO_PUBLIC_CANDLE_HISTORY_PATH',
   'EXPO_PUBLIC_CANDLE_HISTORY_QUERY_STYLE',
+  // Broker-scoped SL/TP must never silently return to the locked default in an
+  // OTA bundle just because the selected remote EAS environment omitted it.
+  'EXPO_PUBLIC_BROKER_SLTP_CAPABILITIES',
 ];
 
 const quoteWindowsArg = (value) => {

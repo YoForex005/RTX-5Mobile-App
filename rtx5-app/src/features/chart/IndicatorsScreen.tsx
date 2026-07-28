@@ -12,7 +12,7 @@ import { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
-import { useUserPreferences } from '../../state/userPreferences';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
@@ -82,7 +82,7 @@ const INDICATOR_SECTIONS: IndicatorSection[] = [
 export function IndicatorsScreen() {
   const { t } = useTranslation();
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const insets = useSafeAreaInsets();
   const s = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 

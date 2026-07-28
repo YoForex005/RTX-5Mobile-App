@@ -7,15 +7,15 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { safeRouterBack } from '../../utils/navigation';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useTheme } from '../../ui/theme/useTheme';
-import { useUserPreferences } from '../../state/userPreferences';
 import { useTranslation } from '../../i18n/useTranslation';
 import { ThemeColors } from '../../ui/theme/glass';
 
 export function ChartMenuOrderScreen() {
   const { t } = useTranslation();
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 

@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildFeedHealthBannerModel } from './feedHealthPresentation';
+import {
+  buildFeedHealthBannerModel,
+  resolveCompactFeedStatusLabel,
+} from './feedHealthPresentation';
 import { initialFeedHealthState, reduceFeedHealth } from './feedHealthState';
 
 const identity = { brokerId: 'myprop-trade', accountLogin: '1001', sessionEpoch: 7 } as const;
@@ -122,4 +125,14 @@ test('health_policy_unconfigured never shows the Prices Delayed banner', () => {
   assert.equal(withTick.reasonCategory, 'health_policy_unconfigured');
   assert.equal(banner.visible, false);
   assert.equal(banner.reasonLabel, 'Feed health policy is awaiting approval');
+});
+
+test('compact feed status reports terminal states instead of endless connecting', () => {
+  assert.equal(resolveCompactFeedStatusLabel('disabled_unconfigured', false), 'Unavailable');
+  assert.equal(resolveCompactFeedStatusLabel('disabled_unconfigured', true), 'Unavailable');
+  assert.equal(resolveCompactFeedStatusLabel('auth_failed', false), 'Unavailable');
+  assert.equal(resolveCompactFeedStatusLabel('provider_down', false), 'Unavailable');
+  assert.equal(resolveCompactFeedStatusLabel('market_unavailable', false), 'Unavailable');
+  assert.equal(resolveCompactFeedStatusLabel('connecting', false), 'Connecting...');
+  assert.equal(resolveCompactFeedStatusLabel('healthy', true), 'LIVE');
 });

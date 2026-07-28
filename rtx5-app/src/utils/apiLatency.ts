@@ -74,11 +74,17 @@ function normalizeError(error: unknown): string | undefined {
 export function sanitizeApiLatencyEndpoint(endpoint: string | undefined): string {
   if (!endpoint) return 'unknown';
 
+  const maskAccountLogin = (value: string) =>
+    value.replace(
+      /(\/(?:api\/v\d+\/)?(?:accounts?|positions|orders|deals)\/)[^/?#]+/gi,
+      '$1:login',
+    );
+
   try {
     const parsed = new URL(endpoint);
-    return redactSensitiveString(`${parsed.pathname}${parsed.search}`);
+    return redactSensitiveString(maskAccountLogin(`${parsed.pathname}${parsed.search}`));
   } catch (_error) {
-    return redactSensitiveString(endpoint);
+    return redactSensitiveString(maskAccountLogin(endpoint));
   }
 }
 

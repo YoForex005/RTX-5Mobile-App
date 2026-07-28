@@ -12,6 +12,7 @@ import { filterClosedRecordsByDateRange, resolveEffectiveHistoryDateRange } from
 import { deriveClosedPositionsFromDeals, mergeClosedPositionSources } from './derivedClosedPositions';
 import { resolveTradingLogin } from '../../state/tradingLogin';
 import { useLiveAccountState } from '../../state/liveAccountState';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useUserPreferences } from '../../state/userPreferences';
 import { spacing } from '../../ui/theme/index';
 import { ThemeColors } from '../../ui/theme/glass';
@@ -288,7 +289,7 @@ const CLOSED_PNL_ROW_BATCH = 8;
 const CLOSED_PNL_LOAD_MORE_THRESHOLD_PX = 600;
 
 export function HistoryNetProfitLossScreen() {
-  const isDark = useUserPreferences((state) => state.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const historyRange = useUserPreferences((state) => state.historyRange);
   const historyFromMs = useUserPreferences((state) => state.historyFromMs);
   const historyToMs = useUserPreferences((state) => state.historyToMs);

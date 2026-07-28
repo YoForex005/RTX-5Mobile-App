@@ -185,8 +185,16 @@ const sameIntent = (
   row: Record<string, unknown>,
   request: ModifyPositionRequest,
 ): boolean => (
-  normalizeReconciledProtectionValue(row.price_sl) === request.price_sl &&
-  normalizeReconciledProtectionValue(row.price_tp) === request.price_tp
+  (
+    !Object.prototype.hasOwnProperty.call(request, 'price_sl') ||
+    normalizeReconciledProtectionValue(row.price_sl) ===
+      normalizeReconciledProtectionValue(request.price_sl)
+  ) &&
+  (
+    !Object.prototype.hasOwnProperty.call(request, 'price_tp') ||
+    normalizeReconciledProtectionValue(row.price_tp) ===
+      normalizeReconciledProtectionValue(request.price_tp)
+  )
 );
 
 export class ModifyPositionCoordinatorCore {

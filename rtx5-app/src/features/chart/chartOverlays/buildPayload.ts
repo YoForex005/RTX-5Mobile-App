@@ -25,10 +25,12 @@ import {
 } from './markerCollections';
 import {
   calculateOpenPositionLivePnl,
+  calculatePositionTargetPnl,
   formatOpenPositionOverlayLabel,
   formatPositionVolumeLabel,
   formatSignedUsdOverlayLabel,
   formatTpSlOverlayLabel,
+  formatTpSlOverlayValueLabel,
 } from './orderHelpers';
 import { buildChartPositionStopDragKey } from './positionStopDragKeys';
 import { normalizeChartOverlaySymbol } from './symbolUtils';
@@ -237,14 +239,44 @@ export const buildChartOverlayPayload = ({
     if (showOnChart.slTpLevels) {
       const tpValue = Number(position.tp);
       if (Number.isFinite(tpValue) && tpValue > 0) {
+        const tpProjectedPnl = calculatePositionTargetPnl({
+          symbol: position.symbol,
+          side: position.side,
+          volume: Number(position.volume),
+          entryPrice: parsedPrice,
+          targetPrice: tpValue,
+        }) ?? 0;
+        const tpColor = colors.tradeTpSl || '#089981';
         addUniquePriceLine(priceLines, {
           id: `tp-${position.id}`,
           price: tpValue,
-          color: colors.tradeTpSl || '#089981',
+          color: tpColor,
           lineWidth: 1,
           lineStyle: CHART_LINE_STYLE.Dashed,
           axisLabelVisible: false,
-          title: formatTpSlOverlayLabel('tp', position.symbol, parsedPrice, tpValue, Number(position.volume)),
+          title: formatTpSlOverlayLabel(
+            'tp',
+            position.symbol,
+            position.side,
+            parsedPrice,
+            tpValue,
+            Number(position.volume),
+          ),
+          labelSideText: 'TP',
+          labelValueText: formatTpSlOverlayValueLabel(
+            position.symbol,
+            position.side,
+            parsedPrice,
+            tpValue,
+            Number(position.volume),
+          ),
+          labelSideColor: tpColor,
+          labelValueColor: resolveOpenPositionPnlColor(
+            tpProjectedPnl,
+            position.side,
+            colors,
+            sellColor,
+          ),
           labelPlacement: 'line',
           ...(allowPositionStopDragging
             ? { dragKey: buildChartPositionStopDragKey(position.id, 'tp') }
@@ -254,14 +286,44 @@ export const buildChartOverlayPayload = ({
 
       const slValue = Number(position.sl);
       if (Number.isFinite(slValue) && slValue > 0) {
+        const slProjectedPnl = calculatePositionTargetPnl({
+          symbol: position.symbol,
+          side: position.side,
+          volume: Number(position.volume),
+          entryPrice: parsedPrice,
+          targetPrice: slValue,
+        }) ?? 0;
+        const slColor = colors.tradeStopOut || '#F23645';
         addUniquePriceLine(priceLines, {
           id: `sl-${position.id}`,
           price: slValue,
-          color: colors.tradeStopOut || '#F23645',
+          color: slColor,
           lineWidth: 1,
           lineStyle: CHART_LINE_STYLE.Dashed,
           axisLabelVisible: false,
-          title: formatTpSlOverlayLabel('sl', position.symbol, parsedPrice, slValue, Number(position.volume)),
+          title: formatTpSlOverlayLabel(
+            'sl',
+            position.symbol,
+            position.side,
+            parsedPrice,
+            slValue,
+            Number(position.volume),
+          ),
+          labelSideText: 'SL',
+          labelValueText: formatTpSlOverlayValueLabel(
+            position.symbol,
+            position.side,
+            parsedPrice,
+            slValue,
+            Number(position.volume),
+          ),
+          labelSideColor: slColor,
+          labelValueColor: resolveOpenPositionPnlColor(
+            slProjectedPnl,
+            position.side,
+            colors,
+            sellColor,
+          ),
           labelPlacement: 'line',
           ...(allowPositionStopDragging
             ? { dragKey: buildChartPositionStopDragKey(position.id, 'sl') }

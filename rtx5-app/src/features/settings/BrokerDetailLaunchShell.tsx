@@ -3,6 +3,7 @@ import { memo, useMemo } from 'react';
 import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from '../../i18n/useTranslation';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useUserPreferences } from '../../state/userPreferences';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { useTheme, type ThemeColors } from '../../ui/theme/useTheme';
@@ -41,9 +42,9 @@ export const BrokerDetailLaunchShell = memo(function BrokerDetailLaunchShell({
   const T = useTheme();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const isDark = useUserPreferences((state) => state.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const hasActiveRealAccount = useUserPreferences(
-    (state) => state.isLoggedIn && !state.isDemoAccount,
+    (state) => state.isLoggedIn && state.accountType === 'real',
   );
   const styles = useMemo(
     () => makeStyles(T, isDark, insets.top),

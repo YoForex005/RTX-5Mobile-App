@@ -14,7 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../../ui/components/Screen';
 import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
-import { useUserPreferences } from '../../../state/userPreferences';
+import { useIsDarkTheme } from '../../../state/themeMode';
 import { useUIState } from '../../../state/uiState';
 import { useTheme } from '../../../ui/theme/useTheme';
 import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../../ui/components/sidebarDrawerController';
@@ -42,9 +42,8 @@ import {
 } from './EconomicEventFiltersSheet';
 
 const ECON_CALENDAR_IDLE_PREWARM_DELAY_MS = 6000;
-// Keep readiness warm while hidden, but mount the calendar hero, rows, and
-// filter sheet only on focus. The bounded data-cache prewarm below remains
-// independent of the native body and avoids a network wait on first reveal.
+// Mount the retained calendar body before it is selected so the first sidebar
+// reveal is complete. Live refreshes remain focus-only.
 const ECON_CALENDAR_BODY_PREWARM_DELAY_MS = 0;
 
 /**
@@ -54,9 +53,8 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
   const routeBodyReady = useDeferredRouteContentReady(
     isScreenFocused ? 0 : ECON_CALENDAR_BODY_PREWARM_DELAY_MS,
   );
-  const focusedBodyReady = isScreenFocused && routeBodyReady;
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const styles = useMemo(() => makeEconomicCalendarStyles(T, isDark), [T, isDark]);
   const insets = useSafeAreaInsets();
   const hideActionSheet = useUIState((state) => state.hideActionSheet);
@@ -315,7 +313,7 @@ export const EconomicCalendarScreenInner = React.memo(function EconomicCalendarS
           <View style={{ width: 46 }} />
         </View>
       </View>
-      {focusedBodyReady ? <>
+      {routeBodyReady ? <>
       <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
         <View style={[styles.heroCard, { marginBottom: 0 }]}>
           <View style={styles.heroContent}>

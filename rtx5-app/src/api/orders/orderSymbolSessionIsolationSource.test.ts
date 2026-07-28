@@ -17,8 +17,8 @@ test('order symbol discovery and accepted candidates are scoped to one session e
   assert.doesNotMatch(resolver, /let instrumentCache: string\[] \| null/);
 
   for (const source of [market, pending]) {
-    assert.match(source, /const sessionIdentity = getActiveBrokerSessionIdentity\(sessionCapture\.session\)/);
-    assert.match(source, /isActiveBrokerSessionCurrent\(sessionIdentity\)/);
+    assert.match(source, /const owner = captureActiveBrokerSessionOwnerStamp\(\)/);
+    assert.match(source, /isActiveBrokerSessionOwnerStampCurrent\(owner\)/);
     assert.match(source, /getAcceptedSymbolCacheKey\(cacheNamespace, callerSymbol\)/);
     assert.match(source, /resolveBrokerSymbolFromCache\(callerSymbol, cacheNamespace\)/);
     assert.match(source, /resolveBrokerSymbol\(callerSymbol, cacheNamespace\)/);

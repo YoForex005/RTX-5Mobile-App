@@ -36,12 +36,17 @@ test('inactive route layouts cannot overwrite the chart viewport size', () => {
   );
 });
 
-test('route entry retries kept-alive chart viewport recovery during cold start', () => {
+test('route entry retains the first focused WebView and retries viewport recovery', () => {
   const routeEntryRecoverySource = source.slice(
-    source.indexOf('// The chart WebView is kept alive and can be prewarmed while hidden.'),
+    source.indexOf('// The chart WebView is retained only after its first real focused mount.'),
     source.indexOf('const chartDataActive = chartRuntimeActive'),
   );
 
+  assertSourceContains(
+    source,
+    /const chartSurfaceActivated = useDeferredActiveFlag\(isChartRouteActive, CHART_SURFACE_MOUNT_DELAY_MS\)[\s\S]*const chartSurfaceReady = useLatchedFlag\(chartSurfaceActivated\)/,
+    'the chart WebView must mount on first real focus and remain available for later route returns',
+  );
   assertSourceContains(
     source,
     /const scheduleChartViewportColdStartRecovery = useCallback\(\(\) => \{[\s\S]*requestChartViewportRecovery\(6\)[\s\S]*\[180, 650, 1400, 2600\]\.map\(\(delayMs\) =>[\s\S]*setTimeout\(\(\) => \{[\s\S]*requestChartViewportRecovery\(delayMs >= 1400 \? 4 : 5\)[\s\S]*recoveryTimers\.forEach\(\(timer\) => clearTimeout\(timer\)\)/,
@@ -55,7 +60,7 @@ test('route entry retries kept-alive chart viewport recovery during cold start',
   assert.doesNotMatch(
     routeEntryRecoverySource,
     /chartTapMenuBounds\.width <= 0 \|\| chartTapMenuBounds\.height <= 0/,
-    'route entry recovery must not wait for focused bounds because first app-open prewarm may not emit a new onLayout',
+    'route entry recovery must not wait for focused bounds because a retained surface may not emit a new onLayout',
   );
 });
 

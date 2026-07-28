@@ -52,16 +52,15 @@ test('chart trade confirmations never invent tickets or execution prices', () =>
   assert.doesNotMatch(nativePendingSubmit, /['"]Confirmed['"]|data\.price[^\n]*(?:\?\?|\|\|)\s*chartTradePrice/);
 });
 
-test('order mutation cache inserts require a real ticket and positive backend execution price', () => {
+test('shared order mutation never inserts an execution response into the position ledger', () => {
   const source = readSource('src/query/orders.ts');
-  const guardedInserts = source.match(
-    /canOptimisticallyInsertPosition\(data\)[\s\S]*?&& positionTicket !== null[\s\S]*?&& executionPrice !== null[\s\S]*?&& currentPrice !== null/g,
-  ) ?? [];
 
-  // Shared handlePlaceOrderSuccess owns the insert; mutation/executor both call it.
-  assert.equal(guardedInserts.length, 1);
-  assert.match(source, /handlePlaceOrderSuccess\(queryClient, data, variables, cacheNamespace\)/);
+  assert.doesNotMatch(source, /canOptimisticallyInsertPosition/);
+  assert.doesNotMatch(source, /\.upsertPosition\(/);
+  assert.match(source, /handlePlaceOrderSuccess\([\s\S]*queryClient,[\s\S]*data,[\s\S]*variables,[\s\S]*owner/);
   assert.match(source, /resolveBrokerExecutionEvidence\(data\)/);
+  assert.match(source, /getPositionsForReconciliation\([\s\S]*owner\.accountLogin/);
+  assert.match(source, /applyPositionsSnapshot\(/);
   assert.doesNotMatch(source, /openPrice:\s*data\.price\s*\|\|\s*0/);
   assert.doesNotMatch(source, /currentPrice:\s*data\.price\s*\|\|\s*0/);
 });
@@ -71,10 +70,9 @@ test('order ticket never fabricates a broker fill from a live quote or random id
   const handler = sliceBetween(source, 'const handlePlaceOrder', 'const updateVolume');
 
   assert.match(handler, /resolveBrokerExecutionEvidence\(data\)/);
-  assert.match(
-    handler,
-    /canOptimisticallyInsertPosition &&[\s\S]*executionEvidence\.confirmed[\s\S]*positionTicket !== undefined[\s\S]*executionPrice !== undefined[\s\S]*confirmedCurrentPrice !== undefined/,
-  );
+  assert.doesNotMatch(handler, /canOptimisticallyInsertPosition/);
+  assert.doesNotMatch(handler, /\.upsertPosition\(/);
+  assert.match(handler, /Never append or decorate the local ledger/);
   assert.match(handler, /executionAction === 'closed'[\s\S]*expectedPositionPresence/);
   assert.match(handler, /requiresContentReconciliation = \['increased', 'decreased', 'reversed'\]/);
   assert.match(handler, /syncMarketPosition\([\s\S]*expectedPositionPresence,[\s\S]*requiresContentReconciliation/);
@@ -94,6 +92,7 @@ test('market-order surfaces report accepted responses without fill evidence as u
     'src/features/quotes/SymbolDetailsScreen/SymbolDetailsScreen.tsx',
   );
   const modal = readSource('src/ui/components/TradeFeedbackModal.tsx');
+  const presentation = readSource('src/ui/components/tradeFeedbackPresentation.ts');
 
   for (const source of [orderTicket, chartHandler, symbolDetails]) {
     assert.match(source, /resolveBrokerExecutionEvidence/);
@@ -102,5 +101,15 @@ test('market-order surfaces report accepted responses without fill evidence as u
   }
   assert.match(modal, /state\.executionConfirmed === false/);
   assert.match(modal, /state\.title \|\|/);
-  assert.match(modal, /isUnconfirmedSubmission && state\.message/);
+  assert.match(
+    modal,
+    /const receipt = resolveConfirmedTradeReceipt\(state\)[\s\S]*const isUnconfirmedSubmission = isSuccess && receipt === null[\s\S]*if \(receipt\)/,
+  );
+  assert.match(presentation, /state\.executionConfirmed !== true/);
+  assert.match(presentation, /!ticket[\s\S]*price <= 0[\s\S]*volume <= 0[\s\S]*return null/);
+  assert.match(
+    modal,
+    /name=\{isUnconfirmedSubmission \? 'information-circle' : 'alert-circle'\}[\s\S]*detailedMessage/,
+  );
+  assert.doesNotMatch(modal, /progressAnim|headerProgress/);
 });

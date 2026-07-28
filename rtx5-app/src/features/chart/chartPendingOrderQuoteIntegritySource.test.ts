@@ -51,8 +51,9 @@ test('native chart pending-order completions are bound to the captured broker ep
   assert.match(handler, /const pendingOrderSessionCapture = captureActiveBrokerSession\(\)/);
   assert.match(
     handler,
-    /const pendingOrderSessionIdentity = getActiveBrokerSessionIdentity\([\s\S]*?pendingOrderSessionCapture\.session/,
+    /const pendingOrderSessionProvenance = getActiveBrokerSessionProvenance\([\s\S]*?pendingOrderSessionCapture\.session/,
   );
+  assert.match(handler, /isActiveBrokerSessionProvenanceCurrent\(pendingOrderSessionProvenance\)/);
   assert.match(
     handler,
     /String\(tradingLogin\) !== pendingOrderSessionCapture\.session\.accountLogin/,

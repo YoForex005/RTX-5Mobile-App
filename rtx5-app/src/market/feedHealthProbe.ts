@@ -1,11 +1,14 @@
 import {
   captureActiveBrokerSession,
+  captureActiveBrokerSessionOwnerStamp,
   getActiveBrokerSessionIdentity,
-  isActiveBrokerSessionCurrent,
+  isActiveBrokerSessionOwnerStampCurrent,
   type ActiveBrokerSessionIdentity,
+  type ActiveBrokerSessionOwnerStamp,
   type FeedAuthContext,
 } from '../state/activeBrokerSession';
 import { resolveEffectiveFeedAuthForSession } from '../api/feedAuthContract';
+import { preserveNonBlankFeedToken } from '../api/feedAuth';
 import { timedFetch } from '../utils/apiLatency';
 import { reportFeedServerStatus } from './feedHealthRuntime';
 import type {
@@ -84,7 +87,7 @@ export const buildAuthenticatedFeedStatusUrl = (
   const auth = effective.feedAuthContext;
   const credential = auth.mode === 'query' && auth.credential === 'access_token'
     ? cleanString(input.accessToken)
-    : cleanString(effective.feedToken);
+    : preserveNonBlankFeedToken(effective.feedToken);
   if (auth.mode !== 'query' || !credential) {
     return base;
   }
@@ -213,17 +216,20 @@ let activeProbeController: AbortController | null = null;
 
 /** One bounded foreground/demand probe against the exact active status URL. */
 export const probeActiveFeedHealth = async (
-  expectedIdentity?: ActiveBrokerSessionIdentity,
+  expectedOwner?: ActiveBrokerSessionOwnerStamp,
 ): Promise<boolean> => {
   const capture = captureActiveBrokerSession();
-  if (!capture) return false;
+  const owner = captureActiveBrokerSessionOwnerStamp();
+  if (!capture || !owner) return false;
   const identity = getActiveBrokerSessionIdentity(capture.session);
   if (
-    expectedIdentity &&
+    expectedOwner &&
     (
-      expectedIdentity.brokerId !== identity.brokerId ||
-      expectedIdentity.accountLogin !== identity.accountLogin ||
-      expectedIdentity.sessionEpoch !== identity.sessionEpoch
+      expectedOwner.brokerId !== owner.brokerId ||
+      expectedOwner.accountLogin !== owner.accountLogin ||
+      expectedOwner.sessionEpoch !== owner.sessionEpoch ||
+      expectedOwner.credentialGeneration !== owner.credentialGeneration ||
+      expectedOwner.credentialIdentity !== owner.credentialIdentity
     )
   ) {
     return false;
@@ -264,11 +270,11 @@ export const probeActiveFeedHealth = async (
       source: 'marketHealth',
       timeoutMs: 3_000,
     });
-    if (!response.ok || !isActiveBrokerSessionCurrent(identity)) return false;
+    if (!response.ok || !isActiveBrokerSessionOwnerStampCurrent(owner)) return false;
     const normalized = normalizeConfirmedFeedStatus(await response.json(), Date.now(), {
       credentialPresented,
     });
-    if (!normalized || !isActiveBrokerSessionCurrent(identity)) return false;
+    if (!normalized || !isActiveBrokerSessionOwnerStampCurrent(owner)) return false;
     reportFeedServerStatus(identity, normalized);
     return true;
   } catch {

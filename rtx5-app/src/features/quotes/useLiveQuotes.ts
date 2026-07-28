@@ -7,9 +7,9 @@ import { normalizeQuoteVolume } from '../../utils/quoteVolume';
 import { useTradingState } from '../../state/tradingState';
 import {
   captureActiveBrokerSession,
-  getActiveBrokerSession,
-  getActiveBrokerSessionIdentity,
+  captureActiveBrokerSessionOwnerStamp,
   isActiveBrokerSessionCurrent,
+  isActiveBrokerSessionOwnerStampCurrent,
   subscribeActiveBrokerSession,
 } from '../../state/activeBrokerSession';
 import { redactDiagnosticValue } from '../../utils/securityRedaction';
@@ -46,13 +46,22 @@ const QUOTE_SNAPSHOT_NOTIFICATION_PAUSE_MS = 2_500;
 // Persisting a symbol-only volume cache could leak broker A display data into
 // broker B, so the bounded REST snapshot repair repopulates volume per session.
 const getQuoteCacheNamespace = (): string =>
-  captureActiveBrokerSession()?.session.cacheNamespace ?? '';
+  (() => {
+    const owner = captureActiveBrokerSessionOwnerStamp();
+    return owner
+      ? [
+          owner.cacheNamespace,
+          owner.credentialGeneration,
+          owner.credentialIdentity,
+        ].join(':')
+      : '';
+  })();
 
 const subscribeQuoteCacheNamespace = (listener: () => void): (() => void) =>
   subscribeActiveBrokerSession(() => listener());
 
 const getQuoteCacheNamespaceSnapshot = (): string =>
-  getActiveBrokerSession()?.cacheNamespace ?? '';
+  getQuoteCacheNamespace();
 
 const getServerQuoteCacheNamespaceSnapshot = (): string => '';
 
@@ -457,10 +466,10 @@ const fetchRestQuoteSnapshots = async (
   const requestedKeys = new Set(symbols.flatMap(getSnapshotKeys));
   const symbolsQuery = symbols.map(encodeURIComponent).join(',');
   const sessionCapture = captureActiveBrokerSession();
-  if (!sessionCapture) {
+  const requestOwner = captureActiveBrokerSessionOwnerStamp();
+  if (!sessionCapture || !requestOwner) {
     return;
   }
-  const sessionIdentity = getActiveBrokerSessionIdentity(sessionCapture.session);
 
   const response = await apiClient(`/quotes?symbols=${symbolsQuery}`);
   if (!response.ok) {
@@ -470,7 +479,7 @@ const fetchRestQuoteSnapshots = async (
   const payload = await response.json();
   if (
     requestGeneration !== quoteRuntimeGeneration ||
-    !isActiveBrokerSessionCurrent(sessionIdentity)
+    !isActiveBrokerSessionOwnerStampCurrent(requestOwner)
   ) {
     return;
   }
@@ -543,7 +552,7 @@ const useRestQuoteSnapshotRepair = (
       if (
         cancelled ||
         !capture ||
-        capture.session.cacheNamespace !== cacheNamespace ||
+        getQuoteCacheNamespace() !== cacheNamespace ||
         !isActiveBrokerSessionCurrent(identity)
       ) {
         return;

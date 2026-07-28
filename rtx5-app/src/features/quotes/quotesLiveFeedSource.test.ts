@@ -22,16 +22,30 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(serviceSource, /import \{ brokerApi \} from '..\/..\/brokerApi'/);
   assert.match(
     serviceSource,
-    /private async resolveSocketUrlAsync\(\): Promise<\{[\s\S]*url: string;[\s\S]*identity: ActiveBrokerSessionIdentity;[\s\S]*\}>/,
+    /private async resolveSocketUrlAsync\(\): Promise<\{[\s\S]*url: string;[\s\S]*identity: ActiveBrokerSessionIdentity;[\s\S]*owner: ActiveBrokerSessionOwnerStamp;[\s\S]*\}>/,
   );
   assert.doesNotMatch(serviceSource, /private failedBrokerSocketUrls: Set<string> = new Set\(\)/);
   assert.match(serviceSource, /brokerApi\.getQuoteWebSocketUrl\(\)/);
   assert.match(serviceSource, /private markBrokerSocketUnavailable\(socketUrl: string, reason: string\): boolean/);
   assert.match(serviceSource, /private shouldStayOnBrokerMarketSocket\(socketUrl: string\): boolean/);
   assert.match(serviceSource, /Retrying the selected broker market socket/);
+  assert.match(serviceSource, /isQuoteSocketAuthenticationFailure/);
   assert.match(
     serviceSource,
-    /const capture = captureActiveBrokerSession\(\);[\s\S]*if \(!capture\) \{[\s\S]*this\.pendingBrokerMarketBlockReason = 'logged_out';[\s\S]*throw new Error\('No active broker session is available\.'\)/,
+    /this\.isBrokerMarketAuthFailure\([\s\S]*socketUrl,[\s\S]*event\?\.code,[\s\S]*event\?\.reason,[\s\S]*didOpen,[\s\S]*\)/,
+  );
+  const socketErrorStart = serviceSource.indexOf('socket.onerror = () =>');
+  const socketErrorEnd = serviceSource.indexOf('\n      };', socketErrorStart);
+  assert.notEqual(socketErrorStart, -1);
+  assert.notEqual(socketErrorEnd, -1);
+  const socketErrorSource = serviceSource.slice(socketErrorStart, socketErrorEnd);
+  assert.doesNotMatch(
+    socketErrorSource,
+    /markBrokerSocketUnavailable|teardownSocket|attemptReconnect/,
+  );
+  assert.match(
+    serviceSource,
+    /const capture = captureActiveBrokerSession\(\);[\s\S]*const owner = captureActiveBrokerSessionOwnerStamp\(\);[\s\S]*if \(!capture \|\| !owner\) \{[\s\S]*this\.pendingBrokerMarketBlockReason = 'logged_out';[\s\S]*throw new Error\('No active broker session is available\.'\)/,
   );
   assert.match(serviceSource, /Market data requires a logged-in broker session\. Skipping public feed fallback/);
   assert.match(serviceSource, /redactMarketSocketUrl\(socketUrl\)/);
@@ -41,7 +55,7 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(serviceSource, /buildCandleChannelSubscriptionMessages\('subscribe'/);
   assert.doesNotMatch(serviceSource, /DEFAULT_QUOTES_WS_URL|EXPO_PUBLIC_QUOTES_WS_URL/);
   assert.match(serviceSource, /this\.openResolvedSocket\(resolved\)/);
-  assert.match(serviceSource, /if \(!isActiveBrokerSessionCurrent\(identity\)\)/);
+  assert.match(serviceSource, /isActiveBrokerSessionOwnerStampCurrent\(owner\)/);
   assert.match(
     serviceSource,
     /public acceptNormalizedTick\([\s\S]*evaluateQuoteStreamTick\([\s\S]*this\.lastAcceptedTickBySymbol\.set/,
@@ -97,11 +111,11 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(tickProcessorSource, /bridge\.acceptNormalizedTick\?\.\(raw, normalized\.update, receivedAt\) === false/);
   assert.match(
     liveQuotesSource,
-    /captureActiveBrokerSession,[\s\S]*getActiveBrokerSessionIdentity,[\s\S]*isActiveBrokerSessionCurrent/,
+    /captureActiveBrokerSession,[\s\S]*captureActiveBrokerSessionOwnerStamp,[\s\S]*isActiveBrokerSessionCurrent,[\s\S]*isActiveBrokerSessionOwnerStampCurrent/,
   );
   assert.match(
     queryWebsocketSource,
-    /captureActiveBrokerSession,[\s\S]*getActiveBrokerSessionIdentity,[\s\S]*isActiveBrokerSessionCurrent/,
+    /captureActiveBrokerSession,[\s\S]*captureActiveBrokerSessionOwnerStamp,[\s\S]*getActiveBrokerSessionProvenance,[\s\S]*isActiveBrokerSessionOwnerStampCurrent,[\s\S]*isActiveBrokerSessionProvenanceCurrent/,
   );
   assert.match(queryWebsocketSource, /const activeSession = useActiveBrokerQuerySession\(\)/);
   assert.match(queryWebsocketSource, /scheduledCommitProvenanceRef/);
@@ -113,11 +127,11 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(queryWebsocketSource, /if \(hasRecentDirectSymbolTick\(entry\)\) \{[\s\S]*return;/);
   assert.match(
     queryWebsocketSource,
-    /const sessionCapture = captureActiveBrokerSession\(\);[\s\S]*if \(!sessionCapture\) \{[\s\S]*return;[\s\S]*\}[\s\S]*const sessionIdentity = getActiveBrokerSessionIdentity\(sessionCapture\.session\)/,
+    /const sessionCapture = captureActiveBrokerSession\(\);[\s\S]*if \(!sessionCapture\) \{[\s\S]*return;[\s\S]*\}[\s\S]*const owner = captureActiveBrokerSessionOwnerStamp\(\);[\s\S]*if \(!owner\) \{[\s\S]*return;/,
   );
   assert.match(
     queryWebsocketSource,
-    /if \(!selectedTick\) \{[\s\S]*return;[\s\S]*\}[\s\S]*requestGeneration !== liveQuoteRuntimeGeneration[\s\S]*!isActiveBrokerSessionCurrent\(sessionIdentity\)[\s\S]*hasRecentDirectSymbolTick\(entry\)[\s\S]*publishQuoteTickToSharedStores\(selectedTick\)/,
+    /if \(!selectedTick\) \{[\s\S]*return;[\s\S]*\}[\s\S]*requestGeneration !== liveQuoteRuntimeGeneration[\s\S]*!isActiveBrokerSessionOwnerStampCurrent\(owner\)[\s\S]*hasRecentDirectSymbolTick\(entry\)[\s\S]*publishQuoteTickToSharedStores\(selectedTick\)/,
   );
   assert.match(queryWebsocketSource, /directTickAnchors: Map<LiveSymbolQuoteListener, LiveSymbolDirectTickAnchor>/);
   assert.match(queryWebsocketSource, /const subscribeLiveSymbolRestQuoteFallback = \([\s\S]*getDirectTickAt\?: LiveSymbolDirectTickAnchor/);
@@ -159,9 +173,9 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(liveQuotesSource, /apiClient\(`\/quotes\?symbols=\$\{symbolsQuery\}`\)/);
   assert.match(
     liveQuotesSource,
-    /const sessionCapture = captureActiveBrokerSession\(\);[\s\S]*if \(!sessionCapture\) \{[\s\S]*return;[\s\S]*\}[\s\S]*const sessionIdentity = getActiveBrokerSessionIdentity\(sessionCapture\.session\)/,
+    /const sessionCapture = captureActiveBrokerSession\(\);[\s\S]*const requestOwner = captureActiveBrokerSessionOwnerStamp\(\);[\s\S]*if \(!sessionCapture \|\| !requestOwner\) \{[\s\S]*return;/,
   );
-  assert.match(liveQuotesSource, /!isActiveBrokerSessionCurrent\(sessionIdentity\)/);
+  assert.match(liveQuotesSource, /!isActiveBrokerSessionOwnerStampCurrent\(requestOwner\)/);
   assert.match(liveQuotesSource, /asQuoteSnapshotArray\(payload\)\.forEach/);
   assert.match(liveQuotesSource, /const QUOTE_REST_SNAPSHOT_STALE_MS = 2_000/);
   assert.match(liveQuotesSource, /const needsRestQuoteSnapshot = \(symbol: string, now = Date\.now\(\)\): boolean =>/);
@@ -190,7 +204,10 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(liveQuotesSource, /cancelled \|\| areLiveQuoteSnapshotNotificationsPaused\(\)/);
   // Quote display caches are bound to the immutable session namespace and are
   // memory-only; a symbol-only persisted cache could leak broker A into B.
-  assert.match(liveQuotesSource, /captureActiveBrokerSession\(\)\?\.session\.cacheNamespace/);
+  assert.match(
+    liveQuotesSource,
+    /captureActiveBrokerSessionOwnerStamp\(\)[\s\S]*owner\.cacheNamespace,[\s\S]*owner\.credentialGeneration,[\s\S]*owner\.credentialIdentity/,
+  );
   assert.match(liveQuotesSource, /const scopeQuoteSnapshotKey = \(symbolKey: string\): string =>/);
   assert.doesNotMatch(liveQuotesSource, /AsyncStorage|QUOTE_VOLUME_CACHE_STORAGE_KEY|loadVolumeCache/);
   assert.match(quotesScreenSource, /volumeLabel\(item\.volume \?\? item\.cachedVolume\)/);
@@ -218,6 +235,22 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(quotesScreenSource, /const handleSymbolPressIn = useCallback\([\s\S]*pauseQuoteSheetFeed\(\)/);
   assert.match(quotesScreenSource, /liveUpdatesActive=\{quoteStickyFeedActive\}/);
   assert.match(quotesScreenSource, /<TickCounter[\s\S]*active=\{quoteStickyFeedActive\}[\s\S]*symbols=\{quoteFeedSymbols\}/);
+  assert.match(
+    quotesScreenSource,
+    /<TickCounter[\s\S]*feedHealthStatus=\{scopedFeedHealth\.status\}/,
+  );
+  assert.match(
+    quotesScreenSource,
+    /<QuoteCard[\s\S]*feedHealthStatus=\{scopedFeedHealth\.status\}/,
+  );
+  assert.match(
+    quotesScreenSource,
+    /resolveCompactFeedStatusLabel\(feedHealthStatus, false\)/,
+  );
+  assert.match(
+    quotesScreenSource,
+    /const statusLabel = resolveCompactFeedStatusLabel\(feedHealthStatus, hasFreshFeed\)/,
+  );
   assert.match(quotesScreenSource, /areLiveQuoteSnapshotNotificationsPaused\(\)/);
   assert.doesNotMatch(quotesScreenSource, /quotesActionSheetOpen|quoteSheetTouchPending|quoteSheetInteractionBusy|quoteVisibleFeedActive/);
   assert.doesNotMatch(quotesScreenSource, /const quoteFeedActive\s*=/);
@@ -226,15 +259,34 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(quotesScreenSource, /const QUOTE_SPEED_WINDOW_MS = 1_000/);
   assert.match(quotesScreenSource, /const trackedSymbols = useMemo\([\s\S]*normalizeQuoteSymbolKey/);
   assert.match(quotesScreenSource, /const tickTimesRef = useRef<number\[\]>\(\[\]\)/);
-  assert.match(quotesScreenSource, /tickTimesRef\.current\.push\(ts\)/);
+  assert.match(
+    quotesScreenSource,
+    /advanceQuoteLiveProof\([\s\S]*trackedSymbolSet,[\s\S]*LIVE_SYMBOL_STALE_MS/,
+  );
+  assert.match(
+    quotesScreenSource,
+    /if \(result\.accepted\) \{[\s\S]*tickTimesRef\.current\.push\(result\.state\.lastQualifyingTickAt\)/,
+  );
   assert.match(quotesScreenSource, /quotesWsService\.subscribeToSymbol\(symbol, listener\)/);
   assert.match(quotesScreenSource, /unsubscribers\.forEach\(\(unsubscribe\) => unsubscribe\(\)\)/);
   const tickCounterSource = quotesScreenSource.slice(quotesScreenSource.indexOf('function TickCounter'));
   assert.doesNotMatch(tickCounterSource, /quotesWsService\.addTickListener\(listener\)/);
   assert.doesNotMatch(tickCounterSource, /quotesWsService\.removeTickListener\(listener\)/);
   assert.match(quotesScreenSource, /Date\.now\(\) - QUOTE_SPEED_WINDOW_MS/);
-  assert.match(quotesScreenSource, /setTps\(Math\.max\(0, tickTimesRef\.current\.length\)\)/);
-  assert.match(quotesScreenSource, /const last = lastTickAtRef\.current/);
+  assert.match(
+    quotesScreenSource,
+    /setTps\(hasSustainedFeed \? Math\.max\(0, tickTimesRef\.current\.length\) : 0\)/,
+  );
+  assert.match(quotesScreenSource, /hasFreshSustainedQuoteLiveProof\(/);
+  assert.match(
+    quotesScreenSource,
+    /const quoteLiveProofGenerationKey = useActiveBrokerCredentialScopeKey\(\)/,
+  );
+  assert.match(
+    quotesScreenSource,
+    /generationKey=\{quoteLiveProofGenerationKey\}/,
+  );
+  assert.doesNotMatch(quotesScreenSource, /lastTickAtRef/);
   assert.doesNotMatch(quotesScreenSource, /snapshotTimesRef|latestSnapshotAtRef|visibleUpdateCount/);
   assert.doesNotMatch(quotesScreenSource, /lastSampledStateTicks|stateTickDelta|useTradingState\.getState\(\)\.tickCount/);
   assert.doesNotMatch(quotesScreenSource, /useLiveQuoteSubscription\(liveSymbol, feedActive\)/);

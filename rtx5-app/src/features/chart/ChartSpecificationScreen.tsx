@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { useInstrumentMeta } from '../../query/instruments';
 import { useMarketStatus } from '../../query/marketStatus';
-import { useUserPreferences } from '../../state/userPreferences';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 import { safeRouterBack } from '../../utils/navigation';
@@ -68,7 +68,7 @@ export function ChartSpecificationScreen() {
   }>();
   const { t } = useTranslation();
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const isScreenFocused = useIsFocused();

@@ -9,10 +9,10 @@ const source = readFileSync(
 );
 
 test('server health refresh is demand-driven, policy-derived, and suspended in background', () => {
-  assert.match(source, /private scheduleHealthProbe\(identity: ActiveBrokerSessionIdentity\)/);
+  assert.match(source, /private scheduleHealthProbe\(owner: ActiveBrokerSessionOwnerStamp\)/);
   assert.match(source, /!health\.thresholds/);
   assert.match(source, /health\.thresholds\.serverStatusStaleAfterMs \/ 2/);
   assert.match(source, /if \(!this\.isAppActive\) \{[\s\S]*this\.clearHealthProbeTimer\(\)/);
   assert.match(source, /!this\.hasActiveDemand\(\)/);
-  assert.match(source, /probeActiveFeedHealth\(identity\)/);
+  assert.match(source, /probeActiveFeedHealth\(owner\)/);
 });

@@ -15,6 +15,11 @@
 import { apiClient } from '../apiClient';
 import { placeMarketOrder } from './placeMarketOrder';
 import { placePendingOrder } from './placePendingOrder';
+import {
+  cancelPendingOrder,
+  listPendingOrders,
+  modifyPendingOrder,
+} from './pendingOrders';
 import type { AccountOrder, LoginOrder } from './types';
 
 export type {
@@ -27,6 +32,16 @@ export type {
   PlaceOrderPayload,
   PlaceOrderResponse,
 } from './types';
+export type {
+  ModifyPendingOrderInput,
+  PendingOrderMutationOptions,
+  PendingOrderReadModel,
+  PendingOrderReconciliationResult,
+} from './pendingOrders';
+export {
+  buildModifyPendingOrderRequestBody,
+  normalizePendingOrderDto,
+} from './pendingOrders';
 
 export const ordersApi = {
   /**
@@ -74,4 +89,7 @@ export const ordersApi = {
 
   placeMarketOrder,
   placePendingOrder,
+  listPendingOrders,
+  modifyPendingOrder,
+  cancelPendingOrder,
 };

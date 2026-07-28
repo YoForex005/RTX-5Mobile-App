@@ -16,7 +16,7 @@ test('late quote-socket URL resolution cannot mutate a later broker session', ()
   );
   assert.match(
     source,
-    /catch \(error\) \{[\s\S]*?if \(isActiveBrokerSessionCurrent\(identity\)\) \{[\s\S]*?this\.pendingBrokerMarketBlockReason/,
+    /catch \(error\) \{[\s\S]*?if \(isActiveBrokerSessionOwnerStampCurrent\(owner\)\) \{[\s\S]*?this\.pendingBrokerMarketBlockReason/,
   );
   assert.match(
     source,

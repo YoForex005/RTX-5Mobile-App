@@ -14,9 +14,9 @@ import { useTradingState } from '../state/tradingState';
 import { useUserPreferences } from '../state/userPreferences';
 import {
   captureActiveBrokerSession,
-  getActiveBrokerSessionIdentity,
+  captureActiveBrokerSessionOwnerStamp,
   getActiveBrokerSessionProvenance,
-  isActiveBrokerSessionCurrent,
+  isActiveBrokerSessionOwnerStampCurrent,
   isActiveBrokerSessionProvenanceCurrent,
   type ActiveBrokerSessionProvenance,
 } from '../state/activeBrokerSession';
@@ -27,7 +27,10 @@ import { hasQuotePriceChange } from '../utils/quotePriceChange';
 import { calculateQuoteSpreadPoints } from '../utils/quoteSpread';
 import { resolveBackendQuoteVolume } from '../utils/quoteVolume';
 import { buildRestQuoteTickEvent } from './restQuoteTick';
-import { useActiveBrokerQuerySession } from './authenticatedQueryScope';
+import {
+  useActiveBrokerCredentialScopeKey,
+  useActiveBrokerQuerySession,
+} from './authenticatedQueryScope';
 import { commitQuoteSnapshotIfSessionCurrent } from './quoteCommitProvenance';
 import { MARKET_QUOTE_STALE_AFTER_MS } from '../market/quotePolicy';
 
@@ -208,7 +211,10 @@ const fetchRestQuoteSnapshotForEntry = async (entry: RestQuoteFallbackEntry): Pr
     if (!sessionCapture) {
       return;
     }
-    const sessionIdentity = getActiveBrokerSessionIdentity(sessionCapture.session);
+    const owner = captureActiveBrokerSessionOwnerStamp();
+    if (!owner) {
+      return;
+    }
 
     const response = await apiClient(`/quotes?symbols=${encodeURIComponent(entry.symbol)}`);
     if (!response.ok) {
@@ -235,7 +241,7 @@ const fetchRestQuoteSnapshotForEntry = async (entry: RestQuoteFallbackEntry): Pr
 
     if (
       requestGeneration !== liveQuoteRuntimeGeneration ||
-      !isActiveBrokerSessionCurrent(sessionIdentity) ||
+      !isActiveBrokerSessionOwnerStampCurrent(owner) ||
       entry.listeners.size === 0 ||
       hasRecentDirectSymbolTick(entry)
     ) {
@@ -532,6 +538,7 @@ export function useLiveSymbolQuote(
 ): Partial<QuoteItem> | undefined {
   const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
   const activeSession = useActiveBrokerQuerySession();
+  const credentialScopeKey = useActiveBrokerCredentialScopeKey();
   const isActive = active && isLoggedIn && Boolean(activeSession);
   const safeCommitIntervalMs = Math.max(0, Math.floor(commitIntervalMs));
   const normalizedSymbol = React.useMemo(() => normalizeSymbol(symbol), [symbol]);
@@ -543,7 +550,7 @@ export function useLiveSymbolQuote(
             normalizedSymbol ? useTradingState.getState().quotes[normalizedSymbol] : undefined,
           )
         : undefined,
-    [activeSession?.cacheNamespace, isActive, normalizedSymbol, symbol],
+    [credentialScopeKey, isActive, normalizedSymbol, symbol],
   );
   const [liveQuote, setLiveQuote] = React.useState<Partial<QuoteItem> | undefined>(seedQuote);
   const liveQuoteRef = React.useRef<Partial<QuoteItem> | undefined>(seedQuote);
@@ -633,7 +640,7 @@ export function useLiveSymbolQuote(
       });
       return guardedSnapshot;
     });
-  }, [activeSession, seedQuote]);
+  }, [activeSession, credentialScopeKey, seedQuote]);
 
   useEffect(() => {
     if (!isActive || !activeSession || !normalizedSymbol) {
@@ -682,7 +689,15 @@ export function useLiveSymbolQuote(
       directQuoteTickAtRef.current = 0;
       cancelScheduledCommit();
     };
-  }, [activeSession, cancelScheduledCommit, isActive, normalizedSymbol, scheduleQuoteCommit, symbol]);
+  }, [
+    activeSession,
+    cancelScheduledCommit,
+    credentialScopeKey,
+    isActive,
+    normalizedSymbol,
+    scheduleQuoteCommit,
+    symbol,
+  ]);
 
   return liveQuote;
 }
@@ -704,6 +719,7 @@ export function useLiveSymbolQuotes(
 ): Record<string, Partial<QuoteItem>> {
   const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
   const activeSession = useActiveBrokerQuerySession();
+  const credentialScopeKey = useActiveBrokerCredentialScopeKey();
   const isActive = active && isLoggedIn && Boolean(activeSession);
   const safeCommitIntervalMs = Math.max(0, Math.floor(commitIntervalMs));
   const symbolsKey = JSON.stringify(symbols);
@@ -731,7 +747,7 @@ export function useLiveSymbolQuotes(
     }
     return seed;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSession?.cacheNamespace, isActive, stableKey]);
+  }, [credentialScopeKey, isActive, stableKey]);
 
   const liveQuotesRef = React.useRef<Record<string, Partial<QuoteItem>>>(EMPTY_LIVE_QUOTES);
   const directQuoteTickAtBySymbolRef = React.useRef<Record<string, number>>({});
@@ -850,7 +866,15 @@ export function useLiveSymbolQuotes(
       unsubscribers.forEach((unsubscribe) => unsubscribe());
       cancelScheduledCommit();
     };
-  }, [activeSession, buildSeed, cancelScheduledCommit, isActive, scheduleCommit, stableKey]);
+  }, [
+    activeSession,
+    buildSeed,
+    cancelScheduledCommit,
+    credentialScopeKey,
+    isActive,
+    scheduleCommit,
+    stableKey,
+  ]);
 
   return liveQuotes;
 }

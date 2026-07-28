@@ -52,7 +52,24 @@ export type ActiveBrokerSessionIdentity = Readonly<{
 
 export type ActiveBrokerSessionProvenance = Readonly<{
   identity: ActiveBrokerSessionIdentity;
+  apiBase: string;
   cacheNamespace: string;
+  credentialGeneration: number;
+  credentialIdentity: string;
+}>;
+
+/**
+ * Strong owner stamp for mutations and sockets whose callbacks must also be
+ * invalidated by an in-place credential rotation.
+ */
+export type ActiveBrokerSessionOwnerStamp = Readonly<{
+  brokerId: string;
+  accountLogin: string;
+  apiBase: string;
+  cacheNamespace: string;
+  sessionEpoch: number;
+  credentialGeneration: number;
+  credentialIdentity: string;
 }>;
 
 export type ActiveBrokerSessionCapture = Readonly<{
@@ -89,6 +106,8 @@ let currentEpoch = 0;
 let activeCapture: ActiveBrokerSessionCapture | null = null;
 const listeners = new Set<ActiveBrokerSessionListener>();
 let cacheNamespaceNonceSequence = 0;
+let credentialGeneration = 0;
+let credentialIdentity = '';
 
 /**
  * Epochs intentionally remain small process-local counters for ordering, but
@@ -142,6 +161,14 @@ const normalizeFeedAuthContext = (value: FeedAuthContext): FeedAuthContext => {
   if (value.mode !== 'query' || !['feed_token', 'access_token'].includes(value.credential)) {
     throw new Error('Active broker feed auth mode is invalid.');
   }
+  const params = [
+    value.tokenQueryParam,
+    value.brokerIdQueryParam,
+    value.accountLoginQueryParam,
+  ].filter((param): param is string => Boolean(param));
+  if (new Set(params).size !== params.length) {
+    throw new Error('Active broker feed auth query parameters must be distinct.');
+  }
   return Object.freeze({
     mode: 'query',
     credential: value.credential,
@@ -155,6 +182,27 @@ const normalizeFeedAuthContext = (value: FeedAuthContext): FeedAuthContext => {
   });
 };
 
+const normalizeFeedAuthContextForBroker = (
+  brokerId: string,
+  value: FeedAuthContext,
+): FeedAuthContext => {
+  const normalized = normalizeFeedAuthContext(value);
+  if (
+    brokerId === 'achiever-financials' &&
+    normalized.mode !== 'disabled_unconfigured' &&
+    (
+      normalized.mode !== 'query' ||
+      normalized.credential !== 'feed_token' ||
+      normalized.tokenQueryParam !== 'token' ||
+      normalized.brokerIdQueryParam !== 'broker_id' ||
+      Boolean(normalized.accountLoginQueryParam)
+    )
+  ) {
+    throw new Error('Active Achiever feed auth contract is invalid.');
+  }
+  return normalized;
+};
+
 const normalizeCredentials = (
   credentials: ActiveBrokerCredentials,
 ): ActiveBrokerCredentials => {
@@ -162,7 +210,10 @@ const normalizeCredentials = (
   if (!accessToken) {
     throw new Error('Active broker credentials require an access token.');
   }
-  const feedToken = cleanString(credentials.feedToken);
+  const feedToken =
+    typeof credentials.feedToken === 'string' && credentials.feedToken.trim()
+      ? credentials.feedToken
+      : '';
   return Object.freeze({
     accessToken,
     refreshToken: cleanString(credentials.refreshToken),
@@ -253,7 +304,7 @@ export function activateBrokerSession(
     ...(endpoints.tradeWsBase ? { tradeWsBase: endpoints.tradeWsBase } : {}),
     feedStatusUrl: endpoints.feedStatusUrl,
     servicesDomain: endpoints.servicesDomain,
-    feedAuthContext: normalizeFeedAuthContext(input.feedAuthContext),
+    feedAuthContext: normalizeFeedAuthContextForBroker(brokerId, input.feedAuthContext),
     cacheNamespace: `${brokerId}:${accountLogin}:${cacheNamespaceNonce}:${currentEpoch}`,
     sessionEpoch: currentEpoch,
     configVersion: endpoints.configVersion,
@@ -262,6 +313,8 @@ export function activateBrokerSession(
     session,
     credentials: normalizeCredentials(credentials),
   });
+  credentialGeneration += 1;
+  credentialIdentity = createCacheNamespaceNonce();
   recordMarketDataEvent('session_epoch_changed', {
     phase: 'activated',
     sessionEpoch: currentEpoch,
@@ -307,9 +360,25 @@ export function getActiveBrokerSessionIdentity(
 export function getActiveBrokerSessionProvenance(
   session: ActiveBrokerSession,
 ): ActiveBrokerSessionProvenance {
+  const owner = captureActiveBrokerSessionOwnerStamp();
+  const belongsToCurrentOwner = Boolean(
+    owner &&
+    owner.brokerId === session.brokerId &&
+    owner.accountLogin === session.accountLogin &&
+    owner.apiBase === session.apiBase &&
+    owner.cacheNamespace === session.cacheNamespace &&
+    owner.sessionEpoch === session.sessionEpoch,
+  );
   return Object.freeze({
     identity: getActiveBrokerSessionIdentity(session),
+    apiBase: session.apiBase,
     cacheNamespace: session.cacheNamespace,
+    credentialGeneration: belongsToCurrentOwner
+      ? owner!.credentialGeneration
+      : -1,
+    credentialIdentity: belongsToCurrentOwner
+      ? owner!.credentialIdentity
+      : '',
   });
 }
 
@@ -319,13 +388,46 @@ export function captureActiveBrokerSessionProvenance(): ActiveBrokerSessionProve
     : null;
 }
 
+export function captureActiveBrokerSessionOwnerStamp(): ActiveBrokerSessionOwnerStamp | null {
+  if (!activeCapture || !credentialIdentity || credentialGeneration <= 0) {
+    return null;
+  }
+  return Object.freeze({
+    brokerId: activeCapture.session.brokerId,
+    accountLogin: activeCapture.session.accountLogin,
+    apiBase: activeCapture.session.apiBase,
+    cacheNamespace: activeCapture.session.cacheNamespace,
+    sessionEpoch: activeCapture.session.sessionEpoch,
+    credentialGeneration,
+    credentialIdentity,
+  });
+}
+
+export function isActiveBrokerSessionOwnerStampCurrent(
+  owner: ActiveBrokerSessionOwnerStamp,
+): boolean {
+  return Boolean(
+    activeCapture &&
+    owner.brokerId === activeCapture.session.brokerId &&
+    owner.accountLogin === activeCapture.session.accountLogin &&
+    owner.apiBase === activeCapture.session.apiBase &&
+    owner.cacheNamespace === activeCapture.session.cacheNamespace &&
+    owner.sessionEpoch === activeCapture.session.sessionEpoch &&
+    owner.credentialGeneration === credentialGeneration &&
+    owner.credentialIdentity === credentialIdentity,
+  );
+}
+
 export function isActiveBrokerSessionProvenanceCurrent(
   provenance: ActiveBrokerSessionProvenance,
 ): boolean {
   return Boolean(
     activeCapture &&
+    activeCapture.session.apiBase === provenance.apiBase &&
     activeCapture.session.cacheNamespace === provenance.cacheNamespace &&
-    identityMatches(activeCapture.session, provenance.identity),
+    identityMatches(activeCapture.session, provenance.identity) &&
+    provenance.credentialGeneration === credentialGeneration &&
+    provenance.credentialIdentity === credentialIdentity,
   );
 }
 
@@ -338,14 +440,27 @@ export function isActiveBrokerSessionCurrent(
 export function updateActiveBrokerSessionCredentials(
   identity: ActiveBrokerSessionIdentity,
   credentials: ActiveBrokerCredentials,
+  feedAuthContext?: FeedAuthContext,
 ): boolean {
   if (!activeCapture || !identityMatches(activeCapture.session, identity)) {
     return false;
   }
+  const previousSession = activeCapture.session;
+  const nextSession = feedAuthContext
+    ? Object.freeze({
+        ...previousSession,
+        feedAuthContext: normalizeFeedAuthContextForBroker(
+          previousSession.brokerId,
+          feedAuthContext,
+        ),
+      })
+    : previousSession;
   activeCapture = Object.freeze({
-    session: activeCapture.session,
+    session: nextSession,
     credentials: normalizeCredentials(credentials),
   });
+  credentialGeneration += 1;
+  credentialIdentity = createCacheNamespaceNonce();
   recordMarketDataEvent('refresh_outcome', {
     outcome: 'credentials_committed',
     sessionEpoch: currentEpoch,
@@ -353,8 +468,8 @@ export function updateActiveBrokerSessionCredentials(
   emit(Object.freeze({
     type: 'credentials_updated',
     sessionEpoch: currentEpoch,
-    previousSession: activeCapture.session,
-    activeSession: activeCapture.session,
+    previousSession,
+    activeSession: nextSession,
   }));
   return true;
 }
@@ -373,5 +488,7 @@ export function clearActiveBrokerSession(): ActiveBrokerSessionTransition {
 export function __resetActiveBrokerSessionForTests(): void {
   activeCapture = null;
   currentEpoch = 0;
+  credentialGeneration = 0;
+  credentialIdentity = '';
   listeners.clear();
 }

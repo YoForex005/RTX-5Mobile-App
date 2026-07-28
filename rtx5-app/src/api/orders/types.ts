@@ -79,8 +79,14 @@ export interface PlaceOrderPayload {
   symbol: string;
   side: TradeSide;
   volume: number;
+  /** Canonical market-order protection input. Null/omission means unset. */
+  sl?: number | string | null;
+  /** Canonical market-order protection input. Null/omission means unset. */
+  tp?: number | string | null;
+  /** Local compatibility aliases; the wire builder translates to `sl`/`tp`. */
   price_sl?: number;
   price_tp?: number;
+  fill_mode?: 'return' | 'fok';
   comment?: string;
   trailing_stop?: number;
   trailing_step?: number;
@@ -104,10 +110,16 @@ export type PendingOrderType =
  */
 export interface PlacePendingOrderPayload extends PlaceOrderPayload {
   type: PendingOrderType | string;
-  price?: number;
-  price_open?: number;
+  price?: number | string;
+  price_open?: number | string;
   stopLimitPrice?: number;
   stop_limit_price?: number;
+  /** Canonical pending-order protection inputs. */
+  sl?: number | string | null;
+  tp?: number | string | null;
+  expiry?: number | null;
+  fill_mode?: 'return' | 'fok';
+  /** @deprecated Local compatibility input; the wire uses `expiry`. */
   expiration?: number;
 }
 

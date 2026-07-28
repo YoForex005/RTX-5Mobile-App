@@ -17,7 +17,7 @@ import React, {
   useCallback, useDeferredValue, useEffect, useRef, useMemo, useState, useSyncExternalStore,
 } from 'react';
 import {
-  Animated, Easing, FlatList, ScrollView, StyleSheet, Text, TextInput, View, Modal, Platform,
+  AccessibilityInfo, Animated, Easing, FlatList, ScrollView, StyleSheet, Text, TextInput, View, Modal, Platform,
   type GestureResponderEvent,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -89,6 +89,7 @@ import {
   isMarketSymbolCatalogScopedToWatchlist,
   resolveQuoteFeedSymbols,
 } from './quoteWatchlistDefaults';
+import { shouldShowInitialQuotesSkeleton } from './quoteInitialLoading';
 import { buildAddSymbolCatalog } from './addSymbolCatalog';
 import {
   captureActiveBrokerSession,
@@ -97,6 +98,7 @@ import {
   subscribeActiveBrokerSession,
   type FeedAuthContext,
 } from '../../state/activeBrokerSession';
+import { useActiveBrokerCredentialScopeKey } from '../../query/authenticatedQueryScope';
 import {
   feedHealthAllowsPriceActions,
   feedHealthStateMatchesIdentity,
@@ -104,8 +106,12 @@ import {
   type FeedHealthReasonCategory,
   type FeedHealthIdentity,
   type FeedHealthState,
+  type FeedHealthStatus,
 } from '../../market/feedHealthState';
-import { buildFeedHealthBannerModel } from '../../market/feedHealthPresentation';
+import {
+  buildFeedHealthBannerModel,
+  resolveCompactFeedStatusLabel,
+} from '../../market/feedHealthPresentation';
 import {
   bindFeedHealthSession,
   getFeedHealthRenderSnapshot,
@@ -124,6 +130,11 @@ import {
   getQuoteRowFreshnessRefreshDelayMs,
   resolveQuoteRowFreshness,
 } from './quoteRowFreshness';
+import {
+  advanceQuoteLiveProof,
+  createQuoteLiveProofState,
+  hasFreshSustainedQuoteLiveProof,
+} from './quoteLiveProof';
 
 /* ───── Helpers ───── */
 
@@ -133,6 +144,9 @@ const QUOTE_SPEED_WINDOW_MS = 1_000;
 const QUOTE_ROW_HEIGHT = 88;
 const QUOTE_ROW_SIMPLE_HEIGHT = 64;
 const QUOTE_ROW_SPACING = 16;
+const QUOTE_INITIAL_SKELETON_ROWS = [0, 1, 2, 3, 4] as const;
+const QUOTE_SKELETON_PRICE_COLUMNS = [0, 1] as const;
+const EMPTY_QUOTE_SYMBOLS: string[] = [];
 const QUOTE_SHEET_OPEN_FEED_PAUSE_MS = 15_000;
 const QUOTE_SHEET_OPTION_FEED_PAUSE_MS = 900;
 const QUOTE_SHEET_ROUTE_FEED_PAUSE_MS = 2_500;
@@ -449,6 +463,177 @@ function useQuotesThemeRotation(isDark: boolean, enabled: boolean) {
 
 /* ───── QuoteCard ───── */
 
+const QuoteInitialSkeletonRows = React.memo(function QuoteInitialSkeletonRows({
+  isDark,
+  palette,
+  cardBackground,
+  viewMode,
+}: {
+  isDark: boolean;
+  palette: QuotesPalette;
+  cardBackground: AnimatedColorValue | string;
+  viewMode: 'list' | 'table' | 'edit';
+}) {
+  const { t } = useTranslation();
+  const pulse = useRef(new Animated.Value(0.55)).current;
+  const [reduceMotionEnabled, setReduceMotionEnabled] = useState(true);
+  const isSimpleMode = viewMode === 'table';
+  const fillColor = isDark
+    ? 'rgba(255,255,255,0.14)'
+    : 'rgba(15,23,42,0.12)';
+  const mutedFillColor = isDark
+    ? 'rgba(255,255,255,0.09)'
+    : 'rgba(15,23,42,0.07)';
+
+  useEffect(() => {
+    let mounted = true;
+    const subscription = AccessibilityInfo.addEventListener(
+      'reduceMotionChanged',
+      setReduceMotionEnabled,
+    );
+
+    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (mounted) {
+        setReduceMotionEnabled(enabled);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    pulse.stopAnimation();
+    if (reduceMotionEnabled) {
+      pulse.setValue(0.72);
+      return;
+    }
+
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 700,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+          isInteraction: false,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0.55,
+          duration: 700,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+          isInteraction: false,
+        }),
+      ]),
+    );
+
+    animation.start();
+    return () => {
+      animation.stop();
+      pulse.stopAnimation();
+    };
+  }, [pulse, reduceMotionEnabled]);
+
+  return (
+    <View
+      accessible
+      accessibilityLabel={`${t('Quotes')}: ${t('Loading...')}`}
+      accessibilityRole="progressbar"
+      accessibilityState={{ busy: true }}
+      accessibilityLiveRegion="polite"
+      style={quoteSkeletonStyles.rows}
+    >
+      {QUOTE_INITIAL_SKELETON_ROWS.map((row) => (
+        <View
+          key={row}
+          accessible={false}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={[
+            sc.card,
+            isSimpleMode && sc.cardSimple,
+            { borderColor: palette.cardBorder },
+            !isDark && sc.cardShadowLight,
+            isDark && sc.cardShadowDark,
+          ]}
+        >
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              StyleSheet.absoluteFillObject,
+              sc.cardFill,
+              { backgroundColor: cardBackground },
+            ]}
+          />
+          <Animated.View
+            pointerEvents="none"
+            style={[quoteSkeletonStyles.content, { opacity: pulse }]}
+          >
+            <View style={quoteSkeletonStyles.symbolColumn}>
+              <View
+                style={[
+                  quoteSkeletonStyles.symbol,
+                  { backgroundColor: fillColor },
+                ]}
+              />
+              {!isSimpleMode ? (
+                <View
+                  style={[
+                    quoteSkeletonStyles.meta,
+                    { backgroundColor: mutedFillColor },
+                  ]}
+                />
+              ) : null}
+            </View>
+
+            <View
+              style={[
+                quoteSkeletonStyles.prices,
+                isSimpleMode && quoteSkeletonStyles.pricesSimple,
+              ]}
+            >
+              {QUOTE_SKELETON_PRICE_COLUMNS.map((column) => (
+                <View
+                  key={column}
+                  style={[
+                    quoteSkeletonStyles.priceColumn,
+                    isSimpleMode && quoteSkeletonStyles.priceColumnSimple,
+                  ]}
+                >
+                  <View
+                    style={[
+                      quoteSkeletonStyles.priceLabel,
+                      { backgroundColor: mutedFillColor },
+                    ]}
+                  />
+                  <View
+                    style={[
+                      quoteSkeletonStyles.priceValue,
+                      isSimpleMode && quoteSkeletonStyles.priceValueSimple,
+                      { backgroundColor: fillColor },
+                    ]}
+                  />
+                  {!isSimpleMode ? (
+                    <View
+                      style={[
+                        quoteSkeletonStyles.priceMeta,
+                        { backgroundColor: mutedFillColor },
+                      ]}
+                    />
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          </Animated.View>
+        </View>
+      ))}
+    </View>
+  );
+});
+
 const QuoteCard = React.memo(function QuoteCard({
   symbol,
   feedSymbol,
@@ -459,6 +644,7 @@ const QuoteCard = React.memo(function QuoteCard({
   liveUpdatesActive = true,
   feedActionsAllowed,
   feedHealthReason,
+  feedHealthStatus,
   onPress,
   onPressIn,
   onPressOut,
@@ -475,6 +661,7 @@ const QuoteCard = React.memo(function QuoteCard({
   liveUpdatesActive?: boolean;
   feedActionsAllowed: boolean;
   feedHealthReason: FeedHealthReasonCategory;
+  feedHealthStatus: FeedHealthStatus;
   onPress?: (event: GestureResponderEvent) => void;
   onPressIn?: (event: GestureResponderEvent) => void;
   onPressOut?: (event: GestureResponderEvent) => void;
@@ -598,7 +785,7 @@ const QuoteCard = React.memo(function QuoteCard({
               fontStyle: 'italic',
             }}
           >
-            {t('Connecting...')}
+            {t(resolveCompactFeedStatusLabel(feedHealthStatus, false))}
           </Text>
         </View>
       </Pressable>
@@ -1915,6 +2102,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
       ? accountDetails.server || activeFeedIdentity.brokerId
       : activeBrokerCapture?.session.brokerId || selectedBrokerId;
   const quoteLatencySessionKey = activeBrokerCapture?.session.cacheNamespace ?? '';
+  const quoteLiveProofGenerationKey = useActiveBrokerCredentialScopeKey();
 
   // Aggregate-only proof that row updates remain isolated: this effect counts
   // committed parent-list renders without subscribing the list to tick metrics.
@@ -1994,14 +2182,27 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
   const quoteRouteActive = isScreenFocused;
   const quoteCatalogActive = quoteRouteActive;
   const quoteWatchlistActive = quoteCatalogActive && isLoggedIn;
-  const { data: apiSymbols = [] } = useMarketSymbols(quoteCatalogActive);
+  const {
+    data: apiSymbols = [],
+    isLoading: catalogIsLoading,
+  } = useMarketSymbols(quoteCatalogActive);
   const feedAwareSymbols = apiSymbols;
 
   // ── Server-side watchlist sync ──────────────────────────────────────────
   // Fetch the server watchlist and sync mutations. Local Zustand state stays
   // as the primary UI source of truth (instant updates); the server is kept
   // in sync fire-and-forget so the watchlist persists across devices/sessions.
-  const { data: serverWatchlist } = useWatchlistQuery(quoteWatchlistActive);
+  const {
+    data: serverWatchlist,
+    isLoading: watchlistIsLoading,
+  } = useWatchlistQuery(quoteWatchlistActive);
+  const showInitialQuotesSkeleton = shouldShowInitialQuotesSkeleton({
+    quoteCatalogActive,
+    quoteWatchlistActive,
+    hasRenderableQuotes: quoteSymbols.length > 0,
+    catalogIsLoading,
+    watchlistIsLoading,
+  });
   const { mutate: serverAdd } = useAddToWatchlistMutation();
   const { mutate: serverRemove } = useRemoveWatchlistMutation();
   const { mutate: serverReplace } = useReplaceWatchlistMutation();
@@ -2084,6 +2285,18 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
         .filter((symbol) => availableSymbolsSet.has(symbol))
     );
 
+    // Defer first-time fallback seeding until the active catalog/watchlist
+    // requests settle. This gives a genuinely empty cold start a stable
+    // skeleton while preserving already-renderable persisted quote rows.
+    if (!hasSetInitialSymbols) {
+      if (!quoteCatalogActive) {
+        return;
+      }
+      if (catalogIsLoading || (quoteWatchlistActive && watchlistIsLoading)) {
+        return;
+      }
+    }
+
     if (feedAwareSymbols.length === 0) {
       if (!hasSetInitialSymbols && currentSymbols.length === 0) {
         setQuoteSymbols([...DEFAULT_QUOTE_WATCHLIST]);
@@ -2162,6 +2375,10 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     setQuoteSymbols,
     hasSetInitialSymbols,
     setHasSetInitialSymbols,
+    quoteCatalogActive,
+    quoteWatchlistActive,
+    catalogIsLoading,
+    watchlistIsLoading,
   ]);
 
   const [search, setSearch] = useState('');
@@ -2775,6 +2992,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
         liveUpdatesActive={quoteStickyFeedActive}
         feedActionsAllowed={scopedFeedActionsAllowed}
         feedHealthReason={scopedFeedHealth.reasonCategory}
+        feedHealthStatus={scopedFeedHealth.status}
         onPressIn={(event) => handleSymbolPressIn(sym, event)}
         onPressOut={() => handleSymbolPressOut(sym)}
         onTouchMove={handleSymbolPressMove}
@@ -2800,6 +3018,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     quoteStickyFeedActive,
     scopedFeedActionsAllowed,
     scopedFeedHealth.reasonCategory,
+    scopedFeedHealth.status,
     removeQuoteSymbol,
     syncServerRemove,
   ]);
@@ -2867,7 +3086,14 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
             <GmtClock style={[s.subLeft, { color: palette.secondaryText }]} active={isScreenFocused} />
 
             <View style={{ alignItems: 'flex-end' }}>
-              <TickCounter T={T} palette={palette} active={quoteStickyFeedActive} symbols={quoteFeedSymbols} />
+              <TickCounter
+                T={T}
+                palette={palette}
+                active={quoteStickyFeedActive}
+                symbols={quoteFeedSymbols}
+                feedHealthStatus={scopedFeedHealth.status}
+                generationKey={quoteLiveProofGenerationKey}
+              />
             </View>
           </View>
           {isLoggedIn ? (
@@ -2906,14 +3132,15 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
           </View>
 
           <FlatList
-            data={filtered}
+            data={showInitialQuotesSkeleton ? EMPTY_QUOTE_SYMBOLS : filtered}
             keyExtractor={(sym) => sym}
-            extraData={`${isEditing ? 'edit' : 'view'}:${quoteViewMode}:${scopedFeedHealth.status}:${scopedFeedHealth.reasonCategory}:${scopedFeedActionsAllowed ? 'live' : 'blocked'}`}
+            extraData={`${isEditing ? 'edit' : 'view'}:${quoteViewMode}:${scopedFeedHealth.status}:${scopedFeedHealth.reasonCategory}:${scopedFeedActionsAllowed ? 'live' : 'blocked'}:${showInitialQuotesSkeleton ? 'initial-loading' : 'ready'}`}
             renderItem={renderQuoteItem}
             getItemLayout={getQuoteItemLayout}
             style={s.list}
             contentContainerStyle={s.listPad}
             showsVerticalScrollIndicator={false}
+            scrollEnabled={!showInitialQuotesSkeleton}
             // Quotes are websocket-driven, so pull-to-refresh is intentionally
             // removed. These FlatList limits keep row mounting work bounded so
             // Android's touch responder is not starved during heavy tick flow.
@@ -2927,27 +3154,36 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
             updateCellsBatchingPeriod={50}
             windowSize={7}
             ListEmptyComponent={
-              <View
-                style={[
-                  s.emptyWrap,
-                  { backgroundColor: palette.emptyBg, borderColor: palette.cardBorder },
-                ]}
-              >
-                <Text style={[s.emptyTitle, { color: T.text }]}>
-                  {search.trim()
-                    ? t('No matching instruments')
-                    : isEditing
-                      ? t('Watchlist is empty')
-                      : t('Awaiting live instruments')}
-                </Text>
-                <Text style={[s.emptyText, { color: palette.secondaryText }]}>
-                  {search.trim()
-                    ? t('Try a broader search term or add another instrument to the desk.')
-                    : isEditing
-                      ? t('Add instruments to start building the quotes watchlist.')
-                      : t('Instruments will appear here as soon as fresh quotes start streaming.')}
-                </Text>
-              </View>
+              showInitialQuotesSkeleton ? (
+                <QuoteInitialSkeletonRows
+                  isDark={isDark}
+                  palette={palette}
+                  cardBackground={animatedCardBackground}
+                  viewMode={quoteViewMode}
+                />
+              ) : (
+                <View
+                  style={[
+                    s.emptyWrap,
+                    { backgroundColor: palette.emptyBg, borderColor: palette.cardBorder },
+                  ]}
+                >
+                  <Text style={[s.emptyTitle, { color: T.text }]}>
+                    {search.trim()
+                      ? t('No matching instruments')
+                      : isEditing
+                        ? t('Watchlist is empty')
+                        : t('Awaiting live instruments')}
+                  </Text>
+                  <Text style={[s.emptyText, { color: palette.secondaryText }]}>
+                    {search.trim()
+                      ? t('Try a broader search term or add another instrument to the desk.')
+                      : isEditing
+                        ? t('Add instruments to start building the quotes watchlist.')
+                        : t('Instruments will appear here as soon as fresh quotes start streaming.')}
+                  </Text>
+                </View>
+              )
             }
           />
         </View>
@@ -3382,6 +3618,67 @@ const s = StyleSheet.create({
 
 /* ───── Card Styles ───── */
 
+const quoteSkeletonStyles = StyleSheet.create({
+  rows: {
+    width: '100%',
+  },
+  content: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  symbolColumn: {
+    flex: 1,
+    minWidth: 0,
+  },
+  symbol: {
+    width: 82,
+    height: 16,
+    borderRadius: 8,
+  },
+  meta: {
+    width: 126,
+    height: 10,
+    borderRadius: 5,
+    marginTop: 14,
+  },
+  prices: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  pricesSimple: {
+    gap: 10,
+  },
+  priceColumn: {
+    width: 68,
+    alignItems: 'flex-end',
+  },
+  priceColumnSimple: {
+    width: 62,
+  },
+  priceLabel: {
+    width: 28,
+    height: 8,
+    borderRadius: 4,
+  },
+  priceValue: {
+    width: 64,
+    height: 16,
+    borderRadius: 8,
+    marginTop: 6,
+  },
+  priceValueSimple: {
+    width: 56,
+  },
+  priceMeta: {
+    width: 48,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 6,
+  },
+});
+
 const sc = StyleSheet.create({
   card: {
     height: QUOTE_ROW_HEIGHT,
@@ -3545,11 +3842,15 @@ function TickCounter({
   palette,
   active,
   symbols,
+  feedHealthStatus,
+  generationKey,
 }: {
   T: ThemeColors;
   palette: QuotesPalette;
   active: boolean;
   symbols: string[];
+  feedHealthStatus: FeedHealthStatus;
+  generationKey: string;
 }) {
   const { t } = useTranslation();
   const [tps, setTps] = useState(0);
@@ -3558,11 +3859,15 @@ function TickCounter({
   // A rolling one-second window prevents a fast feed from being displayed as
   // "1 tps" just because the React timer sampled at the wrong moment.
   const tickTimesRef = useRef<number[]>([]);
-  const lastTickAtRef = useRef(0);
+  const liveProofRef = useRef(createQuoteLiveProofState());
   const symbolsKey = symbols.join('|');
   const trackedSymbols = useMemo(
     () => Array.from(new Set(symbols.map((entry) => normalizeQuoteSymbolKey(entry)).filter(Boolean))),
     [symbolsKey],
+  );
+  const trackedSymbolSet = useMemo(
+    () => new Set(trackedSymbols),
+    [trackedSymbols],
   );
 
   useEffect(() => {
@@ -3575,12 +3880,16 @@ function TickCounter({
         return;
       }
 
-      const ts =
-        typeof tick.receivedAt === 'number' && Number.isFinite(tick.receivedAt)
-          ? tick.receivedAt
-          : Date.now();
-      lastTickAtRef.current = ts;
-      tickTimesRef.current.push(ts);
+      const result = advanceQuoteLiveProof(
+        liveProofRef.current,
+        tick,
+        trackedSymbolSet,
+        LIVE_SYMBOL_STALE_MS,
+      );
+      liveProofRef.current = result.state;
+      if (result.accepted) {
+        tickTimesRef.current.push(result.state.lastQualifyingTickAt);
+      }
     };
 
     const unsubscribers = trackedSymbols.map((symbol) =>
@@ -3589,24 +3898,26 @@ function TickCounter({
     return () => {
       unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
-  }, [active, trackedSymbols, trackedSymbols.length]);
+  }, [active, generationKey, trackedSymbolSet, trackedSymbols.length]);
 
   useEffect(() => {
     if (!active || trackedSymbols.length === 0) {
       tickTimesRef.current = [];
-      lastTickAtRef.current = 0;
+      liveProofRef.current = createQuoteLiveProofState();
       setTps(0);
       setHasFreshFeed(false);
       return;
     }
-    const readHasFreshFeed = () => {
-      const last = lastTickAtRef.current;
-      return last > 0 && Date.now() - last <= LIVE_SYMBOL_STALE_MS;
-    };
+    const readHasFreshFeed = () =>
+      hasFreshSustainedQuoteLiveProof(
+        liveProofRef.current,
+        Date.now(),
+        LIVE_SYMBOL_STALE_MS,
+      );
     // Reset the counter when the symbol set or focus changes so TPS reflects
     // the current window, not a count carried over from a previous session.
     tickTimesRef.current = [];
-    lastTickAtRef.current = 0;
+    liveProofRef.current = createQuoteLiveProofState();
     setTps(0);
     setHasFreshFeed(readHasFreshFeed());
     const interval = setInterval(() => {
@@ -3616,13 +3927,15 @@ function TickCounter({
 
       const cutoff = Date.now() - QUOTE_SPEED_WINDOW_MS;
       tickTimesRef.current = tickTimesRef.current.filter((time) => time >= cutoff);
-      setTps(Math.max(0, tickTimesRef.current.length));
-      setHasFreshFeed(readHasFreshFeed());
+      const hasSustainedFeed = readHasFreshFeed();
+      setTps(hasSustainedFeed ? Math.max(0, tickTimesRef.current.length) : 0);
+      setHasFreshFeed(hasSustainedFeed);
     }, QUOTE_SPEED_SAMPLE_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [active, trackedSymbols.length, symbolsKey]);
+  }, [active, generationKey, trackedSymbols.length, symbolsKey]);
 
-  const statusColor = hasFreshFeed ? T.trading.profit : palette.secondaryText;
+  const statusLabel = resolveCompactFeedStatusLabel(feedHealthStatus, hasFreshFeed);
+  const statusColor = statusLabel === 'LIVE' ? T.trading.profit : palette.secondaryText;
 
   return (
     <View style={s.subRight}>
@@ -3630,7 +3943,7 @@ function TickCounter({
       <Text style={[s.subLive, { color: statusColor }]}>{tps} tps</Text>
       <Text style={[s.subGrey, { color: palette.secondaryText }]}>{t('Status')}:</Text>
       <Text style={[s.subLive, { color: statusColor }]}>
-        {hasFreshFeed ? t('LIVE') : t('Connecting...')}
+        {t(statusLabel)}
       </Text>
     </View>
   );

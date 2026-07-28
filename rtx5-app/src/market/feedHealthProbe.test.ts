@@ -193,9 +193,10 @@ test('isFeedAuthRejected only when false AND credential was presented', () => {
 });
 
 test('authenticated feed status URL attaches query feed credentials', () => {
-  const previous = process.env.EXPO_PUBLIC_FEED_BROKER_TOKEN;
+  const previousToken = process.env.EXPO_PUBLIC_FEED_BROKER_TOKEN;
+  const previousBrokerId = process.env.EXPO_PUBLIC_FEED_BROKER_ID;
   process.env.EXPO_PUBLIC_FEED_BROKER_TOKEN = 'env-feed-token';
-  process.env.EXPO_PUBLIC_FEED_BROKER_ID = '';
+  process.env.EXPO_PUBLIC_FEED_BROKER_ID = 'myprop-trade';
   try {
     const url = buildAuthenticatedFeedStatusUrl(
       'https://services.myprop.trade/ws/feed/status',
@@ -210,8 +211,10 @@ test('authenticated feed status URL attaches query feed credentials', () => {
     assert.equal(parsed.searchParams.get('token'), 'env-feed-token');
     assert.equal(parsed.searchParams.get('broker_id'), 'myprop-trade');
   } finally {
-    if (previous === undefined) delete process.env.EXPO_PUBLIC_FEED_BROKER_TOKEN;
-    else process.env.EXPO_PUBLIC_FEED_BROKER_TOKEN = previous;
+    if (previousToken === undefined) delete process.env.EXPO_PUBLIC_FEED_BROKER_TOKEN;
+    else process.env.EXPO_PUBLIC_FEED_BROKER_TOKEN = previousToken;
+    if (previousBrokerId === undefined) delete process.env.EXPO_PUBLIC_FEED_BROKER_ID;
+    else process.env.EXPO_PUBLIC_FEED_BROKER_ID = previousBrokerId;
   }
 });
 

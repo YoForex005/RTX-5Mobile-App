@@ -25,7 +25,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/shallow';
 import { useNextFrameValue } from '../../../hooks/useNextFrameValue';
-import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
 import { Screen } from '../../../ui/components/Screen';
 import { AppHeader } from '../../../ui/components/AppHeader';
 import { FastPressable } from '../../../ui/components/FastPressable';
@@ -59,10 +58,6 @@ const SETTINGS_ROUTE_LOCK_MS = 1800;
 const SETTINGS_ROUTE_PREFETCH_DELAY_MS = 0;
 const SETTINGS_REGISTER_SCREEN_PRELOAD_DELAY_MS = 0;
 const SETTINGS_SCREEN_DATA_DELAY_MS = 8000;
-// Settings is a retained primary tab. Mount its visual tree offscreen after
-// Trade's prewarm window so the first selection is complete, while every
-// account query and focus-only effect below remains gated by isScreenFocused.
-const SETTINGS_BODY_PREWARM_DELAY_MS = 1200;
 const SETTINGS_REGISTER_ROUTE_LATENCY_BUDGET_MS = 50;
 const SETTINGS_SCROLL_PRESS_RETENTION_OFFSET = { top: 8, bottom: 8, left: 18, right: 18 } as const;
 const SETTINGS_READY_ROUTE_PATHS = [
@@ -105,19 +100,13 @@ type SearchableSettingsItem = {
  * Main screen for the Settings tab, providing access to user profile, account management, app preferences, and support links.
  */
 const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
-  // Prewarm offscreen, but never make a user who selects Settings wait for the
-  // idle window. Focus cancels that timer and reveals the body after the hook's
-  // two paint frames.
-  const routeBodyReady = useDeferredRouteContentReady(
-    isScreenFocused ? 0 : SETTINGS_BODY_PREWARM_DELAY_MS,
-  );
-  const { quoteSymbols, chartDrawings, oneClickAccepted, setOneClickAccepted, isDemoAccount, setThemeMode, accountDetails } = useUserPreferences(
+  const { quoteSymbols, chartDrawings, oneClickAccepted, setOneClickAccepted, accountType, setThemeMode, accountDetails } = useUserPreferences(
     useShallow((state) => ({
       quoteSymbols: state.quoteSymbols,
       chartDrawings: state.chartDrawings,
       oneClickAccepted: state.oneClickAccepted,
       setOneClickAccepted: state.setOneClickAccepted,
-      isDemoAccount: state.isDemoAccount,
+      accountType: state.accountType,
       setThemeMode: state.setThemeMode,
       accountDetails: state.accountDetails,
     })),
@@ -566,8 +555,7 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
         )}
       </View>
 
-      {routeBodyReady ? <>
-        <ScrollView
+      <ScrollView
         keyboardShouldPersistTaps="always"
         canCancelContentTouches={Platform.OS === 'ios'}
         removeClippedSubviews={Platform.OS === 'android'}
@@ -639,8 +627,14 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
                 latencyBudgetMs={SETTINGS_REGISTER_ROUTE_LATENCY_BUDGET_MS}
               >
                 <View style={[styles.accountCard, styles.cardShadow]}>
-                  <View style={[styles.ribbonContainer, isDemoAccount ? styles.ribbonDemo : styles.ribbonLive]}>
-                    <Text style={styles.ribbonText}>{isDemoAccount ? t('Demo') : t('Real')}</Text>
+                  <View style={[styles.ribbonContainer, accountType === 'demo' ? styles.ribbonDemo : styles.ribbonLive]}>
+                    <Text style={styles.ribbonText}>
+                      {accountType === 'demo'
+                        ? t('Demo')
+                        : accountType === 'contest'
+                          ? t('Contest')
+                          : t('Real')}
+                    </Text>
                   </View>
 
                   <LinearGradient
@@ -881,8 +875,7 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
               </FastPressable>
             </View>
         </View>
-        </ScrollView>
-      </> : null}
+      </ScrollView>
     </Screen>
   );
 });

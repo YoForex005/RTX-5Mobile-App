@@ -74,6 +74,22 @@ test('quote socket recovers after active-session credentials refresh', () => {
   assert.match(quotes, /event\.type !== 'credentials_updated'/);
   assert.match(quotes, /reportFeedCredentialsRefreshed\(identity\)/);
   assert.match(quotes, /this\.shouldReconnect = this\.hasActiveDemand\(\)/);
+  assert.match(quotes, /authRefreshAttemptedCredentialIdentity/);
+  assert.match(quotes, /brokerApi\.getValidAccessToken\(true\)/);
+  assert.match(quotes, /this\.rejectedSocketUrl === nextUrl/);
+});
+
+test('quote socket callbacks and timers are fenced by credential owner generation', () => {
+  const quotes = readSource('src/api/ws/quotesSocket/QuotesWebSocketService.ts');
+  const health = readSource('src/market/feedHealthProbe.ts');
+
+  assert.match(quotes, /captureActiveBrokerSessionOwnerStamp/);
+  assert.match(quotes, /isActiveBrokerSessionOwnerStampCurrent\(owner\)/);
+  assert.match(quotes, /socketOwnerStamp/);
+  assert.match(quotes, /schedulePreOpenErrorFallback\(socket, owner, identity\)/);
+  assert.match(quotes, /QUOTE_WS_PREOPEN_ERROR_CLOSE_WAIT_MS/);
+  assert.match(health, /captureActiveBrokerSessionOwnerStamp/);
+  assert.match(health, /isActiveBrokerSessionOwnerStampCurrent\(owner\)/);
 });
 
 test('quote socket opens immediately then health probe can hard-stop confirmed blocks', () => {
@@ -83,13 +99,13 @@ test('quote socket opens immediately then health probe can hard-stop confirmed b
   // Fast path: open right after URL resolve so first ticks are not blocked by
   // a serial status probe (up to ~3s). Confirmed health blocks still stop the socket.
   const firstOpen = quotes.indexOf('this.openResolvedSocket(resolved)');
-  const healthProbe = quotes.indexOf('await probeActiveFeedHealth(resolved.identity)', firstOpen);
+  const healthProbe = quotes.indexOf('await probeActiveFeedHealth(resolved.owner)', firstOpen);
   const failedProbeGuard = quotes.indexOf('if (!healthConfirmed)', healthProbe);
   const policyGuard = quotes.indexOf('if (this.shouldPauseForConfirmedHealth(resolved.identity))', failedProbeGuard);
   assert.ok(firstOpen > -1 && healthProbe > firstOpen);
   assert.ok(failedProbeGuard > healthProbe && policyGuard > failedProbeGuard);
   assert.match(quotes, /if \(!healthConfirmed\) \{[\s\S]*if \(boundedRecoveryProbe\) \{[\s\S]*this\.shouldReconnect = false/);
-  assert.match(quotes, /this\.openResolvedSocket\(resolved\);[\s\S]*this\.scheduleHealthProbe\(resolved\.identity\)/);
+  assert.match(quotes, /this\.openResolvedSocket\(resolved\);[\s\S]*this\.scheduleHealthProbe\(resolved\.owner\)/);
 });
 
 test('NetInfo failures use the same advancing reconnect policy and telemetry', () => {
@@ -105,11 +121,11 @@ test('quote socket open and subscription ACK telemetry require the current sessi
 
   assert.match(
     quotes,
-    /this\.ws\.onopen = \(\) => \{[\s\S]*if \(!isActiveBrokerSessionCurrent\(identity\)\)[\s\S]*return;[\s\S]*recordMarketDataEvent\('socket_open',[\s\S]*brokerId: identity\.brokerId[\s\S]*sessionEpoch: identity\.sessionEpoch/,
+    /socket\.onopen = \(\) => \{[\s\S]*isActiveBrokerSessionOwnerStampCurrent\(owner\)[\s\S]*recordMarketDataEvent\('socket_open',[\s\S]*brokerId: identity\.brokerId[\s\S]*sessionEpoch: identity\.sessionEpoch/,
   );
   assert.match(
     quotes,
-    /handleSubscriptionAckPayload\(payload: unknown\)[\s\S]*const identity = this\.socketIdentity;[\s\S]*if \(!identity \|\| !isActiveBrokerSessionCurrent\(identity\)\)[\s\S]*return;[\s\S]*recordMarketDataEvent\('subscribe_ack',[\s\S]*symbolCount: symbols\.length[\s\S]*sessionEpoch: identity\.sessionEpoch/,
+    /handleSubscriptionAckPayload\(payload: unknown\)[\s\S]*const identity = this\.socketIdentity;[\s\S]*const owner = this\.socketOwnerStamp;[\s\S]*isActiveBrokerSessionOwnerStampCurrent\(owner\)[\s\S]*recordMarketDataEvent\('subscribe_ack',[\s\S]*symbolCount: symbols\.length[\s\S]*sessionEpoch: identity\.sessionEpoch/,
   );
 });
 

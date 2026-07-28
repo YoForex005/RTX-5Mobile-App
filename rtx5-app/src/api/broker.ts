@@ -767,7 +767,10 @@ const HTTP_ERROR_MESSAGES: Record<number, string> = {
  */
 // Keep broker directory lookups bounded so login/account navigation never
 // waits on a long network stall before the next touch can be handled.
-const BROKER_SERVERS_TIMEOUT_MS = 3500;
+// Directory discovery is a cold-start request and can pay DNS + TCP + TLS
+// setup on a mobile network. Keep enough headroom for transient/cold latency;
+// the query layer still owns bounded retries and the UI remains fail-closed.
+const BROKER_SERVERS_TIMEOUT_MS = 10000;
 // Short enough that broker pre-warm finishes before a typical password type-in.
 const BROKER_HEALTH_TIMEOUT_MS = 1500;
 
@@ -857,17 +860,15 @@ export async function getBrokerDirectory(): Promise<BrokerDirectoryResult> {
       'Broker directory is not configured for this release.',
     );
   }
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), BROKER_SERVERS_TIMEOUT_MS);
   try {
     response = await timedFetch(`${PUBLIC_BROKER_DIRECTORY_BASE_URL}/broker/servers`, {
-      signal: controller.signal,
       headers: { accept: 'application/json' },
     }, {
       label: 'broker.servers',
       method: 'GET',
       endpoint: '/broker/servers',
       source: 'broker',
+      timeoutMs: BROKER_SERVERS_TIMEOUT_MS,
     });
   } catch (networkError) {
     if (networkError instanceof Error && networkError.name === 'AbortError') {
@@ -880,8 +881,6 @@ export async function getBrokerDirectory(): Promise<BrokerDirectoryResult> {
       0,
       'Network error — unable to load broker list. Please check your connection.',
     );
-  } finally {
-    clearTimeout(timeout);
   }
 
   if (!response.ok) {

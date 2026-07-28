@@ -45,7 +45,8 @@ test('broker rows resolve real broker logos before falling back to initials', ()
   assert.match(directoryRowsSource, /function buildBrokerDomainLogoUrl\(domain\?: string\)/);
   assert.match(directoryRowsSource, /https:\/\/www\.google\.com\/s2\/favicons\?domain=/);
   assert.match(source, /const logoUri = broker\.selectable[\s\S]*\? broker\.logoUrl \|\| buildBrokerDomainLogoUrl\(broker\.domain\)[\s\S]*: ''/);
-  assert.match(source, /source=\{\{ uri: logoUri, cache: 'force-cache' \}\}[\s\S]*fadeDuration=\{0\}/);
+  assert.match(source, /source=\{\{ uri: logoUri, cache: 'reload' \}\}[\s\S]*fadeDuration=\{0\}/);
+  assert.doesNotMatch(source, /cache: 'force-cache'/);
   assert.match(source, /failed=\{Boolean\([\s\S]*logoFailed\[item\.logoUrl \|\| buildBrokerDomainLogoUrl\(item\.domain\)\][\s\S]*\)\}/);
   assert.doesNotMatch(directoryRowsSource, /KNOWN_BROKER_DOMAINS|myproptrade:|gtabroker:|testorrnn:/);
   assert.match(directoryRowsSource, /domain: resolution\.endpoints\.servicesDomain/);
@@ -109,7 +110,6 @@ test('identity-only directory rows are visible but cannot authorize broker actio
 
   assert.match(launchShell, /useBrokerDirectory\(dataActive\)/);
   assert.match(launchShell, /buildBrokerDirectoryRows\(brokerDirectory\?\.entries\)/);
-  assert.match(launchShell, /if \(!row\.selectable\) continue;/);
   assert.match(launchShell, /if \(onSelectBroker && row\.selectable\)/);
   assert.match(launchShell, /if \(!row\.selectable\) return;[\s\S]*onSelectBroker\(row\)/);
   assert.match(launchHost, /const selectBroker[\s\S]*if \(!broker\.selectable\) \{[\s\S]*return;/);

@@ -9,7 +9,7 @@ import {
   formatUiPerformanceSampleMetrics,
 } from '../../dev/uiPerformanceDiagnostics.helpers';
 import { useTheme } from '../theme/useTheme';
-import { useUserPreferences } from '../../state/userPreferences';
+import { useIsDarkTheme } from '../../state/themeMode';
 
 const DEV_ENABLED = typeof __DEV__ !== 'undefined' && __DEV__;
 
@@ -22,7 +22,7 @@ export function UiInteractionDiagnosticsOverlay() {
   const [expanded, setExpanded] = useState(false);
   const [selectedSampleId, setSelectedSampleId] = useState<string | null>(null);
   const T = useTheme();
-  const isDark = useUserPreferences((state) => state.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const insets = useSafeAreaInsets();
 
   const latest = samples[0] ?? null;

@@ -28,6 +28,18 @@ test('bootstrap applies live data as each startup request resolves', () => {
   assert.notEqual(marketStatusPromiseIndex, -1);
   assert.ok(promiseAllIndex > marketStatusPromiseIndex);
   assert.match(bootstrapSource, /accountsPromise = accountLogin[\s\S]*requestJson\(buildAccountDetailPath\(accountLogin\)\)[\s\S]*updateAccountMetricsFromBootstrap\(accounts, accountLogin\)/);
+  assert.match(
+    bootstrapSource,
+    /const mappedAccounts = mapBootstrapAccountRows\(accounts\)[\s\S]*setQueryData<TradingAccount\[\]>\([\s\S]*\(existing\) => existing \?\? mappedAccounts/,
+  );
+  assert.match(
+    bootstrapSource,
+    /const mapBootstrapAccountRows = \(value: unknown\): TradingAccount\[\][\s\S]*\.map\(mapRawAccount\)/,
+  );
+  assert.match(
+    bootstrapSource,
+    /const accountEnvironmentRefresh = beginAccountEnvironmentRefresh\(activeProvenance\)[\s\S]*commitActiveAccountEnvironmentPayload\([\s\S]*accounts,[\s\S]*activeProvenance,[\s\S]*accountEnvironmentRefresh/,
+  );
   assert.match(bootstrapSource, /positionsPromise = accountLogin[\s\S]*requestJson\(`\/positions\/\$\{encodedAccountLogin\}\?limit=50&offset=0`\)[\s\S]*applyPositionsSnapshot\(resolvedRows, accountLogin/);
   assert.match(bootstrapSource, /ordersPromise = accountLogin[\s\S]*requestJson\(`\/orders\/\$\{encodedAccountLogin\}`\)[\s\S]*getOrdersByLoginQueryKey\(cacheNamespace, Number\(accountLogin\)\)/);
   assert.doesNotMatch(bootstrapSource, /requestJson\('\/accounts'\)/);
@@ -49,6 +61,7 @@ test('bootstrap binds every parsed response and cache write to one session names
   assert.match(bootstrapSource, /const cacheNamespace = sessionCapture\.session\.cacheNamespace/);
   assert.match(bootstrapSource, /brokerApi\.getJsonResponse<T>\(endpoint\)/);
   assert.match(bootstrapSource, /brokerApi\.commitJsonResponse\(result, cacheNamespace, commit\)/);
+  assert.match(bootstrapSource, /commitActiveAccountEnvironmentPayload/);
   assert.match(bootstrapSource, /error instanceof StaleBrokerSessionError/);
 });
 

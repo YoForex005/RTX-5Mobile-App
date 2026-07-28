@@ -14,7 +14,7 @@ import { ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/shallow';
 import { usePositionsState } from '../../state/positionsState';
-import { useUserPreferences } from '../../state/userPreferences';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';
@@ -55,7 +55,7 @@ export function CloseByScreen({
   const positionId = hosted
     ? (hostedPositionId ?? undefined)
     : (Array.isArray(params.positionId) ? params.positionId[0] : params.positionId);
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const routeFocused = useIsFocused();
   const isScreenFocused = hosted ? hostedActive : routeFocused;
   const themeActive = isScreenFocused;

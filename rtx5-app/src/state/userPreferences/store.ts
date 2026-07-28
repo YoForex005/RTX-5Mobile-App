@@ -19,6 +19,13 @@ import {
   getChartDrawingLabels,
   sanitizePersistedChartDrawings,
 } from '../../features/chart/drawingPersistence';
+import {
+  buildAccountEnvironmentKey,
+  mergeAccountEnvironment,
+  type AccountEnvironment,
+  type AccountEnvironmentSource,
+  type AccountEnvironmentState,
+} from '../../domain/accountType';
 import { normalizeCandleHistoryTimeframe } from '../../domain/candles/core/candles';
 import { DEFAULT_TRADE_VOLUME, normalizeTradeVolume } from '../../utils/tradeVolume';
 import { normalizeLanguageCode } from '../../i18n/translations';
@@ -89,7 +96,7 @@ type PersistedUserPreferencesState = Omit<
   | 'setOneClickAccepted'
   | 'setHistoryRange'
   | 'setHistoryDateRange'
-  | 'setIsDemoAccount'
+  | 'mergeAccountEnvironmentForAccount'
   | 'setBrokerId'
   | 'setBrokerConnection'
   | 'setHasSetInitialSymbols'
@@ -102,7 +109,8 @@ type PersistedUserPreferencesState = Omit<
 
 const pendingPreferenceWrites = new Map<string, StorageValue<PersistedUserPreferencesState>>();
 let preferenceWriteFlushScheduled = false;
-const PREFERENCES_STORAGE_VERSION = 22;
+let preferenceWriteFlushFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+const PREFERENCES_STORAGE_VERSION = 23;
 const CHART_DRAWING_RECORDS_STORAGE_KEY = 'rtx5-chart-drawing-records-v1';
 const LEGACY_BLUE_DEFAULT_CHART_COLORS: ChartColorsConfig = {
   background: '#121212',
@@ -171,6 +179,55 @@ const isOpenOrderMode = (value: unknown): value is UserPreferencesState['openOrd
   value === 'Regular' || value === 'Risk calculator' || value === 'One-click';
 const isChartColorScheme = (value: unknown): value is UserPreferencesState['chartColorScheme'] =>
   value === 'green_on_black' || value === 'black_on_white' || value === 'yellow_on_black' || value === 'custom';
+const isAccountEnvironment = (value: unknown): value is AccountEnvironment =>
+  value === 'demo' || value === 'real' || value === 'contest' || value === 'unknown';
+const isKnownAccountEnvironment = (
+  value: unknown,
+): value is Exclude<AccountEnvironment, 'unknown'> =>
+  value === 'demo' || value === 'real' || value === 'contest';
+const isAccountEnvironmentSource = (value: unknown): value is AccountEnvironmentSource =>
+  value === 'backend-explicit'
+  || value === 'backend-group'
+  || value === 'demo-registration'
+  || value === 'initial-fallback'
+  || value === 'legacy-persisted'
+  || value === 'unknown';
+
+const toAccountEnvironmentPatch = (
+  environment: AccountEnvironmentState | null,
+): Pick<
+  UserPreferencesState,
+  'accountType' | 'accountEnvironmentSource' | 'accountEnvironmentKey' | 'isDemoAccount'
+> => environment
+  ? {
+      accountType: environment.accountType,
+      accountEnvironmentSource: environment.accountEnvironmentSource,
+      accountEnvironmentKey: environment.accountKey,
+      isDemoAccount: environment.isDemoAccount,
+    }
+  : {
+      accountType: 'unknown',
+      accountEnvironmentSource: 'unknown',
+      accountEnvironmentKey: '',
+      isDemoAccount: false,
+    };
+
+const readCurrentAccountEnvironment = (
+  state: Pick<
+    UserPreferencesState,
+    'accountType' | 'accountEnvironmentSource' | 'accountEnvironmentKey' | 'isDemoAccount'
+  >,
+): AccountEnvironmentState | null => (
+  state.accountEnvironmentKey
+  && isKnownAccountEnvironment(state.accountType)
+    ? {
+        accountKey: state.accountEnvironmentKey,
+        accountType: state.accountType,
+        accountEnvironmentSource: state.accountEnvironmentSource,
+        isDemoAccount: state.accountType === 'demo',
+      }
+    : null
+);
 
 const normalizeChartColors = (value: unknown): ChartColorsConfig => {
   const record = asRecord(value);
@@ -305,6 +362,49 @@ export function normalizePersistedUserPreferencesState(
   const isLoggedIn =
     asBoolean(state.isLoggedIn, false) &&
     Boolean(accountDetails?.credentials?.accessToken);
+  const brokerId = asString(state.brokerId);
+  const expectedAccountEnvironmentKey = isLoggedIn && accountDetails?.id && brokerId
+    ? buildAccountEnvironmentKey(brokerId, accountDetails.id)
+    : '';
+  const persistedEnvironmentKey = asString(state.accountEnvironmentKey);
+  const persistedEnvironmentSource = isAccountEnvironmentSource(state.accountEnvironmentSource)
+    ? state.accountEnvironmentSource
+    : 'unknown';
+  let normalizedAccountEnvironment: AccountEnvironmentState | null = null;
+
+  if (expectedAccountEnvironmentKey) {
+    if (
+      persistedEnvironmentKey === expectedAccountEnvironmentKey
+      && isAccountEnvironment(state.accountType)
+    ) {
+      normalizedAccountEnvironment = mergeAccountEnvironment(null, {
+        accountKey: expectedAccountEnvironmentKey,
+        resolved: state.accountType,
+        source: persistedEnvironmentSource,
+        allowInitialFallback: true,
+      });
+    } else if (
+      (version ?? 0) < PREFERENCES_STORAGE_VERSION
+      && typeof state.isDemoAccount === 'boolean'
+    ) {
+      normalizedAccountEnvironment = mergeAccountEnvironment(null, {
+        accountKey: expectedAccountEnvironmentKey,
+        resolved: state.isDemoAccount ? 'demo' : 'real',
+        source: 'legacy-persisted',
+        allowInitialFallback: true,
+      });
+    } else {
+      normalizedAccountEnvironment = mergeAccountEnvironment(null, {
+        accountKey: expectedAccountEnvironmentKey,
+        resolved: 'unknown',
+        source: 'unknown',
+        allowInitialFallback: true,
+      });
+    }
+  }
+  const normalizedAccountEnvironmentPatch = toAccountEnvironmentPatch(
+    normalizedAccountEnvironment,
+  );
   const nextHistoryRange =
     (version ?? 0) < 11 &&
     state.historyRange === 'Last 6 months' &&
@@ -360,10 +460,10 @@ export function normalizePersistedUserPreferencesState(
     historyRange: nextHistoryRange,
     historyFromMs: asFiniteNumber(state.historyFromMs, null),
     historyToMs: asFiniteNumber(state.historyToMs, null),
-    isDemoAccount: asBoolean(state.isDemoAccount, true),
+    ...normalizedAccountEnvironmentPatch,
     isLoggedIn,
     hasSetInitialSymbols: asBoolean(state.hasSetInitialSymbols, false),
-    brokerId: asString(state.brokerId),
+    brokerId,
     brokerServerUrl: asString(state.brokerServerUrl),
     brokerLogoUrl: asString(state.brokerLogoUrl),
     accountDetails,
@@ -375,11 +475,20 @@ export function normalizePersistedUserPreferencesState(
 }
 
 function flushPendingPreferenceWrites() {
+  preferenceWriteFlushScheduled = false;
+  if (preferenceWriteFlushFallbackTimer !== null) {
+    clearTimeout(preferenceWriteFlushFallbackTimer);
+    preferenceWriteFlushFallbackTimer = null;
+  }
   const writes = Array.from(pendingPreferenceWrites.entries());
   pendingPreferenceWrites.clear();
 
   writes.forEach(([name, value]) => {
-    void AsyncStorage.setItem(name, JSON.stringify(value)).catch((error) => {
+    // Deep auth redaction and serialization stay off the interaction frame.
+    // `partializeUserPreferences` already omits runtime credentials, and this
+    // final sanitizer still guarantees that only a clean envelope reaches disk.
+    const sanitized = sanitizePreferenceAuthStorageValue(value).sanitizedStorageValue;
+    void AsyncStorage.setItem(name, JSON.stringify(sanitized)).catch((error) => {
       console.warn('[UserPreferences] Failed to persist preferences', error);
     });
   });
@@ -395,9 +504,14 @@ function schedulePreferenceWriteFlush() {
       : (callback: FrameRequestCallback) => setTimeout(() => callback(Date.now()), 16);
 
   scheduleAfterFrame(() => {
-    preferenceWriteFlushScheduled = false;
-    setTimeout(flushPendingPreferenceWrites, 0);
+    if (preferenceWriteFlushScheduled) {
+      setTimeout(flushPendingPreferenceWrites, 0);
+    }
   });
+
+  // requestAnimationFrame can pause as soon as the app backgrounds. Keep a
+  // short timer fallback so a just-selected theme is not stranded in memory.
+  preferenceWriteFlushFallbackTimer = setTimeout(flushPendingPreferenceWrites, 100);
 }
 
 const userPreferencesStorage: PersistStorage<PersistedUserPreferencesState, void> = {
@@ -468,11 +582,7 @@ const userPreferencesStorage: PersistStorage<PersistedUserPreferencesState, void
     }
   },
   setItem: (name, value) => {
-    const sanitized = sanitizePreferenceAuthStorageValue(value).sanitizedStorageValue;
-    pendingPreferenceWrites.set(
-      name,
-      sanitized as StorageValue<PersistedUserPreferencesState>,
-    );
+    pendingPreferenceWrites.set(name, value);
     schedulePreferenceWriteFlush();
   },
   removeItem: (name) => {
@@ -509,6 +619,9 @@ function partializeUserPreferences(state: UserPreferencesState): PersistedUserPr
     historyRange: state.historyRange,
     historyFromMs: state.historyFromMs,
     historyToMs: state.historyToMs,
+    accountType: state.accountType,
+    accountEnvironmentSource: state.accountEnvironmentSource,
+    accountEnvironmentKey: state.accountEnvironmentKey,
     isDemoAccount: state.isDemoAccount,
     isLoggedIn: state.isLoggedIn,
     hasSetInitialSymbols: state.hasSetInitialSymbols,
@@ -559,7 +672,10 @@ export const useUserPreferences = create<UserPreferencesState>()(
       historyRange: 'All time',
       historyFromMs: null,
       historyToMs: null,
-      isDemoAccount: true,
+      accountType: 'unknown',
+      accountEnvironmentSource: 'unknown',
+      accountEnvironmentKey: '',
+      isDemoAccount: false,
       isLoggedIn: false,
       hasSetInitialSymbols: false,
       brokerId: '',
@@ -578,11 +694,15 @@ export const useUserPreferences = create<UserPreferencesState>()(
             normalizeBrokerConnectionId(state.brokerId) === normalizeBrokerConnectionId(nextBrokerId);
           const nextServerUrl = brokerConnection?.serverUrl || (sameBroker ? state.brokerServerUrl : '') || '';
           const nextLogoUrl = brokerConnection?.logoUrl || (sameBroker ? state.brokerLogoUrl : '') || '';
+          const accountEnvironment = mergeAccountEnvironment(null, {
+            accountKey: buildAccountEnvironmentKey(nextBrokerId, id),
+            resolved: brokerConnection?.accountType ?? 'unknown',
+            source: brokerConnection?.accountEnvironmentSource ?? 'unknown',
+            allowInitialFallback: true,
+          });
           return {
             isLoggedIn: true,
-            ...(typeof brokerConnection?.isDemoAccount === 'boolean'
-              ? { isDemoAccount: brokerConnection.isDemoAccount }
-              : {}),
+            ...toAccountEnvironmentPatch(accountEnvironment),
             // Persist brokerId atomically with login to prevent race conditions.
             // Falls back to existing brokerId if not provided (e.g., for register flow).
             brokerId: nextBrokerId,
@@ -606,7 +726,16 @@ export const useUserPreferences = create<UserPreferencesState>()(
         // work without requiring the user to re-enter the Broker ID.
         // Reset quoteSymbols and hasSetInitialSymbols so the next login
         // re-seeds from server watchlist or defaults (5 symbols).
-        set({ isLoggedIn: false, accountDetails: null, quoteSymbols: [], hasSetInitialSymbols: false });
+        set({
+          isLoggedIn: false,
+          accountDetails: null,
+          accountType: 'unknown',
+          accountEnvironmentSource: 'unknown',
+          accountEnvironmentKey: '',
+          isDemoAccount: false,
+          quoteSymbols: [],
+          hasSetInitialSymbols: false,
+        });
       },
       updateTokens: (accessToken, refreshToken, expiresAt) =>
         set((state) => {
@@ -624,13 +753,12 @@ export const useUserPreferences = create<UserPreferencesState>()(
         }),
       setQuoteViewMode: (mode) => set({ quoteViewMode: mode }),
       setThemeMode: (mode) => {
-        // Same press turn: imperative visuals + lightweight store + preference
-        // mirror so chrome AND every preference-bound screen flip together.
+        // Advance the lightweight visual clock before mirroring the durable
+        // preference. Storage sanitizing and serialization remain deferred.
         setImmediateThemeMode(mode);
-        if (get().themeMode === mode) {
-          return;
+        if (get().themeMode !== mode) {
+          set({ themeMode: mode });
         }
-        set({ themeMode: mode });
       },
       addQuoteSymbol: (symbol) => {
         const current = get().quoteSymbols;
@@ -732,7 +860,32 @@ export const useUserPreferences = create<UserPreferencesState>()(
       setOneClickAccepted: (accepted) => set({ oneClickAccepted: accepted }),
       setHistoryRange: (range) => set({ historyRange: range }),
       setHistoryDateRange: (fromMs, toMs) => set({ historyFromMs: fromMs, historyToMs: toMs }),
-      setIsDemoAccount: (isDemo) => set({ isDemoAccount: isDemo }),
+      mergeAccountEnvironmentForAccount: (accountKey, resolved, source) =>
+        set((state) => {
+          const currentAccountKey = state.isLoggedIn && state.accountDetails?.id && state.brokerId
+            ? buildAccountEnvironmentKey(state.brokerId, state.accountDetails.id)
+            : '';
+          if (
+            !accountKey
+            || accountKey !== currentAccountKey
+            || state.accountEnvironmentKey !== currentAccountKey
+          ) {
+            return state;
+          }
+
+          const merged = mergeAccountEnvironment(
+            readCurrentAccountEnvironment(state),
+            {
+              accountKey,
+              resolved,
+              source,
+              allowInitialFallback: false,
+            },
+          );
+          return merged
+            ? toAccountEnvironmentPatch(merged)
+            : state;
+        }),
       setBrokerId: (id) =>
         set((state) => state.isLoggedIn ? state : { brokerId: id }),
       setBrokerConnection: (brokerId, serverUrl = '', logoUrl = '') =>
@@ -797,7 +950,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
           console.warn('[UserPreferences] Failed to rehydrate persisted preferences', error);
         }
         if (state?.themeMode) {
-          setImmediateThemeMode(state.themeMode);
+          setImmediateThemeMode(state.themeMode, { deferRetained: false });
         }
         void readChartDrawingRecordsBySymbol()
           .then((storedRecordsBySymbol) => {

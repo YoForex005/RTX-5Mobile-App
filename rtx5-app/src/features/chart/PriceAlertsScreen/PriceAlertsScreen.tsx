@@ -20,6 +20,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator, KeyboardAvoidingView, Platform, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useIsDarkTheme } from '../../../state/themeMode';
 import { useTheme } from '../../../ui/theme/useTheme';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useTranslation } from '../../../i18n/useTranslation';
@@ -81,7 +82,7 @@ export function PriceAlertsScreen({
   const { t } = useTranslation();
   const routeParams = useLocalSearchParams<PriceAlertRouteParams>();
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makePriceAlertsStyles(T, isDark), [T, isDark]);
   const navigationFocused = useIsFocused();

@@ -8,6 +8,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useActiveBrokerQuerySession } from '../../../../query/authenticatedQueryScope';
 import { useLiveSymbolQuote } from '../../../../query/websocket';
 import {
   resolveSessionQuoteActionAvailability,
@@ -44,6 +45,7 @@ type ChartTradeButtonsProps = {
   comment?: string;
   stopLossPrice?: number | null;
   takeProfitPrice?: number | null;
+  protectionDraftId?: string;
   pointSize?: number;
   onEditLot?: () => void;
   onOpenLotEditor?: (mode?: FooterLotPickerMode) => void;
@@ -67,6 +69,10 @@ type ChartTradeButtonsProps = {
   // red and block BUY/SELL until the user enters a valid step/range.
   lotInvalid?: boolean;
   invalidLotDisplay?: string;
+};
+
+type ChartTradeButtonsSessionScopedProps = ChartTradeButtonsProps & {
+  displayQuoteScopeKey: string;
 };
 
 const INVALID_LOT_COLOR = '#EF4444';
@@ -99,7 +105,22 @@ const ChartTradeButtonPriceText = React.memo(function ChartTradeButtonPriceText(
   );
 });
 
-export const ChartTradeButtons = React.memo(function ChartTradeButtons({
+export const ChartTradeButtons = React.memo(function ChartTradeButtons(
+  props: ChartTradeButtonsProps,
+) {
+  const activeSession = useActiveBrokerQuerySession();
+  const displayQuoteScopeKey =
+    `${activeSession?.cacheNamespace ?? ''}:${props.symbol.trim().toUpperCase()}`;
+  return (
+    <ChartTradeButtonsSessionScoped
+      key={displayQuoteScopeKey}
+      {...props}
+      displayQuoteScopeKey={displayQuoteScopeKey}
+    />
+  );
+});
+
+const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSessionScoped({
   symbol,
   displayDecimals,
   lotSize,
@@ -108,6 +129,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   comment,
   stopLossPrice,
   takeProfitPrice,
+  protectionDraftId,
   pointSize,
   onEditLot,
   onOpenLotEditor,
@@ -129,7 +151,13 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   sellColor,
   lotInvalid = false,
   invalidLotDisplay = '',
-}: ChartTradeButtonsProps) {
+  displayQuoteScopeKey,
+}: ChartTradeButtonsSessionScopedProps) {
+  const retainedDisplayQuoteRef = React.useRef<{
+    scopeKey: string;
+    bid: number;
+    ask: number;
+  } | null>(null);
   const liveQuote = useLiveSymbolQuote(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS);
   // Must pass a single options object — positional args crash when liveQuote is
   // null/undefined (destructure of undefined) and tripped the trading ErrorBoundary after OTA.
@@ -139,7 +167,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
     fallbackBid,
     fallbackAsk,
   });
-  const displayQuote = resolveChartTradeButtonDisplayQuote({
+  const resolvedDisplayQuote = resolveChartTradeButtonDisplayQuote({
     liveBid: liveQuote?.bid,
     liveAsk: liveQuote?.ask,
     fallbackBid,
@@ -152,8 +180,35 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   const quoteActionAvailability = resolveSessionQuoteActionAvailability(liveQuote);
   const latestBid = Number(latestQuote?.bid);
   const latestAsk = Number(latestQuote?.ask);
-  const displayBid = Number(displayQuote?.bid);
-  const displayAsk = Number(displayQuote?.ask);
+  const resolvedDisplayBid = Number(resolvedDisplayQuote?.bid);
+  const resolvedDisplayAsk = Number(resolvedDisplayQuote?.ask);
+  if (
+    Number.isFinite(resolvedDisplayBid) &&
+    resolvedDisplayBid > 0 &&
+    Number.isFinite(resolvedDisplayAsk) &&
+    resolvedDisplayAsk > 0
+  ) {
+    retainedDisplayQuoteRef.current = {
+      scopeKey: displayQuoteScopeKey,
+      bid: resolvedDisplayBid,
+      ask: resolvedDisplayAsk,
+    };
+  }
+  const retainedDisplayQuote =
+    retainedDisplayQuoteRef.current?.scopeKey === displayQuoteScopeKey
+      ? retainedDisplayQuoteRef.current
+      : null;
+  // Visual continuity only: route blur clears the live execution quote, but
+  // the retained footer keeps its last numeric Bid/Ask instead of flashing
+  // placeholders. Trade authorization below still uses latestQuote/liveQuote.
+  const displayBid =
+    Number.isFinite(resolvedDisplayBid) && resolvedDisplayBid > 0
+      ? resolvedDisplayBid
+      : retainedDisplayQuote?.bid ?? 0;
+  const displayAsk =
+    Number.isFinite(resolvedDisplayAsk) && resolvedDisplayAsk > 0
+      ? resolvedDisplayAsk
+      : retainedDisplayQuote?.ask ?? 0;
   const hasDisplayBid = Number.isFinite(displayBid) && displayBid > 0;
   const hasDisplayAsk = Number.isFinite(displayAsk) && displayAsk > 0;
   // Guard toFixed range — invalid decimals throw and crash the ErrorBoundary.
@@ -220,6 +275,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
     comment,
     stopLossPrice,
     takeProfitPrice,
+    protectionDraftId,
     pointSize,
     lotSize,
     latestBid,

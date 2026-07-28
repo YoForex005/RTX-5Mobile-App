@@ -5,7 +5,7 @@ import test from 'node:test';
 
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
-test('hidden tab screens do not keep live feed subscriptions active over stack routes', () => {
+test('hidden tab screens gate heavy work while a visited chart keeps one atomic live-paint bridge warm', () => {
   const quotesSource = readSource('src/features/quotes/QuotesScreen.tsx');
   const chartSource = readSource('src/features/chart/ChartScreen.native.tsx');
   const rootLayoutSource = readSource('app/_layout.tsx');
@@ -104,6 +104,7 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
 
   assert.match(chartSource, /import \{ useIsFocused \} from '@react-navigation\/native'/);
   assert.match(chartSource, /import \{ router, useFocusEffect \} from 'expo-router'/);
+  assert.match(chartSource, /import \{ useLatchedFlag \} from '\.\.\/\.\.\/hooks\/useLatchedFlag'/);
   assert.match(chartSource, /import \{ useNextFrameValue \} from '\.\.\/\.\.\/hooks\/useNextFrameValue'/);
   assert.doesNotMatch(chartSource, /import \{[^}]*usePathname[^}]*\} from 'expo-router'/);
   assert.match(chartSource, /const ChartScreenInner = React\.memo\(function ChartScreenInner\(\{ isChartRouteActive \}: \{ isChartRouteActive: boolean \}\)/);
@@ -116,29 +117,99 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.match(chartSource, /const CHART_FOCUS_WORK_DELAY_MS = 120/);
   assert.match(chartSource, /const CHART_SURFACE_MOUNT_DELAY_MS = 0/);
   assert.match(chartSource, /const chartRuntimeActive = useDeferredActiveFlag\(isChartRouteActive, CHART_RUNTIME_ACTIVE_DELAY_MS\)/);
-  // The WebView must mount only for the truly focused Chart route. Hidden
-  // prewarm/latched mounting can initialize a zero-sized WebView behind Quotes
-  // and keep expensive browser work alive while navigation is still pending.
+  // Never boot-prewarm the WebView behind Quotes. Mount it only after the first
+  // real Chart focus, retain that initialized surface for instant returns, and
+  // keep only its selected-symbol candle+Bid bridge and an imperative
+  // display-price ref warm without waking React in the hidden footer.
   assert.match(chartSource, /const chartSurfaceActivated = useDeferredActiveFlag\(isChartRouteActive, CHART_SURFACE_MOUNT_DELAY_MS\)/);
-  assert.match(chartSource, /const chartSurfaceReady = chartSurfaceActivated/);
-  assert.doesNotMatch(chartSource, /useLatchedFlag|chartSurfacePrewarmed|setChartSurfacePrewarmed/);
+  assert.match(chartSource, /const chartSurfaceReady = useLatchedFlag\(chartSurfaceActivated\)/);
+  assert.doesNotMatch(chartSource, /chartSurfacePrewarmed|setChartSurfacePrewarmed/);
   assert.doesNotMatch(chartSource, /CHART_SURFACE_PREWARM_DELAY_MS|CHART_STARTUP_HISTORY_PREWARM_DELAY_MS/);
   assert.doesNotMatch(chartSource, /const chartSurfaceReady = useDeferredActiveFlag\(/);
   assert.match(chartSource, /useLiveSymbolQuote\(chartSymbol, chartRuntimeActive, CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS\)/);
   assert.doesNotMatch(chartLiveHeadersSource, /useMarketData|useLiveTick/);
   assert.match(chartTradeButtonsSource, /const TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS = 16/);
   assert.match(chartTradeButtonsSource, /useLiveSymbolQuote\(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS\)/);
+  assert.match(
+    chartTradeButtonsSource,
+    /const displayQuoteScopeKey =[\s\S]*activeSession\?\.cacheNamespace[\s\S]*props\.symbol\.trim\(\)\.toUpperCase\(\)[\s\S]*key=\{displayQuoteScopeKey\}[\s\S]*const retainedDisplayQuoteRef = React\.useRef/,
+    'the footer must retain display prices only inside the current session and symbol scope',
+  );
+  assert.match(
+    chartTradeButtonsSource,
+    /Visual continuity only:[\s\S]*const displayBid =[\s\S]*retainedDisplayQuote\?\.bid \?\? 0[\s\S]*const displayAsk =[\s\S]*retainedDisplayQuote\?\.ask \?\? 0/,
+    'inactive footer renders must preserve numeric text without keeping hidden tick subscriptions active',
+  );
   assert.match(chartSource, /useMarketSymbols\(chartRuntimeActive\)/);
   assert.match(chartSource, /useInstrumentMeta\(chartSymbol, chartRuntimeActive\)/);
   assert.match(chartSource, /useLiveCandles\(\s*chartSymbol,\s*chartTimeframe,\s*chartDataActive,\s*CHART_SCREEN_CANDLE_COMMIT_INTERVAL_MS,?\s*\)/);
+  assert.match(chartSource, /const activeChartSessionCacheNamespace = activeChartSession\?\.cacheNamespace \?\? ''/);
+  assert.match(
+    chartSource,
+    /Fast retained live-paint path[\s\S]*if \([\s\S]*!chartSurfaceReady[\s\S]*!activeChartSessionCacheNamespace[\s\S]*const paintCanonicalLiveTick = \(allowUnchangedSnapshot = false\) => \{[\s\S]*updateLiveTick\([\s\S]*const releaseCandleConsumer = liveCandlesEngine\.subscribe\([\s\S]*chartSymbol,[\s\S]*chartTimeframe,[\s\S]*paintCanonicalLiveTick,[\s\S]*const retainLatestChartTradeDisplayQuote = \(tick: QuoteTickEvent\) => \{[\s\S]*retainedChartTradeDisplayQuoteRef\.current = \{[\s\S]*const releaseQuoteDemand = quotesWsService\.subscribeToSymbol\([\s\S]*chartSymbol,[\s\S]*retainLatestChartTradeDisplayQuote,[\s\S]*releaseQuoteDemand\(\);[\s\S]*releaseCandleConsumer\(\);/,
+  );
+  const retainedLivePaintSource = chartSource.slice(
+    chartSource.indexOf('// Fast retained live-paint path.'),
+    chartSource.indexOf('// Effect 2'),
+  );
+  assert.doesNotMatch(
+    retainedLivePaintSource,
+    /chartRuntimeActive|chartDataActive/,
+    'the selected-symbol candle+Bid bridge must continue atomically while Chart is hidden',
+  );
+  assert.match(
+    retainedLivePaintSource,
+    /updateMode !== 'full_reload'[\s\S]*updateChartData\([\s\S]*preserveVisibleLogicalSpan: true[\s\S]*updateLiveTick\(/,
+    'a rare hidden full-series replacement must catch up before the retained Chart can be revealed',
+  );
+  assert.doesNotMatch(
+    chartSource,
+    /const chartLiveQuote = useLiveSymbolQuote\(chartSymbol, chartSurfaceReady,/,
+    'the large Chart host quote hook must stay route-gated while hidden',
+  );
+  assert.match(
+    chartSource,
+    /const chartTradeDisplayQuoteScopeKey =[\s\S]*activeChartSessionCacheNamespace[\s\S]*chartSymbol\.trim\(\)\.toUpperCase\(\)[\s\S]*const retainedChartTradeDisplayQuoteRef = useRef<RetainedChartTradeDisplayQuote \| null>\(null\)/,
+    'retained footer prices must be scoped to the active session and symbol',
+  );
+  assert.match(
+    chartSource,
+    /const chartTradeFooterFallbackBid =[\s\S]*retainedChartTradeDisplayQuote\?\.bid \?\? 0[\s\S]*const chartTradeFooterFallbackAsk =[\s\S]*retainedChartTradeDisplayQuote\?\.ask \?\? 0/,
+    'inactive footers must render retained numeric prices without authorizing execution',
+  );
+  assert.doesNotMatch(
+    chartSource,
+    /const chartTradeFooterFallback(?:Bid|Ask) =[\s\S]{0,160}Number\.isFinite\(chart(?:Bid|Ask)\)/,
+    'a quote from the previous hook render must not migrate into a new session or symbol scope',
+  );
   assert.match(chartSource, /const refreshShowOnChartSources = useCallback\(\(\) => \{[\s\S]*if \(!chartRuntimeActive\) \{[\s\S]*return;[\s\S]*\}/);
   assert.match(chartSource, /scheduleIdleWork\([\s\S]*refreshShowOnChartSources\(\);[\s\S]*requestChartViewportRecovery\(3\);[\s\S]*delayMs: CHART_FOCUS_WORK_DELAY_MS/);
   assert.match(chartSource, /const hasPaintedCurrentChartContext =[\s\S]*lastPaintedChartDataContextSig === chartDataContextSig/);
-  assert.match(chartSource, /const shouldShowChartLoadingOverlay =[\s\S]*!hasPaintedCurrentChartContext &&[\s\S]*!hasChartDataError &&[\s\S]*\(!chartSurfaceReady \|\| isLoading \|\| candlesAvailable\)/);
+  assert.match(chartSource, /const hasUsableRetainedChart =[\s\S]*hasPaintedCurrentChartContext && webViewReady && chartCanvasReady/);
+  assert.match(chartSource, /const shouldShowChartLoadingOverlay =[\s\S]*!hasUsableRetainedChart &&[\s\S]*!hasChartDataError &&[\s\S]*\(!chartSurfaceReady \|\| isLoading \|\| candlesAvailable\)/);
   assert.match(chartSource, /\{shouldShowChartLoadingOverlay && \(/);
   assert.match(chartSource, /\{chartSurfaceReady \? \(\s*<WebView/);
   assert.match(chartSource, /<LiveQuotePairHeader[\s\S]*bid=\{chartBid\}[\s\S]*ask=\{chartAsk\}/);
-  assert.match(chartSource, /<ChartTradeButtons[\s\S]*active=\{chartRuntimeActive\}/);
+  const retainedChartTradeFooters =
+    chartSource.match(/<ChartTradeInlineFooter[\s\S]*?\/>/g) ?? [];
+  assert.equal(retainedChartTradeFooters.length, 3);
+  retainedChartTradeFooters.forEach((footerSource) => {
+    assert.match(
+      footerSource,
+      /active=\{chartRuntimeActive\}/,
+      'each Buy/Sell footer must stop React quote commits while Chart is hidden',
+    );
+    assert.match(
+      footerSource,
+      /fallbackBid=\{chartTradeFooterFallbackBid\}[\s\S]*fallbackAsk=\{chartTradeFooterFallbackAsk\}/,
+      'each inactive Buy/Sell footer must retain display-only numeric prices',
+    );
+  });
+  assert.match(
+    chartSource,
+    /<ChartTradeButtons[\s\S]*?variant='mt5-market'[\s\S]*?active=\{chartRuntimeActive\}[\s\S]*?fallbackBid=\{chartTradeFooterFallbackBid\}[\s\S]*?fallbackAsk=\{chartTradeFooterFallbackAsk\}/,
+    'the hidden legacy trade-sheet button must remain route-gated and session-scoped',
+  );
   // Host instances mount outside any navigator screen, where useIsFocused()
   // is always true — hosted instances must trust only hostedActive.
   assert.match(priceAlertsSource, /const isScreenFocused = hosted \? hostedActive : navigationFocused/);
@@ -185,9 +256,8 @@ test('settings, trade, and history screens pause work when another screen is foc
   assert.match(settingsSource, /const SettingsScreenInner = memo\(function SettingsScreenInner\(\{ isScreenFocused \}: \{ isScreenFocused: boolean \}\)/);
   assert.match(settingsSource, /export function SettingsScreen\(\) \{\s*const isScreenFocused = useIsFocused\(\);\s*const deferredScreenFocused = useNextFrameValue\(isScreenFocused\);\s*return <SettingsScreenInner isScreenFocused=\{deferredScreenFocused\} \/>;\s*\}/);
   assert.match(settingsSource, /const SETTINGS_SCREEN_DATA_DELAY_MS = 8000/);
-  assert.match(settingsSource, /const SETTINGS_BODY_PREWARM_DELAY_MS = 1200/);
-  assert.match(settingsSource, /const routeBodyReady = useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : SETTINGS_BODY_PREWARM_DELAY_MS,\s*\)/);
-  assert.doesNotMatch(settingsSource, /useDeferredRouteContentReady\([^)]*, isScreenFocused\)/);
+  assert.doesNotMatch(settingsSource, /SETTINGS_BODY_PREWARM_DELAY_MS|routeBodyReady|useDeferredRouteContentReady/);
+  assert.match(settingsSource, /<ScrollView[\s\S]*style=\{styles\.container\}[\s\S]*contentContainerStyle=\{styles\.content\}/);
   assert.match(settingsSource, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
   assert.doesNotMatch(settingsSource, /sidebarOpen = useUIState/);
   assert.match(settingsSource, /const settingsDataActive = useDeferredActiveFlag\(\s*isAccountConnected && isScreenFocused && firstPaintReady,\s*SETTINGS_SCREEN_DATA_DELAY_MS,\s*\)/);
@@ -279,9 +349,8 @@ test('settings, trade, and history screens pause work when another screen is foc
   assert.doesNotMatch(calendarSource, /CALENDAR_INITIAL_DATA_DELAY_MS|calendarDataReady/);
   assert.match(calendarSource, /const ECON_CALENDAR_BODY_PREWARM_DELAY_MS = 0/);
   assert.match(calendarSource, /const routeBodyReady = useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : ECON_CALENDAR_BODY_PREWARM_DELAY_MS,\s*\)/);
-  assert.match(calendarSource, /const focusedBodyReady = isScreenFocused && routeBodyReady;/);
-  assert.match(calendarSource, /\{focusedBodyReady \? <>/);
-  assert.doesNotMatch(calendarSource, /\{routeBodyReady \? <ScrollView/);
+  assert.doesNotMatch(calendarSource, /const focusedBodyReady = isScreenFocused && routeBodyReady;/);
+  assert.match(calendarSource, /\{routeBodyReady \? <>/);
   // One bounded idle prewarm is the only work the hidden calendar shell may do:
   // it fills the event cache once, well after boot, so the FIRST sidebar visit
   // reveals real rows (MT5 parity) instead of fetching on focus.
@@ -310,14 +379,16 @@ test('high-volume diagnostics are disabled unless explicitly requested', () => {
   const positionsStateSource = readSource('src/state/positionsState.ts');
   const accountWsSource = readSource('src/api/ws/accountSocket.ts');
 
-  assert.match(accountsSource, /EXPO_PUBLIC_DEBUG_ACCOUNTS_SCREEN === 'true'/);
-  assert.match(accountsSource, /logAccountsScreenDiagnostic\('\[AccountsScreen\] activeAccount:'/);
-  assert.match(accountsSource, /logAccountsScreenDiagnostic\('\[AccountsScreen\] live WS metrics:'/);
-  assert.match(accountsSource, /logAccountsScreenDiagnostic\('\[AccountsScreen\] display values:'/);
+  assert.doesNotMatch(accountsSource, /logAccountsScreenDiagnostic/);
   assert.doesNotMatch(accountsSource, /console\.log\('\[AccountsScreen\]/);
+  assert.doesNotMatch(accountsSource, /EXPO_PUBLIC_DEBUG_ACCOUNTS_SCREEN/);
 
   assert.match(accountsApiSource, /EXPO_PUBLIC_DEBUG_ACCOUNTS_API === 'true'/);
-  assert.match(accountsApiSource, /if \(DEBUG_ACCOUNTS_API\) \{[\s\S]*Raw backend response:[\s\S]*Mapped accounts:/);
+  assert.match(
+    accountsApiSource,
+    /if \(DEBUG_ACCOUNTS_API\) \{[\s\S]*Accounts response received[\s\S]*accountCount: mapped\.length/,
+  );
+  assert.doesNotMatch(accountsApiSource, /Raw backend response:|Mapped accounts:/);
 
   assert.match(quotesWsSource, /EXPO_PUBLIC_DEBUG_CANDLE_FEED === 'true'/);
   assert.doesNotMatch(quotesWsSource, /typeof __DEV__ === 'undefined' \|\| __DEV__/);

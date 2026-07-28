@@ -1,4 +1,5 @@
 import test from 'node:test';
+import assert from 'node:assert/strict';
 
 import {
   assertSourceContains,
@@ -79,15 +80,16 @@ test('pending init retries are throttled before remapping full history', () => {
   );
 });
 
-test('WebView process loss resets bridge and reloads on both iOS and Android paths', () => {
+test('WebView process loss resets the bridge and defers hidden surface recreation', () => {
   assertSourceContains(
     source,
-    /onContentProcessDidTerminate=\{\(\) => \{[\s\S]*resetChartBridgeState\(\)[\s\S]*setWebViewReady\(false\)[\s\S]*webViewRef\.current\?\.reload\(\)/,
-    'iOS content process termination must reload chart WebView',
+    /const handleChartWebViewProcessLoss = useCallback\([\s\S]*failedGeneration: number[\s\S]*lastRecoveredChartWebViewGenerationRef\.current === failedGeneration[\s\S]*lastRecoveredChartWebViewGenerationRef\.current = failedGeneration[\s\S]*resetChartBridgeState\(\)[\s\S]*setWebViewReady\(false\)[\s\S]*if \(!isScreenFocused\) \{[\s\S]*pendingChartWebViewRecoveryRef\.current = true[\s\S]*return[\s\S]*setChartWebViewGeneration\(\(generation\) => generation \+ 1\)/,
+    'process termination must deduplicate a failed generation, reset readiness, and defer recreation while Chart is hidden',
   );
   assertSourceContains(
     source,
-    /onRenderProcessGone=\{\(\) => \{[\s\S]*resetChartBridgeState\(\)[\s\S]*setWebViewReady\(false\)[\s\S]*webViewRef\.current\?\.reload\(\)/,
-    'Android render process loss must reload chart WebView',
+    /onContentProcessDidTerminate=\{\(\) => \{[\s\S]*handleChartWebViewProcessLoss\('iOS', chartWebViewGeneration\)[\s\S]*onRenderProcessGone=\{\(\) => \{[\s\S]*handleChartWebViewProcessLoss\('Android', chartWebViewGeneration\)/,
+    'both iOS and Android process-loss callbacks must use the generation-deduplicated focus-gated recreation path',
   );
+  assert.doesNotMatch(source, /webViewRef\.current\?\.reload\(\)/);
 });

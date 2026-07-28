@@ -8,8 +8,10 @@
 
 import { loginAPI } from './auth';
 import {
-  getTradingAccountTypeFromBackend,
-  type TradingAccountType,
+  readRawAccountGroup,
+  resolveAccountEnvironment,
+  type AccountEnvironment,
+  type AccountEnvironmentSource,
 } from '../domain/accountType';
 import { resolveSessionFeedAuth } from './feedAuthContract';
 import type { FeedAuthContext } from '../state/activeBrokerSession';
@@ -33,7 +35,9 @@ export interface SignInResult {
   brokerId: string;
   serverUrl: string;
   logoUrl: string;
-  accountType: TradingAccountType;
+  accountType: AccountEnvironment;
+  accountEnvironmentSource: AccountEnvironmentSource;
+  accountGroup?: string;
   feedToken?: string;
   feedAuthContext: FeedAuthContext;
 }
@@ -82,7 +86,6 @@ export async function signInWithCredentials({
   const serverName =
     response.server ?? response.broker_server ?? response.brokerServer ?? '';
   const canonicalBrokerId = response.broker_id ?? response.brokerId ?? brokerId;
-  const accountType = getTradingAccountTypeFromBackend(response);
 
   if (!accessToken) {
     throw new SignInError('Login server did not return an access token.');
@@ -93,6 +96,9 @@ export async function signInWithCredentials({
   if (String(canonicalBrokerId).trim().toLowerCase() !== brokerId.trim().toLowerCase()) {
     throw new SignInError('Login response did not match the selected broker.');
   }
+  const accountLogin = String(accountLoginRaw);
+  const accountEnvironmentEvidence = resolveAccountEnvironment(response, true);
+  const accountGroup = readRawAccountGroup(response);
 
   const expiresAtIso = (() => {
     if (typeof response.expires_at === 'number' && response.expires_at > 0) {
@@ -107,19 +113,22 @@ export async function signInWithCredentials({
   const sessionFeed = resolveSessionFeedAuth({
     response,
     brokerId: String(canonicalBrokerId),
+    accountLogin: username,
   });
 
   return {
     accessToken,
     refreshToken,
     expiresAtIso,
-    accountLogin: String(accountLoginRaw),
+    accountLogin,
     accountName,
     serverName,
     brokerId: canonicalBrokerId,
     serverUrl: serverUrl ?? '',
     logoUrl: logoUrl ?? '',
-    accountType,
+    accountType: accountEnvironmentEvidence.accountType,
+    accountEnvironmentSource: accountEnvironmentEvidence.source,
+    ...(accountGroup ? { accountGroup } : {}),
     ...(sessionFeed.feedToken ? { feedToken: sessionFeed.feedToken } : {}),
     feedAuthContext: sessionFeed.feedAuthContext,
   };

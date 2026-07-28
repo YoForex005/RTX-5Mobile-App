@@ -12,6 +12,7 @@ import { Modal } from 'react-native';
 import { ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { Screen } from '../../ui/components/Screen';
 import { useTheme } from '../../ui/theme/useTheme';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useTranslation } from '../../i18n/useTranslation';
 import { ThemeColors } from '../../ui/theme/glass';
@@ -52,7 +53,7 @@ const SECTIONS: { title: string; items: ColorRow[] }[] = [
 export function ChartColorsScreen() {
   const { t } = useTranslation();
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const chartColors = useUserPreferences((s) => s.chartColors);
   const router = require('expo-router').useRouter();
   

@@ -61,6 +61,10 @@ test('secure credentials are injected into runtime only and fail-closed state dr
       accessToken: 'secure-access',
       refreshToken: 'secure-refresh',
       expiresAt: '2031-01-01T00:00:00.000Z',
+      feedAuthContext: {
+        mode: 'disabled_unconfigured',
+        reason: 'missing_contract',
+      },
     },
     sanitized.accountIdentity!,
   );
@@ -69,7 +73,11 @@ test('secure credentials are injected into runtime only and fail-closed state dr
   assert.doesNotMatch(JSON.stringify(sanitized.sanitizedStorageValue), /secure-access|credentials/);
 
   const failed = failClosedPersistedAuthState(sanitized.sanitizedStorageValue);
-  assert.equal((failed.state as Record<string, unknown>).isLoggedIn, false);
-  assert.equal((failed.state as Record<string, unknown>).accountDetails, null);
+  const failedState = failed.state as Record<string, unknown>;
+  assert.equal(failedState.isLoggedIn, false);
+  assert.equal(failedState.accountDetails, null);
+  assert.equal(failedState.accountType, 'unknown');
+  assert.equal(failedState.accountEnvironmentSource, 'unknown');
+  assert.equal(failedState.accountEnvironmentKey, '');
+  assert.equal(failedState.isDemoAccount, false);
 });
-

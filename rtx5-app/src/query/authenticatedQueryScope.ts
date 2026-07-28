@@ -28,6 +28,28 @@ export function useActiveBrokerQuerySession(): ActiveBrokerSession | null {
   );
 }
 
+export const getActiveBrokerCredentialScopeKey = (): string => {
+  const provenance = captureActiveBrokerSessionProvenance();
+  if (!provenance) return NO_ACTIVE_BROKER_CACHE_NAMESPACE;
+  return [
+    provenance.cacheNamespace,
+    provenance.credentialGeneration,
+    provenance.credentialIdentity,
+  ].join(':');
+};
+
+/**
+ * Market-data reads must rotate with credentials even when the authenticated
+ * account/session cache namespace stays the same across token refresh.
+ */
+export function useActiveBrokerCredentialScopeKey(): string {
+  return useSyncExternalStore(
+    subscribeSessionSnapshot,
+    getActiveBrokerCredentialScopeKey,
+    () => NO_ACTIVE_BROKER_CACHE_NAMESPACE,
+  );
+}
+
 export const getSessionQueryCacheNamespace = (
   session: ActiveBrokerSession | null,
 ): string => session?.cacheNamespace ?? NO_ACTIVE_BROKER_CACHE_NAMESPACE;

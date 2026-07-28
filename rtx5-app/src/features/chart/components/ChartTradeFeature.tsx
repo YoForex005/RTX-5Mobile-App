@@ -16,6 +16,7 @@ import {
 } from '../chartTradeInteractionUtils';
 import { LiveOrderTickExecutionGraph } from '../../trade/OrderTickExecutionGraph';
 import { isPendingOrderTypeBackendLocked } from '../../trade/tradeBackendCapabilities';
+import { getActiveSltpUnavailableMessage } from '../../trade/tradeBackendCapabilities';
 import { useTranslation } from '../../../i18n/useTranslation';
 
 const FOOTER_LOT_PICKER_BASE_OFFSET = 54;
@@ -46,7 +47,9 @@ function ChartTradeSheetHeaderActions({
   const { t } = useTranslation();
   const slEnabled = !!sheet.chartTradeSlEnabled;
   const tpEnabled = !!sheet.chartTradeTpEnabled;
+  const isDirectMarketProtection = !!sheet.chartDirectProtectionActive;
   const selectionRequired =
+    !isDirectMarketProtection &&
     !isPendingChartOrderType(sheet.chartTradeOrderType) &&
     (
       !!sheet.chartPositionSelectionInvalid ||
@@ -301,11 +304,13 @@ function ChartTradeStopLevelsSection({
   const slEnabled = !!sheet.chartTradeSlEnabled;
   const tpEnabled = !!sheet.chartTradeTpEnabled;
   const showStopControls = slEnabled || tpEnabled;
+  const isDirectMarketProtection = !!sheet.chartDirectProtectionActive;
   const modifyPhase = String(sheet.chartModifyTicketState?.phase ?? 'idle');
   const positionCandidates = Array.isArray(sheet.chartPositionCandidates)
     ? sheet.chartPositionCandidates
     : [];
   const positionSelectionRequired =
+    !isDirectMarketProtection &&
     !isPendingChartOrderType(sheet.chartTradeOrderType) &&
     (
       !!sheet.chartPositionSelectionInvalid ||
@@ -339,6 +344,7 @@ function ChartTradeStopLevelsSection({
                     ? t('Active')
                     : t('Off');
   const showPositionSelector =
+    !isDirectMarketProtection &&
     !isPendingChartOrderType(sheet.chartTradeOrderType) &&
     (positionCandidates.length > 0 || !!sheet.chartPositionSelectionInvalid);
   const stopsTargetExistingPosition = !!sheet.chartStopsTargetExistingPosition;
@@ -423,30 +429,37 @@ function ChartTradeStopLevelsSection({
           </Text>
         </View>
       </View>
+      {protectionCapabilityLocked ? (
+        <Text style={styles.chartTradePositionSelectorError} accessibilityRole="alert">
+          {t(getActiveSltpUnavailableMessage())}
+        </Text>
+      ) : null}
 
-      <Pressable
-        style={[
-          styles.chartTradeStopButton,
-          useMtPendingTradeSheetLayout && styles.chartTradeStopButtonPending,
-          protectionControlsDisabled && { opacity: 0.5 },
-        ]}
-        onPress={handlers.onEnableStops}
-        disabled={protectionControlsDisabled}
-        unstable_pressDelay={0}
-        accessibilityRole="button"
-        accessibilityLabel={slEnabled || tpEnabled ? t('Edit Stop Levels') : t('Add Stop Levels')}
-        accessibilityState={{ disabled: protectionControlsDisabled }}
-      >
-        <View style={styles.chartTradeStopButtonContent}>
-          <View style={styles.chartTradeStopButtonIcon}>
-            <Ionicons name="shield-checkmark-outline" size={17} color={colors.blue} />
+      {!isDirectMarketProtection ? (
+        <Pressable
+          style={[
+            styles.chartTradeStopButton,
+            useMtPendingTradeSheetLayout && styles.chartTradeStopButtonPending,
+            protectionControlsDisabled && { opacity: 0.5 },
+          ]}
+          onPress={handlers.onEnableStops}
+          disabled={protectionControlsDisabled}
+          unstable_pressDelay={0}
+          accessibilityRole="button"
+          accessibilityLabel={slEnabled || tpEnabled ? t('Edit Stop Levels') : t('Add Stop Levels')}
+          accessibilityState={{ disabled: protectionControlsDisabled }}
+        >
+          <View style={styles.chartTradeStopButtonContent}>
+            <View style={styles.chartTradeStopButtonIcon}>
+              <Ionicons name="shield-checkmark-outline" size={17} color={colors.blue} />
+            </View>
+            <Text style={[styles.chartTradeStopButtonText, useMtPendingTradeSheetLayout && styles.chartTradeStopButtonTextPending]}>
+              {slEnabled || tpEnabled ? t('Edit Stop Levels') : t('Add Stop Levels')}
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.blue} />
           </View>
-          <Text style={[styles.chartTradeStopButtonText, useMtPendingTradeSheetLayout && styles.chartTradeStopButtonTextPending]}>
-            {slEnabled || tpEnabled ? t('Edit Stop Levels') : t('Add Stop Levels')}
-          </Text>
-          <Ionicons name="chevron-forward" size={16} color={colors.blue} />
-        </View>
-      </Pressable>
+        </Pressable>
+      ) : null}
 
       {showStopControls ? (
         <View style={styles.chartTradeStopsBlock}>
@@ -594,6 +607,7 @@ function ChartTradeSheetContent({
     chartTradeOrderType: sheet.chartTradeOrderType,
     showInlineFooterWhileSheetOpen: !!sheet.showInlineFooterWhileSheetOpen,
   });
+  const stopsTargetExistingPosition = !!sheet.chartStopsTargetExistingPosition;
 
   return (
     <>
@@ -903,6 +917,22 @@ function ChartTradeSheetContent({
               lotSize={sheet.tradeVolume}
               volumeBounds={sheet.tradeVolumeBounds}
               comment={sheet.chartTradeComment}
+              stopLossPrice={
+                !stopsTargetExistingPosition &&
+                !sheet.newMarketOrderProtectionBackendLocked &&
+                sheet.chartTradeSlEnabled
+                  ? sheet.chartTradeSlPrice
+                  : undefined
+              }
+              takeProfitPrice={
+                !stopsTargetExistingPosition &&
+                !sheet.newMarketOrderProtectionBackendLocked &&
+                sheet.chartTradeTpEnabled
+                  ? sheet.chartTradeTpPrice
+                  : undefined
+              }
+              pointSize={sheet.chartProtectionTickSize ?? 0}
+              protectionDraftId={sheet.directMarketProtectionDraftId}
               variant='mt5-market'
               onTradeResult={sheet.onTradeResult}
               fallbackBid={sheet.chartBid}
@@ -1357,6 +1387,7 @@ function ChartTradeSheetBody({
                 : undefined
             }
             pointSize={sheet.chartProtectionTickSize ?? 0}
+            protectionDraftId={sheet.directMarketProtectionDraftId}
             variant='mt5-market'
             onTradeResult={sheet.onTradeResult}
             fallbackBid={sheet.chartBid}
@@ -1521,9 +1552,9 @@ export function ChartTradeOverlayLayer({
       ? sheet.chartTradeSheetBottomInset
       : 0;
   // Optional bottom reservation for callers that deliberately keep a footer
-  // visible. The toolbar SL/TP flow passes 0 so the sheet covers that area.
+  // visible.
   const tradeSheetFrameBottom = tradeSheetBottomInset;
-  // Pre-mounted while Chart is focused so SL/TP only springs into view.
+  // Pre-mounted while Chart is focused for legacy/internal sheet routes.
   const mountTradeSheet = !!(sheet.mountChartTradeSheet || sheet.showChartTradeSheet);
 
   return (
@@ -1717,6 +1748,10 @@ export function ChartTradeOverlayLayer({
               volumeBounds={sheet.tradeVolumeBounds}
               onTradeResult={sheet.onTradeResult}
               comment={sheet.chartTradeComment}
+              stopLossPrice={sheet.directMarketStopLossPrice}
+              takeProfitPrice={sheet.directMarketTakeProfitPrice}
+              protectionDraftId={sheet.directMarketProtectionDraftId}
+              pointSize={sheet.chartProtectionTickSize ?? 0}
               onEditLot={handlers.onEditLot}
               onOpenLotEditor={handlers.onOpenLotEditor}
               isLotEditing={footer.footerLotEditorFocused}
@@ -1774,6 +1809,11 @@ type ChartTradeInlineFooterProps = {
   tradeVolume: number;
   tradeVolumeBounds: any;
   onTradeResult: (feedback: any) => void;
+  comment?: string;
+  stopLossPrice?: number | null;
+  takeProfitPrice?: number | null;
+  protectionDraftId?: string;
+  pointSize?: number;
   onEditLot: () => void;
   onOpenLotEditor: (mode?: 'absolute' | 'increase' | 'decrease') => void;
   isLotEditing: boolean;
@@ -1808,6 +1848,11 @@ export function ChartTradeInlineFooter({
   tradeVolume,
   tradeVolumeBounds,
   onTradeResult,
+  comment,
+  stopLossPrice,
+  takeProfitPrice,
+  protectionDraftId,
+  pointSize,
   onEditLot,
   onOpenLotEditor,
   isLotEditing,
@@ -1844,6 +1889,11 @@ export function ChartTradeInlineFooter({
           lotSize={tradeVolume}
           volumeBounds={tradeVolumeBounds}
           onTradeResult={onTradeResult}
+          comment={comment}
+          stopLossPrice={stopLossPrice}
+          takeProfitPrice={takeProfitPrice}
+          protectionDraftId={protectionDraftId}
+          pointSize={pointSize}
           onEditLot={onEditLot}
           onOpenLotEditor={onOpenLotEditor}
           isLotEditing={isLotEditing}

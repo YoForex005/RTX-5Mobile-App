@@ -5,7 +5,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { spacing } from '../theme/index';
 import { useTheme } from '../theme/useTheme';
-import { useUserPreferences } from '../../state/userPreferences';
+import { useIsDarkTheme } from '../../state/themeMode';
 
 type Props = {
   label: string;
@@ -17,7 +17,7 @@ type Props = {
 
 export function MetricRow({ label, value, compact = false, withDivider = false, white = false }: Props) {
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const labelColor = white && isDark ? '#FFFFFF' : T.textMuted;
   const valueColor = white && isDark ? '#FFFFFF' : T.text;
 

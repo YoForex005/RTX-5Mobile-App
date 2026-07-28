@@ -73,6 +73,18 @@ type PositionJournalResponse = {
   status?: string;
 };
 
+export type ProtectionTriggeredJournalPayload = {
+  ticket?: string | number;
+  position_ticket?: string | number;
+  account_login?: string | number;
+  symbol?: string;
+  price_close?: number | string;
+  price?: number | string;
+  reason?: string;
+  type?: string;
+  event?: string;
+};
+
 type TerminalJournalState = {
   entries: TerminalJournalEntry[];
   addEntry: (entry: TerminalJournalEntryInput) => void;
@@ -391,6 +403,46 @@ export function recordClosePositionJournalFailure(
     level: 'error',
     accountLogin: login,
     message: `${formatLoginPrefix(login)}close position #${ticketId} failed: ${getErrorMessage(error)}`,
+  });
+}
+
+/**
+ * Records the broker's actual protection-close reason and fill price. This is
+ * deliberately fed only by an owner-checked realtime terminal event; it never
+ * predicts a close or derives a price from the requested SL/TP.
+ */
+export function recordProtectionTriggeredJournalEvent(
+  payload: ProtectionTriggeredJournalPayload,
+  accountLogin?: string | number,
+): void {
+  const ticketValue = payload.ticket ?? payload.position_ticket;
+  const ticket = ticketValue === undefined || ticketValue === null
+    ? ''
+    : String(ticketValue).trim();
+  if (!ticket) {
+    return;
+  }
+
+  const login = normalizeAccountLogin(accountLogin ?? payload.account_login);
+  const symbol = normalizeSymbol(payload.symbol);
+  const normalizedEvent = String(payload.event ?? payload.type ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[.\s-]+/g, '_');
+  const triggerLabel = normalizedEvent.includes('tp') ? 'TP' : 'SL';
+  const backendReason = typeof payload.reason === 'string'
+    ? payload.reason.trim().slice(0, 160)
+    : '';
+  const closePrice = formatPrice(payload.price_close ?? payload.price, symbol);
+  const symbolText = symbol ? ` ${symbol}` : '';
+  const reasonText = backendReason ? ` (${backendReason})` : '';
+  const priceText = closePrice ? ` at ${closePrice}` : '';
+
+  addTerminalJournalEntry({
+    source: 'Trades',
+    level: 'success',
+    accountLogin: login,
+    message: `${formatLoginPrefix(login)}position #${ticket}${symbolText} ${triggerLabel} triggered${reasonText}${priceText}`,
   });
 }
 

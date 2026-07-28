@@ -45,6 +45,7 @@ import {
   type ModifyPositionAckWire,
 } from './modifyPositionWire';
 import { redactDiagnosticValue } from '../../utils/securityRedaction';
+import { assertActiveExistingPositionSltpAllowed } from '../sltpCapabilityGuard';
 
 const DEBUG_POSITIONS_API =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_POSITIONS_API === 'true';
@@ -146,17 +147,15 @@ export const positionsApi = {
     const json = await response.json();
     logPositionsApiDiagnostic('[PositionsAPI] Response type:', typeof json, Array.isArray(json) ? `array[${json.length}]` : 'not-array');
 
-    // Handle both array and wrapped responses
+    // The authenticated gateway source contract is an authoritative unwrapped
+    // array. Do not reinterpret an unknown object as an empty ledger because
+    // that could erase valid positions and their chart lines.
     if (Array.isArray(json)) return json;
-    if (json && typeof json === 'object') {
-      const arr = json.data || json.positions || json.items || json.result;
-      if (Array.isArray(arr)) {
-        logPositionsApiDiagnostic('[PositionsAPI] Unwrapped from object, found', arr.length, 'positions');
-        return arr;
-      }
-    }
     warnPositionsApiDiagnostic('[PositionsAPI] Unexpected response shape:', JSON.stringify(json).slice(0, 200));
-    return [];
+    throw createTradingApiError(502, {
+      error: 'INVALID_RESPONSE',
+      message: 'Positions endpoint returned an unexpected non-array response.',
+    });
   },
 
   /**
@@ -268,6 +267,9 @@ export const positionsApi = {
       }>) => void;
     }>,
   ): Promise<ModifyPositionAckWire> => {
+    // Defense in depth: direct/programmatic callers must not bypass the UI
+    // capability gate. This throws before journaling or any network request.
+    assertActiveExistingPositionSltpAllowed();
     const normalizedTicket = normalizePositiveSafeIntegerPathSegment(ticketId, 'Position ticket');
     const normalizedPayload = normalizeModifyPositionRequest(payload);
     recordModifyPositionJournalRequest(normalizedTicket.path, normalizedPayload);

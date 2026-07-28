@@ -1,20 +1,51 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { create } from 'zustand';
 import type { ThemeMode } from './userPreferences/types';
 
 type ThemeModeState = {
   themeMode: ThemeMode;
+  retainedThemeMode: ThemeMode;
   setImmediateThemeMode: (mode: ThemeMode) => void;
+  setRetainedThemeMode: (mode: ThemeMode) => void;
 };
 
 type ImmediateThemeVisualApplier = (mode: ThemeMode) => void;
+type ThemeModePostPaintTask = () => void;
+
+export type ThemeModeRenderPriority = 'immediate' | 'retained' | 'frozen';
+
+/**
+ * Retained screen trees use the settled theme clock so they cannot block the
+ * drawer's first light/dark paint. Hidden pre-mounted trees use `frozen` and
+ * catch up only when they become visible again.
+ */
+export const ThemeModeRenderPriorityContext =
+  createContext<ThemeModeRenderPriority>('immediate');
 
 const immediateThemeVisualAppliers = new Set<ImmediateThemeVisualApplier>();
+const themeModePostPaintTasks = new Set<ThemeModePostPaintTask>();
+let pendingRetainedThemeMode: ThemeMode | null = null;
+let themeModePostPaintScheduled = false;
+let themeModePostPaintFlushing = false;
 
 export const useThemeModeState = create<ThemeModeState>()((set) => ({
   themeMode: 'dark',
+  retainedThemeMode: 'dark',
   setImmediateThemeMode: (mode) =>
     set((state) => (state.themeMode === mode ? state : { themeMode: mode })),
+  setRetainedThemeMode: (mode) =>
+    set((state) => (
+      state.retainedThemeMode === mode
+        ? state
+        : { retainedThemeMode: mode }
+    )),
 }));
 
 export function registerImmediateThemeVisualApplier(applier: ImmediateThemeVisualApplier) {
@@ -34,27 +65,98 @@ export function applyImmediateThemeVisuals(mode: ThemeMode) {
   });
 }
 
-export function setImmediateThemeMode(mode: ThemeMode) {
-  if (useThemeModeState.getState().themeMode === mode) {
+function flushThemeModePostPaintWork() {
+  themeModePostPaintScheduled = false;
+  themeModePostPaintFlushing = true;
+  const postPaintTasks = Array.from(themeModePostPaintTasks);
+  themeModePostPaintTasks.clear();
+
+  postPaintTasks.forEach((task) => {
+    try {
+      task();
+    } catch (error) {
+      console.warn('[ThemeMode] Failed to run post-paint theme work', error);
+    }
+  });
+
+  // Tasks may request a newer mode (including a rapid reversal). Resolve the
+  // retained clock only after those tasks so an older captured mode can never
+  // overwrite the latest immediate choice.
+  const retainedMode = pendingRetainedThemeMode;
+  pendingRetainedThemeMode = null;
+  if (retainedMode !== null) {
+    // Native retained surfaces repaint before React reconciles their trees.
+    applyImmediateThemeVisuals(retainedMode);
+    useThemeModeState.getState().setRetainedThemeMode(retainedMode);
+  }
+  themeModePostPaintFlushing = false;
+
+  if (pendingRetainedThemeMode !== null || themeModePostPaintTasks.size > 0) {
+    scheduleThemeModePostPaintFlush();
+  }
+}
+
+function scheduleThemeModePostPaintFlush() {
+  if (themeModePostPaintScheduled || themeModePostPaintFlushing) {
     return;
   }
-  // Imperative surfaces such as the retained chart WebView must repaint in
-  // the press turn, before React reconciles the lightweight theme store.
-  applyImmediateThemeVisuals(mode);
-  useThemeModeState.getState().setImmediateThemeMode(mode);
+  themeModePostPaintScheduled = true;
+
+  const scheduleAfterFrame =
+    typeof globalThis.requestAnimationFrame === 'function'
+      ? globalThis.requestAnimationFrame
+      : (callback: FrameRequestCallback) => setTimeout(() => callback(Date.now()), 16);
+
+  scheduleAfterFrame(() => {
+    setTimeout(flushThemeModePostPaintWork, 0);
+  });
+}
+
+/**
+ * Queues preference mirroring and other non-visual work behind the drawer's
+ * first themed frame. Calls made during a rapid light/dark sequence coalesce.
+ */
+export function scheduleAfterImmediateThemePaint(task: ThemeModePostPaintTask) {
+  themeModePostPaintTasks.add(task);
+  scheduleThemeModePostPaintFlush();
+}
+
+export function setImmediateThemeMode(
+  mode: ThemeMode,
+  options?: { deferRetained?: boolean },
+) {
+  const state = useThemeModeState.getState();
+  if (state.themeMode !== mode) {
+    state.setImmediateThemeMode(mode);
+  }
+
+  if (options?.deferRetained === false) {
+    pendingRetainedThemeMode = null;
+    applyImmediateThemeVisuals(mode);
+    useThemeModeState.getState().setRetainedThemeMode(mode);
+    return;
+  }
+
+  // The drawer, status bar and navigation chrome use `themeMode` now. Large
+  // retained scenes and the chart WebView settle just after that frame.
+  pendingRetainedThemeMode =
+    state.retainedThemeMode === mode ? null : mode;
+  if (pendingRetainedThemeMode !== null) {
+    scheduleThemeModePostPaintFlush();
+  }
 }
 
 /**
  * When false, the hook freezes on the last mode it observed so pre-mounted
- * hosts that opt out do not rebuild on every theme tap. Default is live so
- * every normal screen flips in the same toggle turn.
+ * hosts that opt out do not rebuild on every theme tap.
  */
 export type UseThemeModeOptions = {
   active?: boolean;
 };
 
 /**
- * App-wide live theme by default.
+ * App-wide immediate theme by default. A retained-priority provider moves an
+ * entire pre-mounted scene tree to the post-paint theme clock.
  *
  * Hidden retained hosts may pass `{ active: false }` to skip theme-tap
  * re-renders while off-screen. When they become active again the selector
@@ -62,19 +164,32 @@ export type UseThemeModeOptions = {
  */
 export function useThemeMode(options?: UseThemeModeOptions): ThemeMode {
   // Only explicit active:false freezes. Navigation blur must NOT freeze —
-  // retained tabs (Quotes/Trade/Settings/etc.) should adopt the new palette
-  // in the same turn as the toggle so open/navigate never shows a stale theme.
+  // Retained scene providers still settle automatically after the first
+  // drawer/chrome paint.
   const active = options?.active !== false;
-  const frozenThemeModeRef = useRef(useThemeModeState.getState().themeMode);
+  const renderPriority = useContext(ThemeModeRenderPriorityContext);
+  const initialState = useThemeModeState.getState();
+  const frozenThemeModeRef = useRef(
+    renderPriority !== 'immediate'
+      ? initialState.retainedThemeMode
+      : initialState.themeMode,
+  );
 
   const themeMode = useThemeModeState(
     useCallback(
-      (state) => (active ? state.themeMode : frozenThemeModeRef.current),
-      [active],
+      (state) => {
+        if (!active || renderPriority === 'frozen') {
+          return frozenThemeModeRef.current;
+        }
+        return renderPriority === 'retained'
+          ? state.retainedThemeMode
+          : state.themeMode;
+      },
+      [active, renderPriority],
     ),
   );
 
-  if (active) {
+  if (active && renderPriority !== 'frozen') {
     frozenThemeModeRef.current = themeMode;
     return themeMode;
   }

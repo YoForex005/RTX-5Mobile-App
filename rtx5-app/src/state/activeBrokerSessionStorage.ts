@@ -65,6 +65,10 @@ const parseFeedAuthContext = (value: unknown): FeedAuthContext | null => {
   if (!validParam(brokerIdQueryParam) || !validParam(accountLoginQueryParam)) {
     return null;
   }
+  const params = [tokenQueryParam, brokerIdQueryParam, accountLoginQueryParam].filter(Boolean);
+  if (new Set(params).size !== params.length) {
+    return null;
+  }
 
   return Object.freeze({
     mode: 'query',
@@ -87,6 +91,16 @@ export const createActiveBrokerSessionManifest = (
   const feedStatusUrl = cleanString(input.feedStatusUrl);
   const servicesDomain = cleanString(input.servicesDomain);
   const configVersion = cleanString(input.configVersion);
+  const achieverFeedContractValid =
+    brokerId !== 'achiever-financials' ||
+    feedAuthContext?.mode === 'disabled_unconfigured' ||
+    (
+      feedAuthContext?.mode === 'query' &&
+      feedAuthContext.credential === 'feed_token' &&
+      feedAuthContext.tokenQueryParam === 'token' &&
+      feedAuthContext.brokerIdQueryParam === 'broker_id' &&
+      !feedAuthContext.accountLoginQueryParam
+    );
 
   if (
     !brokerId ||
@@ -96,7 +110,8 @@ export const createActiveBrokerSessionManifest = (
     !feedStatusUrl ||
     !servicesDomain ||
     !configVersion ||
-    !feedAuthContext
+    !feedAuthContext ||
+    !achieverFeedContractValid
   ) {
     throw new Error('Active broker session manifest is incomplete or invalid.');
   }

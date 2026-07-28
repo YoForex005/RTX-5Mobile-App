@@ -61,6 +61,14 @@ test('modify position keeps the button pressable and validates market price and 
   assert.doesNotMatch(eligibilitySource, /hasUsableMarketPrice|stopValidationError|isSlDistanceValid|isTpDistanceValid/);
   assert.match(eligibilitySource, /!coordinatorBusy/);
   assert.match(source, /disabled=\{!canModifyPosition\}/);
+  assert.match(
+    source,
+    /const coordinatorSaving =[\s\S]*phase === 'pending'[\s\S]*const coordinatorReconciling =[\s\S]*phase === 'reconciling'/,
+  );
+  assert.match(
+    source,
+    /coordinatorSaving \? \([\s\S]*t\('Saving…'\)[\s\S]*coordinatorReconciling \? \([\s\S]*t\('Reconciling'\)/,
+  );
   assert.match(source, /stopValidationError \? \([\s\S]*\{stopValidationError\}/);
   assert.match(source, /stepperDistanceError/);
   assert.match(source, /modifyBtnDisabled/);
