@@ -1,5 +1,11 @@
 # RTX5 OTA and Release Guide
 
+> **Current production authority:** Before any OTA, read
+> [`OTA_PRODUCTION_BASELINE.md`](OTA_PRODUCTION_BASELINE.md). The dated notes
+> below are historical records. The current RTX5 runtime policy is
+> `fingerprint`, and the current GitHub OTA workflow is manual
+> (`workflow_dispatch`), not automatic on push.
+
 ## OTA Strategy
 Use EAS Update with three channels:
 1. `preview` - QA and developer validation.

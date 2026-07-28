@@ -93,7 +93,7 @@ const nativeImpactPatterns = [
   /^GoogleService-Info\.plist$/,
   /^with[A-Z].*\.js$/,
   /^plugins?\//,
-  /^assets\/(adaptive-icon|icon|splash)/,
+  /^assets\/(adaptive-icon|android-icon|android-adaptive-foreground|icon|splash)/,
   /^\.easignore$/,
   /^metro\.config\./,
   /^babel\.config\./,

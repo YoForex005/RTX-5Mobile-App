@@ -2,6 +2,10 @@
 
 Use this file when you want to update the RTX5 mobile app in the future.
 
+Before any production OTA, read
+[`OTA_PRODUCTION_BASELINE.md`](OTA_PRODUCTION_BASELINE.md). It is the shared
+runtime, binary-commit, and update-ID baseline used across computers.
+
 ## Current Setup
 
 - Real app folder: `rtx5-app`
@@ -19,12 +23,15 @@ Use this file when you want to update the RTX5 mobile app in the future.
 - GitHub production OTA branch: `release`
 - GitHub secret required for OTA: `EXPO_TOKEN`
 - Required EAS environment names for every OTA channel:
+  - `EXPO_PUBLIC_APP_ENV`
   - `EXPO_PUBLIC_API_BASE_URL`
   - `EXPO_PUBLIC_BROKER_DIRECTORY_BASE_URL`
   - `EXPO_PUBLIC_DEMO_API_BASE_URL`
-  - `EXPO_PUBLIC_FEED_BROKER_TOKEN`
   - `EXPO_PUBLIC_TERMS_URL`
   - `EXPO_PUBLIC_PRIVACY_POLICY_URL`
+  - `EXPO_PUBLIC_CANDLE_HISTORY_PATH`
+  - `EXPO_PUBLIC_CANDLE_HISTORY_QUERY_STYLE`
+  - `EXPO_PUBLIC_BROKER_SLTP_CAPABILITIES`
 
 ## What Is Already Done
 
@@ -32,9 +39,11 @@ Use this file when you want to update the RTX5 mobile app in the future.
 - `expo-updates` is installed.
 - `rtx5-app/eas.json` has `preview`, `staging`, and `production` channels.
 - GitHub workflow `RTX5 OTA Update` is present in `.github/workflows/eas-update.yml`.
-- GitHub secret `EXPO_TOKEN` has been added.
-- GitHub `release` branch has been created.
-- Manual GitHub OTA workflow was tested successfully on the `production` channel.
+- The workflow expects a GitHub secret named `EXPO_TOKEN`; verify it before
+  each run without printing its value.
+- Production runs require the `release` branch. Verify that the remote branch
+  exists and points to the approved OTA-safe commit before starting a run.
+- The workflow requires the installed-binary source commit as `base-ref`.
 
 ## Important Rule
 
@@ -77,11 +86,17 @@ Follow these steps when the change is OTA-safe.
    cd C:\Users\ADMIN\RTX-5Mobile-App
    ```
 
-2. Make sure you are on the `release` branch.
+2. Verify that the remote `release` branch exists and then switch to it.
 
    ```powershell
+   git fetch origin --prune
+   git ls-remote --heads origin refs/heads/release
    git switch release
    ```
+
+   Stop if `refs/heads/release` is absent. Do not create it from current `main`
+   merely to make the workflow run; first select the approved OTA-safe source
+   described in `OTA_PRODUCTION_BASELINE.md`.
 
 3. Check changed files.
 
@@ -120,7 +135,7 @@ Follow these steps when the change is OTA-safe.
    Example:
 
    ```powershell
-   git add rtx5-app/src rtx5-app/app docs/guide
+   git add <exact-file-path-1> <exact-file-path-2>
    ```
 
 8. Commit the change.
@@ -141,9 +156,12 @@ Follow these steps when the change is OTA-safe.
     https://github.com/YoForex005/RTX-5Mobile-App/actions
     ```
 
-11. Click `RTX5 OTA Update`.
+11. Click `RTX5 OTA Update`, then click `Run workflow`.
 
-12. Confirm the latest run is green/success.
+12. Select branch `release`, channel `production`, the validated platform, and
+    enter the verified installed-binary commit in `base-ref`.
+
+13. Start the workflow and confirm the run is green/success.
 
 If the run succeeds, the production OTA has been published.
 
@@ -167,6 +185,7 @@ Use this if you want to manually start OTA from the GitHub website.
    Branch: release
    EAS Update channel: production
    Platform: all
+   Base ref: <verified-installed-binary-git-sha>
    ```
 
 5. Enter message:

@@ -2,6 +2,11 @@
 
 This guide explains Expo OTA updates in simple steps and shows the RTX5 setup.
 
+> Before any RTX5 production OTA, read the shared
+> [`OTA_PRODUCTION_BASELINE.md`](OTA_PRODUCTION_BASELINE.md). It records the
+> verified binary commits, runtime fingerprints, latest update IDs, and current
+> publish blocker.
+
 ## What OTA Means
 
 OTA means "over the air" update.
@@ -123,7 +128,7 @@ Confirmed setup:
 - `expo-updates` is installed in `rtx5-app/package.json`.
 - `rtx5-app/app.json` has `updates.enabled: true`.
 - `rtx5-app/app.json` has the EAS update URL.
-- `rtx5-app/app.json` uses `runtimeVersion.policy: appVersion`.
+- `rtx5-app/app.json` uses `runtimeVersion.policy: fingerprint`.
 - `rtx5-app/eas.json` has `preview`, `staging`, and `production` channels.
 - The app calls `useOtaUpdateOnLaunch()` from the root layout.
 - The OTA check only runs on native non-dev builds for `preview`, `staging`, and `production`.
@@ -176,38 +181,51 @@ Use this path when you want to publish from your local terminal instead of GitHu
    yoforex
    ```
 
-3. Run release checks.
+3. Run release checks against the verified installed-binary commit.
 
-   ```bash
+   ```powershell
+   $binaryCommit = "<verified-installed-binary-git-sha>"
+
    npm run typecheck
+   npm test
+   node .\scripts\ota\check-eas-env.js production
+   node .\scripts\ota\check-ota-safety.js --base $binaryCommit
+   node .\scripts\ota\print-update-context.js --channel production
+   npx expo-updates runtimeversion:resolve --platform android
+   npx expo-updates runtimeversion:resolve --platform ios
    npx expo-doctor
    ```
 
-4. Publish the production OTA.
+4. Publish only if the resolved runtimes exactly match the intended installed
+   binaries.
 
-   ```bash
-   npx eas-cli@latest update --channel production --platform all --message "Production OTA update"
+   ```powershell
+   $env:RTX5_OTA_BASE_REF = $binaryCommit
+   npm run update:prod -- --message "production $(git rev-parse --short HEAD)"
    ```
 
 Credentials needed for direct Expo OTA:
 
 - If `whoami` shows the Expo account, no password is needed.
 - If `whoami` says you are not logged in, run `npx eas-cli@latest login` and enter the Expo account email/password.
-- If GitHub should publish OTA automatically, create an Expo access token and add it to GitHub as `EXPO_TOKEN`.
+- The manual GitHub workflow requires the repository secret `EXPO_TOKEN`.
 
-## RTX5 GitHub Auto OTA
+## RTX5 GitHub Manual OTA
 
-GitHub can publish OTA updates automatically after code is pushed.
+Pushing code does not publish an OTA. The current workflow uses
+`workflow_dispatch` and must be started manually from GitHub Actions.
 
 Important: this does not upload anything to Play Store or App Store. It publishes the JavaScript/assets bundle to EAS Update. Installed production apps then download the update from Expo when they open.
 
-Current branch behavior:
+For production:
 
-- Push to `main` publishes OTA to `preview`.
-- Push to `staging` publishes OTA to `staging`.
-- Push to `release` publishes OTA to `production`.
-- Pull requests run validation through the build workflow, but do not publish OTA.
-- Native builds are manual only from GitHub Actions.
+- Run the workflow from the approved `release` branch.
+- Select channel `production`.
+- Enter the verified installed-binary Git commit in the required `base-ref`
+  input.
+- Select `all` only when both resolved platform runtimes match their intended
+  binaries.
+- A normal push to `main`, `staging`, or `release` does not publish an OTA.
 
 Before this works, add this GitHub repository secret:
 
@@ -225,9 +243,13 @@ The workflow validates before publishing:
 
 - `npm ci`
 - `npm run typecheck`
-- `npx --yes expo-doctor`
+- `npm test`
+- Required EAS environment names
+- Native-impacting changes since `base-ref`
+- Android/iOS runtime context
 
-The workflow blocks automatic OTA when native-sensitive files change, including:
+The workflow blocks OTA publication when native-sensitive files change,
+including:
 
 - `rtx5-app/app.json`
 - `rtx5-app/eas.json`
