@@ -1,7 +1,7 @@
 # RTX5 Production OTA Baseline
 
-> **CURRENT STATUS: BLOCKED - DO NOT PUBLISH A PRODUCTION OTA FROM CURRENT
-> `main`.**
+> **CURRENT STATUS: BLOCKED - DO NOT PUBLISH A PRODUCTION OTA FROM THE
+> ASSESSED `main` SOURCE LINE.**
 >
 > This tracked file is the shared production OTA baseline. It is a
 > last-verified snapshot, not permission to publish. Always verify live EAS
@@ -39,14 +39,18 @@ run.
 | Item | Android | iOS |
 | --- | --- | --- |
 | Compatible production binary runtime | `30cba83220fc6c92180eed477863c3e3e3087ce6` | `ef38da275b765380037fc377f5c596de31690b7d` |
-| Current `main` resolved runtime | `3b93b456598125d15e65051c4b185ac67aa959b4` | `9a3004379f09edfb61a11cf7f772c791977ecc0b` |
+| Assessed product-source runtime | `3b93b456598125d15e65051c4b185ac67aa959b4` | `9a3004379f09edfb61a11cf7f772c791977ecc0b` |
 | Runtime match | **NO** | **NO** |
 
-Current GitHub/local `main`:
+Product-source commit assessed before this documentation-only update:
 
 ```text
 77d68e1a8eabb9cd25a217f18e48bf71d7f71700
 ```
+
+Documentation-only commits may appear after that SHA. Always run
+`git rev-parse HEAD` and resolve both runtimes again; do not infer
+compatibility from the branch name or this snapshot.
 
 Latest production OTA source commit:
 
@@ -54,12 +58,12 @@ Latest production OTA source commit:
 2975156c15199c21bb3a4c73af8bd35189aaa2bd
 ```
 
-The current `main` source has not been published as the production `1.1.31`
+The assessed product source has not been published as the production `1.1.31`
 OTA. Its resolved runtimes do not match the compatible installed binary
-runtimes. Do not force an old runtime value and do not publish it as an OTA to
-those binaries.
+runtimes. Do not force an old runtime value and do not publish this source line
+as an OTA to those binaries.
 
-Before shipping current `main`, either:
+Before shipping source from this line, either:
 
 1. Create and validate new production binaries for its resolved native
    fingerprints; or
