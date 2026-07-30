@@ -14,6 +14,28 @@ import { makeCandle } from '../support/candleTestUtils';
 
 const source = readChartScreenSource();
 
+const extractAssignedFunctionBody = (functionName: string): string => {
+  const functionStart = source.indexOf(`var ${functionName} = function`);
+  assert.notEqual(functionStart, -1, `${functionName} assigned function was not found`);
+  const openBrace = source.indexOf('{', functionStart);
+  assert.notEqual(openBrace, -1, `${functionName} has no opening brace`);
+
+  let depth = 0;
+  for (let index = openBrace; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === '{') {
+      depth += 1;
+    } else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(openBrace + 1, index);
+      }
+    }
+  }
+
+  assert.fail(`${functionName} body was not closed`);
+};
+
 test('active candle changes use incremental updateTick mode', () => {
   const current = buildChartSeriesSnapshot([
     makeCandle(60, { close: 1.1 }),
@@ -458,6 +480,104 @@ test('vertical candle drag can own the price range without autoscale fighting it
     setChartOverlaysBody,
     /scheduleOverlayPriceScaleLock|scheduleOverlayVisibleCandleScaleRecovery/,
     'routine overlay refreshes must not run price-scale fitting or visible-candle recovery',
+  );
+});
+
+test('vertical pan math follows the finger one-to-one without changing the price span', () => {
+  const applyVerticalPanAtBody = extractAssignedFunctionBody('applyVerticalPanAt');
+  const applyVerticalPanAt = new Function(
+    'clientY',
+    'vertPanState',
+    'chart',
+    'series',
+    'VERT_PAN_PRICE_DELTA_MULTIPLIER',
+    'renderVerticalPanRange',
+    `${applyVerticalPanAtBody}
+     return vertPanState.latestRange;`,
+  ) as (
+    clientY: number,
+    state: {
+      latestRange: { from: number; to: number };
+      pricePerPixel: number;
+      startRange: { from: number; to: number };
+      startY: number;
+    },
+    chart: object,
+    series: object,
+    multiplier: number,
+    renderRange: (range: { from: number; to: number }) => void,
+  ) => { from: number; to: number };
+
+  const state = {
+    latestRange: { from: 100, to: 200 },
+    pricePerPixel: 0.1,
+    startRange: { from: 100, to: 200 },
+    startY: 500,
+  };
+  const rendered: Array<{ from: number; to: number }> = [];
+
+  assert.deepEqual(
+    applyVerticalPanAt(400, state, {}, {}, 1, (range) => rendered.push(range)),
+    { from: 90, to: 190 },
+  );
+  assert.deepEqual(
+    applyVerticalPanAt(550, state, {}, {}, 1, (range) => rendered.push(range)),
+    { from: 105, to: 205 },
+  );
+  assert.equal(rendered[0].to - rendered[0].from, 100);
+  assert.equal(rendered[1].to - rendered[1].from, 100);
+});
+
+test('double-tap reset accepts only two completed nearby taps, never pointer-down timing', () => {
+  const consumeCompletedChartTapBody = extractAssignedFunctionBody('consumeCompletedChartTap');
+  const createRecognizer = new Function(`
+    var lastCompletedChartTap = null;
+    var CHART_DOUBLE_TAP_MAX_DELAY_MS = 350;
+    var CHART_DOUBLE_TAP_MAX_DISTANCE_PX = 24;
+    var clearCompletedChartTap = function() {
+      lastCompletedChartTap = null;
+    };
+    var consumeCompletedChartTap = function(point, completedAt) {
+      ${consumeCompletedChartTapBody}
+    };
+    return consumeCompletedChartTap;
+  `) as () => (point: { x: number; y: number }, completedAt: number) => boolean;
+  const consumeCompletedChartTap = createRecognizer();
+
+  assert.equal(consumeCompletedChartTap({ x: 100, y: 100 }, 1_000), false);
+  assert.equal(consumeCompletedChartTap({ x: 110, y: 108 }, 1_260), true);
+  assert.equal(consumeCompletedChartTap({ x: 100, y: 100 }, 2_000), false);
+  assert.equal(consumeCompletedChartTap({ x: 180, y: 180 }, 2_200), false);
+  assert.equal(consumeCompletedChartTap({ x: 180, y: 180 }, 2_700), false);
+
+  const onPointerDown = extractAssignedFunctionBody('onPointerDown');
+  assert.doesNotMatch(onPointerDown, /resetAutoScale|lastDoubleTapAt/);
+  const onPointerUp = extractAssignedFunctionBody('onPointerUp');
+  assertSourceContains(
+    onPointerUp,
+    /elapsed > 450 \|\| Math\.abs\(dx\) > 12 \|\| Math\.abs\(dy\) > 12[\s\S]*clearCompletedChartTap\(\)[\s\S]*return;[\s\S]*consumeCompletedChartTap\(point, Date\.now\(\)\)/,
+    'movement must invalidate the tap candidate before double-tap recognition runs',
+  );
+});
+
+test('manual vertical range survives pending locks and delayed surface recovery', () => {
+  const beginVerticalPan = extractAssignedFunctionBody('beginVerticalPan');
+  assertSourceContains(
+    beginVerticalPan,
+    /cancelAnimationFrame\(overlayPriceScaleLockRaf\)[\s\S]*overlayPriceScaleLockRaf = 0[\s\S]*overlayPriceScaleLockForceAutoScale = false/,
+    'claiming a vertical pan must clear a cancelled forced-auto-scale request',
+  );
+
+  const recoverChartSurface = extractFunctionBody(source, 'recoverChartSurface');
+  assertSourceContains(
+    recoverChartSurface,
+    /scheduleOverlayPriceScaleLock\(chartAutoScaleEnabled === true\)/,
+    'surface recovery may force autoscale only when the preference is enabled',
+  );
+  assert.doesNotMatch(
+    recoverChartSurface,
+    /scheduleOverlayPriceScaleLock\(true\)/,
+    'surface recovery must not unconditionally erase the user-owned price range',
   );
 });
 

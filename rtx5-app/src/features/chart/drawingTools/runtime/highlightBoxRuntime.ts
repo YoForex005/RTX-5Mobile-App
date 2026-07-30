@@ -275,7 +275,7 @@ export const highlightBoxEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
         if (ctx.setLineDash) ctx.setLineDash([]);
 
         var label = buildHighlightLabel(source);
-        if (label) {
+        if (shouldRenderObjectDescriptions(source) && label) {
           var fontSize = Math.round(style.fontSize * ratioX);
           var padding = 6 * ratioX;
           ctx.font = '700 ' + fontSize + 'px Arial';

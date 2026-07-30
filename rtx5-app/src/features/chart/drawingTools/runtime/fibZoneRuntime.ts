@@ -278,7 +278,7 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
       if (!(bottom > top)) return;
       ctx.fillStyle = config.color;
       ctx.fillRect(range.left * ratioX, top, Math.max(1, (range.right - range.left) * ratioX), bottom - top);
-      if (config.showLabel && labelText) {
+      if (shouldRenderObjectDescriptions(this._source) && config.showLabel && labelText) {
         ctx.font = '700 ' + Math.round(style.fontSize * ratioX) + 'px Arial';
         var padding = 5 * ratioX;
         var textWidth = ctx.measureText(labelText).width;
@@ -364,7 +364,7 @@ export const fibZoneEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
           ctx.restore();
         }
 
-        if (source._options.style.showLevelLabels) {
+        if (shouldRenderObjectDescriptions(source) && source._options.style.showLevelLabels) {
           var labelGap = 2 * ratioY;
           var labelLayouts = [];
           levels.forEach(function (entry) {

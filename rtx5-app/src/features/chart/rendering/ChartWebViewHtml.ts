@@ -4285,7 +4285,43 @@ export const CH_HTML = `
         var VERT_PAN_PRICE_DELTA_MULTIPLIER = 1;
         var vertPanPending = null; // { startX, startY } - waiting for threshold
         var rightPriceScaleGestureActive = false;
-        var lastDoubleTapAt = 0;
+        var lastCompletedChartTap = null;
+        var CHART_DOUBLE_TAP_MAX_DELAY_MS = 350;
+        var CHART_DOUBLE_TAP_MAX_DISTANCE_PX = 24;
+
+        var clearCompletedChartTap = function() {
+          lastCompletedChartTap = null;
+        };
+
+        var consumeCompletedChartTap = function(point, completedAt) {
+          if (
+            !point ||
+            typeof point.x !== 'number' ||
+            typeof point.y !== 'number' ||
+            !isFinite(point.x) ||
+            !isFinite(point.y) ||
+            typeof completedAt !== 'number' ||
+            !isFinite(completedAt)
+          ) {
+            clearCompletedChartTap();
+            return false;
+          }
+          var previousTap = lastCompletedChartTap;
+          var elapsed = previousTap ? completedAt - previousTap.at : Infinity;
+          var dx = previousTap ? point.x - previousTap.x : Infinity;
+          var dy = previousTap ? point.y - previousTap.y : Infinity;
+          var maxDistanceSquared =
+            CHART_DOUBLE_TAP_MAX_DISTANCE_PX * CHART_DOUBLE_TAP_MAX_DISTANCE_PX;
+          var isDoubleTap =
+            !!previousTap &&
+            elapsed >= 0 &&
+            elapsed <= CHART_DOUBLE_TAP_MAX_DELAY_MS &&
+            dx * dx + dy * dy <= maxDistanceSquared;
+          lastCompletedChartTap = isDoubleTap
+            ? null
+            : { x: point.x, y: point.y, at: completedAt };
+          return isDoubleTap;
+        };
 
         var isRightPriceScaleGesturePoint = function(clientX, clientY) {
           var point = getRelativePoint(clientX, clientY);
@@ -4317,12 +4353,16 @@ export const CH_HTML = `
           if (!isValidPriceRange(range)) return false;
           clearFreshSeriesVerticalCenterState();
           verticalPricePanGestureActive = true;
+          clearCompletedChartTap();
           deferVerticalGestureDomWork();
           rememberManualVerticalPanRange(range);
           if (overlayPriceScaleLockRaf) {
             cancelAnimationFrame(overlayPriceScaleLockRaf);
             overlayPriceScaleLockRaf = 0;
           }
+          // A cancelled forced-lock frame must not leak into the next normal
+          // lock request and reset this user-owned range after finger-up.
+          overlayPriceScaleLockForceAutoScale = false;
           if (priceScaleHealthRaf) {
             cancelAnimationFrame(priceScaleHealthRaf);
             priceScaleHealthRaf = 0;
@@ -4643,11 +4683,13 @@ export const CH_HTML = `
           activeHorizontalScrollGestureUntil = 0;
           rightPriceScaleGestureActive = false;
           if (isScaleGestureEvent(event)) {
+            clearCompletedChartTap();
             suppressChartTapAfterScale();
             return;
           }
           var tradeLineHit = resolveTradeLineDragHitFromEvent(event);
           if (beginTradeLineDragFromHit(event, tradeLineHit)) {
+            clearCompletedChartTap();
             return;
           }
           var point = getClientPoint(event);
@@ -4663,22 +4705,14 @@ export const CH_HTML = `
             rightPriceScaleGestureActive = true;
             verticalPricePanGestureActive = true;
             manualPriceScaleRangeActive = true;
+            clearCompletedChartTap();
             pendingPointerTap = null;
             vertPanState = null;
             vertPanPending = null;
             deferVerticalGestureDomWork();
             return;
           }
-          // Check for double-tap to reset auto-scale
           var now = Date.now();
-          if (now - lastDoubleTapAt < 350) {
-            resetAutoScale();
-            lastDoubleTapAt = 0;
-            pendingPointerTap = null;
-            vertPanPending = null;
-            return;
-          }
-          lastDoubleTapAt = now;
           pendingPointerTap = {
             x: point.x,
             y: point.y,
@@ -4723,6 +4757,7 @@ export const CH_HTML = `
             if (dy > VERT_PAN_THRESHOLD && dy > dx * 1.2) {
               pendingPointerTap = null;
               if (isVerticalChartMovementBlocked()) {
+                clearCompletedChartTap();
                 vertPanPending = null;
                 stopChartEvent(event);
                 return;
@@ -4743,6 +4778,7 @@ export const CH_HTML = `
               try {
                 ensureRightPriceAutoScaleForHorizontalPan();
               } catch (_e) {}
+              clearCompletedChartTap();
               markHorizontalScrollGestureActive();
               scheduleActiveScrollPriceScaleRecovery('horizontal_pan_active');
               pendingPointerTap = null;
@@ -4812,11 +4848,19 @@ export const CH_HTML = `
           var dy = pointFromEvent.y - pendingPointerTap.y;
           pendingPointerTap = null;
           if (elapsed > 450 || Math.abs(dx) > 12 || Math.abs(dy) > 12) {
+            clearCompletedChartTap();
             if (activePointerCount <= 0) postChartTouchState(false);
             return;
           }
           var point = getRelativePoint(pointFromEvent.x, pointFromEvent.y);
           if (!point) {
+            clearCompletedChartTap();
+            if (activePointerCount <= 0) postChartTouchState(false);
+            return;
+          }
+          if (consumeCompletedChartTap(point, Date.now())) {
+            suppressNextChartClickUntil = Date.now() + 350;
+            resetAutoScale();
             if (activePointerCount <= 0) postChartTouchState(false);
             return;
           }
@@ -4826,6 +4870,7 @@ export const CH_HTML = `
         };
 
         var onPointerCancel = function(event) {
+          clearCompletedChartTap();
           if (finishTradeLineDrag(event, true)) {
             releasePointer(event);
             finishHorizontalScrollGesture();
@@ -4983,6 +5028,7 @@ export const CH_HTML = `
           activePointerIds = {};
           activePointerCount = 0;
           gestureHadMultitouch = false;
+          clearCompletedChartTap();
           activeHorizontalScrollGesture = false;
           activeHorizontalScrollGestureUntil = 0;
           verticalPricePanGestureActive = false;
@@ -6295,7 +6341,10 @@ export const CH_HTML = `
           ensureMoveDirectionPriceLine();
           refreshMoveDirectionPriceLine();
           schedulePeriodSeparatorsUpdate();
-          scheduleOverlayPriceScaleLock(true);
+          // Preserve a user-owned manual vertical range during delayed
+          // focus/surface recovery. Auto-scale may force a refit only when the
+          // preference itself is enabled.
+          scheduleOverlayPriceScaleLock(chartAutoScaleEnabled === true);
           scheduleRightPriceScaleLayoutRecovery('recover_surface', RIGHT_PRICE_SCALE_LAYOUT_RECOVERY_MAX_ATTEMPTS);
           postChartGeometry();
         } catch (e) {

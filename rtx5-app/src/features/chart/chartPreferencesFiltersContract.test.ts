@@ -48,6 +48,12 @@ test('every Chart Preferences display filter is listed and wired into the native
   assert.match(nativeSource, /chartDisplay\.periodSeparators/);
   assert.match(nativeSource, /chartDisplay\.showObjectDescriptions/);
   assert.match(nativeSource, /setShowObjectDescriptions\(/);
+  assert.ok(
+    (nativeSource.match(
+      /setShowObjectDescriptions\(\$\{chartDisplay\.showObjectDescriptions === true\}\);[\s\S]{0,180}setSerializedDrawings\(/g,
+    ) ?? []).length >= 2,
+    'object-description visibility must be applied before both saved-drawing replay paths',
+  );
   assert.match(nativeSource, /chartShowOnChart/);
   assert.match(nativeSource, /buildChartOverlayPayload\([\s\S]*showOnChart: chartShowOnChart/);
 

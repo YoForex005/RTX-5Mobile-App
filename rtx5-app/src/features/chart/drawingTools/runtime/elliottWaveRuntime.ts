@@ -140,28 +140,30 @@ export const elliottWaveEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime =
           ctx.fill();
         });
 
-        var fontSize = Math.round(12 * ratioX);
-        ctx.font = '700 ' + fontSize + 'px Arial';
-        allCoords.forEach(function (coord, index) {
-          if (!coord || !isFiniteNumber(coord.x) || !isFiniteNumber(coord.y)) return;
-          var label = source._options.waveLabels[index] || '';
-          if (!label) return;
-          var previous = allCoords[index - 1];
-          var goingUp = index > 0 && previous && isFiniteNumber(previous.y)
-            ? coord.y <= previous.y
-            : true;
-          var textWidth = ctx.measureText(label).width;
-          var padding = 5 * ratioX;
-          var boxWidth = textWidth + padding * 2;
-          var boxHeight = fontSize + padding * 1.4;
-          var cx = coord.x * ratioX;
-          var cy = coord.y * ratioY + (goingUp ? -(boxHeight + 6 * ratioY) : (6 * ratioY));
-          roundRectPath(ctx, cx - boxWidth / 2, cy, boxWidth, boxHeight, 5 * ratioX);
-          ctx.fillStyle = source._options.style.labelBackgroundColor;
-          ctx.fill();
-          ctx.fillStyle = source._options.style.labelTextColor;
-          ctx.fillText(label, cx - textWidth / 2, cy + boxHeight - padding * 0.9);
-        });
+        if (shouldRenderObjectDescriptions(source)) {
+          var fontSize = Math.round(12 * ratioX);
+          ctx.font = '700 ' + fontSize + 'px Arial';
+          allCoords.forEach(function (coord, index) {
+            if (!coord || !isFiniteNumber(coord.x) || !isFiniteNumber(coord.y)) return;
+            var label = source._options.waveLabels[index] || '';
+            if (!label) return;
+            var previous = allCoords[index - 1];
+            var goingUp = index > 0 && previous && isFiniteNumber(previous.y)
+              ? coord.y <= previous.y
+              : true;
+            var textWidth = ctx.measureText(label).width;
+            var padding = 5 * ratioX;
+            var boxWidth = textWidth + padding * 2;
+            var boxHeight = fontSize + padding * 1.4;
+            var cx = coord.x * ratioX;
+            var cy = coord.y * ratioY + (goingUp ? -(boxHeight + 6 * ratioY) : (6 * ratioY));
+            roundRectPath(ctx, cx - boxWidth / 2, cy, boxWidth, boxHeight, 5 * ratioX);
+            ctx.fillStyle = source._options.style.labelBackgroundColor;
+            ctx.fill();
+            ctx.fillStyle = source._options.style.labelTextColor;
+            ctx.fillText(label, cx - textWidth / 2, cy + boxHeight - padding * 0.9);
+          });
+        }
 
         if (source._options.selected || source._options.draft || source._options.style.showHandles) {
           var radius = (source._options.selected ? source._options.style.selectedHandleRadius : source._options.style.handleRadius) * ratioX;

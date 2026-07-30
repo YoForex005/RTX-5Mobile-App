@@ -387,10 +387,17 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     }
   }
 
+  var objectDescriptionsVisibleByDefault = true;
+
+  function shouldRenderObjectDescriptions(source) {
+    return !source || source._objectDescriptionsVisible !== false;
+  }
+
   function PrimitiveBase() {
     this._chart = null;
     this._series = null;
     this._requestUpdate = null;
+    this._objectDescriptionsVisible = objectDescriptionsVisibleByDefault;
   }
 
   PrimitiveBase.prototype.attached = function (param) {
@@ -412,6 +419,11 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     if (typeof this._requestUpdate === 'function') {
       this._requestUpdate();
     }
+  };
+
+  PrimitiveBase.prototype.setObjectDescriptionsVisible = function (visible) {
+    this._objectDescriptionsVisible = visible !== false;
+    this.requestUpdate();
   };
 
   Object.defineProperty(PrimitiveBase.prototype, 'chart', {
@@ -551,7 +563,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         var labelText = source._options.labelIsPrice && source.series
           ? formatCrosshairPrice(source.series, source._p1.price)
           : source._options.label;
-        if (labelText) {
+        if (shouldRenderObjectDescriptions(source) && labelText) {
           var fontSize = Math.round(source._options.fontSize * horizontalRatio);
           ctx.font = '600 ' + fontSize + 'px Arial';
           var padding = 6 * horizontalRatio;
@@ -787,7 +799,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
           ctx.fill();
         });
 
-        if (source._options.label) {
+        if (shouldRenderObjectDescriptions(source) && source._options.label) {
           var last = coords[coords.length - 1];
           ctx.font = '600 ' + Math.round(source._options.fontSize * horizontalRatio) + 'px Arial';
           var padding = 6 * horizontalRatio;
@@ -899,7 +911,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         ctx.fill();
         ctx.stroke();
         if (ctx.setLineDash) ctx.setLineDash([]);
-        if (source._options.label) {
+        if (shouldRenderObjectDescriptions(source) && source._options.label) {
           ctx.font = '600 ' + Math.round(source._options.fontSize * horizontalRatio) + 'px Arial';
           var padding = 6 * horizontalRatio;
           var textWidth = ctx.measureText(source._options.label).width;
@@ -3267,7 +3279,12 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       // gesture and fires pointercancel mid-drag.
       try {
         var lockedTouchMode = drawingMode || this._activeTool === 'crosshair';
-        this._chartHost.style.touchAction = lockedTouchMode ? 'none' : 'manipulation';
+        // RTX5 owns both the normal chart-body pan stream and drawing drags.
+        // Keeping touch-action at "none" before pointerdown prevents Android
+        // WebView from claiming a vertical gesture and firing pointercancel
+        // after only the first few pixels. Lightweight Charts still receives
+        // the JavaScript touch stream for horizontal movement and pinch zoom.
+        this._chartHost.style.touchAction = 'none';
         this._chartHost.style.userSelect = lockedTouchMode ? 'none' : '';
         this._chartHost.style.webkitUserSelect = lockedTouchMode ? 'none' : '';
       } catch (_error) {}
@@ -3881,6 +3898,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         var primitive = this._createPrimitiveForRecord(record);
         if (!primitive) return;
         record.primitive = primitive;
+        this._applyObjectDescriptionVisibility(record);
         record.hidden = this._hidden ? true : !!record.hidden;
         record.visible = !record.hidden;
         if (record.selected && this._isRecordPresentationVisible(record)) {
@@ -3987,6 +4005,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       updatedAt: serializedData && isFiniteNumber(serializedData.updatedAt) ? serializedData.updatedAt : Date.now()
     };
     this._records.push(record);
+    this._applyObjectDescriptionVisibility(record);
     if (record.selected && this._isRecordPresentationVisible(record)) {
       this._selectedRecordId = record.id;
     }
@@ -4123,6 +4142,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       var primitive = this._createPrimitiveForRecord(record);
       if (!primitive) return;
       record.primitive = primitive;
+      this._applyObjectDescriptionVisibility(record);
       record.hidden = this._hidden ? true : !!record.hidden;
       record.visible = !record.hidden;
       if (record.selected && this._isRecordPresentationVisible(record)) {
@@ -4197,51 +4217,38 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
    * Apply Chart Preferences → Show object descriptions to every live drawing.
    * Safe to call repeatedly from the RN bridge on both platforms.
    */
+  AdvancedDrawingToolsManager.prototype._applyObjectDescriptionVisibilityToPrimitive = function (primitive) {
+    if (!primitive) return;
+    var show = this._showObjectDescriptions !== false;
+    try {
+      if (typeof primitive.setObjectDescriptionsVisible === 'function') {
+        primitive.setObjectDescriptionsVisible(show);
+      } else {
+        primitive._objectDescriptionsVisible = show;
+        if (typeof primitive.requestUpdate === 'function') {
+          primitive.requestUpdate();
+        }
+      }
+    } catch (_applyError) {}
+  };
+
+  AdvancedDrawingToolsManager.prototype._applyObjectDescriptionVisibility = function (record) {
+    if (!record) return;
+    this._applyObjectDescriptionVisibilityToPrimitive(record.primitive);
+  };
+
   AdvancedDrawingToolsManager.prototype.setShowObjectDescriptions = function (enabled) {
     this._showObjectDescriptions = enabled !== false;
-    var show = this._showObjectDescriptions;
-    var self = this;
+    objectDescriptionsVisibleByDefault = this._showObjectDescriptions;
     (this._records || []).forEach(function (record) {
-      if (!record) {
-        return;
+      this._applyObjectDescriptionVisibility(record);
+    }, this);
+    Object.keys(this._tools || {}).forEach(function (key) {
+      var tool = this._tools[key];
+      if (tool && tool._preview) {
+        this._applyObjectDescriptionVisibilityToPrimitive(tool._preview);
       }
-      var primitive = record.primitive;
-      if (!primitive) {
-        return;
-      }
-      var nextOptions = {
-        showPrice: show,
-        showPriceAxisLabel: show,
-        showLabels: show,
-        showLabel: show,
-      };
-      try {
-        if (typeof primitive.applyOptions === 'function') {
-          primitive.applyOptions(nextOptions);
-        } else if (primitive._options && typeof primitive._options === 'object') {
-          Object.keys(nextOptions).forEach(function (key) {
-            if (key in primitive._options || true) {
-              primitive._options[key] = nextOptions[key];
-            }
-          });
-          if (typeof primitive.requestUpdate === 'function') {
-            primitive.requestUpdate();
-          }
-        }
-      } catch (_applyError) {}
-      // Keep serialized record fields in sync so reloads respect the toggle.
-      if (typeof record.showPrice === 'boolean' || 'showPrice' in record) {
-        record.showPrice = show;
-      }
-      if (typeof record.showPriceAxisLabel === 'boolean' || 'showPriceAxisLabel' in record) {
-        record.showPriceAxisLabel = show;
-      }
-    });
-    if (typeof self._emitDrawingsChanged === 'function') {
-      try {
-        self._emitDrawingsChanged();
-      } catch (_emitError) {}
-    }
+    }, this);
   };
 
   AdvancedDrawingToolsManager.prototype.getShowObjectDescriptions = function () {

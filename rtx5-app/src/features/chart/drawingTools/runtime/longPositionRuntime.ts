@@ -175,30 +175,32 @@ export const longPositionEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime 
         ctx.stroke();
         ctx.globalAlpha = 1;
 
-        var points = source._points;
-        var reward = direction === 'short' ? points[0].price - points[1].price : points[1].price - points[0].price;
-        var stopPrice = coords.stopPrice;
-        var risk = direction === 'short' ? stopPrice - points[0].price : points[0].price - stopPrice;
-        var labelX = left + 6 * ratioX;
-        drawPositionBubble(ctx, labelX, entryY, positionLabelText(source), opts.labelBackgroundColor, opts.labelTextColor, ratioX);
-        drawPositionBubble(
-          ctx,
-          labelX,
-          (entryY + targetY) / 2,
-          'Target ' + formatPositionPlanPrice(points[1].price, source.series) + ' (' + formatDelta(reward) + ')',
-          opts.rewardLabelBackgroundColor,
-          '#D1FAE5',
-          ratioX
-        );
-        drawPositionBubble(
-          ctx,
-          labelX,
-          (entryY + stopY) / 2,
-          'Stop ' + formatPositionPlanPrice(stopPrice, source.series) + ' (' + formatDelta(-risk) + ')',
-          opts.riskLabelBackgroundColor,
-          '#FFE4E6',
-          ratioX
-        );
+        if (shouldRenderObjectDescriptions(source)) {
+          var points = source._points;
+          var reward = direction === 'short' ? points[0].price - points[1].price : points[1].price - points[0].price;
+          var stopPrice = coords.stopPrice;
+          var risk = direction === 'short' ? stopPrice - points[0].price : points[0].price - stopPrice;
+          var labelX = left + 6 * ratioX;
+          drawPositionBubble(ctx, labelX, entryY, positionLabelText(source), opts.labelBackgroundColor, opts.labelTextColor, ratioX);
+          drawPositionBubble(
+            ctx,
+            labelX,
+            (entryY + targetY) / 2,
+            'Target ' + formatPositionPlanPrice(points[1].price, source.series) + ' (' + formatDelta(reward) + ')',
+            opts.rewardLabelBackgroundColor,
+            '#D1FAE5',
+            ratioX
+          );
+          drawPositionBubble(
+            ctx,
+            labelX,
+            (entryY + stopY) / 2,
+            'Stop ' + formatPositionPlanPrice(stopPrice, source.series) + ' (' + formatDelta(-risk) + ')',
+            opts.riskLabelBackgroundColor,
+            '#FFE4E6',
+            ratioX
+          );
+        }
 
         if (opts.selected || opts.hovered) {
           var radius = (opts.selected ? 5 : 4) * ratioX;

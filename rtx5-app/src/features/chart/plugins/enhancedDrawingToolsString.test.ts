@@ -351,6 +351,7 @@ test('No drawing tool selected leaves chart touches passive and hides drawing UI
   assert.equal(startEvent.preventDefaultCalls, 0);
   assert.equal(moveEvent.preventDefaultCalls, 0);
   assert.equal(endEvent.preventDefaultCalls, 0);
+  assert.equal(harness.host.style.touchAction, 'none');
   assert.equal(harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true'), undefined);
   assert.deepEqual(harness.crosshairMessages(), []);
   assert.deepEqual(harness.latestDrawings(), []);
@@ -521,7 +522,7 @@ test('Trend Line supports direct mobile drag input without chart pan interferenc
   assert.equal(startEvent.preventDefaultCalls, 1);
   assert.equal(moveEvent.preventDefaultCalls, 1);
   assert.equal(endEvent.preventDefaultCalls, 1);
-  assert.equal(harness.host.style.touchAction, 'manipulation');
+  assert.equal(harness.host.style.touchAction, 'none');
 });
 
 test('Direct touch box tools commit in empty chart space even when touchend has no changed touch', () => {
@@ -1109,6 +1110,25 @@ test('Text Label creates a one-point label drawing', () => {
   assert.equal(drawings[0].style.textColor, '#FFFFFF');
 });
 
+test('Show object descriptions does not hide Text Label or Sticker object content', () => {
+  for (const tool of ['text', 'smiley']) {
+    const harness = createFakeChartEnvironment();
+    harness.manager.setActiveTool(tool);
+    harness.click(10, 100);
+    const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+    const renderTexts = () => {
+      primitive.updateAllViews();
+      const drawTarget = createFakeBitmapTarget();
+      primitive.paneViews()[0].renderer().draw(drawTarget.target);
+      return drawTarget.texts;
+    };
+
+    assert.ok(renderTexts().length > 0);
+    harness.manager.setShowObjectDescriptions(false);
+    assert.ok(renderTexts().length > 0);
+  }
+});
+
 test('Text Level creates a snapped one-point price level drawing', () => {
   const harness = createFakeChartEnvironment();
 
@@ -1140,6 +1160,57 @@ test('Text Level creates a snapped one-point price level drawing', () => {
   primitive.paneViews()[0].renderer().draw(createFakeBitmapTarget().target);
   assert.equal(primitive.priceAxisViews()[0].text(), '90.00000');
   assert.ok(primitive.getGeometry().labelBox.width > 0);
+});
+
+test('Show object descriptions hides Text Level labels without changing its saved options', () => {
+  const harness = createFakeChartEnvironment();
+  harness.manager.setSerializedDrawings([{
+    id: 'text-level-description-test',
+    kind: 'textLevel',
+    label: 'Entry',
+    points: [{ time: 1, price: 90 }],
+    text: 'Entry',
+    levelLine: {
+      enabled: true,
+      extendMode: 'right',
+      lineColor: '#2962FF',
+      lineStyle: 'solid',
+      lineWidth: 1,
+      opacity: 0.9,
+    },
+    showPrice: false,
+    showPriceAxisLabel: true,
+  }]);
+
+  const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  const renderTexts = () => {
+    primitive.updateAllViews();
+    const drawTarget = createFakeBitmapTarget();
+    primitive.paneViews()[0].renderer().draw(drawTarget.target);
+    return drawTarget.texts;
+  };
+  const priceAxisView = primitive.priceAxisViews()[0];
+  const labelBox = primitive.getGeometry().labelBox;
+  const labelCenter = {
+    x: (labelBox.left + labelBox.right) / 2,
+    y: (labelBox.top + labelBox.bottom) / 2,
+  };
+
+  assert.ok(renderTexts().length > 0);
+  assert.equal(priceAxisView.visible(), true);
+  assert.equal(primitive.hitTest(labelCenter, { isTouch: false })?.part, 'label');
+
+  harness.manager.setShowObjectDescriptions(false);
+  assert.equal(renderTexts().length, 0);
+  assert.equal(priceAxisView.visible(), false);
+  assert.notEqual(primitive.hitTest(labelCenter, { isTouch: false })?.part, 'label');
+
+  harness.manager.setShowObjectDescriptions(true);
+  assert.ok(renderTexts().length > 0);
+  assert.equal(priceAxisView.visible(), true);
+  assert.equal(primitive.hitTest(labelCenter, { isTouch: false })?.part, 'label');
+  assert.equal(primitive._options.showPrice, false);
+  assert.equal(primitive._options.showPriceAxisLabel, true);
 });
 
 test('Text Level touch drag moves the level price without changing its time anchor', () => {
@@ -1333,6 +1404,110 @@ test('Horizontal and Vertical Line create full-axis line drawings from one tap',
   assert.equal(drawings[0].points.length, 2);
   assert.equal(drawings[0].points[0].time, drawings[0].points[1].time);
   assert.equal(drawings[0].extendMode, 'both');
+});
+
+test('Show object descriptions hides and restores an existing horizontal-line price label', () => {
+  const harness = createFakeChartEnvironment();
+  harness.manager.setActiveTool('horizontalLine');
+  harness.click(20, 120);
+
+  const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  const renderTexts = () => {
+    primitive.updateAllViews();
+    const drawTarget = createFakeBitmapTarget();
+    primitive.paneViews()[0].renderer().draw(drawTarget.target);
+    return drawTarget.texts;
+  };
+
+  assert.ok(renderTexts().length > 0);
+
+  harness.manager.setShowObjectDescriptions(false);
+  assert.equal(harness.manager.getShowObjectDescriptions(), false);
+  assert.equal(renderTexts().length, 0);
+
+  harness.manager.setShowObjectDescriptions(true);
+  assert.equal(harness.manager.getShowObjectDescriptions(), true);
+  assert.ok(renderTexts().length > 0);
+});
+
+test('Show object descriptions remains off for restored and newly created drawings', () => {
+  const harness = createFakeChartEnvironment();
+  harness.manager.setActiveTool('horizontalLine');
+  harness.click(20, 120);
+  const serializedDrawings = harness.latestDrawings();
+
+  harness.manager.setShowObjectDescriptions(false);
+  harness.manager.setSerializedDrawings(serializedDrawings);
+
+  const restoredPrimitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  restoredPrimitive.updateAllViews();
+  const restoredTarget = createFakeBitmapTarget();
+  restoredPrimitive.paneViews()[0].renderer().draw(restoredTarget.target);
+  assert.equal(restoredTarget.texts.length, 0);
+
+  harness.manager.setActiveTool('horizontalLine');
+  harness.click(30, 110);
+  const newPrimitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  newPrimitive.updateAllViews();
+  const newTarget = createFakeBitmapTarget();
+  newPrimitive.paneViews()[0].renderer().draw(newTarget.target);
+  assert.equal(newTarget.texts.length, 0);
+
+  harness.manager.setShowObjectDescriptions(true);
+  const restoredAfterEnable = createFakeBitmapTarget();
+  restoredPrimitive.paneViews()[0].renderer().draw(restoredAfterEnable.target);
+  const newAfterEnable = createFakeBitmapTarget();
+  newPrimitive.paneViews()[0].renderer().draw(newAfterEnable.target);
+  assert.ok(restoredAfterEnable.texts.length > 0);
+  assert.ok(newAfterEnable.texts.length > 0);
+});
+
+test('Show object descriptions hides generated labels across complex drawing renderers', () => {
+  const scenarios = [
+    { points: [[10, 100], [40, 70]], tool: 'fib' },
+    { points: [[10, 100], [40, 70]], tool: 'prediction' },
+    { points: [[10, 100], [20, 80], [30, 110], [40, 70], [50, 90], [60, 60]], tool: 'elliottWave' },
+    { points: [[10, 100], [20, 70], [30, 95], [40, 60], [50, 85]], tool: 'xabcd' },
+  ] as const;
+
+  for (const scenario of scenarios) {
+    const harness = createFakeChartEnvironment();
+    harness.manager.setActiveTool(scenario.tool);
+    scenario.points.forEach(([x, y]) => harness.click(x, y));
+
+    const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+    const renderTexts = () => {
+      primitive.updateAllViews();
+      const drawTarget = createFakeBitmapTarget();
+      primitive.paneViews()[0].renderer().draw(drawTarget.target);
+      return drawTarget.texts;
+    };
+
+    assert.ok(renderTexts().length > 0, `${scenario.tool} should render descriptions by default`);
+    harness.manager.setShowObjectDescriptions(false);
+    assert.equal(renderTexts().length, 0, `${scenario.tool} should hide its descriptions`);
+    harness.manager.setShowObjectDescriptions(true);
+    assert.ok(renderTexts().length > 0, `${scenario.tool} should restore its descriptions`);
+  }
+});
+
+test('Show object descriptions updates an already attached drawing preview', () => {
+  const harness = createFakeChartEnvironment();
+  harness.manager.setActiveTool('fib');
+  harness.click(10, 100);
+  harness.move(40, 70);
+
+  const preview: any = harness.manager._tools.fib._preview;
+  const renderTexts = () => {
+    preview.updateAllViews();
+    const drawTarget = createFakeBitmapTarget();
+    preview.paneViews()[0].renderer().draw(drawTarget.target);
+    return drawTarget.texts;
+  };
+
+  assert.ok(renderTexts().length > 0);
+  harness.manager.setShowObjectDescriptions(false);
+  assert.equal(renderTexts().length, 0);
 });
 
 test('Horizontal Ray creates a one-tap right-extended price ray', () => {

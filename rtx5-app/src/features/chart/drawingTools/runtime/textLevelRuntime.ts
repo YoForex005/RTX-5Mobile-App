@@ -260,7 +260,11 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
   /**
    * Helper function: visible.
    */
-    TextLevelPriceAxisView.prototype.visible = function () { return this._source._options.visible && this._source._options.showPriceAxisLabel; };
+    TextLevelPriceAxisView.prototype.visible = function () {
+      return shouldRenderObjectDescriptions(this._source) &&
+        this._source._options.visible &&
+        this._source._options.showPriceAxisLabel;
+    };
   /**
    * Helper function: tickVisible.
    */
@@ -332,31 +336,33 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
           if (ctx.setLineDash) ctx.setLineDash([]);
         }
 
-        ctx.globalAlpha = style.opacity;
-        var x = labelBox.left * ratioX;
-        var top = labelBox.top * ratioY;
-        var width = labelBox.width * ratioX;
-        var height = labelBox.height * ratioY;
-        var borderColor = source._options.selected ? style.selectedBorderColor : (source._options.hovered ? style.hoverBorderColor : style.borderColor);
-        if (style.showBackground) {
-          roundRectPath(ctx, x, top, width, height, style.borderRadius * ratioX);
-          ctx.fillStyle = style.backgroundColor;
-          ctx.fill();
+        if (shouldRenderObjectDescriptions(source)) {
+          ctx.globalAlpha = style.opacity;
+          var x = labelBox.left * ratioX;
+          var top = labelBox.top * ratioY;
+          var width = labelBox.width * ratioX;
+          var height = labelBox.height * ratioY;
+          var borderColor = source._options.selected ? style.selectedBorderColor : (source._options.hovered ? style.hoverBorderColor : style.borderColor);
+          if (style.showBackground) {
+            roundRectPath(ctx, x, top, width, height, style.borderRadius * ratioX);
+            ctx.fillStyle = style.backgroundColor;
+            ctx.fill();
+          }
+          if (style.showBorder || source._options.selected || source._options.hovered) {
+            roundRectPath(ctx, x, top, width, height, style.borderRadius * ratioX);
+            ctx.strokeStyle = borderColor;
+            ctx.lineWidth = Math.max(1, style.borderWidth * ratioX);
+            ctx.stroke();
+          }
+          ctx.font = String(style.fontWeight) + ' ' + Math.round(style.fontSize * ratioX) + 'px ' + style.fontFamily;
+          ctx.fillStyle = style.textColor;
+          ctx.textBaseline = 'middle';
+          ctx.textAlign = style.align;
+          var textX = x + style.paddingX * ratioX;
+          if (style.align === 'center') textX = x + width / 2;
+          if (style.align === 'right') textX = x + width - style.paddingX * ratioX;
+          ctx.fillText(displayText, textX, top + height / 2, Math.max(8, width - style.paddingX * 2 * ratioX));
         }
-        if (style.showBorder || source._options.selected || source._options.hovered) {
-          roundRectPath(ctx, x, top, width, height, style.borderRadius * ratioX);
-          ctx.strokeStyle = borderColor;
-          ctx.lineWidth = Math.max(1, style.borderWidth * ratioX);
-          ctx.stroke();
-        }
-        ctx.font = String(style.fontWeight) + ' ' + Math.round(style.fontSize * ratioX) + 'px ' + style.fontFamily;
-        ctx.fillStyle = style.textColor;
-        ctx.textBaseline = 'middle';
-        ctx.textAlign = style.align;
-        var textX = x + style.paddingX * ratioX;
-        if (style.align === 'center') textX = x + width / 2;
-        if (style.align === 'right') textX = x + width - style.paddingX * ratioX;
-        ctx.fillText(displayText, textX, top + height / 2, Math.max(8, width - style.paddingX * 2 * ratioX));
 
         if (style.showAnchor && isFiniteNumber(geometry.anchor.x)) {
           ctx.fillStyle = line.lineColor;
@@ -365,7 +371,7 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
           ctx.fill();
         }
 
-        if (source._options.selected || source._options.draft) {
+        if (shouldRenderObjectDescriptions(source) && (source._options.selected || source._options.draft)) {
           var handleSize = style.handleSize * ratioX;
           ctx.fillStyle = '#FFFFFF';
           ctx.strokeStyle = style.handleColor;
@@ -573,7 +579,7 @@ export const textLevelEnhancedDrawingToolRuntime: EnhancedDrawingToolRuntime = {
       var labelPad = isTouch ? 12 : 5;
       var lineThreshold = isTouch ? 14 : 7;
       var label = geometry.labelBox;
-      if (label && pointValue.x >= label.left - labelPad && pointValue.x <= label.right + labelPad && pointValue.y >= label.top - labelPad && pointValue.y <= label.bottom + labelPad) {
+      if (shouldRenderObjectDescriptions(this) && label && pointValue.x >= label.left - labelPad && pointValue.x <= label.right + labelPad && pointValue.y >= label.top - labelPad && pointValue.y <= label.bottom + labelPad) {
         return { part: 'label' };
       }
       var lineRange = geometry.lineRange;

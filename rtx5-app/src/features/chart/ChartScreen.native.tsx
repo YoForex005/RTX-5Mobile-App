@@ -6588,13 +6588,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     }
 
     webViewRef.current.injectJavaScript(`
+      if (typeof setShowObjectDescriptions === 'function') {
+        setShowObjectDescriptions(${chartDisplay.showObjectDescriptions === true});
+      }
       if (typeof setSerializedDrawings === 'function') {
         setSerializedDrawings(${JSON.stringify(chartDrawingRecords)});
       }
       true;
     `);
     lastInjectedDrawingSyncRef.current = { signature: chartDrawingSignature, epoch: chartReadyEpoch };
-  }, [chartCanvasReady, chartDrawingRecords, chartDrawingSignature, chartReadyEpoch, isScreenFocused, preferencesHydrated, webViewReady]);
+  }, [chartCanvasReady, chartDisplay.showObjectDescriptions, chartDrawingRecords, chartDrawingSignature, chartReadyEpoch, isScreenFocused, preferencesHydrated, webViewReady]);
 
   // ── Chart Overlays Bridge ───────────────────────────────────────
   // Geometry inject (new/close trade, SL/TP price change) — rare.
@@ -7426,6 +7429,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                             if (webViewRef.current) {
                               const drawingReplaySignature = chartDrawingSignature;
                               webViewRef.current.injectJavaScript(`
+                                if (typeof setShowObjectDescriptions === 'function') {
+                                  setShowObjectDescriptions(${chartDisplay.showObjectDescriptions === true});
+                                }
                                 if (typeof setSerializedDrawings === 'function') {
                                   setSerializedDrawings(${JSON.stringify(drawingsToReplay)});
                                 }
