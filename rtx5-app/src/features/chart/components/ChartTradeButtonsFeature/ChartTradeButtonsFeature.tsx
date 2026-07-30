@@ -31,6 +31,7 @@ type FooterLotPickerMode = 'absolute' | 'increase' | 'decrease';
 
 const LOT_ADJUST_HIT_SLOP = { top: 8, bottom: 8, left: 6, right: 6 } as const;
 const LOT_VALUE_HIT_SLOP = { top: 8, bottom: 8, left: 0, right: 0 } as const;
+const LOT_CHEVRON_INWARD_MARGIN = 20;
 // Frame-rate commits so bid/ask motion is visible while still coalescing bursts.
 const TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS = 16;
 const TRADE_BUTTON_PRICE_TEXT_COLOR = '#FFFFFF';
@@ -322,7 +323,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
           size={12}
           style={[
             themeStyles.actionLotAdjustIcon,
-            { marginLeft: 12 },
+            { marginLeft: LOT_CHEVRON_INWARD_MARGIN },
             (!canUseDecreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
             !isLotEditing && baseStyles.actionLotUnderlayIconHidden,
           ]}
@@ -408,7 +409,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
           size={12}
           style={[
             themeStyles.actionLotAdjustIcon,
-            { marginRight: 12 },
+            { marginRight: LOT_CHEVRON_INWARD_MARGIN },
             (!canUseIncreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
             !isLotEditing && baseStyles.actionLotUnderlayIconHidden,
           ]}
@@ -525,7 +526,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
                 size={12}
                 style={[
                   themeStyles.actionLotAdjustIcon,
-                  { marginLeft: 12 },
+                  { marginLeft: LOT_CHEVRON_INWARD_MARGIN },
                   (!canUseDecreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
                 ]}
               />
@@ -542,7 +543,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
                 size={12}
                 style={[
                   themeStyles.actionLotAdjustIcon,
-                  { marginRight: 12 },
+                  { marginRight: LOT_CHEVRON_INWARD_MARGIN },
                   (!canUseIncreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
                 ]}
               />

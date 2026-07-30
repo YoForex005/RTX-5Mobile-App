@@ -225,6 +225,10 @@ import { prefetchInstrument, prefetchOrderTicketData } from '../../utils/navigat
 import { roundOrderTicketPrice } from '../trade/orderTicketPreviewUtils';
 import { recordMarketDataEvent } from '../../market/marketDataTelemetry';
 import { CH_HTML } from "./rendering/ChartWebViewHtml";
+import {
+  shouldAcceptChartDataPaint,
+  shouldAcceptChartReady,
+} from './rendering/chartReadyContext';
 import { makeStyles } from "./ChartScreen.styles";
 import { PendingOrderPreviewChart } from "./components/PendingOrderPreviewChart";
 import { LiveQuotePairHeader } from "./components/ChartLiveHeaders";
@@ -5576,17 +5580,26 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     hasAcceptedNonEmptyWebViewDrawingsRef.current = chartDrawingRecords.length > 0;
   }, [chartDrawingBucketKey, chartDrawingRecords.length]);
   // Loading overlay: delay before showing so fast cached switches (< 500 ms)
-  // never flash a spinner. Falls back to hiding at 3 s to prevent an
+  // never flash a spinner. Falls back to hiding at 10 s to prevent an
   // indefinite blocking overlay when the chart fails to respond.
   const [loadingDelayPassed, setLoadingDelayPassed] = useState(false);
   const [loadingFallback, setLoadingFallback] = useState(false);
   const candlesAvailable = sanitizedCandles.length > 0;
+  // Returning to a healthy retained chart stays instant. If Android has
+  // discarded/reloaded the WebView process, this becomes false and starts a
+  // fresh bounded recovery window for the same symbol/timeframe.
+  const hasPaintedCurrentChartContext =
+    hasPaintedChartOnce && lastPaintedChartDataContextSig === chartDataContextSig;
+  const hasUsableRetainedChart =
+    hasPaintedCurrentChartContext && webViewReady && chartCanvasReady;
   useEffect(() => {
     setLoadingDelayPassed(false);
     setLoadingFallback(false);
     // Hidden hot tabs should not age into "No market data" before the user
-    // opens Chart.  Start this timeout only for the active chart screen.
-    if (!chartRuntimeActive) {
+    // opens Chart. Healthy retained charts also need no fallback timer. If the
+    // WebView is later lost, hasUsableRetainedChart flips false and arms a new
+    // recovery window instead of inheriting an expired fallback.
+    if (!chartRuntimeActive || hasUsableRetainedChart) {
       return undefined;
     }
     const delayTmr = setTimeout(() => setLoadingDelayPassed(true), 500);
@@ -5601,16 +5614,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       clearTimeout(delayTmr);
       clearTimeout(fallbackTmr);
     };
-  }, [chartRuntimeActive, chartSymbol, chartTimeframe, chartType]);
-  // The moment candles arrive, drop the "no market data" fallback regardless
-  // of how long the REST/WS handshake took. This prevents a brief flash of
-  // the empty-state overlay when the timer happens to fire just before the
-  // first candle batch lands.
-  useEffect(() => {
-    if (candlesAvailable && loadingFallback) {
-      setLoadingFallback(false);
-    }
-  }, [candlesAvailable, loadingFallback]);
+  }, [
+    chartRuntimeActive,
+    chartSymbol,
+    chartTimeframe,
+    chartType,
+    hasUsableRetainedChart,
+  ]);
   const requestOverlaySync = useCallback(() => {
     setOverlaySyncRevision((revision) => revision + 1);
   }, []);
@@ -5674,15 +5684,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     (shouldShowImmediateHistoryLoading || loadingDelayPassed) &&
     !loadingFallback;
   // Keep the loader until this exact symbol and timeframe has drawn candles.
-  // Returning to a healthy retained chart stays instant. If Android has
-  // discarded/reloaded the WebView process, show recovery rather than exposing
-  // an empty chart viewport behind stale "painted once" state.
-  const hasPaintedCurrentChartContext =
-    hasPaintedChartOnce && lastPaintedChartDataContextSig === chartDataContextSig;
-  const hasUsableRetainedChart =
-    hasPaintedCurrentChartContext && webViewReady && chartCanvasReady;
   const shouldShowChartLoadingOverlay =
     !hasUsableRetainedChart &&
+    !loadingFallback &&
     !hasChartDataError &&
     (!chartSurfaceReady || isLoading || candlesAvailable);
   const isError = hasChartDataError;
@@ -5779,8 +5783,19 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const watchdogRef = useRef<NodeJS.Timeout | null>(null);
   const lastInitSigRef = useRef('');
   const lastInitAttemptSigRef = useRef('');
-  const lastInitDispatchRef = useRef({ signature: '', configSig: '', at: 0 });
-  const pendingInitSnapshotRef = useRef(EMPTY_CHART_SERIES_SNAPSHOT);
+  const lastInitDispatchRef = useRef({
+    signature: '',
+    configSig: '',
+    dataContextSig: '',
+    at: 0,
+  });
+  const chartDataContextSigRef = useRef(chartDataContextSig);
+  chartDataContextSigRef.current = chartDataContextSig;
+  const chartDataPaintRevisionRef = useRef(0);
+  const pendingChartDataPaintRef = useRef({
+    token: '',
+    dataContextSig: '',
+  });
   const renderedSeriesSnapshotRef = useRef(EMPTY_CHART_SERIES_SNAPSHOT);
   const renderedDataContextSigRef = useRef('');
   const lastInjectedLiveQuoteSignatureRef = useRef('');
@@ -5790,6 +5805,30 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     length: number;
     signature: string;
   } | null>(null);
+  const issueChartDataPaintToken = useCallback((dataContextSig: string): string => {
+    chartDataPaintRevisionRef.current += 1;
+    const token = `${dataContextSig}:${chartDataPaintRevisionRef.current}`;
+    pendingChartDataPaintRef.current = { token, dataContextSig };
+    return token;
+  }, []);
+  const recordConfirmedChartFrontendPaint = useCallback(() => {
+    const frontendPaint = chartCandleFrontendPaintRef.current;
+    if (!frontendPaint) {
+      return;
+    }
+    const frontendMs = Date.now() - frontendPaint.availableAt;
+    recordUiFeedGap(
+      'chart.candles.frontend.paint',
+      frontendMs,
+      `${chartSymbol} ${chartTimeframe} ${frontendPaint.length} candle(s)`,
+    );
+    if (typeof __DEV__ !== 'undefined' && __DEV__ && frontendMs > 3000) {
+      console.warn(
+        `[CHART] Frontend candle paint exceeded 3s after data was available: ${frontendMs}ms for ${chartSymbol} ${chartTimeframe}`,
+      );
+    }
+    chartCandleFrontendPaintRef.current = null;
+  }, [chartSymbol, chartTimeframe]);
 
   const clearRenderedMarketPriceLines = useCallback(() => {
     lastInjectedLiveQuoteSignatureRef.current = '';
@@ -5811,8 +5850,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     chartInitializedRef.current = false;
     lastInitSigRef.current = '';
     lastInitAttemptSigRef.current = '';
-    lastInitDispatchRef.current = { signature: '', configSig: '', at: 0 };
-    pendingInitSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
+    lastInitDispatchRef.current = {
+      signature: '',
+      configSig: '',
+      dataContextSig: '',
+      at: 0,
+    };
+    pendingChartDataPaintRef.current = { token: '', dataContextSig: '' };
     renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
     renderedDataContextSigRef.current = '';
     lastInjectedLiveQuoteSignatureRef.current = '';
@@ -5951,8 +5995,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     if (lastInitSigRef.current !== currentSig) {
       chartInitializedRef.current = false;
       lastInitAttemptSigRef.current = '';
-      lastInitDispatchRef.current = { signature: '', configSig: '', at: 0 };
-      pendingInitSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
+      lastInitDispatchRef.current = {
+        signature: '',
+        configSig: '',
+        dataContextSig: '',
+        at: 0,
+      };
+      pendingChartDataPaintRef.current = { token: '', dataContextSig: '' };
       renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
       renderedDataContextSigRef.current = '';
       lastInjectedLiveQuoteSignatureRef.current = '';
@@ -5965,6 +6014,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   useEffect(() => {
     renderedDataContextSigRef.current = '';
+    pendingChartDataPaintRef.current = { token: '', dataContextSig: '' };
     livePaintRevisionRef.current = 0;
     lastInjectedDrawingSyncRef.current = { signature: '', epoch: -1 };
     lastWebViewDrawingSignatureRef.current = '';
@@ -5983,11 +6033,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
     const data = candlesRef.current;
     const initSnapshot = buildChartSeriesSnapshot(data);
-    const initAttemptSig = `${currentSig}:${getChartSnapshotSignature(initSnapshot)}`;
+    const initAttemptSig =
+      `${chartDataContextSig}:${currentSig}:${getChartSnapshotSignature(initSnapshot)}`;
     const now = Date.now();
     const recentInitInFlight =
       !chartInitializedRef.current &&
       lastInitDispatchRef.current.configSig === currentSig &&
+      lastInitDispatchRef.current.dataContextSig === chartDataContextSig &&
       now - lastInitDispatchRef.current.at < CHART_INIT_RETRY_MIN_MS;
     if (recentInitInFlight) return;
     if (!force && initAttemptSig === lastInitAttemptSigRef.current) return;
@@ -5995,7 +6047,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     const mapped = data.length > 0 ? buildMappedData(data) : [];
 
     const js = `
-      initChart(${JSON.stringify(chartOptions)}, ${JSON.stringify(chartType)}, ${JSON.stringify(mapped)}, ${displayDecimals}, ${showChartVolumePane}, ${JSON.stringify(initAttemptSig)}, ${JSON.stringify(currentSig)});
+      initChart(${JSON.stringify(chartOptions)}, ${JSON.stringify(chartType)}, ${JSON.stringify(mapped)}, ${displayDecimals}, ${showChartVolumePane}, ${JSON.stringify(initAttemptSig)}, ${JSON.stringify(currentSig)}, ${JSON.stringify(chartDataContextSig)});
       if (typeof setPeriodSeparators === 'function') {
         setPeriodSeparators(${JSON.stringify(periodSeparatorPayload)}, ${JSON.stringify(periodSeparatorOptions)});
       }
@@ -6004,10 +6056,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     try {
       webViewRef.current.injectJavaScript(js);
       lastInitAttemptSigRef.current = initAttemptSig;
-      lastInitDispatchRef.current = { signature: initAttemptSig, configSig: currentSig, at: now };
-      pendingInitSnapshotRef.current = initSnapshot;
+      lastInitDispatchRef.current = {
+        signature: initAttemptSig,
+        configSig: currentSig,
+        dataContextSig: chartDataContextSig,
+        at: now,
+      };
     } catch (_e) { /* WebView may have been disposed */ }
-  }, [webViewReady, currentSig, chartOptions, chartType, displayDecimals, buildMappedData, showChartVolumePane, periodSeparatorOptions, periodSeparatorPayload]);
+  }, [webViewReady, currentSig, chartDataContextSig, chartOptions, chartType, displayDecimals, buildMappedData, showChartVolumePane, periodSeparatorOptions, periodSeparatorPayload]);
 
   // Effect 1 — request initChart whenever data or config changes.
   useEffect(() => {
@@ -6227,11 +6283,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     }
 
     let didInject = false;
+    let issuedPaintToken = '';
 
     try {
       if (updateMode === 'full_reload') {
         const mapped = buildMappedData(renderableCandles);
         if (mapped.length > 0) {
+          issuedPaintToken = issueChartDataPaintToken(chartDataContextSig);
           if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
             console.log('[CHART-BRIDGE] inject_updateChartData', {
               symbol: chartSymbol,
@@ -6240,24 +6298,37 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
             });
           }
           webViewRef.current.injectJavaScript(`
-            updateChartData(${JSON.stringify(mapped)}, { resetVisibleRange: ${contextChanged} });
+            updateChartData(${JSON.stringify(mapped)}, {
+              resetVisibleRange: ${contextChanged},
+              dataContextSig: ${JSON.stringify(chartDataContextSig)},
+              paintToken: ${JSON.stringify(issuedPaintToken)}
+            });
             true;
           `);
           didInject = true;
         }
       }
-    } catch (_e) { /* WebView may have been disposed */ }
+    } catch (_e) {
+      if (pendingChartDataPaintRef.current.token === issuedPaintToken) {
+        pendingChartDataPaintRef.current = { token: '', dataContextSig: '' };
+      }
+    }
 
     if (didInject) {
       renderedSeriesSnapshotRef.current = nextSnapshot;
       renderedDataContextSigRef.current = chartDataContextSig;
-      // Physical cold-start checks showed the WebView can be READY while REST
-      // candle history is still loading.  Treat first paint as the first real
-      // candle batch, not the empty chart shell.
-      setHasPaintedChartOnce(true);
-      setLastPaintedChartDataContextSig(chartDataContextSig);
     }
-  }, [sanitizedCandles, chartCanvasReady, chartReadyEpoch, chartType, buildMappedData, chartDataContextSig, chartSymbol, chartTimeframe]);
+  }, [
+    sanitizedCandles,
+    chartCanvasReady,
+    chartReadyEpoch,
+    chartType,
+    buildMappedData,
+    chartDataContextSig,
+    chartSymbol,
+    chartTimeframe,
+    issueChartDataPaintToken,
+  ]);
 
   useEffect(() => {
     if (!webViewRef.current || !webViewReady) {
@@ -7310,19 +7381,34 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                         } else if (msg.type === 'CHART_READY') {
                           const readyInitSignature = typeof msg.initSignature === 'string' ? msg.initSignature : '';
                           const readyConfigSig = typeof msg.configSig === 'string' ? msg.configSig : '';
+                          const readyDataContextSig =
+                            typeof msg.dataContextSig === 'string' ? msg.dataContextSig : '';
                           const latestInitDispatch = lastInitDispatchRef.current;
-                          if (
-                            readyInitSignature !== latestInitDispatch.signature ||
-                            readyConfigSig !== latestInitDispatch.configSig ||
-                            readyConfigSig !== currentSig
-                          ) {
+                          if (!shouldAcceptChartReady(
+                            {
+                              initSignature: readyInitSignature,
+                              configSig: readyConfigSig,
+                              dataContextSig: readyDataContextSig,
+                            },
+                            {
+                              configSig: currentSig,
+                              dataContextSig: chartDataContextSigRef.current,
+                            },
+                            {
+                              configSig: latestInitDispatch.configSig,
+                              dataContextSig: latestInitDispatch.dataContextSig,
+                            },
+                          )) {
                             if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
                               console.log('[CHART-BRIDGE] ignore_stale_chart_ready', {
                                 readyInitSignature,
                                 readyConfigSig,
+                                readyDataContextSig,
                                 latestInitSignature: latestInitDispatch.signature,
                                 latestConfigSig: latestInitDispatch.configSig,
+                                latestDataContextSig: latestInitDispatch.dataContextSig,
                                 currentSig,
+                                chartDataContextSig,
                               });
                             }
                             return;
@@ -7354,40 +7440,41 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                           // Fast path: if initChart already seeded this exact
                           // sanitized series, skip the duplicate full reload.
                           // Otherwise paint retained candles for the READY race.
+                          let readyPaintToken = '';
+                          let chartReadyConfirmedCurrentSnapshotPaint = false;
                           try {
                             const readyCandles = candlesRef.current;
                             const readySnapshot = buildChartSeriesSnapshot(readyCandles);
                             if (readyCandles.length > 0 && webViewRef.current) {
-                              if (getChartSnapshotSignature(pendingInitSnapshotRef.current) === getChartSnapshotSignature(readySnapshot)) {
+                              const readySnapshotInitSignature =
+                                `${chartDataContextSig}:${currentSig}:${getChartSnapshotSignature(readySnapshot)}`;
+                              if (readyInitSignature === readySnapshotInitSignature) {
                                 renderedSeriesSnapshotRef.current = readySnapshot;
+                                renderedDataContextSigRef.current = chartDataContextSig;
                                 setHasPaintedChartOnce(true);
                                 setLastPaintedChartDataContextSig(chartDataContextSig);
+                                chartReadyConfirmedCurrentSnapshotPaint = true;
                               } else {
                                 const mapped = buildMappedData(readyCandles);
+                                readyPaintToken = issueChartDataPaintToken(chartDataContextSig);
                                 webViewRef.current.injectJavaScript(`
-                              updateChartData(${JSON.stringify(mapped)});
-                              true;
-                            `);
+                                  updateChartData(${JSON.stringify(mapped)}, {
+                                    dataContextSig: ${JSON.stringify(chartDataContextSig)},
+                                    paintToken: ${JSON.stringify(readyPaintToken)}
+                                  });
+                                  true;
+                                `);
                                 renderedSeriesSnapshotRef.current = readySnapshot;
-                                setHasPaintedChartOnce(true);
-                                setLastPaintedChartDataContextSig(chartDataContextSig);
+                                renderedDataContextSigRef.current = chartDataContextSig;
                               }
                             }
-                          } catch (_) { }
-                          const frontendPaint = chartCandleFrontendPaintRef.current;
-                          if (frontendPaint) {
-                            const frontendMs = Date.now() - frontendPaint.availableAt;
-                            recordUiFeedGap(
-                              'chart.candles.frontend.paint',
-                              frontendMs,
-                              `${chartSymbol} ${chartTimeframe} ${frontendPaint.length} candle(s)`,
-                            );
-                            if (typeof __DEV__ !== 'undefined' && __DEV__ && frontendMs > 3000) {
-                              console.warn(
-                                `[CHART] Frontend candle paint exceeded 3s after data was available: ${frontendMs}ms for ${chartSymbol} ${chartTimeframe}`,
-                              );
+                          } catch (_) {
+                            if (pendingChartDataPaintRef.current.token === readyPaintToken) {
+                              pendingChartDataPaintRef.current = { token: '', dataContextSig: '' };
                             }
-                            chartCandleFrontendPaintRef.current = null;
+                          }
+                          if (chartReadyConfirmedCurrentSnapshotPaint) {
+                            recordConfirmedChartFrontendPaint();
                           }
                           // Bump epoch so the overlay effect always re-fires
                           // after every (re-)initialization, even when the
@@ -7421,6 +7508,45 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                               lastInjectedLiveQuoteSignatureRef.current = nextMarketLineSignature;
                             }
                           } catch (_) { }
+                        } else if (msg.type === 'CHART_DATA_PAINTED') {
+                          const paintedDataContextSig =
+                            typeof msg.dataContextSig === 'string' ? msg.dataContextSig : '';
+                          const paintToken = typeof msg.paintToken === 'string' ? msg.paintToken : '';
+                          const pendingPaint = pendingChartDataPaintRef.current;
+                          if (!shouldAcceptChartDataPaint(
+                            {
+                              paintToken,
+                              dataContextSig: paintedDataContextSig,
+                            },
+                            {
+                              paintToken: pendingPaint.token,
+                              dataContextSig: pendingPaint.dataContextSig,
+                            },
+                            chartDataContextSigRef.current,
+                          )) {
+                            if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
+                              console.log('[CHART-BRIDGE] ignore_stale_data_paint', {
+                                paintToken,
+                                paintedDataContextSig,
+                                pendingPaintToken: pendingPaint.token,
+                                pendingDataContextSig: pendingPaint.dataContextSig,
+                                currentDataContextSig: chartDataContextSigRef.current,
+                              });
+                            }
+                            return;
+                          }
+
+                          pendingChartDataPaintRef.current = { token: '', dataContextSig: '' };
+                          const paintedCandles = candlesRef.current;
+                          if (paintedCandles.length === 0) {
+                            return;
+                          }
+                          renderedSeriesSnapshotRef.current =
+                            buildChartSeriesSnapshot(paintedCandles);
+                          renderedDataContextSigRef.current = paintedDataContextSig;
+                          setHasPaintedChartOnce(true);
+                          setLastPaintedChartDataContextSig(paintedDataContextSig);
+                          recordConfirmedChartFrontendPaint();
                         } else if (msg.type === 'DRAWING_TEXT_EDIT_REQUEST') {
                           const recordId = typeof msg.recordId === 'string' ? msg.recordId : '';
                           if (!recordId) {
@@ -7563,6 +7689,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                           if (/initChart|updateChartData|flushPendingTick|series not initialized|recoverChartSurface/.test(bridgeErrorMessage)) {
                             chartInitializedRef.current = false;
                             lastInitSigRef.current = '';
+                            pendingChartDataPaintRef.current = { token: '', dataContextSig: '' };
                             renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
                             setChartCanvasReady(false);
                             requestChartViewportRecovery(2);

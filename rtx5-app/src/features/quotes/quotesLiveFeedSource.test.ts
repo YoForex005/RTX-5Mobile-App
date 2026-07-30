@@ -234,6 +234,15 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(quotesScreenSource, /pauseQuoteSheetFeed\(routeChange \? QUOTE_SHEET_ROUTE_FEED_PAUSE_MS : QUOTE_SHEET_OPTION_FEED_PAUSE_MS\)/);
   assert.match(quotesScreenSource, /const handleSymbolPressIn = useCallback\([\s\S]*pauseQuoteSheetFeed\(\)/);
   assert.match(quotesScreenSource, /liveUpdatesActive=\{quoteStickyFeedActive\}/);
+  assert.match(
+    quotesScreenSource,
+    /const observedLiveItem = useLiveQuoteSnapshot\(liveSymbol, liveUpdatesActive\);[\s\S]*const liveItem =[\s\S]*observedLiveItem \?\?[\s\S]*\(!liveUpdatesActive \? getCurrentLiveQuoteSnapshot\(liveSymbol\) : undefined\)/,
+  );
+  assert.doesNotMatch(
+    quotesScreenSource,
+    /useLiveQuoteSnapshot\(liveSymbol, true\)/,
+    'display continuity must not re-enable hidden per-tick row subscriptions',
+  );
   assert.match(quotesScreenSource, /<TickCounter[\s\S]*active=\{quoteStickyFeedActive\}[\s\S]*symbols=\{quoteFeedSymbols\}/);
   assert.match(
     quotesScreenSource,

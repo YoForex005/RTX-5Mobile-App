@@ -91,7 +91,7 @@ test('symbol and timeframe switching full-reloads data and resets the first view
   );
   assertSourceContains(
     source,
-    /updateChartData\(\$\{JSON\.stringify\(mapped\)\}, \{ resetVisibleRange: \$\{contextChanged\} \}\)/,
+    /updateChartData\(\$\{JSON\.stringify\(mapped\)\}, \{[\s\S]*resetVisibleRange: \$\{contextChanged\},[\s\S]*dataContextSig: \$\{JSON\.stringify\(chartDataContextSig\)\},[\s\S]*paintToken: \$\{JSON\.stringify\(issuedPaintToken\)\}/,
     'symbol/timeframe full reloads must reset the visible range for the newly selected context',
   );
   assertSourceContains(

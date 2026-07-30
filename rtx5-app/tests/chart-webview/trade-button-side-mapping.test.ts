@@ -217,6 +217,17 @@ test('compact footer lot chevrons open range picker without opening manual lot e
     stylesSource,
     /actionLotAdjustButton:\s*\{[\s\S]*zIndex:\s*2[\s\S]*elevation:\s*2/,
   );
+  assert.match(buttonSource, /const LOT_CHEVRON_INWARD_MARGIN = 20;/);
+  assert.equal(
+    buttonSource.match(/\{ marginLeft: LOT_CHEVRON_INWARD_MARGIN \}/g)?.length,
+    2,
+    'down chevron must shift inward to the right in both display and edit modes',
+  );
+  assert.equal(
+    buttonSource.match(/\{ marginRight: LOT_CHEVRON_INWARD_MARGIN \}/g)?.length,
+    2,
+    'up chevron must shift inward to the left in both display and edit modes',
+  );
   assert.ok(increaseButtonIndex >= 0, 'increase lot button should render in compact footer');
   assert.ok(valueButtonIndex >= 0, 'lot value/edit button should render in compact footer');
   assert.ok(decreaseButtonIndex >= 0, 'decrease lot button should render in compact footer');

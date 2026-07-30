@@ -18,8 +18,8 @@ const DESTINATION_ORDER: ChartConfigDestination[] = [
 
 /**
  * Sidebar-style retained host for Chart Preferences configuration rows.
- * Native destination layers stay retained; only the active interactive screen
- * is mounted.
+ * Native destination layers stay retained. The selected interactive screen
+ * mounts behind Chart Preferences and is revealed only after its first layout.
  */
 export const ChartConfigDestinationHost = memo(function ChartConfigDestinationHost() {
   const layerRefs = useRef<Partial<Record<ChartConfigDestination, View | null>>>({});
@@ -69,7 +69,8 @@ export const ChartConfigDestinationHost = memo(function ChartConfigDestinationHo
       testID="chart-config-destination-host"
     >
       {DESTINATION_ORDER.map((destination) => {
-        const active = snapshot.visible && snapshot.destination === destination;
+        const mounted = snapshot.visible && snapshot.destination === destination;
+        const active = mounted && snapshot.ready;
         return (
           <View
             key={destination}
@@ -83,33 +84,44 @@ export const ChartConfigDestinationHost = memo(function ChartConfigDestinationHo
             style={[styles.layer, active ? styles.layerVisible : styles.layerHidden]}
             testID={`chart-config-destination-${destination}`}
           >
-            {active && destination === 'schema-colors' ? (
-              <ChartPropertiesScreen
-                hosted
-                hostedActive
-                onHostedBack={closeHost}
-              />
-            ) : null}
-            {active && destination === 'price-source' ? (
-              <ChartPriceSourceScreen
-                hosted
-                hostedActive
-                onHostedBack={closeHost}
-              />
-            ) : null}
-            {active && destination === 'open-order-mode' ? (
-              <ChartOpenOrderModeScreen
-                hosted
-                hostedActive
-                onHostedBack={closeHost}
-              />
-            ) : null}
-            {active && destination === 'alerts' ? (
-              <PriceAlertsScreen
-                hosted
-                hostedActive
-                onHostedBack={closeHost}
-              />
+            {mounted ? (
+              <View
+                collapsable={false}
+                onLayout={() => {
+                  chartConfigDestinationController.revealMounted(snapshot.revision);
+                }}
+                style={styles.mountedScreen}
+                testID={`chart-config-destination-${destination}-mounted-screen`}
+              >
+                {destination === 'schema-colors' ? (
+                  <ChartPropertiesScreen
+                    hosted
+                    hostedActive={active}
+                    onHostedBack={closeHost}
+                  />
+                ) : null}
+                {destination === 'price-source' ? (
+                  <ChartPriceSourceScreen
+                    hosted
+                    hostedActive={active}
+                    onHostedBack={closeHost}
+                  />
+                ) : null}
+                {destination === 'open-order-mode' ? (
+                  <ChartOpenOrderModeScreen
+                    hosted
+                    hostedActive={active}
+                    onHostedBack={closeHost}
+                  />
+                ) : null}
+                {destination === 'alerts' ? (
+                  <PriceAlertsScreen
+                    hosted
+                    hostedActive={active}
+                    onHostedBack={closeHost}
+                  />
+                ) : null}
+              </View>
             ) : null}
           </View>
         );
@@ -127,8 +139,12 @@ const styles = StyleSheet.create({
   },
   layer: {
     ...StyleSheet.absoluteFillObject,
-    // Opaque so Chart Preferences never shows through during the open.
-    backgroundColor: '#0B1220',
+    // Keep Chart Preferences visible if Android has laid out the destination
+    // wrapper but has not composited its opaque screen descendants yet.
+    backgroundColor: 'transparent',
+  },
+  mountedScreen: {
+    flex: 1,
   },
   layerHidden: {
     elevation: 0,

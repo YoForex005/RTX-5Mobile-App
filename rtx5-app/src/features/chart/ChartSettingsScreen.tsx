@@ -466,7 +466,6 @@ function ToggleRow({
     <FastPressable
       style={({ pressed }) => [styles.toggleRow, pressed && styles.rowPressed]}
       onPress={() => onValueChange(!enabled)}
-      activateOnPressIn
       unstable_pressDelay={0}
       latencyLabel={`chartSettings.showOnChart.${item.key}`}
     >
@@ -522,7 +521,6 @@ function PreferenceToggleRow({
     <FastPressable
       style={({ pressed }) => [styles.preferenceToggleRow, pressed && styles.rowPressed]}
       onPress={() => onValueChange(!enabled)}
-      activateOnPressIn
       unstable_pressDelay={0}
       latencyLabel={latencyLabel}
     >
@@ -609,7 +607,6 @@ function NavRow({
     <FastPressable
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       onPress={onPress}
-      activateOnPressIn
       unstable_pressDelay={0}
       latencyLabel={`chartSettings.nav.${label}`}
     >

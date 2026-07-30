@@ -50,6 +50,11 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   assert.doesNotMatch(quotesSource, /reportFeedLocalTick|quotesWsService\.addTickListener/);
   assert.match(quotesSource, /useWatchlistLiveQuotes\(quoteFeedSymbols, quoteStickyFeedActive, \{[\s\S]*restFallbackActive: quoteRestFallbackActive,[\s\S]*\}\)/);
   assert.match(quotesSource, /liveUpdatesActive=\{quoteStickyFeedActive\}/);
+  assert.match(
+    quotesSource,
+    /const observedLiveItem = useLiveQuoteSnapshot\(liveSymbol, liveUpdatesActive\);[\s\S]*\(!liveUpdatesActive \? getCurrentLiveQuoteSnapshot\(liveSymbol\) : undefined\)/,
+    'inactive quote rows must retain session-scoped display values without subscribing',
+  );
   assert.match(quotesSource, /<TickCounter[\s\S]*active=\{quoteStickyFeedActive\}/);
   assert.doesNotMatch(quotesSource, /useWatchlistLiveQuotes\(quoteFeedSymbols, true\)/);
 

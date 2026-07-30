@@ -65,17 +65,17 @@ test('pending init retries are throttled before remapping full history', () => {
   );
   assertSourceContains(
     source,
-    /const lastInitDispatchRef = useRef\(\{ signature: '', configSig: '', at: 0 \}\)/,
+    /const lastInitDispatchRef = useRef\(\{[\s\S]*signature: '',[\s\S]*configSig: '',[\s\S]*dataContextSig: '',[\s\S]*at: 0,[\s\S]*\}\)/,
     'native chart must remember the last init dispatch while CHART_READY is pending',
   );
   assertSourceContains(
     source,
-    /const recentInitInFlight =[\s\S]*!chartInitializedRef\.current &&[\s\S]*lastInitDispatchRef\.current\.configSig === currentSig &&[\s\S]*now - lastInitDispatchRef\.current\.at < CHART_INIT_RETRY_MIN_MS;[\s\S]*if \(recentInitInFlight\) return;[\s\S]*if \(!force && initAttemptSig === lastInitAttemptSigRef\.current\) return;[\s\S]*const mapped = data\.length > 0 \? buildMappedData\(data\) : \[\];/,
+    /const recentInitInFlight =[\s\S]*!chartInitializedRef\.current &&[\s\S]*lastInitDispatchRef\.current\.configSig === currentSig &&[\s\S]*lastInitDispatchRef\.current\.dataContextSig === chartDataContextSig &&[\s\S]*now - lastInitDispatchRef\.current\.at < CHART_INIT_RETRY_MIN_MS;[\s\S]*if \(recentInitInFlight\) return;[\s\S]*if \(!force && initAttemptSig === lastInitAttemptSigRef\.current\) return;[\s\S]*const mapped = data\.length > 0 \? buildMappedData\(data\) : \[\];/,
     'pending init throttling must happen before expensive full-history mapping and injection',
   );
   assertSourceContains(
     source,
-    /lastInitDispatchRef\.current = \{ signature: initAttemptSig, configSig: currentSig, at: now \}/,
+    /lastInitDispatchRef\.current = \{[\s\S]*signature: initAttemptSig,[\s\S]*configSig: currentSig,[\s\S]*dataContextSig: chartDataContextSig,[\s\S]*at: now,[\s\S]*\}/,
     'successful init injection must update the pending dispatch throttle',
   );
 });

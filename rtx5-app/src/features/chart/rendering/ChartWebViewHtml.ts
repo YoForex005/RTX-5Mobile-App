@@ -149,6 +149,7 @@ export const CH_HTML = `
       var lastInitShowLowerPane = true;
       var lastInitSignature = '';
       var lastInitConfigSig = '';
+      var lastInitDataContextSig = '';
       var lastRequestedDisplayDecimals = 2;
       var lastLivePrice = null;
       var lastBidPrice = null;
@@ -1729,7 +1730,14 @@ export const CH_HTML = `
         });
       }
 
-      function postChartReadyWhenPriceScaleHealthy(reason, attempt, generation, initSignature, configSig) {
+      function postChartReadyWhenPriceScaleHealthy(
+        reason,
+        attempt,
+        generation,
+        initSignature,
+        configSig,
+        dataContextSig
+      ) {
         if (typeof generation === 'number' && generation !== chartReadyPostGeneration) {
           return;
         }
@@ -1740,25 +1748,32 @@ export const CH_HTML = `
         if (isRightPriceScaleLayoutHealthy()) {
           if (!lastRawSeriesData || lastRawSeriesData.length === 0 || renderFallbackRightPriceScaleLabels()) {
             postChartGeometry();
-            postChartReady(initSignature, configSig);
+            postChartReady(initSignature, configSig, dataContextSig);
             return;
           }
         }
         recoverRightPriceScaleLayout(reason || 'chart_ready');
         if (!lastRawSeriesData || lastRawSeriesData.length === 0 || renderFallbackRightPriceScaleLabels()) {
           postChartGeometry();
-          postChartReady(initSignature, configSig);
+          postChartReady(initSignature, configSig, dataContextSig);
           return;
         }
         if (currentAttempt >= RIGHT_PRICE_SCALE_LAYOUT_RECOVERY_MAX_ATTEMPTS) {
           scheduleRightPriceScaleFallbackRefresh();
           scheduleRightPriceScaleLayoutRecovery(reason || 'chart_ready', 2);
           postChartGeometry();
-          postChartReady(initSignature, configSig);
+          postChartReady(initSignature, configSig, dataContextSig);
           return;
         }
         requestAnimationFrame(function() {
-          postChartReadyWhenPriceScaleHealthy(reason, currentAttempt + 1, generation, initSignature, configSig);
+          postChartReadyWhenPriceScaleHealthy(
+            reason,
+            currentAttempt + 1,
+            generation,
+            initSignature,
+            configSig,
+            dataContextSig
+          );
         });
       }
 
@@ -3819,12 +3834,23 @@ export const CH_HTML = `
         } catch (_e) {}
       }
 
-      function postChartReady(initSignature, configSig) {
+      function postChartReady(initSignature, configSig, dataContextSig) {
         try {
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'CHART_READY',
             initSignature: initSignature || '',
             configSig: configSig || '',
+            dataContextSig: dataContextSig || '',
+          }));
+        } catch (_e) {}
+      }
+
+      function postChartDataPainted(dataContextSig, paintToken) {
+        try {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'CHART_DATA_PAINTED',
+            dataContextSig: dataContextSig || '',
+            paintToken: paintToken || '',
           }));
         } catch (_e) {}
       }
@@ -5708,9 +5734,19 @@ export const CH_HTML = `
         return normalizePositiveViewportSize(resolvedWidth, resolvedHeight);
       }
 
-      function _doInitChart(opts, chartType, data, displayDecimals, showLowerPane, initSignature, configSig) {
+      function _doInitChart(
+        opts,
+        chartType,
+        data,
+        displayDecimals,
+        showLowerPane,
+        initSignature,
+        configSig,
+        dataContextSig
+      ) {
         var resolvedInitSignature = typeof initSignature === 'string' ? initSignature : '';
         var resolvedConfigSig = typeof configSig === 'string' ? configSig : '';
+        var resolvedDataContextSig = typeof dataContextSig === 'string' ? dataContextSig : '';
         var el = document.getElementById('chart');
         var viewportSize = resolveChartViewportSize();
         var w = viewportSize.width;
@@ -5731,6 +5767,7 @@ export const CH_HTML = `
             showLowerPane: showLowerPane,
             initSignature: resolvedInitSignature,
             configSig: resolvedConfigSig,
+            dataContextSig: resolvedDataContextSig,
           };
           // Keep this single-flight and bounded. A hidden/zero-sized Android
           // WebView previously created an endless animation-frame recursion
@@ -5748,7 +5785,8 @@ export const CH_HTML = `
                   pending.displayDecimals,
                   pending.showLowerPane,
                   pending.initSignature,
-                  pending.configSig
+                  pending.configSig,
+                  pending.dataContextSig
                 );
               }
             });
@@ -5827,6 +5865,7 @@ export const CH_HTML = `
         shouldShowLowerPane = showLowerPane !== false;
         lastInitSignature = resolvedInitSignature;
         lastInitConfigSig = resolvedConfigSig;
+        lastInitDataContextSig = resolvedDataContextSig;
         lastDisplayDecimals =
           typeof displayDecimals === 'number' && isFinite(displayDecimals) && displayDecimals >= 0
             ? displayDecimals
@@ -5836,6 +5875,7 @@ export const CH_HTML = `
         var readyGeneration = chartReadyPostGeneration;
         var readyInitSignature = lastInitSignature;
         var readyConfigSig = lastInitConfigSig;
+        var readyDataContextSig = lastInitDataContextSig;
 
         var safeOpts = applyChartLayout(cloneSerializableValue(opts || {}, {}));
         var chartBackgroundColor = resolveChartBackgroundColor(safeOpts);
@@ -6043,10 +6083,26 @@ export const CH_HTML = `
         setLivePriceLine(lastLivePrice);
         schedulePeriodSeparatorsUpdate();
         postChartGeometry();
-        postChartReadyWhenPriceScaleHealthy('init_ready', 0, readyGeneration, readyInitSignature, readyConfigSig);
+        postChartReadyWhenPriceScaleHealthy(
+          'init_ready',
+          0,
+          readyGeneration,
+          readyInitSignature,
+          readyConfigSig,
+          readyDataContextSig
+        );
       }
 
-      function initChart(opts, chartType, data, displayDecimals, showLowerPane, initSignature, configSig) {
+      function initChart(
+        opts,
+        chartType,
+        data,
+        displayDecimals,
+        showLowerPane,
+        initSignature,
+        configSig,
+        dataContextSig
+      ) {
         try {
           var requestHostOptions = cloneSerializableValue(opts || {}, {});
           var requestChartType = chartType || 'candles';
@@ -6054,11 +6110,13 @@ export const CH_HTML = `
           var requestDisplayDecimals = lastRequestedDisplayDecimals;
           var requestInitSignature = typeof initSignature === 'string' ? initSignature : '';
           var requestConfigSig = typeof configSig === 'string' ? configSig : '';
+          var requestDataContextSig = typeof dataContextSig === 'string' ? dataContextSig : '';
           lastInitHostOptions = requestHostOptions;
           lastInitChartType = requestChartType;
           lastInitShowLowerPane = requestShowLowerPane;
           lastInitSignature = requestInitSignature;
           lastInitConfigSig = requestConfigSig;
+          lastInitDataContextSig = requestDataContextSig;
           if (typeof displayDecimals === 'number' && isFinite(displayDecimals) && displayDecimals >= 0) {
             requestDisplayDecimals = displayDecimals;
             lastRequestedDisplayDecimals = displayDecimals;
@@ -6085,7 +6143,8 @@ export const CH_HTML = `
                 requestDisplayDecimals,
                 requestShowLowerPane,
                 requestInitSignature,
-                requestConfigSig
+                requestConfigSig,
+                requestDataContextSig
               );
             } catch(e) {
               postError('initChart', e);
@@ -6123,7 +6182,8 @@ export const CH_HTML = `
               _pendingInit.displayDecimals,
               _pendingInit.showLowerPane,
               _pendingInit.initSignature,
-              _pendingInit.configSig
+              _pendingInit.configSig,
+              _pendingInit.dataContextSig
             );
             return;
           }
@@ -6165,7 +6225,8 @@ export const CH_HTML = `
               _pendingInit.displayDecimals,
               _pendingInit.showLowerPane,
               _pendingInit.initSignature,
-              _pendingInit.configSig
+              _pendingInit.configSig,
+              _pendingInit.dataContextSig
             );
             return;
           }
@@ -6179,7 +6240,8 @@ export const CH_HTML = `
                 lastRequestedDisplayDecimals,
                 lastInitShowLowerPane,
                 lastInitSignature,
-                lastInitConfigSig
+                lastInitConfigSig,
+                lastInitDataContextSig
               );
             }
             return;
@@ -6253,7 +6315,8 @@ export const CH_HTML = `
                 _pendingInit.displayDecimals,
                 _pendingInit.showLowerPane,
                 _pendingInit.initSignature,
-                _pendingInit.configSig
+                _pendingInit.configSig,
+                _pendingInit.dataContextSig
               );
             } else if (chart) {
               // Chart exists — just resize it to match.
@@ -6615,6 +6678,10 @@ export const CH_HTML = `
           var updateOptions = options && typeof options === 'object' ? options : {};
           var preserveVisibleLogicalSpan = updateOptions.preserveVisibleLogicalSpan === true;
           var resetVisibleRange = updateOptions.resetVisibleRange === true;
+          var paintedDataContextSig =
+            typeof updateOptions.dataContextSig === 'string' ? updateOptions.dataContextSig : '';
+          var paintToken =
+            typeof updateOptions.paintToken === 'string' ? updateOptions.paintToken : '';
           if (tickFlushHandle) {
             try { cancelAnimationFrame(tickFlushHandle); } catch (_) {}
             tickFlushHandle = 0;
@@ -6637,6 +6704,11 @@ export const CH_HTML = `
           currentSeriesLength = mapped.length;
           clearMarketPriceLineRefs();
           series.setData(mapped);
+          if (mapped.length > 0 && paintedDataContextSig && paintToken) {
+            requestAnimationFrame(function() {
+              postChartDataPainted(paintedDataContextSig, paintToken);
+            });
+          }
           if (window._drawingManager && typeof window._drawingManager.refreshCrosshairData === 'function') {
             try { window._drawingManager.refreshCrosshairData(); } catch (_crosshairRefreshErr) {}
           }

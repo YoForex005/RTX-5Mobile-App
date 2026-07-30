@@ -591,47 +591,52 @@ export function ChartPropertiesScreen({
         </View>
       </ScrollView>
 
-      <Modal
-        transparent
-        visible={schemeModalOpen}
-        animationType="fade"
-        {...OVERLAY_MODAL_PROPS}
-        onRequestClose={() => setSchemeModalOpen(false)}
-      >
-        <Pressable style={styles.modalBackdrop} onPress={() => setSchemeModalOpen(false)}>
-          <View style={styles.modalCard}>
-            {SCHEME_OPTIONS.map((option) => (
-              <Pressable
-                key={option.key}
-                style={styles.modalRow}
-                onPress={() => {
-                  setChartColorScheme(option.key);
-                  setSchemeModalOpen(false);
-                }}
-              >
-                <Text style={[styles.modalRowText, option.key === chartColorScheme && styles.modalRowTextActive]}>{t(option.label)}</Text>
-                {option.key === chartColorScheme && <Ionicons name="checkmark" size={16} color={T.trading.buy.primary} />}
-              </Pressable>
-            ))}
-          </View>
-        </Pressable>
-      </Modal>
+      {/* Android Modal owns a separate native window. Do not allocate closed
+          windows while the hosted destination is completing its first paint. */}
+      {schemeModalOpen ? (
+        <Modal
+          transparent
+          visible
+          animationType="fade"
+          {...OVERLAY_MODAL_PROPS}
+          onRequestClose={() => setSchemeModalOpen(false)}
+        >
+          <Pressable style={styles.modalBackdrop} onPress={() => setSchemeModalOpen(false)}>
+            <View style={styles.modalCard}>
+              {SCHEME_OPTIONS.map((option) => (
+                <Pressable
+                  key={option.key}
+                  style={styles.modalRow}
+                  onPress={() => {
+                    setChartColorScheme(option.key);
+                    setSchemeModalOpen(false);
+                  }}
+                >
+                  <Text style={[styles.modalRowText, option.key === chartColorScheme && styles.modalRowTextActive]}>{t(option.label)}</Text>
+                  {option.key === chartColorScheme && <Ionicons name="checkmark" size={16} color={T.trading.buy.primary} />}
+                </Pressable>
+              ))}
+            </View>
+          </Pressable>
+        </Modal>
+      ) : null}
 
-      <Modal
-        transparent
-        visible={activeColorKey !== null}
-        animationType="none"
-        {...OVERLAY_MODAL_PROPS}
-        onRequestClose={() => applyDraftColor(draftColor)}
-      >
-        <KeyboardAvoidingView behavior="padding" style={styles.modalBackdropBottom}>
-          {/* Keep the backdrop outside the sheet so color-picker drags cannot bubble out and dismiss the modal. */}
-          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => applyDraftColor(draftColor)} />
-          <View style={styles.bottomSheet}>
-            <ScrollView
-              keyboardShouldPersistTaps="always"
-              canCancelContentTouches={Platform.OS === 'ios'} showsVerticalScrollIndicator={false}>
-              <Text style={styles.sheetTitle}>{t(COLOR_GROUPS.flatMap((g) => g.fields).find((item) => item.key === activeColorKey)?.label ?? 'Color')}</Text>
+      {activeColorKey !== null ? (
+        <Modal
+          transparent
+          visible
+          animationType="none"
+          {...OVERLAY_MODAL_PROPS}
+          onRequestClose={() => applyDraftColor(draftColor)}
+        >
+          <KeyboardAvoidingView behavior="padding" style={styles.modalBackdropBottom}>
+            {/* Keep the backdrop outside the sheet so color-picker drags cannot bubble out and dismiss the modal. */}
+            <Pressable style={StyleSheet.absoluteFillObject} onPress={() => applyDraftColor(draftColor)} />
+            <View style={styles.bottomSheet}>
+              <ScrollView
+                keyboardShouldPersistTaps="always"
+                canCancelContentTouches={Platform.OS === 'ios'} showsVerticalScrollIndicator={false}>
+                <Text style={styles.sheetTitle}>{t(COLOR_GROUPS.flatMap((g) => g.fields).find((item) => item.key === activeColorKey)?.label ?? 'Color')}</Text>
 
                 {/* Keep drag gestures on Reanimated's UI thread; commit to JS/Zustand only after release for smooth Android hue sliding. */}
                 <ColorPicker
@@ -680,13 +685,14 @@ export function ChartPropertiesScreen({
                   </View>
                 </View>
 
-                <Pressable style={styles.doneButton} onPress={() => applyDraftColor(draftColor)}>
-                  <Text style={styles.doneButtonText}>{t('Done')}</Text>
-                </Pressable>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+                  <Pressable style={styles.doneButton} onPress={() => applyDraftColor(draftColor)}>
+                    <Text style={styles.doneButtonText}>{t('Done')}</Text>
+                  </Pressable>
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+      ) : null}
     </Screen>
   );
 }

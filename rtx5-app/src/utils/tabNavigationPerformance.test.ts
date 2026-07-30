@@ -195,11 +195,23 @@ test('tab bar and retained scenes share one deterministic visible route', () => 
   assert.match(navigatorSource, /registerFastTabVisualApplier\(applyNativeVisualRouteNow\)/);
   assert.match(navigatorSource, /const applyNativeVisualRouteNow = useCallback\([\s\S]*setNativeProps\(\{[\s\S]*style: \[styles\.sceneLayer, styles\.sceneLayerHidden\][\s\S]*setNativeProps\(\{[\s\S]*style: \[styles\.sceneLayer, styles\.sceneLayerVisible\]/);
   assert.match(sceneLayerSource, /ref=\{layerRef\}[\s\S]*collapsable=\{false\}/);
-  assert.match(tabsLayoutSource, /const FastTabVisualIcon = memo[\s\S]*activeLayerRef\.current\?\.setNativeProps[\s\S]*inactiveLayerRef\.current\?\.setNativeProps[\s\S]*registerFastTabSidebarChromeApplier\(applyVisualRoute\)/);
-  assert.match(tabsLayoutSource, /style: \[styles\.tabIconLayer, \{ opacity: active \? 1 : 0 \}\][\s\S]*style: \[styles\.tabIconLayer, \{ opacity: active \? 0 : 1 \}\]/);
-  assert.match(tabsLayoutSource, /const FastTabVisualLabel = memo[\s\S]*labelRef\.current\?\.setNativeProps[\s\S]*registerFastTabSidebarChromeApplier\(applyVisualRoute\)/);
-  assert.match(tabsLayoutSource, /tabBarIcon: \(\{ size, color \}\) => \{[\s\S]*<FastTabVisualIcon[\s\S]*routeName=\{route\.name as FastTabRouteName\}/);
-  assert.match(tabsLayoutSource, /tabBarLabel: \(\{ children, color \}\) => \{[\s\S]*<FastTabVisualLabel[\s\S]*routeName=\{route\.name as FastTabRouteName\}/);
+  const visualItemSource = tabsLayoutSource.slice(
+    tabsLayoutSource.indexOf('const FastTabVisualItem'),
+    tabsLayoutSource.indexOf('const getNow'),
+  );
+  assert.match(visualItemSource, /const FastTabVisualItem = memo[\s\S]*const active = visualRouteName === routeName/);
+  assert.match(visualItemSource, /activeLayerRef\.current\?\.setNativeProps[\s\S]*inactiveLayerRef\.current\?\.setNativeProps/);
+  assert.equal(
+    (visualItemSource.match(/registerFastTabSidebarChromeApplier\(applyVisualRoute\)/g) ?? []).length,
+    1,
+    'each tab must register one combined icon-and-label chrome applier',
+  );
+  assert.match(visualItemSource, /const renderPresentation = \(color: string\) => \([\s\S]*renderTabIcon\(routeName, color\)[\s\S]*<Text[\s\S]*\{label\}/);
+  assert.match(visualItemSource, /styles\.tabVisualItemLayer[\s\S]*renderPresentation\(inactiveColor\)[\s\S]*styles\.tabVisualItemLayer[\s\S]*renderPresentation\(activeColor\)/);
+  assert.doesNotMatch(tabsLayoutSource, /FastTabVisualIcon|FastTabVisualLabel|labelRef\.current\?\.setNativeProps/);
+  assert.match(tabsLayoutSource, /tabBarIcon: \(\) => null/);
+  assert.match(tabsLayoutSource, /tabBarLabel: \(\) => null/);
+  assert.match(tabsLayoutSource, /<FastTabBarButton[\s\S]*routeName=\{route\.name as FastTabRouteName\}[\s\S]*activeColor=\{bottomTabActiveColor\}[\s\S]*inactiveColor=\{inactiveTabColor\}/);
   assert.match(sceneLayerSource, /<View[\s\S]*visualFocused \? styles\.sceneLayerVisible : styles\.sceneLayerHidden/);
   assert.doesNotMatch(sceneLayerSource, /Animated\.View|useAnimatedStyle|useAnimatedProps|animatedStyle|animatedProps/);
   assert.match(navigatorSource, /pointerEvents=\{visualFocused \? 'auto' : 'none'\}/);
@@ -228,6 +240,34 @@ test('fast tab native scene and menu chrome always receive the same route', () =
 
   unregisterScene();
   unregisterChrome();
+});
+
+test('a stale route commit cannot overwrite a newer rapid tab selection', () => {
+  const controller = createFastTabVisualController();
+  const sceneRoutes: string[] = [];
+  const chromeRoutes: string[] = [];
+  controller.registerVisualApplier((route) => sceneRoutes.push(route));
+  controller.registerSidebarChromeApplier((route) => chromeRoutes.push(route));
+
+  controller.setActualRouteName('quotes');
+  controller.show('chart', false);
+  const tradeRevision = controller.show('trade', false);
+  controller.setActualRouteName('chart');
+
+  assert.deepEqual(controller.getSnapshot(), {
+    routeName: 'trade',
+    revision: tradeRevision,
+  });
+  assert.equal(sceneRoutes.at(-1), 'trade');
+  assert.equal(chromeRoutes.at(-1), 'trade');
+
+  controller.setActualRouteName('trade');
+  assert.deepEqual(controller.getSnapshot(), {
+    routeName: null,
+    revision: tradeRevision,
+  });
+  assert.equal(sceneRoutes.at(-1), 'trade');
+  assert.deepEqual(chromeRoutes, sceneRoutes);
 });
 
 test('bottom tab bar follows the optimistic visual route before navigation commits', () => {
@@ -267,7 +307,7 @@ test('bottom tab navigation fast path preserves light and dark tab bar themes', 
   assert.match(source, /const bottomTabActiveColor = T\.trading\.buy\.primary/);
   assert.match(source, /tabBarActiveTintColor: bottomTabActiveColor/);
   assert.match(source, /tabBarInactiveTintColor: inactiveTabColor/);
-  assert.match(source, /style=\{\[styles\.tabLabel, isLandscape && styles\.tabLabelLandscape, \{ color \}\]\}/);
+  assert.match(source, /styles\.tabLabel,\s*isLandscape && styles\.tabLabelLandscape,\s*\{ color \}/);
   assert.match(source, /\[T\.bg, T\.borderSubtle, insets\.bottom, isDark, isLandscape, tabBarHeight\]/);
 });
 
@@ -281,7 +321,7 @@ test('bottom tab bar compacts in landscape to preserve phone content height', ()
   assert.match(source, /resolveBottomTabBarHeight\(\{[\s\S]*isLandscape,[\s\S]*\}\)/);
   assert.match(source, /paddingTop: isLandscape \? 4 : 8/);
   assert.match(source, /paddingBottom: Math\.max\(insets\.bottom, isLandscape \? 4 : 8\)/);
-  assert.match(source, /styles\.tabLabel, isLandscape && styles\.tabLabelLandscape, \{ color \}/);
+  assert.match(source, /styles\.tabLabel,\s*isLandscape && styles\.tabLabelLandscape,\s*\{ color \}/);
   assert.match(source, /tabLabelLandscape: \{[\s\S]*marginBottom: 0,[\s\S]*\}/);
   assert.match(bottomTabLayoutSource, /MT5_BOTTOM_TAB_BAR_LANDSCAPE_BASE_HEIGHT = 64/);
   assert.match(bottomTabLayoutSource, /isLandscape\?: boolean/);

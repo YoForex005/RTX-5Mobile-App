@@ -848,23 +848,28 @@ test('native chart status overlays do not block symbol recovery controls', () =>
   );
   assertSourceContains(
     source,
-    /setLoadingFallback\(false\);[\s\S]*if \(!chartRuntimeActive\) \{[\s\S]*return undefined;[\s\S]*const fallbackTmr = setTimeout\(\(\) => setLoadingFallback\(true\), 10000\)[\s\S]*\}, \[chartRuntimeActive, chartSymbol, chartTimeframe, chartType\]\)/,
-    'hidden hot tabs must not age into the no-data fallback before Chart is opened',
+    /setLoadingFallback\(false\);[\s\S]*if \(!chartRuntimeActive \|\| hasUsableRetainedChart\) \{[\s\S]*return undefined;[\s\S]*const fallbackTmr = setTimeout\(\(\) => setLoadingFallback\(true\), 10000\)[\s\S]*chartRuntimeActive,[\s\S]*chartSymbol,[\s\S]*chartTimeframe,[\s\S]*chartType,[\s\S]*hasUsableRetainedChart,[\s\S]*\]\)/,
+    'hidden tabs and healthy charts must not age into fallback, while WebView process loss re-arms a bounded recovery window',
   );
   assertSourceContains(
     source,
-    /const hasPaintedCurrentChartContext =[\s\S]*hasPaintedChartOnce && lastPaintedChartDataContextSig === chartDataContextSig[\s\S]*const hasUsableRetainedChart =[\s\S]*hasPaintedCurrentChartContext && webViewReady && chartCanvasReady[\s\S]*const shouldShowChartLoadingOverlay =[\s\S]*!hasUsableRetainedChart &&[\s\S]*!hasChartDataError &&[\s\S]*\(!chartSurfaceReady \|\| isLoading \|\| candlesAvailable\)/,
-    'loading overlay must cover a cold context or reloading WebView until its current chart is usable',
+    /const hasPaintedCurrentChartContext =[\s\S]*hasPaintedChartOnce && lastPaintedChartDataContextSig === chartDataContextSig[\s\S]*const hasUsableRetainedChart =[\s\S]*hasPaintedCurrentChartContext && webViewReady && chartCanvasReady[\s\S]*const shouldShowChartLoadingOverlay =[\s\S]*!hasUsableRetainedChart &&[\s\S]*!loadingFallback &&[\s\S]*!hasChartDataError &&[\s\S]*\(!chartSurfaceReady \|\| isLoading \|\| candlesAvailable\)/,
+    'loading overlay must cover a cold context or reloading WebView, but fail open after the bounded fallback',
   );
   assertSourceContains(
     source,
     /if \(renderableCandles\.length === 0\) \{[\s\S]*if \(contextChanged\) \{[\s\S]*updateChartData\(\[\]\)/,
     'a cold context must clear old-symbol candles behind its loading overlay',
   );
-  assert.equal(
-    (source.match(/setLastPaintedChartDataContextSig\(chartDataContextSig\)/g) ?? []).length,
-    3,
-    'all three successful non-empty paint paths must acknowledge the exact chart context',
+  assertSourceContains(
+    source,
+    /readyInitSignature === readySnapshotInitSignature[\s\S]*setLastPaintedChartDataContextSig\(chartDataContextSig\)/,
+    'an exact init snapshot acknowledgement may confirm the current chart context',
+  );
+  assertSourceContains(
+    source,
+    /msg\.type === 'CHART_DATA_PAINTED'[\s\S]*shouldAcceptChartDataPaint\([\s\S]*setLastPaintedChartDataContextSig\(paintedDataContextSig\)/,
+    'normal symbol data replacement must wait for a tokenized WebView paint acknowledgement',
   );
   assertSourceContains(
     source,
@@ -946,12 +951,12 @@ test('webview bridge: right price-scale layout recovery gates chart ready and re
   );
   assertSourceContains(
     readyGateBody,
-    /if \(isRightPriceScaleLayoutHealthy\(\)\)[\s\S]*lastRawSeriesData\.length === 0 \|\| renderFallbackRightPriceScaleLabels\(\)[\s\S]*postChartReady\(initSignature, configSig\)[\s\S]*recoverRightPriceScaleLayout\(reason \|\| 'chart_ready'\)[\s\S]*currentAttempt >= RIGHT_PRICE_SCALE_LAYOUT_RECOVERY_MAX_ATTEMPTS[\s\S]*scheduleRightPriceScaleFallbackRefresh\(\)[\s\S]*scheduleRightPriceScaleLayoutRecovery\(reason \|\| 'chart_ready', 2\)[\s\S]*postChartReady\(initSignature, configSig\)[\s\S]*requestAnimationFrame\(function\(\)[\s\S]*postChartReadyWhenPriceScaleHealthy\(reason, currentAttempt \+ 1, generation, initSignature, configSig\)/,
+    /if \(isRightPriceScaleLayoutHealthy\(\)\)[\s\S]*lastRawSeriesData\.length === 0 \|\| renderFallbackRightPriceScaleLabels\(\)[\s\S]*postChartReady\(initSignature, configSig, dataContextSig\)[\s\S]*recoverRightPriceScaleLayout\(reason \|\| 'chart_ready'\)[\s\S]*currentAttempt >= RIGHT_PRICE_SCALE_LAYOUT_RECOVERY_MAX_ATTEMPTS[\s\S]*scheduleRightPriceScaleFallbackRefresh\(\)[\s\S]*scheduleRightPriceScaleLayoutRecovery\(reason \|\| 'chart_ready', 2\)[\s\S]*postChartReady\(initSignature, configSig, dataContextSig\)[\s\S]*requestAnimationFrame\(function\(\)[\s\S]*postChartReadyWhenPriceScaleHealthy\([\s\S]*reason,[\s\S]*currentAttempt \+ 1,[\s\S]*generation,[\s\S]*initSignature,[\s\S]*configSig,[\s\S]*dataContextSig/,
     'CHART_READY must prefer valid right-axis geometry plus custom labels but stay bounded on slow iOS WebView layout',
   );
   assertSourceContains(
     doInitBody,
-    /chartReadyPostGeneration \+= 1[\s\S]*var readyGeneration = chartReadyPostGeneration[\s\S]*var readyInitSignature = lastInitSignature[\s\S]*var readyConfigSig = lastInitConfigSig[\s\S]*postChartGeometry\(\)[\s\S]*postChartReadyWhenPriceScaleHealthy\('init_ready', 0, readyGeneration, readyInitSignature, readyConfigSig\)/,
+    /chartReadyPostGeneration \+= 1[\s\S]*var readyGeneration = chartReadyPostGeneration[\s\S]*var readyInitSignature = lastInitSignature[\s\S]*var readyConfigSig = lastInitConfigSig[\s\S]*var readyDataContextSig = lastInitDataContextSig[\s\S]*postChartGeometry\(\)[\s\S]*postChartReadyWhenPriceScaleHealthy\([\s\S]*'init_ready',[\s\S]*readyGeneration,[\s\S]*readyInitSignature,[\s\S]*readyConfigSig,[\s\S]*readyDataContextSig/,
     'initial chart ready must be gated by right-axis recovery and stale-generation protection',
   );
   assertSourceContains(
@@ -1022,7 +1027,7 @@ test('webview bridge: custom right price-scale labels do not depend on native la
   );
   assertSourceContains(
     readyGateBody,
-    /lastRawSeriesData\.length === 0 \|\| renderFallbackRightPriceScaleLabels\(\)[\s\S]*postChartReady\(initSignature, configSig\)[\s\S]*currentAttempt >= RIGHT_PRICE_SCALE_LAYOUT_RECOVERY_MAX_ATTEMPTS[\s\S]*scheduleRightPriceScaleFallbackRefresh\(\)[\s\S]*postChartReady\(initSignature, configSig\)/,
+    /lastRawSeriesData\.length === 0 \|\| renderFallbackRightPriceScaleLabels\(\)[\s\S]*postChartReady\(initSignature, configSig, dataContextSig\)[\s\S]*currentAttempt >= RIGHT_PRICE_SCALE_LAYOUT_RECOVERY_MAX_ATTEMPTS[\s\S]*scheduleRightPriceScaleFallbackRefresh\(\)[\s\S]*postChartReady\(initSignature, configSig, dataContextSig\)/,
     'CHART_READY must allow no-data symbols, prefer custom labels when backend candles exist, and stay bounded on transient label-render misses',
   );
   assert.doesNotMatch(
@@ -1122,7 +1127,7 @@ test('webview bridge: custom right price-scale labels are backend-data-driven an
   );
   assertSourceContains(
     readyGateBody,
-    /lastRawSeriesData\.length === 0 \|\| renderFallbackRightPriceScaleLabels\(\)[\s\S]*postChartGeometry\(\)[\s\S]*postChartReady\(initSignature, configSig\)/,
+    /lastRawSeriesData\.length === 0 \|\| renderFallbackRightPriceScaleLabels\(\)[\s\S]*postChartGeometry\(\)[\s\S]*postChartReady\(initSignature, configSig, dataContextSig\)/,
     'CHART_READY must not post before custom right-axis labels are rendered when backend candles exist',
   );
   assertSourceContains(
@@ -1250,15 +1255,18 @@ test('webview bridge: recoverChartSurface restores data overlays market lines an
 });
 
 test('webview bridge: native handler accepts CHART_READY geometry drag and errors', () => {
-  assertSourceContains(source, /const initAttemptSig = `\$\{currentSig\}:\$\{getChartSnapshotSignature\(initSnapshot\)\}`;[\s\S]*initChart\([\s\S]*JSON\.stringify\(initAttemptSig\)[\s\S]*JSON\.stringify\(currentSig\)/, 'native init must tag WebView init with latest attempt and config signatures');
-  assertSourceContains(chartWebViewHtmlSource, /function postChartReady\(initSignature, configSig\)[\s\S]*type: 'CHART_READY'[\s\S]*initSignature: initSignature \|\| ''[\s\S]*configSig: configSig \|\| ''/, 'WebView CHART_READY must echo the init signatures');
-  assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*const readyInitSignature = typeof msg\.initSignature === 'string' \? msg\.initSignature : ''[\s\S]*readyInitSignature !== latestInitDispatch\.signature[\s\S]*readyConfigSig !== currentSig[\s\S]*return/, 'native handler must ignore stale CHART_READY signatures');
+  assertSourceContains(source, /const initAttemptSig =\s*`\$\{chartDataContextSig\}:\$\{currentSig\}:\$\{getChartSnapshotSignature\(initSnapshot\)\}`;[\s\S]*initChart\([\s\S]*JSON\.stringify\(initAttemptSig\)[\s\S]*JSON\.stringify\(currentSig\)[\s\S]*JSON\.stringify\(chartDataContextSig\)/, 'native init must tag WebView init with attempt, config, and data-context signatures');
+  assertSourceContains(chartWebViewHtmlSource, /function postChartReady\(initSignature, configSig, dataContextSig\)[\s\S]*type: 'CHART_READY'[\s\S]*initSignature: initSignature \|\| ''[\s\S]*configSig: configSig \|\| ''[\s\S]*dataContextSig: dataContextSig \|\| ''/, 'WebView CHART_READY must echo stable chart identity alongside the volatile snapshot signature');
+  assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*const readyDataContextSig =[\s\S]*shouldAcceptChartReady\([\s\S]*latestInitDispatch\.configSig[\s\S]*latestInitDispatch\.dataContextSig[\s\S]*return/, 'native handler must reject stale CHART_READY config or symbol/timeframe contexts');
+  assert.doesNotMatch(source, /readyInitSignature !== latestInitDispatch\.signature/, 'live snapshot churn must not reject a painted init for the current symbol/timeframe');
   assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*chartInitializedRef\.current = true[\s\S]*setChartCanvasReady\(true\)/, 'CHART_READY must mark canvas ready');
   assert.doesNotMatch(source, /setChartCanvasReady\(true\);\s*setHasPaintedChartOnce\(true\)/, 'empty CHART_READY must not hide the startup loader before candles arrive');
   assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*const readyCandles = candlesRef\.current[\s\S]*const readySnapshot = buildChartSeriesSnapshot\(readyCandles\)/, 'CHART_READY must read the retained sanitized candles');
   assertSourceContains(source, /if \(readyCandles\.length > 0 && webViewRef\.current\) \{[\s\S]*setHasPaintedChartOnce\(true\)/, 'CHART_READY may latch first paint only when retained candles are non-empty');
-  assertSourceContains(source, /if \(didInject\) \{[\s\S]*renderedSeriesSnapshotRef\.current = nextSnapshot;[\s\S]*setHasPaintedChartOnce\(true\)/, 'updateChartData must latch first paint when the first candle batch arrives after empty READY');
-  assertSourceContains(source, /getChartSnapshotSignature\(pendingInitSnapshotRef\.current\) === getChartSnapshotSignature\(readySnapshot\)[\s\S]*renderedSeriesSnapshotRef\.current = readySnapshot[\s\S]*updateChartData\(\$\{JSON\.stringify\(mapped\)\}\)/, 'CHART_READY must skip duplicate full-history paint when init already seeded the same series');
+  assertSourceContains(chartWebViewHtmlSource, /function postChartDataPainted\(dataContextSig, paintToken\)[\s\S]*type: 'CHART_DATA_PAINTED'[\s\S]*paintToken: paintToken \|\| ''/, 'WebView data replacement must publish a tokenized paint acknowledgement');
+  assertSourceContains(chartWebViewHtmlSource, /series\.setData\(mapped\);[\s\S]*mapped\.length > 0 && paintedDataContextSig && paintToken[\s\S]*postChartDataPainted\(paintedDataContextSig, paintToken\)/, 'data paint acknowledgement must happen only after non-empty setData succeeds');
+  assertSourceContains(source, /if \(didInject\) \{[\s\S]*renderedSeriesSnapshotRef\.current = nextSnapshot;[\s\S]*\}[\s\S]*msg\.type === 'CHART_DATA_PAINTED'[\s\S]*setHasPaintedChartOnce\(true\)/, 'native loading state must wait for the WebView data-paint acknowledgement');
+  assertSourceContains(source, /readySnapshotInitSignature =[\s\S]*`\$\{chartDataContextSig\}:\$\{currentSig\}:\$\{getChartSnapshotSignature\(readySnapshot\)\}`[\s\S]*readyInitSignature === readySnapshotInitSignature[\s\S]*issueChartDataPaintToken\(chartDataContextSig\)/, 'CHART_READY must distinguish an exact init paint from a latest-candle replacement that needs its own acknowledgement');
   assertSourceContains(source, /msg\.type === 'CHART_GEOMETRY'[\s\S]*setChartPlotArea/, 'CHART_GEOMETRY must update plot area');
   assertSourceContains(source, /msg\.type === 'CHART_TRADE_LINE_DRAG'[\s\S]*handleChartTradePreviewDragMessage\(msg\)/, 'trade-line drag messages must reach React state');
   assertSourceContains(source, /msg\.type === 'ERROR'[\s\S]*console\.warn\('\[CHART WEBVIEW ERROR\]'/, 'WebView errors must be logged without blocking recovery');
@@ -1269,7 +1277,7 @@ test('webview bridge: watchdog keeps re-sending initChart until CHART_READY', ()
   assertSourceContains(source, /\}, CHART_WATCHDOG_INTERVAL_MS\);/, 'watchdog must use the shared chart startup retry cadence');
   assertSourceContains(
     source,
-    /const recentInitInFlight =[\s\S]*!chartInitializedRef\.current &&[\s\S]*lastInitDispatchRef\.current\.configSig === currentSig &&[\s\S]*now - lastInitDispatchRef\.current\.at < CHART_INIT_RETRY_MIN_MS;[\s\S]*if \(recentInitInFlight\) return;[\s\S]*const mapped = data\.length > 0 \? buildMappedData\(data\) : \[\];/,
+    /const recentInitInFlight =[\s\S]*!chartInitializedRef\.current &&[\s\S]*lastInitDispatchRef\.current\.configSig === currentSig &&[\s\S]*lastInitDispatchRef\.current\.dataContextSig === chartDataContextSig &&[\s\S]*now - lastInitDispatchRef\.current\.at < CHART_INIT_RETRY_MIN_MS;[\s\S]*if \(recentInitInFlight\) return;[\s\S]*const mapped = data\.length > 0 \? buildMappedData\(data\) : \[\];/,
     'pending init retries must be throttled before remapping and injecting full history',
   );
   assertSourceContains(source, /setChartReadyEpoch\(\(c\) => c \+ 1\)/, 'CHART_READY must bump epoch for dependent bridge effects');

@@ -64,8 +64,13 @@ test('does not permanently blank chart after rapid switching', () => {
   );
   assertSourceContains(
     chartSource,
-    /msg\.type === 'CHART_READY'[\s\S]*const readyCandles = candlesRef\.current[\s\S]*getChartSnapshotSignature\(pendingInitSnapshotRef\.current\) === getChartSnapshotSignature\(readySnapshot\)[\s\S]*updateChartData\(\$\{JSON\.stringify\(mapped\)\}\)/,
-    'CHART_READY must paint retained candles only when initChart did not already seed the same series',
+    /msg\.type === 'CHART_READY'[\s\S]*const readyCandles = candlesRef\.current[\s\S]*readyInitSignature === readySnapshotInitSignature[\s\S]*issueChartDataPaintToken\(chartDataContextSig\)[\s\S]*updateChartData\(\$\{JSON\.stringify\(mapped\)\}, \{[\s\S]*dataContextSig:[\s\S]*paintToken:/,
+    'CHART_READY must accept the active context and request an acknowledged latest-candle replacement when its init snapshot is older',
+  );
+  assertSourceContains(
+    chartSource,
+    /msg\.type === 'CHART_DATA_PAINTED'[\s\S]*shouldAcceptChartDataPaint\([\s\S]*setLastPaintedChartDataContextSig\(paintedDataContextSig\)/,
+    'out-of-order symbol paint messages must not leave or clear loading for the wrong chart context',
   );
 });
 

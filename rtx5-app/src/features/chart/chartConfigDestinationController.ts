@@ -2,8 +2,9 @@
  * Sidebar-style retained destination controller for Chart Preferences
  * configuration rows (Schema & Colors, Price source, Open order mode, Alerts).
  *
- * Tap reveals a pre-mounted layer in the same JS turn; no route construction
- * is required for the first paint.
+ * Opens use a two-phase handoff: publish the destination so React can mount it
+ * behind the current screen, then reveal its native layer only after the host
+ * confirms that the destination has completed its first layout.
  */
 
 export const CHART_CONFIG_DESTINATIONS = [
@@ -17,6 +18,7 @@ export type ChartConfigDestination = (typeof CHART_CONFIG_DESTINATIONS)[number];
 
 export type ChartConfigDestinationSnapshot = Readonly<{
   destination: ChartConfigDestination | null;
+  ready: boolean;
   revision: number;
   visible: boolean;
 }>;
@@ -30,17 +32,19 @@ export type ChartConfigDestinationController = Readonly<{
   hide: (revision?: number) => boolean;
   isVisible: () => boolean;
   registerVisualApplier: (applier: ChartConfigDestinationVisualApplier) => () => void;
+  revealMounted: (revision: number) => boolean;
   show: (destination: ChartConfigDestination) => number;
   subscribe: (listener: () => void) => () => void;
 }>;
 
 const CLOSED: ChartConfigDestinationSnapshot = Object.freeze({
   destination: null,
+  ready: false,
   revision: 0,
   visible: false,
 });
 
-const CHART_CONFIG_CONTROLLER_VERSION = 1;
+const CHART_CONFIG_CONTROLLER_VERSION = 2;
 
 export function createChartConfigDestinationController(): ChartConfigDestinationController {
   const listeners = new Set<() => void>();
@@ -66,6 +70,7 @@ export function createChartConfigDestinationController(): ChartConfigDestination
       visualApplier?.(null);
       publish(Object.freeze({
         destination: snapshot.destination,
+        ready: false,
         revision: snapshot.revision + 1,
         visible: false,
       }));
@@ -76,7 +81,7 @@ export function createChartConfigDestinationController(): ChartConfigDestination
 
     registerVisualApplier: (applier) => {
       visualApplier = applier;
-      applier(snapshot.visible ? snapshot.destination : null);
+      applier(snapshot.visible && snapshot.ready ? snapshot.destination : null);
       return () => {
         if (visualApplier === applier) {
           visualApplier = null;
@@ -84,12 +89,37 @@ export function createChartConfigDestinationController(): ChartConfigDestination
       };
     },
 
+    revealMounted: (revision) => {
+      const current = snapshot;
+      if (
+        !current.visible
+        || current.ready
+        || current.revision !== revision
+        || current.destination === null
+      ) {
+        return false;
+      }
+
+      // The destination tree is now committed and laid out. It is safe to
+      // reveal this exact revision before activating its live subscriptions.
+      visualApplier?.(current.destination);
+      publish(Object.freeze({
+        ...current,
+        ready: true,
+      }));
+      return true;
+    },
+
     show: (destination) => {
       const revision = snapshot.revision + 1;
-      // UI-thread / native visibility first — same ordering as sidebar hosts.
-      visualApplier?.(destination);
+      // Conceal a previously revealed destination before preparing another.
+      // The new layer stays hidden until revealMounted() acknowledges layout.
+      if (snapshot.ready) {
+        visualApplier?.(null);
+      }
       publish(Object.freeze({
         destination,
+        ready: false,
         revision,
         visible: true,
       }));
@@ -115,6 +145,7 @@ export const chartConfigDestinationController =
   existing
     && controllerGlobal.__rtx5ChartConfigDestinationControllerVersion === CHART_CONFIG_CONTROLLER_VERSION
     && typeof existing.show === 'function'
+    && typeof existing.revealMounted === 'function'
     && typeof existing.registerVisualApplier === 'function'
     ? existing
     : createChartConfigDestinationController();

@@ -122,6 +122,7 @@ import {
 import { resolveEffectiveFeedAuthForSession } from '../../api/feedAuthContract';
 import {
   areLiveQuoteSnapshotNotificationsPaused,
+  getCurrentLiveQuoteSnapshot,
   pauseLiveQuoteSnapshotNotifications,
   useLiveQuoteSnapshot,
   useWatchlistLiveQuotes,
@@ -673,7 +674,13 @@ const QuoteCard = React.memo(function QuoteCard({
   const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
   const isSimpleMode = viewMode === 'table';
   const liveSymbol = feedSymbol ?? symbol;
-  const liveItem = useLiveQuoteSnapshot(liveSymbol, liveUpdatesActive);
+  const observedLiveItem = useLiveQuoteSnapshot(liveSymbol, liveUpdatesActive);
+  // Display continuity only: hidden rows remain unsubscribed, but their last
+  // session-scoped values stay painted for the native tab handoff. A real cold
+  // start still has no cached snapshot and follows the Connecting path below.
+  const liveItem =
+    observedLiveItem ??
+    (!liveUpdatesActive ? getCurrentLiveQuoteSnapshot(liveSymbol) : undefined);
   const noData = !hasDisplayableLiveQuotePrice(liveItem);
   const latencySessionKey = captureActiveBrokerSession()?.session.cacheNamespace ?? '';
   const [freshnessEvaluationNow, setFreshnessEvaluationNow] = useState(() => Date.now());

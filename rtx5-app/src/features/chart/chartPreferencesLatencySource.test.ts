@@ -32,11 +32,26 @@ test('Chart Preferences opens Schema & Colors on the immediate hosted path witho
   assert.match(hostSource, /ChartConfigDestinationHost/);
   assert.match(hostSource, /schema-colors|price-source|open-order-mode|alerts/);
   assert.match(controllerSource, /export function showChartConfigDestination/);
-  assert.match(controllerSource, /visualApplier\?\.\(destination\)/);
+  assert.match(controllerSource, /revealMounted: \(revision\) =>/);
+  assert.match(
+    controllerSource,
+    /show: \(destination\) => \{[\s\S]*ready: false,[\s\S]*visible: true/,
+  );
+  assert.match(
+    hostSource,
+    /const mounted = snapshot\.visible && snapshot\.destination === destination[\s\S]*const active = mounted && snapshot\.ready/,
+  );
+  assert.match(
+    hostSource,
+    /onLayout=\{\(\) => \{[\s\S]*chartConfigDestinationController\.revealMounted\(snapshot\.revision\)/,
+  );
+  assert.match(hostSource, /backgroundColor: 'transparent'/);
+  assert.doesNotMatch(hostSource, /backgroundColor: '#0B1220'/);
   assert.notEqual(schemaRowStart, -1);
   assert.match(schemaRowSource, /onPress=\{handleOpenSchemaColors\}/);
   assert.notEqual(navRowStart, -1);
-  assert.match(navRowSource, /onPress=\{onPress\}[\s\S]*activateOnPressIn[\s\S]*unstable_pressDelay=\{0\}/);
+  assert.match(navRowSource, /onPress=\{onPress\}[\s\S]*unstable_pressDelay=\{0\}/);
+  assert.doesNotMatch(navRowSource, /activateOnPressIn|activateOnTouchStart/);
 });
 
 test('Chart Preferences and Schema & Colors back controls fire on touch-down', () => {
@@ -113,6 +128,11 @@ test('Schema & Colors paints a fixed preview shell before enabling live data and
   assert.match(previewHostSource, /\{previewContentReady \? \([\s\S]*<LiveChartPreview/);
   assert.match(previewHostSource, /testID="chart-live-preview-placeholder"[\s\S]*style=\{StyleSheet\.absoluteFillObject\}/);
   assert.match(source, /previewChart: \{\s*height: 240,/);
+  // Closed Android Modal windows must not be created during the destination's
+  // first mount; their dialog surface can otherwise flash before visible=false
+  // reaches the native window.
+  assert.match(source, /\{schemeModalOpen \? \(\s*<Modal/);
+  assert.match(source, /\{activeColorKey !== null \? \(\s*<Modal/);
 });
 
 test('root layout mounts ChartSettingsHost and ChartConfigDestinationHost with other retained hosts', () => {

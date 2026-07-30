@@ -83,16 +83,38 @@ test('every Chart Preferences display filter is listed and wired into the native
   );
 });
 
-test('Chart Preferences filter rows use a single fast press path on iOS and Android', () => {
+test('Chart Preferences filter rows wait for release so vertical scrolling cannot toggle them', () => {
   const settingsSource = readSource('src/features/chart/ChartSettingsScreen.tsx');
+  const toggleRowStart = settingsSource.indexOf('function ToggleRow(');
+  const preferenceToggleRowStart = settingsSource.indexOf('function PreferenceToggleRow(');
+  const actionPreferenceRowStart = settingsSource.indexOf('function ActionPreferenceRow(');
+  const navRowStart = settingsSource.indexOf('function NavRow(');
+  const stylesStart = settingsSource.indexOf('function makeStyles(');
+  const toggleRowSource = settingsSource.slice(toggleRowStart, preferenceToggleRowStart);
+  const preferenceToggleRowSource = settingsSource.slice(
+    preferenceToggleRowStart,
+    actionPreferenceRowStart,
+  );
+  const actionPreferenceRowSource = settingsSource.slice(actionPreferenceRowStart, navRowStart);
+  const navRowSource = settingsSource.slice(navRowStart, stylesStart);
 
-  assert.match(
-    settingsSource,
-    /function PreferenceToggleRow\([\s\S]*activateOnPressIn[\s\S]*unstable_pressDelay=\{0\}[\s\S]*pointerEvents="none"/,
-  );
-  assert.match(
-    settingsSource,
-    /function ToggleRow\([\s\S]*activateOnPressIn[\s\S]*unstable_pressDelay=\{0\}[\s\S]*pointerEvents="none"/,
-  );
+  assert.notEqual(toggleRowStart, -1);
+  assert.notEqual(preferenceToggleRowStart, -1);
+  assert.notEqual(actionPreferenceRowStart, -1);
+  assert.notEqual(navRowStart, -1);
+  assert.notEqual(stylesStart, -1);
+  assert.match(toggleRowSource, /onPress=\{\(\) => onValueChange\(!enabled\)\}/);
+  assert.match(toggleRowSource, /unstable_pressDelay=\{0\}/);
+  assert.match(toggleRowSource, /pointerEvents="none"/);
+  assert.doesNotMatch(toggleRowSource, /activateOnPressIn|activateOnTouchStart/);
+  assert.match(preferenceToggleRowSource, /onPress=\{\(\) => onValueChange\(!enabled\)\}/);
+  assert.match(preferenceToggleRowSource, /unstable_pressDelay=\{0\}/);
+  assert.match(preferenceToggleRowSource, /pointerEvents="none"/);
+  assert.doesNotMatch(preferenceToggleRowSource, /activateOnPressIn|activateOnTouchStart/);
+  assert.match(actionPreferenceRowSource, /onPress=\{onPress\}/);
+  assert.doesNotMatch(actionPreferenceRowSource, /activateOnPressIn|activateOnTouchStart/);
+  assert.match(navRowSource, /onPress=\{onPress\}/);
+  assert.match(navRowSource, /unstable_pressDelay=\{0\}/);
+  assert.doesNotMatch(navRowSource, /activateOnPressIn|activateOnTouchStart/);
   assert.match(settingsSource, /ios_backgroundColor=/);
 });

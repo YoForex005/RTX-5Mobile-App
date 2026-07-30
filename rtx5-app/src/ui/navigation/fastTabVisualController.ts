@@ -26,7 +26,7 @@ type FastTabVisualController = {
   registerSidebarChromeApplier: (applier: FastTabVisualApplier) => () => void;
 };
 
-const FAST_TAB_VISUAL_CONTROLLER_VERSION = 6;
+const FAST_TAB_VISUAL_CONTROLLER_VERSION = 7;
 
 type FastTabVisualGlobal = typeof globalThis & {
   __rtx5FastTabVisualController?: FastTabVisualController;
@@ -88,6 +88,15 @@ export function createFastTabVisualController(): FastTabVisualController {
     },
     setActualRouteName: (routeName: FastTabRouteName) => {
       actualRouteName = routeName;
+      const pendingRouteName = snapshot.routeName;
+      if (pendingRouteName !== null && pendingRouteName !== routeName) {
+        // An older navigation commit must not overwrite a newer rapid tap.
+        // The pending visual route stays authoritative until its own route
+        // commits (or the existing fallback restores the latest actual route).
+        applyVisualRoute(pendingRouteName);
+        applySidebarChromeRoute(pendingRouteName);
+        return;
+      }
       // The real route has caught up. Clear the temporary tap choice so normal
       // navigation and Android Back always agree with the visible menu item.
       applyVisualRoute(routeName);

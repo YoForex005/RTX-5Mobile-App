@@ -44,8 +44,14 @@ test('inactive retained hosts keep native layers but unmount full interactive sc
   assert.match(historyHost, /\{active \? \(\s*<HistoryFilterScreen[\s\S]*hostedActive/);
   assert.match(chartSettingsHost, /\{active \? \(\s*<ChartSettingsScreen[\s\S]*hostedActive/);
 
+  assert.match(
+    chartConfigHost,
+    /const mounted = snapshot\.visible && snapshot\.destination === destination/,
+  );
+  assert.match(chartConfigHost, /\{mounted \? \(\s*<View[\s\S]*onLayout=/);
+  assert.match(chartConfigHost, /hostedActive=\{active\}/);
   for (const destination of ['schema-colors', 'price-source', 'open-order-mode', 'alerts']) {
-    assert.match(chartConfigHost, new RegExp(`\\{active && destination === '${destination}' \\? \\(`));
+    assert.match(chartConfigHost, new RegExp(`\\{destination === '${destination}' \\? \\(`));
   }
   for (const destination of ['privacy-policy', 'account-deletion', 'contact-developer']) {
     assert.match(aboutHost, new RegExp(`\\{active && destination === '${destination}' \\? \\(`));
@@ -56,7 +62,7 @@ test('inactive retained hosts keep native layers but unmount full interactive sc
   assert.doesNotMatch(tradeHost, /useState|latched|panelHidden/);
 });
 
-test('retained host controllers still reveal native wrappers before publishing body state', () => {
+test('retained host controllers reveal wrappers only when their body is safe to show', () => {
   const history = createHistoryFilterHostController();
   const historyEvents: string[] = [];
   history.registerVisualApplier((visible) => historyEvents.push(`visual:${visible}`));
@@ -80,9 +86,15 @@ test('retained host controllers still reveal native wrappers before publishing b
   const chartConfigEvents: string[] = [];
   chartConfig.registerVisualApplier((destination) => chartConfigEvents.push(`visual:${destination}`));
   chartConfigEvents.length = 0;
-  chartConfig.subscribe(() => chartConfigEvents.push(`publish:${chartConfig.getSnapshot().destination}`));
-  chartConfig.show('alerts');
-  assert.deepEqual(chartConfigEvents, ['visual:alerts', 'publish:alerts']);
+  chartConfig.subscribe(() => {
+    const current = chartConfig.getSnapshot();
+    chartConfigEvents.push(`publish:${current.destination}:${current.ready}`);
+  });
+  const chartConfigRevision = chartConfig.show('alerts');
+  assert.deepEqual(chartConfigEvents, ['publish:alerts:false']);
+  chartConfigEvents.length = 0;
+  assert.equal(chartConfig.revealMounted(chartConfigRevision), true);
+  assert.deepEqual(chartConfigEvents, ['visual:alerts', 'publish:alerts:true']);
 
   const about = createAboutDetailDestinationController();
   const aboutEvents: string[] = [];

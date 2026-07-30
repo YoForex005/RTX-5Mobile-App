@@ -47,6 +47,14 @@ const icons = {
   settings: 'settings-outline',
 } as const;
 
+const tabLabelKeys: Record<FastTabRouteName, string> = {
+  quotes: 'Quotes',
+  chart: 'Chart',
+  trade: 'Trade',
+  history: 'History',
+  settings: 'Settings',
+};
+
 const TAB_SWITCH_MAX_LATENCY_MS = 20;
 const STALE_TAB_SWITCH_SAMPLE_MS = 5000;
 // Wide enough to absorb a double-fired press event from one physical tap,
@@ -59,113 +67,120 @@ type TabPressInEvent = Parameters<NonNullable<BottomTabBarButtonProps['onPressIn
 type TabTouchEvent = GestureResponderEvent;
 type FastTabBarButtonProps = BottomTabBarButtonProps & {
   latencyLabel?: string;
-};
-
-type FastTabVisualIconProps = {
   routeName: FastTabRouteName;
-  size: number;
-  color: string;
+  label: string;
   activeColor: string;
   inactiveColor: string;
+  isLandscape: boolean;
 };
 
-const FastTabVisualIcon = memo(function FastTabVisualIcon({
+type FastTabVisualItemProps = {
+  routeName: FastTabRouteName;
+  label: string;
+  activeColor: string;
+  inactiveColor: string;
+  isLandscape: boolean;
+  initiallyActive: boolean;
+};
+
+const renderTabIcon = (routeName: FastTabRouteName, color: string) => routeName === 'chart'
+  ? <MaterialIcons name="candlestick-chart" size={27} color={color} />
+  : (
+    <Ionicons
+      name={icons[routeName as keyof typeof icons] ?? 'ellipse-outline'}
+      size={25}
+      color={color}
+    />
+  );
+
+/**
+ * Keeps each tab's icon and label inside the same native opacity layer.
+ * A visual-route change can therefore never composite one as active without
+ * the other, even when taps arrive faster than React Navigation can commit.
+ */
+const FastTabVisualItem = memo(function FastTabVisualItem({
   routeName,
-  size,
-  color,
+  label,
   activeColor,
   inactiveColor,
-}: FastTabVisualIconProps) {
+  isLandscape,
+  initiallyActive,
+}: FastTabVisualItemProps) {
   const activeLayerRef = useRef<View>(null);
   const inactiveLayerRef = useRef<View>(null);
   const applyVisualRoute = useCallback((visualRouteName: FastTabRouteName) => {
     const active = visualRouteName === routeName;
     activeLayerRef.current?.setNativeProps({
-      style: [styles.tabIconLayer, { opacity: active ? 1 : 0 }],
+      style: [
+        styles.tabVisualItemLayer,
+        isLandscape && styles.tabVisualItemLayerLandscape,
+        { opacity: active ? 1 : 0 },
+      ],
     });
     inactiveLayerRef.current?.setNativeProps({
-      style: [styles.tabIconLayer, { opacity: active ? 0 : 1 }],
+      style: [
+        styles.tabVisualItemLayer,
+        isLandscape && styles.tabVisualItemLayerLandscape,
+        { opacity: active ? 0 : 1 },
+      ],
     });
-  }, [routeName]);
+  }, [isLandscape, routeName]);
 
   useLayoutEffect(
     () => registerFastTabSidebarChromeApplier(applyVisualRoute),
     [applyVisualRoute],
   );
 
-  const initiallyActive = color === activeColor;
-  const renderIcon = (tintColor: string) => routeName === 'chart'
-    ? <MaterialIcons name="candlestick-chart" size={size + 2} color={tintColor} />
-    : (
-      <Ionicons
-        name={icons[routeName as keyof typeof icons] ?? 'ellipse-outline'}
-        size={size}
-        color={tintColor}
-      />
-    );
+  const renderPresentation = (color: string) => (
+    <>
+      <View style={styles.tabIconSlot}>
+        {renderTabIcon(routeName, color)}
+      </View>
+      <Text
+        allowFontScaling={false}
+        numberOfLines={1}
+        style={[
+          styles.tabLabel,
+          isLandscape && styles.tabLabelLandscape,
+          { color },
+        ]}
+      >
+        {label}
+      </Text>
+    </>
+  );
 
   return (
-    <View style={[styles.tabIconRoot, { width: size + 2, height: size + 2 }]}>
+    <View
+      collapsable={false}
+      pointerEvents="none"
+      style={styles.tabVisualItemRoot}
+    >
       <View
         ref={inactiveLayerRef}
         collapsable={false}
-        style={[styles.tabIconLayer, { opacity: initiallyActive ? 0 : 1 }]}
+        pointerEvents="none"
+        style={[
+          styles.tabVisualItemLayer,
+          isLandscape && styles.tabVisualItemLayerLandscape,
+          { opacity: initiallyActive ? 0 : 1 },
+        ]}
       >
-        {renderIcon(inactiveColor)}
+        {renderPresentation(inactiveColor)}
       </View>
       <View
         ref={activeLayerRef}
         collapsable={false}
-        style={[styles.tabIconLayer, { opacity: initiallyActive ? 1 : 0 }]}
+        pointerEvents="none"
+        style={[
+          styles.tabVisualItemLayer,
+          isLandscape && styles.tabVisualItemLayerLandscape,
+          { opacity: initiallyActive ? 1 : 0 },
+        ]}
       >
-        {renderIcon(activeColor)}
+        {renderPresentation(activeColor)}
       </View>
     </View>
-  );
-});
-
-type FastTabVisualLabelProps = {
-  routeName: FastTabRouteName;
-  color: string;
-  activeColor: string;
-  inactiveColor: string;
-  isLandscape: boolean;
-  children: ReactNode;
-};
-
-const FastTabVisualLabel = memo(function FastTabVisualLabel({
-  routeName,
-  color,
-  activeColor,
-  inactiveColor,
-  isLandscape,
-  children,
-}: FastTabVisualLabelProps) {
-  const labelRef = useRef<Text>(null);
-  const applyVisualRoute = useCallback((visualRouteName: FastTabRouteName) => {
-    labelRef.current?.setNativeProps({
-      style: [
-        styles.tabLabel,
-        isLandscape && styles.tabLabelLandscape,
-        { color: visualRouteName === routeName ? activeColor : inactiveColor },
-      ],
-    });
-  }, [activeColor, inactiveColor, isLandscape, routeName]);
-
-  useLayoutEffect(
-    () => registerFastTabSidebarChromeApplier(applyVisualRoute),
-    [applyVisualRoute],
-  );
-
-  return (
-    <Text
-      ref={labelRef}
-      allowFontScaling={false}
-      numberOfLines={1}
-      style={[styles.tabLabel, isLandscape && styles.tabLabelLandscape, { color }]}
-    >
-      {children}
-    </Text>
   );
 });
 
@@ -208,6 +223,12 @@ function scheduleTabSwitchBudgetCheck(label: string, startedAtMs: number, naviga
  */
 const FastTabBarButton = memo(function FastTabBarButton({
   latencyLabel = 'bottom tab',
+  routeName,
+  label,
+  activeColor,
+  inactiveColor,
+  isLandscape,
+  children: _children,
   onPress,
   onPressIn,
   onPressOut,
@@ -269,12 +290,22 @@ const FastTabBarButton = memo(function FastTabBarButton({
   return (
     <PlatformPressable
       {...props}
+      accessibilityLabel={label}
       onTouchStart={handleTouchStart}
       onPressIn={handlePressIn}
       onPress={handlePress}
       onPressOut={handlePressOut}
       unstable_pressDelay={0}
-    />
+    >
+      <FastTabVisualItem
+        routeName={routeName}
+        label={label}
+        activeColor={activeColor}
+        inactiveColor={inactiveColor}
+        isLandscape={isLandscape}
+        initiallyActive={props['aria-selected'] === true}
+      />
+    </PlatformPressable>
   );
 });
 
@@ -493,30 +524,8 @@ const ThemedTabsChrome = memo(function ThemedTabsChrome({
           ],
         tabBarActiveTintColor: bottomTabActiveColor,
         tabBarInactiveTintColor: inactiveTabColor,
-        tabBarIcon: ({ size, color }) => {
-          return (
-            <FastTabVisualIcon
-              routeName={route.name as FastTabRouteName}
-              size={size}
-              color={color}
-              activeColor={bottomTabActiveColor}
-              inactiveColor={inactiveTabColor}
-            />
-          );
-        },
-        tabBarLabel: ({ children, color }) => {
-          return (
-            <FastTabVisualLabel
-              routeName={route.name as FastTabRouteName}
-              color={color}
-              activeColor={bottomTabActiveColor}
-              inactiveColor={inactiveTabColor}
-              isLandscape={isLandscape}
-            >
-              {children}
-            </FastTabVisualLabel>
-          );
-        },
+        tabBarIcon: () => null,
+        tabBarLabel: () => null,
         tabBarActiveBackgroundColor: 'transparent',
         tabBarItemStyle: { backgroundColor: 'transparent' },
         tabBarHideOnKeyboard: !isChartTab,
@@ -524,6 +533,11 @@ const ThemedTabsChrome = memo(function ThemedTabsChrome({
           <FastTabBarButton
             {...props}
             latencyLabel={route.name}
+            routeName={route.name as FastTabRouteName}
+            label={t(tabLabelKeys[route.name as FastTabRouteName])}
+            activeColor={bottomTabActiveColor}
+            inactiveColor={inactiveTabColor}
+            isLandscape={isLandscape}
           />
         ),
         lazy: false,
@@ -562,14 +576,25 @@ const TabsLayoutInner = memo(function TabsLayoutInner({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  tabIconRoot: {
-    alignItems: 'center',
-    justifyContent: 'center',
+  tabVisualItemRoot: {
+    alignSelf: 'stretch',
+    flex: 1,
   },
-  tabIconLayer: {
+  tabVisualItemLayer: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
+    flexDirection: 'column',
+    justifyContent: 'flex-start',
+  },
+  tabVisualItemLayerLandscape: {
+    flexDirection: 'row',
     justifyContent: 'center',
+  },
+  tabIconSlot: {
+    alignItems: 'center',
+    height: 28,
+    justifyContent: 'center',
+    width: 31,
   },
   tabLabel: {
     fontSize: 12,
