@@ -76,11 +76,21 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.match(source, /quotesWsService\.deferReconnectForInteraction\?\.\(durationMs\)/);
   assert.match(source, /QUOTE_SHEET_PRESS_CANCEL_MOVE_PX = 10/);
   assert.match(source, /const hasQuoteSheetPressMovedBeyondThreshold = [\s\S]*dx \* dx \+ dy \* dy[\s\S]*QUOTE_SHEET_PRESS_CANCEL_MOVE_PX \* QUOTE_SHEET_PRESS_CANCEL_MOVE_PX/);
-  assert.match(source, /requestRetainedActionSheetPreview/);
-  assert.match(source, /commitRetainedActionSheetPreview/);
-  assert.match(source, /cancelRetainedActionSheetPreview/);
+  assert.doesNotMatch(source, /requestRetainedActionSheetPreview/);
+  assert.doesNotMatch(source, /cancelRetainedActionSheetPreview/);
+  assert.doesNotMatch(source, /commitRetainedActionSheetPreview/);
+  assert.doesNotMatch(source, /scheduleActionSheetHiddenPosePaintBarrier/);
   assert.doesNotMatch(source, /scheduleRetainedActionSheetReactAdoption/);
-  assert.match(source, /const handleSymbolPressIn = useCallback\(\(sym: string, event: GestureResponderEvent\) => \{[\s\S]*quoteTapActionSheetConfigs\.get\(sym\)[\s\S]*preloadedQuoteTapConfigRef\.current !== config[\s\S]*preloadQuotesActionSheet\(config\)[\s\S]*requestRetainedActionSheetPreview\(config\.visualKey\)[\s\S]*start: getQuoteSheetPressPoint\(event\)[\s\S]*pauseQuoteSheetFeed\(\)/);
+  const pressInStart = source.indexOf('const handleSymbolPressIn = useCallback');
+  const pressMoveStart = source.indexOf('const handleSymbolPressMove = useCallback');
+  const pressInSource = source.slice(pressInStart, pressMoveStart);
+  assert.notEqual(pressInStart, -1);
+  assert.notEqual(pressMoveStart, -1);
+  assert.match(pressInSource, /start: getQuoteSheetPressPoint\(event\)[\s\S]*pauseQuoteSheetFeed\(\)/);
+  assert.doesNotMatch(
+    pressInSource,
+    /quoteTapActionSheetConfigs|preloadQuotesActionSheet|parkRetainedActionSheetHostForConfigSwap/,
+  );
   assert.match(source, /const handleSymbolPressMove = useCallback[\s\S]*hasQuoteSheetPressMovedBeyondThreshold[\s\S]*cancelSymbolSheetPreview\(gesture\.sequence\)/);
   assert.match(source, /const handleSymbolPressOut = useCallback[\s\S]*setTimeout\(\(\) => \{[\s\S]*cancelSymbolSheetPreview\(sequence\);[\s\S]*\}, 0\)/);
   assert.match(source, /onScrollBeginDrag=\{\(\) => cancelSymbolSheetPreview\(\)\}/);
@@ -125,7 +135,7 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   );
   assert.match(
     source,
-    /const handleSymbolTap = useCallback[\s\S]*quoteTapActionSheetConfigs\.get\(sym\)[\s\S]*hasQuoteSheetPressMovedBeyondThreshold[\s\S]*gesture\.accepted = true[\s\S]*commitRetainedActionSheetPreview[\s\S]*runImmediateAction\('quotes\.symbolSheet\.tap\.open'[\s\S]*const adoptRetainedSheet[\s\S]*showQuotesActionSheet\(config\);[\s\S]*prepareSymbolDestinationsAfterSheetPaint\(sym\)[\s\S]*if \(retainedRevealRevision !== null\) \{[\s\S]*adoptRetainedSheet\(\);/,
+    /const handleSymbolTap = useCallback[\s\S]*quoteTapActionSheetConfigs\.get\(sym\)[\s\S]*hasQuoteSheetPressMovedBeyondThreshold[\s\S]*gesture\.accepted = true[\s\S]*runImmediateAction\('quotes\.symbolSheet\.tap\.open'[\s\S]*showQuotesActionSheet\(config\);[\s\S]*prepareSymbolDestinationsAfterSheetPaint\(sym\)/,
   );
   const tapHandlerEnd = source.indexOf('\n\n  /**', tapHandlerStart);
   const tapHandlerSource = source.slice(tapHandlerStart, tapHandlerEnd);
@@ -146,7 +156,7 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   );
   assert.match(
     source,
-    /const handleSymbolLongPress = useCallback[\s\S]*quoteLongPressActionSheetConfigs\.get\(sym\)[\s\S]*gesture\.accepted = true[\s\S]*cancelRetainedActionSheetPreview\(gesture\.previewRevision\)[\s\S]*runImmediateAction\('quotes\.symbolSheet\.longPress\.open'[\s\S]*showQuotesActionSheet\(config\);[\s\S]*prepareSymbolDestinationsAfterSheetPaint\(sym\)/,
+    /const handleSymbolLongPress = useCallback[\s\S]*quoteLongPressActionSheetConfigs\.get\(sym\)[\s\S]*gesture\.accepted = true[\s\S]*runImmediateAction\('quotes\.symbolSheet\.longPress\.open'[\s\S]*showQuotesActionSheet\(config\);[\s\S]*prepareSymbolDestinationsAfterSheetPaint\(sym\)/,
   );
   assert.match(source, /onLongPress=\{\(\) => handleSymbolLongPress\(sym\)\}/);
 });

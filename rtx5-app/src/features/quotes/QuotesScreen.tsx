@@ -69,11 +69,6 @@ import {
   showFastTabVisual,
 } from '../../ui/navigation/fastTabVisualController';
 import { runImmediateAction } from '../../utils/actionLatency';
-import {
-  cancelRetainedActionSheetPreview,
-  commitRetainedActionSheetPreview,
-  requestRetainedActionSheetPreview,
-} from '../../ui/components/ActionSheet/retainedActionSheetVisualController';
 import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
 import { useNextFrameValue } from '../../hooks/useNextFrameValue';
 import { MARKET_QUOTE_STALE_AFTER_MS } from '../../market/quotePolicy';
@@ -172,7 +167,6 @@ type QuoteSheetPressGesture = {
   sequence: number;
   symbol: string | null;
   start: QuoteSheetPressPoint | null;
-  previewRevision: number | null;
   accepted: boolean;
   cancelled: boolean;
 };
@@ -2180,7 +2174,6 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     sequence: 0,
     symbol: null,
     start: null,
-    previewRevision: null,
     accepted: false,
     cancelled: false,
   });
@@ -2811,43 +2804,23 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
 
     gesture.cancelled = true;
     gesture.start = null;
-    if (gesture.previewRevision !== null) {
-      cancelRetainedActionSheetPreview(gesture.previewRevision);
-    }
     releaseQuoteSheetFeedPause();
     return true;
   }, [releaseQuoteSheetFeedPause]);
 
   const handleSymbolPressIn = useCallback((sym: string, event: GestureResponderEvent) => {
     clearQuoteSheetPressOutTimer();
-    const previousGesture = quoteSheetPressGestureRef.current;
-    if (!previousGesture.accepted && !previousGesture.cancelled && previousGesture.previewRevision !== null) {
-      cancelRetainedActionSheetPreview(previousGesture.previewRevision);
-    }
-
-    const config = quoteTapActionSheetConfigs.get(sym);
-    if (config && preloadedQuoteTapConfigRef.current !== config) {
-      // Reuse the exact title/actions object when the confirmed tap opens. This
-      // only warms hidden content; accepted onPress still owns visibility so a
-      // watchlist scroll or cancelled gesture cannot open the menu.
-      preloadedQuoteTapConfigRef.current = config;
-      preloadQuotesActionSheet(config);
-    }
 
     const sequence = ++quoteSheetPressSequenceRef.current;
-    const previewRevision = config?.visualKey
-      ? requestRetainedActionSheetPreview(config.visualKey)
-      : null;
     quoteSheetPressGestureRef.current = {
       sequence,
       symbol: sym,
       start: getQuoteSheetPressPoint(event),
-      previewRevision,
       accepted: false,
       cancelled: false,
     };
     pauseQuoteSheetFeed();
-  }, [clearQuoteSheetPressOutTimer, pauseQuoteSheetFeed, preloadQuotesActionSheet, quoteTapActionSheetConfigs]);
+  }, [clearQuoteSheetPressOutTimer, pauseQuoteSheetFeed]);
 
   const handleSymbolPressMove = useCallback((event: GestureResponderEvent) => {
     const gesture = quoteSheetPressGestureRef.current;
@@ -2884,7 +2857,6 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     if (showAddModal) return;
     const config = quoteTapActionSheetConfigs.get(sym);
     if (config) {
-      let retainedRevealRevision: number | null = null;
       const gesture = quoteSheetPressGestureRef.current;
       if (gesture.symbol === sym) {
         if (
@@ -2901,33 +2873,15 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
         gesture.accepted = true;
         gesture.start = null;
         clearQuoteSheetPressOutTimer();
-        if (gesture.previewRevision !== null && config.visualKey) {
-          const promoted = commitRetainedActionSheetPreview(
-            gesture.previewRevision,
-            config.visualKey,
-          );
-          if (promoted) {
-            retainedRevealRevision = gesture.previewRevision;
-          } else {
-            cancelRetainedActionSheetPreview(gesture.previewRevision);
-          }
-        }
       }
 
       runImmediateAction('quotes.symbolSheet.tap.open', () => {
-        const adoptRetainedSheet = () => {
-          showQuotesActionSheet(config);
-          prepareSymbolDestinationsAfterSheetPaint(sym);
-        };
-        if (retainedRevealRevision !== null) {
-          // The native driver is already moving the pre-rendered sheet. Adopt
-          // visibility in the same accepted tap turn so pointer ownership,
-          // Back handling, and route cleanup can never lag behind the pixels.
-          adoptRetainedSheet();
-          return;
-        }
-        // A faster-than-preload tap still opens correctly through React.
-        adoptRetainedSheet();
+        // Publish the selected config and visibility atomically through React.
+        // Mutating a retained native host between press-in and this release
+        // turn lets Android replay its previous fully-open surface before the
+        // new slide pose is attached.
+        showQuotesActionSheet(config);
+        prepareSymbolDestinationsAfterSheetPaint(sym);
       });
     }
   }, [cancelSymbolSheetPreview, clearQuoteSheetPressOutTimer, prepareSymbolDestinationsAfterSheetPaint, quoteTapActionSheetConfigs, showQuotesActionSheet, showAddModal]);
@@ -2944,9 +2898,6 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
         gesture.accepted = true;
         gesture.start = null;
         clearQuoteSheetPressOutTimer();
-        if (gesture.previewRevision !== null) {
-          cancelRetainedActionSheetPreview(gesture.previewRevision);
-        }
       }
       runImmediateAction('quotes.symbolSheet.longPress.open', () => {
         showQuotesActionSheet(config);
@@ -2957,10 +2908,6 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
 
   useEffect(() => () => {
     clearQuoteSheetPressOutTimer();
-    const previewRevision = quoteSheetPressGestureRef.current.previewRevision;
-    if (previewRevision !== null) {
-      cancelRetainedActionSheetPreview(previewRevision);
-    }
   }, [clearQuoteSheetPressOutTimer]);
 
   /**

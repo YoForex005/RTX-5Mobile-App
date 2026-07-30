@@ -1102,7 +1102,7 @@ test('webview bridge: custom right price-scale labels are backend-data-driven an
   );
   assertSourceContains(
     chartWebViewHtmlSource,
-    /var RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT = 17[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_SIZE = 12[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_WEIGHT = '500'[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_LABEL_OPACITY = '1'[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_DARK_LABEL_COLOR = '#E2E8F0'/,
+    /var RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT = 17[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_SIZE = 12[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_WEIGHT = '500'[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_LABEL_OPACITY = '1'[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_DARK_LABEL_COLOR = '#E2E8F0'[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_LIGHT_LABEL_COLOR = '#0F172A'/,
     'custom right-axis label readability constants must stay explicit',
   );
   assertSourceContains(
@@ -1112,8 +1112,8 @@ test('webview bridge: custom right price-scale labels are backend-data-driven an
   );
   assertSourceContains(
     chartWebViewHtmlSource,
-    /function resolveReadableRightPriceScaleFallbackTextColor\(textColor\)[\s\S]*lastChartAxisBackgroundColor \|\| lastChartBackgroundColor \|\| '#FFFFFF'[\s\S]*axisBrightness < 80[\s\S]*textBrightness === null \|\| textBrightness < 190[\s\S]*return RIGHT_PRICE_SCALE_FALLBACK_DARK_LABEL_COLOR/,
-    'custom right-axis labels must brighten muted text on the dark axis strip',
+    /function resolveReadableRightPriceScaleFallbackTextColor\(textColor\)[\s\S]*lastChartAxisBackgroundColor \|\| lastChartBackgroundColor \|\| '#FFFFFF'[\s\S]*axisBrightness < 80[\s\S]*textBrightness === null \|\| textBrightness < 190[\s\S]*return RIGHT_PRICE_SCALE_FALLBACK_DARK_LABEL_COLOR[\s\S]*axisBrightness > 175[\s\S]*textBrightness === null \|\| textBrightness > 110[\s\S]*return RIGHT_PRICE_SCALE_FALLBACK_LIGHT_LABEL_COLOR/,
+    'custom right-axis labels must retain readable contrast on both dark and light axis strips',
   );
   assertSourceContains(
     renderBody,

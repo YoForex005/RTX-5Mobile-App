@@ -261,6 +261,7 @@ export const CH_HTML = `
       var RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_WEIGHT = '500';
       var RIGHT_PRICE_SCALE_FALLBACK_LABEL_OPACITY = '1';
       var RIGHT_PRICE_SCALE_FALLBACK_DARK_LABEL_COLOR = '#E2E8F0';
+      var RIGHT_PRICE_SCALE_FALLBACK_LIGHT_LABEL_COLOR = '#0F172A';
       var RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS = 7;
       var RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS = 30;
       var GESTURE_RIGHT_PRICE_SCALE_REFRESH_INTERVAL_MS = 16;
@@ -667,6 +668,13 @@ export const CH_HTML = `
           (textBrightness === null || textBrightness < 190)
         ) {
           return RIGHT_PRICE_SCALE_FALLBACK_DARK_LABEL_COLOR;
+        }
+        if (
+          axisBrightness !== null &&
+          axisBrightness > 175 &&
+          (textBrightness === null || textBrightness > 110)
+        ) {
+          return RIGHT_PRICE_SCALE_FALLBACK_LIGHT_LABEL_COLOR;
         }
         return textColor;
       }
