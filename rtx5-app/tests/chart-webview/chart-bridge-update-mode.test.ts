@@ -130,6 +130,30 @@ test('ChartScreen reserves React series commits for full reloads and uses the di
   );
 });
 
+test('direct engine full reload acknowledges the selected chart context paint', () => {
+  const directPaintStart = source.indexOf('const paintCanonicalLiveTick =');
+  assert.notEqual(directPaintStart, -1, 'direct canonical paint function was not found');
+  const directPaintEnd = source.indexOf('// Route resume', directPaintStart);
+  assert.notEqual(directPaintEnd, -1, 'direct canonical paint function end marker was not found');
+  const directPaint = source.slice(directPaintStart, directPaintEnd);
+
+  assertSourceContains(
+    directPaint,
+    /if \(updateMode === 'full_reload'\) \{[\s\S]*issuedPaintToken = issueChartDataPaintToken\(chartDataContextSig\)[\s\S]*updateChartData\([\s\S]*preserveVisibleLogicalSpan: true,[\s\S]*dataContextSig: \$\{JSON\.stringify\(chartDataContextSig\)\},[\s\S]*paintToken: \$\{JSON\.stringify\(issuedPaintToken\)\}/,
+    'a direct full reload must request an acknowledgement for the selected symbol and timeframe',
+  );
+  assertSourceContains(
+    directPaint,
+    /catch \(_e\) \{[\s\S]*pendingChartDataPaintRef\.current\.token === issuedPaintToken[\s\S]*pendingChartDataPaintRef\.current = \{ token: '', dataContextSig: '' \}/,
+    'a failed direct full reload injection must clear only its own pending paint token',
+  );
+  assertSourceContains(
+    source,
+    /const paintCanonicalLiveTick =[\s\S]*issueChartDataPaintToken,\s*\]\);/,
+    'the direct candle listener must refresh if the paint-token issuer changes',
+  );
+});
+
 test('display precision updates on the existing WebView chart surface', () => {
   const setDisplayDecimalsBody = extractFunctionBody(source, 'setDisplayDecimals');
 

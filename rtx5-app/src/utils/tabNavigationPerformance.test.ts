@@ -123,7 +123,8 @@ test('retained Trade prewarms while Settings stays complete without activating h
 
   assert.match(tradeSource, /const TRADE_BODY_PREWARM_DELAY_MS = 600/);
   assert.match(tradeSource, /const routeBodyReady = useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : TRADE_BODY_PREWARM_DELAY_MS,\s*\)/);
-  assert.match(tradeSource, /const tradeLiveActive = isScreenFocused/);
+  assert.match(tradeSource, /const showTradeBody = isScreenFocused \|\| routeBodyReady/);
+  assert.match(tradeSource, /const tradeLiveActive = isLiveScreenFocused/);
   assert.match(tradeSource, /const tradeFetchActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady, TRADE_SCREEN_FETCH_DELAY_MS\)/);
   assert.doesNotMatch(tradeSource, /useDeferredRouteContentReady\([^)]*, isScreenFocused\)/);
 
@@ -193,7 +194,22 @@ test('tab bar and retained scenes share one deterministic visible route', () => 
   assert.match(navigatorSource, /<FastTabBarHost\s*state=\{visibleState\}/);
   assert.match(navigatorSource, /visualFocused=\{route\.name === visibleRouteName\}/);
   assert.match(navigatorSource, /registerFastTabVisualApplier\(applyNativeVisualRouteNow\)/);
-  assert.match(navigatorSource, /const applyNativeVisualRouteNow = useCallback\([\s\S]*setNativeProps\(\{[\s\S]*style: \[styles\.sceneLayer, styles\.sceneLayerHidden\][\s\S]*setNativeProps\(\{[\s\S]*style: \[styles\.sceneLayer, styles\.sceneLayerVisible\]/);
+  const nativeSceneHandoffSource = navigatorSource.slice(
+    navigatorSource.indexOf('const applyNativeVisualRouteNow'),
+    navigatorSource.indexOf('const previousFocusedRouteKeyRef'),
+  );
+  assert.match(nativeSceneHandoffSource, /const nextLayer = layerRefs\.current\[routeName\];[\s\S]*if \(!nextLayer\) \{\s*return;\s*\}/);
+  assert.match(nativeSceneHandoffSource, /nextLayer\.setNativeProps\(\{[\s\S]*styles\.sceneLayerVisible,[\s\S]*styles\.sceneLayerOptimistic/);
+  assert.ok(
+    nativeSceneHandoffSource.indexOf('nextLayer.setNativeProps')
+      < nativeSceneHandoffSource.indexOf('layerRefs.current[previousRouteName]?.setNativeProps'),
+    'the retained destination must cover the current scene before it is hidden',
+  );
+  assert.ok(
+    nativeSceneHandoffSource.indexOf('nativeVisualRouteRef.current = routeName')
+      > nativeSceneHandoffSource.indexOf('layerRefs.current[previousRouteName]?.setNativeProps'),
+    'the native route ref must advance only after the no-gap handoff completes',
+  );
   assert.match(sceneLayerSource, /ref=\{layerRef\}[\s\S]*collapsable=\{false\}/);
   const visualItemSource = tabsLayoutSource.slice(
     tabsLayoutSource.indexOf('const FastTabVisualItem'),
@@ -216,6 +232,7 @@ test('tab bar and retained scenes share one deterministic visible route', () => 
   assert.doesNotMatch(sceneLayerSource, /Animated\.View|useAnimatedStyle|useAnimatedProps|animatedStyle|animatedProps/);
   assert.match(navigatorSource, /pointerEvents=\{visualFocused \? 'auto' : 'none'\}/);
   assert.match(navigatorSource, /sceneLayerVisible: \{\s*opacity: 1,\s*zIndex: 1,\s*\}/);
+  assert.match(navigatorSource, /sceneLayerOptimistic: \{\s*zIndex: 2,\s*\}/);
   assert.match(navigatorSource, /sceneLayerHidden: \{\s*opacity: 0,\s*zIndex: 0,\s*\}/);
   assert.doesNotMatch(navigatorSource, /fastTabVisualIndex|getFastTabRouteIndex|from 'react-native-reanimated'/);
   assert.match(navigatorSource, /\|\| previous\.visualFocused !== next\.visualFocused/);

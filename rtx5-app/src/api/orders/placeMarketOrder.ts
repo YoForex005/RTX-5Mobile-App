@@ -29,8 +29,11 @@ import { redactDiagnosticValue } from '../../utils/securityRedaction';
 import { assertActiveMarketProtectionAllowed } from '../sltpCapabilityGuard';
 import { createTradeIdempotencyKey } from '../tradeIdempotency';
 import { positionsApi } from '../positions';
+import { beginProtectedPositionsMutation } from '../../state/positionsMutationBarrier';
+import { reconcileMarketOrderPositions } from './marketPositionReconciliation';
 
 const acceptedOrderSymbolCache = new Map<string, string>();
+let marketOrderReconciliationGeneration = 0;
 const ORDER_DIAGNOSTICS_ENABLED =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CHART_TRADE === 'true';
 
@@ -241,6 +244,7 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
   recordMarketOrderJournalRequest(journalPayload);
   const resolveIdempotencyKey = createPayloadBoundIdempotencyKeyResolver('order');
   let createRequestStarted = false;
+  let reconciliationResponse: PlaceOrderResponse | null = null;
 
   type Attempt = {
     symbol: string;
@@ -343,6 +347,10 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
 
   let accepted: Attempt | null = null;
   let lastBad: Attempt | null = null;
+  // Block unrelated full-ledger polls before the first POST. The matching
+  // reconciliation releases this barrier after broker state converges.
+  const reconciliationGeneration = ++marketOrderReconciliationGeneration;
+  const releasePositionsMutation = beginProtectedPositionsMutation();
 
   try {
     for (const candidate of candidates) {
@@ -416,7 +424,7 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
 
     assertOrderSessionCurrent();
     acceptedOrderSymbolCache.set(brokerCacheKey, accepted.symbol);
-    const finalData = unwrap(accepted.body);
+    const finalData = unwrap(accepted.body) as PlaceOrderResponse;
 
     // The handler's canonical execution response already contains
     // order_ticket, position_ticket, and price. Preserve only safe aliases for
@@ -449,32 +457,45 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
       { ...journalPayload, symbol: accepted.symbol || callerSymbol },
       finalData,
     );
+    reconciliationResponse = finalData;
     return finalData;
   } finally {
     // A market POST can have an unknown result after timeout, abort, or a
     // network break. Start an authoritative read for the immutable owner on
     // every transport outcome, but never let reconciliation replace the
     // primary response/error and never query whichever broker is selected now.
-    if (createRequestStarted && isActiveBrokerSessionOwnerStampCurrent(owner)) {
-      // Start the REST call immediately while the immutable owner is current.
-      // `refreshPositions` can wait behind another login-keyed refresh before
-      // it captures a session, so using the strict existing positions client
-      // here prevents a same-login broker switch from redirecting this read.
-      void positionsApi.getPositionsForReconciliation(owner.accountLogin)
-        .then((positions) => {
+    if (createRequestStarted) {
+      // Fetch immediately, but hold a stale/empty pre-commit candidate off the
+      // screen. Only the full ledger that agrees with the returned execution
+      // ticket is allowed to replace visible positions.
+      void reconcileMarketOrderPositions(reconciliationResponse, {
+        readPositions: () => positionsApi.getPositionsForReconciliation(owner.accountLogin),
+        isOwnerCurrent: () => isActiveBrokerSessionOwnerStampCurrent(owner),
+        commitPositions: (positions) => {
           if (!isActiveBrokerSessionOwnerStampCurrent(owner)) return;
+          // If a newer rapid one-click order has already started, this older
+          // full read may not contain it yet. It can add/update confirmed rows,
+          // but only the newest market mutation may remove missing rows.
+          const preserveMissingExisting =
+            reconciliationGeneration !== marketOrderReconciliationGeneration;
           usePositionsState.getState().applyPositionsSnapshot(
             positions,
             owner.accountLogin,
+            preserveMissingExisting ? { preserveMissingExisting: true } : undefined,
           );
-        })
+        },
+      })
         .catch((error) => {
           warnOrderDiagnostic('[RTX5 Order] captured-owner reconciliation failed', error);
-        });
+        })
+        .finally(releasePositionsMutation);
+    } else {
+      releasePositionsMutation();
     }
   }
 };
 
 export function resetAcceptedMarketOrderSymbolCache(): void {
   acceptedOrderSymbolCache.clear();
+  marketOrderReconciliationGeneration = 0;
 }

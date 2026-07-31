@@ -31,3 +31,10 @@ test('history summary and control cards use the accounts live card shell', () =>
     assert.doesNotMatch(styleSource, /T\.borderSubtle|#0F172A|height: isDark \? 4 : 8|shadowRadius: isDark \? 16 : 24/);
   }
 });
+
+test('history summary preserves the backend balance cents', () => {
+  const source = readSource('src/features/history/HistoryScreen.tsx');
+
+  assert.match(source, /\{fmt\.decimal\(balance\)\}/);
+  assert.doesNotMatch(source, /\{fmt\.int\(balance\)\}/);
+});

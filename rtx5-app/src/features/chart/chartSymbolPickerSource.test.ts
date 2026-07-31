@@ -403,14 +403,14 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
     source,
     /title: t\('Select Symbol'\)[\s\S]*searchable:\s*true[\s\S]*keepFullHeightOnKeyboard:\s*true[\s\S]*actions: symbolPickerActions/,
   );
-  assert.match(
+  assert.doesNotMatch(
     source,
-    /const prefetchSymbolPickerHistory = useCallback\([\s\S]*slice\(0, CHART_SYMBOL_PICKER_PREFETCH_LIMIT\)[\s\S]*prefetchChartTimeframeHistory\(targetSymbol, chartTimeframe\)/,
+    /prefetchSymbolPickerHistory|CHART_SYMBOL_PICKER_PREFETCH_LIMIT|CHART_SYMBOL_PICKER_PREFETCH_DELAY_MS/,
   );
   // The exact preloaded picker starts its native slide before React adoption.
   assert.match(
     source,
-    /runImmediateAction\('chart\.symbolPicker\.open'[\s\S]*openChartActionSheetSmoothly\(symbolPickerActionSheetConfig\)[\s\S]*scheduleChartActionSheetContextReset\(\);[\s\S]*prefetchSymbolPickerHistory\(\);/,
+    /runImmediateAction\('chart\.symbolPicker\.open'[\s\S]*openChartActionSheetSmoothly\(symbolPickerActionSheetConfig\)[\s\S]*scheduleChartActionSheetContextReset\(\);/,
   );
   assert.match(
     source,
@@ -418,7 +418,7 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   );
   assert.match(
     source,
-    /const warmChartContextAndCommit = useCallback\([\s\S]*setChartSymbol\(nextSymbol\)[\s\S]*prefetchInstrument\(nextSymbol\)[\s\S]*setChartTimeframe\(nextTimeframe\)/,
+    /const warmChartContextAndCommit = useCallback\([\s\S]*chartContextCommitScheduler\.request\(\{[\s\S]*prepare: \(\) => \{[\s\S]*refreshSelectedChartHistory\(nextSymbol, nextTimeframe\)[\s\S]*prefetchInstrument\(nextSymbol\)[\s\S]*commit: \(\) => \{[\s\S]*preferences\.setChartSymbol\(nextSymbol\)/,
   );
   assert.match(
     source,

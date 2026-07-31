@@ -280,9 +280,10 @@ test('trade sidebar route defers position refresh until after route paint', () =
   assert.match(source, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
   assert.match(source, /requestAnimationFrame\(markReady\)/);
   assert.doesNotMatch(source, /sidebarOpen = useUIState/);
-  // Live quote subscriptions are lightweight and start immediately on focus;
-  // backend ledger refresh remains deferred until after the route paints.
-  assert.match(source, /const tradeLiveActive = isScreenFocused/);
+  // Structural ledger content paints on the selection turn. Live quotes and
+  // backend refresh work remain deferred until after that route paint.
+  assert.match(source, /const showTradeBody = isScreenFocused \|\| routeBodyReady/);
+  assert.match(source, /const tradeLiveActive = isLiveScreenFocused/);
   assert.match(source, /const tradeFetchActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady, TRADE_SCREEN_FETCH_DELAY_MS\)/);
   assert.match(source, /if \(!tradeFetchActive \|\| !resolvedLogin\) \{/);
   assert.match(source, /refreshVisibleTradeLedger\(\);[\s\S]*setInterval\(refreshVisibleTradeLedger, TRADE_SCREEN_REFRESH_INTERVAL_MS\)/);

@@ -31,12 +31,11 @@ test('WebView candle bridge keeps diagnostics while the live path is one atomic 
   assertSourceContains(applyTickBody, /tick\.time < lastBarTime[\s\S]*\[WEBVIEW-CANDLE\] applyTickUpdate_rejected/, 'WebView must log stale tick rejection');
 });
 
-test('ChartScreen warms candle history before cold timeframe switches', () => {
+test('ChartScreen prioritizes the selected candle context before chart reconciliation', () => {
   assertSourceContains(source, /import \{ liveCandlesEngine \} from '\.\.\/\.\.\/api\/ws\/liveCandlesEngine'/, 'ChartScreen must be able to warm the canonical candle engine');
   assertSourceContains(source, /const prefetchChartTimeframeHistory = useCallback[\s\S]*liveCandlesEngine\.prefetchHistory/, 'ChartScreen must prefetch through the engine, not the WebView');
   assertSourceContains(source, /handleOpenTimeframePicker[\s\S]*showChartTimeframePicker\(\)[\s\S]*scheduleIdleWork[\s\S]*prefetchChartTimeframeHistory\(chartSymbol, tf\)/, 'opening the timeframe picker must paint first, then warm alternate timeframes off the critical path');
-  assertSourceContains(source, /const prefetchSymbolPickerHistory = useCallback[\s\S]*availableSymbols[\s\S]*slice\(0, CHART_SYMBOL_PICKER_PREFETCH_LIMIT\)[\s\S]*prefetchChartTimeframeHistory\(targetSymbol, chartTimeframe\)/, 'opening the symbol picker must warm likely target symbols for the current timeframe');
-  assertSourceContains(source, /handleOpenSymbolPicker[\s\S]*prefetchSymbolPickerHistory\(\)/, 'symbol picker open must start capped background symbol-history prefetch');
+  assert.doesNotMatch(source, /prefetchSymbolPickerHistory|CHART_SYMBOL_PICKER_PREFETCH_LIMIT|CHART_SYMBOL_PICKER_PREFETCH_DELAY_MS/, 'opening the native symbol picker must not fan out unrelated history requests');
   assertSourceContains(source, /refreshSelectedChartHistory[\s\S]*liveCandlesEngine\.prefetchHistory\(nextSymbol, nextTimeframe\)[\s\S]*liveCandlesEngine\.refreshHistoryForContext\(nextSymbol, nextTimeframe\)/, 'selected symbol history must start before the chart context commit');
-  assertSourceContains(source, /warmChartContextAndCommit[\s\S]*refreshSelectedChartHistory\(nextSymbol, nextTimeframe\)/, 'selecting a symbol or timeframe must refresh an existing target context without waiting');
+  assertSourceContains(source, /chartContextCommitScheduler\.request\(\{[\s\S]*prepare: \(\) => \{[\s\S]*refreshSelectedChartHistory\(nextSymbol, nextTimeframe\)[\s\S]*commit: \(\) => \{[\s\S]*preferences\.setChartSymbol\(nextSymbol\)/, 'symbol selection must dispatch selected history before deferring its heavy Zustand commit');
 });

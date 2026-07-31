@@ -212,6 +212,8 @@ test('buy and sell actions use the stricter critical trade budget', () => {
 
 test('chart trade one-click and ticket paths keep heavy work out of the tap paint', () => {
   const ordersSource = readSource('src/query/orders.ts');
+  const placeOrderSource = readSource('src/api/orders/placeMarketOrder.ts');
+  const reconciliationSource = readSource('src/api/orders/marketPositionReconciliation.ts');
   const chartTradeHandlerSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/useTradeHandler.ts');
   const chartWebSource = readSource('src/features/chart/ChartScreen.web.tsx');
   const openPathStart = chartTradeHandlerSource.indexOf('// ── One-click OFF:');
@@ -221,18 +223,20 @@ test('chart trade one-click and ticket paths keep heavy work out of the tap pain
   const openPathSource = chartTradeHandlerSource.slice(openPathStart, oneClickPathStart);
   const oneClickSource = chartTradeHandlerSource.slice(oneClickPathStart);
 
-  assert.match(ordersSource, /const TRADE_POST_SUCCESS_REFRESH_DELAY_MS = 250/);
   assert.match(ordersSource, /export const usePlaceOrderExecutor = \(\) => \{/);
   assert.match(
     ordersSource,
     /submitPlaceOrderWithCacheUpdate\([\s\S]*queryClient,[\s\S]*payload,[\s\S]*cacheNamespace,[\s\S]*owner/,
   );
-  assert.match(ordersSource, /const scheduleTradePostSuccessRefresh = \(work: \(\) => void\) => \{[\s\S]*setTimeout\(work, TRADE_POST_SUCCESS_REFRESH_DELAY_MS\)/);
   assert.doesNotMatch(ordersSource, /\.upsertPosition\(/);
   assert.match(
-    ordersSource,
-    /getPositionsForReconciliation\([\s\S]*owner\.accountLogin[\s\S]*scheduleTradePostSuccessRefresh\(\(\) => \{[\s\S]*reconcileCapturedMarketOwner\(owner\)[\s\S]*invalidateSessionQueryRoots\(queryClient, cacheNamespace, \[[\s\S]*'positions'/,
+    placeOrderSource,
+    /return finalData;[\s\S]*finally \{[\s\S]*void reconcileMarketOrderPositions\(reconciliationResponse/,
   );
+  assert.doesNotMatch(placeOrderSource, /await reconcileMarketOrderPositions/);
+  assert.match(placeOrderSource, /readPositions: \(\) => positionsApi\.getPositionsForReconciliation\(owner\.accountLogin\)/);
+  assert.match(reconciliationSource, /await dependencies\.readPositions\(\)/);
+  assert.match(ordersSource, /invalidateSessionQueryRoots\(queryClient, cacheNamespace, \[[\s\S]*'positions'/);
   assert.match(
     chartTradeHandlerSource,
     /const chartTradeActionDisabled = resolveChartTradeActionDisabled\(\{[\s\S]*isCurrentChartSymbol,[\s\S]*oneClickAccepted,[\s\S]*quoteActionAllowed,[\s\S]*\}\);/,
@@ -331,8 +335,9 @@ test('trade buy/sell success feedback uses the shared popup without device vibra
   );
   assert.match(
     chartResultSource,
-    /if \(feedback\.type !== 'success'\) \{[\s\S]*setTradeFeedback\(feedback\);[\s\S]*return;[\s\S]*\}[\s\S]*setTradeFeedback\(feedback\);[\s\S]*refreshPositions\(String\(accountLogin\)\)[\s\S]*refetchOrders\(\)[\s\S]*refetchAccountSummary\(\)/,
+    /if \(feedback\.type !== 'success'\) \{[\s\S]*setTradeFeedback\(feedback\);[\s\S]*return;[\s\S]*\}[\s\S]*setTradeFeedback\(feedback\);[\s\S]*refetchClosedPositions\(\)[\s\S]*refetchOrders\(\)[\s\S]*refetchAccountSummary\(\)/,
   );
+  assert.doesNotMatch(chartResultSource, /refreshPositions\(/);
   assert.doesNotMatch(chartResultSource, /setChartTradeConfirmations/);
   assert.doesNotMatch(chartSource, /ChartTradeConfirmation|CHART_TRADE_CONFIRMATION|chartTradeConfirmationStack|chartTradeConfirmationDone/);
 });

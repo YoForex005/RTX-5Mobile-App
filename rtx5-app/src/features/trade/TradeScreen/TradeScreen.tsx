@@ -103,12 +103,22 @@ function areStringSetsEqual(left: Set<string>, right: Set<string>) {
 /**
  * Main screen for the Trade tab, displaying the user's active open positions, pending orders, and real-time equity/margin summary.
  */
-const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused }: { isScreenFocused: boolean }) {
+const TradeScreenInner = React.memo(function TradeScreenInner({
+  isScreenFocused,
+  isLiveScreenFocused,
+}: {
+  isScreenFocused: boolean;
+  isLiveScreenFocused: boolean;
+}) {
   // Prewarm the body offscreen, but never make a Trade tab selection wait for
   // the idle window — focus cancels the delay so the retained list paints now.
   const routeBodyReady = useDeferredRouteContentReady(
     isScreenFocused ? 0 : TRADE_BODY_PREWARM_DELAY_MS,
   );
+  // A selected Trade tab must never wait for the offscreen prewarm timer. Its
+  // structural ledger paints immediately; live quote work still starts on the
+  // deferred focus value below.
+  const showTradeBody = isScreenFocused || routeBodyReady;
   const [viewablePositionIds, setViewablePositionIds] = useState<Set<string>>(() => new Set());
   const T = useTheme();
   const { t } = useTranslation();
@@ -124,19 +134,19 @@ const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused 
   const showTradeActionSheet = useUIState((st) => st.showTradeActionSheet);
   const retainedFeedHealthRef = useRef(getFeedHealthRenderSnapshot());
   const subscribeFocusedFeedHealth = useCallback(
-    (listener: () => void) => (isScreenFocused ? subscribeFeedHealth(listener) : () => undefined),
-    [isScreenFocused],
+    (listener: () => void) => (isLiveScreenFocused ? subscribeFeedHealth(listener) : () => undefined),
+    [isLiveScreenFocused],
   );
   const getFocusedFeedHealthSnapshot = useCallback(
-    () => (isScreenFocused ? getFeedHealthRenderSnapshot() : retainedFeedHealthRef.current),
-    [isScreenFocused],
+    () => (isLiveScreenFocused ? getFeedHealthRenderSnapshot() : retainedFeedHealthRef.current),
+    [isLiveScreenFocused],
   );
   const feedHealth = React.useSyncExternalStore(
     subscribeFocusedFeedHealth,
     getFocusedFeedHealthSnapshot,
     getFocusedFeedHealthSnapshot,
   );
-  if (isScreenFocused) {
+  if (isLiveScreenFocused) {
     retainedFeedHealthRef.current = feedHealth;
   }
   const activeCapture = captureActiveBrokerSession();
@@ -250,7 +260,7 @@ const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused 
   // this screen to sidebarOpen made every menu tap re-render all position rows
   // before navigation could paint. Native-driver drawer motion does not need to
   // pause the already-focused quote stream or its deferred ledger refresh.
-  const tradeLiveActive = isScreenFocused;
+  const tradeLiveActive = isLiveScreenFocused;
   const tradeFetchActive = useDeferredActiveFlag(isScreenFocused && firstPaintReady, TRADE_SCREEN_FETCH_DELAY_MS);
 
   // Fetch only after the route has painted once so sidebar navigation is visual
@@ -468,7 +478,7 @@ const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused 
   return (
     <Screen noBottomInset style={s.screen}>
       <AppHeader title={t('Trade')} noBorder />
-      {routeBodyReady ? <>
+      {showTradeBody ? <>
         {feedHealthModel?.visible ? (
           <View
             accessibilityRole="alert"
@@ -568,6 +578,11 @@ const TradeScreenInner = React.memo(function TradeScreenInner({ isScreenFocused 
 
 export function TradeScreen() {
   const isScreenFocused = useIsFocused();
-  const deferredScreenFocused = useNextFrameValue(isScreenFocused);
-  return <TradeScreenInner isScreenFocused={deferredScreenFocused} />;
+  const isLiveScreenFocused = useNextFrameValue(isScreenFocused);
+  return (
+    <TradeScreenInner
+      isScreenFocused={isScreenFocused}
+      isLiveScreenFocused={isLiveScreenFocused}
+    />
+  );
 }

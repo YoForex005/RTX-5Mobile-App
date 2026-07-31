@@ -48,7 +48,7 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.match(tapConfigSource, /instantOpen: true/);
   assert.match(tapConfigSource, /presentation: 'mt5Plain'/);
   assert.match(tapConfigSource, /entryMotion: 'mt5Slide'/);
-  assert.match(tapConfigSource, /entryMotion: 'mt5Slide'/);
+  assert.doesNotMatch(tapConfigSource, /keepMt5HostComposited/);
   // Route actions commit only a light preview (or the fast-tab flip), so they
   // run in the press frame instead of waiting behind the close animation.
   assert.match(tapConfigSource, /runActionAfterClose: false/);
@@ -58,6 +58,7 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.match(longPressConfigSource, /detent: 'auto'/);
   assert.match(longPressConfigSource, /instantOpen: true/);
   assert.match(longPressConfigSource, /entryMotion: 'mt5Slide'/);
+  assert.doesNotMatch(longPressConfigSource, /keepMt5HostComposited/);
   assert.match(longPressConfigSource, /runActionAfterClose: false/);
   assert.doesNotMatch(source, /const hideQuotesActionSheet = useUIState\(\(s\) => s\.hideQuotesActionSheet\)/);
   assert.match(source, /type QuoteSheetOptionOptions = \{[\s\S]*routeChange\?: boolean;[\s\S]*\}/);
@@ -65,6 +66,7 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.match(source, /pauseLiveQuoteSnapshotNotifications/);
   assert.match(source, /const quoteSheetFeedPauseReleaseRef = useRef<\(\(\) => void\) \| null>\(null\)/);
   assert.match(source, /const QUOTE_SHEET_OPEN_FEED_PAUSE_MS = 15_000/);
+  assert.match(source, /const QUOTE_SHEET_DESTINATION_PREP_DELAY_MS = 300/);
   assert.doesNotMatch(source, /quotesSheetVisible/);
   assert.match(source, /const quoteCatalogActive = quoteRouteActive/);
   assert.match(source, /const quoteWatchlistActive = quoteCatalogActive && isLoggedIn/);
@@ -75,24 +77,42 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.match(source, /const pauseQuoteSheetFeed = useCallback\(\(durationMs = QUOTE_SHEET_OPEN_FEED_PAUSE_MS\) => \{/);
   assert.match(source, /quotesWsService\.deferReconnectForInteraction\?\.\(durationMs\)/);
   assert.match(source, /QUOTE_SHEET_PRESS_CANCEL_MOVE_PX = 10/);
+  assert.match(source, /QUOTE_SHEET_PRESS_OUT_CANCEL_DELAY_MS = 160/);
   assert.match(source, /const hasQuoteSheetPressMovedBeyondThreshold = [\s\S]*dx \* dx \+ dy \* dy[\s\S]*QUOTE_SHEET_PRESS_CANCEL_MOVE_PX \* QUOTE_SHEET_PRESS_CANCEL_MOVE_PX/);
-  assert.doesNotMatch(source, /requestRetainedActionSheetPreview/);
-  assert.doesNotMatch(source, /cancelRetainedActionSheetPreview/);
-  assert.doesNotMatch(source, /commitRetainedActionSheetPreview/);
-  assert.doesNotMatch(source, /scheduleActionSheetHiddenPosePaintBarrier/);
-  assert.doesNotMatch(source, /scheduleRetainedActionSheetReactAdoption/);
+  assert.match(source, /parkRetainedActionSheetHostForConfigSwap/);
+  assert.doesNotMatch(
+    source,
+    /requestRetainedActionSheetPreview|commitRetainedActionSheetPreview|cancelRetainedActionSheetPreview|scheduleAfterFirstFrame/,
+    'Quotes must not depend on Chart/retained-preview reveal ownership',
+  );
   const pressInStart = source.indexOf('const handleSymbolPressIn = useCallback');
   const pressMoveStart = source.indexOf('const handleSymbolPressMove = useCallback');
   const pressInSource = source.slice(pressInStart, pressMoveStart);
   assert.notEqual(pressInStart, -1);
   assert.notEqual(pressMoveStart, -1);
-  assert.match(pressInSource, /start: getQuoteSheetPressPoint\(event\)[\s\S]*pauseQuoteSheetFeed\(\)/);
+  assert.match(
+    pressInSource,
+    /start: getQuoteSheetPressPoint\(event\)[\s\S]*accepted: false[\s\S]*cancelled: false[\s\S]*pauseQuoteSheetFeed\(\)/,
+    'press-in records only gesture state and pauses feed work',
+  );
   assert.doesNotMatch(
     pressInSource,
-    /quoteTapActionSheetConfigs|preloadQuotesActionSheet|parkRetainedActionSheetHostForConfigSwap/,
+    /showQuotesActionSheet|showScopedActionSheet|preloadQuotesActionSheet|ensureQuoteSheetConfigMounted|scheduleQuoteSheetConfigPaint/,
+    'press-in must not publish sheet state before React confirms onPress',
+  );
+  assert.match(
+    source,
+    /const ensureQuoteSheetConfigMounted = useCallback[\s\S]*const preparedVisualKey = quoteSheetPreparedVisualKeyRef\.current[\s\S]*preparedVisualKey && preparedVisualKey !== visualKey[\s\S]*parkedOutgoingHost = parkRetainedActionSheetHostForConfigSwap\(preparedVisualKey\)[\s\S]*!parkedOutgoingHost[\s\S]*mountedVisualKey !== preparedVisualKey[\s\S]*parkRetainedActionSheetHostForConfigSwap\(mountedVisualKey\)[\s\S]*quoteSheetPreparedVisualKeyRef\.current = null;[\s\S]*if \(!quotesOwnMountedConfig\) \{[\s\S]*preloadQuotesActionSheet\(config\)/,
+    'Quotes must park the actually painted outgoing host before publishing replacement rows',
   );
   assert.match(source, /const handleSymbolPressMove = useCallback[\s\S]*hasQuoteSheetPressMovedBeyondThreshold[\s\S]*cancelSymbolSheetPreview\(gesture\.sequence\)/);
-  assert.match(source, /const handleSymbolPressOut = useCallback[\s\S]*setTimeout\(\(\) => \{[\s\S]*cancelSymbolSheetPreview\(sequence\);[\s\S]*\}, 0\)/);
+  assert.match(source, /const handleSymbolPressOut = useCallback[\s\S]*setTimeout\(\(\) => \{[\s\S]*cancelSymbolSheetPreview\(sequence\);[\s\S]*\}, QUOTE_SHEET_PRESS_OUT_CANCEL_DELAY_MS\)/);
+  assert.doesNotMatch(source, /const armQuoteSheetRetainedPreview|retainedPreviewRevision/);
+  assert.match(
+    source,
+    /const cancelSymbolSheetPreview = useCallback[\s\S]*gesture\.cancelled = true;[\s\S]*gesture\.start = null;[\s\S]*releaseQuoteSheetFeedPause\(\)/,
+    'drag and cancelled presses must release the temporary feed pause',
+  );
   assert.match(source, /onScrollBeginDrag=\{\(\) => cancelSymbolSheetPreview\(\)\}/);
   assert.match(source, /onMomentumScrollBegin=\{\(\) => cancelSymbolSheetPreview\(\)\}/);
   assert.match(source, /const releaseQuoteSheetFeedPause = useCallback\(\(\) => \{/);
@@ -103,7 +123,7 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.doesNotMatch(source, /requestAnimationFrame\([\s\S]*requestAnimationFrame\([\s\S]*setTimeout\(action, 0\)/);
   assert.match(
     source,
-    /const runQuoteSheetOption = useCallback\(\(action: \(\) => void, options\?: QuoteSheetOptionOptions\) => \{[\s\S]*options\?\.routeChange === true[\s\S]*pauseQuoteSheetFeed\(routeChange \? QUOTE_SHEET_ROUTE_FEED_PAUSE_MS : QUOTE_SHEET_OPTION_FEED_PAUSE_MS\);[\s\S]*if \(routeChange\) \{[\s\S]*action\(\);[\s\S]*return;[\s\S]*action\(\);/,
+    /const runQuoteSheetOption = useCallback\(\(action: \(\) => void, options\?: QuoteSheetOptionOptions\) => \{[\s\S]*options\?\.routeChange === true[\s\S]*pauseQuoteSheetFeed\(routeChange \? QUOTE_SHEET_ROUTE_FEED_PAUSE_MS : QUOTE_SHEET_OPTION_FEED_PAUSE_MS\);[\s\S]*quoteSheetOptionCloseExpectedRef\.current = true;[\s\S]*try \{[\s\S]*action\(\);[\s\S]*finally \{[\s\S]*setTimeout\(\(\) => \{[\s\S]*quoteSheetOptionCloseExpectedRef\.current = false;/,
   );
   assert.match(tapConfigSource, /label: t\('New Order'\),[\s\S]*activateOnPressIn: true/);
   assert.match(tapConfigSource, /label: t\('Chart'\),[\s\S]*activateOnPressIn: true/);
@@ -123,11 +143,11 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.match(tapConfigSource, /label: t\('Market Statistics'\),[\s\S]*onPress: \(\) => openMarketStatisticsForSymbol\(sym\)/);
   assert.match(
     source,
-    /const openQuoteInfoForSymbol = useCallback\([\s\S]*showQuoteInfoLaunch\(destination, sym\);[\s\S]*scheduleQuoteInfoLaunchNavigation\(launchRevision, \(\) => \{[\s\S]*pathname: '\/quotes\/details'[\s\S]*pathname: '\/quotes\/market-statistics'[\s\S]*hideQuoteInfoLaunch\(launchRevision\)[\s\S]*\}, \{ routeChange: true \}\);/,
+    /const openQuoteInfoForSymbol = useCallback\([\s\S]*prepareQuoteInfoLaunch\(sym\);[\s\S]*showQuoteInfoLaunch\(destination, sym\);[\s\S]*scheduleQuoteInfoLaunchNavigation\(launchRevision, \(\) => \{[\s\S]*pathname: '\/quotes\/details'[\s\S]*pathname: '\/quotes\/market-statistics'[\s\S]*hideQuoteInfoLaunch\(launchRevision\)[\s\S]*\}, \{ routeChange: true \}\);/,
   );
   assert.match(
     source,
-    /const openOrderTicketForSymbol = useCallback\(\(sym: string\) => \{[\s\S]*runQuoteSheetOption\(\(\) => \{[\s\S]*const launchRevision = showOrderTicketLaunch\(sym, 'quotes'\);[\s\S]*scheduleOrderTicketLaunchNavigation\(launchRevision, \(\) => \{[\s\S]*router\.push\(\{ pathname: '\/trade\/order-ticket', params: \{ symbol: sym, origin: 'quotes' \} \}\);[\s\S]*\}, \{ routeChange: true \}\);/,
+    /const openOrderTicketForSymbol = useCallback\(\(sym: string\) => \{[\s\S]*runQuoteSheetOption\(\(\) => \{[\s\S]*prepareOrderTicketLaunch\(sym, 'quotes'\);[\s\S]*const launchRevision = showOrderTicketLaunch\(sym, 'quotes'\);[\s\S]*scheduleOrderTicketLaunchNavigation\(launchRevision, \(\) => \{[\s\S]*router\.push\(\{ pathname: '\/trade\/order-ticket', params: \{ symbol: sym, origin: 'quotes' \} \}\);[\s\S]*\}, \{ routeChange: true \}\);/,
   );
   assert.match(
     source,
@@ -135,20 +155,54 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   );
   assert.match(
     source,
-    /const handleSymbolTap = useCallback[\s\S]*quoteTapActionSheetConfigs\.get\(sym\)[\s\S]*hasQuoteSheetPressMovedBeyondThreshold[\s\S]*gesture\.accepted = true[\s\S]*runImmediateAction\('quotes\.symbolSheet\.tap\.open'[\s\S]*showQuotesActionSheet\(config\);[\s\S]*prepareSymbolDestinationsAfterSheetPaint\(sym\)/,
-  );
-  const tapHandlerEnd = source.indexOf('\n\n  /**', tapHandlerStart);
-  const tapHandlerSource = source.slice(tapHandlerStart, tapHandlerEnd);
-  const tapShowIndex = tapHandlerSource.indexOf('showQuotesActionSheet(config)');
-  assert.notEqual(tapShowIndex, -1);
-  assert.doesNotMatch(
-    tapHandlerSource.slice(0, tapShowIndex),
-    /pauseQuoteSheetFeed|prepareOrderTicketLaunch|prepareQuoteInfoLaunch|prefetch|router\.|await|InteractionManager|setTimeout|requestAnimationFrame/,
-    'nothing may compete with the accepted tap before sheet visibility is published',
+    /const handleSymbolTap = useCallback[\s\S]*quoteTapActionSheetConfigs\.get\(sym\)[\s\S]*hasQuoteSheetPressMovedBeyondThreshold[\s\S]*gesture\.accepted = true[\s\S]*openQuoteSheetWhenConfigIsReady\(\s*config,\s*'quotes\.symbolSheet\.tap\.open',\s*sym,/,
   );
   assert.match(
     source,
-    /const prepareSymbolDestinationsAfterSheetPaint = useCallback\(\(sym: string\) => \{[\s\S]*prepareOrderTicketLaunch\(sym, 'quotes'\);[\s\S]*prepareQuoteInfoLaunch\(sym\);[\s\S]*const chartTimeframe = prepareChartSymbol\(sym\);[\s\S]*liveCandlesEngine\.prefetchHistory\(sym, chartTimeframe\);[\s\S]*prefetchOrderTicketData\(resolveTradingLoginString\(\), sym\);[\s\S]*prefetchQuoteDetails\(sym\);[\s\S]*preloadDeferredRouteModule\(\s*SYMBOL_DETAILS_ROUTE_MODULE_CACHE_KEY,\s*loadSymbolDetailsScreenRoute,[\s\S]*preloadDeferredRouteModule\(\s*MARKET_STATISTICS_ROUTE_MODULE_CACHE_KEY,\s*loadMarketStatisticsScreenRoute,[\s\S]*pathname: '\/trade\/order-ticket'[\s\S]*pathname: '\/quotes\/details'[\s\S]*pathname: '\/quotes\/market-statistics'[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*setTimeout\(prepareDestinations, 0\)/,
+    /const openQuoteSheetWhenConfigIsReady = useCallback[\s\S]*const openSheet = \(\) => \{[\s\S]*runImmediateAction\(actionName, \(\) => \{[\s\S]*showQuotesActionSheet\(config\);[\s\S]*prepareSymbolDestinationShellsAfterSheetSettle\(sym\);[\s\S]*scheduleQuoteSheetConfigPaint\(config, openSheet\)/,
+    'an exact config must open directly through the Quotes-owned immediate action path',
+  );
+  assert.match(
+    source,
+    /if \(ensureQuoteSheetConfigMounted\(config\)\) \{\s*openSheet\(\);\s*return;\s*\}[\s\S]*scheduleQuoteSheetConfigPaint\(config, openSheet\)/,
+    'already-painted Quotes configs must retain the zero-extra-frame fast path',
+  );
+  assert.match(
+    source,
+    /currentGesture\.sequence === gestureSequence[\s\S]*currentGesture\.symbol === sym[\s\S]*currentGesture\.accepted[\s\S]*!currentGesture\.cancelled/,
+    'a delayed stale gesture must never open over a newer row interaction',
+  );
+  assert.match(
+    source,
+    /QUOTE_SHEET_VISUAL_BOUNDARY_FALLBACK_MS = 34[\s\S]*const scheduleQuoteSheetVisualBoundary = \(work: \(\) => void\) => \{[\s\S]*fallbackTask = setTimeout\(run, QUOTE_SHEET_VISUAL_BOUNDARY_FALLBACK_MS\)[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*frameTask = setTimeout\(run, 0\)/,
+    'config swaps must cross a bounded paint boundary without waiting on a throttled Android rAF',
+  );
+  assert.match(
+    source,
+    /const exactQuotesConfigIsMounted =[\s\S]*actionSheetScope === 'quotes'[\s\S]*preloadedScopedActionSheets\.quotes === config[\s\S]*if \(exactQuotesConfigIsMounted && config\.visualKey\) \{[\s\S]*quoteSheetPreparedVisualKeyRef\.current = config\.visualKey;[\s\S]*onPaint\?\.\(\)/,
+    'deferred visibility may run only for the exact mounted Quotes config',
+  );
+  const preparationStart = source.indexOf('const prepareSymbolDestinationShellsAfterSheetSettle');
+  const preparationEnd = source.indexOf('const clearQuoteSheetPressOutTimer', preparationStart);
+  const preparationSource = source.slice(preparationStart, preparationEnd);
+  assert.match(
+    preparationSource,
+    /cancelPendingQuoteSheetDestinationPreparation\(\)[\s\S]*const startSettleDelay[\s\S]*setTimeout\(\s*prepareDestinationShells,\s*QUOTE_SHEET_DESTINATION_PREP_DELAY_MS[\s\S]*requestAnimationFrame\(startSettleDelay\)/,
+    'lightweight destination shells must wait until one paint plus the local settle delay',
+  );
+  assert.match(
+    preparationSource,
+    /prepareOrderTicketLaunch\(sym, 'quotes'\);[\s\S]*prepareQuoteInfoLaunch\(sym\)/,
+  );
+  assert.doesNotMatch(
+    preparationSource,
+    /\bprefetch[A-Z]\w*\(|router\.(?:prefetch|push)|prepareChartSymbol\(|liveCandlesEngine\.prefetchHistory\(|preloadDeferredRouteModule\(|getCandleHistory\(/,
+    'opening the Quotes menu must not start network, route, module, or hidden Chart work',
+  );
+  assert.match(
+    source,
+    /previousState\.scopedActionSheets\.quotes !== null[\s\S]*state\.scopedActionSheets\.quotes === null[\s\S]*cancelPendingQuoteSheetDestinationPreparation\(\)[\s\S]*quoteSheetOptionCloseExpectedRef\.current[\s\S]*releaseQuoteSheetFeedPause\(\)/,
+    'backdrop and Back dismissal must cancel delayed preparation and resume live Quotes',
   );
   assert.match(
     source,
@@ -156,9 +210,15 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   );
   assert.match(
     source,
-    /const handleSymbolLongPress = useCallback[\s\S]*quoteLongPressActionSheetConfigs\.get\(sym\)[\s\S]*gesture\.accepted = true[\s\S]*runImmediateAction\('quotes\.symbolSheet\.longPress\.open'[\s\S]*showQuotesActionSheet\(config\);[\s\S]*prepareSymbolDestinationsAfterSheetPaint\(sym\)/,
+    /const handleSymbolLongPress = useCallback[\s\S]*quoteLongPressActionSheetConfigs\.get\(sym\)[\s\S]*gesture\.accepted = true[\s\S]*openQuoteSheetWhenConfigIsReady\(\s*config,\s*'quotes\.symbolSheet\.longPress\.open',\s*sym,/,
+    'long-press configs must use the same Quotes-local protected swap path',
   );
   assert.match(source, /onLongPress=\{\(\) => handleSymbolLongPress\(sym\)\}/);
+  assert.doesNotMatch(
+    source,
+    /openChartActionSheetSmoothly|handleOpenMoreMenu|from ['"]\.\.\/chart\/ChartScreen/,
+    'Quotes must own its opener and config instead of importing Chart feature behavior',
+  );
 });
 
 test('quote details paints an exact shell before mounting its focused heavy body', () => {

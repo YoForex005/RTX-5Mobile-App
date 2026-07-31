@@ -556,7 +556,7 @@ const HistoryScreenInner = memo(function HistoryScreenInner({ isScreenFocused }:
               numberOfLines={1}
               adjustsFontSizeToFit
             >
-              {fmt.int(balance)}
+              {fmt.decimal(balance)}
             </Text>
             <Text style={[styles.balanceQuickCurrency, { color: T.textSub }]}>{currency}</Text>
           </View>

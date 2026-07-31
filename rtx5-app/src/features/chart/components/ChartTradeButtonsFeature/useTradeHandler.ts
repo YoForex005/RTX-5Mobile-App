@@ -724,8 +724,8 @@ export function useTradeHandler({
     oneClickAccepted,
     quoteActionAllowed,
   });
-  // Dim only while this side is actively in-flight — never for quote readiness.
-  // Quote-not-ready used to apply opacity 0.5 and made Buy/Sell look permanently disabled.
+  // This side-specific signal is reserved for in-flight feedback. Quote
+  // readiness disables and dims both controls through chartTradeActionDisabled.
   const isChartTradeActionVisuallyLocked = (side: TradeSide) => isChartTradeActionBusy(side);
 
   return {

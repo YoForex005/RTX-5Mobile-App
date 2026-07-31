@@ -14,6 +14,7 @@ const quoteFallbackSource = readFileSync(
   resolve(process.cwd(), 'src/features/chart/components/ChartTradeButtonsFeature/quoteFallback.ts'),
   'utf8',
 );
+const rootLayoutSource = readFileSync(resolve(process.cwd(), 'app/_layout.tsx'), 'utf8');
 
 test('timeframe switch resets time range and commits only the selected timeframe', () => {
   assertSourceContains(
@@ -26,8 +27,44 @@ test('timeframe switch resets time range and commits only the selected timeframe
 test('symbol switch resets time range and commits only the selected symbol', () => {
   assertSourceContains(
     source,
-    /const handleSymbolSelect = useCallback[\s\S]*setActiveDateRange\('auto'\)[\s\S]*setCustomDateValue\(null\)[\s\S]*warmChartContextAndCommit\(nextSymbol, chartTimeframe\)/,
-    'symbol switch must reset range and commit new symbol',
+    /const handleSymbolSelect = useCallback[\s\S]*warmChartContextAndCommit\(nextSymbol, chartTimeframe\)[\s\S]*const timeout = setTimeout\(\(\) => \{[\s\S]*hideActionSheet\(\)[\s\S]*setActiveDateRange\('auto'\)[\s\S]*setCustomDateValue\(null\)[\s\S]*pendingSymbolUiResetTimeoutRef\.current = timeout/,
+    'symbol switch must start the selected request before deferring sheet close and range reset',
+  );
+});
+
+test('symbol switch cleanup preserves the latest intent across reselection and route changes', () => {
+  assertSourceContains(
+    source,
+    /const handleSymbolSelect = useCallback[\s\S]*cancelPendingSymbolUiReset\(\);[\s\S]*if \(nextSymbol === chartSymbol\) \{[\s\S]*chartContextCommitScheduler\.cancelPending\(\);[\s\S]*hideActionSheet\(\)/,
+    'reselecting the rendered symbol must cancel an older deferred symbol commit',
+  );
+  assertSourceContains(
+    source,
+    /useFocusEffect\([\s\S]*isScreenFocusedRef\.current = true[\s\S]*return \(\) => \{[\s\S]*isScreenFocusedRef\.current = false[\s\S]*chartContextCommitScheduler\.cancelPending\(\);[\s\S]*cancelPendingSymbolUiReset\(\)/,
+    'an immediate focus cleanup must cancel symbol work before the retained Chart prop updates',
+  );
+  assertSourceOmits(
+    source,
+    /isScreenFocusedRef\.current = isScreenFocused/,
+    'a render using the deferred focus prop must not overwrite the immediate blur signal',
+  );
+  assertSourceContains(
+    source,
+    /const currentCacheNamespace = currentSession\?\.session\.cacheNamespace \?\? ''[\s\S]*currentCacheNamespace !== expectedCacheNamespace/,
+    'a deferred commit must reject every session namespace transition, including an empty-to-active transition',
+  );
+});
+
+test('symbol switching does not rerender RootLayout or repeat startup cache restoration', () => {
+  assertSourceOmits(
+    rootLayoutSource,
+    /const chartSymbol = useUserPreferences\(\(s\) => s\.chartSymbol\)|const chartTimeframe = useUserPreferences\(\(s\) => s\.chartTimeframe\)/,
+    'RootLayout must not subscribe to the active chart context',
+  );
+  assertSourceContains(
+    rootLayoutSource,
+    /if \(!hasHydrated \|\| !sessionRestoreComplete\)[\s\S]*const \{ chartSymbol, chartTimeframe \} = useUserPreferences\.getState\(\)[\s\S]*hydratePersistedCandleCache\(chartSymbol, chartTimeframe\)[\s\S]*\}, \[hasHydrated, sessionRestoreComplete\]\)/,
+    'startup chart cache restoration must read the latest context once without subscribing the root tree',
   );
 });
 
@@ -60,26 +97,57 @@ test('symbol and timeframe switching reuse the initialized WebView surface', () 
   );
 });
 
-test('symbol and timeframe switching commits immediately and refreshes the target history context', () => {
+test('symbol switching dispatches selected history before the deferred heavy chart commit', () => {
   assertSourceContains(
     source,
     /const refreshSelectedChartHistory = useCallback\([\s\S]*liveCandlesEngine\.prefetchHistory\(nextSymbol, nextTimeframe\)[\s\S]*liveCandlesEngine\.refreshHistoryForContext\(nextSymbol, nextTimeframe\)/,
     'fast chart switches must start the selected context prefetch before refreshing an existing target context',
   );
-  assertSourceContains(
-    source,
-    /const warmChartContextAndCommit = useCallback\([\s\S]*\(nextSymbol: string, nextTimeframe: string\)[\s\S]*refreshSelectedChartHistory\(nextSymbol, nextTimeframe\)[\s\S]*setChartSymbol\(nextSymbol\)[\s\S]*setChartTimeframe\(nextTimeframe\)/,
-    'chart switch commit must request the selected context history without waiting before changing the active chart context',
+
+  const switchStart = source.indexOf('const warmChartContextAndCommit');
+  const switchEnd = source.indexOf('const handleTimeframeSelect', switchStart);
+  assert.notEqual(switchStart, -1);
+  assert.notEqual(switchEnd, -1);
+  const switchSource = source.slice(switchStart, switchEnd);
+  const requestIndex = switchSource.indexOf('chartContextCommitScheduler.request');
+  const prepareIndex = switchSource.indexOf('prepare:');
+  const refreshIndex = switchSource.indexOf('refreshSelectedChartHistory', prepareIndex);
+  const commitIndex = switchSource.indexOf('commit:');
+  const symbolCommitIndex = switchSource.indexOf('preferences.setChartSymbol', commitIndex);
+
+  assert.ok(requestIndex >= 0, 'symbol changes must use the cancellable deferred commit scheduler');
+  assert.ok(
+    prepareIndex > requestIndex && refreshIndex > prepareIndex,
+    'selected history preparation must be part of the pre-render scheduler phase',
+  );
+  assert.ok(
+    commitIndex > refreshIndex && symbolCommitIndex > commitIndex,
+    'the Zustand symbol update must happen only in the deferred commit phase',
+  );
+  assert.doesNotMatch(
+    switchSource.slice(0, commitIndex),
+    /setChartSymbol\(/,
+    'symbol switching must not start the heavy Chart render in the request-dispatch turn',
   );
   assertSourceContains(
     source,
-    /warmChartContextAndCommit\(chartSymbol, nextTimeframe\)/,
-    'timeframe switch must commit through the immediate chart context path',
+    /useEffect\(\(\) => \{[\s\S]*chartContextCommitScheduler\.cancelPending\(\)[\s\S]*return \(\) => \{[\s\S]*chartContextCommitScheduler\.cancelPending\(\)[\s\S]*cancelPendingSymbolUiReset\(\)/,
+    'pending symbol commits must be cancelled on retained-screen blur, session change, and unmount',
+  );
+  assertSourceContains(
+    source,
+    /if \(nextSymbol === chartSymbol\) \{[\s\S]*refreshSelectedChartHistory\(nextSymbol, nextTimeframe\)[\s\S]*setChartTimeframe\(nextTimeframe\)/,
+    'timeframe-only changes must keep their existing immediate commit path',
   );
   assertSourceContains(
     source,
     /warmChartContextAndCommit\(nextSymbol, chartTimeframe\)/,
-    'symbol switch must commit through the immediate chart context path',
+    'symbol selection must use the prioritized chart-context path',
+  );
+  assertSourceOmits(
+    source,
+    /prefetchSymbolPickerHistory|CHART_SYMBOL_PICKER_PREFETCH_LIMIT|CHART_SYMBOL_PICKER_PREFETCH_DELAY_MS/,
+    'opening the native picker must not launch unrelated candle requests that compete with the selected symbol',
   );
 });
 

@@ -15,8 +15,9 @@ test('chart buy/sell tiles never swap to a spinner and never animate price color
   assert.doesNotMatch(source, /TRADE_BUTTON_PRICE_UP_FLASH|TRADE_BUTTON_PRICE_DOWN_FLASH/);
   assert.match(source, /Busy state must NOT swap children/);
   assert.match(source, /No per-tick color animation/);
-  assert.match(source, /borderWidth: sellBusy \? 2 : 0/);
-  assert.match(source, /borderWidth: buyBusy \? 2 : 0/);
+  assert.match(source, /borderWidth: 2,\s*borderColor: sellBusy \?/);
+  assert.match(source, /borderWidth: 2,\s*borderColor: buyBusy \?/);
+  assert.doesNotMatch(source, /borderWidth: (?:sellBusy|buyBusy) \?/);
   // Positional (liveQuote, fallbackBid, fallbackAsk) crashed when liveQuote was null.
   assert.match(
     source,
@@ -28,8 +29,9 @@ test('chart buy/sell tiles never swap to a spinner and never animate price color
   );
   assert.match(
     source,
-    /resolveSessionQuoteActionAvailability\(liveQuote\)/,
+    /useExecutableQuote\(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS\)/,
   );
+  assert.match(source, /availability: quoteActionAvailability/);
   assert.match(source, /quoteActionQuote: liveQuote/);
   assert.doesNotMatch(
     source,

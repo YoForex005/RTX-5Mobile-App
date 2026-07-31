@@ -9,12 +9,9 @@ import {
   View,
 } from 'react-native';
 import { useActiveBrokerQuerySession } from '../../../../query/authenticatedQueryScope';
-import { useLiveSymbolQuote } from '../../../../query/websocket';
-import {
-  resolveSessionQuoteActionAvailability,
-} from '../../../../market/quoteIntegrity';
 import { formatTradeVolume, type TradeVolumeBounds } from '../../../../utils/tradeVolume';
 import type { TradeSide } from '../../../../domain/tradeSide';
+import { useExecutableQuote } from '../../../quotes/useExecutableQuote';
 import { getChartTradeAction } from '../../chartTradeActions';
 import {
   resolveFooterLotChevronPressBehavior,
@@ -24,6 +21,7 @@ import {
   resolveChartTradeButtonDisplayQuote,
   resolveChartTradeButtonQuote,
 } from './quoteFallback';
+import { splitFormattedChartTradePrice } from './pricePresentation';
 import { baseStyles, darkStyles, lightStyles, textBaseStyles } from './styles';
 import { useTradeHandler, type TradeFeedback } from './useTradeHandler';
 
@@ -87,6 +85,7 @@ const ChartTradeButtonPriceText = React.memo(function ChartTradeButtonPriceText(
 }) {
   // No per-tick color animation. JS-thread color tweens on every bid/ask tick
   // made the horizontal BUY/SELL strip blink on iOS and Android.
+  const priceParts = splitFormattedChartTradePrice(text);
   return (
     <Text
       style={[
@@ -101,7 +100,12 @@ const ChartTradeButtonPriceText = React.memo(function ChartTradeButtonPriceText(
       minimumFontScale={0.7}
       testID={testID}
     >
-      {text}
+      {priceParts.leading}
+      {priceParts.trailing ? (
+        <Text style={baseStyles.actionBtnPriceTrailingText}>
+          {priceParts.trailing}
+        </Text>
+      ) : null}
     </Text>
   );
 });
@@ -159,7 +163,13 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
     bid: number;
     ask: number;
   } | null>(null);
-  const liveQuote = useLiveSymbolQuote(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS);
+  // This shared hook adds the one-second freshness clock and feed-health
+  // subscription that a quote-only render path cannot provide. The controls
+  // therefore repaint into a disabled state even when ticks simply stop.
+  const {
+    quote: liveQuote,
+    availability: quoteActionAvailability,
+  } = useExecutableQuote(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS);
   // Must pass a single options object — positional args crash when liveQuote is
   // null/undefined (destructure of undefined) and tripped the trading ErrorBoundary after OTA.
   const latestQuote = resolveChartTradeButtonQuote({
@@ -174,11 +184,6 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
     fallbackBid,
     fallbackAsk,
   });
-  // Quote-integrity checks need the complete websocket quote. The sanitized
-  // bid/ask pair above is only for numeric execution prices; passing it here
-  // drops transport/freshness metadata and makes every live tick look like a
-  // delayed REST snapshot.
-  const quoteActionAvailability = resolveSessionQuoteActionAvailability(liveQuote);
   const latestBid = Number(latestQuote?.bid);
   const latestAsk = Number(latestQuote?.ask);
   const resolvedDisplayBid = Number(resolvedDisplayQuote?.bid);
@@ -287,13 +292,15 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
   });
   // Lot chrome only cares about identity + invalid draft — not quote integrity.
   const tradeControlsDisabled = !isCurrentChartSymbol;
-  // Hard-disable only for stale symbol or invalid lot. Quote readiness is handled
-  // in the press handler so tiles stay bright and tappable.
+  // The helper includes both selected-symbol identity and executable quote
+  // freshness. The press handler still rechecks to close the render-to-tap race.
   const tradeBlocked = chartTradeActionDisabled || lotInvalid;
 
   const themeStyles = isDark ? darkStyles : lightStyles;
   const sellAction = getChartTradeAction('sell');
   const buyAction = getChartTradeAction('buy');
+  // Keep each side visually stable while quote values update: Sell is always
+  // red and Buy is always blue.
   const sellTileColor = sellColor;
   const buyTileColor = buyColor;
   const lotControl = (
@@ -432,6 +439,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
             baseStyles.chartTradeMarketActionButton,
             { backgroundColor: sellColor },
             sellBusy && baseStyles.chartTradeMarketActionButtonBusy,
+            tradeBlocked && baseStyles.chartTradeActionButtonDisabled,
           ]}
           disabled={tradeBlocked}
           accessibilityState={{ disabled: tradeBlocked, busy: isChartTradeActionBusy('sell') }}
@@ -454,6 +462,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
             baseStyles.chartTradeMarketActionButton,
             { backgroundColor: buyColor },
             buyBusy && baseStyles.chartTradeMarketActionButtonBusy,
+            tradeBlocked && baseStyles.chartTradeActionButtonDisabled,
           ]}
           disabled={tradeBlocked}
           accessibilityState={{ disabled: tradeBlocked, busy: isChartTradeActionBusy('buy') }}
@@ -483,7 +492,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
             baseStyles.actionBtn,
             {
               backgroundColor: sellTileColor,
-              borderWidth: sellBusy ? 2 : 0,
+              borderWidth: 2,
               borderColor: sellBusy ? 'rgba(255,255,255,0.55)' : 'transparent',
               shadowColor: sellTileColor,
               shadowOffset: { width: 0, height: 4 },
@@ -492,6 +501,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
               elevation: 0,
             },
             lotInvalid && baseStyles.actionBtnLotInvalid,
+            tradeBlocked && baseStyles.chartTradeActionButtonDisabled,
           ]}
           disabled={tradeBlocked}
           accessibilityState={{ disabled: tradeBlocked, busy: isChartTradeActionBusy('sell') }}
@@ -558,7 +568,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
             baseStyles.actionBtn,
             {
               backgroundColor: buyTileColor,
-              borderWidth: buyBusy ? 2 : 0,
+              borderWidth: 2,
               borderColor: buyBusy ? 'rgba(255,255,255,0.55)' : 'transparent',
               shadowColor: buyTileColor,
               shadowOffset: { width: 0, height: 4 },
@@ -567,6 +577,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
               elevation: 0,
             },
             lotInvalid && baseStyles.actionBtnLotInvalid,
+            tradeBlocked && baseStyles.chartTradeActionButtonDisabled,
           ]}
           disabled={tradeBlocked}
           accessibilityState={{ disabled: tradeBlocked, busy: isChartTradeActionBusy('buy') }}

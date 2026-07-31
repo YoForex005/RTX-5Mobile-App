@@ -16,6 +16,7 @@ export const baseStyles = StyleSheet.create({
   },
   // Invalid lot: keep height/layout; only reduce opacity slightly.
   actionBtnLotInvalid: { opacity: 0.7 },
+  chartTradeActionButtonDisabled: { opacity: 0.5 },
   chartTradeMarketActionTitle: {
     color: '#FFFFFF', fontSize: 12, fontWeight: '700',
     letterSpacing: 0.2, textTransform: 'uppercase', textAlign: 'center',
@@ -105,13 +106,13 @@ export const baseStyles = StyleSheet.create({
     position: 'absolute', top: 2, left: 6, zIndex: 1,
     flexDirection: 'row', justifyContent: 'flex-start', alignItems: 'center',
   },
-  actionBtnLabelTitle: { color: '#FFFFFF', fontSize: 8, fontWeight: '600', letterSpacing: 0.2 },
+  actionBtnLabelTitle: { color: '#FFFFFF', fontSize: 9, fontWeight: '600', letterSpacing: 0.2 },
   actionBtnPriceText: {
     width: '100%',
     color: '#FFFFFF',
-    fontSize: 16,
-    lineHeight: 19,
-    fontWeight: '800',
+    fontSize: 15,
+    lineHeight: 25,
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
     textAlign: 'center',
     paddingHorizontal: 4,
@@ -119,6 +120,13 @@ export const baseStyles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.35)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 1.5,
+  },
+  actionBtnPriceTrailingText: {
+    fontSize: 23,
+    lineHeight: 25,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+    includeFontPadding: false,
   },
 });
 

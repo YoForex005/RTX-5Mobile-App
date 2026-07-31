@@ -16,7 +16,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useIsDarkTheme } from '../../state/themeMode';
 import { usePositionsState } from '../../state/positionsState';
-import { hasPositionPresenceConverged } from '../../state/positionsState.helpers';
 import { resolveTradingLogin, resolveTradingLoginString, useResolvedTradingLogin } from '../../state/tradingLogin';
 import { ordersApi } from '../../api/orders';
 import { resolveBrokerExecutionEvidence } from '../../api/orders/executionEvidence';
@@ -778,37 +777,6 @@ function OrderTicketInteractiveContent() {
   const sellTradeAction = tradeButtonActions[0];
   const buyTradeAction = tradeButtonActions[1];
 
-  // Reconcile every successful market action. In netting mode, Buy/Sell can
-  // increase, decrease, close, or reverse a position instead of opening one.
-  const syncMarketPosition = async (
-    login: string,
-    ticketId: number | undefined,
-    expectedPresence: boolean | null,
-    requiresContentReconciliation: boolean,
-  ) => {
-    const maxAttempts = 15;
-
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      await usePositionsState.getState().refreshPositions(login);
-
-      if (!ticketId) return;
-
-      if (expectedPresence === null) {
-        if (attempt >= 1) return;
-      } else {
-        const presenceConverged = hasPositionPresenceConverged(
-          usePositionsState.getState().positions,
-          ticketId,
-          expectedPresence,
-        );
-
-        if (presenceConverged && (!requiresContentReconciliation || attempt >= 1)) return;
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-  };
-
   // Submit a market order. This path validates account context, builds the API
   // payload, handles backend rejection, and updates the positions list.
   const handlePlaceOrder = async (side: TradeSide) => {
@@ -1008,32 +976,16 @@ function OrderTicketInteractiveContent() {
       const executionEvidence = resolveBrokerExecutionEvidence(data);
       const positionTicket = executionEvidence.ticket;
       const executionPrice = executionEvidence.executionPrice;
-      const executionAction = typeof data.action === 'string'
-        ? data.action.trim().toLowerCase()
-        : '';
-      const expectedPositionPresence = executionAction === 'closed' ? false : true;
-      const requiresContentReconciliation = ['increased', 'decreased', 'reversed'].includes(executionAction);
       // ExecutionResult is a mutation hint only. Netting can open, increase,
       // decrease, close, or reverse an existing position, and it does not echo
-      // authoritative SL/TP. Never append or decorate the local ledger here;
-      // the owner-bound REST reconciliation below is the source of truth.
+      // authoritative SL/TP. The API-owned captured-session reconciliation is
+      // the only writer for this market mutation.
 
       void invalidateSessionQueryRoots(
         queryClient,
         marketActionProvenance.cacheNamespace,
         ['positions', 'accountSummary', 'exposure', 'transactions'],
       );
-
-      // Refresh positions state from the server in the background.
-      const mt5Login = resolveTradingLoginString();
-      if (mt5Login) {
-        void syncMarketPosition(
-          mt5Login,
-          positionTicket,
-          expectedPositionPresence,
-          requiresContentReconciliation,
-        );
-      }
 
       const displaySymbol = symbol.replace(/\//g, '');
       const successFeedback: TradeFeedbackState = executionEvidence.confirmed

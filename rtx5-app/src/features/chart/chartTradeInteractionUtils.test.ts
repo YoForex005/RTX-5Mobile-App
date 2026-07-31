@@ -94,7 +94,7 @@ test('chart footer lot editor has an iOS Apply accessory and stable focus retry'
   assert.match(chartScreenSource, /const maxAttempts = 8/);
 });
 
-test('chart quick trade buttons keep side colors stable while bid and ask update', () => {
+test('chart quick trade buttons keep semantic side colors and terminal prices stable while quotes update', () => {
   const tradeButtonsSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/ChartTradeButtonsFeature.tsx');
   const quoteSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/quoteFallback.ts');
   const chartScreenSource = readSource('src/features/chart/ChartScreen.native.tsx');
@@ -114,6 +114,8 @@ test('chart quick trade buttons keep side colors stable while bid and ask update
   assert.match(tradeButtonsSource, /const TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS = 16/);
   assert.match(tradeButtonsSource, /const TRADE_BUTTON_PRICE_TEXT_COLOR = '#FFFFFF'/);
   assert.match(tradeButtonsSource, /const ChartTradeButtonPriceText = React\.memo/);
+  assert.match(tradeButtonsSource, /splitFormattedChartTradePrice\(text\)/);
+  assert.match(tradeButtonsSource, /baseStyles\.actionBtnPriceTrailingText/);
   assert.doesNotMatch(
     priceTextSource,
     /Animated|Easing|previousTextRef|flashProgress|flashColor|setFlashColor|TRADE_BUTTON_PRICE_(?:UP|DOWN)_FLASH|TRADE_BUTTON_PRICE_FLASH_MS/,

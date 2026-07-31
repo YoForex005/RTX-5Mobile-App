@@ -54,13 +54,17 @@ test('chart trade confirmations never invent tickets or execution prices', () =>
 
 test('shared order mutation never inserts an execution response into the position ledger', () => {
   const source = readSource('src/query/orders.ts');
+  const orderSource = readSource('src/api/orders/placeMarketOrder.ts');
+  const reconciliationSource = readSource('src/api/orders/marketPositionReconciliation.ts');
 
   assert.doesNotMatch(source, /canOptimisticallyInsertPosition/);
   assert.doesNotMatch(source, /\.upsertPosition\(/);
   assert.match(source, /handlePlaceOrderSuccess\([\s\S]*queryClient,[\s\S]*data,[\s\S]*variables,[\s\S]*owner/);
-  assert.match(source, /resolveBrokerExecutionEvidence\(data\)/);
-  assert.match(source, /getPositionsForReconciliation\([\s\S]*owner\.accountLogin/);
-  assert.match(source, /applyPositionsSnapshot\(/);
+  assert.match(reconciliationSource, /response\?\.position_ticket \?\? response\?\.ticket/);
+  assert.doesNotMatch(reconciliationSource, /order_ticket/);
+  assert.match(orderSource, /getPositionsForReconciliation\(owner\.accountLogin/);
+  assert.match(orderSource, /applyPositionsSnapshot\(/);
+  assert.doesNotMatch(orderSource, /\.upsertPosition\(/);
   assert.doesNotMatch(source, /openPrice:\s*data\.price\s*\|\|\s*0/);
   assert.doesNotMatch(source, /currentPrice:\s*data\.price\s*\|\|\s*0/);
 });
@@ -72,10 +76,8 @@ test('order ticket never fabricates a broker fill from a live quote or random id
   assert.match(handler, /resolveBrokerExecutionEvidence\(data\)/);
   assert.doesNotMatch(handler, /canOptimisticallyInsertPosition/);
   assert.doesNotMatch(handler, /\.upsertPosition\(/);
-  assert.match(handler, /Never append or decorate the local ledger/);
-  assert.match(handler, /executionAction === 'closed'[\s\S]*expectedPositionPresence/);
-  assert.match(handler, /requiresContentReconciliation = \['increased', 'decreased', 'reversed'\]/);
-  assert.match(handler, /syncMarketPosition\([\s\S]*expectedPositionPresence,[\s\S]*requiresContentReconciliation/);
+  assert.match(handler, /API-owned captured-session reconciliation is[\s\S]*the only writer/);
+  assert.doesNotMatch(handler, /syncMarketPosition|refreshPositions\(/);
   assert.match(handler, /executionConfirmed:\s*false/);
   assert.match(handler, /Confirmation Pending/);
   assert.doesNotMatch(handler, /Math\.random/);

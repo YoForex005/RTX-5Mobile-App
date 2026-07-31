@@ -43,6 +43,18 @@ test('account summary mapper normalizes margin aliases without blank-value maski
   assert.equal(summary.marginLevel, 8007.97);
 });
 
+test('account summary mapper preserves a fractional backend balance', () => {
+  const summary = mapAccountSummaryApiResponse({
+    id: '200082',
+    balance: '1233.73',
+    equity: '1233.73',
+    currency: 'USD',
+    leverage: 500,
+  } satisfies AccountSummaryApiResponse);
+
+  assert.equal(summary.balance, 1233.73);
+});
+
 test('account summary mapper derives missing account metrics and preserves explicit zero', () => {
   const derived = mapAccountSummaryApiResponse({
     id: '200082',

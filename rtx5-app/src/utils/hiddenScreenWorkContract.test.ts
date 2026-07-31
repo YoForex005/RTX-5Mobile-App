@@ -134,7 +134,7 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   assert.match(chartSource, /useLiveSymbolQuote\(chartSymbol, chartRuntimeActive, CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS\)/);
   assert.doesNotMatch(chartLiveHeadersSource, /useMarketData|useLiveTick/);
   assert.match(chartTradeButtonsSource, /const TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS = 16/);
-  assert.match(chartTradeButtonsSource, /useLiveSymbolQuote\(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS\)/);
+  assert.match(chartTradeButtonsSource, /useExecutableQuote\(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS\)/);
   assert.match(
     chartTradeButtonsSource,
     /const displayQuoteScopeKey =[\s\S]*activeSession\?\.cacheNamespace[\s\S]*props\.symbol\.trim\(\)\.toUpperCase\(\)[\s\S]*key=\{displayQuoteScopeKey\}[\s\S]*const retainedDisplayQuoteRef = React\.useRef/,
@@ -272,26 +272,28 @@ test('settings, trade, and history screens pause work when another screen is foc
 
   assert.match(tradeSource, /import \{ useIsFocused \} from '@react-navigation\/native'/);
   assert.match(tradeSource, /import \{ useNextFrameValue \} from '\.\.\/\.\.\/\.\.\/hooks\/useNextFrameValue'/);
-  assert.match(tradeSource, /const TradeScreenInner = React\.memo\(function TradeScreenInner\(\{ isScreenFocused \}: \{ isScreenFocused: boolean \}\)/);
-  assert.match(tradeSource, /export function TradeScreen\(\) \{\s*const isScreenFocused = useIsFocused\(\);\s*const deferredScreenFocused = useNextFrameValue\(isScreenFocused\);\s*return <TradeScreenInner isScreenFocused=\{deferredScreenFocused\} \/>;\s*\}/);
+  assert.match(tradeSource, /const TradeScreenInner = React\.memo\(function TradeScreenInner\(\{\s*isScreenFocused,\s*isLiveScreenFocused,\s*\}: \{\s*isScreenFocused: boolean;\s*isLiveScreenFocused: boolean;\s*\}\)/);
+  assert.match(tradeSource, /export function TradeScreen\(\) \{\s*const isScreenFocused = useIsFocused\(\);\s*const isLiveScreenFocused = useNextFrameValue\(isScreenFocused\);[\s\S]*isScreenFocused=\{isScreenFocused\}[\s\S]*isLiveScreenFocused=\{isLiveScreenFocused\}/);
   assert.match(tradeSource, /const TRADE_INITIAL_POSITION_RENDER_COUNT = 5/);
   assert.match(tradeSource, /const TRADE_POSITION_RENDER_BATCH_SIZE = 5/);
   assert.match(tradeSource, /const TRADE_SCREEN_FETCH_DELAY_MS = 0/);
   assert.match(tradeSource, /const TRADE_SCREEN_REFRESH_INTERVAL_MS = 3000/);
   assert.match(tradeSource, /const TRADE_BODY_PREWARM_DELAY_MS = 600/);
   assert.match(tradeSource, /const routeBodyReady = useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : TRADE_BODY_PREWARM_DELAY_MS,\s*\)/);
+  assert.match(tradeSource, /const showTradeBody = isScreenFocused \|\| routeBodyReady/);
+  assert.match(tradeSource, /\{showTradeBody \? <>/);
   assert.doesNotMatch(tradeSource, /useDeferredRouteContentReady\([^)]*, isScreenFocused\)/);
   assert.match(tradeSource, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
   assert.doesNotMatch(tradeSource, /sidebarOpen = useUIState/);
   // Live quote subscriptions activate immediately on the focused Trade tab;
   // the heavier backend ledger refresh still waits until after first paint.
-  assert.match(tradeSource, /const tradeLiveActive = isScreenFocused/);
+  assert.match(tradeSource, /const tradeLiveActive = isLiveScreenFocused/);
   assert.match(tradeSource, /const tradeFetchActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady, TRADE_SCREEN_FETCH_DELAY_MS\)/);
   // A retained hidden Trade tab must not follow feed-health or ledger mutations.
   // It keeps the last focused render snapshots and reconnects on real focus.
   assert.match(tradeSource, /const retainedFeedHealthRef = useRef\(getFeedHealthRenderSnapshot\(\)\)/);
-  assert.match(tradeSource, /const subscribeFocusedFeedHealth = useCallback\([\s\S]*isScreenFocused \? subscribeFeedHealth\(listener\) : \(\) => undefined/);
-  assert.match(tradeSource, /const getFocusedFeedHealthSnapshot = useCallback\([\s\S]*isScreenFocused \? getFeedHealthRenderSnapshot\(\) : retainedFeedHealthRef\.current/);
+  assert.match(tradeSource, /const subscribeFocusedFeedHealth = useCallback\([\s\S]*isLiveScreenFocused \? subscribeFeedHealth\(listener\) : \(\) => undefined/);
+  assert.match(tradeSource, /const getFocusedFeedHealthSnapshot = useCallback\([\s\S]*isLiveScreenFocused \? getFeedHealthRenderSnapshot\(\) : retainedFeedHealthRef\.current/);
   assert.match(tradeSource, /React\.useSyncExternalStore\(\s*subscribeFocusedFeedHealth,\s*getFocusedFeedHealthSnapshot,\s*getFocusedFeedHealthSnapshot,?\s*\)/);
   assert.doesNotMatch(tradeSource, /React\.useSyncExternalStore\(\s*subscribeFeedHealth/);
   assert.match(tradeSource, /const retainedTradeLedgerRef = useRef<RetainedTradeLedger \| null>\(null\)/);

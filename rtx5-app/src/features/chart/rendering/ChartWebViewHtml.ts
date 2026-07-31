@@ -2,6 +2,7 @@ import { LIGHTWEIGHT_CHARTS_JS } from "./lightweightChartsBundle";
 import { RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS } from "../../../domain/candles/rendering/customCandlestickSeriesWebView";
 import { ENHANCED_DRAWING_TOOLS_JS } from "../plugins/enhancedDrawingToolsString";
 import { CHART_AXIS_DIVIDER_STROKE_WIDTH, CHART_DEFAULT_VISIBLE_BAR_MAX, CHART_DEFAULT_VISIBLE_BAR_TARGET_PX, CHART_DEFAULT_VISIBLE_BAR_MIN, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_RESET_BAR_SPACING_MAX, CHART_DEFAULT_RESET_BAR_SPACING_MIN, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_DRAWING_MAGNET_THRESHOLD_PX, CHART_GRID_DASH_PATTERN, CHART_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET, CHART_GRID_HORIZONTAL_LINE_COUNT, CHART_GRID_HORIZONTAL_SPACING, CHART_GRID_STROKE_WIDTH, CHART_GRID_VERTICAL_SPACING, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE } from "../ChartScreen.constants";
+import { CHART_CANDLE_COUNTDOWN_FIXED_SECONDS } from "../chartCandleCountdown";
 
 export const CH_HTML = `
 <!DOCTYPE html>
@@ -154,6 +155,10 @@ export const CH_HTML = `
       var lastLivePrice = null;
       var lastBidPrice = null;
       var lastAskPrice = null;
+      var candleCountdownTimeframe = null;
+      var candleCountdownActive = false;
+      var candleCountdownTimer = null;
+      var CANDLE_COUNTDOWN_FIXED_SECONDS = ${JSON.stringify(CHART_CANDLE_COUNTDOWN_FIXED_SECONDS)};
       // Price-movement histogram shown below the candles. Bar height equals
       // |close − open| for that bar (the magnitude of the candle's move),
       // coloured green when the candle closed up, red when it closed down.
@@ -252,6 +257,10 @@ export const CH_HTML = `
       var OVERLAY_ANCHORED_LABEL_RIGHT_PADDING = 16;
       var MARKET_PRICE_SCALE_EXTENSION_HEIGHT = 1;
       var MARKET_PRICE_SCALE_BADGE_HEIGHT = 22;
+      var MARKET_LIVE_PRICE_BADGE_PRICE_ROW_HEIGHT = 18;
+      var MARKET_LIVE_PRICE_BADGE_COUNTDOWN_ROW_HEIGHT = 14;
+      var MARKET_LIVE_PRICE_BADGE_HEIGHT =
+        MARKET_LIVE_PRICE_BADGE_PRICE_ROW_HEIGHT + MARKET_LIVE_PRICE_BADGE_COUNTDOWN_ROW_HEIGHT;
       var MARKET_PRICE_SCALE_BADGE_MIN_WIDTH = 56;
       var MARKET_PRICE_SCALE_BADGE_PADDING_X = 4;
       var MARKET_PRICE_SCALE_BADGE_GAP = 1;
@@ -6865,6 +6874,7 @@ export const CH_HTML = `
             _liveBar = null;
             _liveBarHasObservedRealtimeUpdate = false;
           }
+          scheduleMarketPriceScaleDomOnly();
         } catch (e) {
           postError('updateChartData', e);
         }
@@ -6936,6 +6946,7 @@ export const CH_HTML = `
         if (normalizedTick.time >= lastBarTime) {
           lastBarTime = normalizedTick.time;
         }
+        scheduleMarketPriceScaleDomOnly();
         ensureMoveBarsSeries(lastDisplayDecimals);
         if (moveBarsSeries && seriesType !== 'line') {
           try { moveBarsSeries.update(makeMoveBarPoint(_liveBar)); } catch (_mb) {}
@@ -7203,6 +7214,163 @@ export const CH_HTML = `
             ? Math.max(0, Math.min(10, Math.round(configuredDecimals)))
             : resolveOverlayDisplayDecimals();
         return Number(price.toFixed(safeDecimals));
+      }
+
+      function normalizeCandleCountdownTimeframe(timeframe) {
+        var raw = String(timeframe == null ? '' : timeframe).trim();
+        if (!raw) return null;
+        var caseSensitiveAliases = {
+          '1m': 'M1',
+          '5m': 'M5',
+          '15m': 'M15',
+          '30m': 'M30',
+          '1h': 'H1',
+          '4h': 'H4',
+          '1d': 'D1',
+          '1w': 'W1',
+          '1M': 'MN',
+        };
+        if (caseSensitiveAliases[raw]) return caseSensitiveAliases[raw];
+
+        var aliases = {
+          '1': 'M1',
+          '5': 'M5',
+          '15': 'M15',
+          '30': 'M30',
+          '60': 'H1',
+          '240': 'H4',
+          'M1': 'M1',
+          'M5': 'M5',
+          'M15': 'M15',
+          'M30': 'M30',
+          'H1': 'H1',
+          'H4': 'H4',
+          'D1': 'D1',
+          'W1': 'W1',
+          'MN': 'MN',
+          'MN1': 'MN',
+          'MONTH': 'MN',
+          'MONTHLY': 'MN',
+          '1MIN': 'M1',
+          '5MIN': 'M5',
+          '15MIN': 'M15',
+          '30MIN': 'M30',
+          '1H': 'H1',
+          '4H': 'H4',
+          '1D': 'D1',
+          '1W': 'W1',
+          '1MO': 'MN',
+        };
+        var normalized = aliases[raw.toUpperCase()] || null;
+        return normalized && Object.prototype.hasOwnProperty.call(CANDLE_COUNTDOWN_FIXED_SECONDS, normalized)
+          ? normalized
+          : null;
+      }
+
+      function normalizeCandleCountdownBarTimeSeconds(value) {
+        var numeric = Number(value);
+        if (!isFinite(numeric) || numeric <= 0) return null;
+        if (numeric > 4.2e10) numeric = numeric / 1000;
+        return Math.floor(numeric);
+      }
+
+      function resolveCandleCountdownCloseTimeMs(barTime, timeframe) {
+        var normalizedTimeframe = normalizeCandleCountdownTimeframe(timeframe);
+        var barTimeSeconds = normalizeCandleCountdownBarTimeSeconds(barTime);
+        if (!normalizedTimeframe || barTimeSeconds === null) return null;
+
+        if (normalizedTimeframe === 'MN') {
+          var barDate = new Date(barTimeSeconds * 1000);
+          return Date.UTC(barDate.getUTCFullYear(), barDate.getUTCMonth() + 1, 1);
+        }
+
+        var intervalSeconds = CANDLE_COUNTDOWN_FIXED_SECONDS[normalizedTimeframe];
+        if (typeof intervalSeconds !== 'number' || !isFinite(intervalSeconds) || intervalSeconds <= 0) {
+          return null;
+        }
+        return (barTimeSeconds + intervalSeconds) * 1000;
+      }
+
+      function getCandleCountdownRemainingSeconds(nowMs) {
+        var normalizedTimeframe = normalizeCandleCountdownTimeframe(candleCountdownTimeframe);
+        var barTimeSeconds = normalizeCandleCountdownBarTimeSeconds(lastBarTime);
+        if (!normalizedTimeframe || barTimeSeconds === null) return null;
+        var closeTimeMs = resolveCandleCountdownCloseTimeMs(barTimeSeconds, normalizedTimeframe);
+        if (closeTimeMs === null) return null;
+        var currentTimeMs = typeof nowMs === 'number' && isFinite(nowMs) ? nowMs : Date.now();
+        var bucketDurationSeconds = Math.max(0, Math.round(closeTimeMs / 1000 - barTimeSeconds));
+        var remainingSeconds = Math.max(0, Math.ceil((closeTimeMs - currentTimeMs) / 1000));
+        return Math.min(bucketDurationSeconds, remainingSeconds);
+      }
+
+      function padCandleCountdownUnit(value) {
+        return String(value).padStart(2, '0');
+      }
+
+      function formatCandleCountdownLabel(remainingSeconds) {
+        if (typeof remainingSeconds !== 'number' || !isFinite(remainingSeconds) || remainingSeconds < 0) {
+          return null;
+        }
+        var totalSeconds = Math.floor(remainingSeconds);
+        var seconds = totalSeconds % 60;
+        var totalMinutes = Math.floor(totalSeconds / 60);
+        var minutes = totalMinutes % 60;
+        var totalHours = Math.floor(totalMinutes / 60);
+        var hours = totalHours % 24;
+        var days = Math.floor(totalHours / 24);
+        if (days > 0) {
+          return days + 'd ' + padCandleCountdownUnit(hours) + ':' +
+            padCandleCountdownUnit(minutes) + ':' + padCandleCountdownUnit(seconds);
+        }
+        if (totalHours > 0) {
+          return padCandleCountdownUnit(totalHours) + ':' +
+            padCandleCountdownUnit(minutes) + ':' + padCandleCountdownUnit(seconds);
+        }
+        return padCandleCountdownUnit(totalMinutes) + ':' + padCandleCountdownUnit(seconds);
+      }
+
+      function resolveCandleCountdownLabel() {
+        return formatCandleCountdownLabel(getCandleCountdownRemainingSeconds(Date.now()));
+      }
+
+      function stopCandleCountdownTicker() {
+        if (candleCountdownTimer !== null) {
+          try { clearTimeout(candleCountdownTimer); } catch (_error) {}
+          candleCountdownTimer = null;
+        }
+      }
+
+      function scheduleNextCandleCountdownTick() {
+        if (!candleCountdownActive || !candleCountdownTimeframe || candleCountdownTimer !== null) return;
+        var delay = Math.max(50, 1000 - (Date.now() % 1000) + 16);
+        candleCountdownTimer = setTimeout(function() {
+          candleCountdownTimer = null;
+          if (!document.hidden) {
+            scheduleMarketPriceScaleDomOnly();
+          }
+          scheduleNextCandleCountdownTick();
+        }, delay);
+      }
+
+      function setCandleCountdownTimeframe(timeframe) {
+        candleCountdownTimeframe = normalizeCandleCountdownTimeframe(timeframe);
+        stopCandleCountdownTicker();
+        if (candleCountdownActive && candleCountdownTimeframe) {
+          scheduleNextCandleCountdownTick();
+        }
+        scheduleMarketPriceScaleDomOnly();
+        return candleCountdownTimeframe !== null;
+      }
+
+      function setCandleCountdownActive(active) {
+        candleCountdownActive = active === true;
+        stopCandleCountdownTicker();
+        if (candleCountdownActive && candleCountdownTimeframe) {
+          scheduleNextCandleCountdownTick();
+        }
+        if (candleCountdownActive) {
+          scheduleMarketPriceScaleDomOnly();
+        }
       }
 
       function scheduleMarketPriceScaleDomOnly() {
@@ -7943,11 +8111,20 @@ export const CH_HTML = `
         if (typeof y !== 'number' || !isFinite(y)) {
           return null;
         }
-        var desiredTop = Math.round(y - MARKET_PRICE_SCALE_BADGE_HEIGHT / 2);
+        var countdownLabel = role === 'live' ? resolveCandleCountdownLabel() : null;
+        var hasCountdown = typeof countdownLabel === 'string' && countdownLabel.length > 0;
+        var badgeHeight = hasCountdown ? MARKET_LIVE_PRICE_BADGE_HEIGHT : MARKET_PRICE_SCALE_BADGE_HEIGHT;
+        var priceRowHeight = hasCountdown
+          ? MARKET_LIVE_PRICE_BADGE_PRICE_ROW_HEIGHT
+          : MARKET_PRICE_SCALE_BADGE_HEIGHT;
+        var desiredTop = Math.round(y - priceRowHeight / 2);
         return {
+          badgeHeight: badgeHeight,
           color: color || '#2962FF',
+          countdownLabel: countdownLabel,
           desiredTop: desiredTop,
           price: price,
+          priceRowHeight: priceRowHeight,
           role: role,
           top: desiredTop,
           y: y,
@@ -7968,13 +8145,29 @@ export const CH_HTML = `
           layer.appendChild(el);
         }
         el.setAttribute('data-rtx5-role', 'market-price-scale-' + badge.role);
-        el.textContent = formatMarketPriceScaleBadgeLabel(badge.price);
+        var priceRow = el.querySelector
+          ? el.querySelector('.rtx5-market-price-scale-badge-price')
+          : null;
+        var countdownRow = el.querySelector
+          ? el.querySelector('.rtx5-market-price-scale-badge-countdown')
+          : null;
+        if (!priceRow || !countdownRow) {
+          el.textContent = '';
+          priceRow = document.createElement('span');
+          priceRow.className = 'rtx5-market-price-scale-badge-price';
+          countdownRow = document.createElement('span');
+          countdownRow.className = 'rtx5-market-price-scale-badge-countdown';
+          countdownRow.setAttribute('data-rtx5-role', 'candle-countdown');
+          el.appendChild(priceRow);
+          el.appendChild(countdownRow);
+        }
+        priceRow.textContent = formatMarketPriceScaleBadgeLabel(badge.price);
+        countdownRow.textContent = badge.countdownLabel || '';
         el.style.position = 'absolute';
         el.style.left = axisMetrics.axisLeft + 'px';
         el.style.top = Math.round(badge.top) + 'px';
         el.style.width = axisMetrics.axisWidth + 'px';
-        el.style.height = MARKET_PRICE_SCALE_BADGE_HEIGHT + 'px';
-        el.style.lineHeight = MARKET_PRICE_SCALE_BADGE_HEIGHT + 'px';
+        el.style.height = badge.badgeHeight + 'px';
         el.style.boxSizing = 'border-box';
         el.style.padding = '0 ' + MARKET_PRICE_SCALE_BADGE_PADDING_X + 'px';
         el.style.background = badge.color;
@@ -7989,6 +8182,17 @@ export const CH_HTML = `
         el.style.overflow = 'hidden';
         el.style.pointerEvents = 'none';
         el.style.zIndex = '14';
+        el.style.display = 'flex';
+        el.style.flexDirection = 'column';
+        el.style.alignItems = 'stretch';
+        priceRow.style.display = 'block';
+        priceRow.style.height = badge.priceRowHeight + 'px';
+        priceRow.style.lineHeight = badge.priceRowHeight + 'px';
+        countdownRow.style.display = badge.countdownLabel ? 'block' : 'none';
+        countdownRow.style.height = MARKET_LIVE_PRICE_BADGE_COUNTDOWN_ROW_HEIGHT + 'px';
+        countdownRow.style.lineHeight = MARKET_LIVE_PRICE_BADGE_COUNTDOWN_ROW_HEIGHT + 'px';
+        countdownRow.style.fontSize = badge.countdownLabel && badge.countdownLabel.length > 11 ? '8px' : '10px';
+        countdownRow.style.fontWeight = '700';
       }
 
       function renderMarketPriceScaleBadges(layer) {
@@ -8005,11 +8209,13 @@ export const CH_HTML = `
           return;
         }
         badges.sort(function(left, right) { return left.desiredTop - right.desiredTop; });
-        var step = MARKET_PRICE_SCALE_BADGE_HEIGHT + MARKET_PRICE_SCALE_BADGE_GAP;
         for (var i = 0; i < badges.length; i++) {
           var nextTop = badges[i].desiredTop;
           if (i > 0) {
-            nextTop = Math.max(nextTop, badges[i - 1].top + step);
+            nextTop = Math.max(
+              nextTop,
+              badges[i - 1].top + badges[i - 1].badgeHeight + MARKET_PRICE_SCALE_BADGE_GAP
+            );
           }
           badges[i].top = nextTop;
         }
@@ -8584,6 +8790,8 @@ export const CH_HTML = `
       window.setBidPriceLine = setBidPriceLine;
       window.setAskPriceLine = setAskPriceLine;
       window.setMarketPriceLines = setMarketPriceLines;
+      window.setCandleCountdownTimeframe = setCandleCountdownTimeframe;
+      window.setCandleCountdownActive = setCandleCountdownActive;
       window.setLastPriceLineVisible = setLastPriceLineVisible;
       window.setDrawingTool = setDrawingTool;
       window.clearDrawings = clearDrawings;

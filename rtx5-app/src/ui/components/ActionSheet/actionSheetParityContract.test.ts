@@ -41,7 +41,7 @@ test('ActionSheet surfaces use the shared instant Quotes-style sheet contract', 
 
   // Mailbox/News/Community screens removed — fewer mounts and no News sheet scope.
   assert.equal(actionSheetMounts.length, 21);
-  assert.equal(scopedActionSheetCalls.length, 15);
+  assert.equal(scopedActionSheetCalls.length, 14);
 
   for (const mount of actionSheetMounts) {
     assert.match(mount[0], /instantOpen/, 'ActionSheet mount must opt into instant open path');
@@ -63,7 +63,7 @@ test('ActionSheet surfaces use the shared instant Quotes-style sheet contract', 
   assert.match(tabsLayoutSource, /androidKeyboardAvoidance=\{activeConfig\?\.androidKeyboardAvoidance\}/);
   assert.match(tabsLayoutSource, /entryMotion=\{activeConfig\?\.entryMotion\}/);
   assert.match(tabsLayoutSource, /visualKey=\{activeConfig\?\.visualKey\}/);
-  assert.match(tabsLayoutSource, /const activeConfig = actionSheet \|\| scopedActionSheet \|\| preloadConfig \|\| scopedPreloadConfig/);
+  assert.match(tabsLayoutSource, /const activeConfig = actionSheet \|\| scopedActionSheet \|\| scopedPreloadConfig \|\| preloadConfig/);
   assert.match(tabsLayoutSource, /const visible = actionSheet !== null \|\| scopedActionSheet !== null/);
   assert.match(uiStateSource, /showActionSheet: \(config\) => set\(\{ actionSheet: withInstantActionSheetOpen\(config\) \}\)/);
   assert.match(uiStateSource, /config\.instantOpen === true \? config : \{ \.\.\.config, instantOpen: true \}/);
@@ -128,8 +128,9 @@ test('high-traffic scoped action sheets open through immediate action wrappers',
   const accountsSource = readSource('src/features/settings/AccountsScreen.tsx');
   const brokerDetailSource = readSource('src/features/settings/BrokerDetailScreen.tsx');
 
-  assert.match(quotesSource, /runImmediateAction\('quotes\.symbolSheet\.tap\.open'[\s\S]*showQuotesActionSheet\(config\)/);
-  assert.match(quotesSource, /runImmediateAction\('quotes\.symbolSheet\.longPress\.open'[\s\S]*showQuotesActionSheet\(config\)/);
+  assert.match(quotesSource, /const openQuoteSheetWhenConfigIsReady = useCallback[\s\S]*runImmediateAction\(actionName[\s\S]*showQuotesActionSheet\(config\)/);
+  assert.match(quotesSource, /openQuoteSheetWhenConfigIsReady\(\s*config,\s*'quotes\.symbolSheet\.tap\.open'/);
+  assert.match(quotesSource, /openQuoteSheetWhenConfigIsReady\(\s*config,\s*'quotes\.symbolSheet\.longPress\.open'/);
   assert.match(tradeSource, /runImmediateAction\('trade\.bulkSheet\.open'[\s\S]*showTradeActionSheet\(bulkActionSheetConfig\)/);
   assert.match(tradeSource, /const bulkActionSheetConfig = useMemo[\s\S]*entryMotion: 'mt5Slide'[\s\S]*runActionAfterClose: false/);
   assert.match(tradeSource, /runImmediateAction\('trade\.positionSheet\.open'[\s\S]*showTradeActionSheet\(\{/);

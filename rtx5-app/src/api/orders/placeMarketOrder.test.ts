@@ -145,10 +145,10 @@ test('every dispatched market outcome starts captured-owner reconciliation witho
   );
   assert.match(outcomeSource, /createRequestStarted = true;[\s\S]*await apiClient\('\/orders'/);
   assert.match(outcomeSource, /try \{[\s\S]*\} finally \{/);
-  assert.match(
-    outcomeSource,
-    /createRequestStarted && isActiveBrokerSessionOwnerStampCurrent\(owner\)/,
-  );
+  const barrierIndex = outcomeSource.indexOf('beginProtectedPositionsMutation()');
+  const firstDispatchIndex = outcomeSource.indexOf('const attempt = await sendOrder(candidate)');
+  assert.ok(barrierIndex >= 0 && barrierIndex < firstDispatchIndex);
+  assert.match(outcomeSource, /if \(createRequestStarted\) \{[\s\S]*reconcileMarketOrderPositions\(reconciliationResponse/);
   assert.match(
     outcomeSource,
     /positionsApi\.getPositionsForReconciliation\(owner\.accountLogin\)/,
@@ -156,6 +156,15 @@ test('every dispatched market outcome starts captured-owner reconciliation witho
   assert.match(
     outcomeSource,
     /isActiveBrokerSessionOwnerStampCurrent\(owner\)[\s\S]*applyPositionsSnapshot\([\s\S]*owner\.accountLogin/,
+  );
+  assert.match(outcomeSource, /\.finally\(releasePositionsMutation\)/);
+  assert.match(
+    outcomeSource,
+    /reconciliationGeneration !== marketOrderReconciliationGeneration[\s\S]*preserveMissingExisting \? \{ preserveMissingExisting: true \} : undefined/,
+  );
+  assert.doesNotMatch(
+    outcomeSource,
+    /getPositionsForReconciliation\(owner\.accountLogin\)[\s\S]{0,250}\.then\([\s\S]{0,250}applyPositionsSnapshot/,
   );
   assert.doesNotMatch(outcomeSource, /resolveTradingLoginString/);
 });

@@ -24,7 +24,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { useUserPreferences } from '../../state/userPreferences';
 import { useIsDarkTheme } from '../../state/themeMode';
-import { useUIState } from '../../state/uiState';
+import { useUIState, type ActionSheetConfig } from '../../state/uiState';
 import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
@@ -40,11 +40,7 @@ import { AppHeader } from '../../ui/components/AppHeader';
 import { FastPressable, FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { useTranslation } from '../../i18n/useTranslation';
 import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
-import { prefetchQuoteDetails } from '../../utils/navigationPrefetch';
-import { prefetchOrderTicketData } from '../../utils/navigationPrefetch';
-import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { liveCandlesEngine } from '../../api/ws/liveCandlesEngine';
-import { preloadDeferredRouteModule } from '../../ui/components/DeferredRouteMount';
 import {
   hideOrderTicketLaunch,
   prepareOrderTicketLaunch,
@@ -58,17 +54,14 @@ import {
   showQuoteInfoLaunch,
   type QuoteInfoLaunchDestination,
 } from './quoteInfoLaunchController';
-import {
-  loadMarketStatisticsScreenRoute,
-  loadSymbolDetailsScreenRoute,
-  MARKET_STATISTICS_ROUTE_MODULE_CACHE_KEY,
-  SYMBOL_DETAILS_ROUTE_MODULE_CACHE_KEY,
-} from './quotesRoutePreloads';
 import { navigateMountedSidebarTab } from '../../ui/components/sidebarDrawerController';
 import {
   showFastTabVisual,
 } from '../../ui/navigation/fastTabVisualController';
 import { runImmediateAction } from '../../utils/actionLatency';
+import {
+  parkRetainedActionSheetHostForConfigSwap,
+} from '../../ui/components/ActionSheet/retainedActionSheetVisualController';
 import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
 import { useNextFrameValue } from '../../hooks/useNextFrameValue';
 import { MARKET_QUOTE_STALE_AFTER_MS } from '../../market/quotePolicy';
@@ -147,6 +140,61 @@ const QUOTE_SHEET_OPEN_FEED_PAUSE_MS = 15_000;
 const QUOTE_SHEET_OPTION_FEED_PAUSE_MS = 900;
 const QUOTE_SHEET_ROUTE_FEED_PAUSE_MS = 2_500;
 const QUOTE_SHEET_PRESS_CANCEL_MOVE_PX = 10;
+const QUOTE_SHEET_PRESS_OUT_CANCEL_DELAY_MS = 160;
+const QUOTE_SHEET_VISUAL_BOUNDARY_FALLBACK_MS = 34;
+// Prepare only the lightweight retained destination shells after the Quotes
+// sheet has finished its own entry. Keep this local so Chart changes cannot
+// alter the Quotes launch contract.
+const QUOTE_SHEET_DESTINATION_PREP_DELAY_MS = 300;
+
+const scheduleQuoteSheetVisualBoundary = (work: () => void) => {
+  let cancelled = false;
+  let completed = false;
+  let frameHandle: number | null = null;
+  let frameTask: ReturnType<typeof setTimeout> | null = null;
+  let fallbackTask: ReturnType<typeof setTimeout> | null = null;
+
+  const clearPending = () => {
+    if (frameHandle !== null) {
+      globalThis.cancelAnimationFrame?.(frameHandle);
+      frameHandle = null;
+    }
+    if (frameTask !== null) {
+      clearTimeout(frameTask);
+      frameTask = null;
+    }
+    if (fallbackTask !== null) {
+      clearTimeout(fallbackTask);
+      fallbackTask = null;
+    }
+  };
+  const run = () => {
+    if (completed) {
+      return;
+    }
+    completed = true;
+    clearPending();
+    if (!cancelled) {
+      work();
+    }
+  };
+
+  // Prefer a real paint boundary, but never let a throttled Android rAF hold a
+  // confirmed Quotes tap for seconds. If frames are being throttled, no stale
+  // pose can be displayed between the hidden preview and this bounded fallback.
+  fallbackTask = setTimeout(run, QUOTE_SHEET_VISUAL_BOUNDARY_FALLBACK_MS);
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    frameHandle = globalThis.requestAnimationFrame(() => {
+      frameHandle = null;
+      frameTask = setTimeout(run, 0);
+    });
+  }
+
+  return () => {
+    cancelled = true;
+    clearPending();
+  };
+};
 
 const subscribeActiveBrokerCapture = (listener: () => void): (() => void) =>
   subscribeActiveBrokerSession(() => listener());
@@ -2493,33 +2541,86 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
   const quoteViewMode = useUserPreferences((st) => st.quoteViewMode);
   const setQuoteViewMode = useUserPreferences((st) => st.setQuoteViewMode);
   const preloadQuotesActionSheet = useUIState((s) => s.preloadQuotesActionSheet);
-  const preloadedQuoteTapConfigRef = useRef<Parameters<typeof showQuotesActionSheet>[0] | null>(null);
-
+  const quoteSheetPreparedVisualKeyRef = useRef<string | null>(null);
+  const quoteSheetConfigPaintRevisionRef = useRef(0);
+  const quoteSheetConfigPaintCancelRef = useRef<(() => void) | null>(null);
+  const quoteSheetDestinationPrepRevisionRef = useRef(0);
+  const quoteSheetDestinationPrepFrameRef = useRef<number | null>(null);
+  const quoteSheetDestinationPrepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const quoteSheetOptionCloseExpectedRef = useRef(false);
+  const cancelPendingQuoteSheetConfigPaint = useCallback(() => {
+    quoteSheetConfigPaintRevisionRef.current += 1;
+    quoteSheetConfigPaintCancelRef.current?.();
+    quoteSheetConfigPaintCancelRef.current = null;
+  }, []);
+  const cancelPendingQuoteSheetDestinationPreparation = useCallback(() => {
+    quoteSheetDestinationPrepRevisionRef.current += 1;
+    if (quoteSheetDestinationPrepFrameRef.current !== null) {
+      globalThis.cancelAnimationFrame?.(quoteSheetDestinationPrepFrameRef.current);
+      quoteSheetDestinationPrepFrameRef.current = null;
+    }
+    const timer = quoteSheetDestinationPrepTimerRef.current;
+    quoteSheetDestinationPrepTimerRef.current = null;
+    if (timer !== null) {
+      clearTimeout(timer);
+    }
+  }, []);
   useEffect(() => {
     if (isScreenFocused) {
       releaseQuoteSheetFeedPause();
+    } else {
+      cancelPendingQuoteSheetConfigPaint();
+      cancelPendingQuoteSheetDestinationPreparation();
     }
-  }, [isScreenFocused, releaseQuoteSheetFeedPause]);
+  }, [
+    cancelPendingQuoteSheetConfigPaint,
+    cancelPendingQuoteSheetDestinationPreparation,
+    isScreenFocused,
+    releaseQuoteSheetFeedPause,
+  ]);
 
   useEffect(() => {
-    return releaseQuoteSheetFeedPause;
-  }, [releaseQuoteSheetFeedPause]);
+    return () => {
+      cancelPendingQuoteSheetConfigPaint();
+      cancelPendingQuoteSheetDestinationPreparation();
+      releaseQuoteSheetFeedPause();
+    };
+  }, [
+    cancelPendingQuoteSheetConfigPaint,
+    cancelPendingQuoteSheetDestinationPreparation,
+    releaseQuoteSheetFeedPause,
+  ]);
+
+  useEffect(() => useUIState.subscribe((state, previousState) => {
+    if (
+      previousState.scopedActionSheets.quotes !== null
+      && state.scopedActionSheets.quotes === null
+    ) {
+      cancelPendingQuoteSheetDestinationPreparation();
+      if (quoteSheetOptionCloseExpectedRef.current) {
+        quoteSheetOptionCloseExpectedRef.current = false;
+      } else {
+        releaseQuoteSheetFeedPause();
+      }
+    }
+  }), [cancelPendingQuoteSheetDestinationPreparation, releaseQuoteSheetFeedPause]);
 
   const runQuoteSheetOption = useCallback((action: () => void, options?: QuoteSheetOptionOptions) => {
     const routeChange = options?.routeChange === true;
+    cancelPendingQuoteSheetDestinationPreparation();
     // Briefly reduce quote-row work so it cannot compete with the option tap.
     pauseQuoteSheetFeed(routeChange ? QUOTE_SHEET_ROUTE_FEED_PAUSE_MS : QUOTE_SHEET_OPTION_FEED_PAUSE_MS);
-    if (routeChange) {
-      // Feed notifications and reconnect work are already paused above. Do not
-      // flip component state here: that would reconcile the whole Quotes list
-      // in the same frame as the retained destination is being revealed.
+    quoteSheetOptionCloseExpectedRef.current = true;
+    try {
       action();
-      return;
+    } finally {
+      // ActionSheet publishes its close immediately after this callback. Keep
+      // the bounded option/route pause for that close, then clear the marker.
+      setTimeout(() => {
+        quoteSheetOptionCloseExpectedRef.current = false;
+      }, 0);
     }
-    // Non-route options also run on touch-down, without waiting for the sheet
-    // close animation.
-    action();
-  }, [pauseQuoteSheetFeed]);
+  }, [cancelPendingQuoteSheetDestinationPreparation, pauseQuoteSheetFeed]);
 
   /**
    * Properties / Market Statistics — same speed model as New Order:
@@ -2532,7 +2633,10 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     sym: string,
   ) => {
     runQuoteSheetOption(() => {
-      // prepare() already ran when the sheet opened — show() only flips opacity.
+      // The settled-sheet preparation normally makes this a no-op.
+      // Reassert the symbol so an unusually fast option tap cannot reveal a
+      // retained shell prepared for another row.
+      prepareQuoteInfoLaunch(sym);
       const launchRevision = showQuoteInfoLaunch(destination, sym);
       scheduleQuoteInfoLaunchNavigation(launchRevision, () => {
         try {
@@ -2578,6 +2682,9 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
   const openOrderTicketForSymbol = useCallback((sym: string) => {
     runQuoteSheetOption(() => {
       // Show a ready, ticket-shaped screen immediately.
+      // Reassert the symbol so an unusually fast option tap cannot reveal a
+      // retained shell prepared for another row.
+      prepareOrderTicketLaunch(sym, 'quotes');
       const launchRevision = showOrderTicketLaunch(sym, 'quotes');
       // Open the fully interactive ticket after the ready screen has painted.
       scheduleOrderTicketLaunchNavigation(launchRevision, () => {
@@ -2721,69 +2828,206 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     return configs;
   }, [goDetail, openChartTabForSymbol, quoteSymbols, removeQuoteSymbol, runQuoteSheetOption, showQuotesActionSheet, syncServerRemove, t]);
 
+  const resolveMountedActionSheetConfig = useCallback(() => {
+    const state = useUIState.getState();
+    const scope = state.actionSheetScope;
+    const scopedConfig = scope ? state.scopedActionSheets[scope] : null;
+    const scopedPreload = scope
+      ? state.preloadedScopedActionSheets[scope]
+      : Object.values(state.preloadedScopedActionSheets).find(Boolean) ?? null;
+    return {
+      config: state.actionSheet
+        ?? scopedConfig
+        ?? scopedPreload
+        ?? state.preloadedActionSheet,
+      state,
+    };
+  }, []);
+
+  const ensureQuoteSheetConfigMounted = useCallback((config: ActionSheetConfig) => {
+    const visualKey = config.visualKey;
+    const mounted = resolveMountedActionSheetConfig();
+    const mountedVisualKey = mounted.config?.visualKey;
+    const preparedVisualKey = quoteSheetPreparedVisualKeyRef.current;
+    const quotesOwnMountedConfig =
+      Boolean(visualKey)
+      && mounted.state.actionSheet === null
+      && mounted.state.actionSheetScope === 'quotes'
+      && mountedVisualKey === visualKey
+      && (
+        mounted.state.scopedActionSheets.quotes === config
+        || mounted.state.preloadedScopedActionSheets.quotes === config
+      );
+
+    if (
+      quotesOwnMountedConfig
+      && preparedVisualKey === visualKey
+    ) {
+      return true;
+    }
+
+    // Zustand may already expose the target config while the retained native
+    // host still owns the previously painted symbol. Park the identity that
+    // actually reached a paint boundary first; only fall back to the store key
+    // when that exact host was not found. The ActionSheet parker accepts only
+    // its committed key, so stale candidates cannot hide another feature.
+    let parkedOutgoingHost = false;
+    if (preparedVisualKey && preparedVisualKey !== visualKey) {
+      parkedOutgoingHost = parkRetainedActionSheetHostForConfigSwap(preparedVisualKey);
+    }
+    if (
+      !parkedOutgoingHost
+      && mountedVisualKey
+      && mountedVisualKey !== preparedVisualKey
+    ) {
+      parkRetainedActionSheetHostForConfigSwap(mountedVisualKey);
+    }
+    quoteSheetPreparedVisualKeyRef.current = null;
+
+    if (!quotesOwnMountedConfig) {
+      // Reassert the Quotes scope as well as the config. A Chart preload may
+      // have owned the shared host since this row was last touched.
+      preloadQuotesActionSheet(config);
+    }
+
+    return false;
+  }, [preloadQuotesActionSheet, resolveMountedActionSheetConfig]);
+
+  const scheduleQuoteSheetConfigPaint = useCallback((
+    config: ActionSheetConfig,
+    onPaint?: () => void,
+  ) => {
+    cancelPendingQuoteSheetConfigPaint();
+    const revision = quoteSheetConfigPaintRevisionRef.current;
+
+    const finishPaint = () => {
+      if (quoteSheetConfigPaintRevisionRef.current !== revision) {
+        return;
+      }
+      quoteSheetConfigPaintCancelRef.current = null;
+
+      const mounted = resolveMountedActionSheetConfig();
+      const exactQuotesConfigIsMounted =
+        config.visualKey
+        && mounted.state.actionSheet === null
+        && mounted.state.actionSheetScope === 'quotes'
+        && mounted.config?.visualKey === config.visualKey
+        && (
+          mounted.state.scopedActionSheets.quotes === config
+          || mounted.state.preloadedScopedActionSheets.quotes === config
+        );
+      if (exactQuotesConfigIsMounted && config.visualKey) {
+        quoteSheetPreparedVisualKeyRef.current = config.visualKey;
+        onPaint?.();
+      }
+    };
+
+    quoteSheetConfigPaintCancelRef.current = scheduleQuoteSheetVisualBoundary(finishPaint);
+  }, [
+    cancelPendingQuoteSheetConfigPaint,
+    resolveMountedActionSheetConfig,
+  ]);
+
   useEffect(() => {
     if (!quoteRouteActive) {
       return;
     }
     const firstSym = quoteSymbols[0];
-    if (firstSym) {
-      const config = quoteTapActionSheetConfigs.get(firstSym);
-      if (config && preloadedQuoteTapConfigRef.current !== config) {
-        preloadedQuoteTapConfigRef.current = config;
-        preloadQuotesActionSheet(config);
-      }
+    const config = firstSym ? quoteTapActionSheetConfigs.get(firstSym) : null;
+    if (config && !ensureQuoteSheetConfigMounted(config)) {
+      scheduleQuoteSheetConfigPaint(config);
     }
-  }, [quoteRouteActive, quoteSymbols, quoteTapActionSheetConfigs, preloadQuotesActionSheet]);
+  }, [
+    ensureQuoteSheetConfigMounted,
+    quoteRouteActive,
+    quoteSymbols,
+    quoteTapActionSheetConfigs,
+    scheduleQuoteSheetConfigPaint,
+  ]);
 
-  const prepareSymbolDestinationsAfterSheetPaint = useCallback((sym: string) => {
-    const prepareDestinations = () => {
-      // These retained launch previews publish to several root subscribers.
-      // Keep that React work out of the ActionSheet's first visible commit.
+  const prepareSymbolDestinationShellsAfterSheetSettle = useCallback((sym: string) => {
+    cancelPendingQuoteSheetDestinationPreparation();
+    const revision = quoteSheetDestinationPrepRevisionRef.current;
+
+    const prepareDestinationShells = () => {
+      if (quoteSheetDestinationPrepRevisionRef.current !== revision) {
+        return;
+      }
+      quoteSheetDestinationPrepTimerRef.current = null;
+      // Only prepare the two lightweight retained shells. Network requests,
+      // candle history, route imports, and router prefetches start only after
+      // the user explicitly chooses a destination.
       prepareOrderTicketLaunch(sym, 'quotes');
       prepareQuoteInfoLaunch(sym);
+    };
 
-      // The sheet is already visible. Start loading Chart data now so a later
-      // Chart option tap has less work left to do.
-      const chartTimeframe = prepareChartSymbol(sym);
-      void liveCandlesEngine.prefetchHistory(sym, chartTimeframe);
-
-      // Prepare the data and route files used by New Order, Properties, and
-      // Market Statistics while the user is choosing an option.
-      prefetchOrderTicketData(resolveTradingLoginString(), sym);
-      prefetchQuoteDetails(sym);
-      // Warm the heavy screen modules so DeferredRouteModule can paint the
-      // interactive body without waiting on a dynamic import after the option tap.
-      void preloadDeferredRouteModule(
-        SYMBOL_DETAILS_ROUTE_MODULE_CACHE_KEY,
-        loadSymbolDetailsScreenRoute,
-      ).catch(() => undefined);
-      void preloadDeferredRouteModule(
-        MARKET_STATISTICS_ROUTE_MODULE_CACHE_KEY,
-        loadMarketStatisticsScreenRoute,
-      ).catch(() => undefined);
-      const routePrefetches = [
-        { pathname: '/trade/order-ticket' as const, params: { symbol: sym } },
-        { pathname: '/quotes/details' as const, params: { symbol: sym } },
-        { pathname: '/quotes/market-statistics' as const, params: { symbol: sym } },
-      ];
-      for (const href of routePrefetches) {
-        try {
-          router.prefetch(href);
-        } catch {
-          // Prefetching is only a speed-up; the option still works without it.
-        }
+    const startSettleDelay = () => {
+      if (quoteSheetDestinationPrepRevisionRef.current !== revision) {
+        return;
       }
+      quoteSheetDestinationPrepFrameRef.current = null;
+      quoteSheetDestinationPrepTimerRef.current = setTimeout(
+        prepareDestinationShells,
+        QUOTE_SHEET_DESTINATION_PREP_DELAY_MS,
+      );
     };
 
     if (typeof globalThis.requestAnimationFrame === 'function') {
-      globalThis.requestAnimationFrame(() => {
-        setTimeout(prepareDestinations, 0);
-      });
+      quoteSheetDestinationPrepFrameRef.current =
+        globalThis.requestAnimationFrame(startSettleDelay);
       return;
     }
 
-    setTimeout(prepareDestinations, 16);
-  }, [router]);
+    quoteSheetDestinationPrepTimerRef.current = setTimeout(
+      prepareDestinationShells,
+      QUOTE_SHEET_DESTINATION_PREP_DELAY_MS + 16,
+    );
+  }, [cancelPendingQuoteSheetDestinationPreparation]);
+
+  const openQuoteSheetWhenConfigIsReady = useCallback((
+    config: ActionSheetConfig,
+    actionName: string,
+    sym: string,
+    gestureSequence?: number,
+  ) => {
+    const currentGestureIsAccepted = () => {
+      if (gestureSequence === undefined) {
+        return true;
+      }
+      const currentGesture = quoteSheetPressGestureRef.current;
+      return currentGesture.sequence === gestureSequence
+        && currentGesture.symbol === sym
+        && currentGesture.accepted
+        && !currentGesture.cancelled;
+    };
+
+    const openSheet = () => {
+      if (!currentGestureIsAccepted()) {
+        releaseQuoteSheetFeedPause();
+        return;
+      }
+      runImmediateAction(actionName, () => {
+        showQuotesActionSheet(config);
+        prepareSymbolDestinationShellsAfterSheetSettle(sym);
+      });
+    };
+
+    if (ensureQuoteSheetConfigMounted(config)) {
+      openSheet();
+      return;
+    }
+
+    // A fast release or a tap after Chart owned the global host can arrive
+    // before the hidden Quotes rows have painted. Give that local config one
+    // frame, then start the same native slide without exposing stale content.
+    scheduleQuoteSheetConfigPaint(config, openSheet);
+  }, [
+    ensureQuoteSheetConfigMounted,
+    prepareSymbolDestinationShellsAfterSheetSettle,
+    releaseQuoteSheetFeedPause,
+    scheduleQuoteSheetConfigPaint,
+    showQuotesActionSheet,
+  ]);
 
   const clearQuoteSheetPressOutTimer = useCallback(() => {
     if (quoteSheetPressOutTimerRef.current) {
@@ -2810,6 +3054,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
 
   const handleSymbolPressIn = useCallback((sym: string, event: GestureResponderEvent) => {
     clearQuoteSheetPressOutTimer();
+    cancelPendingQuoteSheetDestinationPreparation();
 
     const sequence = ++quoteSheetPressSequenceRef.current;
     quoteSheetPressGestureRef.current = {
@@ -2820,7 +3065,11 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
       cancelled: false,
     };
     pauseQuoteSheetFeed();
-  }, [clearQuoteSheetPressOutTimer, pauseQuoteSheetFeed]);
+  }, [
+    cancelPendingQuoteSheetDestinationPreparation,
+    clearQuoteSheetPressOutTimer,
+    pauseQuoteSheetFeed,
+  ]);
 
   const handleSymbolPressMove = useCallback((event: GestureResponderEvent) => {
     const gesture = quoteSheetPressGestureRef.current;
@@ -2846,7 +3095,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     quoteSheetPressOutTimerRef.current = setTimeout(() => {
       quoteSheetPressOutTimerRef.current = null;
       cancelSymbolSheetPreview(sequence);
-    }, 0);
+    }, QUOTE_SHEET_PRESS_OUT_CANCEL_DELAY_MS);
   }, [cancelSymbolSheetPreview, clearQuoteSheetPressOutTimer]);
 
   /**
@@ -2875,16 +3124,14 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
         clearQuoteSheetPressOutTimer();
       }
 
-      runImmediateAction('quotes.symbolSheet.tap.open', () => {
-        // Publish the selected config and visibility atomically through React.
-        // Mutating a retained native host between press-in and this release
-        // turn lets Android replay its previous fully-open surface before the
-        // new slide pose is attached.
-        showQuotesActionSheet(config);
-        prepareSymbolDestinationsAfterSheetPaint(sym);
-      });
+      openQuoteSheetWhenConfigIsReady(
+        config,
+        'quotes.symbolSheet.tap.open',
+        sym,
+        gesture.symbol === sym ? gesture.sequence : undefined,
+      );
     }
-  }, [cancelSymbolSheetPreview, clearQuoteSheetPressOutTimer, prepareSymbolDestinationsAfterSheetPaint, quoteTapActionSheetConfigs, showQuotesActionSheet, showAddModal]);
+  }, [cancelSymbolSheetPreview, clearQuoteSheetPressOutTimer, openQuoteSheetWhenConfigIsReady, quoteTapActionSheetConfigs, showAddModal]);
 
   /**
    * Callback triggered when a user long-presses on a symbol row, typically opening a context menu with options like 'Chart', 'Details', or 'Remove'.
@@ -2895,16 +3142,21 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     if (config) {
       const gesture = quoteSheetPressGestureRef.current;
       if (gesture.symbol === sym) {
+        if (gesture.cancelled) {
+          return;
+        }
         gesture.accepted = true;
         gesture.start = null;
         clearQuoteSheetPressOutTimer();
       }
-      runImmediateAction('quotes.symbolSheet.longPress.open', () => {
-        showQuotesActionSheet(config);
-        prepareSymbolDestinationsAfterSheetPaint(sym);
-      });
+      openQuoteSheetWhenConfigIsReady(
+        config,
+        'quotes.symbolSheet.longPress.open',
+        sym,
+        gesture.symbol === sym ? gesture.sequence : undefined,
+      );
     }
-  }, [clearQuoteSheetPressOutTimer, prepareSymbolDestinationsAfterSheetPaint, quoteLongPressActionSheetConfigs, showQuotesActionSheet, showAddModal]);
+  }, [clearQuoteSheetPressOutTimer, openQuoteSheetWhenConfigIsReady, quoteLongPressActionSheetConfigs, showAddModal]);
 
   useEffect(() => () => {
     clearQuoteSheetPressOutTimer();

@@ -5,7 +5,7 @@ import test from 'node:test';
 
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
-test('native chart gates only one-click execution on the executable quote policy', () => {
+test('native chart reactively disables Buy and Sell on the executable quote policy', () => {
   const component = readSource(
     'src/features/chart/components/ChartTradeButtonsFeature/ChartTradeButtonsFeature.tsx',
   );
@@ -15,15 +15,24 @@ test('native chart gates only one-click execution on the executable quote policy
 
   // The full websocket quote carries transport/freshness evidence. The
   // price-only latestQuote object must never be used as executable evidence.
-  assert.match(component, /resolveSessionQuoteActionAvailability\(liveQuote\)/);
+  assert.match(
+    component,
+    /useExecutableQuote\(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS\)/,
+  );
+  assert.match(component, /availability: quoteActionAvailability/);
   assert.match(component, /quoteActionAllowed: quoteActionAvailability\.allowed/);
   assert.match(component, /quoteActionQuote: liveQuote/);
   assert.doesNotMatch(component, /resolveSessionQuoteActionAvailability\(latestQuote\)/);
   assert.doesNotMatch(component, /quoteActionQuote: latestQuote/);
   assert.match(component, /resolveChartTradeButtonDisplayQuote/);
-  // Tiles stay pressable when quote is not executable; handler fails closed.
+  // The availability helper hard-disables stale controls; handler still fails
+  // closed at execution time to cover a render-to-tap freshness race.
   assert.match(component, /const tradeBlocked = chartTradeActionDisabled \|\| lotInvalid/);
-  assert.doesNotMatch(component, /tradeBlocked = chartTradeActionDisabled \|\| lotInvalid \|\| !quoteActionAvailability/);
+  const availability = readSource(
+    'src/features/chart/components/ChartTradeButtonsFeature/tradeAvailability.ts',
+  );
+  assert.match(availability, /return !isCurrentChartSymbol \|\| !quoteActionAllowed/);
+  assert.match(component, /tradeBlocked && baseStyles\.chartTradeActionButtonDisabled/);
   assert.match(handler, /resolveSessionQuoteActionAvailability\(quoteActionQuoteRef\.current\)/);
   // Queue drain can skip a same-turn recheck after the tap already validated the quote.
   assert.match(
@@ -49,7 +58,9 @@ test('web chart quick trades never use candle close as order price availability'
   const end = source.indexOf('// Micro-component:', start + 1);
   const tradeButtons = source.slice(start, end === -1 ? undefined : end);
 
-  assert.match(tradeButtons, /resolveSessionQuoteActionAvailability\(q\)/);
+  assert.match(tradeButtons, /useExecutableQuote\(symbol, active, 16\)/);
+  assert.match(tradeButtons, /availability: quoteActionAvailability/);
+  assert.match(tradeButtons, /const currentQuoteAvailability = getCurrentAvailability\(\)/);
   assert.match(tradeButtons, /disabled=\{isPending \|\| !quoteActionAvailability\.allowed\}/);
   assert.doesNotMatch(tradeButtons, /latestTick|latestClose|\.close/);
 });

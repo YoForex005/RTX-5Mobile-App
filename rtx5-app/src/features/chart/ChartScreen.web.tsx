@@ -31,6 +31,7 @@ import {
   TvCrosshair, TvTrendLine, TvFib, TvText, TvMeasure, TvZoom, TvPencil, TvLock, TvHide, TvTrash, TvLayers,
   TvCandles, TvGrid4, TvUndo, TvRedo, TvSaveSquare, TvPrediction, TvStayInDrawingMode, TvRadialObjects
 } from './components/ChartToolbarIcons';
+import { ChartCandleCountdownBadge } from './components/ChartCandleCountdownBadge.web';
 import { DrawingToolsManager } from './plugins/drawing-tools-manager';
 import { Screen } from '../../ui/components/Screen';
 import { resolveChartColorsForTheme, useUserPreferences } from '../../state/userPreferences';
@@ -68,6 +69,7 @@ import {
 } from '../../state/activeBrokerSession';
 import { TradingSignalDetailsModal } from './TradingSignalDetailsModal';
 import { hasLiveQuoteFeedData, useMarketData } from '../../query/websocket';
+import { useExecutableQuote } from '../quotes/useExecutableQuote';
 import {
   quoteActionBlockMessage,
   recordBlockedPriceAction,
@@ -263,11 +265,13 @@ const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, priceSour
 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
 const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize, active = true }: any) => {
-  const liveQuotes = useMarketData([symbol], active);
-  const q = liveQuotes[symbol] || {};
-  const quoteActionAvailability = resolveSessionQuoteActionAvailability(q);
-  const latestBid = typeof q.bid === 'number' && q.bid > 0 ? q.bid : 0;
-  const latestAsk = typeof q.ask === 'number' && q.ask > 0 ? q.ask : 0;
+  const {
+    quote: liveQuote,
+    availability: quoteActionAvailability,
+    getCurrentAvailability,
+  } = useExecutableQuote(symbol, active, 16);
+  const latestBid = typeof liveQuote?.bid === 'number' && liveQuote.bid > 0 ? liveQuote.bid : 0;
+  const latestAsk = typeof liveQuote?.ask === 'number' && liveQuote.ask > 0 ? liveQuote.ask : 0;
 
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
   const openOrderMode = useUserPreferences((s) => s.openOrderMode);
@@ -280,7 +284,7 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize,
 
   const handleTrade = (side: TradeSide) => {
     const action = getChartTradeAction(side);
-    const currentQuoteAvailability = resolveSessionQuoteActionAvailability(q);
+    const currentQuoteAvailability = getCurrentAvailability();
     if (!currentQuoteAvailability.allowed) {
       recordBlockedPriceAction('chart_web_market_order', currentQuoteAvailability);
       Alert.alert('Market Data Unavailable', quoteActionBlockMessage(currentQuoteAvailability));
@@ -1084,7 +1088,7 @@ export function ChartScreen() {
           borderDownColor: DOWN_COLOR,
           wickUpColor: UP_COLOR,
           wickDownColor: DOWN_COLOR,
-          lastValueVisible: true,
+          lastValueVisible: false,
           priceLineVisible: true,
           priceFormat: priceFormatInfo,
         }) as any,
@@ -1093,7 +1097,7 @@ export function ChartScreen() {
       series = chart.addSeries(BarSeries, {
         upColor: BAR_UP_COLOR,
         downColor: BAR_DOWN_COLOR,
-        lastValueVisible: true,
+        lastValueVisible: false,
         priceLineVisible: true,
         priceFormat: priceFormatInfo,
       });
@@ -1102,7 +1106,7 @@ export function ChartScreen() {
         color: LINE_COLOR,
         lineWidth: 2,
         crosshairMarkerVisible: false,
-        lastValueVisible: true,
+        lastValueVisible: false,
         priceLineVisible: true,
         priceFormat: priceFormatInfo,
       });
@@ -1688,6 +1692,19 @@ export function ChartScreen() {
               <div
                 ref={chartContainerRef}
                 style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}
+              />
+
+              <ChartCandleCountdownBadge
+                active={isScreenFocused}
+                candle={sanitizedCandles.length > 0 ? sanitizedCandles[sanitizedCandles.length - 1] : null}
+                chartContainerRef={chartContainerRef}
+                chartRef={chartRef}
+                displayDecimals={displayDecimals}
+                downColor={resolvedChartColors.candlesDowntrend || '#EF5350'}
+                seriesRef={seriesRef}
+                timeframe={chartTimeframe}
+                upColor={resolvedChartColors.candlesUptrend || '#2962FF'}
+                visible={chartDisplay.showLivePriceLine && candlesAvailable}
               />
 
               {/* Chart Overlay handled natively in lightweight charts or not needed right now */}

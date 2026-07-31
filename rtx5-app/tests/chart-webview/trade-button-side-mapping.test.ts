@@ -281,6 +281,8 @@ test('compact footer buy and sell prices stay centered independently from labels
   assert.match(buttonSource, /const TRADE_BUTTON_PRICE_TEXT_COLOR = '#FFFFFF'/);
   assert.doesNotMatch(buttonSource, /TRADE_BUTTON_PRICE_UP_FLASH|TRADE_BUTTON_PRICE_DOWN_FLASH|TRADE_BUTTON_PRICE_FLASH_MS/);
   assert.match(buttonSource, /const ChartTradeButtonPriceText = React\.memo/);
+  assert.match(buttonSource, /splitFormattedChartTradePrice\(text\)/);
+  assert.match(buttonSource, /baseStyles\.actionBtnPriceTrailingText/);
   assert.match(buttonSource, /No per-tick color animation/);
   assert.match(buttonSource, /color: TRADE_BUTTON_PRICE_TEXT_COLOR/);
   assert.match(buttonSource, /opacity: 1/);
@@ -345,7 +347,7 @@ test('compact footer buy and sell backgrounds cover the full button slots', () =
   );
 });
 
-test('compact footer buy and sell tile colors stay fixed to their side', () => {
+test('compact footer keeps Sell red and Buy blue while quotes update', () => {
   const buttonSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/ChartTradeButtonsFeature.tsx');
   const quoteSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/quoteFallback.ts');
 
@@ -357,6 +359,7 @@ test('compact footer buy and sell tile colors stay fixed to their side', () => {
     buttonSource,
     /const buyTileColor = buyColor;/,
   );
+  assert.match(buttonSource, /Sell is always[\s\S]*red and Buy is always blue/);
   assert.doesNotMatch(buttonSource, /previousBidRef|previousAskRef|sellTileVisual|buyTileVisual/);
   assert.doesNotMatch(quoteSource, /resolveChartTradeButtonPriceColor|direction = 'up'|direction = 'down'/);
   assert.match(

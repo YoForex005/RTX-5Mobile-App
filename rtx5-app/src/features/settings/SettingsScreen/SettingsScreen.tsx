@@ -53,6 +53,7 @@ import {
   type SidebarHostDestination,
 } from '../../../ui/components/sidebarDestinationHostController';
 import { logoutBrokerSession } from '../../../services/brokerSessionCoordinator';
+import { requestOneClickPreferenceChange } from '../../trade/oneClickDisableConfirmation';
 
 const SETTINGS_ROUTE_LOCK_MS = 1800;
 const SETTINGS_ROUTE_PREFETCH_DELAY_MS = 0;
@@ -192,6 +193,14 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
     [themeMode],
   );
   const { t, language } = useTranslation();
+  const handleOneClickPreferenceChange = useCallback((nextEnabled: boolean) => {
+    requestOneClickPreferenceChange({
+      nextEnabled,
+      translate: t,
+      commit: setOneClickAccepted,
+      showAlert: (title, message, buttons) => Alert.alert(title, message, buttons),
+    });
+  }, [setOneClickAccepted, t]);
   const displayAccountName = translateAccountCardName(rawAccountName, t);
   const currentLanguageNative = SUPPORTED_LANGUAGES.find((l) => l.code === language)?.nativeName ?? 'English';
   const supportEmail = getConfiguredSupportEmail();
@@ -743,7 +752,7 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
                   <Text style={[styles.toggleText, oneClickAccepted && { color: settingsAccentActive }]}>{oneClickAccepted ? t('On') : t('Off')}</Text>
                   <Switch
                     value={oneClickAccepted}
-                    onValueChange={setOneClickAccepted}
+                    onValueChange={handleOneClickPreferenceChange}
                     trackColor={{ false: settingsSwitchOffTrack, true: settingsSwitchTrack }}
                     thumbColor={oneClickAccepted ? settingsAccentActive : settingsSwitchThumbInactive}
                     style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}

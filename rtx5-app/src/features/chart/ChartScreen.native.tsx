@@ -84,6 +84,7 @@ import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket'
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { useOrdersByLoginQuery } from '../../query/orders';
 import { TradeFeedbackModal, TradeFeedbackState, TRADE_MODAL_INITIAL } from '../../ui/components/TradeFeedbackModal';
+import { resolveConfirmedTradeReceipt } from '../../ui/components/tradeFeedbackPresentation';
 import { ordersApi } from '../../api/orders';
 import { resolveBrokerExecutionEvidence } from '../../api/orders/executionEvidence';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
@@ -180,6 +181,7 @@ import {
   scheduleChartActionLaunchNavigation,
   showChartActionLaunch,
 } from './chartActionLaunchController';
+import { createChartContextCommitScheduler } from './chartContextCommitScheduler';
 import { scheduleAfterFirstFrame, scheduleIdleWork } from '../../utils/startupScheduler';
 import { getDevRefreshKey, hashDevRefreshSource } from '../../dev/devRefreshKey';
 import {
@@ -235,7 +237,7 @@ import { LiveQuotePairHeader } from "./components/ChartLiveHeaders";
 import { ChartStepperModal, ChartFooterLotPicker, ChartTradeVolumeSlider } from "./components/ChartTradeControls";
 import { resolveChartTradeButtonQuote } from "./components/ChartTradeButtonsFeature/quoteFallback";
 import { TvLayers } from "./components/ChartToolbarIcons";
-import { ChartTapMenuViewport, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_DRAWING_MAGNET_THRESHOLD_PX, CHART_GRID_LINE_STYLE, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_SYMBOL_PICKER_PREFETCH_DELAY_MS, CHART_SYMBOL_PICKER_PREFETCH_LIMIT, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent } from "./ChartScreen.constants";
+import { ChartTapMenuViewport, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_DRAWING_MAGNET_THRESHOLD_PX, CHART_GRID_LINE_STYLE, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent } from "./ChartScreen.constants";
 import {
   DEFAULT_CHART_SYMBOLS,
   SYMBOL_FLAGS,
@@ -483,6 +485,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   // on any path change, which was re-rendering this 5000-line tree ~1s on every
   // bottom-tab switch and was the dominant tab-switch cost.)
   const isScreenFocused = isChartRouteActive;
+  const isScreenFocusedRef = useRef(isScreenFocused);
   const chartRuntimeActive = useDeferredActiveFlag(isChartRouteActive, CHART_RUNTIME_ACTIVE_DELAY_MS);
   // Mount the expensive WebView only after Chart is the real focused route.
   // Prewarming it behind Quotes caused an Expo Go JS/native allocation loop on
@@ -538,7 +541,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     chartTradeVolumeDisplayMode,
     setChartTimeframe,
     setChartVisualType,
-    setChartSymbol,
     setChartViewportShowVolumePane,
     setChartViewportShowDrawingToolbar,
     setChartOneClickPanelAtBottom,
@@ -571,7 +573,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       chartTradeVolumeDisplayMode: state.chartTradeVolumeDisplayMode,
       setChartTimeframe: state.setChartTimeframe,
       setChartVisualType: state.setChartVisualType,
-      setChartSymbol: state.setChartSymbol,
       setChartViewportShowVolumePane: state.setChartViewportShowVolumePane,
       setChartViewportShowDrawingToolbar: state.setChartViewportShowDrawingToolbar,
       setChartOneClickPanelAtBottom: state.setChartOneClickPanelAtBottom,
@@ -919,21 +920,22 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
     setTradeFeedback(feedback);
     if (chartRuntimeActive) {
-      if (accountLogin) {
-        void refreshPositions(String(accountLogin));
-      }
+      // Market-order reconciliation is already owner-bound from before POST.
+      // An immediate second positions read can beat the broker commit and
+      // briefly erase the chart overlays with a stale empty ledger.
       void refetchClosedPositions();
       void refetchOrders();
       void refetchAccountSummary();
     }
   }, [
-    accountLogin,
     chartRuntimeActive,
     refetchAccountSummary,
     refetchClosedPositions,
     refetchOrders,
-    refreshPositions,
   ]);
+  // Only a broker-confirmed fill belongs in the compact chart receipt. Errors
+  // and incomplete success responses continue through the detailed root modal.
+  const chartTradeReceipt = resolveConfirmedTradeReceipt(tradeFeedback);
   const [showSignalDetails, setShowSignalDetails] = useState(false);
   const [showChartTradeSheet, setShowChartTradeSheet] = useState(false);
   const [chartTradeOrderType, setChartTradeOrderType] = useState<ChartOrderType>('Market Execution');
@@ -4627,32 +4629,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const prefetchChartTimeframeHistory = useCallback((nextSymbol: string, nextTimeframe: string) => {
     return liveCandlesEngine.prefetchHistory(nextSymbol, nextTimeframe);
   }, []);
-  const prefetchSymbolPickerHistory = useCallback(() => {
-    const currentSymbolKey = chartSymbol.trim().toUpperCase();
-    const targets = availableSymbols
-      .filter((symbol) => symbol.trim().toUpperCase() !== currentSymbolKey)
-      .slice(0, CHART_SYMBOL_PICKER_PREFETCH_LIMIT);
-    if (targets.length === 0 || !chartTimeframe) {
-      return;
-    }
-
-    scheduleIdleWork(() => {
-      targets.forEach((targetSymbol) => {
-        void prefetchChartTimeframeHistory(targetSymbol, chartTimeframe).catch((error) => {
-          if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
-            console.warn('[CHART-BRIDGE] symbol_picker_history_prefetch_failed', {
-              symbol: targetSymbol,
-              timeframe: chartTimeframe,
-              message: error instanceof Error ? error.message : String(error),
-            });
-          }
-        });
-      });
-    }, {
-      delayMs: CHART_SYMBOL_PICKER_PREFETCH_DELAY_MS,
-      timeoutMs: 1500,
-    });
-  }, [availableSymbols, chartSymbol, chartTimeframe, prefetchChartTimeframeHistory]);
   const refreshSelectedChartHistory = useCallback((nextSymbol: string, nextTimeframe: string) => {
     void liveCandlesEngine.prefetchHistory(nextSymbol, nextTimeframe);
     liveCandlesEngine.refreshHistoryForContext(nextSymbol, nextTimeframe);
@@ -4685,21 +4661,95 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     return undefined;
   }, [chartSymbol, chartTimeframe, prefetchChartTimeframeHistory]);
 
+  const chartContextCommitScheduler = useMemo(
+    () => createChartContextCommitScheduler(),
+    [],
+  );
+  const pendingSymbolUiResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPendingSymbolUiReset = useCallback(() => {
+    const timeout = pendingSymbolUiResetTimeoutRef.current;
+    pendingSymbolUiResetTimeoutRef.current = null;
+    if (timeout !== null) {
+      clearTimeout(timeout);
+    }
+  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      // This focus signal is immediate; the prop intentionally reaches the
+      // retained Chart tree one frame later to protect tab-switch performance.
+      isScreenFocusedRef.current = true;
+      return () => {
+        isScreenFocusedRef.current = false;
+        chartContextCommitScheduler.cancelPending();
+        cancelPendingSymbolUiReset();
+      };
+    }, [cancelPendingSymbolUiReset, chartContextCommitScheduler]),
+  );
+  useEffect(() => {
+    if (!isScreenFocused) {
+      chartContextCommitScheduler.cancelPending();
+      cancelPendingSymbolUiReset();
+    }
+    return () => {
+      chartContextCommitScheduler.cancelPending();
+      cancelPendingSymbolUiReset();
+    };
+  }, [
+    activeChartSessionCacheNamespace,
+    cancelPendingSymbolUiReset,
+    chartContextCommitScheduler,
+    isScreenFocused,
+  ]);
+
   const warmChartContextAndCommit = useCallback(
     (nextSymbol: string, nextTimeframe: string) => {
-      // Refresh an existing target stream before committing the UI context.
-      // Brand-new streams are still loaded by useLiveCandles.subscribe(), which
-      // avoids duplicate /candles requests during symbol/timeframe switches.
-      refreshSelectedChartHistory(nextSymbol, nextTimeframe);
-      if (nextSymbol !== chartSymbol) {
-        setChartSymbol(nextSymbol);
-        void prefetchInstrument(nextSymbol);
+      if (nextSymbol === chartSymbol) {
+        chartContextCommitScheduler.cancelPending();
+        refreshSelectedChartHistory(nextSymbol, nextTimeframe);
+        if (nextTimeframe !== chartTimeframe) {
+          setChartTimeframe(nextTimeframe);
+        }
+        return;
       }
-      if (nextTimeframe !== chartTimeframe) {
-        setChartTimeframe(nextTimeframe);
-      }
+
+      const expectedCacheNamespace =
+        captureActiveBrokerSession()?.session.cacheNamespace
+        ?? activeChartSessionCacheNamespace;
+      chartContextCommitScheduler.request({
+        prepare: () => {
+          // Give the authenticated request a real dispatch turn before the
+          // retained Chart tree performs its expensive symbol reconciliation.
+          refreshSelectedChartHistory(nextSymbol, nextTimeframe);
+          void prefetchInstrument(nextSymbol);
+        },
+        commit: () => {
+          const currentSession = captureActiveBrokerSession();
+          const currentCacheNamespace = currentSession?.session.cacheNamespace ?? '';
+          if (
+            !isScreenFocusedRef.current
+            || currentCacheNamespace !== expectedCacheNamespace
+          ) {
+            return;
+          }
+
+          const preferences = useUserPreferences.getState();
+          if (preferences.chartSymbol !== nextSymbol) {
+            preferences.setChartSymbol(nextSymbol);
+          }
+          if (preferences.chartTimeframe !== nextTimeframe) {
+            preferences.setChartTimeframe(nextTimeframe);
+          }
+        },
+      });
     },
-    [chartSymbol, chartTimeframe, refreshSelectedChartHistory, setChartSymbol, setChartTimeframe],
+    [
+      activeChartSessionCacheNamespace,
+      chartContextCommitScheduler,
+      chartSymbol,
+      chartTimeframe,
+      refreshSelectedChartHistory,
+      setChartTimeframe,
+    ],
   );
 
   const handleTimeframeSelect = useCallback((nextTimeframe: string) => {
@@ -4721,19 +4771,53 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   const handleSymbolSelect = useCallback((nextSymbol: string) => {
     runImmediateAction(`chart.symbol.${nextSymbol}`, () => {
+      cancelPendingSymbolUiReset();
       if (nextSymbol === chartSymbol) {
+        chartContextCommitScheduler.cancelPending();
         hideActionSheet();
         closeChartTapMenu();
         return;
       }
 
-      hideActionSheet();
-      closeChartTapMenu();
-      setActiveDateRange('auto');
-      setCustomDateValue(null);
+      // Start the authenticated selected-symbol request before any retained
+      // sheet or Chart state update can monopolize this JS turn. Broker auth
+      // resolves through promises, so one task boundary lets fetch dispatch
+      // first while preserving an effectively immediate sheet close.
       warmChartContextAndCommit(nextSymbol, chartTimeframe);
+      const expectedCacheNamespace =
+        captureActiveBrokerSession()?.session.cacheNamespace
+        ?? activeChartSessionCacheNamespace;
+      const timeout = setTimeout(() => {
+        if (pendingSymbolUiResetTimeoutRef.current !== timeout) {
+          return;
+        }
+        pendingSymbolUiResetTimeoutRef.current = null;
+        const currentCacheNamespace =
+          captureActiveBrokerSession()?.session.cacheNamespace
+          ?? '';
+        if (
+          !isScreenFocusedRef.current
+          || currentCacheNamespace !== expectedCacheNamespace
+        ) {
+          return;
+        }
+        hideActionSheet();
+        closeChartTapMenu();
+        setActiveDateRange('auto');
+        setCustomDateValue(null);
+      }, 0);
+      pendingSymbolUiResetTimeoutRef.current = timeout;
     });
-  }, [chartSymbol, chartTimeframe, closeChartTapMenu, hideActionSheet, warmChartContextAndCommit]);
+  }, [
+    activeChartSessionCacheNamespace,
+    cancelPendingSymbolUiReset,
+    chartContextCommitScheduler,
+    chartSymbol,
+    chartTimeframe,
+    closeChartTapMenu,
+    hideActionSheet,
+    warmChartContextAndCommit,
+  ]);
 
   const symbolPickerActions = useMemo(
     () => availableSymbols.map((sym) => ({
@@ -4807,10 +4891,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     runImmediateAction('chart.symbolPicker.open', () => {
       openChartActionSheetSmoothly(symbolPickerActionSheetConfig);
       scheduleChartActionSheetContextReset();
-      prefetchSymbolPickerHistory();
     });
   }, [
-    prefetchSymbolPickerHistory,
     openChartActionSheetSmoothly,
     scheduleChartActionSheetContextReset,
     symbolPickerActionSheetConfig,
@@ -6021,6 +6103,29 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     clearRenderedMarketPriceLines();
   }, [chartDataContextSig, clearRenderedMarketPriceLines]);
 
+  // The retained WebView intentionally survives symbol/timeframe switches.
+  // Push the selected timeframe through a dedicated strict bridge setter so
+  // the price-label countdown can never keep (or default to) an M1 interval.
+  useEffect(() => {
+    if (!webViewRef.current || !webViewReady) {
+      return;
+    }
+
+    try {
+      webViewRef.current.injectJavaScript(`
+        if (typeof setCandleCountdownTimeframe === 'function') {
+          setCandleCountdownTimeframe(${JSON.stringify(chartTimeframe)});
+        }
+        if (typeof setCandleCountdownActive === 'function') {
+          setCandleCountdownActive(${chartRuntimeActive && chartDisplay.showLivePriceLine});
+        }
+        true;
+      `);
+    } catch (_e) {
+      /* WebView may have been disposed */
+    }
+  }, [chartDisplay.showLivePriceLine, chartRuntimeActive, chartTimeframe, chartWebViewGeneration, webViewReady]);
+
   // Core init function — safe to call repeatedly.
   // The WebView's initChart tears down any existing chart and rebuilds.
   const sendInit = useCallback((force: boolean = false) => {
@@ -6146,17 +6251,23 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         showLivePriceLine: chartDisplay.showLivePriceLine,
         revision,
       };
-      const fullReloadScript = updateMode === 'full_reload'
-        ? `
-          if (typeof updateChartData === 'function') {
-            updateChartData(${JSON.stringify(buildMappedData(canonicalCandles))}, {
-              preserveVisibleLogicalSpan: true
-            });
-          }
-        `
-        : '';
+      let issuedPaintToken = '';
 
       try {
+        let fullReloadScript = '';
+        if (updateMode === 'full_reload') {
+          issuedPaintToken = issueChartDataPaintToken(chartDataContextSig);
+          fullReloadScript = `
+            if (typeof updateChartData === 'function') {
+              updateChartData(${JSON.stringify(buildMappedData(canonicalCandles))}, {
+                preserveVisibleLogicalSpan: true,
+                dataContextSig: ${JSON.stringify(chartDataContextSig)},
+                paintToken: ${JSON.stringify(issuedPaintToken)}
+              });
+            }
+          `;
+        }
+
         webViewRef.current.injectJavaScript(`
           ${fullReloadScript}
           if (typeof updateLiveTick === 'function') {
@@ -6170,7 +6281,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           ? lastCandle.close.toFixed(displayDecimals)
           : 'off';
       } catch (_e) {
-        /* WebView may have been disposed */
+        if (pendingChartDataPaintRef.current.token === issuedPaintToken) {
+          pendingChartDataPaintRef.current = { token: '', dataContextSig: '' };
+        }
       }
     };
 
@@ -6226,6 +6339,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     chartType,
     displayDecimals,
     isLoggedIn,
+    issueChartDataPaintToken,
   ]);
 
   // Effect 2 — keep full history/replacement data aligned with the WebView.
@@ -7795,6 +7909,60 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                     onOpenScaleControls={handleOpenChartScaleMenu}
                   />
                 ) : null}
+                {chartTradeReceipt ? (
+                  <View
+                    pointerEvents="box-none"
+                    style={styles.chartTradeReceiptHost}
+                  >
+                    <View
+                      accessibilityLiveRegion="polite"
+                      accessibilityRole="alert"
+                      accessibilityLabel={
+                        `${chartTradeReceipt.symbol}, ${chartTradeReceipt.sideAccessibilityLabel}, `
+                        + `${chartTradeReceipt.volumeLabel} lots, ${chartTradeReceipt.doneLabel}`
+                      }
+                      style={[
+                        styles.chartTradeReceiptBar,
+                        {
+                          borderLeftColor: chartTradeReceipt.side === 'buy'
+                            ? BLUE
+                            : T.trading.sell.primary,
+                        },
+                      ]}
+                    >
+                      <Text style={styles.chartTradeReceiptSymbol} numberOfLines={1}>
+                        {chartTradeReceipt.symbol}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.chartTradeReceiptSide,
+                          {
+                            color: chartTradeReceipt.side === 'buy'
+                              ? BLUE
+                              : T.trading.sell.primary,
+                          },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {chartTradeReceipt.sideAccessibilityLabel}
+                      </Text>
+                      <Text style={styles.chartTradeReceiptVolume} numberOfLines={1}>
+                        {chartTradeReceipt.volumeLabel}
+                      </Text>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Dismiss trade confirmation"
+                        hitSlop={10}
+                        onPress={handleTradeFeedbackClose}
+                        style={styles.chartTradeReceiptDoneButton}
+                      >
+                        <Text style={styles.chartTradeReceiptDone} numberOfLines={1}>
+                          done
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : null}
                 <ChartTimeframePickerOverlay
                   activeTimeframe={chartTimeframe}
                   supportedTimeframes={timeframes}
@@ -8595,7 +8763,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       />
 
       <TradeFeedbackModal
-        state={tradeFeedback}
+        state={chartTradeReceipt ? TRADE_MODAL_INITIAL : tradeFeedback}
         onClose={handleTradeFeedbackClose}
         isDark={isDark}
       />

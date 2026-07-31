@@ -7,16 +7,18 @@ export type ChartTradeActionAvailabilityInput = Readonly<{
 /**
  * Controls whether Buy/Sell are hard-disabled (no press, dimmed chrome).
  *
- * Opening New Order is navigation — never quote-gated.
- * One-click market execution still fails closed **inside the handler** when the
- * quote is not executable, but the tiles stay bright and pressable so the user
- * gets an explicit error instead of a dead, half-transparent control.
+ * Even though opening New Order is navigation, the chart tile follows the
+ * requested symbol-freshness gate. Both routing modes fail closed when the
+ * selected symbol has no executable
+ * quote. This keeps the visible control state aligned with the same policy the
+ * one-click handler rechecks immediately before submission.
  */
 export function resolveChartTradeActionDisabled({
   isCurrentChartSymbol,
-  // Retained for call-site / contract stability; quote gates are handler-only.
+  // Retained because routing mode remains part of the public availability
+  // input even though stale data blocks both direct trade and Order Ticket entry.
   oneClickAccepted: _oneClickAccepted,
-  quoteActionAllowed: _quoteActionAllowed,
+  quoteActionAllowed,
 }: ChartTradeActionAvailabilityInput): boolean {
-  return !isCurrentChartSymbol;
+  return !isCurrentChartSymbol || !quoteActionAllowed;
 }

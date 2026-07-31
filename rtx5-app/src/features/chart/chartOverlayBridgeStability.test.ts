@@ -467,8 +467,13 @@ test('chart market execution only submits SL and TP that target a new order', ()
   );
   assertSourceContains(
     chartTradeResultSource,
-    /if \(feedback\.type !== 'success'\) \{[\s\S]*setTradeFeedback\(feedback\);[\s\S]*return;[\s\S]*\}[\s\S]*setTradeFeedback\(feedback\);[\s\S]*refreshPositions\(String\(accountLogin\)\)[\s\S]*refetchOrders\(\)[\s\S]*refetchAccountSummary\(\)/,
-    'chart one-click success must show the shared feedback popup and refresh trade data for live overlay labels',
+    /if \(feedback\.type !== 'success'\) \{[\s\S]*setTradeFeedback\(feedback\);[\s\S]*return;[\s\S]*\}[\s\S]*setTradeFeedback\(feedback\);[\s\S]*refetchOrders\(\)[\s\S]*refetchAccountSummary\(\)/,
+    'chart one-click success must show shared feedback and refresh query-backed trade data',
+  );
+  assert.doesNotMatch(
+    chartTradeResultSource,
+    /refreshPositions\(/,
+    'chart success must not race the API-owned position reconciliation with an immediate full-ledger read',
   );
   assertSourceContains(
     chartTradeExecutionResultSource,

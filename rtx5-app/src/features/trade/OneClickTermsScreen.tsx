@@ -6,14 +6,15 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
  * which bypasses the standard confirmation prompts for faster execution.
  */
 
-import { StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, StyleSheet, Switch, Text, View } from 'react-native';
 import { Screen } from '../../ui/components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
 import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useTranslation } from '../../i18n/useTranslation';
+import { requestOneClickPreferenceChange } from './oneClickDisableConfirmation';
 
 export function OneClickTermsScreen() {
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
@@ -21,6 +22,14 @@ export function OneClickTermsScreen() {
   const T = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => makeStyles(T), [T]);
+  const handleOneClickPreferenceChange = useCallback((nextEnabled: boolean) => {
+    requestOneClickPreferenceChange({
+      nextEnabled,
+      translate: t,
+      commit: setOneClickAccepted,
+      showAlert: (title, message, buttons) => Alert.alert(title, message, buttons),
+    });
+  }, [setOneClickAccepted, t]);
 
   return (
     <Screen scroll>
@@ -39,7 +48,7 @@ export function OneClickTermsScreen() {
       <View style={styles.row}>
         <Switch
           value={oneClickAccepted}
-          onValueChange={setOneClickAccepted}
+          onValueChange={handleOneClickPreferenceChange}
           trackColor={{ false: '#1E1E1E', true: 'rgba(59, 130, 246, 0.5)' }}
           thumbColor={oneClickAccepted ? '#3b82f6' : '#f4f3f4'}
           {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: oneClickAccepted ? '#3b82f6' : '#f4f3f4' } as any)}

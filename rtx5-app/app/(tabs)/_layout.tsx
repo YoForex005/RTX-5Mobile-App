@@ -322,7 +322,7 @@ const GlobalActionSheetHost = memo(function GlobalActionSheetHost() {
   const scopedPreloadConfig = actionSheetScope
     ? preloadedScopedActionSheets[actionSheetScope]
     : Object.values(preloadedScopedActionSheets).find(Boolean) ?? null;
-  const activeConfig = actionSheet || scopedActionSheet || preloadConfig || scopedPreloadConfig;
+  const activeConfig = actionSheet || scopedActionSheet || scopedPreloadConfig || preloadConfig;
   const visible = actionSheet !== null || scopedActionSheet !== null;
   const handleClose = useCallback(() => {
     if (actionSheet !== null) {

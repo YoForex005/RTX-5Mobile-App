@@ -294,8 +294,6 @@ function RootLayout() {
   const hasHydrated = useUserPreferences((s) => s.hasHydrated);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const accountDetails = useUserPreferences((s) => s.accountDetails);
-  const chartSymbol = useUserPreferences((s) => s.chartSymbol);
-  const chartTimeframe = useUserPreferences((s) => s.chartTimeframe);
   const [sessionRestoreComplete, setSessionRestoreComplete] = useState(false);
   const sessionRestoreStartedRef = useRef(false);
   const lifecycleResumeEpochRef = useRef(0);
@@ -345,6 +343,7 @@ function RootLayout() {
       logStartupDiagnostic('storage.restore.waiting', { store: 'userPreferences' });
       return;
     }
+    const { chartSymbol, chartTimeframe } = useUserPreferences.getState();
     logStartupDiagnostic('storage.restore.completed', {
       store: 'userPreferences',
       isLoggedIn,
@@ -369,7 +368,7 @@ function RootLayout() {
       cancelled = true;
       cancelCacheHydration();
     };
-  }, [hasHydrated, sessionRestoreComplete, chartSymbol, chartTimeframe]);
+  }, [hasHydrated, sessionRestoreComplete]);
 
   useEffect(() => {
     if (!sessionRestoreComplete || !isLoggedIn) return;

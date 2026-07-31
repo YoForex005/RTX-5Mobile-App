@@ -18,6 +18,8 @@ test('persisted user preferences are normalized before second-launch hydration r
   assert.match(storeSource, /chartVisualType: normalizeChartVisualType\(state\.chartVisualType\)/);
   assert.match(storeSource, /chartVerticalScrollingLocked: asBoolean\(state\.chartVerticalScrollingLocked, false\)/);
   assert.match(storeSource, /chartAutoScaleEnabled: asBoolean\(state\.chartAutoScaleEnabled, false\)/);
+  assert.match(storeSource, /oneClickAccepted: asBoolean\(state\.oneClickAccepted, true\)/);
+  assert.match(storeSource, /oneClickAccepted: true/);
   assert.match(storeSource, /hasPersistedLivePriceLine = typeof record\.showLivePriceLine === 'boolean'/);
   assert.match(storeSource, /!hasPersistedLivePriceLine && typeof record\.showBidPriceLine === 'boolean'[\s\S]*next\.showLivePriceLine = record\.showBidPriceLine/);
   assert.match(storeSource, /next\.showAskPriceLine = false/);

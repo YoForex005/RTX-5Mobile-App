@@ -304,16 +304,32 @@ export function FastTabView({
   ) as Record<FastTabRouteName, RefCallback<View>>, []);
   const applyNativeVisualRouteNow = useCallback((routeName: FastTabRouteName) => {
     const previousRouteName = nativeVisualRouteRef.current;
+    const nextLayer = layerRefs.current[routeName];
+    // Never conceal the current scene unless the retained destination is
+    // actually mounted and can cover it in this same handoff.
+    if (!nextLayer) {
+      return;
+    }
+
+    // Reveal the destination before concealing the current scene. Android can
+    // composite consecutive setNativeProps calls in separate frames; the old
+    // hide-first order exposed the navigator background for one frame during
+    // a rapid Chart -> Trade switch. The temporary higher z-index guarantees
+    // the destination wins regardless of sibling order until React commits.
+    nextLayer.setNativeProps({
+      pointerEvents: 'auto',
+      style: [
+        styles.sceneLayer,
+        styles.sceneLayerVisible,
+        styles.sceneLayerOptimistic,
+      ],
+    });
     if (previousRouteName !== routeName) {
       layerRefs.current[previousRouteName]?.setNativeProps({
         pointerEvents: 'none',
         style: [styles.sceneLayer, styles.sceneLayerHidden],
       });
     }
-    layerRefs.current[routeName]?.setNativeProps({
-      pointerEvents: 'auto',
-      style: [styles.sceneLayer, styles.sceneLayerVisible],
-    });
     nativeVisualRouteRef.current = routeName;
   }, []);
   const previousFocusedRouteKeyRef = useRef(focusedRouteKey);
@@ -639,6 +655,9 @@ const styles = StyleSheet.create({
   sceneLayerVisible: {
     opacity: 1,
     zIndex: 1,
+  },
+  sceneLayerOptimistic: {
+    zIndex: 2,
   },
   sceneLayerHidden: {
     opacity: 0,

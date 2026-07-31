@@ -12,17 +12,13 @@
 import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { ordersApi, type PlaceOrderPayload, type PlaceOrderResponse } from '../api/orders';
-import { resolveBrokerExecutionEvidence } from '../api/orders/executionEvidence';
 import { StaleBrokerSessionError } from '../api/brokerApi';
-import { positionsApi } from '../api/positions';
 import { redactDiagnosticValue } from '../utils/securityRedaction';
 import {
   captureActiveBrokerSessionOwnerStamp,
   isActiveBrokerSessionOwnerStampCurrent,
   type ActiveBrokerSessionOwnerStamp,
 } from '../state/activeBrokerSession';
-import { usePositionsState } from '../state/positionsState';
-import { hasPositionPresenceConverged } from '../state/positionsState.helpers';
 import {
   getSessionQueryCacheNamespace,
   invalidateSessionQueryRoots,
@@ -113,44 +109,10 @@ export function useAccountOrdersQuery(options: PollingQueryOptions = {}) {
 
 const ORDER_DIAGNOSTICS_ENABLED =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CHART_TRADE === 'true';
-const TRADE_POST_SUCCESS_REFRESH_DELAY_MS = 250;
-
 const logOrderDiagnostic = (...args: Parameters<typeof console.log>) => {
   if (ORDER_DIAGNOSTICS_ENABLED) {
     console.log(...args.map(redactDiagnosticValue));
   }
-};
-
-const reconcileCapturedMarketOwner = async (
-  owner: ActiveBrokerSessionOwnerStamp,
-): Promise<void> => {
-  if (!isActiveBrokerSessionOwnerStampCurrent(owner)) {
-    throw new StaleBrokerSessionError();
-  }
-  const positions = await positionsApi.getPositionsForReconciliation(
-    owner.accountLogin,
-  );
-  if (!isActiveBrokerSessionOwnerStampCurrent(owner)) {
-    throw new StaleBrokerSessionError();
-  }
-  usePositionsState.getState().applyPositionsSnapshot(
-    positions,
-    owner.accountLogin,
-  );
-};
-
-const scheduleTradePostSuccessRefresh = (work: () => void) => {
-  setTimeout(work, TRADE_POST_SUCCESS_REFRESH_DELAY_MS);
-};
-
-const normalizeMarketOrderAction = (data: PlaceOrderResponse): string =>
-  typeof data.action === 'string' ? data.action.trim().toLowerCase() : '';
-
-const positionPresenceExpectedAfterAction = (action: string): boolean | null => {
-  if (action === 'closed') return false;
-  if (['', 'opened', 'open', 'increased', 'decreased', 'reversed'].includes(action)) return true;
-  // Unknown action with a ticket still expects the position to appear after sync.
-  return true;
 };
 
 const logPlaceOrderPayload = (payload: PlaceOrderPayload) => {
@@ -183,54 +145,14 @@ const handlePlaceOrderSuccess = (
     backendSide: data?.side ?? null,
     rawResponse: data,
   });
-  // ExecutionResult is only a mutation hint. Netting can open, increase,
-  // decrease, close, or reverse and the response does not echo SL/TP.
-  // Never append or decorate a local position from this response.
-  const positionTicket = resolveBrokerExecutionEvidence(data).ticket ?? null;
-
-  // The API mutation starts an immediate owner-stamped reconciliation on every
-  // transport outcome. This success-only delayed pass is a broker-commit-lag
-  // backstop and must keep using the account captured at dispatch.
-  scheduleTradePostSuccessRefresh(() => {
-    if (!isActiveBrokerSessionOwnerStampCurrent(owner)) return;
-
-    // Fire a background sync loop to obtain the authoritative position state.
-    const action = normalizeMarketOrderAction(data);
-    const expectedPresence = positionPresenceExpectedAfterAction(action);
-    const requiresContentReconciliation = ['increased', 'decreased', 'reversed'].includes(action);
-    const syncLoop = async () => {
-      for (let i = 0; i < 8; i++) {
-        if (!isActiveBrokerSessionOwnerStampCurrent(owner)) return;
-        await reconcileCapturedMarketOwner(owner);
-        if (!isActiveBrokerSessionOwnerStampCurrent(owner)) return;
-        // Refresh is unconditional. When the canonical position ticket and
-        // action let us prove convergence, stop early; otherwise perform a
-        // second REST backstop because the first read may race broker commit.
-        if (positionTicket !== null && expectedPresence !== null) {
-          const presenceConverged = hasPositionPresenceConverged(
-            usePositionsState.getState().positions,
-            positionTicket,
-            expectedPresence,
-          );
-          // Presence alone cannot prove that an existing netting position's
-          // volume or side changed. Require the one-second REST backstop for
-          // increase/decrease/reverse even when the ticket already exists.
-          if (presenceConverged && (!requiresContentReconciliation || i >= 1)) break;
-        } else if (i >= 1) {
-          break;
-        }
-        await new Promise(r => setTimeout(r, 1000));
-      }
-    };
-    syncLoop().catch(() => {});
-
-    // Invalidate queries that should update after a new trade.
-    void invalidateSessionQueryRoots(queryClient, cacheNamespace, [
-      'positions',
-      'accountSummary',
-      'transactions',
-    ]);
-  });
+  // The API layer owns one captured-owner reconciliation from before POST
+  // until broker convergence. This success path only refreshes query-backed
+  // summaries; it must not start a competing positions read.
+  void invalidateSessionQueryRoots(queryClient, cacheNamespace, [
+    'positions',
+    'accountSummary',
+    'transactions',
+  ]);
 };
 
 type PlaceOrderExecutorOptions = {
@@ -296,8 +218,8 @@ export const usePlaceOrderMutation = () => {
       return owner;
     },
     onSuccess: (data, variables, owner) => {
-      // Shared success path owns the delayed authoritative backstop so the
-      // Trade screen stays in lockstep with chart / executor placements.
+      // Shared success handling invalidates query-backed summaries. The API
+      // call itself already owns captured-session position reconciliation.
       try {
         handlePlaceOrderSuccess(
           queryClient,

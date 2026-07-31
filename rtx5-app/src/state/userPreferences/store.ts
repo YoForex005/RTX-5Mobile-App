@@ -456,7 +456,10 @@ export function normalizePersistedUserPreferencesState(
     tradeSummaryDetailsVisible: asBoolean(state.tradeSummaryDetailsVisible, true),
     priceSource: isPriceSource(state.priceSource) ? state.priceSource : 'bid',
     openOrderMode: isOpenOrderMode(state.openOrderMode) ? state.openOrderMode : 'Regular',
-    oneClickAccepted: asBoolean(state.oneClickAccepted, false),
+    // One-click trading is the product default. An explicitly persisted false
+    // still wins, so a user who turns it off keeps the Order Ticket flow after
+    // every restart.
+    oneClickAccepted: asBoolean(state.oneClickAccepted, true),
     historyRange: nextHistoryRange,
     historyFromMs: asFiniteNumber(state.historyFromMs, null),
     historyToMs: asFiniteNumber(state.historyToMs, null),
@@ -668,7 +671,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       tradeSummaryDetailsVisible: true,
       priceSource: 'bid',
       openOrderMode: 'Regular',
-      oneClickAccepted: false,
+      oneClickAccepted: true,
       historyRange: 'All time',
       historyFromMs: null,
       historyToMs: null,

@@ -277,6 +277,8 @@ test('webview bridge: exposes required bridge methods for updates and recovery',
     'updateLiveTick',
     'setLivePriceLine',
     'setMarketPriceLines',
+    'setCandleCountdownTimeframe',
+    'setCandleCountdownActive',
     'resizeChartViewport',
     'recoverChartSurface',
     'setChartOverlays',
@@ -767,8 +769,8 @@ test('webview bridge: setLivePriceLine hides native market badges and paints one
   assertSourceContains(renderMarketPriceScaleExtensionsBody, /renderMarketPriceScaleExtension\(layer, lastLivePrice, marketLiveColor\)/, 'overlay refresh must repaint the custom live price-scale extension');
   assertSourceContains(axisMetricsBody, /resolveRightPriceScaleFallbackAxisMetrics\(Object\.assign[\s\S]*MARKET_PRICE_SCALE_BADGE_MIN_WIDTH[\s\S]*axisLeft \+ axisWidth > chartWidth/, 'custom market price badges must occupy the owned right price-scale strip without overflowing the chart');
   assertSourceContains(badgeFormatterBody, /resolveOverlayDisplayDecimals\(\)[\s\S]*Number\(price\)\.toFixed\(decimals\)/, 'custom market price badges must use the same configured display precision as the overlay');
-  assertSourceContains(collectMarketPriceScaleBadgeBody, /var desiredTop = Math\.round\(y - MARKET_PRICE_SCALE_BADGE_HEIGHT \/ 2\)[\s\S]*desiredTop: desiredTop[\s\S]*top: desiredTop/, 'custom market price badges must follow the real price coordinate instead of clamping to the visible pane');
-  assertSourceContains(renderMarketPriceScaleBadgeBody, /rtx5-market-price-scale-badge[\s\S]*textContent = formatMarketPriceScaleBadgeLabel\(badge\.price\)[\s\S]*style\.left = axisMetrics\.axisLeft \+ 'px'[\s\S]*style\.width = axisMetrics\.axisWidth \+ 'px'[\s\S]*style\.background = badge\.color[\s\S]*style\.color = '#FFFFFF'[\s\S]*style\.textAlign = 'right'/, 'custom market price-scale badge must render as a colored right-axis price box');
+  assertSourceContains(collectMarketPriceScaleBadgeBody, /var countdownLabel = role === 'live' \? resolveCandleCountdownLabel\(\) : null[\s\S]*var priceRowHeight =[\s\S]*var desiredTop = Math\.round\(y - priceRowHeight \/ 2\)[\s\S]*desiredTop: desiredTop[\s\S]*top: desiredTop/, 'custom market price badges must align the live-price row to the real price coordinate while placing countdown below it');
+  assertSourceContains(renderMarketPriceScaleBadgeBody, /rtx5-market-price-scale-badge[\s\S]*rtx5-market-price-scale-badge-price[\s\S]*rtx5-market-price-scale-badge-countdown[\s\S]*priceRow\.textContent = formatMarketPriceScaleBadgeLabel\(badge\.price\)[\s\S]*countdownRow\.textContent = badge\.countdownLabel \|\| ''[\s\S]*style\.left = axisMetrics\.axisLeft \+ 'px'[\s\S]*style\.width = axisMetrics\.axisWidth \+ 'px'[\s\S]*style\.background = badge\.color[\s\S]*style\.color = '#FFFFFF'[\s\S]*style\.textAlign = 'right'/, 'custom market price-scale badge must render stable price and countdown rows inside the colored right-axis box');
   assertSourceContains(renderMarketPriceScaleBadgesBody, /collectMarketPriceScaleBadge\(layer, axisMetrics, lastLivePrice, marketLiveColor, 'live'\)[\s\S]*badges\.sort[\s\S]*MARKET_PRICE_SCALE_BADGE_GAP[\s\S]*renderMarketPriceScaleBadge\(layer, badges\[badgeIndex\], axisMetrics\)/, 'overlay refresh must repaint the custom live price-scale badge in place');
   assert.doesNotMatch(renderMarketPriceScaleBadgesBody, /Math\.max\(minTop|Math\.min\(maxTop|maxTop|axisMetrics\.plotBottom - MARKET_PRICE_SCALE_BADGE_HEIGHT/, 'custom market price badges must not be pinned to the top or bottom edge while the chart is vertically panned');
   assertSourceContains(visibleRangeBody, /includeMarketPriceBadges === false[\s\S]*expandPriceRangeForMarketPriceBadges\(robustRange\)/, 'visible price-scale recovery must be able to ignore a far live price badge during horizontal navigation');
