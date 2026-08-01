@@ -12,11 +12,13 @@ test('saved account switch promotes the selected account and refreshes account-s
   assert.match(source, /const ACCOUNT_SWITCH_ACCOUNT_MISSING_MESSAGE =\s*'Account does not exist/);
   assert.match(source, /const normalizeSwitchLogin = \(login: string\) => login\.trim\(\)/);
   assert.match(source, /const accountSwitchInFlightRef = React\.useRef\(false\)/);
+  assert.match(source, /createSavedAccountSwitchHealthCache\(\{[\s\S]*checkHealth: checkBrokerServerHealth,[\s\S]*ttlMs: ACCOUNT_SWITCH_BROKER_WARM_TTL_MS/);
+  assert.match(source, /const ensureSavedAccountBrokerHealth = React\.useCallback/);
   assert.match(source, /const warmSavedAccountBroker = React\.useCallback/);
   assert.match(source, /const savedServerUrl = normalizeBrokerServerUrl\(row\.serverUrl\)/);
   assert.match(source, /\.map\(resolveBrokerEndpointSet\)[\s\S]*\.find\(\(resolution\) => \([\s\S]*resolution\.ok[\s\S]*isBrokerServerUrlForApiBase\(savedServerUrl, resolution\.endpoints\.apiBase\)/);
   assert.match(source, /const serverUrl = toBrokerServiceRoot\(endpointSet\.endpoints\.apiBase\) \|\| savedServerUrl/);
-  assert.match(source, /checkBrokerServerHealth\(serverUrl\)\.catch/);
+  assert.match(source, /ensureSavedAccountBrokerHealth\(serverUrl\)\.catch\(\(\) => undefined\)/);
   assert.doesNotMatch(source, /checkBrokerServerHealth\(endpointSet\.endpoints\.feedStatusUrl\)/);
   assert.match(source, /if \(!isExpanded\) \{[\s\S]*warmSavedAccountBroker\(row\);[\s\S]*setExpandedAccountKey/);
   assert.match(source, /onPressIn=\{\(\) => warmSavedAccountBroker\(row\)\}/);
@@ -27,7 +29,11 @@ test('saved account switch promotes the selected account and refreshes account-s
   assert.notEqual(switchEnd, -1);
   const switchBody = source.slice(switchStart, switchEnd);
 
-  assert.match(switchBody, /const password = await getSavedAccountPassword\(row\.brokerId, row\.login\)/);
+  assert.match(switchBody, /const passwordPromise = getSavedAccountPassword\(row\.brokerId, row\.login\)/);
+  assert.match(switchBody, /const brokerHealthResultPromise = ensureSavedAccountBrokerHealth\(exactServerUrl\)\.then/);
+  assert.match(switchBody, /const password = await passwordPromise/);
+  assert.match(switchBody, /const brokerHealthResult = await brokerHealthResultPromise/);
+  assert.match(switchBody, /if \(!brokerHealthResult\.ok\) \{[\s\S]*throw brokerHealthResult\.error/);
   assert.match(switchBody, /const result = await signInWithCredentials\(\{/);
   assert.match(switchBody, /normalizeSwitchLogin\(result\.accountLogin\) !== normalizeSwitchLogin\(row\.login\)/);
   assert.match(switchBody, /throw new Error\(ACCOUNT_SWITCH_ACCOUNT_MISSING_MESSAGE\)/);
@@ -38,7 +44,22 @@ test('saved account switch promotes the selected account and refreshes account-s
   assert.match(switchBody, /const approvedRoute = exactSavedRoute/);
   assert.doesNotMatch(switchBody, /approvedRoutes\.length === 1 \? approvedRoutes\[0\] : null/);
   assert.match(switchBody, /The saved broker server no longer matches the broker directory/);
-  assert.match(switchBody, /await checkBrokerServerHealth\(exactServerUrl\);[\s\S]*const result = await signInWithCredentials/);
+  assert.doesNotMatch(switchBody, /checkBrokerServerHealth\(exactServerUrl\)/);
+  assert.ok(
+    switchBody.indexOf('ensureSavedAccountBrokerHealth(exactServerUrl)')
+      < switchBody.indexOf('const result = await signInWithCredentials'),
+    'exact-server health verification must finish before saved-account login',
+  );
+  assert.ok(
+    switchBody.indexOf('const brokerHealthResultPromise = ensureSavedAccountBrokerHealth(exactServerUrl)')
+      < switchBody.indexOf('const password = await passwordPromise'),
+    'password retrieval and exact-server health must overlap on the valid route',
+  );
+  assert.ok(
+    switchBody.indexOf('if (!password)')
+      < switchBody.indexOf('const brokerHealthResult = await brokerHealthResultPromise'),
+    'a missing saved password must redirect without waiting for broker health',
+  );
   assert.match(switchBody, /serverUrl: exactServerUrl/);
   assert.match(switchBody, /setSuccessMessage\(t\('Account switched successfully'\)\)/);
   assert.match(switchBody, /schedulePostAccountSwitchWork\(\(\) => \{[\s\S]*upsertSavedAccount\(\{/);
@@ -58,6 +79,17 @@ test('saved account switch promotes the selected account and refreshes account-s
   assert.match(switchBody, /isLoginRequestAbortedError\(error\)/);
   assert.match(switchBody, /isStaleBrokerSessionCommitError\(error\)/);
   assert.match(switchBody, /finally \{[\s\S]*accountSwitchInFlightRef\.current = false;[\s\S]*setConnectingKey\(null\)/);
+  assert.ok(
+    switchBody.indexOf('setConnectingKey(row.key)') < switchBody.indexOf('await '),
+    'the saved-account busy state must be visible before asynchronous work starts',
+  );
+
+  const switchButtonStart = source.indexOf('const switchButton = (');
+  const switchButtonEnd = source.indexOf(');', switchButtonStart);
+  const switchButton = source.slice(switchButtonStart, switchButtonEnd);
+  assert.match(switchButton, /accessibilityState=\{\{ disabled: isSwitching \|\| !!connectingKey, busy: isSwitching \}\}/);
+  assert.match(switchButton, /latencyLabel="accounts\.saved\.switch"/);
+  assert.match(switchButton, /unstable_pressDelay=\{0\}/);
 
   // The coordinator owns the epoch-first teardown and cache/query reset; the
   // screen must not partially mutate the old account before the handoff commits.
@@ -88,10 +120,8 @@ test('saved account switch removes stale entries when the broker reports a missi
   assert.match(switchBody, /removeSavedAccount\(row\.login, row\.brokerId\)/);
   assert.match(switchBody, /removeSavedAccountPassword\(row\.brokerId, row\.login\)\.catch\(\(\) => undefined\)/);
   assert.match(switchBody, /Alert\.alert\(\s*t\('Account does not exist'\),\s*t\(ACCOUNT_SWITCH_ACCOUNT_MISSING_MESSAGE\),\s*\)/);
-  assert.match(
-    switchBody,
-    /if \(!password\) \{[\s\S]*removeSavedAccount\(row\.login, row\.brokerId\);[\s\S]*removeSavedAccountPassword\(row\.brokerId, row\.login\)\.catch\(\(\) => undefined\);/,
-  );
+  assert.match(switchBody, /const handleMissingSavedPassword = \(\) => \{[\s\S]*removeSavedAccount\(row\.login, row\.brokerId\);[\s\S]*removeSavedAccountPassword\(row\.brokerId, row\.login\)\.catch\(\(\) => undefined\);/);
+  assert.match(switchBody, /if \(!password\) \{\s*handleMissingSavedPassword\(\);\s*return;/);
 });
 
 test('accounts screen uses broker branding and opens long-press delete for other accounts', () => {

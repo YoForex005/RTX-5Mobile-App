@@ -32,6 +32,18 @@ test('position structural signature ignores price and P/L-only ticks', () => {
     buildChartPositionStructuralSignature([{ ...afterTick[0], tp: 1.095 }]),
     buildChartPositionStructuralSignature(before),
   );
+  assert.notEqual(
+    buildChartPositionStructuralSignature([{ ...afterTick[0], volume: 0.02 }]),
+    buildChartPositionStructuralSignature(before),
+  );
+  assert.notEqual(
+    buildChartPositionStructuralSignature([{ ...afterTick[0], swap: -0.25 }]),
+    buildChartPositionStructuralSignature(before),
+  );
+  assert.notEqual(
+    buildChartPositionStructuralSignature([{ ...afterTick[0], commission: -0.1 }]),
+    buildChartPositionStructuralSignature(before),
+  );
 });
 
 test('marker candle signature ignores forming OHLC changes but tracks candle-time structure', () => {
@@ -56,9 +68,20 @@ test('native Chart isolates static markers and slow React commits without delayi
     resolve(process.cwd(), 'src/features/chart/ChartScreen.native.tsx'),
     'utf8',
   );
+  const tradeOverlayBridgeSource = readFileSync(
+    resolve(
+      process.cwd(),
+      'src/features/chart/components/ChartTradeOverlayLiveBridge.tsx',
+    ),
+    'utf8',
+  );
 
   assert.match(source, /const CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS = 400/);
   assert.match(source, /const CHART_SCREEN_CANDLE_COMMIT_INTERVAL_MS = 400/);
+  assert.match(tradeOverlayBridgeSource, /useLiveSymbolQuote\(symbol, active, 0\)/);
+  assert.match(tradeOverlayBridgeSource, /hasLiveQuoteFeedData\(liveQuote\)/);
+  assert.match(tradeOverlayBridgeSource, /return null/);
+  assert.match(source, /key=\{chartTradeDisplayQuoteScopeKey\}/);
   assert.match(source, /useLiveCandles\(\s*chartSymbol,\s*chartTimeframe,\s*chartDataActive,\s*CHART_SCREEN_CANDLE_COMMIT_INTERVAL_MS/);
   assert.match(
     source,

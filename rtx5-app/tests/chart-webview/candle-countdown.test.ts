@@ -25,14 +25,14 @@ const webBadgeSource = readProjectFile(
   'src/features/chart/components/ChartCandleCountdownBadge.web.tsx',
 );
 
-test('native bridge pushes the exact selected timeframe into a strict countdown setter', () => {
+test('native bridge binds the exact selected timeframe and series context to the countdown', () => {
   const normalizeBody = extractFunctionBody(webViewSource, 'normalizeCandleCountdownTimeframe');
   const setterBody = extractFunctionBody(webViewSource, 'setCandleCountdownTimeframe');
 
   assertSourceContains(
     nativeSource,
-    /setCandleCountdownTimeframe\(\$\{JSON\.stringify\(chartTimeframe\)\}\)/,
-    'native must bridge the selected chart timeframe rather than a fixed/default timeframe',
+    /setCandleCountdownTimeframe\([\s\S]*\$\{JSON\.stringify\(chartTimeframe\)\},[\s\S]*\$\{JSON\.stringify\(chartDataContextSig\)\}/,
+    'native must bridge the selected chart timeframe and the context that owns its candle data',
   );
   assertSourceContains(
     normalizeBody,
@@ -46,21 +46,88 @@ test('native bridge pushes the exact selected timeframe into a strict countdown 
     'setter must preserve strict invalid-to-null behavior',
   );
   assertSourceContains(
+    setterBody,
+    /candleCountdownRequestedContextSig =[\s\S]*typeof dataContextSig === 'string' \? dataContextSig : ''/,
+    'setter must bind the requested symbol/timeframe context',
+  );
+  assertSourceContains(
     nativeSource,
     /setCandleCountdownActive\(\$\{chartRuntimeActive && chartDisplay\.showLivePriceLine\}\)/,
     'native must pause the DOM ticker while the retained chart or live-price line is inactive',
   );
 });
 
-test('WebView countdown is anchored to the active candle and never creates a candle', () => {
+test('WebView countdown aligns the active candle to the selected market bucket and never creates a candle', () => {
   const remainingBody = extractFunctionBody(webViewSource, 'getCandleCountdownRemainingSeconds');
+  const bucketStartBody = extractFunctionBody(
+    webViewSource,
+    'resolveCandleCountdownBucketStartSeconds',
+  );
   const closeBody = extractFunctionBody(webViewSource, 'resolveCandleCountdownCloseTimeMs');
+  const formatBody = extractFunctionBody(webViewSource, 'formatCandleCountdownLabel');
   const tickerBody = extractFunctionBody(webViewSource, 'scheduleNextCandleCountdownTick');
+  const initBody = extractFunctionBody(webViewSource, '_doInitChart');
+  const updateDataBody = extractFunctionBody(webViewSource, 'updateChartData');
 
   assertSourceContains(
     remainingBody,
     /normalizeCandleCountdownBarTimeSeconds\(lastBarTime\)[\s\S]*resolveCandleCountdownCloseTimeMs\(barTimeSeconds, normalizedTimeframe\)/,
-    'remaining time must be calculated from the active candle timestamp',
+    'remaining time must be calculated from the active candle timestamp and selected timeframe',
+  );
+  assertSourceContains(
+    formatBody,
+    /candleCountdownTimeframe === 'H1'[\s\S]*padCandleCountdownUnit\(totalMinutes\)/,
+    'H1 must display its full sixty-minute countdown as MM:SS',
+  );
+  assertSourceContains(
+    formatBody,
+    /candleCountdownTimeframe === 'H4'[\s\S]*padCandleCountdownUnit\(totalHours\)[\s\S]*padCandleCountdownUnit\(minutes\)[\s\S]*padCandleCountdownUnit\(seconds\)/,
+    'H4 must display a stable HH:MM:SS countdown through zero',
+  );
+  assertSourceContains(
+    formatBody,
+    /candleCountdownTimeframe === 'D1'[\s\S]*padCandleCountdownUnit\(totalHours\)[\s\S]*padCandleCountdownUnit\(minutes\)[\s\S]*padCandleCountdownUnit\(seconds\)/,
+    'D1 must display a stable twenty-four-hour HH:MM:SS countdown through zero',
+  );
+  assertSourceContains(
+    formatBody,
+    /candleCountdownTimeframe === 'W1' \|\| candleCountdownTimeframe === 'MN'[\s\S]*padCandleCountdownUnit\(totalHours\)[\s\S]*padCandleCountdownUnit\(minutes\)[\s\S]*padCandleCountdownUnit\(seconds\)/,
+    'weekly and calendar-month countdowns must display total hours through zero',
+  );
+  assertSourceContains(
+    remainingBody,
+    /!candleCountdownRequestedContextSig[\s\S]*candleCountdownRequestedContextSig !== candleCountdownSeriesContextSig/,
+    'retained candles from a previous symbol/timeframe must hide instead of showing a wrong countdown',
+  );
+  assertSourceContains(
+    bucketStartBody,
+    /Math\.floor\(barTimeSeconds \/ intervalSeconds\) \* intervalSeconds/,
+    'intraday and hourly timestamps must snap to the selected market bucket',
+  );
+  assertSourceContains(
+    bucketStartBody,
+    /normalizedTimeframe === 'W1'[\s\S]*daysSinceMonday[\s\S]*dayStartSeconds - daysSinceMonday \* 24 \* 60 \* 60/,
+    'weekly timestamps must snap to the UTC Monday boundary',
+  );
+  assertSourceContains(
+    closeBody,
+    /resolveCandleCountdownBucketStartSeconds\(barTime, normalizedTimeframe\)/,
+    'close time must use the aligned bucket instead of a retained lower-timeframe timestamp',
+  );
+  assertSourceContains(
+    initBody,
+    /candleCountdownSeriesContextSig = resolvedDataContextSig/,
+    'initialized candle data must own its countdown context',
+  );
+  assertSourceContains(
+    updateDataBody,
+    /candleCountdownSeriesContextSig = paintedDataContextSig[\s\S]*lastInitDataContextSig = paintedDataContextSig/,
+    'replacement candle data and recovery state must move to the new context together',
+  );
+  assertSourceContains(
+    nativeSource,
+    /updateChartData\(\[\], \{[\s\S]*dataContextSig: \$\{JSON\.stringify\(chartDataContextSig\)\}/,
+    'an empty replacement must still retire the previous countdown context',
   );
   assertSourceContains(
     closeBody,
@@ -77,7 +144,10 @@ test('WebView countdown is anchored to the active candle and never creates a can
     /setTimeout\(function\(\)[\s\S]*scheduleMarketPriceScaleDomOnly\(\)[\s\S]*scheduleNextCandleCountdownTick\(\)/,
     'countdown must update locally on aligned timer ticks',
   );
-  assert.doesNotMatch(`${remainingBody}\n${closeBody}\n${tickerBody}`, /series\.update|updateTick\(|updateLiveTick\(/);
+  assert.doesNotMatch(
+    `${remainingBody}\n${bucketStartBody}\n${closeBody}\n${tickerBody}\n${initBody}\n${updateDataBody}`,
+    /series\.update|updateTick\(|updateLiveTick\(/,
+  );
 });
 
 test('native live price badge renders price first and countdown directly below it', () => {
@@ -117,6 +187,11 @@ test('web chart replaces the one-row built-in label with the same two-row badge'
     webBadgeSource,
     /getChartCandleCountdownSeconds\(\{[\s\S]*candleOpenTime: currentCandle\.time,[\s\S]*timeframe: current\.timeframe/,
     'web badge must use the same strict candle-boundary helper',
+  );
+  assertSourceContains(
+    webBadgeSource,
+    /formatChartCandleCountdown\(remainingSeconds, current\.timeframe\)/,
+    'web badge must retain the selected timeframe while formatting H1 and H4',
   );
   assertSourceContains(
     webBadgeSource,

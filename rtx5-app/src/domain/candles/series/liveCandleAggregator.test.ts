@@ -6,6 +6,11 @@ import {
   applyQuoteTickExtensionToCandleMap,
 } from './liveCandleAggregator';
 import type { LiveCandle, MutableCandle } from '../core/candleTypes';
+import {
+  getBucketStart,
+  getExpectedNextCandleTime,
+  SUPPORTED_TIMEFRAMES,
+} from '../core/timeframeUtils';
 
 const TIMEFRAME = 'M1';
 const BUCKET = 1_699_999_980;
@@ -220,7 +225,45 @@ test('quote tick burst preserves every OHLC and volume contribution before rende
   });
 });
 
-test('same-price no-volume heartbeat does not open future candle buckets', () => {
+test('first real flat no-volume quote opens the next bucket for every supported timeframe', () => {
+  const referenceTime = Date.UTC(2026, 6, 27, 10, 7, 23) / 1000;
+
+  for (const timeframe of SUPPORTED_TIMEFRAMES) {
+    const candleMap = buildEmptyMap();
+    const bucket = getBucketStart(referenceTime, timeframe);
+    assert.notEqual(bucket, null, `${timeframe} must resolve a valid market bucket`);
+    if (bucket === null) continue;
+
+    const first = applyQuoteTickExtensionToCandleMap(
+      candleMap,
+      { price: 4175.6, time: bucket + 1 },
+      timeframe,
+      { historyCutoffTime: bucket - 1 },
+    );
+    const nextBucket = getExpectedNextCandleTime(bucket, timeframe);
+    const boundaryQuote = applyQuoteTickExtensionToCandleMap(
+      candleMap,
+      { price: 4175.6, time: nextBucket + 5 },
+      timeframe,
+      { historyCutoffTime: bucket - 1, allowFlatNewBucket: true },
+    );
+
+    assert.equal(first.ignored, false, `${timeframe} first quote must be accepted`);
+    assert.equal(boundaryQuote.ignored, false, `${timeframe} boundary quote must be accepted`);
+    assert.equal(boundaryQuote.changed, true, `${timeframe} boundary quote must create a candle`);
+    assert.equal(candleMap.has(nextBucket), true, `${timeframe} next market bucket must exist`);
+    assert.deepEqual(boundaryQuote.candle, {
+      time: nextBucket,
+      open: 4175.6,
+      high: 4175.6,
+      low: 4175.6,
+      close: 4175.6,
+      volume: 0,
+    });
+  }
+});
+
+test('untrusted flat receipt heartbeat cannot open a bucket but a moved Bid still can', () => {
   const candleMap = buildEmptyMap();
   applyQuoteTickExtensionToCandleMap(
     candleMap,
@@ -230,23 +273,33 @@ test('same-price no-volume heartbeat does not open future candle buckets', () =>
   );
 
   const nextBucket = BUCKET + 60;
-  const heartbeat = applyQuoteTickExtensionToCandleMap(
+  const flatHeartbeat = applyQuoteTickExtensionToCandleMap(
     candleMap,
     { price: 4175.6, time: nextBucket + 5 },
     TIMEFRAME,
-    { historyCutoffTime: BUCKET - 60 },
+    { historyCutoffTime: BUCKET - 60, allowFlatNewBucket: false },
   );
 
-  assert.equal(heartbeat.ignored, true);
-  assert.equal(heartbeat.changed, false);
-  assert.equal(heartbeat.reason, 'unchanged_no_volume_tick_after_tail');
+  assert.equal(flatHeartbeat.ignored, true);
+  assert.equal(flatHeartbeat.changed, false);
+  assert.equal(flatHeartbeat.reason, 'untrusted_flat_quote_after_tail');
   assert.equal(candleMap.has(nextBucket), false);
-  assert.deepEqual(heartbeat.candle, {
-    time: BUCKET,
-    open: 4175.6,
-    high: 4175.6,
-    low: 4175.6,
-    close: 4175.6,
+
+  const movedBid = applyQuoteTickExtensionToCandleMap(
+    candleMap,
+    { price: 4175.7, time: nextBucket + 6 },
+    TIMEFRAME,
+    { historyCutoffTime: BUCKET - 60, allowFlatNewBucket: false },
+  );
+
+  assert.equal(movedBid.ignored, false);
+  assert.equal(movedBid.changed, true);
+  assert.deepEqual(movedBid.candle, {
+    time: nextBucket,
+    open: 4175.7,
+    high: 4175.7,
+    low: 4175.7,
+    close: 4175.7,
     volume: 0,
   });
 });

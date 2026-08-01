@@ -98,7 +98,12 @@ const CLOSED_SNAPSHOT: SidebarDestinationSnapshot = Object.freeze({
 
 /** Focus/query work runs only after the drawer close motion has settled. */
 const FOCUS_NOTIFY_SETTLE_DELAY_MS = 60;
-const SIDEBAR_DESTINATION_CONTROLLER_VERSION = 3;
+// A suspended frame queue or Fast Refresh can drop the two scheduled frames
+// after the native layer is already visible. Always publish the matching focus
+// snapshot within a bounded window so a retained destination cannot stay as a
+// header-only/blank screen.
+const FOCUS_NOTIFY_FAILSAFE_DELAY_MS = 250;
+const SIDEBAR_DESTINATION_CONTROLLER_VERSION = 4;
 
 /**
  * Converts Expo Router paths (including grouped routes and query/hash suffixes)
@@ -164,7 +169,10 @@ export function createSidebarDestinationController(
     nextSnapshot: SidebarDestinationSnapshot,
   ) => {
     const notifyIfCurrent = () => {
-      if (notificationRevision !== nextSnapshot.revision) {
+      if (
+        notificationRevision !== nextSnapshot.revision
+        || focusSnapshot.revision === nextSnapshot.revision
+      ) {
         return;
       }
 
@@ -188,6 +196,11 @@ export function createSidebarDestinationController(
       notifyIfCurrent();
       return;
     }
+
+    // Timers resume even when the frame callbacks were discarded while the
+    // app was paused or its JS modules refreshed. The revision guards above
+    // make this a no-op when the normal two-frame publication already won.
+    setTimeout(notifyIfCurrent, FOCUS_NOTIFY_FAILSAFE_DELAY_MS);
 
     globalThis.requestAnimationFrame(() => {
       globalThis.requestAnimationFrame(() => {
@@ -233,6 +246,13 @@ export function createSidebarDestinationController(
         && snapshot.activePath === path
         && snapshot.source === source
       ) {
+        // A previous visual reveal may have been interrupted before its
+        // deferred focus publication. Reapply the native layer and restart
+        // focus delivery instead of preserving a permanently blank body.
+        visualApplier?.(destination);
+        if (focusSnapshot.revision !== snapshot.revision) {
+          notifyAfterFirstVisualFrame(snapshot);
+        }
         return true;
       }
 
@@ -281,6 +301,9 @@ export function createSidebarDestinationController(
     registerVisualApplier: (applier) => {
       visualApplier = applier;
       applier(snapshot.activeDestination);
+      if (focusSnapshot.revision !== snapshot.revision) {
+        notifyAfterFirstVisualFrame(snapshot);
+      }
       return () => {
         if (visualApplier === applier) {
           visualApplier = null;

@@ -156,6 +156,8 @@ export const CH_HTML = `
       var lastBidPrice = null;
       var lastAskPrice = null;
       var candleCountdownTimeframe = null;
+      var candleCountdownRequestedContextSig = '';
+      var candleCountdownSeriesContextSig = '';
       var candleCountdownActive = false;
       var candleCountdownTimer = null;
       var CANDLE_COUNTDOWN_FIXED_SECONDS = ${JSON.stringify(CHART_CANDLE_COUNTDOWN_FIXED_SECONDS)};
@@ -5929,6 +5931,7 @@ export const CH_HTML = `
         lastInitSignature = resolvedInitSignature;
         lastInitConfigSig = resolvedConfigSig;
         lastInitDataContextSig = resolvedDataContextSig;
+        candleCountdownSeriesContextSig = resolvedDataContextSig;
         lastDisplayDecimals =
           typeof displayDecimals === 'number' && isFinite(displayDecimals) && displayDecimals >= 0
             ? displayDecimals
@@ -6770,6 +6773,10 @@ export const CH_HTML = `
           currentSeriesLength = mapped.length;
           clearMarketPriceLineRefs();
           series.setData(mapped);
+          candleCountdownSeriesContextSig = paintedDataContextSig;
+          if (paintedDataContextSig) {
+            lastInitDataContextSig = paintedDataContextSig;
+          }
           if (mapped.length > 0 && paintedDataContextSig && paintToken) {
             requestAnimationFrame(function() {
               postChartDataPainted(paintedDataContextSig, paintToken);
@@ -7274,13 +7281,42 @@ export const CH_HTML = `
         return Math.floor(numeric);
       }
 
-      function resolveCandleCountdownCloseTimeMs(barTime, timeframe) {
+      function resolveCandleCountdownBucketStartSeconds(barTime, timeframe) {
         var normalizedTimeframe = normalizeCandleCountdownTimeframe(timeframe);
         var barTimeSeconds = normalizeCandleCountdownBarTimeSeconds(barTime);
         if (!normalizedTimeframe || barTimeSeconds === null) return null;
 
+        var barDate = new Date(barTimeSeconds * 1000);
         if (normalizedTimeframe === 'MN') {
-          var barDate = new Date(barTimeSeconds * 1000);
+          return Math.floor(Date.UTC(barDate.getUTCFullYear(), barDate.getUTCMonth(), 1) / 1000);
+        }
+        if (normalizedTimeframe === 'D1' || normalizedTimeframe === 'W1') {
+          var dayStartSeconds = Math.floor(Date.UTC(
+            barDate.getUTCFullYear(),
+            barDate.getUTCMonth(),
+            barDate.getUTCDate()
+          ) / 1000);
+          if (normalizedTimeframe === 'W1') {
+            var daysSinceMonday = (barDate.getUTCDay() + 6) % 7;
+            return dayStartSeconds - daysSinceMonday * 24 * 60 * 60;
+          }
+          return dayStartSeconds;
+        }
+
+        var intervalSeconds = CANDLE_COUNTDOWN_FIXED_SECONDS[normalizedTimeframe];
+        if (typeof intervalSeconds !== 'number' || !isFinite(intervalSeconds) || intervalSeconds <= 0) {
+          return null;
+        }
+        return Math.floor(barTimeSeconds / intervalSeconds) * intervalSeconds;
+      }
+
+      function resolveCandleCountdownCloseTimeMs(barTime, timeframe) {
+        var normalizedTimeframe = normalizeCandleCountdownTimeframe(timeframe);
+        var bucketStartSeconds = resolveCandleCountdownBucketStartSeconds(barTime, normalizedTimeframe);
+        if (!normalizedTimeframe || bucketStartSeconds === null) return null;
+
+        if (normalizedTimeframe === 'MN') {
+          var barDate = new Date(bucketStartSeconds * 1000);
           return Date.UTC(barDate.getUTCFullYear(), barDate.getUTCMonth() + 1, 1);
         }
 
@@ -7288,17 +7324,27 @@ export const CH_HTML = `
         if (typeof intervalSeconds !== 'number' || !isFinite(intervalSeconds) || intervalSeconds <= 0) {
           return null;
         }
-        return (barTimeSeconds + intervalSeconds) * 1000;
+        return (bucketStartSeconds + intervalSeconds) * 1000;
       }
 
       function getCandleCountdownRemainingSeconds(nowMs) {
         var normalizedTimeframe = normalizeCandleCountdownTimeframe(candleCountdownTimeframe);
         var barTimeSeconds = normalizeCandleCountdownBarTimeSeconds(lastBarTime);
-        if (!normalizedTimeframe || barTimeSeconds === null) return null;
+        if (
+          !normalizedTimeframe ||
+          barTimeSeconds === null ||
+          !candleCountdownRequestedContextSig ||
+          candleCountdownRequestedContextSig !== candleCountdownSeriesContextSig
+        ) return null;
+        var bucketStartSeconds = resolveCandleCountdownBucketStartSeconds(
+          barTimeSeconds,
+          normalizedTimeframe
+        );
+        if (bucketStartSeconds === null) return null;
         var closeTimeMs = resolveCandleCountdownCloseTimeMs(barTimeSeconds, normalizedTimeframe);
         if (closeTimeMs === null) return null;
         var currentTimeMs = typeof nowMs === 'number' && isFinite(nowMs) ? nowMs : Date.now();
-        var bucketDurationSeconds = Math.max(0, Math.round(closeTimeMs / 1000 - barTimeSeconds));
+        var bucketDurationSeconds = Math.max(0, Math.round(closeTimeMs / 1000 - bucketStartSeconds));
         var remainingSeconds = Math.max(0, Math.ceil((closeTimeMs - currentTimeMs) / 1000));
         return Math.min(bucketDurationSeconds, remainingSeconds);
       }
@@ -7318,6 +7364,21 @@ export const CH_HTML = `
         var totalHours = Math.floor(totalMinutes / 60);
         var hours = totalHours % 24;
         var days = Math.floor(totalHours / 24);
+        if (candleCountdownTimeframe === 'H1') {
+          return padCandleCountdownUnit(totalMinutes) + ':' + padCandleCountdownUnit(seconds);
+        }
+        if (candleCountdownTimeframe === 'H4') {
+          return padCandleCountdownUnit(totalHours) + ':' +
+            padCandleCountdownUnit(minutes) + ':' + padCandleCountdownUnit(seconds);
+        }
+        if (candleCountdownTimeframe === 'D1') {
+          return padCandleCountdownUnit(totalHours) + ':' +
+            padCandleCountdownUnit(minutes) + ':' + padCandleCountdownUnit(seconds);
+        }
+        if (candleCountdownTimeframe === 'W1' || candleCountdownTimeframe === 'MN') {
+          return padCandleCountdownUnit(totalHours) + ':' +
+            padCandleCountdownUnit(minutes) + ':' + padCandleCountdownUnit(seconds);
+        }
         if (days > 0) {
           return days + 'd ' + padCandleCountdownUnit(hours) + ':' +
             padCandleCountdownUnit(minutes) + ':' + padCandleCountdownUnit(seconds);
@@ -7352,8 +7413,10 @@ export const CH_HTML = `
         }, delay);
       }
 
-      function setCandleCountdownTimeframe(timeframe) {
+      function setCandleCountdownTimeframe(timeframe, dataContextSig) {
         candleCountdownTimeframe = normalizeCandleCountdownTimeframe(timeframe);
+        candleCountdownRequestedContextSig =
+          typeof dataContextSig === 'string' ? dataContextSig : '';
         stopCandleCountdownTicker();
         if (candleCountdownActive && candleCountdownTimeframe) {
           scheduleNextCandleCountdownTick();
@@ -8704,8 +8767,81 @@ export const CH_HTML = `
         schedulePriceScaleHealthCheck('overlay_update', false, 1);
       }
 
-      // Live P/L text only. Never recreates native price lines or re-fits scale.
-      // RN throttles this path so the horizontal trade-label layer does not blink.
+      function patchOverlayTradeLabelPayload(payload, patchById) {
+        if (!payload || typeof payload !== 'object') return payload;
+        var lines = Array.isArray(payload.priceLines) ? payload.priceLines : [];
+        var changed = false;
+        var nextLines = new Array(lines.length);
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i];
+          var patch = line && patchById[String(line.id || '')];
+          if (!patch) {
+            nextLines[i] = line;
+            continue;
+          }
+          if (
+            line.title === patch.title &&
+            line.labelValueText === patch.labelValueText &&
+            line.labelValueColor === patch.labelValueColor
+          ) {
+            nextLines[i] = line;
+            continue;
+          }
+          var nextLine = {};
+          for (var lineKey in line) {
+            if (Object.prototype.hasOwnProperty.call(line, lineKey)) {
+              nextLine[lineKey] = line[lineKey];
+            }
+          }
+          nextLine.title = patch.title;
+          nextLine.labelValueText = patch.labelValueText;
+          nextLine.labelValueColor = patch.labelValueColor;
+          nextLines[i] = nextLine;
+          changed = true;
+        }
+        if (!changed) return payload;
+        var nextPayload = {};
+        for (var payloadKey in payload) {
+          if (Object.prototype.hasOwnProperty.call(payload, payloadKey)) {
+            nextPayload[payloadKey] = payload[payloadKey];
+          }
+        }
+        nextPayload.priceLines = nextLines;
+        return nextPayload;
+      }
+
+      // Tick-fast open-position P/L patch. This updates only the third span of
+      // an existing split label plus both cached payloads. It never measures,
+      // sorts, repositions, removes, or recreates any overlay geometry.
+      function updateOverlayTradeLabelValues(patches) {
+        try {
+          if (!Array.isArray(patches) || patches.length === 0) return;
+          var patchById = Object.create(null);
+          for (var i = 0; i < patches.length; i++) {
+            var patch = patches[i];
+            if (!patch || typeof patch.id !== 'string' || !patch.id) continue;
+            patchById[patch.id] = patch;
+          }
+          _overlayPayload = patchOverlayTradeLabelPayload(_overlayPayload, patchById);
+          _appliedOverlayPayload = patchOverlayTradeLabelPayload(_appliedOverlayPayload, patchById);
+
+          for (var id in patchById) {
+            if (!Object.prototype.hasOwnProperty.call(patchById, id)) continue;
+            var nextPatch = patchById[id];
+            var label = _overlayDomNodesByKey['label:anchored:' + id];
+            if (!label || label.childNodes.length !== 3) continue;
+            var valueSpan = label.childNodes[2];
+            if (!valueSpan || valueSpan.nodeName !== 'SPAN') continue;
+            valueSpan.textContent = nextPatch.labelValueText;
+            valueSpan.style.color = nextPatch.labelValueColor;
+          }
+        } catch (e) {
+          postError('updateOverlayTradeLabelValues', e);
+        }
+      }
+
+      // Fallback/full-label sync. Never recreates matching native price lines
+      // or re-fits scale, but may re-run DOM layout for structural changes.
       function updateOverlayTradeLabels(payload) {
         try {
           var nextPayload = payload && typeof payload === 'object'
@@ -8810,6 +8946,7 @@ export const CH_HTML = `
       window.setChartAutoScaleEnabled = setChartAutoScaleEnabled;
       window.zoomChart = zoomChart;
       window.setChartOverlays = setChartOverlays;
+      window.updateOverlayTradeLabelValues = updateOverlayTradeLabelValues;
       window.updateOverlayTradeLabels = updateOverlayTradeLabels;
       window.setPriceLines = setPriceLines;
       window.updatePositionLines = updatePositionLines;

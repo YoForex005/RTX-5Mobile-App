@@ -172,6 +172,7 @@ test('normalizeQuoteTickPayload maps verified live feed session fields', () => {
     source: 'rtx_market_data',
     authority: 'rtx5_hub',
     stale: false,
+    degraded: false,
     tradable: true,
     age_ms: 12,
     session: {
@@ -195,11 +196,26 @@ test('normalizeQuoteTickPayload maps verified live feed session fields', () => {
   assert.equal(result.update.source, 'rtx_market_data');
   assert.equal(result.update.authority, 'rtx5_hub');
   assert.equal(result.update.stale, false);
+  assert.equal(result.update.degraded, false);
   assert.equal(result.update.tradable, true);
   assert.equal(result.update.ageMs, 12);
   assert.equal(result.update.high, 1.17269);
   assert.equal(result.update.low, 1.16773);
   assert.equal(result.update.timestamp, 1777409940);
+});
+
+test('normalizeQuoteTickPayload preserves degraded flag aliases', () => {
+  const result = normalizeQuoteTickPayload({
+    symbol: 'EURUSD',
+    bid: 1.17121,
+    ask: 1.17141,
+    is_degraded: true,
+    time: 1777409940,
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.update.degraded, true);
 });
 
 test('normalizeQuoteTickPayload maps backend precision aliases', () => {

@@ -119,6 +119,10 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
   const supportStart = source.indexOf('const openSupportEmail = useCallback', navigateStart);
   assert.notEqual(supportStart, -1);
   const navigateSource = source.slice(navigateStart, supportStart);
+  assert.match(
+    navigateSource,
+    /if \(!shouldNavigate\) \{[\s\S]*?if \(hostedPath === targetPath && resolveSidebarHostDestination\(route\)\) \{\s*showSidebarDestination\(route, 'sidebar'\);/,
+  );
   const hostedBranchStart = navigateSource.indexOf('if (resolveSidebarHostDestination(route))');
   const primaryBranchStart = navigateSource.indexOf('if (SIDEBAR_PRIMARY_TAB_ROUTES.has(route))');
   const fallbackBranchStart = navigateSource.indexOf('\n    handleClose(() => {', primaryBranchStart);
@@ -269,20 +273,20 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
 });
 
 
-test('trade sidebar route defers position refresh until after route paint', () => {
+test('trade route keeps its structural body mounted while deferring live work', () => {
   const source = readSource('src/features/trade/TradeScreen/TradeScreen.tsx');
 
   assert.match(source, /import \{ useDeferredActiveFlag \} from '..\/..\/..\/hooks\/useDeferredActiveFlag'/);
   assert.match(source, /const TRADE_SCREEN_FETCH_DELAY_MS = 0/);
   assert.match(source, /const TRADE_SCREEN_REFRESH_INTERVAL_MS = 3000/);
-  assert.match(source, /const TRADE_BODY_PREWARM_DELAY_MS = 600/);
-  assert.match(source, /const routeBodyReady = useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : TRADE_BODY_PREWARM_DELAY_MS,\s*\)/);
+  assert.doesNotMatch(source, /TRADE_BODY_PREWARM_DELAY_MS|routeBodyReady|showTradeBody|useDeferredRouteContentReady/);
   assert.match(source, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
   assert.match(source, /requestAnimationFrame\(markReady\)/);
   assert.doesNotMatch(source, /sidebarOpen = useUIState/);
-  // Structural ledger content paints on the selection turn. Live quotes and
-  // backend refresh work remain deferred until after that route paint.
-  assert.match(source, /const showTradeBody = isScreenFocused \|\| routeBodyReady/);
+  // Structural ledger content is already mounted before selection. Live quotes
+  // and backend refresh work remain deferred until after the route paint.
+  assert.match(source, /<AppHeader title=\{t\('Trade'\)\} noBorder \/>[\s\S]*<TradeSummaryHeader[\s\S]*<FlatList/);
+  assert.match(source, /positionsSignature: buildOpenPositionsCacheSignature\(state\.positions\)/);
   assert.match(source, /const tradeLiveActive = isLiveScreenFocused/);
   assert.match(source, /const tradeFetchActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady, TRADE_SCREEN_FETCH_DELAY_MS\)/);
   assert.match(source, /if \(!tradeFetchActive \|\| !resolvedLogin\) \{/);
@@ -519,6 +523,8 @@ test('sidebar hosts detail destinations directly and shares the fast primary-tab
   // Focus publishes two frames + a settle delay after the visual flip so the
   // heavy focus/query commit lands after the drawer close motion finishes.
   assert.match(destinationControllerSource, /const FOCUS_NOTIFY_SETTLE_DELAY_MS = 60/);
+  assert.match(destinationControllerSource, /const FOCUS_NOTIFY_FAILSAFE_DELAY_MS = 250/);
+  assert.match(destinationControllerSource, /setTimeout\(notifyIfCurrent, FOCUS_NOTIFY_FAILSAFE_DELAY_MS\)/);
   assert.match(destinationControllerSource, /globalThis\.requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(notifyIfCurrent, FOCUS_NOTIFY_SETTLE_DELAY_MS\);/);
   assert.match(destinationControllerSource, /if \(nextSnapshot\.source === 'settings'\) \{\s*notifyIfCurrent\(\);\s*return;/);
   assert.match(destinationControllerSource, /show: \(destinationOrPath, source = 'programmatic'\) => \{/);
@@ -574,7 +580,7 @@ test('sidebar hosts detail destinations directly and shares the fast primary-tab
   // Keep the controller's compatibility API/version for Fast Refresh even
   // though the Host deliberately avoids its visual-store subscription.
   assert.match(destinationControllerSource, /subscribeVisual: \(listener: \(\) => void\) => \{/);
-  assert.match(destinationControllerSource, /SIDEBAR_DESTINATION_CONTROLLER_VERSION = 3/);
+  assert.match(destinationControllerSource, /SIDEBAR_DESTINATION_CONTROLLER_VERSION = 4/);
   assert.match(destinationControllerSource, /__rtx5SidebarDestinationControllerVersion/);
   assert.match(destinationControllerSource, /requestBack: \(\) => \{[\s\S]*backHandlers\.get\(destination\)\?\.\(\) \?\? false/);
   assert.match(destinationControllerSource, /registerBackHandler: \(destination, handler\) => \{[\s\S]*backHandlers\.set\(destination, handler\)/);
@@ -674,8 +680,12 @@ test('sidebar detail screens prewarm complete retained content before their firs
   );
 
   const accountsSource = readSource('src/features/settings/AccountsScreen.tsx');
-  assert.match(accountsSource, /const focusedBodyReady = isScreenFocused && hostBodyReady;/);
-  assert.match(accountsSource, /\{focusedBodyReady \? \(\s*<FlatList/);
+  assert.match(accountsSource, /export function AccountsScreen\(\) \{\s*const isScreenFocused = useIsFocused\(\);\s*return <AccountsScreenInner isScreenFocused=\{isScreenFocused\} \/>;\s*\}/);
+  assert.match(accountsSource, /useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : ACCOUNTS_BODY_PREWARM_DELAY_MS,/);
+  assert.match(accountsSource, /const showAccountsBody = isScreenFocused \|\| hostBodyReady;/);
+  assert.match(accountsSource, /\{showAccountsBody \? \(\s*<FlatList/);
+  assert.doesNotMatch(accountsSource, /focusedBodyReady|accountsBodyVisible|accountsBodyReady|SidebarHostedAccountsScreenInner/);
+  assert.doesNotMatch(accountsSource, /const focusedBodyReady = isScreenFocused && hostBodyReady/);
   assert.match(accountsSource, /\{isScreenFocused && passwordSheetVisible && \(/);
   assert.match(accountsSource, /\{isScreenFocused && tradeNotificationsSheetVisible && \(/);
   assert.match(accountsSource, /\{isScreenFocused && deleteTarget && \(/);

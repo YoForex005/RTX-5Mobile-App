@@ -26,6 +26,8 @@ export type ApplyCandleResult = {
 export type ApplyQuoteTickExtensionOptions = {
   historyCutoffTime?: number | null;
   latestHistoryCandle?: Pick<Candle, 'time' | 'open' | 'high' | 'low' | 'close' | 'volume'> | null;
+  /** False when receipt-time fallback cannot prove that a flat boundary quote is fresh. */
+  allowFlatNewBucket?: boolean;
 };
 
 export type ApplyQuoteTickExtensionResult = {
@@ -299,6 +301,7 @@ export const applyQuoteTickExtensionToCandleMap = (
           : null;
 
     if (
+      options.allowFlatNewBucket === false &&
       latestKnownBucket !== null &&
       bucketStart > latestKnownBucket &&
       latestKnownCandle &&
@@ -311,7 +314,7 @@ export const applyQuoteTickExtensionToCandleMap = (
         candle: toPublicCandle(latestKnownCandle),
         changed: false,
         ignored: true,
-        reason: 'unchanged_no_volume_tick_after_tail',
+        reason: 'untrusted_flat_quote_after_tail',
       };
     }
 

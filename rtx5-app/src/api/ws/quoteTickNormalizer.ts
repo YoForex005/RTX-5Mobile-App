@@ -335,6 +335,9 @@ export const normalizeQuoteTickPayload = (
   const source = toCleanString(pickFirstValue(metricRecords, SOURCE_KEYS));
   const authority = toCleanString(pickFirstValue(metricRecords, AUTHORITY_KEYS));
   const stale = toOptionalBoolean(pickFirstValue(metricRecords, ['stale', 'is_stale', 'isStale']));
+  const degraded = toOptionalBoolean(
+    pickFirstValue(metricRecords, ['degraded', 'is_degraded', 'isDegraded']),
+  );
   const tradable = toOptionalBoolean(pickFirstValue(metricRecords, ['tradable', 'trade_allowed', 'tradeAllowed']));
   const ageMs = toNonNegativeOptionalNumber(pickFirstValue(metricRecords, ['age_ms', 'ageMs']));
   const ageSec = toNonNegativeOptionalNumber(pickFirstValue(metricRecords, ['age_sec', 'ageSec']));
@@ -363,6 +366,7 @@ export const normalizeQuoteTickPayload = (
       source,
       authority,
       stale,
+      degraded,
       tradable,
       ageMs,
       ageSec,

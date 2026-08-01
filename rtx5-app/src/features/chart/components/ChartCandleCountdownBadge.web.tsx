@@ -156,7 +156,7 @@ export const ChartCandleCountdownBadge = React.memo(function ChartCandleCountdow
         candleOpenTime: currentCandle.time,
         timeframe: current.timeframe,
       });
-      const countdownLabel = formatChartCandleCountdown(remainingSeconds);
+      const countdownLabel = formatChartCandleCountdown(remainingSeconds, current.timeframe);
       const hasCountdown = countdownLabel !== null;
       const priceRowHeight = hasCountdown ? PRICE_ROW_HEIGHT : SINGLE_ROW_HEIGHT;
       const badgeHeight = hasCountdown
@@ -270,4 +270,3 @@ export const ChartCandleCountdownBadge = React.memo(function ChartCandleCountdow
     </div>
   );
 });
-

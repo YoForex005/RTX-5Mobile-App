@@ -13,8 +13,12 @@
 import type { PriceAlert } from '../../../api/alerts';
 import type { LoginOrder } from '../../../api/orders';
 import type { ClosedPosition } from '../../../api/positions';
-import type { PositionItem } from '../../../dev/mock/tradingData';
+import type { PositionItem, QuoteItem } from '../../../dev/mock/tradingData';
 import type { ChartColorsConfig } from '../../../state/userPreferences';
+import {
+  formatLivePositionPnl,
+  resolveLivePositionPnl,
+} from '../../trade/livePositionMetrics';
 import type { ChartShowOnChartSettings } from '../chartShowOnChart';
 import {
   addUniqueMarker,
@@ -24,11 +28,8 @@ import {
   sanitizeCandles,
 } from './markerCollections';
 import {
-  calculateOpenPositionLivePnl,
   calculatePositionTargetPnl,
-  formatOpenPositionOverlayLabel,
   formatPositionVolumeLabel,
-  formatSignedUsdOverlayLabel,
   formatTpSlOverlayLabel,
   formatTpSlOverlayValueLabel,
 } from './orderHelpers';
@@ -57,6 +58,7 @@ type BuildChartOverlayPayloadInput = {
   sellColor: string;
   liveBid?: number | null;
   liveAsk?: number | null;
+  liveQuote?: Partial<QuoteItem>;
   liveAccount?: ChartOverlayLiveAccount | null;
   showOnChart: ChartShowOnChartSettings;
   activeTool?: string;
@@ -152,6 +154,121 @@ const resolveOpenPositionSideColor = (
   sellColor: string,
 ): string => (side === 'buy' ? colors.tradeOpen || '#2962FF' : sellColor || '#DC2626');
 
+export type ChartOpenPositionLabelPatch = Pick<
+  ChartOverlayPriceLine,
+  'id' | 'title' | 'labelValueText' | 'labelValueColor'
+>;
+
+type BuildChartOpenPositionLabelPatchesInput = Pick<
+  BuildChartOverlayPayloadInput,
+  'chartSymbol' | 'positions' | 'colors' | 'sellColor' | 'liveBid' | 'liveAsk' | 'showOnChart'
+> & {
+  liveQuote?: Partial<QuoteItem>;
+};
+
+const buildOpenPositionLabelPatch = (
+  position: PositionItem,
+  colors: ChartColorsConfig,
+  sellColor: string,
+  liveQuote?: Partial<QuoteItem>,
+): ChartOpenPositionLabelPatch | null => {
+  const parsedPrice = Number(position.openPrice);
+  if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+    return null;
+  }
+
+  const livePnl = resolveLivePositionPnl(position, liveQuote);
+  const labelValueText = `${formatLivePositionPnl(livePnl)} USD`;
+
+  return {
+    id: `open-${position.id}`,
+    title: `${position.side === 'sell' ? 'SELL' : 'BUY'} ${formatPositionVolumeLabel(Number(position.volume))}, ${labelValueText}`,
+    labelValueText,
+    labelValueColor: resolveOpenPositionPnlColor(livePnl, position.side, colors, sellColor),
+  };
+};
+
+/**
+ * Builds only the quote-driven fields of open-position labels. This is the
+ * per-tick path used by the native Chart bridge; line geometry stays untouched.
+ */
+export const buildChartOpenPositionLabelPatches = ({
+  chartSymbol,
+  positions,
+  colors,
+  sellColor,
+  liveBid,
+  liveAsk,
+  liveQuote,
+  showOnChart,
+}: BuildChartOpenPositionLabelPatchesInput): ChartOpenPositionLabelPatch[] => {
+  if (!hasEnabledTradeSides(showOnChart)) {
+    return [];
+  }
+
+  const resolvedLiveQuote = liveQuote ?? (
+    (typeof liveBid === 'number' && Number.isFinite(liveBid) && liveBid > 0) ||
+    (typeof liveAsk === 'number' && Number.isFinite(liveAsk) && liveAsk > 0)
+      ? {
+          bid: typeof liveBid === 'number' ? liveBid : undefined,
+          ask: typeof liveAsk === 'number' ? liveAsk : undefined,
+        }
+      : undefined
+  );
+  const normalizedChartSymbol = normalizeChartOverlaySymbol(chartSymbol);
+  return positions.flatMap((position) => {
+    if (
+      normalizeChartOverlaySymbol(position.symbol) !== normalizedChartSymbol ||
+      !isTradeSideEnabled(position.side, showOnChart)
+    ) {
+      return [];
+    }
+    const patch = buildOpenPositionLabelPatch(
+      position,
+      colors,
+      sellColor,
+      resolvedLiveQuote,
+    );
+    return patch ? [patch] : [];
+  });
+};
+
+/** Applies live text/color patches without changing any overlay line geometry. */
+export const applyChartOpenPositionLabelPatches = (
+  payload: ChartOverlayPayload,
+  patches: readonly ChartOpenPositionLabelPatch[],
+): ChartOverlayPayload => {
+  if (patches.length === 0 || payload.priceLines.length === 0) {
+    return payload;
+  }
+
+  const patchById = new Map(patches.map((patch) => [patch.id, patch]));
+  let changed = false;
+  const priceLines = payload.priceLines.map((line) => {
+    const patch = patchById.get(line.id);
+    if (
+      !patch ||
+      (
+        line.title === patch.title &&
+        line.labelValueText === patch.labelValueText &&
+        line.labelValueColor === patch.labelValueColor
+      )
+    ) {
+      return line;
+    }
+
+    changed = true;
+    return {
+      ...line,
+      title: patch.title,
+      labelValueText: patch.labelValueText,
+      labelValueColor: patch.labelValueColor,
+    };
+  });
+
+  return changed ? { ...payload, priceLines } : payload;
+};
+
 export const buildChartOverlayPayload = ({
   chartSymbol,
   candles,
@@ -161,6 +278,7 @@ export const buildChartOverlayPayload = ({
   sellColor,
   liveBid,
   liveAsk,
+  liveQuote,
   showOnChart,
   activeTool,
   allowPositionStopDragging = false,
@@ -172,6 +290,15 @@ export const buildChartOverlayPayload = ({
   }
 
   const normalizedChartSymbol = normalizeChartOverlaySymbol(chartSymbol);
+  const resolvedLiveQuote = liveQuote ?? (
+    (typeof liveBid === 'number' && Number.isFinite(liveBid) && liveBid > 0) ||
+    (typeof liveAsk === 'number' && Number.isFinite(liveAsk) && liveAsk > 0)
+      ? {
+          bid: typeof liveBid === 'number' ? liveBid : undefined,
+          ask: typeof liveAsk === 'number' ? liveAsk : undefined,
+        }
+      : undefined
+  );
   // Show the trader's open positions for this symbol, filtered to the sides the
   // "Show buy trade" / "Show sell trade" preferences enable.
   const symbolPositions = showTradeSides
@@ -204,19 +331,14 @@ export const buildChartOverlayPayload = ({
     const parsedPrice = Number(position.openPrice);
     if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) return;
 
-    const livePnl =
-      calculateOpenPositionLivePnl({
-        symbol: position.symbol,
-        side: position.side,
-        volume: Number(position.volume),
-        openPrice: parsedPrice,
-        bid: liveBid,
-        ask: liveAsk,
-        swap: Number(position.swap),
-        commission: Number(position.commission),
-      }) ?? Number(position.pnl);
+    const labelPatch = buildOpenPositionLabelPatch(
+      position,
+      colors,
+      sellColor,
+      resolvedLiveQuote,
+    );
+    if (!labelPatch) return;
     const sideColor = resolveOpenPositionSideColor(position.side, colors, sellColor);
-    const pnlColor = resolveOpenPositionPnlColor(livePnl, position.side, colors, sellColor);
     const sideLabel = `${position.side === 'sell' ? 'SELL' : 'BUY'} ${formatPositionVolumeLabel(
       Number(position.volume),
     )}`;
@@ -228,11 +350,11 @@ export const buildChartOverlayPayload = ({
       lineWidth: 1,
       lineStyle: CHART_LINE_STYLE.Dotted,
       axisLabelVisible: true,
-      title: formatOpenPositionOverlayLabel(position.side, Number(position.volume), livePnl),
+      title: labelPatch.title,
       labelSideText: sideLabel,
-      labelValueText: formatSignedUsdOverlayLabel(livePnl),
+      labelValueText: labelPatch.labelValueText,
       labelSideColor: sideColor,
-      labelValueColor: pnlColor,
+      labelValueColor: labelPatch.labelValueColor,
       labelPlacement: 'line',
     });
 

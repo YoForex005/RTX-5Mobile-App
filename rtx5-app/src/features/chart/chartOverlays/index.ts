@@ -23,7 +23,13 @@ export {
   formatTpSlOverlayLabel,
   formatTpSlOverlayValueLabel,
 } from './orderHelpers';
-export { buildChartOverlayMarkers, buildChartOverlayPayload } from './buildPayload';
+export {
+  applyChartOpenPositionLabelPatches,
+  buildChartOpenPositionLabelPatches,
+  buildChartOverlayMarkers,
+  buildChartOverlayPayload,
+  type ChartOpenPositionLabelPatch,
+} from './buildPayload';
 export {
   buildChartPositionStopDragKey,
   parseChartPositionStopDragKey,

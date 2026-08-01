@@ -23,6 +23,7 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   const liveCandlesSource = readSource('src/domain/candles/hooks/useLiveCandles.ts');
   const chartLiveHeadersSource = readSource('src/features/chart/components/ChartLiveHeaders.tsx');
   const chartTradeButtonsSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/ChartTradeButtonsFeature.tsx');
+  const chartTradeOverlayLiveBridgeSource = readSource('src/features/chart/components/ChartTradeOverlayLiveBridge.tsx');
 
   assert.match(quotesSource, /import \{ useIsFocused \} from '@react-navigation\/native'/);
   assert.match(quotesSource, /import \{ useRouter \} from 'expo-router'/);
@@ -132,6 +133,12 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   assert.doesNotMatch(chartSource, /CHART_SURFACE_PREWARM_DELAY_MS|CHART_STARTUP_HISTORY_PREWARM_DELAY_MS/);
   assert.doesNotMatch(chartSource, /const chartSurfaceReady = useDeferredActiveFlag\(/);
   assert.match(chartSource, /useLiveSymbolQuote\(chartSymbol, chartRuntimeActive, CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS\)/);
+  assert.match(chartTradeOverlayLiveBridgeSource, /useLiveSymbolQuote\(symbol, active, 0\)/);
+  assert.match(
+    chartSource,
+    /<ChartTradeOverlayLiveBridge\s+key=\{chartTradeDisplayQuoteScopeKey\}\s+active=\{chartRuntimeActive && chartCanvasReady && webViewReady\}/,
+  );
+  assert.match(chartTradeOverlayLiveBridgeSource, /hasLiveQuoteFeedData\(liveQuote\)/);
   assert.doesNotMatch(chartLiveHeadersSource, /useMarketData|useLiveTick/);
   assert.match(chartTradeButtonsSource, /const TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS = 16/);
   assert.match(chartTradeButtonsSource, /useExecutableQuote\(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS\)/);
@@ -230,6 +237,7 @@ test('settings, trade, and history screens pause work when another screen is foc
   const tradeSource = readSource('src/features/trade/TradeScreen/TradeScreen.tsx');
   const historySource = readSource('src/features/history/HistoryScreen.tsx');
   const tradePositionRowSource = readSource('src/ui/components/TradePositionRow/TradePositionRow.tsx');
+  const livePositionMetricsSource = readSource('src/features/trade/livePositionMetrics.ts');
   const tradeSummarySource = readSource('src/features/trade/TradeScreen/SummaryHeader.tsx');
   const calendarSource = readSource('src/features/settings/EconomicCalendarScreen/EconomicCalendarScreen.tsx');
   const healthSource = readSource('src/query/health.ts');
@@ -251,8 +259,15 @@ test('settings, trade, and history screens pause work when another screen is foc
   assert.match(accountsSource, /useAccountDetails\(activeLogin, screenDataActive && !!activeLogin\)/);
   assert.match(accountsSource, /useHealth\(screenDataActive\)/);
   assert.match(accountsSource, /useMt5Status\(screenDataActive\)/);
-  assert.match(accountsSource, /const focusedBodyReady = isScreenFocused && hostBodyReady;/);
-  assert.match(accountsSource, /\{focusedBodyReady \? \(\s*<FlatList/);
+  // The retained Accounts body is prepared while hidden, like the mounted
+  // Trade tab, so opening the drawer destination does not mount a FlatList in
+  // the tap turn. Network/live work below must still remain focus-gated.
+  assert.match(accountsSource, /useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : ACCOUNTS_BODY_PREWARM_DELAY_MS,/);
+  assert.match(accountsSource, /const showAccountsBody = isScreenFocused \|\| hostBodyReady;/);
+  assert.match(accountsSource, /\{showAccountsBody \? \(\s*<FlatList/);
+  assert.doesNotMatch(accountsSource, /focusedBodyReady|accountsBodyVisible|accountsBodyReady|SidebarHostedAccountsScreenInner/);
+  assert.match(accountsSource, /const focusDataActive = useDeferredActiveFlag\(\s*isLoggedIn && isScreenFocused && firstPaintReady,/);
+  assert.match(accountsSource, /const liveQuoteDataActive = isScreenFocused && screenDataActive && liveMatchesActiveAccount/);
   assert.match(accountsSource, /useUIState\.getState\(\)\.hideAccountsActionSheet\(\)/);
   assert.match(accountsSource, /\{isScreenFocused \? <AccountsActionSheetHost \/> : null\}/);
 
@@ -278,27 +293,26 @@ test('settings, trade, and history screens pause work when another screen is foc
   assert.match(tradeSource, /const TRADE_POSITION_RENDER_BATCH_SIZE = 5/);
   assert.match(tradeSource, /const TRADE_SCREEN_FETCH_DELAY_MS = 0/);
   assert.match(tradeSource, /const TRADE_SCREEN_REFRESH_INTERVAL_MS = 3000/);
-  assert.match(tradeSource, /const TRADE_BODY_PREWARM_DELAY_MS = 600/);
-  assert.match(tradeSource, /const routeBodyReady = useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : TRADE_BODY_PREWARM_DELAY_MS,\s*\)/);
-  assert.match(tradeSource, /const showTradeBody = isScreenFocused \|\| routeBodyReady/);
-  assert.match(tradeSource, /\{showTradeBody \? <>/);
-  assert.doesNotMatch(tradeSource, /useDeferredRouteContentReady\([^)]*, isScreenFocused\)/);
+  // The native fast-tab layer is revealed before React Navigation focus. The
+  // complete structural body must therefore already exist in the retained tab.
+  assert.doesNotMatch(tradeSource, /TRADE_BODY_PREWARM_DELAY_MS|routeBodyReady|showTradeBody|useDeferredRouteContentReady/);
+  assert.match(tradeSource, /<AppHeader title=\{t\('Trade'\)\} noBorder \/>[\s\S]*<TradeSummaryHeader[\s\S]*<FlatList/);
   assert.match(tradeSource, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
   assert.doesNotMatch(tradeSource, /sidebarOpen = useUIState/);
   // Live quote subscriptions activate immediately on the focused Trade tab;
   // the heavier backend ledger refresh still waits until after first paint.
   assert.match(tradeSource, /const tradeLiveActive = isLiveScreenFocused/);
   assert.match(tradeSource, /const tradeFetchActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady, TRADE_SCREEN_FETCH_DELAY_MS\)/);
-  // A retained hidden Trade tab must not follow feed-health or ledger mutations.
-  // It keeps the last focused render snapshots and reconnects on real focus.
+  // A retained hidden Trade tab must not follow feed-health or price/P&L tick
+  // mutations. Structural ledger changes do update it so first reveal is ready.
   assert.match(tradeSource, /const retainedFeedHealthRef = useRef\(getFeedHealthRenderSnapshot\(\)\)/);
   assert.match(tradeSource, /const subscribeFocusedFeedHealth = useCallback\([\s\S]*isLiveScreenFocused \? subscribeFeedHealth\(listener\) : \(\) => undefined/);
   assert.match(tradeSource, /const getFocusedFeedHealthSnapshot = useCallback\([\s\S]*isLiveScreenFocused \? getFeedHealthRenderSnapshot\(\) : retainedFeedHealthRef\.current/);
   assert.match(tradeSource, /React\.useSyncExternalStore\(\s*subscribeFocusedFeedHealth,\s*getFocusedFeedHealthSnapshot,\s*getFocusedFeedHealthSnapshot,?\s*\)/);
   assert.doesNotMatch(tradeSource, /React\.useSyncExternalStore\(\s*subscribeFeedHealth/);
-  assert.match(tradeSource, /const retainedTradeLedgerRef = useRef<RetainedTradeLedger \| null>\(null\)/);
-  assert.match(tradeSource, /const tradeLedger = usePositionsState\([\s\S]*isScreenFocused\s*\?[\s\S]*positions: state\.positions[\s\S]*: retainedTradeLedgerRef\.current as RetainedTradeLedger/);
-  assert.match(tradeSource, /if \(isScreenFocused\) \{\s*retainedTradeLedgerRef\.current = tradeLedger;\s*\}/);
+  assert.doesNotMatch(tradeSource, /retainedTradeLedgerRef|RetainedTradeLedger/);
+  assert.match(tradeSource, /positionsSignature: buildOpenPositionsCacheSignature\(state\.positions\)/);
+  assert.match(tradeSource, /const positions = useMemo\(\s*\(\) => usePositionsState\.getState\(\)\.positions,\s*\[hydratedLogin, isScreenFocused, lastFetchLogin, positionsSignature\],\s*\)/);
   assert.match(tradeSource, /const refreshPositions = usePositionsState\(\(state\) => state\.refreshPositions\)/);
   assert.match(tradeSource, /const hydrateCachedPositions = usePositionsState\(\(state\) => state\.hydrateCachedPositions\)/);
   assert.match(tradeSource, /const primePositionSnapshot = usePositionsState\(\(state\) => state\.primePositionSnapshot\)/);
@@ -324,9 +338,9 @@ test('settings, trade, and history screens pause work when another screen is foc
   assert.match(tradePositionRowSource, /active\?: boolean/);
   assert.doesNotMatch(tradePositionRowSource, /liveQuote\?: Partial<QuoteItem>|liveQuoteOverride/);
   assert.match(tradePositionRowSource, /const liveQuote = useLiveSymbolQuote\(item\.symbol, active, 0\)/);
-  assert.match(tradePositionRowSource, /function resolveLivePnlDecimals\(value: number\): number/);
-  assert.match(tradePositionRowSource, /absValue < 1\) \{[\s\S]*return 5/);
-  assert.match(tradePositionRowSource, /formatLiveRowPnl\(displayPnl\)/);
+  assert.match(livePositionMetricsSource, /function resolveLivePositionPnlDecimals\(value: number\): number/);
+  assert.match(livePositionMetricsSource, /absValue < 1\) \{[\s\S]*return 5/);
+  assert.match(tradePositionRowSource, /formatLivePositionPnl\(displayPnl\)/);
   assert.doesNotMatch(tradePositionRowSource, /fmt\.pnlPrecise\(displayPnl\)/);
   assert.doesNotMatch(tradePositionRowSource, /useLiveSymbolQuote\(item\.symbol\)/);
   assert.doesNotMatch(tradePositionRowSource, /tickFlash|pnlFlashStyle|interpolateColor/);

@@ -529,6 +529,12 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
     const shouldNavigate = currentPath !== targetPath;
 
     if (!shouldNavigate) {
+      // The retained layer may already own this path while its deferred focus
+      // publication was interrupted. Reissue the hosted request so the
+      // controller can repair a header-only/blank destination.
+      if (hostedPath === targetPath && resolveSidebarHostDestination(route)) {
+        showSidebarDestination(route, 'sidebar');
+      }
       handleClose(() => {
         unlockSidebarNavigation();
       });

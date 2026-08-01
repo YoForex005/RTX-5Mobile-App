@@ -117,16 +117,15 @@ test('tab layout declares only the five primary cached scenes', () => {
   assert.doesNotMatch(source, /<Tabs\.Screen name='(?:journal|economic-calendar|user-guide|help|about)'/);
 });
 
-test('retained Trade prewarms while Settings stays complete without activating hidden work', () => {
+test('retained Trade stays complete while its hidden live work remains inactive', () => {
   const tradeSource = readSource('src/features/trade/TradeScreen/TradeScreen.tsx');
   const settingsSource = readSource('src/features/settings/SettingsScreen/SettingsScreen.tsx');
 
-  assert.match(tradeSource, /const TRADE_BODY_PREWARM_DELAY_MS = 600/);
-  assert.match(tradeSource, /const routeBodyReady = useDeferredRouteContentReady\(\s*isScreenFocused \? 0 : TRADE_BODY_PREWARM_DELAY_MS,\s*\)/);
-  assert.match(tradeSource, /const showTradeBody = isScreenFocused \|\| routeBodyReady/);
+  assert.doesNotMatch(tradeSource, /TRADE_BODY_PREWARM_DELAY_MS|routeBodyReady|showTradeBody|useDeferredRouteContentReady/);
+  assert.match(tradeSource, /<AppHeader title=\{t\('Trade'\)\} noBorder \/>[\s\S]*<TradeSummaryHeader[\s\S]*<FlatList/);
+  assert.match(tradeSource, /positionsSignature: buildOpenPositionsCacheSignature\(state\.positions\)/);
   assert.match(tradeSource, /const tradeLiveActive = isLiveScreenFocused/);
   assert.match(tradeSource, /const tradeFetchActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady, TRADE_SCREEN_FETCH_DELAY_MS\)/);
-  assert.doesNotMatch(tradeSource, /useDeferredRouteContentReady\([^)]*, isScreenFocused\)/);
 
   assert.doesNotMatch(settingsSource, /SETTINGS_BODY_PREWARM_DELAY_MS|routeBodyReady|useDeferredRouteContentReady/);
   assert.match(settingsSource, /<ScrollView[\s\S]*style=\{styles\.container\}[\s\S]*contentContainerStyle=\{styles\.content\}/);

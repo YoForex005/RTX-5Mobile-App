@@ -82,6 +82,7 @@ import {
   resolveBrokerEndpointSet,
   toBrokerServiceRoot,
 } from '../../api/brokerRouting';
+import { createSavedAccountSwitchHealthCache } from './savedAccountSwitchHealthCache';
 import { hasAuthenticatedAccountSession } from './accountConnectionStatus';
 import {
   safeRouterBack,
@@ -432,13 +433,13 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
   const [firstPaintReady, setFirstPaintReady] = React.useState(false);
-  // Hosted by the sidebar destination host, this view keeps only its header
-  // shell while hidden. Readiness stays warm, while the FlatList and overlays
-  // mount only for the focused instance.
+  // Match the mounted Trade tab: prepare the complete native body before the
+  // drawer tap, then reveal an already-built layer. Queries, sockets, broker
+  // warmups, and overlays remain gated by isScreenFocused below.
   const hostBodyReady = useDeferredRouteContentReady(
     isScreenFocused ? 0 : ACCOUNTS_BODY_PREWARM_DELAY_MS,
   );
-  const focusedBodyReady = isScreenFocused && hostBodyReady;
+  const showAccountsBody = isScreenFocused || hostBodyReady;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -984,7 +985,15 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
   }, [router]);
 
   const [connectingKey, setConnectingKey] = React.useState<string | null>(null);
-  const warmedSwitchBrokerAtRef = React.useRef(new Map<string, number>());
+  const savedAccountSwitchHealthRef = React.useRef<
+    ReturnType<typeof createSavedAccountSwitchHealthCache> | null
+  >(null);
+  if (!savedAccountSwitchHealthRef.current) {
+    savedAccountSwitchHealthRef.current = createSavedAccountSwitchHealthCache({
+      checkHealth: checkBrokerServerHealth,
+      ttlMs: ACCOUNT_SWITCH_BROKER_WARM_TTL_MS,
+    });
+  }
   const [expandedAccountKey, setExpandedAccountKey] = React.useState<string | null>(null);
   const [passwordSheetVisible, setPasswordSheetVisible] = React.useState(false);
   const [passwordType, setPasswordType] = React.useState<'master' | 'investor'>('master');
@@ -1002,6 +1011,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
       cancelBrokerSessionCommitAuthorization(activeAttempt?.authorization);
       activeAccountSwitchAttemptRef.current = null;
       accountSwitchInFlightRef.current = false;
+      savedAccountSwitchHealthRef.current?.clear();
     };
   }, []);
 
@@ -1038,6 +1048,10 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
   );
   const setTradeNotificationsEnabled = useTradeNotifications((s) => s.setEnabled);
 
+  const ensureSavedAccountBrokerHealth = React.useCallback((serverUrl: string) => (
+    savedAccountSwitchHealthRef.current!.ensureHealthy(serverUrl)
+  ), []);
+
   const warmSavedAccountBroker = React.useCallback((row: OtherAccountRow) => {
     if (!isScreenFocused || !row.hasSavedCredentials) {
       return;
@@ -1059,22 +1073,8 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
     }
     // Handoff: health is {server_url}/health on the service root.
     const serverUrl = toBrokerServiceRoot(endpointSet.endpoints.apiBase) || savedServerUrl;
-
-    const now = Date.now();
-    const lastWarmAt = warmedSwitchBrokerAtRef.current.get(serverUrl) ?? 0;
-    if (now - lastWarmAt < ACCOUNT_SWITCH_BROKER_WARM_TTL_MS) {
-      return;
-    }
-
-    warmedSwitchBrokerAtRef.current.set(serverUrl, now);
-    void checkBrokerServerHealth(serverUrl).catch(() => {
-      // Keep a failed warm-up retryable. The switch path performs its own
-      // mandatory check before credentials are sent.
-      if (warmedSwitchBrokerAtRef.current.get(serverUrl) === now) {
-        warmedSwitchBrokerAtRef.current.delete(serverUrl);
-      }
-    });
-  }, [brokerServers, isScreenFocused]);
+    void ensureSavedAccountBrokerHealth(serverUrl).catch(() => undefined);
+  }, [brokerServers, ensureSavedAccountBrokerHealth, isScreenFocused]);
 
   /**
    * Logs the user into the selected saved account.
@@ -1107,8 +1107,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
         return;
       }
 
-      const password = await getSavedAccountPassword(row.brokerId, row.login);
-      if (!password) {
+      const handleMissingSavedPassword = () => {
         // Saved entry exists but secure-store lost the credential — clear the
         // stale flag so the directory matches reality and prompt re-login.
         removeSavedAccount(row.login, row.brokerId);
@@ -1123,9 +1122,8 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
         );
         hideSidebarDestination();
         router.push('/login');
-        return;
-      }
-
+      };
+      const passwordPromise = getSavedAccountPassword(row.brokerId, row.login);
       const approvedRoutes = (brokerServers ?? [])
         .filter((broker) => broker.broker_id.trim().toLowerCase() === row.brokerId.trim().toLowerCase())
         .map((broker) => ({ broker, resolution: resolveBrokerEndpointSet(broker) }))
@@ -1137,16 +1135,32 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
       ));
       const approvedRoute = exactSavedRoute;
       if (!approvedRoute?.resolution.ok) {
+        if (!await passwordPromise) {
+          handleMissingSavedPassword();
+          return;
+        }
         throw new Error(t('The saved broker server no longer matches the broker directory. Select the broker again.'));
       }
       const endpoints = approvedRoute.resolution.endpoints;
       const approvedLogoUrl = approvedRoute.broker.logo_url?.trim() || row.logoUrl;
       const exactServerUrl = toBrokerServiceRoot(endpoints.apiBase) || savedServerUrl;
 
-      // A warm-up is only a latency optimization. Re-check the exact saved
-      // server before sending credentials so a failed warm-up can never be
-      // bypassed and no alternate broker/server can receive the login.
-      await checkBrokerServerHealth(exactServerUrl);
+      // SecureStore and exact-host health are independent. Run them together,
+      // reusing any expansion/touch-down preflight instead of issuing a second
+      // health request. Login still waits for a successful exact-host check.
+      const brokerHealthResultPromise = ensureSavedAccountBrokerHealth(exactServerUrl).then(
+        () => ({ ok: true as const }),
+        (error: unknown) => ({ ok: false as const, error }),
+      );
+      const password = await passwordPromise;
+      if (!password) {
+        handleMissingSavedPassword();
+        return;
+      }
+      const brokerHealthResult = await brokerHealthResultPromise;
+      if (!brokerHealthResult.ok) {
+        throw brokerHealthResult.error;
+      }
 
       const result = await signInWithCredentials({
         username: row.login,
@@ -1450,7 +1464,7 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
           </View>
         </View>
 
-        {focusedBodyReady ? (
+        {showAccountsBody ? (
         <FlatList
           keyboardShouldPersistTaps="always"
           canCancelContentTouches={Platform.OS === 'ios'}
@@ -1628,10 +1642,13 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={t('Switch to this account')}
+                accessibilityState={{ disabled: isSwitching || !!connectingKey, busy: isSwitching }}
                 style={[styles.connectButton, isSwitching && styles.connectButtonBusy]}
                 onPressIn={() => warmSavedAccountBroker(row)}
                 onPress={() => handleConnectSavedAccount(row)}
                 disabled={isSwitching || !!connectingKey}
+                latencyLabel="accounts.saved.switch"
+                unstable_pressDelay={0}
                 hitSlop={6}
               >
                 {isSwitching ? (

@@ -301,6 +301,20 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
     !feedTimeTooOld
       ? normalizedTimestamp
       : receivedAt;
+  const feedClockOffsetMs = sourceTimestampMs === undefined
+    ? null
+    : receivedAt - sourceTimestampMs;
+  const hasFreshFeedClock =
+    normalizedUpdate.timestampSource === 'feed' &&
+    normalizedTimestamp !== null &&
+    feedClockOffsetMs !== null &&
+    Math.abs(feedClockOffsetMs) <= CANDLE_FEED_TIME_MAX_AGE_MS;
+  const hasFreshReceiptClock = normalizedUpdate.timestampSource === 'received_at';
+  const allowFlatNewCandleBucket =
+    !feedTimeTooOld &&
+    normalizedUpdate.degraded !== true &&
+    normalizedUpdate.tradable !== false &&
+    (hasFreshFeedClock || hasFreshReceiptClock);
   if (normalizedUpdate.timestampSource !== 'feed' || feedTimeTooOld) {
     bridge.logCandleFeed('tick_candle_time_receipt_fallback', {
       symbol: normalizedUpdate.symbol,
@@ -411,6 +425,7 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
         low: tickPriceForCandle,
         time: candleExtensionTimestamp,
         volume: normalizedUpdate.volume,
+        allowFlatNewBucket: allowFlatNewCandleBucket,
       });
     } catch (_error) {
       // Defensive: under hot-module-reload the singleton may pre-date this

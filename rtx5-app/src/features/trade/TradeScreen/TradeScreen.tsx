@@ -28,7 +28,10 @@ import { useTradingState } from '../../../state/tradingState';
 import { useResolvedTradingLogin } from '../../../state/tradingLogin';
 import { useAccountSummary } from '../../../query/account';
 import { isRenderablePositionSymbol } from '../../../state/positionsMapper';
-import { dedupePositionsById } from '../../../state/positionsState.helpers';
+import {
+  buildOpenPositionsCacheSignature,
+  dedupePositionsById,
+} from '../../../state/positionsState.helpers';
 import { useTheme } from '../../../ui/theme/useTheme';
 import { useUIState } from '../../../state/uiState';
 import { getTradingErrorOriginLabel } from '../../../api/tradingErrors';
@@ -36,7 +39,6 @@ import { prefetchOrderTicketData } from '../../../utils/navigationPrefetch';
 import { runImmediateAction } from '../../../utils/actionLatency';
 import { useDeferredActiveFlag } from '../../../hooks/useDeferredActiveFlag';
 import { useNextFrameValue } from '../../../hooks/useNextFrameValue';
-import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
 import { showTradePositionAction } from '../tradePositionActionHostController';
 import {
   getActiveSltpUnavailableMessage,
@@ -76,15 +78,6 @@ const TRADE_POSITION_CLOSE_ACTION_FONT_WEIGHT = '400';
 // focused fallback poll for new/closed positions when websocket events lag.
 const TRADE_SCREEN_FETCH_DELAY_MS = 0;
 const TRADE_SCREEN_REFRESH_INTERVAL_MS = 3000;
-// This retained tab mounts at startup. Hydrate only its visual body offscreen,
-// after the launch frame, so the first Trade selection never pays the large
-// FlatList mount cost. Live quotes and ledger work remain focus-gated below.
-const TRADE_BODY_PREWARM_DELAY_MS = 600;
-
-type RetainedTradeLedger = Pick<
-  ReturnType<typeof usePositionsState.getState>,
-  'positions' | 'lastFetchLogin' | 'hydratedLogin' | 'lastError'
->;
 
 function areStringSetsEqual(left: Set<string>, right: Set<string>) {
   if (left.size !== right.size) {
@@ -110,15 +103,6 @@ const TradeScreenInner = React.memo(function TradeScreenInner({
   isScreenFocused: boolean;
   isLiveScreenFocused: boolean;
 }) {
-  // Prewarm the body offscreen, but never make a Trade tab selection wait for
-  // the idle window — focus cancels the delay so the retained list paints now.
-  const routeBodyReady = useDeferredRouteContentReady(
-    isScreenFocused ? 0 : TRADE_BODY_PREWARM_DELAY_MS,
-  );
-  // A selected Trade tab must never wait for the offscreen prewarm timer. Its
-  // structural ledger paints immediately; live quote work still starts on the
-  // deferred focus value below.
-  const showTradeBody = isScreenFocused || routeBodyReady;
   const [viewablePositionIds, setViewablePositionIds] = useState<Set<string>>(() => new Set());
   const T = useTheme();
   const { t } = useTranslation();
@@ -174,34 +158,29 @@ const TradeScreenInner = React.memo(function TradeScreenInner({
     quotesWsService.connect();
   }, [activeFeedIdentity]);
 
-  const retainedTradeLedgerRef = useRef<RetainedTradeLedger | null>(null);
-  if (retainedTradeLedgerRef.current === null) {
-    const initialLedger = usePositionsState.getState();
-    retainedTradeLedgerRef.current = {
-      positions: initialLedger.positions,
-      lastFetchLogin: initialLedger.lastFetchLogin,
-      hydratedLogin: initialLedger.hydratedLogin,
-      lastError: initialLedger.lastError,
-    };
-  }
-  const tradeLedger = usePositionsState(
-    useShallow((state): RetainedTradeLedger => (
-      isScreenFocused
-        ? {
-          positions: state.positions,
-          lastFetchLogin: state.lastFetchLogin,
-          hydratedLogin: state.hydratedLogin,
-          lastError: state.lastError,
-        }
-        : retainedTradeLedgerRef.current as RetainedTradeLedger
-    )),
+  // Fast tabs reveal this retained native layer before React Navigation commits
+  // focus. Keep opens, closes, cache hydration, and account changes rendered
+  // offscreen so that reveal is complete, while ignoring price/P&L-only arrays.
+  const tradeLedgerRenderState = usePositionsState(
+    useShallow((state) => ({
+      positionsSignature: buildOpenPositionsCacheSignature(state.positions),
+      lastFetchLogin: state.lastFetchLogin,
+      hydratedLogin: state.hydratedLogin,
+      lastError: state.lastError,
+    })),
   );
-  if (isScreenFocused) {
-    retainedTradeLedgerRef.current = tradeLedger;
-  }
-  const { positions, lastFetchLogin, hydratedLogin, lastError } = tradeLedger;
+  const {
+    positionsSignature,
+    lastFetchLogin,
+    hydratedLogin,
+    lastError,
+  } = tradeLedgerRenderState;
+  const positions = useMemo(
+    () => usePositionsState.getState().positions,
+    [hydratedLogin, isScreenFocused, lastFetchLogin, positionsSignature],
+  );
   // Actions are stable Zustand members; keeping them in separate selectors
-  // prevents the hidden Trade tree from following every ledger mutation.
+  // prevents the hidden Trade tree from following unrelated store mutations.
   const refreshPositions = usePositionsState((state) => state.refreshPositions);
   const hydrateCachedPositions = usePositionsState((state) => state.hydrateCachedPositions);
   const primePositionSnapshot = usePositionsState((state) => state.primePositionSnapshot);
@@ -478,50 +457,49 @@ const TradeScreenInner = React.memo(function TradeScreenInner({
   return (
     <Screen noBottomInset style={s.screen}>
       <AppHeader title={t('Trade')} noBorder />
-      {showTradeBody ? <>
-        {feedHealthModel?.visible ? (
-          <View
-            accessibilityRole="alert"
-            style={[
-              s.marketDataBanner,
-              feedHealthModel.tone === 'critical'
-                ? s.marketDataBannerCritical
-                : s.marketDataBannerWarning,
-            ]}
-          >
-            <Ionicons
-              name={feedHealthModel.tone === 'critical' ? 'cloud-offline-outline' : 'time-outline'}
-              size={18}
-              color={feedHealthModel.tone === 'critical' ? '#EF4444' : '#F59E0B'}
-            />
-            <View style={s.marketDataBannerCopy}>
-              <Text style={[s.marketDataBannerTitle, { color: T.text }]}>
-                {t(feedHealthModel.title)} · {feedHealthModel.brokerLabel}
-              </Text>
-              <Text style={[s.marketDataBannerReason, { color: T.textSub }]}>
-                {t(feedHealthModel.reasonLabel)}
-              </Text>
-              <Text style={[s.marketDataBannerLastSuccess, { color: T.textMuted }]}>
-                {t('Last success')}: {feedHealthModel.lastSuccessAt
-                  ? new Date(feedHealthModel.lastSuccessAt).toLocaleString()
-                  : t('No successful live update yet')}
-              </Text>
-            </View>
-            {feedHealthModel.canRetry ? (
-              <FastPressable
-                accessibilityRole="button"
-                accessibilityLabel={t('Retry market data')}
-                onPress={retryActiveFeed}
-                activateOnPressIn
-                latencyLabel="trade.feedHealth.retry"
-                style={s.marketDataRetry}
-              >
-                <Text style={s.marketDataRetryText}>{t('Retry')}</Text>
-              </FastPressable>
-            ) : null}
+      {feedHealthModel?.visible ? (
+        <View
+          accessibilityRole="alert"
+          style={[
+            s.marketDataBanner,
+            feedHealthModel.tone === 'critical'
+              ? s.marketDataBannerCritical
+              : s.marketDataBannerWarning,
+          ]}
+        >
+          <Ionicons
+            name={feedHealthModel.tone === 'critical' ? 'cloud-offline-outline' : 'time-outline'}
+            size={18}
+            color={feedHealthModel.tone === 'critical' ? '#EF4444' : '#F59E0B'}
+          />
+          <View style={s.marketDataBannerCopy}>
+            <Text style={[s.marketDataBannerTitle, { color: T.text }]}>
+              {t(feedHealthModel.title)} · {feedHealthModel.brokerLabel}
+            </Text>
+            <Text style={[s.marketDataBannerReason, { color: T.textSub }]}>
+              {t(feedHealthModel.reasonLabel)}
+            </Text>
+            <Text style={[s.marketDataBannerLastSuccess, { color: T.textMuted }]}>
+              {t('Last success')}: {feedHealthModel.lastSuccessAt
+                ? new Date(feedHealthModel.lastSuccessAt).toLocaleString()
+                : t('No successful live update yet')}
+            </Text>
           </View>
-        ) : null}
-        <TradeSummaryHeader
+          {feedHealthModel.canRetry ? (
+            <FastPressable
+              accessibilityRole="button"
+              accessibilityLabel={t('Retry market data')}
+              onPress={retryActiveFeed}
+              activateOnPressIn
+              latencyLabel="trade.feedHealth.retry"
+              style={s.marketDataRetry}
+            >
+              <Text style={s.marketDataRetryText}>{t('Retry')}</Text>
+            </FastPressable>
+          ) : null}
+        </View>
+      ) : null}
+      <TradeSummaryHeader
         positions={renderablePositions}
         hydratedLogin={hydratedLogin}
         resolvedLogin={resolvedLogin}
@@ -532,8 +510,8 @@ const TradeScreenInner = React.memo(function TradeScreenInner({
         onBulkPress={showBulkSheet}
         active={tradeLiveActive}
         restAccountSummary={accountSummary}
-        />
-        <FlatList
+      />
+      <FlatList
         keyboardShouldPersistTaps="always"
         canCancelContentTouches={Platform.OS === 'ios'}
         style={s.list}
@@ -570,8 +548,7 @@ const TradeScreenInner = React.memo(function TradeScreenInner({
             {/* Top Exposures */}
           </>
         ) : null}
-        />
-      </> : null}
+      />
     </Screen>
   );
 });

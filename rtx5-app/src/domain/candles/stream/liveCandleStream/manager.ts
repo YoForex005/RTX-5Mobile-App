@@ -284,6 +284,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       volume?: number;
       high?: number;
       low?: number;
+      allowFlatNewBucket?: boolean;
     },
   ): void {
     const normalizedSymbol = normalizeSymbol(symbol);
@@ -317,6 +318,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
           low,
           time: timeSeconds,
           volume: options.volume,
+          allowFlatNewBucket: options.allowFlatNewBucket,
         }),
       );
     }
@@ -633,7 +635,14 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
 
   private applyQuoteTickExtension(
     entry: StreamEntry,
-    event: { price: number; time: number; volume?: number; high?: number; low?: number },
+    event: {
+      price: number;
+      time: number;
+      volume?: number;
+      high?: number;
+      low?: number;
+      allowFlatNewBucket?: boolean;
+    },
   ): boolean {
     const restTail = entry.historyCandles[entry.historyCandles.length - 1] ?? null;
     const result = applyQuoteTickExtensionToCandleMap(
@@ -649,6 +658,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       {
         historyCutoffTime: entry.historyLastTime,
         latestHistoryCandle: restTail,
+        allowFlatNewBucket: event.allowFlatNewBucket,
       },
     );
     return result.changed;

@@ -25,6 +25,7 @@ import { resolveTradingLoginString } from '../../../state/tradingLogin';
 import { usePositionsState } from '../../../state/positionsState';
 import { prefetchOrderTicketData } from '../../../utils/navigationPrefetch';
 import {
+  formatLivePositionPnl,
   resolveLivePositionPnl,
   resolveLivePositionPrice,
 } from '../../../features/trade/livePositionMetrics';
@@ -40,25 +41,6 @@ import { tradePositionRowStyles as styles } from './styles';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-
-function resolveLivePnlDecimals(value: number): number {
-  const absValue = Math.abs(Number.isFinite(value) ? value : 0);
-  if (absValue < 1) {
-    return 5;
-  }
-  if (absValue < 10) {
-    return 4;
-  }
-  if (absValue < 100) {
-    return 3;
-  }
-  return 2;
-}
-
-function formatLiveRowPnl(value: number): string {
-  const safeValue = Number.isFinite(value) ? value : 0;
-  return `${safeValue >= 0 ? '+' : ''}${safeValue.toFixed(resolveLivePnlDecimals(safeValue))}`;
 }
 
 function resolveFiniteTradeDetailNumber(...values: Array<number | null | undefined>): number | undefined {
@@ -456,7 +438,7 @@ function TradePositionRowComponent({
                 minimumFontScale={0.82}
                 style={[styles.pnl, { color: displayPnl >= 0 ? T.trading.profit : T.trading.loss }]}
               >
-                {formatLiveRowPnl(displayPnl)} {pnlCurrency}
+                {formatLivePositionPnl(displayPnl)} {pnlCurrency}
               </Text>
               <Text style={[styles.dateRight, { color: T.textSub }]}>
                 {formatBrokerTime(item.openTime).replace(' ', '   ')}

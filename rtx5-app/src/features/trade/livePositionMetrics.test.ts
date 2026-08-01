@@ -1,7 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { resolveLivePositionPnl, resolveLivePositionPrice, sumLivePositionPnl } from './livePositionMetrics.ts';
+import {
+  formatLivePositionPnl,
+  resolveLivePositionPnl,
+  resolveLivePositionPrice,
+  sumLivePositionPnl,
+} from './livePositionMetrics.ts';
+
+test('formatLivePositionPnl preserves the Trade row precision at every value size', () => {
+  assert.equal(formatLivePositionPnl(0.123456), '+0.12346');
+  assert.equal(formatLivePositionPnl(-1.23456), '-1.2346');
+  assert.equal(formatLivePositionPnl(12.3456), '+12.346');
+  assert.equal(formatLivePositionPnl(123.456), '+123.46');
+  assert.equal(formatLivePositionPnl(-0), '+0.00000');
+});
 
 test('resolveLivePositionPrice uses bid for buys and ask for sells', () => {
   const buyPrice = resolveLivePositionPrice(

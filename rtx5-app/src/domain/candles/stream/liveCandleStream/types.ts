@@ -44,6 +44,7 @@ export type BufferedLiveEvent =
       low?: number;
       time: number;
       volume?: number;
+      allowFlatNewBucket?: boolean;
       order: number;
     };
 
@@ -56,6 +57,7 @@ export type UnorderedLiveEvent =
       low?: number;
       time: number;
       volume?: number;
+      allowFlatNewBucket?: boolean;
     };
 
 /**

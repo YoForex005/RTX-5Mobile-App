@@ -53,6 +53,10 @@ import {
   ChartTradeInlineFooter,
   ChartTradeOverlayLayer,
 } from './components/ChartTradeFeature';
+import {
+  ChartTradeOverlayLiveBridge,
+  type ChartTradeOverlayLiveQuote,
+} from './components/ChartTradeOverlayLiveBridge';
 import { ChartTradeButtons } from './components/ChartTradeButtonsFeature';
 import { LiveOrderTickExecutionGraph } from '../trade/OrderTickExecutionGraph';
 import { Screen } from '../../ui/components/Screen';
@@ -137,6 +141,8 @@ import {
   getExpectedNextCandleTime,
 } from '../../domain/candles/core/timeframeUtils';
 import {
+  applyChartOpenPositionLabelPatches,
+  buildChartOpenPositionLabelPatches,
   buildChartOverlayMarkers,
   buildChartPositionStopDragKey,
   buildChartOverlayPayload,
@@ -148,6 +154,7 @@ import {
   parseChartPositionStopDragKey,
   type ChartOverlayMarker,
   type ChartOverlayPriceLine,
+  type ChartOpenPositionLabelPatch,
   type ChartPositionStopDragTarget,
 } from './chartOverlays';
 import {
@@ -627,6 +634,28 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const resolvedChartColors = useMemo(
     () => resolveChartColorsForTheme(chartColors, chartColorScheme, isDark),
     [chartColors, chartColorScheme, isDark],
+  );
+  const chartOpenPositionLabelPatchContextKey = useMemo(
+    () => JSON.stringify([
+      chartTradeDisplayQuoteScopeKey,
+      chartPositionStructuralSignature,
+      chartShowOnChart.buyTrade,
+      chartShowOnChart.sellTrade,
+      resolvedChartColors.tradeOpen,
+      resolvedChartColors.tradeTpSl,
+      resolvedChartColors.tradeStopOut,
+      T.trading.sell.primary,
+    ]),
+    [
+      T.trading.sell.primary,
+      chartPositionStructuralSignature,
+      chartShowOnChart.buyTrade,
+      chartShowOnChart.sellTrade,
+      chartTradeDisplayQuoteScopeKey,
+      resolvedChartColors.tradeOpen,
+      resolvedChartColors.tradeStopOut,
+      resolvedChartColors.tradeTpSl,
+    ],
   );
   const chartGridColor = useMemo(
     () => (isDark ? resolvedChartColors.grid : MT5_LIGHT_GRID_COLOR),
@@ -5647,8 +5676,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   // React effect cycle — this eliminates the "flash of missing lines"
   // race condition.
   const overlayPayloadRef = useRef<any>({ priceLines: [], markers: [] });
-  const overlayLabelFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastOverlayLabelFlushAtRef = useRef(0);
+  const latestChartOpenPositionLabelPatchesRef = useRef<{
+    contextKey: string;
+    patches: ChartOpenPositionLabelPatch[];
+  }>({ contextKey: '', patches: [] });
   const drawingSignatureRef = useRef(chartDrawingSignature);
   const drawingRecordsRef = useRef(chartDrawingRecords);
   const lastWebViewDrawingSignatureRef = useRef('');
@@ -6114,7 +6145,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     try {
       webViewRef.current.injectJavaScript(`
         if (typeof setCandleCountdownTimeframe === 'function') {
-          setCandleCountdownTimeframe(${JSON.stringify(chartTimeframe)});
+          setCandleCountdownTimeframe(
+            ${JSON.stringify(chartTimeframe)},
+            ${JSON.stringify(chartDataContextSig)}
+          );
         }
         if (typeof setCandleCountdownActive === 'function') {
           setCandleCountdownActive(${chartRuntimeActive && chartDisplay.showLivePriceLine});
@@ -6124,7 +6158,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     } catch (_e) {
       /* WebView may have been disposed */
     }
-  }, [chartDisplay.showLivePriceLine, chartRuntimeActive, chartTimeframe, chartWebViewGeneration, webViewReady]);
+  }, [
+    chartDataContextSig,
+    chartDisplay.showLivePriceLine,
+    chartRuntimeActive,
+    chartTimeframe,
+    chartWebViewGeneration,
+    webViewReady,
+  ]);
 
   // Core init function — safe to call repeatedly.
   // The WebView's initChart tears down any existing chart and rebuilds.
@@ -6362,7 +6403,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           // Clear the old symbol while new history loads, so stale candles
           // cannot flash under the loader.
           webViewRef.current.injectJavaScript(`
-            updateChartData([]);
+            updateChartData([], {
+              dataContextSig: ${JSON.stringify(chartDataContextSig)}
+            });
             true;
           `);
           renderedDataContextSigRef.current = chartDataContextSig;
@@ -6542,8 +6585,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         alerts,
         colors: resolvedChartColors,
         sellColor: T.trading.sell.primary,
-        liveBid: overlayLiveBid,
-        liveAsk: overlayLiveAsk,
+        liveBid: hasLiveChartQuote ? overlayLiveBid : null,
+        liveAsk: hasLiveChartQuote ? overlayLiveAsk : null,
+        liveQuote: hasLiveChartQuote ? chartLiveQuote : undefined,
         showOnChart: chartShowOnChart,
         activeTool: CHART_NO_DRAWING_TOOL,
         allowPositionStopDragging: !existingPositionModifyBackendLocked,
@@ -6619,6 +6663,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       chartPositionStopDragPreviews,
       chartTradePreviewLines,
       existingPositionModifyBackendLocked,
+      chartLiveQuote,
+      hasLiveChartQuote,
       orders,
       overlayLiveAsk,
       overlayLiveBid,
@@ -6633,14 +6679,22 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     markers: overlayMarkers,
   }), [overlayMarkers, overlayPriceLines]);
   const overlayLabelSignature = useMemo(
-    () => JSON.stringify(overlayPriceLines.map((line) => ({
-      id: line.id,
-      title: line.title,
-      labelSideText: line.labelSideText,
-      labelValueText: line.labelValueText,
-      labelSideColor: line.labelSideColor,
-      labelValueColor: line.labelValueColor,
-    }))),
+    () => JSON.stringify(overlayPriceLines.map((line) => (
+      line.id.startsWith('open-')
+        ? {
+            id: line.id,
+            labelSideText: line.labelSideText,
+            labelSideColor: line.labelSideColor,
+          }
+        : {
+            id: line.id,
+            title: line.title,
+            labelSideText: line.labelSideText,
+            labelValueText: line.labelValueText,
+            labelSideColor: line.labelSideColor,
+            labelValueColor: line.labelValueColor,
+          }
+    ))),
     [overlayPriceLines],
   );
   // Geometry-only signature (no live P/L text). Injecting the full overlay on
@@ -6676,9 +6730,71 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   // ── DEBUG: Log overlay payload every time it changes ──
   // Keep the ref in sync so the onMessage CHART_READY handler can
   // immediately push the latest overlay without waiting for the effect.
+  const applyLiveChartTradeOverlayQuote = useCallback((quote: ChartTradeOverlayLiveQuote) => {
+    const patches = buildChartOpenPositionLabelPatches({
+      chartSymbol,
+      positions,
+      colors: resolvedChartColors,
+      sellColor: T.trading.sell.primary,
+      liveBid: quote.bid,
+      liveAsk: quote.ask,
+      liveQuote: quote,
+      showOnChart: chartShowOnChart,
+    });
+    latestChartOpenPositionLabelPatchesRef.current = {
+      contextKey: chartOpenPositionLabelPatchContextKey,
+      patches,
+    };
+    if (patches.length === 0) {
+      return;
+    }
+
+    const currentPayload = overlayPayloadRef.current;
+    const nextPayload = applyChartOpenPositionLabelPatches(currentPayload, patches);
+    if (nextPayload === currentPayload) {
+      return;
+    }
+    overlayPayloadRef.current = nextPayload;
+
+    if (!webViewRef.current || !webViewReady || !chartCanvasReady) {
+      return;
+    }
+    try {
+      webViewRef.current.injectJavaScript(`
+        if (typeof updateOverlayTradeLabelValues === 'function') {
+          updateOverlayTradeLabelValues(${JSON.stringify(patches)});
+        }
+        true;
+      `);
+    } catch (_e) {
+      /* WebView may have been disposed */
+    }
+  }, [
+    T.trading.sell.primary,
+    chartCanvasReady,
+    chartOpenPositionLabelPatchContextKey,
+    chartShowOnChart,
+    chartSymbol,
+    positions,
+    resolvedChartColors,
+    webViewReady,
+  ]);
+
   useLayoutEffect(() => {
-    overlayPayloadRef.current = overlayPayload;
-  }, [overlayPayload]);
+    const latestPatches = latestChartOpenPositionLabelPatchesRef.current;
+    if (latestPatches.contextKey !== chartOpenPositionLabelPatchContextKey) {
+      latestChartOpenPositionLabelPatchesRef.current = {
+        contextKey: chartOpenPositionLabelPatchContextKey,
+        patches: [],
+      };
+      overlayPayloadRef.current = overlayPayload;
+      return;
+    }
+    overlayPayloadRef.current = applyChartOpenPositionLabelPatches(
+      overlayPayload,
+      latestPatches.patches,
+    );
+  }, [chartOpenPositionLabelPatchContextKey, overlayPayload]);
   useEffect(() => {
     if (!isScreenFocused || !preferencesHydrated || !webViewReady || !chartCanvasReady || !webViewRef.current) {
       return;
@@ -6798,54 +6914,34 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     selectedChartPositionTicket,
   ]);
 
-  // Label-only inject (live P/L text). Keep one timer alive and let it flush
-  // the newest payload: cancelling/restarting it on every tick was a debounce,
-  // so a continuously moving quote could prevent labels from updating at all.
+  // Structural/fallback label sync. Live open-position P/L bypasses this
+  // parent effect through ChartTradeOverlayLiveBridge at zero-delay cadence.
   useEffect(() => {
     if (!chartRuntimeActive || !webViewReady || !chartCanvasReady || !webViewRef.current) {
-      if (overlayLabelFlushTimerRef.current !== null) {
-        clearTimeout(overlayLabelFlushTimerRef.current);
-        overlayLabelFlushTimerRef.current = null;
-      }
       return;
     }
     const latestPayload = overlayPayloadRef.current;
     if (!latestPayload?.priceLines?.length && !latestPayload?.markers?.length) {
       return;
     }
-    if (overlayLabelFlushTimerRef.current !== null) {
-      return;
-    }
-
-    const elapsedMs = Date.now() - lastOverlayLabelFlushAtRef.current;
-    const delayMs = Math.max(0, 400 - elapsedMs);
-    overlayLabelFlushTimerRef.current = setTimeout(() => {
-      overlayLabelFlushTimerRef.current = null;
-      const payload = overlayPayloadRef.current;
-      if (!webViewRef.current || (!payload?.priceLines?.length && !payload?.markers?.length)) {
-        return;
-      }
+    try {
       webViewRef.current.injectJavaScript(`
         if (typeof updateOverlayTradeLabels === 'function') {
-          updateOverlayTradeLabels(${JSON.stringify(payload)});
+          updateOverlayTradeLabels(${JSON.stringify(latestPayload)});
         }
         true;
       `);
-      lastOverlayLabelFlushAtRef.current = Date.now();
-    }, delayMs);
+    } catch (_e) {
+      /* WebView may have been disposed */
+    }
   }, [
     chartCanvasReady,
+    chartOpenPositionLabelPatchContextKey,
     chartReadyEpoch,
     chartRuntimeActive,
     overlayLabelSignature,
     webViewReady,
   ]);
-  useEffect(() => () => {
-    if (overlayLabelFlushTimerRef.current !== null) {
-      clearTimeout(overlayLabelFlushTimerRef.current);
-      overlayLabelFlushTimerRef.current = null;
-    }
-  }, []);
 
   const displaySymbol = chartSymbol.replace(/\//g, '');
   const symbolName = resolveChartSymbolFullName(chartSymbol);
@@ -7235,6 +7331,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   return (
     <Screen style={styles.screen} noBottomInset>
+      <ChartTradeOverlayLiveBridge
+        key={chartTradeDisplayQuoteScopeKey}
+        active={chartRuntimeActive && chartCanvasReady && webViewReady}
+        symbol={chartSymbol}
+        onQuote={applyLiveChartTradeOverlayQuote}
+      />
       <View style={styles.headerWrapper}>
         <View
           style={[styles.compactHeader, { paddingTop: chartHeaderTopPadding }]}

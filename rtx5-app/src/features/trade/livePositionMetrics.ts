@@ -5,6 +5,26 @@ import { MARKET_QUOTE_STALE_AFTER_MS } from '../../market/quotePolicy.ts';
 type QuoteLike = Partial<QuoteItem> | undefined;
 const LIVE_QUOTE_STALE_MS = MARKET_QUOTE_STALE_AFTER_MS;
 
+export function resolveLivePositionPnlDecimals(value: number): number {
+  const absValue = Math.abs(Number.isFinite(value) ? value : 0);
+  if (absValue < 1) {
+    return 5;
+  }
+  if (absValue < 10) {
+    return 4;
+  }
+  if (absValue < 100) {
+    return 3;
+  }
+  return 2;
+}
+
+export function formatLivePositionPnl(value: number): string {
+  const finiteValue = Number.isFinite(value) ? value : 0;
+  const safeValue = Object.is(finiteValue, -0) ? 0 : finiteValue;
+  return `${safeValue >= 0 ? '+' : ''}${safeValue.toFixed(resolveLivePositionPnlDecimals(safeValue))}`;
+}
+
 function toFiniteNumber(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;

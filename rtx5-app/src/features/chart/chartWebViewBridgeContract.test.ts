@@ -512,6 +512,34 @@ test('webview bridge: open-position labels separate trade side color from live P
   );
 });
 
+test('webview bridge: per-tick trade label patches touch text only and retain latest caches', () => {
+  const patchBody = extractFunctionBody(
+    chartWebViewHtmlSource,
+    'updateOverlayTradeLabelValues',
+  );
+
+  assertSourceContains(
+    patchBody,
+    /_overlayPayload = patchOverlayTradeLabelPayload\(_overlayPayload, patchById\)[\s\S]*_appliedOverlayPayload = patchOverlayTradeLabelPayload\(_appliedOverlayPayload, patchById\)/,
+    'fast label patches must update both WebView payload caches so slower redraws cannot rewind PnL',
+  );
+  assertSourceContains(
+    patchBody,
+    /_overlayDomNodesByKey\['label:anchored:' \+ id\][\s\S]*var valueSpan = label\.childNodes\[2\][\s\S]*valueSpan\.textContent = nextPatch\.labelValueText[\s\S]*valueSpan\.style\.color = nextPatch\.labelValueColor/,
+    'fast label patches must mutate only the existing PnL span text and color',
+  );
+  assert.doesNotMatch(
+    patchBody,
+    /refreshOverlayDomLabels|applyOverlayPayload|setChartOverlays|createPriceLine|priceToCoordinate|clearOverlayDomLabels/,
+    'a quote tick must never rebuild, measure, or reposition chart overlay geometry',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /window\.updateOverlayTradeLabelValues = updateOverlayTradeLabelValues/,
+    'the native host must be able to call the fast label-only bridge',
+  );
+});
+
 test('webview bridge: open-position trade labels stay attached to their price line while vertical panning', () => {
   const refreshBody = extractFunctionBody(chartWebViewHtmlSource, 'refreshOverlayDomLabels');
 
@@ -860,8 +888,8 @@ test('native chart status overlays do not block symbol recovery controls', () =>
   );
   assertSourceContains(
     source,
-    /if \(renderableCandles\.length === 0\) \{[\s\S]*if \(contextChanged\) \{[\s\S]*updateChartData\(\[\]\)/,
-    'a cold context must clear old-symbol candles behind its loading overlay',
+    /if \(renderableCandles\.length === 0\) \{[\s\S]*if \(contextChanged\) \{[\s\S]*updateChartData\(\[\], \{[\s\S]*dataContextSig: \$\{JSON\.stringify\(chartDataContextSig\)\}/,
+    'a cold context must clear old-symbol candles and retire their countdown context behind its loading overlay',
   );
   assertSourceContains(
     source,
@@ -1221,8 +1249,8 @@ test('web chart: precision overlays and crosshair stay parity-safe', () => {
   );
   assertSourceContains(
     chartWebSource,
-    /const overlayLiveBid = useMemo\([\s\S]*const overlayLiveAsk = useMemo\([\s\S]*liveBid: overlayLiveBid,[\s\S]*liveAsk: overlayLiveAsk/,
-    'web overlays must pass quote-driven bid and ask prices for live open-position PnL',
+    /const overlayLiveBid = useMemo\([\s\S]*const overlayLiveAsk = useMemo\([\s\S]*liveBid: hasLiveChartQuote \? overlayLiveBid : null,[\s\S]*liveAsk: hasLiveChartQuote \? overlayLiveAsk : null,[\s\S]*liveQuote: hasLiveChartQuote \? chartLiveQuote : undefined/,
+    'web overlays must pass only freshness-approved full quotes for Trade-parity open-position PnL',
   );
   assertSourceContains(
     chartWebSource,

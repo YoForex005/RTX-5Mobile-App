@@ -108,6 +108,95 @@ test('unsupported routes do not change state and duplicate requests avoid notifi
   assert.equal(notifications, 2);
 });
 
+test('a duplicate show repairs an interrupted visual and focus split', async () => {
+  const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'requestAnimationFrame');
+  let nextFrameId = 1;
+  let frameQueue: Array<(timestamp: number) => void> = [];
+  Object.defineProperty(globalThis, 'requestAnimationFrame', {
+    configurable: true,
+    value: (callback: (timestamp: number) => void) => {
+      frameQueue.push(callback);
+      return nextFrameId++;
+    },
+  });
+
+  try {
+    const controller = createSidebarDestinationController();
+    const visualEvents: string[] = [];
+    const focusEvents: string[] = [];
+    controller.registerVisualApplier((destination) => {
+      visualEvents.push(destination ?? 'closed');
+    });
+    controller.subscribe(() => {
+      focusEvents.push(controller.getFocusSnapshot().activeDestination ?? 'closed');
+    });
+    visualEvents.length = 0;
+
+    assert.equal(controller.show('accounts', 'sidebar'), true);
+    assert.equal(controller.getSnapshot().activeDestination, 'accounts');
+    assert.equal(controller.getFocusSnapshot().activeDestination, null);
+
+    // Simulate the app being refreshed or paused before either scheduled frame
+    // can publish focus. The already-visible Accounts layer must be recoverable
+    // when Manage accounts is requested again.
+    frameQueue = [];
+    assert.equal(controller.show('accounts', 'sidebar'), true);
+    assert.equal(frameQueue.length, 1);
+    assert.deepEqual(visualEvents, ['accounts', 'accounts']);
+
+    const flushFrame = () => {
+      const callbacks = frameQueue;
+      frameQueue = [];
+      callbacks.forEach((callback) => callback(0));
+    };
+    flushFrame();
+    flushFrame();
+    await new Promise((resolve) => setTimeout(resolve, 160));
+
+    assert.equal(controller.getFocusSnapshot(), controller.getSnapshot());
+    assert.deepEqual(focusEvents, ['accounts']);
+  } finally {
+    if (originalDescriptor) {
+      Object.defineProperty(globalThis, 'requestAnimationFrame', originalDescriptor);
+    } else {
+      delete (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+    }
+  }
+});
+
+test('the focus failsafe heals a visible destination when frame callbacks are dropped', async () => {
+  const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'requestAnimationFrame');
+  let frameQueue: Array<(timestamp: number) => void> = [];
+  Object.defineProperty(globalThis, 'requestAnimationFrame', {
+    configurable: true,
+    value: (callback: (timestamp: number) => void) => {
+      frameQueue.push(callback);
+      return frameQueue.length;
+    },
+  });
+
+  try {
+    const controller = createSidebarDestinationController();
+    const focusEvents: string[] = [];
+    controller.subscribe(() => {
+      focusEvents.push(controller.getFocusSnapshot().activeDestination ?? 'closed');
+    });
+
+    controller.show('accounts', 'sidebar');
+    frameQueue = [];
+    await new Promise((resolve) => setTimeout(resolve, 320));
+
+    assert.equal(controller.getFocusSnapshot(), controller.getSnapshot());
+    assert.deepEqual(focusEvents, ['accounts']);
+  } finally {
+    if (originalDescriptor) {
+      Object.defineProperty(globalThis, 'requestAnimationFrame', originalDescriptor);
+    } else {
+      delete (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+    }
+  }
+});
+
 test('active destinations can own hardware Back without hiding the host early', () => {
   const controller = createSidebarDestinationController();
   let handled = 0;

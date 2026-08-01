@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
 import { liveCandleStream } from '../../../domain/candles/stream/liveCandleStream';
-import { processIncomingPayload, type TickProcessorBridge } from './tickProcessor';
+import { processIncomingPayload, processTick, type TickProcessorBridge } from './tickProcessor';
 
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
@@ -37,6 +37,10 @@ test('quote tick processor builds Bid-only live candles and uses fresh receipt t
   assert.match(source, /normalizedUpdate\.stale === true/);
   assert.match(
     source,
+    /hasFreshFeedClock =[\s\S]*normalizedUpdate\.timestampSource === 'feed'[\s\S]*Math\.abs\(feedClockOffsetMs\) <= CANDLE_FEED_TIME_MAX_AGE_MS[\s\S]*hasFreshReceiptClock = normalizedUpdate\.timestampSource === 'received_at'[\s\S]*allowFlatNewCandleBucket =[\s\S]*!feedTimeTooOld[\s\S]*normalizedUpdate\.degraded !== true[\s\S]*normalizedUpdate\.tradable !== false[\s\S]*hasFreshFeedClock \|\| hasFreshReceiptClock/,
+  );
+  assert.match(
+    source,
     /candleExtensionTimestamp =[\s\S]*normalizedUpdate\.timestampSource === 'feed' &&[\s\S]*!feedTimeTooOld[\s\S]*\? normalizedTimestamp[\s\S]*: receivedAt/,
   );
   assert.match(source, /const bidPrice = Number\.isFinite\(normalizedUpdate\.bid\) \? normalizedUpdate\.bid : null/);
@@ -50,7 +54,43 @@ test('quote tick processor builds Bid-only live candles and uses fresh receipt t
     source,
     /extendActiveCandlesFromQuoteTick\(normalizedUpdate\.symbol,[\s\S]*price: tickPriceForCandle,[\s\S]*high: tickPriceForCandle,[\s\S]*low: tickPriceForCandle,[\s\S]*time: candleExtensionTimestamp/,
   );
+  assert.match(source, /allowFlatNewBucket: allowFlatNewCandleBucket/);
   assert.match(source, /tick_candle_time_receipt_fallback/);
+});
+
+test('flat boundary trust accepts healthy timestamp-less websocket quotes and rejects unhealthy metadata', () => {
+  const originalExtend = liveCandleStream.extendActiveCandlesFromQuoteTick;
+  const captured: Array<{ allowFlatNewBucket?: boolean }> = [];
+  (liveCandleStream as any).extendActiveCandlesFromQuoteTick = (
+    _symbol: string,
+    options: { allowFlatNewBucket?: boolean },
+  ) => {
+    captured.push(options);
+  };
+  const bridge: TickProcessorBridge = {
+    pendingUpdates: new Map(),
+    emitTick: () => {},
+    emitSymbolTick: () => {},
+    shouldStageQuoteUpdate: () => true,
+    logCandleFeed: () => {},
+    acceptNormalizedTick: () => true,
+  };
+
+  try {
+    const quote = { symbol: 'EURUSD', bid: 1.17121, ask: 1.17141 };
+    assert.equal(processTick(bridge, quote), true);
+    assert.equal(processTick(bridge, { ...quote, stale: true }), true);
+    assert.equal(processTick(bridge, { ...quote, degraded: true }), true);
+    assert.equal(processTick(bridge, { ...quote, tradable: false }), true);
+    assert.equal(processTick(bridge, { ...quote, age_ms: 6_000 }), true);
+
+    assert.deepEqual(
+      captured.map((options) => options.allowFlatNewBucket),
+      [true, false, false, false, false],
+    );
+  } finally {
+    (liveCandleStream as any).extendActiveCandlesFromQuoteTick = originalExtend;
+  }
 });
 
 test('quote-socket candle payloads cannot bypass the captured identity gate', () => {
