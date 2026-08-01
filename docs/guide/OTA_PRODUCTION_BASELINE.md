@@ -1,14 +1,14 @@
 # RTX5 Production OTA Baseline
 
-> **CURRENT STATUS: BLOCKED - DO NOT PUBLISH A PRODUCTION OTA FROM THE
-> ASSESSED `main` SOURCE LINE.**
+> **CURRENT STATUS: PRODUCTION OTA `1.1.32` IS LIVE FOR ANDROID AND IOS.
+> DO NOT PUBLISH THE ASSESSED `main` SOURCE LINE DIRECTLY TO THE OLD RUNTIMES.**
 >
 > This tracked file is the shared production OTA baseline. It is a
 > last-verified snapshot, not permission to publish. Always verify live EAS
 > state, the installed binary source commit, and both resolved runtimes before
 > an OTA.
 
-Last verified: `2026-07-28` (Asia/Calcutta)
+Last verified: `2026-08-01` (Asia/Calcutta)
 
 ## Authoritative Project Location
 
@@ -39,13 +39,13 @@ run.
 | Item | Android | iOS |
 | --- | --- | --- |
 | Compatible production binary runtime | `30cba83220fc6c92180eed477863c3e3e3087ce6` | `ef38da275b765380037fc377f5c596de31690b7d` |
-| Assessed product-source runtime | `3b93b456598125d15e65051c4b185ac67aa959b4` | `9a3004379f09edfb61a11cf7f772c791977ecc0b` |
+| Assessed product-source runtime | `9677dac3c4cdd2d471a3def0258968a0670e321e` | `75d947e7eaf665910e2754aff5b4c033c8a2b36b` |
 | Runtime match | **NO** | **NO** |
 
 Product-source commit assessed before this documentation-only update:
 
 ```text
-77d68e1a8eabb9cd25a217f18e48bf71d7f71700
+9f39e0c590b4678e0eacba2bcba23253bf2d9919
 ```
 
 Documentation-only commits may appear after that SHA. Always run
@@ -58,10 +58,19 @@ Latest production OTA source commit:
 2975156c15199c21bb3a4c73af8bd35189aaa2bd
 ```
 
-The assessed product source has not been published as the production `1.1.31`
-OTA. Its resolved runtimes do not match the compatible installed binary
-runtimes. Do not force an old runtime value and do not publish this source line
-as an OTA to those binaries.
+The assessed `main` source was not published directly. Its normally resolved
+runtimes do not match the compatible installed binary runtimes. Production OTA
+`1.1.32` was instead assembled in an isolated worktree based on the last OTA
+source commit above. Current OTA-deliverable application changes were applied,
+while native-sensitive configuration and dependencies remained on that
+compatible baseline. EAS therefore records source commit `2975156...` with a
+dirty-worktree marker.
+
+The Android and iOS updates were published separately and explicitly targeted
+the same platform runtime values used by `1.1.31`. The release safety comparison
+against `2975156...` reported zero native-impacting changes. This exceptional,
+reviewed continuation of the prior runtime lines is not permission to publish
+raw current `main` or another unreviewed source against those runtimes.
 
 Before shipping source from this line, either:
 
@@ -107,36 +116,55 @@ than assuming the highest EAS build number is the active store binary.
 
 ## Last Verified Production OTA Snapshot
 
-The `2026-07-24` OTA did not require a new binary for the matching runtime
-lines. Re-evaluate that decision for every later change.
+Production OTA `1.1.32` was published on `2026-08-01` to the same Android and
+iOS runtime lines used by `1.1.31`. Re-evaluate runtime compatibility for every
+later change.
 
 ### Android
 
 | Field | Verified value |
 | --- | --- |
-| OTA-visible version | `1.1.31` |
+| OTA-visible version | `1.1.32` |
 | Source commit | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` |
+| EAS source status | Dirty isolated release worktree (`2975156...*`) |
 | Runtime | `30cba83220fc6c92180eed477863c3e3e3087ce6` |
-| Update group | `ce03e9a3-1890-4be1-bfc7-33c017c40f51` |
-| Update ID | `019f92e4-34a2-76c1-b3b3-5fc69034c5f1` |
-| Created | `2026-07-24T06:50:57.058Z` |
-| Message | `Android production OTA 1.1.31 candle ticks + SLTP position stability runtime 30cba832` |
-| Manifest | `https://u.expo.dev/update/019f92e4-34a2-76c1-b3b3-5fc69034c5f1` |
-| Dashboard | `https://expo.dev/accounts/yoforex/projects/rtx5-app/updates/ce03e9a3-1890-4be1-bfc7-33c017c40f51` |
+| Update group | `5b7f6e87-870f-4f37-94fc-8639b1c23920` |
+| Update ID | `019fbde7-12fc-7876-97d7-fe7493c87f8f` |
+| Created | `2026-08-01T15:17:45.340Z` |
+| Message | `Android production OTA 1.1.32 trading + chart + account stability runtime 30cba832` |
+| Manifest | `https://u.expo.dev/update/019fbde7-12fc-7876-97d7-fe7493c87f8f` |
+| Dashboard | `https://expo.dev/accounts/yoforex/projects/rtx5-app/updates/5b7f6e87-870f-4f37-94fc-8639b1c23920` |
 
 ### iOS
 
 | Field | Verified value |
 | --- | --- |
-| OTA-visible version | `1.1.31` |
+| OTA-visible version | `1.1.32` |
 | Source commit | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` |
+| EAS source status | Dirty isolated release worktree (`2975156...*`) |
 | Runtime | `ef38da275b765380037fc377f5c596de31690b7d` |
-| Update group | `ddb13542-3c16-4774-9c46-16920db0d904` |
-| Update ID | `019f92e7-b724-7415-9881-ebe34ef5b8e0` |
-| Created | `2026-07-24T06:54:47.076Z` |
-| Message | `iOS production OTA 1.1.31 candle ticks + SLTP position stability runtime ef38da27` |
-| Manifest | `https://u.expo.dev/update/019f92e7-b724-7415-9881-ebe34ef5b8e0` |
-| Dashboard | `https://expo.dev/accounts/yoforex/projects/rtx5-app/updates/ddb13542-3c16-4774-9c46-16920db0d904` |
+| Update group | `827f2197-ee6e-4651-8b6c-11d0190d37d1` |
+| Update ID | `019fbde9-9e15-7873-bdf1-c4013264d7df` |
+| Created | `2026-08-01T15:20:32.021Z` |
+| Message | `iOS production OTA 1.1.32 trading + chart + account stability runtime ef38da27` |
+| Manifest | `https://u.expo.dev/update/019fbde9-9e15-7873-bdf1-c4013264d7df` |
+| Dashboard | `https://expo.dev/accounts/yoforex/projects/rtx5-app/updates/827f2197-ee6e-4651-8b6c-11d0190d37d1` |
+
+### Release validation recorded for `1.1.32`
+
+- Full tests: 292 test files passed.
+- TypeScript typecheck: passed.
+- Expo Doctor: 18/18 checks passed.
+- Interaction tests: 167/167 passed.
+- Stability tests: 291/291 passed.
+- Clean Android and iOS production exports: passed.
+- Production EAS environment validation: passed.
+- OTA safety comparison against `2975156...`: zero native-impacting changes.
+- Live `channel:view`, `update:list`, and both `update:view` checks: passed.
+
+The previous `1.1.31` groups were Android
+`ce03e9a3-1890-4be1-bfc7-33c017c40f51` and iOS
+`ddb13542-3c16-4774-9c46-16920db0d904`.
 
 ## Start From Another Computer
 
@@ -214,8 +242,11 @@ $env:RTX5_OTA_BASE_REF="<verified-binary-source-commit>"
 npm run update:prod -- --message "production <visible-version> $(git rev-parse --short HEAD)"
 ```
 
-Do not set `RTX5_FORCE_RUNTIME_VERSION` to make incompatible source reach an
-older binary.
+Do not set `RTX5_FORCE_RUNTIME_VERSION` on raw or unreviewed source merely to
+bypass a runtime mismatch. The `1.1.32` release used explicit per-platform
+runtime targeting only after isolating the prior compatible OTA source and
+verifying zero native-impacting changes; repeat that full proof before any
+similar exception.
 
 ## Required Update After Every Production Publish
 
