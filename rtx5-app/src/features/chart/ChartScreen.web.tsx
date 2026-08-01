@@ -119,6 +119,8 @@ import {
   resolveChartSymbolKey,
 } from './chartSymbolMetadata';
 import {
+  CHART_BEARISH_CANDLE_RENDER_OPACITY,
+  CHART_CANDLE_RENDER_OPACITY,
   CHART_SYMBOL_PICKER_PREFETCH_DELAY_MS,
   CHART_SYMBOL_PICKER_PREFETCH_LIMIT,
   CHART_DEFAULT_TIME_SCALE_BAR_SPACING,
@@ -1082,6 +1084,8 @@ export function ChartScreen() {
       series = chart.addCustomSeries(
         createRTX5CustomCandlestickPaneView(),
         buildRTX5CustomCandlestickSeriesOptions({
+          candleOpacity: CHART_CANDLE_RENDER_OPACITY,
+          bearishCandleOpacity: CHART_BEARISH_CANDLE_RENDER_OPACITY,
           bodyUpColor: chartType === 'hollow' ? HOLLOW_BODY : UP_COLOR,
           bodyDownColor: DOWN_COLOR,
           borderUpColor: UP_COLOR,

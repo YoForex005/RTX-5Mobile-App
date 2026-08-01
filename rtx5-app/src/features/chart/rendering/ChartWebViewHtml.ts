@@ -1,7 +1,7 @@
 import { LIGHTWEIGHT_CHARTS_JS } from "./lightweightChartsBundle";
 import { RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS } from "../../../domain/candles/rendering/customCandlestickSeriesWebView";
 import { ENHANCED_DRAWING_TOOLS_JS } from "../plugins/enhancedDrawingToolsString";
-import { CHART_AXIS_DIVIDER_STROKE_WIDTH, CHART_DEFAULT_VISIBLE_BAR_MAX, CHART_DEFAULT_VISIBLE_BAR_TARGET_PX, CHART_DEFAULT_VISIBLE_BAR_MIN, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_RESET_BAR_SPACING_MAX, CHART_DEFAULT_RESET_BAR_SPACING_MIN, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_DRAWING_MAGNET_THRESHOLD_PX, CHART_GRID_DASH_PATTERN, CHART_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET, CHART_GRID_HORIZONTAL_LINE_COUNT, CHART_GRID_HORIZONTAL_SPACING, CHART_GRID_STROKE_WIDTH, CHART_GRID_VERTICAL_SPACING, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE } from "../ChartScreen.constants";
+import { CHART_AXIS_DIVIDER_STROKE_WIDTH, CHART_BEARISH_CANDLE_RENDER_OPACITY, CHART_CANDLE_RENDER_OPACITY, CHART_DEFAULT_VISIBLE_BAR_MAX, CHART_DEFAULT_VISIBLE_BAR_TARGET_PX, CHART_DEFAULT_VISIBLE_BAR_MIN, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_RESET_BAR_SPACING_MAX, CHART_DEFAULT_RESET_BAR_SPACING_MIN, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_DRAWING_MAGNET_THRESHOLD_PX, CHART_GRID_DASH_PATTERN, CHART_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET, CHART_GRID_HORIZONTAL_LINE_COUNT, CHART_GRID_HORIZONTAL_SPACING, CHART_GRID_STROKE_WIDTH, CHART_GRID_VERTICAL_SPACING, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE } from "../ChartScreen.constants";
 import { CHART_CANDLE_COUNTDOWN_FIXED_SECONDS } from "../chartCandleCountdown";
 
 export const CH_HTML = `
@@ -68,7 +68,7 @@ export const CH_HTML = `
         width: 0;
         height: 0;
         pointer-events: none;
-        overflow: visible;
+        overflow: hidden;
         z-index: 0;
         shape-rendering: crispEdges;
       }
@@ -202,12 +202,14 @@ export const CH_HTML = `
       var activeScrollPriceScaleRaf = 0;
       var lastActiveScrollPriceScaleCheckAt = 0;
       var activeHorizontalScrollGesture = false;
+      var horizontalScrollMotionActive = false;
       var activeHorizontalScrollGestureUntil = 0;
       var visibleRangeIdleTimer = null;
       var visibleRangeIdlePendingAfterGesture = false;
       var liveRightEdgeClampActive = false;
       var lastHistoryPaginationPostAt = 0;
       var movingVerticalGridRaf = 0;
+      var movingVerticalGridTransformOnlyPending = false;
       var movingVerticalGridColor = 'transparent';
       var movingVerticalGridVisible = false;
       var movingGridVerticalLines = [];
@@ -224,6 +226,9 @@ export const CH_HTML = `
       var periodSeparatorDashPattern = '1 5';
       var periodSeparatorData = [];
       var periodSeparatorLines = [];
+      var periodSeparatorGroup = null;
+      var periodSeparatorMotionAnchorCoordinate = null;
+      var periodSeparatorsTransformOnlyPending = false;
       var periodSeparatorSignature = '';
       var chartAxisDividerRaf = 0;
       var chartAxisDividerColor = 'transparent';
@@ -238,6 +243,7 @@ export const CH_HTML = `
       var AXIS_DIVIDER_STROKE_WIDTH = ${CHART_AXIS_DIVIDER_STROKE_WIDTH};
       var manualPriceScaleRangeActive = false;
       var verticalPricePanGestureActive = false;
+      var chartScaleGestureActive = false;
       var verticalScrollingLocked = false;
       var chartAutoScaleEnabled = false;
       var manualVerticalPanRangeActive = false;
@@ -1823,6 +1829,7 @@ export const CH_HTML = `
           try { cancelAnimationFrame(movingVerticalGridRaf); } catch (_e) {}
           movingVerticalGridRaf = 0;
         }
+        movingVerticalGridTransformOnlyPending = false;
         var layer = getMovingVerticalGridLayer();
         if (!layer) {
           return;
@@ -2025,15 +2032,25 @@ export const CH_HTML = `
       }
 
       function scheduleMovingVerticalGridUpdate(preferTransformOnly) {
-        var transformOnly = preferTransformOnly === true;
+        var transformOnly =
+          preferTransformOnly === true ||
+          (preferTransformOnly !== false && isHorizontalScrollMotionActive());
+        if (!movingVerticalGridRaf) {
+          movingVerticalGridTransformOnlyPending = transformOnly;
+        } else if (!transformOnly) {
+          movingVerticalGridTransformOnlyPending = false;
+        }
         if (movingVerticalGridRaf) {
           return;
         }
         movingVerticalGridRaf = requestAnimationFrame(function() {
           movingVerticalGridRaf = 0;
+          var shouldTransformOnly = movingVerticalGridTransformOnlyPending;
+          movingVerticalGridTransformOnlyPending = false;
           // During a live horizontal pan, the SVG grid already exists. Only
           // move that group instead of recalculating every grid line.
-          if (transformOnly && updateMovingVerticalGridTransformOnly()) {
+          if (shouldTransformOnly) {
+            updateMovingVerticalGridTransformOnly();
             return;
           }
           updateMovingVerticalGrid();
@@ -2289,14 +2306,17 @@ export const CH_HTML = `
           try { cancelAnimationFrame(periodSeparatorsRaf); } catch (_e) {}
           periodSeparatorsRaf = 0;
         }
+        periodSeparatorsTransformOnlyPending = false;
         var layer = getPeriodSeparatorLayer();
+        periodSeparatorLines = [];
+        periodSeparatorGroup = null;
+        periodSeparatorMotionAnchorCoordinate = null;
+        periodSeparatorSignature = '';
         if (!layer) {
           return;
         }
         layer.textContent = '';
         layer.style.display = 'none';
-        periodSeparatorLines = [];
-        periodSeparatorSignature = '';
       }
 
       function sanitizePeriodSeparatorData(separators) {
@@ -2354,14 +2374,45 @@ export const CH_HTML = `
         schedulePeriodSeparatorsUpdate();
       }
 
-      function schedulePeriodSeparatorsUpdate() {
+      function schedulePeriodSeparatorsUpdate(preferTransformOnly) {
+        var transformOnly =
+          preferTransformOnly === true ||
+          (preferTransformOnly !== false && isHorizontalScrollMotionActive());
+        if (!periodSeparatorsRaf) {
+          periodSeparatorsTransformOnlyPending = transformOnly;
+        } else if (!transformOnly) {
+          // A settle/full request must upgrade an already queued motion frame.
+          periodSeparatorsTransformOnlyPending = false;
+        }
         if (periodSeparatorsRaf) {
           return;
         }
         periodSeparatorsRaf = requestAnimationFrame(function() {
           periodSeparatorsRaf = 0;
+          var shouldTransformOnly = periodSeparatorsTransformOnlyPending;
+          periodSeparatorsTransformOnlyPending = false;
+          if (shouldTransformOnly) {
+            updatePeriodSeparatorsTransformOnly();
+            return;
+          }
           updatePeriodSeparators();
         });
+      }
+
+      function resolvePeriodSeparatorGroup(layer, namespace) {
+        if (!periodSeparatorGroup || periodSeparatorGroup.parentNode !== layer) {
+          periodSeparatorGroup = document.createElementNS(namespace, 'g');
+          layer.appendChild(periodSeparatorGroup);
+        }
+        return periodSeparatorGroup;
+      }
+
+      function setPeriodSeparatorGroupTransform(group, x) {
+        if (!group) return;
+        var nextTransform = 'translate(' + Math.round(x) + ',0)';
+        if (group.getAttribute('transform') !== nextTransform) {
+          group.setAttribute('transform', nextTransform);
+        }
       }
 
       function resolvePeriodSeparatorX(separator, timeScaleApi) {
@@ -2382,6 +2433,35 @@ export const CH_HTML = `
           coordinate = timeScaleApi.timeToCoordinate(separator.time);
         }
         return typeof coordinate === 'number' && isFinite(coordinate) ? coordinate : null;
+      }
+
+      function updatePeriodSeparatorsTransformOnly() {
+        try {
+          if (
+            !periodSeparatorsVisible ||
+            !chart ||
+            !periodSeparatorGroup ||
+            typeof periodSeparatorMotionAnchorCoordinate !== 'number' ||
+            !isFinite(periodSeparatorMotionAnchorCoordinate)
+          ) {
+            return false;
+          }
+          var timeScaleApi = chart && typeof chart.timeScale === 'function' ? chart.timeScale() : null;
+          if (!timeScaleApi || typeof timeScaleApi.logicalToCoordinate !== 'function') {
+            return false;
+          }
+          var nextAnchorCoordinate = timeScaleApi.logicalToCoordinate(0);
+          if (typeof nextAnchorCoordinate !== 'number' || !isFinite(nextAnchorCoordinate)) {
+            return false;
+          }
+          setPeriodSeparatorGroupTransform(
+            periodSeparatorGroup,
+            nextAnchorCoordinate - periodSeparatorMotionAnchorCoordinate
+          );
+          return true;
+        } catch (_e) {
+          return false;
+        }
       }
 
       function applyPeriodSeparatorLineStyle(line) {
@@ -2438,8 +2518,22 @@ export const CH_HTML = `
             clearPeriodSeparatorLayer();
             return;
           }
+          var namespace = 'http://www.w3.org/2000/svg';
+          var separatorGroup = resolvePeriodSeparatorGroup(layer, namespace);
+          setPeriodSeparatorGroupTransform(separatorGroup, 0);
+          var nextMotionAnchorCoordinate =
+            typeof timeScaleApi.logicalToCoordinate === 'function'
+              ? timeScaleApi.logicalToCoordinate(0)
+              : null;
+          periodSeparatorMotionAnchorCoordinate =
+            typeof nextMotionAnchorCoordinate === 'number' && isFinite(nextMotionAnchorCoordinate)
+              ? nextMotionAnchorCoordinate
+              : null;
 
           var visible = [];
+          // Cache one extra pane on each side so a fast fling can translate
+          // separators into view without rebuilding the SVG group mid-motion.
+          var horizontalMotionBuffer = metrics.paneWidth;
           for (var index = 0; index < periodSeparatorData.length; index += 1) {
             var separator = periodSeparatorData[index];
             var coordinate = resolvePeriodSeparatorX(separator, timeScaleApi);
@@ -2447,7 +2541,10 @@ export const CH_HTML = `
               continue;
             }
             var x = Math.round(coordinate);
-            if (x >= -1 && x <= metrics.paneWidth + 1) {
+            if (
+              x >= -horizontalMotionBuffer - 1 &&
+              x <= metrics.paneWidth + horizontalMotionBuffer + 1
+            ) {
               visible.push({ x: x, type: separator.type });
             }
           }
@@ -2481,9 +2578,8 @@ export const CH_HTML = `
             return;
           }
 
-          var namespace = 'http://www.w3.org/2000/svg';
           for (var lineIndex = 0; lineIndex < visible.length; lineIndex += 1) {
-            var line = resolvePeriodSeparatorLine(layer, namespace, lineIndex);
+            var line = resolvePeriodSeparatorLine(separatorGroup, namespace, lineIndex);
             var xPosition = visible[lineIndex].x;
             setMovingGridAttribute(line, 'x1', xPosition);
             setMovingGridAttribute(line, 'y1', 0);
@@ -3246,7 +3342,7 @@ export const CH_HTML = `
           !verticalPricePanGestureActive &&
           !manualPriceScaleRangeActive &&
           !activeTradeLineDrag &&
-          !activeHorizontalScrollGesture &&
+          !isHorizontalScrollMotionActive() &&
           Date.now() > activeHorizontalScrollGestureUntil
         );
       }
@@ -3456,7 +3552,7 @@ export const CH_HTML = `
         if (
           activeTradeLineDrag ||
           verticalPricePanGestureActive ||
-          activeHorizontalScrollGesture ||
+          isHorizontalScrollMotionActive() ||
           isManualVerticalPanRangePreserved() ||
           isManualVerticalPanRangeLocked()
         ) {
@@ -3637,26 +3733,34 @@ export const CH_HTML = `
         return true;
       }
 
+      function isHorizontalScrollMotionActive() {
+        return activeHorizontalScrollGesture || horizontalScrollMotionActive;
+      }
+
       function markHorizontalScrollGestureActive() {
+        if (activeHorizontalScrollGesture) {
+          return;
+        }
         cancelFreshSeriesVerticalCenter();
         deferHorizontalGestureDomWork();
         activeHorizontalScrollGesture = true;
+        horizontalScrollMotionActive = true;
         activeHorizontalScrollGestureUntil = Date.now() + ACTIVE_SCROLL_PRICE_SCALE_GESTURE_GRACE_MS;
       }
 
       function finishHorizontalScrollGesture() {
-        var shouldSettleHorizontalGesture = visibleRangeIdlePendingAfterGesture || pendingHorizontalOverlayApply;
+        var shouldSettleHorizontalGesture =
+          horizontalScrollMotionActive ||
+          visibleRangeIdlePendingAfterGesture ||
+          pendingHorizontalOverlayApply;
         activeHorizontalScrollGesture = false;
         activeHorizontalScrollGestureUntil = Date.now() + ACTIVE_SCROLL_PRICE_SCALE_GESTURE_GRACE_MS;
         if (shouldSettleHorizontalGesture) {
-          // Settle the work intentionally deferred while the finger was down:
-          // full grid validation, price-scale recovery, overlays, and history.
-          visibleRangeIdlePendingAfterGesture = false;
-          applyDeferredHorizontalOverlayPayload();
-          scheduleMovingVerticalGridUpdate(false);
-          scheduleActiveScrollPriceScaleRecovery('visible_range_release');
+          // Lightweight Charts continues with kinetic touch scrolling after
+          // pointer-up. Wait for the logical range to become idle before full
+          // SVG/DOM, price-scale, overlay, or history work is allowed again.
+          visibleRangeIdlePendingAfterGesture = true;
           scheduleVisibleRangeIdleWork();
-          requestHistoryPaginationForVisibleRange(getVisibleLogicalRangeSnapshot());
         }
       }
 
@@ -3671,6 +3775,8 @@ export const CH_HTML = `
         }
         lastActiveScrollPriceScaleCheckAt = 0;
         activeHorizontalScrollGesture = false;
+        horizontalScrollMotionActive = false;
+        chartScaleGestureActive = false;
         activeHorizontalScrollGestureUntil = 0;
         visibleRangeIdlePendingAfterGesture = false;
       }
@@ -3745,9 +3851,9 @@ export const CH_HTML = `
         if (activeScrollPriceScaleRaf) {
           return;
         }
-        if (activeHorizontalScrollGesture) {
+        if (isHorizontalScrollMotionActive()) {
           // Let Lightweight Charts own active horizontal motion. Price-scale
-          // healing can run in the post-gesture grace/idle window instead.
+          // healing can run after touch momentum reaches the idle window.
           return;
         }
         if (isChartScaleGestureSuppressed() || !isHorizontalScrollGesturePriceScaleRecoveryEligible()) {
@@ -4044,7 +4150,7 @@ export const CH_HTML = `
       }
 
       function refreshOverlayDomLabelsWhenIdle(payload) {
-        if (activeHorizontalScrollGesture) {
+        if (isHorizontalScrollMotionActive()) {
           deferHorizontalGestureDomWork();
           return;
         }
@@ -4072,7 +4178,7 @@ export const CH_HTML = `
       }
 
       function scheduleOverlayDomRefresh() {
-        if (activeHorizontalScrollGesture) {
+        if (isHorizontalScrollMotionActive()) {
           deferHorizontalGestureDomWork();
           return;
         }
@@ -4103,9 +4209,29 @@ export const CH_HTML = `
         }
         visibleRangeIdleTimer = setTimeout(function() {
           visibleRangeIdleTimer = null;
+          if (
+            activeHorizontalScrollGesture ||
+            verticalPricePanGestureActive ||
+            chartScaleGestureActive ||
+            activeTradeLineDrag
+          ) {
+            visibleRangeIdlePendingAfterGesture = true;
+            return;
+          }
+          var wasHorizontalMotionActive = horizontalScrollMotionActive;
+          horizontalScrollMotionActive = false;
+          visibleRangeIdlePendingAfterGesture = false;
+          if (wasHorizontalMotionActive) {
+            activeHorizontalScrollGestureUntil = Date.now() + ACTIVE_SCROLL_PRICE_SCALE_GESTURE_GRACE_MS;
+          }
+          applyDeferredHorizontalOverlayPayload();
+          scheduleMovingVerticalGridUpdate(false);
+          schedulePeriodSeparatorsUpdate(false);
+          scheduleActiveScrollPriceScaleRecovery('visible_range_idle');
           scheduleOverlayPriceScaleLock(false);
           schedulePriceScaleHealthCheck('visible_range_change', true);
           scheduleOverlayDomRefresh();
+          requestHistoryPaginationForVisibleRange(getVisibleLogicalRangeSnapshot());
         }, 96);
       }
 
@@ -4473,6 +4599,9 @@ export const CH_HTML = `
           }
           scheduleGestureRightPriceScaleFallbackRefresh();
           scheduleOverlayDomRefresh();
+          if (horizontalScrollMotionActive) {
+            scheduleVisibleRangeIdleWork();
+          }
         };
 
         var settleVerticalPriceGestureDomWork = function() {
@@ -4483,6 +4612,9 @@ export const CH_HTML = `
           scheduleGestureRightPriceScaleFallbackRefresh();
           scheduleOverlayDomRefresh();
           postChartGeometry();
+          if (horizontalScrollMotionActive) {
+            scheduleVisibleRangeIdleWork();
+          }
         };
 
         var finishRightPriceScaleGesture = function() {
@@ -4690,10 +4822,17 @@ export const CH_HTML = `
           rememberPointerDown(event);
           cancelFreshSeriesVerticalCenter();
           postChartTouchState(true);
+          if (horizontalScrollMotionActive && visibleRangeIdleTimer !== null) {
+            clearTimeout(visibleRangeIdleTimer);
+            visibleRangeIdleTimer = null;
+            visibleRangeIdlePendingAfterGesture = true;
+          }
           activeHorizontalScrollGesture = false;
           activeHorizontalScrollGestureUntil = 0;
           rightPriceScaleGestureActive = false;
           if (isScaleGestureEvent(event)) {
+            horizontalScrollMotionActive = false;
+            chartScaleGestureActive = true;
             clearCompletedChartTap();
             suppressChartTapAfterScale();
             return;
@@ -4735,6 +4874,8 @@ export const CH_HTML = `
 
         var onPointerMove = function(event) {
           if (isScaleGestureEvent(event)) {
+            horizontalScrollMotionActive = false;
+            chartScaleGestureActive = true;
             suppressChartTapAfterScale();
             // Keep pinch/scale gestures light. Rebuilding every custom overlay
             // on each move drops the WebView far below MT5-like frame cadence.
@@ -4749,6 +4890,11 @@ export const CH_HTML = `
             deferVerticalGestureDomWork();
             return;
           }
+          if (activeHorizontalScrollGesture) {
+            // Lightweight Charts owns the drag once it is classified. Keep
+            // this capture listener off the per-move hot path entirely.
+            return;
+          }
           // Check if we should start or continue a vertical pan
           var point = getClientPoint(event);
           if (point && vertPanState) {
@@ -4756,9 +4902,6 @@ export const CH_HTML = `
             continueVerticalPan(point.y);
             stopChartEvent(event);
             return;
-          }
-          if (point && activeHorizontalScrollGesture) {
-            markHorizontalScrollGestureActive();
           }
           if (point && vertPanPending && !vertPanState) {
             var dx = Math.abs(point.x - vertPanPending.startX);
@@ -4796,7 +4939,7 @@ export const CH_HTML = `
               vertPanPending = null;
             }
           }
-          if (point && (activeHorizontalScrollGesture || vertPanPending)) {
+          if (point && vertPanPending) {
             // Horizontal pans are handled by Lightweight Charts. Avoid forcing a
             // heavy DOM overlay rebuild on every move; idle work will settle it.
             deferHorizontalGestureDomWork();
@@ -4806,24 +4949,35 @@ export const CH_HTML = `
         };
 
         var onPointerUp = function(event) {
-          var wasScaleGesture = isScaleGestureEvent(event) || gestureHadMultitouch || Date.now() <= suppressChartTapUntil;
+          var isActualScaleGesture = isScaleGestureEvent(event) || gestureHadMultitouch || chartScaleGestureActive;
+          var wasScaleGesture = isActualScaleGesture || Date.now() <= suppressChartTapUntil;
+          if (isActualScaleGesture) {
+            chartScaleGestureActive = true;
+          }
           if (finishTradeLineDrag(event, false)) {
             releasePointer(event);
             finishHorizontalScrollGesture();
             if (activePointerCount <= 0) {
               gestureHadMultitouch = false;
+              chartScaleGestureActive = false;
               postChartTouchState(false);
             }
             return;
           }
           releasePointer(event);
           if (finishRightPriceScaleGesture()) {
-            if (activePointerCount <= 0) postChartTouchState(false);
+            if (activePointerCount <= 0) {
+              chartScaleGestureActive = false;
+              postChartTouchState(false);
+            }
             return;
           }
           if (vertPanState) {
             endVerticalPan();
-            if (activePointerCount <= 0) postChartTouchState(false);
+            if (activePointerCount <= 0) {
+              chartScaleGestureActive = false;
+              postChartTouchState(false);
+            }
             return;
           }
           finishHorizontalScrollGesture();
@@ -4839,6 +4993,7 @@ export const CH_HTML = `
               // back to fit the data after every pinch.
               resetAutoScale();
               gestureHadMultitouch = false;
+              chartScaleGestureActive = false;
               postChartTouchState(false);
             }
             return;
@@ -4887,6 +5042,7 @@ export const CH_HTML = `
             finishHorizontalScrollGesture();
             if (activePointerCount <= 0) {
               gestureHadMultitouch = false;
+              chartScaleGestureActive = false;
               postChartTouchState(false);
             }
             return;
@@ -4898,6 +5054,7 @@ export const CH_HTML = `
                 resetAutoScale();
               }
               gestureHadMultitouch = false;
+              chartScaleGestureActive = false;
               postChartTouchState(false);
             }
             return;
@@ -4909,6 +5066,7 @@ export const CH_HTML = `
                 resetAutoScale();
               }
               gestureHadMultitouch = false;
+              chartScaleGestureActive = false;
               postChartTouchState(false);
             }
             return;
@@ -4922,6 +5080,7 @@ export const CH_HTML = `
                 resetAutoScale();
               }
               gestureHadMultitouch = false;
+              chartScaleGestureActive = false;
               postChartTouchState(false);
             }
             return;
@@ -4932,6 +5091,7 @@ export const CH_HTML = `
             resetAutoScale();
           }
           gestureHadMultitouch = false;
+          chartScaleGestureActive = false;
           scheduleOverlayDomRefresh();
           if (activePointerCount <= 0) postChartTouchState(false);
         };
@@ -5039,8 +5199,10 @@ export const CH_HTML = `
           activePointerIds = {};
           activePointerCount = 0;
           gestureHadMultitouch = false;
+          chartScaleGestureActive = false;
           clearCompletedChartTap();
           activeHorizontalScrollGesture = false;
+          horizontalScrollMotionActive = false;
           activeHorizontalScrollGestureUntil = 0;
           verticalPricePanGestureActive = false;
           syntheticRightPriceScaleFallbackRange = null;
@@ -5263,7 +5425,7 @@ export const CH_HTML = `
           ) {
             return false;
           }
-          if (activeHorizontalScrollGesture || Date.now() <= activeHorizontalScrollGestureUntil) {
+          if (isHorizontalScrollMotionActive() || Date.now() <= activeHorizontalScrollGestureUntil) {
             return false;
           }
           var previousMaxRight = getBoundedLiveRightEdge(lengthOverride);
@@ -6007,13 +6169,15 @@ export const CH_HTML = `
               if (clampVisibleLogicalRangeToLiveEdge(range)) {
                 return;
               }
-              var isActiveHorizontalGesture = activeHorizontalScrollGesture === true;
-              scheduleMovingVerticalGridUpdate(isActiveHorizontalGesture);
-              schedulePeriodSeparatorsUpdate();
-              if (isActiveHorizontalGesture) {
-                // Keep the active scroll loop tiny. The deferred idle/recovery
-                // work runs from finishHorizontalScrollGesture on release.
+              var isLightweightHorizontalMotion = isHorizontalScrollMotionActive();
+              scheduleMovingVerticalGridUpdate(isLightweightHorizontalMotion);
+              schedulePeriodSeparatorsUpdate(isLightweightHorizontalMotion);
+              if (isLightweightHorizontalMotion) {
+                // Keep both finger drag and post-release kinetic scrolling on
+                // transform-only SVG work. The idle timer is reset by every
+                // momentum frame and performs one full settle at the end.
                 visibleRangeIdlePendingAfterGesture = true;
+                scheduleVisibleRangeIdleWork();
                 return;
               }
               scheduleActiveScrollPriceScaleRecovery('visible_range_active');
@@ -6062,6 +6226,8 @@ export const CH_HTML = `
           // candles collapse into a single continuous high-low stroke instead
           // of splitting wick/body pixels into broken-looking fragments.
           series = window.addRTX5CustomCandlestickSeries(chart, {
+            candleOpacity: ${CHART_CANDLE_RENDER_OPACITY},
+            bearishCandleOpacity: ${CHART_BEARISH_CANDLE_RENDER_OPACITY},
             upColor: colors.bodyUp,
             downColor: colors.bodyDown,
             bodyUpColor: colors.bodyUp,
@@ -7440,7 +7606,7 @@ export const CH_HTML = `
         // Quote ticks only need the live price badge/extension. Rebuilding the
         // entire trade-label layer every tick was residual chart flicker even
         // after in-place upserts (layout thrash on the overlay layer).
-        if (activeHorizontalScrollGesture || verticalPricePanGestureActive) {
+        if (isHorizontalScrollMotionActive() || verticalPricePanGestureActive) {
           return;
         }
         if (overlayRefreshRaf) {
@@ -8497,7 +8663,7 @@ export const CH_HTML = `
             label.style.top = top + 'px';
             label.style.color = item.labelSideColor || item.color;
             label.style.fontSize = '12px';
-            label.style.fontWeight = '700';
+            label.style.fontWeight = hasSplitTradeLabel ? '500' : '700';
             label.style.height = OVERLAY_LABEL_LINE_HEIGHT + 'px';
             label.style.lineHeight = OVERLAY_LABEL_LINE_HEIGHT + 'px';
             label.style.whiteSpace = 'nowrap';
@@ -8651,7 +8817,7 @@ export const CH_HTML = `
             payload = { priceLines: [], markers: [] };
           }
           if (!series) return;
-          if (activeHorizontalScrollGesture) {
+          if (isHorizontalScrollMotionActive()) {
             _overlayPayload = payload;
             pendingHorizontalOverlayApply = true;
             deferHorizontalGestureDomWork();
@@ -8744,7 +8910,7 @@ export const CH_HTML = `
         });
         nextOverlayPayload = preserveActiveTradeLineDragPayload(nextOverlayPayload);
         _overlayPayload = nextOverlayPayload;
-        if (activeHorizontalScrollGesture) {
+        if (isHorizontalScrollMotionActive()) {
           pendingHorizontalOverlayApply = true;
           deferHorizontalGestureDomWork();
           return;
@@ -8825,6 +8991,11 @@ export const CH_HTML = `
           _overlayPayload = patchOverlayTradeLabelPayload(_overlayPayload, patchById);
           _appliedOverlayPayload = patchOverlayTradeLabelPayload(_appliedOverlayPayload, patchById);
 
+          if (isHorizontalScrollMotionActive()) {
+            visibleRangeIdlePendingAfterGesture = true;
+            return;
+          }
+
           for (var id in patchById) {
             if (!Object.prototype.hasOwnProperty.call(patchById, id)) continue;
             var nextPatch = patchById[id];
@@ -8853,7 +9024,7 @@ export const CH_HTML = `
             scheduleTradeLineDragDomRefresh();
             return;
           }
-          if (activeHorizontalScrollGesture || verticalPricePanGestureActive) {
+          if (isHorizontalScrollMotionActive() || verticalPricePanGestureActive) {
             return;
           }
           // Prefer DOM text update only when geometry already matches.

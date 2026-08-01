@@ -24,11 +24,62 @@ const readProjectSource = (relativePath: string): string => {
 const chartWebViewHtmlSource = readProjectSource('src/features/chart/rendering/ChartWebViewHtml.ts');
 const chartWebSource = readProjectSource('src/features/chart/ChartScreen.web.tsx');
 const chartConstantsSource = readProjectSource('src/features/chart/ChartScreen.constants.ts');
+const customCandleOpacitySource = readProjectSource('src/domain/candles/rendering/customCandleOpacity.ts');
+const customCandlestickSeriesSource = readProjectSource('src/domain/candles/rendering/customCandlestickSeries.ts');
+const customCandlestickSeriesWebViewSource = readProjectSource('src/domain/candles/rendering/customCandlestickSeriesWebView.ts');
 const chartTapRadialMenuSource = readProjectSource('src/features/chart/components/ChartTapRadialMenu.tsx');
 const liveCandlesHookSource = readProjectSource('src/domain/candles/hooks/useLiveCandles.ts');
 const liveCandleStreamManagerSource = readProjectSource('src/domain/candles/stream/liveCandleStream/manager.ts');
 const liveCandleHistoryFetchingSource = readProjectSource('src/domain/candles/stream/liveCandleStream/historyFetching.ts');
 const enhancedDrawingToolsSource = readProjectSource('src/features/chart/plugins/enhancedDrawingToolsString.ts');
+
+test('custom candle renderers lower main-chart contrast without changing saved schema colors', () => {
+  const webViewOpacityBody = extractFunctionBody(
+    customCandlestickSeriesWebViewSource,
+    'resolveCustomCandleOpacity',
+  );
+
+  assertSourceContains(
+    chartConstantsSource,
+    /export const CHART_CANDLE_RENDER_OPACITY = 0\.72[\s\S]*export const CHART_BEARISH_CANDLE_RENDER_OPACITY = 0\.74/,
+    'native and web main charts must keep green opacity stable and give red candles a tiny contrast increase',
+  );
+  assertSourceContains(
+    customCandleOpacitySource,
+    /typeof value === 'number' && Number\.isFinite\(value\)[\s\S]*Math\.min\(1, Math\.max\(0, value\)\)[\s\S]*: 1/,
+    'web custom candle opacity must clamp finite values and safely fall back to one',
+  );
+  assertSourceContains(
+    customCandlestickSeriesSource,
+    /candleOpacity: 1[\s\S]*bearishCandleOpacity: 1[\s\S]*context\.globalAlpha = resolveRTX5CustomCandleOpacity\([\s\S]*isBullish \? this\.options\.candleOpacity : this\.options\.bearishCandleOpacity/,
+    'web custom candles must default to full opacity and apply the correct bullish or bearish draw opacity',
+  );
+  assertSourceContains(
+    customCandlestickSeriesSource,
+    /candleOpacity: resolveRTX5CustomCandleOpacity\(candleOpacity\)[\s\S]*bearishCandleOpacity: resolveRTX5CustomCandleOpacity\(bearishCandleOpacity\)/,
+    'web custom candle option builders must clamp both opacity overrides',
+  );
+  assertSourceContains(
+    customCandlestickSeriesWebViewSource,
+    /candleOpacity: 1[\s\S]*bearishCandleOpacity: 1[\s\S]*context\.globalAlpha = resolveCustomCandleOpacity\([\s\S]*isBullish \? self\._options\.candleOpacity : self\._options\.bearishCandleOpacity/,
+    'native WebView custom candles must default to full opacity and apply the correct per-side override',
+  );
+  assertSourceContains(
+    webViewOpacityBody,
+    /typeof value === 'number' && isFinite\(value\)[\s\S]*Math\.min\(1, Math\.max\(0, value\)\)[\s\S]*: 1/,
+    'native WebView candle opacity must clamp finite values and safely fall back to one',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /window\.addRTX5CustomCandlestickSeries\(chart, \{[\s\S]*candleOpacity: \$\{CHART_CANDLE_RENDER_OPACITY\}[\s\S]*bearishCandleOpacity: \$\{CHART_BEARISH_CANDLE_RENDER_OPACITY\}/,
+    'native main-chart candles must receive the shared bullish and bearish presentation opacities',
+  );
+  assertSourceContains(
+    chartWebSource,
+    /buildRTX5CustomCandlestickSeriesOptions\(\{[\s\S]*candleOpacity: CHART_CANDLE_RENDER_OPACITY[\s\S]*bearishCandleOpacity: CHART_BEARISH_CANDLE_RENDER_OPACITY/,
+    'web main-chart candles must receive the shared bullish and bearish presentation opacities',
+  );
+});
 
 test('webview bridge: ChartScreen initializes chart only after WebView READY enables bridge', () => {
   assertSourceContains(
@@ -507,8 +558,8 @@ test('webview bridge: open-position labels separate trade side color from live P
   );
   assertSourceContains(
     refreshBody,
-    /label\.style\.color = item\.labelSideColor \|\| item\.color/,
-    'split labels must keep the fallback label color aligned to the trade side',
+    /label\.style\.color = item\.labelSideColor \|\| item\.color[\s\S]*label\.style\.fontWeight = hasSplitTradeLabel \? '500' : '700'/,
+    'split labels must keep the trade-side fallback color and use a reduced medium font weight',
   );
 });
 
@@ -570,6 +621,8 @@ test('webview bridge: horizontal chart panning defers custom DOM rebuilds until 
   const finishHorizontalBody = extractFunctionBody(chartWebViewHtmlSource, 'finishHorizontalScrollGesture');
   const deferDomWorkBody = extractFunctionBody(chartWebViewHtmlSource, 'deferHorizontalGestureDomWork');
   const scheduleOverlayRefreshBody = extractFunctionBody(chartWebViewHtmlSource, 'scheduleOverlayDomRefresh');
+  const scheduleVisibleRangeIdleBody = extractFunctionBody(chartWebViewHtmlSource, 'scheduleVisibleRangeIdleWork');
+  const schedulePeriodSeparatorsBody = extractFunctionBody(chartWebViewHtmlSource, 'schedulePeriodSeparatorsUpdate');
   const setChartOverlaysBody = extractFunctionBody(chartWebViewHtmlSource, 'setChartOverlays');
 
   assertSourceContains(
@@ -584,18 +637,28 @@ test('webview bridge: horizontal chart panning defers custom DOM rebuilds until 
   );
   assertSourceContains(
     scheduleOverlayRefreshBody,
-    /if \(activeHorizontalScrollGesture\) \{[\s\S]*deferHorizontalGestureDomWork\(\)[\s\S]*return;/,
-    'overlay refresh requests must not repaint custom DOM during active horizontal panning',
+    /if \(isHorizontalScrollMotionActive\(\)\) \{[\s\S]*deferHorizontalGestureDomWork\(\)[\s\S]*return;/,
+    'overlay refresh requests must not repaint custom DOM during finger drag or kinetic horizontal motion',
   );
   assertSourceContains(
     setChartOverlaysBody,
-    /if \(activeHorizontalScrollGesture\) \{[\s\S]*pendingHorizontalOverlayApply = true[\s\S]*deferHorizontalGestureDomWork\(\)[\s\S]*return;/,
-    'live overlay payloads must be cached instead of rebuilding price lines during active horizontal panning',
+    /if \(isHorizontalScrollMotionActive\(\)\) \{[\s\S]*pendingHorizontalOverlayApply = true[\s\S]*deferHorizontalGestureDomWork\(\)[\s\S]*return;/,
+    'live overlay payloads must be cached instead of rebuilding price lines during horizontal motion',
   );
   assertSourceContains(
     finishHorizontalBody,
-    /visibleRangeIdlePendingAfterGesture \|\| pendingHorizontalOverlayApply[\s\S]*activeHorizontalScrollGesture = false[\s\S]*applyDeferredHorizontalOverlayPayload\(\)[\s\S]*scheduleVisibleRangeIdleWork\(\)/,
-    'release must apply deferred overlay payloads and then run the normal settle work',
+    /horizontalScrollMotionActive \|\|[\s\S]*visibleRangeIdlePendingAfterGesture \|\|[\s\S]*pendingHorizontalOverlayApply[\s\S]*activeHorizontalScrollGesture = false[\s\S]*visibleRangeIdlePendingAfterGesture = true[\s\S]*scheduleVisibleRangeIdleWork\(\)/,
+    'pointer release must keep deferred work parked until touch momentum becomes idle',
+  );
+  assertSourceContains(
+    scheduleVisibleRangeIdleBody,
+    /horizontalScrollMotionActive = false[\s\S]*applyDeferredHorizontalOverlayPayload\(\)[\s\S]*scheduleMovingVerticalGridUpdate\(false\)[\s\S]*schedulePeriodSeparatorsUpdate\(false\)[\s\S]*requestHistoryPaginationForVisibleRange/,
+    'range idle must perform one full grid, separator, overlay, and history settle after momentum',
+  );
+  assertSourceContains(
+    schedulePeriodSeparatorsBody,
+    /isHorizontalScrollMotionActive\(\)[\s\S]*updatePeriodSeparatorsTransformOnly\(\)[\s\S]*return;[\s\S]*updatePeriodSeparators\(\)/,
+    'period separators must use only their cached group transform while horizontal motion is active',
   );
   assertSourceContains(
     chartWebViewHtmlSource,
@@ -604,8 +667,28 @@ test('webview bridge: horizontal chart panning defers custom DOM rebuilds until 
   );
   assertSourceContains(
     chartWebViewHtmlSource,
-    /if \(point && \(activeHorizontalScrollGesture \|\| vertPanPending\)\) \{[\s\S]*deferHorizontalGestureDomWork\(\)[\s\S]*return;/,
-    'pending and active horizontal moves must leave movement to Lightweight Charts without right-axis fallback repaint',
+    /if \(activeHorizontalScrollGesture\) \{[\s\S]*capture listener off the per-move hot path entirely[\s\S]*return;[\s\S]*if \(point && vertPanPending\) \{[\s\S]*deferHorizontalGestureDomWork\(\)[\s\S]*return;/,
+    'classified horizontal moves must leave the capture hot path while pending moves avoid custom DOM repaint',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /horizontalScrollMotionActive && visibleRangeIdleTimer !== null[\s\S]*clearTimeout\(visibleRangeIdleTimer\)[\s\S]*visibleRangeIdlePendingAfterGesture = true/,
+    'a repeated swipe must park the prior idle settle before the new finger starts moving',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /isScaleGestureEvent\(event\)[\s\S]*horizontalScrollMotionActive = false[\s\S]*chartScaleGestureActive = true/,
+    'pinch must leave the horizontal transform-only path because bar spacing is changing',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /var isActualScaleGesture = isScaleGestureEvent\(event\) \|\| gestureHadMultitouch \|\| chartScaleGestureActive;[\s\S]*var wasScaleGesture = isActualScaleGesture \|\| Date\.now\(\) <= suppressChartTapUntil;[\s\S]*if \(isActualScaleGesture\) \{[\s\S]*chartScaleGestureActive = true;/,
+    'post-pinch tap suppression must not turn an unrelated drag into a persistent scale gesture',
+  );
+  assertSourceContains(
+    scheduleVisibleRangeIdleBody,
+    /verticalPricePanGestureActive \|\|[\s\S]*chartScaleGestureActive \|\|[\s\S]*activeTradeLineDrag[\s\S]*visibleRangeIdlePendingAfterGesture = true[\s\S]*return;/,
+    'idle settlement must not run under an active vertical, pinch, or trade-line gesture',
   );
 });
 
@@ -1349,7 +1432,7 @@ test('webview bridge: recent viewport reserves a bounded live-edge gap before th
   );
   assertSourceContains(
     shouldFollowLiveRightEdgeBody,
-    /activeHorizontalScrollGesture \|\| Date\.now\(\) <= activeHorizontalScrollGestureUntil[\s\S]*var previousMaxRight = getBoundedLiveRightEdge\(lengthOverride\)[\s\S]*return range\.to >= previousMaxRight - followTolerance/,
+    /isHorizontalScrollMotionActive\(\) \|\| Date\.now\(\) <= activeHorizontalScrollGestureUntil[\s\S]*var previousMaxRight = getBoundedLiveRightEdge\(lengthOverride\)[\s\S]*return range\.to >= previousMaxRight - followTolerance/,
     'live-edge follow must only engage when the user was already viewing the live edge and is not actively scrolling',
   );
   assertSourceContains(

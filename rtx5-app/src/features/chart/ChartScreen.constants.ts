@@ -66,6 +66,11 @@ export const CHART_GRID_DASH_PATTERN = '7 5';
 // canvas, so use a fractional stroke while preserving the measured cadence.
 export const CHART_GRID_STROKE_WIDTH = 0.5;
 export const CHART_AXIS_DIVIDER_STROKE_WIDTH = 1;
+// Main-chart candles stay readable while yielding visual priority to live
+// trade P/L labels drawn over the same price area. Stored/custom hues remain
+// untouched; this alpha is applied only inside the candle renderer.
+export const CHART_CANDLE_RENDER_OPACITY = 0.72;
+export const CHART_BEARISH_CANDLE_RENDER_OPACITY = 0.74;
 export const CHART_TAP_MENU_PADDING = 10;
 export const CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS = 450;
 export const CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT = 72;

@@ -292,6 +292,7 @@ test('trade buy/sell success feedback uses the shared popup without device vibra
   const ticketSource = readSource('src/features/trade/OrderTicketScreen.tsx');
   const chartSource = readSource('src/features/chart/ChartScreen.native.tsx');
   const feedbackModalSource = readSource('src/ui/components/TradeFeedbackModal.tsx');
+  const feedbackAutoDismissSource = readSource('src/ui/components/useConfirmedTradeReceiptAutoDismiss.ts');
   const chartResultStart = chartSource.indexOf('const handleChartTradeResult = useCallback');
   const chartResultEnd = chartSource.indexOf('const [showSignalDetails', chartResultStart);
   assert.notEqual(chartResultStart, -1);
@@ -311,6 +312,18 @@ test('trade buy/sell success feedback uses the shared popup without device vibra
   assert.doesNotMatch(ticketSource, /showTradeConfirmation\(\{ side: requestedSide/);
   assert.match(ticketSource, /showTradeConfirmation\(\{ side: pendingSideValue, symbol, volume \}\)/);
   assert.match(ticketSource, /Shared RTX5 execution receipt plus detailed rejected\/unconfirmed feedback/);
+  assert.match(
+    ticketSource,
+    /useConfirmedTradeReceiptAutoDismiss\(modalState, handleModalClose\)/,
+  );
+  assert.match(
+    chartSource,
+    /useConfirmedTradeReceiptAutoDismiss\(tradeFeedback, handleTradeFeedbackClose\)/,
+  );
+  assert.match(
+    feedbackAutoDismissSource,
+    /CONFIRMED_TRADE_RECEIPT_VISIBLE_MS = 5_000[\s\S]*resolveConfirmedTradeReceipt\(state\)[\s\S]*setTimeout\([\s\S]*onClose\(\)[\s\S]*clearTimeout\(timer\)/,
+  );
   assert.doesNotMatch(
     feedbackModalSource,
     /import\s*\{[^}]*\bModal\b[^}]*\}\s*from ["']react-native["']/,
@@ -1266,6 +1279,8 @@ test('trade ticket execution actions use the immediate fast press path', () => {
   assert.match(launchShellSource, /onPress=\{onBack\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart[\s\S]*latencyLabel=\{backLatencyLabel\}[\s\S]*latencyBudgetMs=\{50\}[\s\S]*unstable_pressDelay=\{0\}/);
   assert.match(source, /latencyLabel="orderTicket\.symbol\.open"/);
   assert.match(source, /visible=\{symbolPickerOpen\}/);
+  assert.match(source, /const OrderTicketSymbolPickerSheetHost = memo\(forwardRef</);
+  assert.match(source, /symbolPickerSheetRef\.current\?\.open\(\)/);
   assert.match(source, /latencyLabel=\{`orderTicket\.pricePanel\.\$\{sellTradeAction\.side\}`\}/);
   assert.match(source, /latencyLabel=\{`orderTicket\.pricePanel\.\$\{buyTradeAction\.side\}`\}/);
   assert.match(source, /latencyLabel=\{`orderTicket\.exec\.\$\{action\.side\}`\}/);
@@ -1282,7 +1297,7 @@ test('trade ticket execution actions use the immediate fast press path', () => {
   assert.match(source, /const routeDataReady = useDeferredRouteContentReady\(ORDER_TICKET_DATA_READY_DELAY_MS\)/);
   assert.match(source, /const heavyContentReady = useDeferredRouteContentReady\(ORDER_TICKET_HEAVY_CONTENT_DELAY_MS\)/);
   assert.match(source, /const routeQueriesActive = isScreenFocused && routeDataReady/);
-  assert.match(source, /useMarketSymbols\(routeQueriesActive \|\| symbolPickerOpen\)/);
+  assert.match(source, /useMarketSymbols\(routeQueriesActive\)/);
   assert.match(source, /useInstrumentMeta\(symbol, routeQueriesActive\)/);
   assert.match(source, /useLiveQuoteSubscription\(symbol, routeQueriesActive\)/);
   assert.match(source, /const liveQuote = useLiveQuoteSnapshot\(symbol, isScreenFocused\)/);

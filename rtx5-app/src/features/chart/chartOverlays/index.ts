@@ -18,6 +18,7 @@ export {
   type ChartOverlayCandle,
 } from './types';
 export { normalizeChartOverlaySymbol } from './symbolUtils';
+export { LIVE_CHART_PNL_COLORS, resolveLiveChartPnlColor } from './livePnlColors';
 export {
   calculatePositionTargetPnl,
   formatTpSlOverlayLabel,

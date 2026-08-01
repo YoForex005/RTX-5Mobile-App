@@ -225,6 +225,12 @@ export const RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS = String.raw`
     return coordinate == null ? null : coordinate * verticalPixelRatio;
   }
 
+  function resolveCustomCandleOpacity(value) {
+    return typeof value === 'number' && isFinite(value)
+      ? Math.min(1, Math.max(0, value))
+      : 1;
+  }
+
   var DENSE_CANDLE_LINE_MAX_BAR_SPACING = 3.25;
 
   function shouldRenderDenseCandleAsLine(barSpacing, bodyWidth, pixelRatio) {
@@ -248,6 +254,8 @@ export const RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS = String.raw`
     this._data = null;
     this._options = {
       color: '#2962FF',
+      candleOpacity: 1,
+      bearishCandleOpacity: 1,
       bodyUpColor: '#2962FF',
       bodyDownColor: '#EF5350',
       borderUpColor: '#2962FF',
@@ -309,6 +317,9 @@ export const RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS = String.raw`
           wickMinLeft: previousWickRight == null ? null : previousWickRight + 1,
         });
         var isBullish = original.close >= original.open;
+        context.globalAlpha = resolveCustomCandleOpacity(
+          isBullish ? self._options.candleOpacity : self._options.bearishCandleOpacity
+        );
         var bodyColor = isBullish ? self._options.bodyUpColor : self._options.bodyDownColor;
         var borderColor = isBullish ? self._options.borderUpColor : self._options.borderDownColor;
         var wickColor = isBullish ? self._options.wickUpColor : self._options.wickDownColor;
@@ -401,6 +412,8 @@ export const RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS = String.raw`
   CustomCandlestickPaneView.prototype.defaultOptions = function () {
     return {
       color: '#2962FF',
+      candleOpacity: 1,
+      bearishCandleOpacity: 1,
       bodyUpColor: '#2962FF',
       bodyDownColor: '#EF5350',
       borderUpColor: '#2962FF',

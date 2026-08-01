@@ -337,8 +337,8 @@ test('overlay bridge: chart movement keeps DOM overlay rebuilds off the hot path
   );
   assertSourceContains(
     touchBody,
-    /if \(point && \(activeHorizontalScrollGesture \|\| vertPanPending\)\) \{[\s\S]*deferHorizontalGestureDomWork\(\)[\s\S]*return;[\s\S]*scheduleOverlayDomRefresh\(\);/,
-    'horizontal movement must defer the full DOM overlay rebuild until idle/release',
+    /if \(activeHorizontalScrollGesture\) \{[\s\S]*capture listener off the per-move hot path entirely[\s\S]*return;[\s\S]*if \(point && vertPanPending\) \{[\s\S]*deferHorizontalGestureDomWork\(\)[\s\S]*return;[\s\S]*scheduleOverlayDomRefresh\(\);/,
+    'classified horizontal movement must leave the capture hot path while pending movement defers full DOM overlays',
   );
   assertSourceContains(
     touchBody,
@@ -357,23 +357,23 @@ test('overlay bridge: chart movement keeps DOM overlay rebuilds off the hot path
   );
   assertSourceContains(
     source,
-    /function scheduleActiveScrollPriceScaleRecovery\(reason\)[\s\S]*if \(activeHorizontalScrollGesture\) \{[\s\S]*post-gesture grace\/idle window[\s\S]*return;/,
-    'horizontal price-scale recovery must defer while the finger is actively scrolling',
+    /function scheduleActiveScrollPriceScaleRecovery\(reason\)[\s\S]*if \(isHorizontalScrollMotionActive\(\)\) \{[\s\S]*touch momentum reaches the idle window[\s\S]*return;/,
+    'horizontal price-scale recovery must defer through finger drag and kinetic scrolling',
   );
   assertSourceContains(
     source,
-    /function scheduleMovingVerticalGridUpdate\(preferTransformOnly\)[\s\S]*if \(transformOnly && updateMovingVerticalGridTransformOnly\(\)\) \{[\s\S]*return;[\s\S]*updateMovingVerticalGrid\(\);/,
-    'horizontal movement must use the transform-only grid path before falling back to full grid recalculation',
+    /function scheduleMovingVerticalGridUpdate\(preferTransformOnly\)[\s\S]*isHorizontalScrollMotionActive\(\)[\s\S]*if \(shouldTransformOnly\) \{[\s\S]*updateMovingVerticalGridTransformOnly\(\)[\s\S]*return;[\s\S]*updateMovingVerticalGrid\(\);/,
+    'horizontal movement must never fall through to a full grid recalculation in a kinetic frame',
   );
   assertSourceContains(
     source,
-    /subscribeVisibleLogicalRangeChange\(function\(range\)[\s\S]*var isActiveHorizontalGesture = activeHorizontalScrollGesture === true;[\s\S]*scheduleMovingVerticalGridUpdate\(isActiveHorizontalGesture\)[\s\S]*if \(isActiveHorizontalGesture\) \{[\s\S]*visibleRangeIdlePendingAfterGesture = true;[\s\S]*return;[\s\S]*scheduleActiveScrollPriceScaleRecovery\('visible_range_active'\)/,
-    'active horizontal visible-range changes must skip recovery, overlays, and history until release',
+    /subscribeVisibleLogicalRangeChange\(function\(range\)[\s\S]*var isLightweightHorizontalMotion = isHorizontalScrollMotionActive\(\);[\s\S]*scheduleMovingVerticalGridUpdate\(isLightweightHorizontalMotion\)[\s\S]*schedulePeriodSeparatorsUpdate\(isLightweightHorizontalMotion\)[\s\S]*if \(isLightweightHorizontalMotion\) \{[\s\S]*visibleRangeIdlePendingAfterGesture = true;[\s\S]*scheduleVisibleRangeIdleWork\(\)[\s\S]*return;[\s\S]*scheduleActiveScrollPriceScaleRecovery\('visible_range_active'\)/,
+    'finger and kinetic visible-range changes must skip recovery, overlays, and history until idle',
   );
   assertSourceContains(
     source,
-    /function finishHorizontalScrollGesture\(\)[\s\S]*visibleRangeIdlePendingAfterGesture[\s\S]*scheduleActiveScrollPriceScaleRecovery\('visible_range_release'\)[\s\S]*scheduleVisibleRangeIdleWork\(\)[\s\S]*requestHistoryPaginationForVisibleRange\(getVisibleLogicalRangeSnapshot\(\)\)/,
-    'horizontal gesture release must settle the deferred grid, price-scale, overlay, and history work',
+    /function finishHorizontalScrollGesture\(\)[\s\S]*visibleRangeIdlePendingAfterGesture = true;[\s\S]*scheduleVisibleRangeIdleWork\(\)[\s\S]*function scheduleVisibleRangeIdleWork\(\)[\s\S]*horizontalScrollMotionActive = false[\s\S]*scheduleMovingVerticalGridUpdate\(false\)[\s\S]*schedulePeriodSeparatorsUpdate\(false\)[\s\S]*scheduleActiveScrollPriceScaleRecovery\('visible_range_idle'\)[\s\S]*requestHistoryPaginationForVisibleRange/,
+    'horizontal release must arm one deferred grid, separator, scale, overlay, and history settle after momentum',
   );
 });
 

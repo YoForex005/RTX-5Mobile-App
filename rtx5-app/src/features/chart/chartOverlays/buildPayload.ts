@@ -34,6 +34,7 @@ import {
   formatTpSlOverlayValueLabel,
 } from './orderHelpers';
 import { buildChartPositionStopDragKey } from './positionStopDragKeys';
+import { resolveLiveChartPnlColor } from './livePnlColors';
 import { normalizeChartOverlaySymbol } from './symbolUtils';
 import {
   CHART_LINE_STYLE,
@@ -137,7 +138,7 @@ const applyRightAxisLabelVisibility = (lines: ChartOverlayPriceLine[]): ChartOve
   return lines.map((line) => ({ ...line, axisLabelVisible: false }));
 };
 
-const resolveOpenPositionPnlColor = (
+const resolveProjectedPositionPnlColor = (
   pnl: number,
   side: 'buy' | 'sell',
   colors: ChartColorsConfig,
@@ -179,12 +180,13 @@ const buildOpenPositionLabelPatch = (
 
   const livePnl = resolveLivePositionPnl(position, liveQuote);
   const labelValueText = `${formatLivePositionPnl(livePnl)} USD`;
+  const sideColor = resolveOpenPositionSideColor(position.side, colors, sellColor);
 
   return {
     id: `open-${position.id}`,
     title: `${position.side === 'sell' ? 'SELL' : 'BUY'} ${formatPositionVolumeLabel(Number(position.volume))}, ${labelValueText}`,
     labelValueText,
-    labelValueColor: resolveOpenPositionPnlColor(livePnl, position.side, colors, sellColor),
+    labelValueColor: resolveLiveChartPnlColor(livePnl, colors.background, sideColor),
   };
 };
 
@@ -393,7 +395,7 @@ export const buildChartOverlayPayload = ({
             Number(position.volume),
           ),
           labelSideColor: tpColor,
-          labelValueColor: resolveOpenPositionPnlColor(
+          labelValueColor: resolveProjectedPositionPnlColor(
             tpProjectedPnl,
             position.side,
             colors,
@@ -440,7 +442,7 @@ export const buildChartOverlayPayload = ({
             Number(position.volume),
           ),
           labelSideColor: slColor,
-          labelValueColor: resolveOpenPositionPnlColor(
+          labelValueColor: resolveProjectedPositionPnlColor(
             slProjectedPnl,
             position.side,
             colors,

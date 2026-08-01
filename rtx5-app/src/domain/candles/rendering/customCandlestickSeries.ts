@@ -23,6 +23,7 @@ import {
   normalizeCandlestickBodyWidth,
   scaleToBitmapCoordinate,
 } from './candleGeometry';
+import { resolveRTX5CustomCandleOpacity } from './customCandleOpacity';
 
 /** Allowed visual rendering styles for the custom candlestick series. */
 export type RTX5CustomCandleChartType = 'candles' | 'hollow';
@@ -40,6 +41,8 @@ export type RTX5CustomCandlestickData = CustomData<any> & {
 
 /** Full set of styling options specific to our custom renderer. */
 export type RTX5CustomCandlestickSeriesOptions = CustomSeriesOptions & {
+  candleOpacity: number;
+  bearishCandleOpacity: number;
   bodyUpColor: string;
   bodyDownColor: string;
   borderUpColor: string;
@@ -51,6 +54,8 @@ export type RTX5CustomCandlestickSeriesOptions = CustomSeriesOptions & {
 };
 
 type BuildRTX5CustomCandlestickSeriesOptionsArgs = {
+  candleOpacity?: number;
+  bearishCandleOpacity?: number;
   bodyUpColor: string;
   bodyDownColor: string;
   borderUpColor: string;
@@ -77,6 +82,8 @@ type MapRTX5CustomCandlesArgs = {
 
 const DEFAULT_CUSTOM_CANDLE_OPTIONS: RTX5CustomCandlestickSeriesOptions = {
   ...customSeriesDefaultOptions,
+  candleOpacity: 1,
+  bearishCandleOpacity: 1,
   bodyUpColor: '#2962FF',
   bodyDownColor: '#EF5350',
   borderUpColor: '#2962FF',
@@ -235,6 +242,9 @@ class RTX5CustomCandlestickRenderer implements ICustomSeriesPaneRenderer {
           wickMinLeft: previousWickRight === null ? null : previousWickRight + 1,
         });
         const isBullish = bar.originalData.close >= bar.originalData.open;
+        context.globalAlpha = resolveRTX5CustomCandleOpacity(
+          isBullish ? this.options.candleOpacity : this.options.bearishCandleOpacity,
+        );
         const bodyColor = isBullish ? this.options.bodyUpColor : this.options.bodyDownColor;
         const borderColor = isBullish ? this.options.borderUpColor : this.options.borderDownColor;
         const wickColor = isBullish ? this.options.wickUpColor : this.options.wickDownColor;
@@ -382,6 +392,8 @@ class RTX5CustomCandlestickPaneView
 }
 
 export const buildRTX5CustomCandlestickSeriesOptions = ({
+  candleOpacity = 1,
+  bearishCandleOpacity = candleOpacity,
   bodyUpColor,
   bodyDownColor,
   borderUpColor,
@@ -393,6 +405,8 @@ export const buildRTX5CustomCandlestickSeriesOptions = ({
   priceLineVisible = true,
 }: BuildRTX5CustomCandlestickSeriesOptionsArgs): RTX5CustomCandlestickSeriesOptions => ({
   ...DEFAULT_CUSTOM_CANDLE_OPTIONS,
+  candleOpacity: resolveRTX5CustomCandleOpacity(candleOpacity),
+  bearishCandleOpacity: resolveRTX5CustomCandleOpacity(bearishCandleOpacity),
   bodyUpColor,
   bodyDownColor,
   borderUpColor,

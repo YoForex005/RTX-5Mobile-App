@@ -8,6 +8,7 @@ import {
   buildChartOverlayPayload,
   CHART_LINE_STYLE,
   formatTpSlOverlayLabel,
+  LIVE_CHART_PNL_COLORS,
   normalizeChartOverlaySymbol,
   type ChartOverlayCandle,
 } from './chartOverlays';
@@ -123,10 +124,18 @@ test('buildChartOverlayPayload maps open positions for the chart symbol with the
   assert.equal(openLine?.labelSideText, 'BUY 0.20');
   assert.equal(openLine?.labelValueText, '+42.000 USD');
   assert.equal(openLine?.labelSideColor, TEST_CHART_COLORS.tradeOpen);
-  assert.equal(openLine?.labelValueColor, TEST_CHART_COLORS.tradeTpSl);
+  assert.equal(openLine?.labelValueColor, LIVE_CHART_PNL_COLORS.darkCanvas.profit);
   assert.equal(openLine?.labelPlacement, 'line');
   assert.equal(payload.priceLines.find((line: any) => line.id === 'tp-1')?.labelPlacement, 'line');
   assert.equal(payload.priceLines.find((line: any) => line.id === 'sl-1')?.labelPlacement, 'line');
+  assert.equal(
+    payload.priceLines.find((line: any) => line.id === 'tp-1')?.labelValueColor,
+    TEST_CHART_COLORS.tradeTpSl,
+  );
+  assert.equal(
+    payload.priceLines.find((line: any) => line.id === 'sl-1')?.labelValueColor,
+    TEST_CHART_COLORS.tradeStopOut,
+  );
   assert.equal(payload.priceLines.find((line: any) => line.id === 'tp-1')?.dragKey, buildChartPositionStopDragKey('1', 'tp'));
   assert.equal(payload.priceLines.find((line: any) => line.id === 'sl-1')?.dragKey, buildChartPositionStopDragKey('1', 'sl'));
   assert.equal(payload.markers.length, 0);
@@ -297,16 +306,16 @@ test('buildChartOverlayPayload updates open position labels from live bid and as
   assert.equal(colorById.get('open-buy-live'), TEST_CHART_COLORS.tradeOpen);
   assert.equal(sideTextById.get('open-buy-live'), 'BUY 0.01');
   assert.equal(valueTextById.get('open-buy-live'), '+0.22300 USD');
-  assert.equal(valueColorById.get('open-buy-live'), TEST_CHART_COLORS.tradeTpSl);
+  assert.equal(valueColorById.get('open-buy-live'), LIVE_CHART_PNL_COLORS.darkCanvas.profit);
   assert.equal(titleById.get('open-buy-loss-live'), 'BUY 0.01, -0.04700 USD');
   assert.equal(colorById.get('open-buy-loss-live'), TEST_CHART_COLORS.tradeOpen);
   assert.equal(valueTextById.get('open-buy-loss-live'), '-0.04700 USD');
-  assert.equal(valueColorById.get('open-buy-loss-live'), TEST_CHART_COLORS.tradeStopOut);
+  assert.equal(valueColorById.get('open-buy-loss-live'), LIVE_CHART_PNL_COLORS.darkCanvas.loss);
   assert.equal(titleById.get('open-sell-live'), 'SELL 0.02, +1.4000 USD');
   assert.equal(colorById.get('open-sell-live'), '#EF5350');
   assert.equal(sideTextById.get('open-sell-live'), 'SELL 0.02');
   assert.equal(valueTextById.get('open-sell-live'), '+1.4000 USD');
-  assert.equal(valueColorById.get('open-sell-live'), TEST_CHART_COLORS.tradeTpSl);
+  assert.equal(valueColorById.get('open-sell-live'), LIVE_CHART_PNL_COLORS.darkCanvas.profit);
 });
 
 test('per-tick open-position patches update only label values and preserve line geometry', () => {

@@ -440,7 +440,6 @@ function BrokerDetailInteractiveContent({
   } | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const passwordInputRef = useRef<TextInput>(null);
-  const loginPanelYRef = useRef(0);
   const focusScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loginInputFocusedRef = useRef(false);
 
@@ -464,16 +463,16 @@ function BrokerDetailInteractiveContent({
     requestInFlightRef.current = false;
   }, [isScreenFocused]);
 
-  const scrollLoginPanelAboveKeyboard = useCallback((delayMs = Platform.OS === 'ios' ? 260 : 220) => {
+  const scrollLoginActionsAboveKeyboard = useCallback((delayMs = Platform.OS === 'ios' ? 260 : 220) => {
     if (focusScrollTimerRef.current) {
       clearTimeout(focusScrollTimerRef.current);
     }
 
     focusScrollTimerRef.current = setTimeout(() => {
-      scrollRef.current?.scrollTo({
-        y: Math.max(loginPanelYRef.current - 12, 0),
-        animated: true,
-      });
+      // The login card can be taller than the keyboard-resized viewport on a
+      // compact phone. Target its actual bottom so the Login action clears the
+      // keyboard instead of merely aligning the card's top edge.
+      scrollRef.current?.scrollToEnd({ animated: true });
     }, delayMs);
   }, []);
 
@@ -482,8 +481,8 @@ function BrokerDetailInteractiveContent({
    */
   const handleLoginInputFocus = useCallback(() => {
     loginInputFocusedRef.current = true;
-    scrollLoginPanelAboveKeyboard();
-  }, [scrollLoginPanelAboveKeyboard]);
+    scrollLoginActionsAboveKeyboard();
+  }, [scrollLoginActionsAboveKeyboard]);
 
   /**
    * Callback fired when a text input loses focus.
@@ -492,12 +491,20 @@ function BrokerDetailInteractiveContent({
     loginInputFocusedRef.current = false;
   }, []);
 
+  const handleLoginScrollLayout = useCallback(() => {
+    if (loginInputFocusedRef.current) {
+      // Android adjustResize and iOS keyboard padding both resize this viewport.
+      // Re-run against the final measured height instead of a phone-specific Y.
+      scrollLoginActionsAboveKeyboard(0);
+    }
+  }, [scrollLoginActionsAboveKeyboard]);
+
   useEffect(() => {
     const showSubscription = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      'keyboardDidShow',
       () => {
         if (loginInputFocusedRef.current) {
-          scrollLoginPanelAboveKeyboard(Platform.OS === 'ios' ? 120 : 40);
+          scrollLoginActionsAboveKeyboard(40);
         }
       },
     );
@@ -512,7 +519,7 @@ function BrokerDetailInteractiveContent({
         clearTimeout(focusScrollTimerRef.current);
       }
     };
-  }, [scrollLoginPanelAboveKeyboard]);
+  }, [scrollLoginActionsAboveKeyboard]);
 
   useEffect(() => {
     setSelectedServer((current) => {
@@ -910,6 +917,8 @@ function BrokerDetailInteractiveContent({
         >
           <ScrollView
             ref={scrollRef}
+            style={styles.scrollViewport}
+            onLayout={handleLoginScrollLayout}
             automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
             canCancelContentTouches={Platform.OS === 'ios'}
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
@@ -1019,12 +1028,7 @@ function BrokerDetailInteractiveContent({
                   </Pressable>
                 </View>
 
-                <View
-                  style={styles.loginPanel}
-                  onLayout={(event) => {
-                    loginPanelYRef.current = event.nativeEvent.layout.y;
-                  }}
-                >
+                <View style={styles.loginPanel}>
                   <View style={styles.panelHeader}>
                     <View style={styles.panelTitleTopRow}>
                       <View style={styles.panelTitleRow}>
@@ -1284,6 +1288,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
   return StyleSheet.create({
     page: { flex: 1, backgroundColor: pageBg },
     container: { flex: 1, backgroundColor: pageBg },
+    scrollViewport: { flex: 1 },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1307,8 +1312,9 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       fontWeight: '700',
     },
     scrollContent: {
+      flexGrow: 1,
       paddingHorizontal: 20,
-      paddingBottom: 32,
+      paddingBottom: 48,
       backgroundColor: pageBg,
     },
     divider: {

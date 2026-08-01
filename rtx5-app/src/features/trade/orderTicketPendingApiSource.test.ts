@@ -118,7 +118,8 @@ test('order ticket applies independent market and pending SL/TP gates', () => {
 
 test('order ticket symbol picker updates the same screen instead of routing', () => {
   const source = readOrderTicketSource();
-  const pickerStart = source.indexOf('const handleSymbolSelect = useCallback');
+  const interactiveStart = source.indexOf('function OrderTicketInteractiveContent()');
+  const pickerStart = source.indexOf('const handleSymbolSelect = useCallback', interactiveStart);
   const pickerEnd = source.indexOf('const symbolPickerActions = useMemo', pickerStart);
   assert.notEqual(pickerStart, -1, 'symbol select handler must exist');
   assert.notEqual(pickerEnd, -1, 'symbol select handler boundary must exist');
@@ -126,10 +127,53 @@ test('order ticket symbol picker updates the same screen instead of routing', ()
   const pickerHandler = source.slice(pickerStart, pickerEnd);
   assert.match(source, /const \[symbol, setSymbol\] = useState\(routeInitialSymbol\)/);
   assert.match(source, /DEFAULT_CHART_SYMBOLS\.forEach\(addSymbol\)/);
-  assert.match(pickerHandler, /setSymbolPickerOpen\(false\)/);
+  assert.match(source, /const close = useCallback\(\(\) => setSymbolPickerOpen\(false\), \[\]\)/);
+  assert.match(source, /onClose=\{close\}/);
   assert.match(pickerHandler, /setSymbol\(normalizedNextSymbol\)/);
   assert.doesNotMatch(pickerHandler, /router\.(?:push|replace)/);
   assert.match(source, /lastConfiguredPendingOrderTypeRef\.current = null/);
+});
+
+test('order ticket dollar picker opens without re-rendering the live ticket tree', () => {
+  const source = readOrderTicketSource();
+  const interactiveStart = source.indexOf('function OrderTicketInteractiveContent()');
+  const interactiveSource = source.slice(interactiveStart);
+
+  assert.match(source, /const OrderTicketSymbolPickerSheetHost = memo\(forwardRef</);
+  assert.match(source, /useImperativeHandle\(ref, \(\) => \(\{ open \}\), \[open\]\)/);
+  assert.match(source, /visualKey=\{ORDER_TICKET_SYMBOL_PICKER_VISUAL_KEY\}/);
+  assert.match(interactiveSource, /const symbolPickerSheetRef = useRef<OrderTicketSymbolPickerSheetHostHandle>\(null\)/);
+  assert.match(interactiveSource, /symbolPickerSheetRef\.current\?\.open\(\)/);
+  assert.match(interactiveSource, /<OrderTicketSymbolPickerSheetHost[\s\S]*ref=\{symbolPickerSheetRef\}[\s\S]*actions=\{symbolPickerActions\}/);
+  assert.doesNotMatch(interactiveSource, /const \[symbolPickerOpen, setSymbolPickerOpen\] = useState/);
+  assert.match(interactiveSource, /const styles = useMemo\(\(\) => makeStyles\(T, isDark\), \[T, isDark\]\)/);
+  assert.match(interactiveSource, /useMarketSymbols\(routeQueriesActive\)/);
+});
+
+test('order ticket dollar picker matches the Chart symbol ActionSheet presentation', () => {
+  const source = readOrderTicketSource();
+  const sheetStart = source.indexOf('<ActionSheet');
+  const sheetEnd = source.indexOf('/>', sheetStart);
+  assert.notEqual(sheetStart, -1, 'symbol ActionSheet must exist');
+  assert.notEqual(sheetEnd, -1, 'symbol ActionSheet boundary must exist');
+
+  const sheetSource = source.slice(sheetStart, sheetEnd);
+  assert.match(sheetSource, /visible=\{symbolPickerOpen\}/);
+  assert.match(sheetSource, /title=\{t\('Select Symbol'\)\}/);
+  assert.match(sheetSource, /searchable/);
+  assert.match(sheetSource, /compactText/);
+  assert.match(sheetSource, /presentation="mt5Plain"/);
+  assert.match(sheetSource, /deferOffscreenActions/);
+  assert.match(sheetSource, /maximumVisibleActionRows=\{9\}/);
+  assert.match(sheetSource, /detent="large"/);
+  assert.match(sheetSource, /instantOpen/);
+  assert.match(sheetSource, /entryMotion="mt5Slide"/);
+  assert.match(sheetSource, /immediateHostHideOnClose/);
+  assert.match(sheetSource, /visualKey=\{ORDER_TICKET_SYMBOL_PICKER_VISUAL_KEY\}/);
+  assert.match(sheetSource, /runActionAfterClose=\{false\}/);
+  assert.match(sheetSource, /keepFullHeightOnKeyboard/);
+  assert.match(sheetSource, /actions=\{actions\}/);
+  assert.doesNotMatch(sheetSource, /searchPlaceholder=/);
 });
 
 test('order ticket account leverage is read-only from backend account summary', () => {

@@ -8,10 +8,20 @@ const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 
 test('confirmed chart fills use the thin receipt inside the chart viewport', () => {
   const chartSource = readSource('src/features/chart/ChartScreen.native.tsx');
   const stylesSource = readSource('src/features/chart/ChartScreen.styles.ts');
+  const autoDismissSource = readSource('src/ui/components/useConfirmedTradeReceiptAutoDismiss.ts');
 
   assert.match(
     chartSource,
     /const chartTradeReceipt = resolveConfirmedTradeReceipt\(tradeFeedback\)/,
+  );
+  assert.match(
+    chartSource,
+    /useConfirmedTradeReceiptAutoDismiss\(tradeFeedback, handleTradeFeedbackClose\)/,
+  );
+  assert.match(autoDismissSource, /CONFIRMED_TRADE_RECEIPT_VISIBLE_MS = 5_000/);
+  assert.match(
+    autoDismissSource,
+    /const activeReceiptKeyRef = useRef\(receiptKey\)[\s\S]*setTimeout\(\(\) => \{[\s\S]*activeReceiptKeyRef\.current === receiptKey[\s\S]*onClose\(\)[\s\S]*CONFIRMED_TRADE_RECEIPT_VISIBLE_MS[\s\S]*clearTimeout\(timer\)/,
   );
 
   const viewportStart = chartSource.indexOf('ref={chartViewportRef}');

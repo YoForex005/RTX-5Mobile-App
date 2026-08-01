@@ -364,7 +364,7 @@ test('chart time scale keeps older history open and bounds the live right edge',
   );
   assert.match(
     chartWebViewHtmlSource,
-    /subscribeVisibleLogicalRangeChange\(function\(range\) \{[\s\S]*if \(clampVisibleLogicalRangeToLiveEdge\(range\)\) \{[\s\S]*return;[\s\S]*\}[\s\S]*scheduleMovingVerticalGridUpdate\(isActiveHorizontalGesture\)/,
-    'WebView must clamp extra live-side scroll before doing scroll-path work',
+    /subscribeVisibleLogicalRangeChange\(function\(range\) \{[\s\S]*if \(clampVisibleLogicalRangeToLiveEdge\(range\)\) \{[\s\S]*return;[\s\S]*\}[\s\S]*isLightweightHorizontalMotion = isHorizontalScrollMotionActive\(\)[\s\S]*scheduleMovingVerticalGridUpdate\(isLightweightHorizontalMotion\)[\s\S]*schedulePeriodSeparatorsUpdate\(isLightweightHorizontalMotion\)/,
+    'WebView must clamp extra live-side scroll before choosing transform-only grid and separator work',
   );
 });

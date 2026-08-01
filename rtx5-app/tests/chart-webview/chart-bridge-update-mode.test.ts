@@ -270,8 +270,8 @@ test('canonical candle engine updates paint one candle-and-Bid-line transaction 
 test('horizontal zoom and pan keeps price autoscale attached to visible bars', () => {
   assertSourceContains(
     source,
-    /subscribeVisibleLogicalRangeChange\(function\(range\) \{[\s\S]*scheduleMovingVerticalGridUpdate\(isActiveHorizontalGesture\)[\s\S]*scheduleActiveScrollPriceScaleRecovery\('visible_range_active'\)[\s\S]*scheduleVisibleRangeIdleWork\(\)/,
-    'visible logical range changes must run a throttled active-scroll price-scale recovery before deferred overlay maintenance',
+    /subscribeVisibleLogicalRangeChange\(function\(range\) \{[\s\S]*isLightweightHorizontalMotion = isHorizontalScrollMotionActive\(\)[\s\S]*scheduleMovingVerticalGridUpdate\(isLightweightHorizontalMotion\)[\s\S]*schedulePeriodSeparatorsUpdate\(isLightweightHorizontalMotion\)[\s\S]*if \(isLightweightHorizontalMotion\) \{[\s\S]*scheduleVisibleRangeIdleWork\(\)[\s\S]*return;[\s\S]*scheduleActiveScrollPriceScaleRecovery\('visible_range_active'\)/,
+    'finger drag and kinetic range changes must stay on transform-only grid work until the idle settle',
   );
   assertSourceContains(
     source,
@@ -310,8 +310,8 @@ test('horizontal zoom and pan keeps price autoscale attached to visible bars', (
   );
   assertSourceContains(
     source,
-    /function scheduleVisibleRangeIdleWork\(\)[\s\S]*clearTimeout\(visibleRangeIdleTimer\)[\s\S]*scheduleOverlayPriceScaleLock\(false\)[\s\S]*schedulePriceScaleHealthCheck\('visible_range_change', true\)[\s\S]*scheduleOverlayDomRefresh\(\)/,
-    'visible range idle work must refresh overlays and price-scale recovery after scroll settles',
+    /function scheduleVisibleRangeIdleWork\(\)[\s\S]*clearTimeout\(visibleRangeIdleTimer\)[\s\S]*horizontalScrollMotionActive = false[\s\S]*applyDeferredHorizontalOverlayPayload\(\)[\s\S]*scheduleMovingVerticalGridUpdate\(false\)[\s\S]*schedulePeriodSeparatorsUpdate\(false\)[\s\S]*scheduleActiveScrollPriceScaleRecovery\('visible_range_idle'\)[\s\S]*scheduleOverlayPriceScaleLock\(false\)[\s\S]*schedulePriceScaleHealthCheck\('visible_range_change', true\)[\s\S]*scheduleOverlayDomRefresh\(\)[\s\S]*requestHistoryPaginationForVisibleRange/,
+    'visible range idle work must perform one full overlay, scale, separator, grid, and pagination settle',
   );
   assertSourceContains(
     source,

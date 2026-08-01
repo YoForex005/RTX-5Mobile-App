@@ -89,6 +89,7 @@ import { useLiveAccountState } from '../../state/liveAccountState';
 import { useOrdersByLoginQuery } from '../../query/orders';
 import { TradeFeedbackModal, TradeFeedbackState, TRADE_MODAL_INITIAL } from '../../ui/components/TradeFeedbackModal';
 import { resolveConfirmedTradeReceipt } from '../../ui/components/tradeFeedbackPresentation';
+import { useConfirmedTradeReceiptAutoDismiss } from '../../ui/components/useConfirmedTradeReceiptAutoDismiss';
 import { ordersApi } from '../../api/orders';
 import { resolveBrokerExecutionEvidence } from '../../api/orders/executionEvidence';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
@@ -965,6 +966,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   // Only a broker-confirmed fill belongs in the compact chart receipt. Errors
   // and incomplete success responses continue through the detailed root modal.
   const chartTradeReceipt = resolveConfirmedTradeReceipt(tradeFeedback);
+  useConfirmedTradeReceiptAutoDismiss(tradeFeedback, handleTradeFeedbackClose);
   const [showSignalDetails, setShowSignalDetails] = useState(false);
   const [showChartTradeSheet, setShowChartTradeSheet] = useState(false);
   const [chartTradeOrderType, setChartTradeOrderType] = useState<ChartOrderType>('Market Execution');

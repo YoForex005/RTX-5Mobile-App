@@ -9,7 +9,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import {
+  forwardRef,
+  memo,
+  useState,
+  useMemo,
+  useRef,
+  useEffect,
+  useCallback,
+  useImperativeHandle,
+  type ComponentProps,
+} from 'react';
 import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
@@ -44,6 +54,7 @@ import {
 import { assertTradeSide, normalizeTradeSide, TRADE_SIDE, type TradeSide } from '../../domain/tradeSide';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 import { TradeFeedbackModal, type TradeFeedbackState } from '../../ui/components/TradeFeedbackModal';
+import { useConfirmedTradeReceiptAutoDismiss } from '../../ui/components/useConfirmedTradeReceiptAutoDismiss';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { ActionSheet } from '../../ui/components/ActionSheet';
 import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
@@ -225,6 +236,53 @@ function OrderTicketInitialShell() {
   );
 }
 
+type OrderTicketSymbolPickerSheetHostHandle = {
+  open: () => void;
+};
+
+type OrderTicketSymbolPickerSheetHostProps = {
+  actions: ComponentProps<typeof ActionSheet>['actions'];
+};
+
+const ORDER_TICKET_SYMBOL_PICKER_VISUAL_KEY = 'orderTicket.symbolPicker';
+
+/**
+ * Retained route-local sheet host. It owns only picker visibility so opening
+ * the dollar menu never reconciles the live quote, graph, and order form tree.
+ */
+const OrderTicketSymbolPickerSheetHost = memo(forwardRef<
+  OrderTicketSymbolPickerSheetHostHandle,
+  OrderTicketSymbolPickerSheetHostProps
+>(function OrderTicketSymbolPickerSheetHost({ actions }, ref) {
+  const { t } = useTranslation();
+  const [symbolPickerOpen, setSymbolPickerOpen] = useState(false);
+  const open = useCallback(() => setSymbolPickerOpen(true), []);
+  const close = useCallback(() => setSymbolPickerOpen(false), []);
+
+  useImperativeHandle(ref, () => ({ open }), [open]);
+
+  return (
+    <ActionSheet
+      visible={symbolPickerOpen}
+      onClose={close}
+      title={t('Select Symbol')}
+      searchable
+      compactText
+      presentation="mt5Plain"
+      deferOffscreenActions
+      maximumVisibleActionRows={9}
+      detent="large"
+      instantOpen
+      entryMotion="mt5Slide"
+      immediateHostHideOnClose
+      visualKey={ORDER_TICKET_SYMBOL_PICKER_VISUAL_KEY}
+      runActionAfterClose={false}
+      keepFullHeightOnKeyboard
+      actions={actions}
+    />
+  );
+}));
+
 /**
  * The fully loaded, interactive portion of the Order Ticket containing the trade forms and order type tabs.
  */
@@ -275,7 +333,7 @@ function OrderTicketInteractiveContent() {
   const router = useRouter();
   const isScreenFocused = useIsFocused();
   const backNavigationStartedRef = useRef(false);
-  const [symbolPickerOpen, setSymbolPickerOpen] = useState(false);
+  const symbolPickerSheetRef = useRef<OrderTicketSymbolPickerSheetHostHandle>(null);
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const tradeVolume = useUserPreferences((s) => s.tradeVolume);
   const setTradeVolume = useUserPreferences((s) => s.setTradeVolume);
@@ -284,11 +342,11 @@ function OrderTicketInteractiveContent() {
   const T = useTheme();
   const { t } = useTranslation();
   const isDark = useIsDarkTheme();
-  const styles = makeStyles(T, isDark);
+  const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const routeDataReady = useDeferredRouteContentReady(ORDER_TICKET_DATA_READY_DELAY_MS);
   const heavyContentReady = useDeferredRouteContentReady(ORDER_TICKET_HEAVY_CONTENT_DELAY_MS);
   const routeQueriesActive = isScreenFocused && routeDataReady;
-  const { data: marketSymbols = [], isFetching: marketSymbolsFetching } = useMarketSymbols(routeQueriesActive || symbolPickerOpen);
+  const { data: marketSymbols = [], isFetching: marketSymbolsFetching } = useMarketSymbols(routeQueriesActive);
 
   useEffect(() => {
     if (isScreenFocused) {
@@ -371,13 +429,12 @@ function OrderTicketInteractiveContent() {
 
   const handleOpenSymbolPicker = useCallback(() => {
     runImmediateAction('orderTicket.symbol.open', () => {
-      setSymbolPickerOpen(true);
+      symbolPickerSheetRef.current?.open();
     });
   }, []);
 
   const handleSymbolSelect = useCallback((nextSymbol: string) => {
     const normalizedNextSymbol = normalizeSymbol(nextSymbol);
-    setSymbolPickerOpen(false);
 
     if (!normalizedNextSymbol || normalizedNextSymbol === symbol) {
       return;
@@ -421,6 +478,7 @@ function OrderTicketInteractiveContent() {
   const handleModalClose = useCallback(() => {
     setModalState(prev => ({ ...prev, visible: false }));
   }, []);
+  useConfirmedTradeReceiptAutoDismiss(modalState, handleModalClose);
 
   const showTradeConfirmation = useCallback(({
     side,
@@ -1720,20 +1778,8 @@ function OrderTicketInteractiveContent() {
         isDark={isDark}
       />
 
-      <ActionSheet
-        visible={symbolPickerOpen}
-        onClose={() => setSymbolPickerOpen(false)}
-        title={t('Select Symbol')}
-        searchable
-        compactText
-        searchPlaceholder={t('Search symbols...')}
-        detent="large"
-        instantOpen
-        runActionAfterClose={false}
-        // Keep the sheet fixed when the search keyboard opens (no rise/jump);
-        // the keyboard just overlays the lower part of the list. Mirrors the
-        // chart symbol picker fix (ChartScreen.native handleOpenSymbolPicker).
-        keepFullHeightOnKeyboard
+      <OrderTicketSymbolPickerSheetHost
+        ref={symbolPickerSheetRef}
         actions={symbolPickerActions}
       />
     </View>
