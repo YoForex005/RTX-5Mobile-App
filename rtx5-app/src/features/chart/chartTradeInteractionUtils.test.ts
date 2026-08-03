@@ -3,14 +3,19 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
+import { resolveVisibleTradeStopPreviewPrice } from './ChartScreen.constants';
+
 import {
   buildFooterLotPickerQuickAdjustments,
   buildFooterLotPickerValues,
+  resolveChartSltpToolbarTapMode,
+  resolveChartTradeSheetCollapsedHeight,
   resolveChartTradeSheetFrameHeight,
   resolveChartTradeSheetHeaderLift,
   resolveChartTradeSheetMaxHeight,
   resolveChartTradeSheetTopInset,
   resolveChartTradeSheetHostHeight,
+  resolveChartTradeSheetPortalHostHeight,
   resolveFooterLotChevronPressBehavior,
   resolveFooterLotChevronState,
   resolveFooterLotCommitDraft,
@@ -33,6 +38,58 @@ const activeLotRangeLabels = (selectedMultiplier: number, mode: 'increase' | 'de
   buildFooterLotPickerValues(mode === 'increase' ? 0.01 : 10, mode, wideLotBounds, selectedMultiplier)
     .map((option: any) => option.label);
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
+
+test('new SL/TP preview prices stay inside the visible BTC range for buy and sell', () => {
+  const visibleRange = { from: 62391.71, to: 62617.34 };
+  const entryPrice = 62563.76;
+  const roundPrice = (value: number) => Number(value.toFixed(2));
+  const resolvePrice = (kind: 'sl' | 'tp', side: 'buy' | 'sell') =>
+    resolveVisibleTradeStopPreviewPrice(
+      kind,
+      entryPrice,
+      side,
+      350,
+      0.01,
+      visibleRange,
+      roundPrice,
+    );
+
+  const buySl = resolvePrice('sl', 'buy');
+  const buyTp = resolvePrice('tp', 'buy');
+  const sellSl = resolvePrice('sl', 'sell');
+  const sellTp = resolvePrice('tp', 'sell');
+
+  for (const price of [buySl, buyTp, sellSl, sellTp]) {
+    assert.ok(price > visibleRange.from && price < visibleRange.to);
+  }
+  assert.ok(buySl < entryPrice && buyTp > entryPrice);
+  assert.ok(sellSl > entryPrice && sellTp < entryPrice);
+});
+
+test('new SL/TP preview labels reserve the chart header and sheet edge bands', () => {
+  const visibleRange = { from: 62461.45, to: 62641.38 };
+  const entryPrice = 62605.46;
+  const price = resolveVisibleTradeStopPreviewPrice(
+    'tp',
+    entryPrice,
+    'buy',
+    350,
+    0.01,
+    visibleRange,
+    (value) => Number(value.toFixed(2)),
+  );
+  const upperSafeBound = visibleRange.to - (visibleRange.to - visibleRange.from) * 0.15;
+
+  assert.ok(price > entryPrice);
+  assert.ok(price <= upperSafeBound);
+});
+
+test('new SL/TP preview price preserves the configured offset until a visible range is available', () => {
+  assert.equal(
+    resolveVisibleTradeStopPreviewPrice('sl', 62563.76, 'buy', 350, 0.01, null, (value) => Number(value.toFixed(2))),
+    62213.76,
+  );
+});
 
 test('resolveFooterLotCommitDraft prefers the latest non-empty override', () => {
   assert.equal(
@@ -687,6 +744,60 @@ test('chart trade preview stays visible for direct SL/TP while the trade sheet i
   );
 });
 
+test('SL/TP toolbar alternates compact open and close on every tap', () => {
+  let visible = false;
+  const states = ['hidden'];
+  const modes = Array.from({ length: 4 }, () => {
+    const mode = resolveChartSltpToolbarTapMode(visible);
+    visible = mode !== 'hidden';
+    states.push(mode);
+    return mode;
+  });
+
+  assert.deepEqual(modes, ['collapsed', 'hidden', 'collapsed', 'hidden']);
+  assert.deepEqual(states, ['hidden', 'collapsed', 'hidden', 'collapsed', 'hidden']);
+});
+
+test('compact Chart sheet replaces only app tabs and starts at the footer divider', () => {
+  const hostHeight = 600;
+  const bottomTabBarHeight = 110;
+  const safeAreaBottom = 24;
+  const presentationHostHeight = resolveChartTradeSheetPortalHostHeight({
+    hostHeight,
+    bottomTabBarHeight,
+    safeAreaBottom,
+    portalEnabled: true,
+  });
+  const collapsedHeight = resolveChartTradeSheetCollapsedHeight({
+    bottomTabBarHeight,
+    safeAreaBottom,
+    portalEnabled: true,
+    nonPortalHeight: 186,
+  });
+
+  assert.equal(presentationHostHeight, 686);
+  assert.equal(collapsedHeight, 86);
+  assert.equal(presentationHostHeight - collapsedHeight, hostHeight);
+  assert.equal(
+    resolveChartTradeSheetPortalHostHeight({
+      hostHeight,
+      bottomTabBarHeight,
+      safeAreaBottom,
+      portalEnabled: false,
+    }),
+    hostHeight,
+  );
+  assert.equal(
+    resolveChartTradeSheetCollapsedHeight({
+      bottomTabBarHeight,
+      safeAreaBottom,
+      portalEnabled: false,
+      nonPortalHeight: 186,
+    }),
+    186,
+  );
+});
+
 test('chart tap radial menu is suppressed while the footer lot editor is active', () => {
   assert.equal(
     shouldSuppressChartTapMenu({
@@ -814,25 +925,49 @@ test('resolveChartTradeSheetTopInset keeps compact SL/TP sheet below the toolbar
     resolveChartTradeSheetTopInset({
       isFullscreen: false,
       toolbarBottomInset: 0,
-      topGap: 4,
+      topGap: 0,
       compactHeaderHeight: 194,
       hostTopOffset: 70,
     }),
-    128,
+    124,
   );
 });
 
-test('resolveChartTradeSheetTopInset keeps only the compact gap when the host already starts below the toolbar', () => {
+test('resolveChartTradeSheetTopInset aligns to the divider when the compact host already starts below the toolbar', () => {
   assert.equal(
     resolveChartTradeSheetTopInset({
       isFullscreen: false,
       toolbarBottomInset: 0,
-      topGap: 4,
+      topGap: 0,
       compactHeaderHeight: 194,
       hostTopOffset: 194,
     }),
-    4,
+    0,
   );
+});
+
+test('compact SL/TP max height places the expanded sheet exactly on the toolbar divider', () => {
+  const dividerY = 194;
+  const hostHeight = 620;
+
+  for (const hostTopOffset of [70, dividerY]) {
+    const topInset = resolveChartTradeSheetTopInset({
+      isFullscreen: false,
+      toolbarBottomInset: 0,
+      topGap: 0,
+      compactHeaderHeight: dividerY,
+      hostTopOffset,
+    });
+    const maxHeight = resolveChartTradeSheetMaxHeight({
+      collapsedHeight: 186,
+      hostHeight,
+      topInset,
+      headerLift: 0,
+      bottomInset: 0,
+    });
+
+    assert.equal(hostTopOffset + hostHeight - maxHeight, dividerY);
+  }
 });
 
 test('resolveChartTradeSheetTopInset preserves fullscreen toolbar offsets without compact overlap math', () => {

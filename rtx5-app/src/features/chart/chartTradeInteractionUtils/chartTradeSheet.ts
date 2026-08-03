@@ -72,6 +72,20 @@ type ChartTradeSheetMaxHeightInput = {
   bottomInset: number;
 };
 
+type ChartTradeSheetPortalHostHeightInput = {
+  hostHeight: number;
+  bottomTabBarHeight: number;
+  safeAreaBottom: number;
+  portalEnabled: boolean;
+};
+
+type ChartTradeSheetCollapsedHeightInput = {
+  bottomTabBarHeight: number;
+  safeAreaBottom: number;
+  portalEnabled: boolean;
+  nonPortalHeight: number;
+};
+
 type ChartTradeSheetHeaderLiftInput = {
   topInset: number;
   compactHeaderHeight: number;
@@ -229,6 +243,13 @@ export function shouldShowChartTradePreviewOnChart({
   );
 }
 
+/** The official toolbar control alternates one compact open with one close. */
+export function resolveChartSltpToolbarTapMode(
+  showChartTradeSheet: boolean,
+): 'hidden' | 'collapsed' {
+  return showChartTradeSheet ? 'hidden' : 'collapsed';
+}
+
 export function shouldSuppressChartTapMenu({
   activeTool,
   footerLotEditorFocused,
@@ -288,6 +309,60 @@ export function resolveChartTradeSheetMaxHeight({
     normalizedCollapsedHeight,
     normalizedHostHeight - normalizedTopInset - normalizedBottomInset + normalizedHeaderLift,
   );
+}
+
+/**
+ * Extends a compact Chart-owned sheet through app-tab pixels only. The portal
+ * itself stops at the system safe-area boundary, so expanded top geometry does
+ * not move when the sheet changes render owner.
+ */
+export function resolveChartTradeSheetPortalHostHeight({
+  hostHeight,
+  bottomTabBarHeight,
+  safeAreaBottom,
+  portalEnabled,
+}: ChartTradeSheetPortalHostHeightInput) {
+  const normalizedHostHeight = Number.isFinite(hostHeight) && hostHeight > 0
+    ? hostHeight
+    : 0;
+  if (!portalEnabled) {
+    return normalizedHostHeight;
+  }
+
+  return normalizedHostHeight + resolveChartTradeSheetCollapsedHeight({
+    bottomTabBarHeight,
+    safeAreaBottom,
+    portalEnabled,
+    nonPortalHeight: 0,
+  });
+}
+
+/**
+ * The normal compact sheet replaces only the app-owned bottom-menu pixels.
+ * Its portal stops above the system navigation safe area, so using the same
+ * extension for the collapsed height puts its top exactly on the divider
+ * below the chart's Sell/Lot/Buy row.
+ */
+export function resolveChartTradeSheetCollapsedHeight({
+  bottomTabBarHeight,
+  safeAreaBottom,
+  portalEnabled,
+  nonPortalHeight,
+}: ChartTradeSheetCollapsedHeightInput) {
+  const normalizedNonPortalHeight = Number.isFinite(nonPortalHeight) && nonPortalHeight > 0
+    ? nonPortalHeight
+    : 0;
+  if (!portalEnabled) {
+    return normalizedNonPortalHeight;
+  }
+
+  const normalizedTabBarHeight = Number.isFinite(bottomTabBarHeight) && bottomTabBarHeight > 0
+    ? bottomTabBarHeight
+    : 0;
+  const normalizedSafeAreaBottom = Number.isFinite(safeAreaBottom) && safeAreaBottom > 0
+    ? safeAreaBottom
+    : 0;
+  return Math.max(0, normalizedTabBarHeight - normalizedSafeAreaBottom);
 }
 
 export function resolveChartTradeSheetHeaderLift(input: ChartTradeSheetHeaderLiftInput) {

@@ -18,6 +18,7 @@ import { LiveOrderTickExecutionGraph } from '../../trade/OrderTickExecutionGraph
 import { isPendingOrderTypeBackendLocked } from '../../trade/tradeBackendCapabilities';
 import { getActiveSltpUnavailableMessage } from '../../trade/tradeBackendCapabilities';
 import { useTranslation } from '../../../i18n/useTranslation';
+import { ChartTradeSheetPortal } from '../../../ui/navigation/ChartTradeSheetPortal';
 
 const FOOTER_LOT_PICKER_BASE_OFFSET = 54;
 const FOOTER_TRADE_DOCK_ANDROID_BOTTOM_SAFE_GAP = 12;
@@ -827,7 +828,6 @@ function ChartTradeSheetContent({
           <Pressable
             style={[styles.chartTradeInfoRow, useMtPendingTradeSheetLayout && styles.chartTradeInfoRowPending]}
             onPress={handlers.onOpenExpirationMenu}
-            activateOnPressIn
             unstable_pressDelay={0}
           >
             <Text style={[styles.chartTradeInfoLabel, useMtPendingTradeSheetLayout && styles.chartTradeInfoLabelPending]}>{t('Expiration')}:</Text>
@@ -998,6 +998,7 @@ function ChartTradeSheetPinnedHeader({
   handlers,
   tabs,
   components,
+  compactForAppMenu = false,
 }: {
   styles: any;
   colors: { blue: string; textMuted: string; sellPrimary: string };
@@ -1017,6 +1018,7 @@ function ChartTradeSheetPinnedHeader({
     onTabLayout: (orderType: ChartOrderType, layout: ChartTradeTypeTabLayout) => void;
   };
   components: TradeFeatureComponents;
+  compactForAppMenu?: boolean;
 }) {
   const { t } = useTranslation();
   const useMtPendingTradeSheetLayout = sheet.useMtPendingTradeSheetLayout;
@@ -1028,10 +1030,14 @@ function ChartTradeSheetPinnedHeader({
         style={[
           styles.chartTradeSheetHeader,
           useMtPendingTradeSheetLayout && styles.chartTradeSheetHeaderPending,
+          compactForAppMenu && styles.chartTradeSheetHeaderCompact,
         ]}
       >
         <Pressable
-          style={styles.chartTradeSheetSymbolBlock}
+          style={[
+            styles.chartTradeSheetSymbolBlock,
+            compactForAppMenu && styles.chartTradeSheetSymbolBlockCompact,
+          ]}
           onPress={handlers.onOpenSymbolPicker}
           unstable_pressDelay={0}
         >
@@ -1041,9 +1047,11 @@ function ChartTradeSheetPinnedHeader({
             </Text>
             <Ionicons name="chevron-down" size={12} color={colors.textMuted} />
           </View>
-          <Text style={styles.chartTradeSheetSymbolMeta} numberOfLines={1} adjustsFontSizeToFit>
-            {symbolHeader.symbolName}
-          </Text>
+          {!compactForAppMenu ? (
+            <Text style={styles.chartTradeSheetSymbolMeta} numberOfLines={1} adjustsFontSizeToFit>
+              {symbolHeader.symbolName}
+            </Text>
+          ) : null}
         </Pressable>
         <ChartTradeSheetHeaderActions
           styles={styles}
@@ -1282,7 +1290,6 @@ function ChartTradeSheetBody({
         <Pressable
           style={[styles.chartTradeInfoRow, useMtPendingTradeSheetLayout && styles.chartTradeInfoRowPending]}
           onPress={handlers.onOpenExpirationMenu}
-          activateOnPressIn
           unstable_pressDelay={0}
         >
           <Text style={[styles.chartTradeInfoLabel, useMtPendingTradeSheetLayout && styles.chartTradeInfoLabelPending]}>{t('Expiration')}:</Text>
@@ -1444,11 +1451,13 @@ function ChartTradeSheetDragHeader({
   styles,
   sheet,
   handlers,
+  compactForAppMenu = false,
 }: {
   styles: any;
   colors: { blue: string; textMuted: string; sellPrimary: string };
   sheet: any;
   handlers: any;
+  compactForAppMenu?: boolean;
 }) {
   if (!shouldShowChartTradeSheetHandle({ chartTradeSheetMode: sheet.chartTradeSheetMode })) {
     return null;
@@ -1459,14 +1468,23 @@ function ChartTradeSheetDragHeader({
       style={[
         styles.chartTradeSheetDragRegion,
         sheet.useMtPendingTradeSheetLayout && styles.chartTradeSheetDragRegionPending,
+        compactForAppMenu && styles.chartTradeSheetDragRegionCompact,
       ]}
     >
       <Pressable
-        style={styles.chartTradeSheetHandleWrap}
+        style={[
+          styles.chartTradeSheetHandleWrap,
+          compactForAppMenu && styles.chartTradeSheetHandleWrapCompact,
+        ]}
         onPress={handlers.onToggleSheetMode}
         unstable_pressDelay={0}
       >
-        <View style={styles.chartTradeSheetHandle} />
+        <View
+          style={[
+            styles.chartTradeSheetHandle,
+            compactForAppMenu && styles.chartTradeSheetHandleCompact,
+          ]}
+        />
       </Pressable>
     </View>
   );
@@ -1512,6 +1530,8 @@ export function ChartTradeOverlayLayer({
   const showSheetBody = shouldRenderChartTradeSheetBody({
     chartTradeSheetMode: sheet.chartTradeSheetMode,
   });
+  const compactForAppMenu =
+    !!sheet.chartTradeSheetPortalEnabled && sheet.chartTradeSheetMode === 'collapsed';
   // Full max height + translateY for every mode (hidden/collapsed/expanded).
   // Using only the collapsed height without transform clipped the pinned header
   // and order-type tabs so SL/TP looked empty after open.
@@ -1559,7 +1579,14 @@ export function ChartTradeOverlayLayer({
 
   return (
     <>
-      {mountTradeSheet ? (
+      <ChartTradeSheetPortal
+        enabled={!!sheet.chartTradeSheetPortalEnabled}
+        keepMounted={!!sheet.chartTradeSheetPortalKeepMounted}
+        visible={!!sheet.chartTradeSheetPortalVisible}
+        top={sheet.chartTradeSheetPortalTop}
+        bottom={sheet.chartTradeSheetPortalBottom}
+      >
+        {mountTradeSheet ? (
         <View
           pointerEvents={sheet.showChartTradeSheet ? 'box-none' : 'none'}
           accessibilityElementsHidden={!sheet.showChartTradeSheet}
@@ -1590,12 +1617,16 @@ export function ChartTradeOverlayLayer({
               ]}
             >
               <GestureDetector gesture={sheet.chartTradeSheetDragGesture}>
-                <View collapsable={false}>
+                <View
+                  collapsable={false}
+                  style={!showSheetBody ? styles.chartTradeSheetCollapsedDragSurface : undefined}
+                >
                   <ChartTradeSheetDragHeader
                     styles={styles}
                     colors={colors}
                     sheet={sheet}
                     handlers={handlers}
+                    compactForAppMenu={compactForAppMenu}
                   />
 
                   {/* Pinned symbol header - always visible, never scrolls away */}
@@ -1605,6 +1636,7 @@ export function ChartTradeOverlayLayer({
                     symbolHeader={symbolHeader}
                     sheet={sheet}
                     handlers={handlers}
+                    compactForAppMenu={compactForAppMenu}
                     tabs={{
                       scrollRef: sheet.chartTradeTypeTabsOverlayScrollRef,
                       onViewportLayout: handlers.onOverlayTabsViewportLayout,
@@ -1656,7 +1688,8 @@ export function ChartTradeOverlayLayer({
             </View>
           </Animated.View>
         </View>
-      ) : null}
+        ) : null}
+      </ChartTradeSheetPortal>
 
       {sheet.showHiddenInlineTradeSheet ? (
         <Animated.View
@@ -1678,16 +1711,14 @@ export function ChartTradeOverlayLayer({
             ]}
           >
             {shouldShowChartTradeSheetHandle({ chartTradeSheetMode: sheet.chartTradeSheetMode }) ? (
-              <GestureDetector gesture={sheet.chartTradeSheetDragGesture}>
-                <View collapsable={false}>
-                  <ChartTradeSheetDragHeader
-                    styles={styles}
-                    colors={colors}
-                    sheet={sheet}
-                    handlers={handlers}
-                  />
-                </View>
-              </GestureDetector>
+              <View collapsable={false}>
+                <ChartTradeSheetDragHeader
+                  styles={styles}
+                  colors={colors}
+                  sheet={sheet}
+                  handlers={handlers}
+                />
+              </View>
             ) : null}
 
             <ScrollView

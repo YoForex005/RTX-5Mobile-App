@@ -17,7 +17,7 @@ import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Dimensions, Keyboard, Platform, ScrollView, Text, TextInput, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { Gesture } from 'react-native-gesture-handler';
 import Animated, {
   runOnJS,
   useAnimatedStyle,
@@ -218,8 +218,11 @@ import {
 } from './chartTradeOrderUtils';
 import {
   type FooterLotPickerMode,
+  resolveChartSltpToolbarTapMode,
+  resolveChartTradeSheetCollapsedHeight,
   resolveChartTradeSheetHeaderLift,
   resolveChartTradeSheetMaxHeight,
+  resolveChartTradeSheetPortalHostHeight,
   resolveChartTradeSheetTopInset,
   resolveChartTradeSheetHostHeight,
   resolveFooterLotCommitDraft as resolveFooterLotCommitDraftValue,
@@ -245,7 +248,7 @@ import { LiveQuotePairHeader } from "./components/ChartLiveHeaders";
 import { ChartStepperModal, ChartFooterLotPicker, ChartTradeVolumeSlider } from "./components/ChartTradeControls";
 import { resolveChartTradeButtonQuote } from "./components/ChartTradeButtonsFeature/quoteFallback";
 import { TvLayers } from "./components/ChartToolbarIcons";
-import { ChartTapMenuViewport, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_DRAWING_MAGNET_THRESHOLD_PX, CHART_GRID_LINE_STYLE, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent } from "./ChartScreen.constants";
+import { ChartTapMenuViewport, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_DRAWING_MAGNET_THRESHOLD_PX, CHART_GRID_LINE_STYLE, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveVisibleTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent, type ChartVisiblePriceRange } from "./ChartScreen.constants";
 import {
   DEFAULT_CHART_SYMBOLS,
   SYMBOL_FLAGS,
@@ -1251,9 +1254,17 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   }, [readKeyboardMetricsFrame, recomputeKeyboardDockOffset]);
   const screenHeight = Dimensions.get('window').height;
   const fullscreenChartMinHeight = Math.max(320, screenHeight);
-  // Must fit drag handle + symbol/SL·TP header + order-type tabs. 120 clipped
-  // the tabs/header so collapsed SL/TP looked empty after open.
-  const chartTradeSheetCollapsedHeight = 186;
+  const chartTradeSheetPortalEnabled = !isChartExpanded;
+  // Expanded/fullscreen geometry still needs enough room for the complete
+  // pinned chrome. The normal compact state replaces exactly the app-menu
+  // area beneath the Sell/Lot/Buy divider.
+  const chartTradeSheetFullChromeMinimumHeight = 186;
+  const chartTradeSheetCollapsedHeight = resolveChartTradeSheetCollapsedHeight({
+    bottomTabBarHeight: chartBottomTabBarHeight,
+    safeAreaBottom: safeInsets.bottom,
+    portalEnabled: chartTradeSheetPortalEnabled,
+    nonPortalHeight: chartTradeSheetFullChromeMinimumHeight,
+  });
   const fullscreenToolbarTouchBuffer = 18;
   const fullscreenToolbarTopPadding = safeInsets.top + fullscreenToolbarTouchBuffer;
   const chartHeaderTopPadding = (Platform.OS === 'web' ? 0 : Math.max(safeInsets.top, 0)) + 6;
@@ -1320,18 +1331,25 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     hostTopOffset: chartTradeSheetHostTopOffset,
   });
   const chartTradeSheetFallbackHostHeight = Math.max(
-    chartTradeSheetCollapsedHeight + 180,
+    chartTradeSheetFullChromeMinimumHeight + 180,
     screenHeight - Math.max(safeInsets.top, 0),
   );
   const resolvedChartTradeSheetHostHeight =
     chartTradeSheetHostHeight > 0 ? chartTradeSheetHostHeight : chartTradeSheetFallbackHostHeight;
+  const chartTradeSheetPresentationHostHeight = resolveChartTradeSheetPortalHostHeight({
+    hostHeight: resolvedChartTradeSheetHostHeight,
+    bottomTabBarHeight: chartBottomTabBarHeight,
+    safeAreaBottom: safeInsets.bottom,
+    portalEnabled: chartTradeSheetPortalEnabled,
+  });
   const chartTradeSheetHeaderLift = resolveChartTradeSheetHeaderLift({
     topInset: chartTradeSheetTopInset,
     compactHeaderHeight: chartTradeCompactHeaderHeight,
     isFullscreen: isChartExpanded,
   });
-  // The SL/TP sheet is opened from the chart toolbar and covers the footer
-  // area while open, so the sell/lot/buy row never shows through a cutout.
+  // Keep one canonical Sell/Lot/Buy row in the Chart layout. The compact
+  // portaled sheet begins at its lower divider; expanded mode can cover it
+  // without mounting the duplicate footer branch below.
   const showInlineFooterWhileChartTradeSheetOpen = false;
   useEffect(() => {
     if (!isChartExpanded) {
@@ -1342,8 +1360,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     ? (chartTradeInlineFooterHeight > 0 ? chartTradeInlineFooterHeight : CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT)
     : 0;
   const chartTradeSheetMaxHeight = resolveChartTradeSheetMaxHeight({
-    collapsedHeight: chartTradeSheetCollapsedHeight,
-    hostHeight: resolvedChartTradeSheetHostHeight,
+    collapsedHeight: chartTradeSheetFullChromeMinimumHeight,
+    hostHeight: chartTradeSheetPresentationHostHeight,
     topInset: chartTradeSheetTopInset,
     headerLift: chartTradeSheetHeaderLift,
     bottomInset: chartTradeSheetBottomInset,
@@ -1377,6 +1395,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const [chartTapMenuBounds, setChartTapMenuBounds] = useState<ChartTapMenuBounds>({ width: 0, height: 0 });
   const [chartTapMenuViewport, setChartTapMenuViewport] = useState<ChartTapMenuViewport>({ x: 0, y: 0, width: 0, height: 0 });
   const [, setChartPlotArea] = useState<FixedHorizontalGridPlotArea | null>(null);
+  const chartVisiblePriceRangeRef = useRef<ChartVisiblePriceRange | null>(null);
   const [stickyDrawingMode, setStickyDrawingMode] = useState(false);
   const [drawingMagnetMode, setDrawingMagnetMode] = useState(false);
   const [textLevelEditRequest, setTextLevelEditRequest] = useState<TextLevelEditRequest | null>(null);
@@ -1929,6 +1948,19 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     },
     [chartProtectionTickSize, displayDecimals],
   );
+  const resolveChartVisibleStopPreviewPrice = useCallback((
+    kind: 'sl' | 'tp',
+    entryPrice: number,
+    side: 'buy' | 'sell',
+  ) => resolveVisibleTradeStopPreviewPrice(
+    kind,
+    entryPrice,
+    side,
+    chartStopOffset,
+    chartPointSize,
+    chartVisiblePriceRangeRef.current,
+    roundTradePrice,
+  ), [chartPointSize, chartStopOffset, roundTradePrice]);
   const chartMatchingPositionCandidates = useMemo(() => {
     const normalizedChartSymbol = normalizeChartOverlaySymbol(chartSymbol);
     const latestPositions = usePositionsState.getState().positions;
@@ -2487,8 +2519,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     );
     setChartTradeSlEnabled(enableProtectionDrafts || hasPositionSl);
     setChartTradeTpEnabled(enableProtectionDrafts || hasPositionTp);
-    setChartTradeSlPrice(hasPositionSl ? roundTradePrice(positionSl) : resolveTradeStopPreviewPrice('sl', entryPrice, side, chartStopOffset, roundTradePrice));
-    setChartTradeTpPrice(hasPositionTp ? roundTradePrice(positionTp) : resolveTradeStopPreviewPrice('tp', entryPrice, side, chartStopOffset, roundTradePrice));
+    setChartTradeSlPrice(hasPositionSl ? roundTradePrice(positionSl) : resolveChartVisibleStopPreviewPrice('sl', entryPrice, side));
+    setChartTradeTpPrice(hasPositionTp ? roundTradePrice(positionTp) : resolveChartVisibleStopPreviewPrice('tp', entryPrice, side));
     setChartTradeComment('');
     setChartTradeCommentFocused(false);
   }, [
@@ -2496,12 +2528,27 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     chartStopOffset,
     chartTradeOrderType,
     resolveChartTradeEntryPrice,
+    resolveChartVisibleStopPreviewPrice,
     resolveSingleChartPositionStopTarget,
     roundTradePrice,
   ]);
 
   const activateDirectChartProtection = useCallback(() => {
     const orderType: ChartOrderType = 'Market Execution';
+    const nextSheetMode = resolveChartSltpToolbarTapMode(showChartTradeSheet);
+
+    if (nextSheetMode === 'hidden') {
+      snapTradeSheet(nextSheetMode);
+      closeChartTapMenu();
+      setFooterLotPickerMode(null);
+      if (footerLotEditorFocused) {
+        finishFooterLotEditor();
+      } else {
+        setFooterLotEditorOpening(false);
+      }
+      Keyboard.dismiss();
+      return;
+    }
 
     // The top toolbar opens a Market Execution-only protection panel. It must
     // never guess an existing same-symbol ticket, and it must not create either
@@ -2523,7 +2570,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       setChartShowOnChartItem('slTpLevels', true);
       setChartDirectProtectionActive(true);
     }
-    snapTradeSheet('collapsed');
+    // Match MT5: first tap shows the compact panel over the app tab bar. A
+    // second toolbar tap follows the early branch above and closes it.
+    snapTradeSheet(nextSheetMode);
 
     const finalizeActivationWork = () => {
       closeChartTapMenu();
@@ -2549,6 +2598,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     footerLotEditorFocused,
     resetChartTradePanelLevels,
     setChartShowOnChartItem,
+    showChartTradeSheet,
     snapTradeSheet,
   ]);
 
@@ -2614,8 +2664,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       setChartTradeStopLimitPrice(
         resolveDefaultStopLimitPrice(orderType, nextEntry, chartStopLimitOffset, roundTradePrice),
       );
-      setChartTradeSlPrice(resolveTradeStopPreviewPrice('sl', nextEntry, side, chartStopOffset, roundTradePrice));
-      setChartTradeTpPrice(resolveTradeStopPreviewPrice('tp', nextEntry, side, chartStopOffset, roundTradePrice));
+      setChartTradeSlPrice(resolveChartVisibleStopPreviewPrice('sl', nextEntry, side));
+      setChartTradeTpPrice(resolveChartVisibleStopPreviewPrice('tp', nextEntry, side));
       // Don't force-expand on tab switch — keep the sheet at its current
       // snap position so the tabs stay in place and only the content changes.
       // Reset the scroll position so the new tab's content starts at the top.
@@ -2627,6 +2677,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     chartStopLimitOffset,
     chartStopOffset,
     resolveChartTradeEntryPrice,
+    resolveChartVisibleStopPreviewPrice,
     roundTradePrice,
     chartTradeSheetScrollRef,
   ]);
@@ -2904,10 +2955,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       const side = positionTarget?.side ?? getChartOrderSide(chartTradeOrderType);
       const nextSl = chartTradeSlEnabled && chartTradeSlPrice > 0
         ? chartTradeSlPrice
-        : resolveTradeStopPreviewPrice('sl', baseEntry, side, chartStopOffset, roundTradePrice);
+        : resolveChartVisibleStopPreviewPrice('sl', baseEntry, side);
       const nextTp = chartTradeTpEnabled && chartTradeTpPrice > 0
         ? chartTradeTpPrice
-        : resolveTradeStopPreviewPrice('tp', baseEntry, side, chartStopOffset, roundTradePrice);
+        : resolveChartVisibleStopPreviewPrice('tp', baseEntry, side);
       setChartTradeSlEnabled(true);
       setChartTradeSlPrice(nextSl);
       setChartTradeTpEnabled(true);
@@ -2930,6 +2981,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     commitChartTradeSheetStopsForPosition,
     isChartTradeProtectionBackendLocked,
     resolveChartTradeEntryPrice,
+    resolveChartVisibleStopPreviewPrice,
     resolveSingleChartPositionStopTarget,
     roundTradePrice,
     setChartShowOnChartItem,
@@ -2982,7 +3034,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         ? roundTradePrice(Number(positionTarget.openPrice))
         : resolveChartTradeEntryPrice(chartTradeOrderType);
     const side = positionTarget?.side ?? getChartOrderSide(chartTradeOrderType);
-    const nextPrice = resolveTradeStopPreviewPrice(kind, baseEntry, side, chartStopOffset, roundTradePrice);
+    const nextPrice = resolveChartVisibleStopPreviewPrice(kind, baseEntry, side);
     const currentSl = chartTradeSlEnabled && chartTradeSlPrice > 0 ? chartTradeSlPrice : 0;
     const currentTp = chartTradeTpEnabled && chartTradeTpPrice > 0 ? chartTradeTpPrice : 0;
 
@@ -3022,6 +3074,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     commitChartTradeSheetStopsForPosition,
     isChartTradeProtectionBackendLocked,
     resolveChartTradeEntryPrice,
+    resolveChartVisibleStopPreviewPrice,
     resolveSingleChartPositionStopTarget,
     roundTradePrice,
     setChartShowOnChartItem,
@@ -3709,12 +3762,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
             return;
           }
 
-          // Snap to expanded or collapsed only — intermediate offsets felt sticky.
-          const mid = (chartTradeSheetExpandedTranslateY + chartTradeSheetCollapsedTranslateY) / 2;
-          const restingOffset =
-            event.velocityY < -400 || current < mid
-              ? chartTradeSheetExpandedTranslateY
-              : chartTradeSheetCollapsedTranslateY;
+          // Preserve the exact visible height chosen by the drag. Only the
+          // narrow below-collapsed dismissal band settles back to collapsed.
+          const restingOffset = Math.min(
+            chartTradeSheetCollapsedTranslateY,
+            Math.max(chartTradeSheetExpandedTranslateY, current),
+          );
 
           chartTradeSheetTranslateY.value = withSpring(restingOffset, {
             damping: 30,
@@ -3731,7 +3784,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     [
       chartTradeSheetCollapsedTranslateY,
       commitChartTradeSheetOffset,
-      chartTradeSheetCollapsedTranslateY,
       chartTradeSheetDragStartY,
       chartTradeSheetExpandedTranslateY,
       chartTradeSheetHiddenTranslateY,
@@ -4109,8 +4161,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   // adjustResize). When the keyboard is not visible, use 0 to signal
   // "use absoluteFillObject as normal".
   const chartTradeSheetFrozenLayerHeight =
-    shouldFreezeChartTradeSheetHostHeight && resolvedChartTradeSheetHostHeight > 0
-      ? resolvedChartTradeSheetHostHeight
+    shouldFreezeChartTradeSheetHostHeight && chartTradeSheetPresentationHostHeight > 0
+      ? chartTradeSheetPresentationHostHeight
       : 0;
   const chartTradeSheetFooterDockReserve = 0;
   const chartTradeSheetContentBottomPadding = (
@@ -4324,6 +4376,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           ? (resolvedChartColors.tradeTpSl || '#089981')
           : (resolvedChartColors.tradeStopOut || '#F23645'),
         labelPlacement: 'line',
+        // The ticker/OHLC overlay occupies the top ~78 CSS px of the native
+        // WebView. Keep only this draft label readable there; persisted trade
+        // labels continue to follow their exact price coordinate off-screen.
+        labelMinTop: chartDisplay.showTicker || chartDisplay.showOHLC ? 78 : undefined,
         dragKey: chartTradeTpDragKey,
       });
     }
@@ -4370,6 +4426,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           ? (resolvedChartColors.tradeTpSl || '#089981')
           : (resolvedChartColors.tradeStopOut || '#F23645'),
         labelPlacement: 'line',
+        labelMinTop: chartDisplay.showTicker || chartDisplay.showOHLC ? 78 : undefined,
         dragKey: chartTradeSlDragKey,
       });
     }
@@ -5983,6 +6040,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     setChartViewportTouchActive(false);
     setChartCanvasReady(false);
     setChartPlotArea(null);
+    chartVisiblePriceRangeRef.current = null;
   }, []);
   const handleChartWebViewProcessLoss = useCallback((
     platformName: 'Android' | 'iOS',
@@ -6124,6 +6182,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       clearRenderedMarketPriceLines();
       setChartCanvasReady(false);
       setChartPlotArea(null);
+      chartVisiblePriceRangeRef.current = null;
     }
   }, [clearRenderedMarketPriceLines, currentSig]);
 
@@ -6134,6 +6193,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     lastInjectedDrawingSyncRef.current = { signature: '', epoch: -1 };
     lastWebViewDrawingSignatureRef.current = '';
     clearRenderedMarketPriceLines();
+    chartVisiblePriceRangeRef.current = null;
   }, [chartDataContextSig, clearRenderedMarketPriceLines]);
 
   // The retained WebView intentionally survives symbol/timeframe switches.
@@ -6710,6 +6770,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       lineWidth: line.lineWidth,
       lineStyle: line.lineStyle,
       labelPlacement: line.labelPlacement,
+      labelMinTop: line.labelMinTop,
       dragKey: line.dragKey,
     }))),
     [overlayPriceLines],
@@ -7104,15 +7165,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         useMtPendingTradeSheetLayout && styles.chartTradeSheetDragRegionPending,
       ]}
     >
-      <GestureDetector gesture={chartTradeSheetDragGesture}>
-        <Pressable
-          style={styles.chartTradeSheetHandleWrap}
-          onPress={handleToggleChartTradeSheetMode}
-          unstable_pressDelay={0}
-        >
-          <View style={styles.chartTradeSheetHandle} />
-        </Pressable>
-      </GestureDetector>
+      <Pressable
+        style={styles.chartTradeSheetHandleWrap}
+        onPress={handleToggleChartTradeSheetMode}
+        unstable_pressDelay={0}
+      >
+        <View style={styles.chartTradeSheetHandle} />
+      </Pressable>
       <View style={[styles.chartTradeQuickBar, styles.chartTradeQuickBarActionsOnly]}>
         <View style={styles.chartTradeQuickActions}>
           <Pressable
@@ -7196,6 +7255,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         // it immediately without mounting work on the tap frame.
         mountChartTradeSheet: isScreenFocused && !isChartExpanded,
         showChartTradeSheet,
+        chartTradeSheetPortalEnabled,
+        chartTradeSheetPortalKeepMounted: isScreenFocused && chartTradeSheetPortalEnabled,
+        chartTradeSheetPortalVisible:
+          isScreenFocused && chartTradeSheetPortalEnabled && showChartTradeSheet,
+        chartTradeSheetPortalTop: chartTradeSheetHostTopOffset,
+        chartTradeSheetPortalBottom: Math.max(0, safeInsets.bottom),
         showHiddenInlineTradeSheet: !isChartExpanded && showChartTradeSheet,
         showInlineFooterWhileSheetOpen: showInlineFooterWhileChartTradeSheetOpen && !isChartExpanded && showChartTradeSheet,
         showInlineFooterDockWhileSheetOpen: false,
@@ -7873,6 +7938,21 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                             ));
                           });
                         } else if (msg.type === 'CHART_GEOMETRY') {
+                          if (msg.dataContextSig === chartDataContextSigRef.current) {
+                            const rangeFrom = msg.priceRange?.from;
+                            const rangeTo = msg.priceRange?.to;
+                            chartVisiblePriceRangeRef.current =
+                              typeof rangeFrom === 'number'
+                              && Number.isFinite(rangeFrom)
+                              && typeof rangeTo === 'number'
+                              && Number.isFinite(rangeTo)
+                              && rangeFrom !== rangeTo
+                                ? {
+                                  from: Math.min(rangeFrom, rangeTo),
+                                  to: Math.max(rangeFrom, rangeTo),
+                                }
+                                : null;
+                          }
                           const nextPlotArea =
                             msg.plotArea
                               && typeof msg.plotArea.left === 'number'

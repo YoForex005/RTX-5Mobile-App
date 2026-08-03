@@ -8,13 +8,14 @@
 > state, the installed binary source commit, and both resolved runtimes before
 > an OTA.
 
-Last verified: `2026-08-01` (Asia/Calcutta)
+Last verified: `2026-08-03` (Asia/Calcutta)
 
 ## Authoritative Project Location
 
 - Repository: `YoForex005/RTX-5Mobile-App`
 - Production app working directory: `rtx5-app`
-- Expo config: `rtx5-app/app.json`
+- Effective Expo config: `rtx5-app/app.config.js`
+- Base Expo config loaded by it: `rtx5-app/app.json`
 - EAS profiles: `rtx5-app/eas.json`
 - Expo owner/project: see `owner` and `slug` in `rtx5-app/app.json`
 - EAS project ID: `092a58db-dea9-469a-a383-f27300598812`
@@ -34,12 +35,36 @@ not publish an OTA. As of this verification, the Git remote contained only
 `main`; do not create `release` from current `main` merely to make the workflow
 run.
 
+## Next OTA: Reused Values Versus New Values
+
+Reuse the production destination only after live verification: Expo project
+`yoforex/rtx5-app`, EAS project ID
+`092a58db-dea9-469a-a383-f27300598812`, channel/branch `production`, EAS
+environment `production`, and the project update URL shown above.
+
+The last verified runtime targets are conditional compatibility values:
+
+| Platform | Runtime used by production OTA `1.1.32` |
+| --- | --- |
+| Android | `30cba83220fc6c92180eed477863c3e3e3087ce6` |
+| iOS | `ef38da275b765380037fc377f5c596de31690b7d` |
+
+Reuse a runtime only when the intended installed/store binary uses that exact
+runtime and the exact release source passes all safety and compatibility checks.
+If it does not match, stop; do not force it merely to complete a publish.
+
+Update groups, update IDs, timestamps, manifests, and dashboard URLs are EAS
+generated identifiers. The `1.1.32` values below are historical records and
+cannot be reused for the next OTA. Every later Android and iOS publish receives
+new identifiers. The version, message, release source/status, safety base, and
+target binary must also be freshly determined and recorded.
+
 ## Current Compatibility Decision
 
 | Item | Android | iOS |
 | --- | --- | --- |
-| Compatible production binary runtime | `30cba83220fc6c92180eed477863c3e3e3087ce6` | `ef38da275b765380037fc377f5c596de31690b7d` |
-| Assessed product-source runtime | `9677dac3c4cdd2d471a3def0258968a0670e321e` | `75d947e7eaf665910e2754aff5b4c033c8a2b36b` |
+| Last verified `1.1.32` target runtime; installed/store confirmation required | `30cba83220fc6c92180eed477863c3e3e3087ce6` | `ef38da275b765380037fc377f5c596de31690b7d` |
+| Assessed `9f39e0c...` product-source runtime | `9677dac3c4cdd2d471a3def0258968a0670e321e` | `75d947e7eaf665910e2754aff5b4c033c8a2b36b` |
 | Runtime match | **NO** | **NO** |
 
 Product-source commit assessed before this documentation-only update:
@@ -125,8 +150,10 @@ later change.
 | Field | Verified value |
 | --- | --- |
 | OTA-visible version | `1.1.32` |
+| Compatible EAS build reference | `cfe3b101-ab15-4e18-854b-ef808e96d708` — installed/store confirmation required |
 | Source commit | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` |
 | EAS source status | Dirty isolated release worktree (`2975156...*`) |
+| OTA safety-comparison base | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` |
 | Runtime | `30cba83220fc6c92180eed477863c3e3e3087ce6` |
 | Update group | `5b7f6e87-870f-4f37-94fc-8639b1c23920` |
 | Update ID | `019fbde7-12fc-7876-97d7-fe7493c87f8f` |
@@ -140,8 +167,10 @@ later change.
 | Field | Verified value |
 | --- | --- |
 | OTA-visible version | `1.1.32` |
+| Compatible EAS build reference | `1b1bd2e3-da6c-4c8b-94c2-285b0329dce2` — installed/store confirmation required |
 | Source commit | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` |
 | EAS source status | Dirty isolated release worktree (`2975156...*`) |
+| OTA safety-comparison base | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` |
 | Runtime | `ef38da275b765380037fc377f5c596de31690b7d` |
 | Update group | `827f2197-ee6e-4651-8b6c-11d0190d37d1` |
 | Update ID | `019fbde9-9e15-7873-bdf1-c4013264d7df` |
@@ -193,14 +222,30 @@ npx.cmd --yes eas-cli@21.4.0 update:list --branch production --limit 20 --json -
 
 Then verify environment, native-change safety, and runtime compatibility:
 
+Do not confuse these two source references:
+
+- **Target binary source commit:** the native source used to build the intended
+  installed/store binary. It is evidence for the build and its runtime; confirm
+  it independently for each platform.
+- **OTA safety-comparison base:** the reviewed compatible source from which the
+  proposed OTA changes are measured by `check-ota-safety.js --base`. For a
+  normal direct release this may be the target binary source commit. For an
+  isolated prior-runtime continuation it may be the previous audited OTA source.
+
+For `1.1.32`, the reference target binary source was `63ddb981...`, while the
+isolated release safety-comparison base was `2975156...`. A zero-change result
+against the safety base does not by itself prove that an installed binary is
+compatible; its exact runtime must still be confirmed.
+
 ```powershell
-$binaryCommit = "63ddb9817984c4d71c5e265332e3f5e846267625"
+$targetBinarySourceCommit = "<verified-installed-binary-source-commit>"
+$otaSafetyBase = "<approved-ota-compatible-source-commit>"
 
 git status --short
 npm run typecheck
 npm test
 node .\scripts\ota\check-eas-env.js production
-node .\scripts\ota\check-ota-safety.js --base $binaryCommit
+node .\scripts\ota\check-ota-safety.js --base $otaSafetyBase
 node .\scripts\ota\print-update-context.js --channel production
 npx.cmd expo-updates runtimeversion:resolve --platform android
 npx.cmd expo-updates runtimeversion:resolve --platform ios
@@ -211,10 +256,15 @@ Publishing is blocked unless:
 
 - The working tree and source commit are deliberate and recorded.
 - The environment check passes.
-- The safety check reports zero native-impacting changes from the verified
-  binary source commit.
-- The resolved Android runtime exactly matches the intended Android binary.
-- The resolved iOS runtime exactly matches the intended iOS binary.
+- The target binary source/build and the OTA safety-comparison base are both
+  deliberate, independently verified, and recorded.
+- The safety check reports zero native-impacting changes from the approved OTA
+  safety-comparison base.
+- On the normal path, the resolved Android and iOS runtimes exactly match the
+  intended binaries.
+- On an explicitly approved prior-runtime continuation, each platform is
+  published separately only after its installed-binary runtime is proven and
+  the isolated source preserves the reviewed compatible native baseline.
 - The live channel/update history still matches this baseline.
 - Provider credentials or other secrets are not printed or committed.
 
@@ -224,7 +274,8 @@ runtime matches, validate and publish each platform separately. Never publish
 
 ## Publishing
 
-Preferred path:
+GitHub workflow path — available only when an approved remote `release` branch
+already exists:
 
 1. Prepare and validate the exact release source.
 2. Ensure the GitHub `release` branch points to that approved source.
@@ -232,15 +283,22 @@ Preferred path:
 4. Select branch `release`.
 5. Set `channel: production`.
 6. Select only the validated platform, or `all` only when both match.
-7. Enter the verified binary source commit in the required `base-ref` input.
+7. Enter the approved OTA safety-comparison base in the required `base-ref`
+   input; do not assume it is the same as the target binary source commit.
 8. Use a message containing the intended visible version and short source SHA.
 
-Direct EAS fallback from `rtx5-app`:
+Current direct path from `rtx5-app` when no approved `release` branch exists:
 
 ```powershell
-$env:RTX5_OTA_BASE_REF="<verified-binary-source-commit>"
+$env:RTX5_OTA_BASE_REF="<approved-ota-safety-comparison-base>"
 npm run update:prod -- --message "production <visible-version> $(git rev-parse --short HEAD)"
 ```
+
+The `update:prod` wrapper owns `--platform all`. Use it only when both platform
+runtime decisions are independently approved for the same release. When Android
+and iOS require separate runtime targeting, run the same preflight first and use
+separate reviewed, platform-scoped EAS update commands. Never try to override
+the wrapper's protected `--platform` or runtime flags.
 
 Do not set `RTX5_FORCE_RUNTIME_VERSION` on raw or unreviewed source merely to
 bypass a runtime mismatch. The `1.1.32` release used explicit per-platform

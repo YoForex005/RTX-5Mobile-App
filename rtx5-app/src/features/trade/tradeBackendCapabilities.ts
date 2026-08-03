@@ -1,6 +1,5 @@
 import {
   isPendingChartOrderType,
-  isStopLimitChartOrderType,
   type ChartOrderType,
 } from '../chart/chartTradeOrderUtils';
 import { captureActiveBrokerSession } from '../../state/activeBrokerSession';
@@ -16,6 +15,7 @@ export type { BrokerSltpCapabilities } from '../../config/brokerSltpCapabilities
 export {
   BROKER_SLTP_CAPABILITIES,
   CANONICAL_SLTP_BROKER_IDS,
+  MARKET_AND_POSITION_SLTP_CAPABILITIES,
   NO_BROKER_SLTP_CAPABILITIES,
   canonicalBrokerId,
   getSltpUnavailableMessage,
@@ -66,11 +66,8 @@ export const getActiveTradeBackendCapabilities = (): TradeBackendCapabilities =>
 
 export const isPendingOrderTypeBackendLocked = (
   orderType: ChartOrderType,
-  capabilities: TradeBackendCapabilities = getActiveTradeBackendCapabilities(),
-): boolean => (
-  isStopLimitChartOrderType(orderType) ||
-  (isPendingChartOrderType(orderType) && !capabilities.pendingOrders)
-);
+  _capabilities: TradeBackendCapabilities = getActiveTradeBackendCapabilities(),
+): boolean => isPendingChartOrderType(orderType);
 
 export const isExistingPositionModifyBackendLocked = (
   capabilities: TradeBackendCapabilities = getActiveTradeBackendCapabilities(),

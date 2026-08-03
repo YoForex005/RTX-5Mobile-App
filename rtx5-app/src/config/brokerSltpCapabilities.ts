@@ -1,4 +1,5 @@
 export const CANONICAL_SLTP_BROKER_IDS = [
+  'achiever-financials',
   'orrnn-demo',
   'gta_broker',
   'myprop-trade',
@@ -33,19 +34,38 @@ export const NO_BROKER_SLTP_CAPABILITIES: BrokerSltpCapabilities = Object.freeze
 });
 
 /**
- * Current safety verdict (2026-07-24 evidence):
- * - Orrnn Demo's inspected runtime was unhealthy.
- * - GTA and MyProp were not independently verified.
+ * Exact scope enabled for the current broker runtimes:
+ * - SL/TP attached to a new Market Execution order.
+ * - SL/TP persisted on an existing open position, including server-managed
+ *   trigger-close handling.
  *
- * There is intentionally no wildcard/default/hostname-derived entry and no
- * environment-variable path that can turn a capability on.
+ * Pending-order protection, trailing stops, and the advanced confirmation /
+ * idempotency capabilities remain deliberately disabled.
+ */
+export const MARKET_AND_POSITION_SLTP_CAPABILITIES: BrokerSltpCapabilities =
+  Object.freeze({
+    existingPositionPersistence: true,
+    serverManagedTriggerClose: true,
+    newMarketOrderProtection: true,
+    pendingOrderProtection: false,
+    trailingStop: false,
+    dynamicConstraints: false,
+    venueBrokerConfirmation: false,
+    revisionIdempotencySafety: false,
+  });
+
+/**
+ * Capabilities are assigned only to exact broker identities returned by the
+ * broker directory. There is intentionally no wildcard/default/hostname-
+ * derived entry and no public environment-variable activation path.
  */
 export const BROKER_SLTP_CAPABILITIES: Readonly<
   Record<CanonicalSltpBrokerId, BrokerSltpCapabilities>
 > = Object.freeze({
-  'orrnn-demo': NO_BROKER_SLTP_CAPABILITIES,
-  gta_broker: NO_BROKER_SLTP_CAPABILITIES,
-  'myprop-trade': NO_BROKER_SLTP_CAPABILITIES,
+  'achiever-financials': MARKET_AND_POSITION_SLTP_CAPABILITIES,
+  'orrnn-demo': MARKET_AND_POSITION_SLTP_CAPABILITIES,
+  gta_broker: MARKET_AND_POSITION_SLTP_CAPABILITIES,
+  'myprop-trade': MARKET_AND_POSITION_SLTP_CAPABILITIES,
 });
 
 export function canonicalBrokerId(
@@ -53,6 +73,7 @@ export function canonicalBrokerId(
 ): CanonicalSltpBrokerId | null {
   const value = raw?.trim().toLowerCase();
   if (!value) return null;
+  if (value === 'achiever-financials') return 'achiever-financials';
   if (value === 'grow-trading-academy' || value === 'gta_broker') {
     return 'gta_broker';
   }
@@ -85,12 +106,14 @@ export function getSltpUnavailableMessage(
   brokerId: string | null | undefined,
 ): string {
   switch (canonicalBrokerId(brokerId)) {
+    case 'achiever-financials':
+      return 'SL/TP is unavailable for the requested Achiever trade flow. Only market-order and existing-position SL/TP are enabled.';
     case 'orrnn-demo':
-      return 'SL/TP is unavailable for this broker runtime. Server-managed protection was proven unhealthy on the verified runtime snapshot and has not been re-certified.';
+      return 'SL/TP is unavailable for the requested Orrnn Demo trade flow. Only market-order and existing-position SL/TP are enabled.';
     case 'gta_broker':
-      return 'SL/TP is unavailable for GTA because this exact broker runtime has not been verified.';
+      return 'SL/TP is unavailable for the requested GTA trade flow. Only market-order and existing-position SL/TP are enabled.';
     case 'myprop-trade':
-      return 'SL/TP is unavailable for MyProp because this exact broker runtime has not been verified.';
+      return 'SL/TP is unavailable for the requested MyProp trade flow. Only market-order and existing-position SL/TP are enabled.';
     default:
       return 'SL/TP is unavailable because the selected broker could not be verified.';
   }

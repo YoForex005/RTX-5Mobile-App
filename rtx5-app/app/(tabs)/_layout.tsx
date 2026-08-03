@@ -30,6 +30,10 @@ import {
   tradePositionActionHostController,
 } from '../../src/features/trade/tradePositionActionHostController';
 import { OrderTicketLaunchHost } from '../../src/features/trade/OrderTicketLaunchHost';
+import {
+  ChartTradeSheetPortalHost,
+  ChartTradeSheetPortalProvider,
+} from '../../src/ui/navigation/ChartTradeSheetPortal';
 
 import { FastTabs as Tabs } from '../../src/ui/navigation/FastTabNavigator';
 import {
@@ -567,9 +571,12 @@ const TabsLayoutInner = memo(function TabsLayoutInner({
   // not reconciled on every light/dark press.
   return (
     <View style={styles.root}>
-      <ThemedTabsChrome isChartTab={isChartTab} />
-      <OrderTicketLaunchHost />
-      <GlobalActionSheetHost />
+      <ChartTradeSheetPortalProvider>
+        <ThemedTabsChrome isChartTab={isChartTab} />
+        <ChartTradeSheetPortalHost />
+        <OrderTicketLaunchHost />
+        <GlobalActionSheetHost />
+      </ChartTradeSheetPortalProvider>
     </View>
   );
 });

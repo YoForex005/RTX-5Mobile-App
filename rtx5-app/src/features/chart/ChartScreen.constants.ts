@@ -74,7 +74,9 @@ export const CHART_BEARISH_CANDLE_RENDER_OPACITY = 0.74;
 export const CHART_TAP_MENU_PADDING = 10;
 export const CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS = 450;
 export const CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT = 72;
-export const CHART_TRADE_COMPACT_SHEET_TOP_GAP = 4;
+// The compact sheet expands exactly to the divider below the chart toolbar so
+// the toolbar stays fully visible without leaving an artificial chart strip.
+export const CHART_TRADE_COMPACT_SHEET_TOP_GAP = 0;
 export const CHART_TRADE_SHEET_TOP_GAP = 10;
 export const FOOTER_LOT_PICKER_VALUE_ITEM_HEIGHT = 44;
 export const FOOTER_LOT_PICKER_VALUE_ITEM_WIDTH = 56;
@@ -157,4 +159,66 @@ export const resolveTradeStopPreviewPrice = (
   const direction = side === 'buy' ? 1 : -1;
   const signedOffset = kind === 'tp' ? offset * direction : -offset * direction;
   return roundPrice(entryPrice + signedOffset);
+};
+
+export type ChartVisiblePriceRange = Readonly<{
+  from: number;
+  to: number;
+}>;
+
+export const resolveVisibleTradeStopPreviewPrice = (
+  kind: 'sl' | 'tp',
+  entryPrice: number,
+  side: 'buy' | 'sell',
+  offset: number,
+  minimumPriceStep: number,
+  visibleRange: ChartVisiblePriceRange | null | undefined,
+  roundPrice: (value: number) => number,
+) => {
+  const fallbackPrice = resolveTradeStopPreviewPrice(kind, entryPrice, side, offset, roundPrice);
+  const rangeFrom = Number(visibleRange?.from);
+  const rangeTo = Number(visibleRange?.to);
+  if (
+    !Number.isFinite(entryPrice)
+    || entryPrice <= 0
+    || !Number.isFinite(rangeFrom)
+    || !Number.isFinite(rangeTo)
+    || rangeFrom === rangeTo
+  ) {
+    return fallbackPrice;
+  }
+
+  const lowerBound = Math.min(rangeFrom, rangeTo);
+  const upperBound = Math.max(rangeFrom, rangeTo);
+  const rangeSpan = upperBound - lowerBound;
+  const direction = (side === 'buy' ? 1 : -1) * (kind === 'tp' ? 1 : -1);
+  const minimumOffset = Number.isFinite(minimumPriceStep) && minimumPriceStep > 0
+    ? minimumPriceStep
+    : Number.EPSILON;
+  // The chart symbol/OHLC header is painted over the upper portion of the
+  // price area. Keep newly-created guides out of both edge bands so their
+  // labels remain readable instead of landing under that header or the sheet.
+  const edgePadding = rangeSpan * 0.15;
+  const paddedDirectionalRoom = direction > 0
+    ? upperBound - edgePadding - entryPrice
+    : entryPrice - (lowerBound + edgePadding);
+  const fullDirectionalRoom = direction > 0
+    ? upperBound - entryPrice
+    : entryPrice - lowerBound;
+
+  if (!(fullDirectionalRoom >= minimumOffset)) {
+    return fallbackPrice;
+  }
+
+  const availableOffset = paddedDirectionalRoom >= minimumOffset
+    ? paddedDirectionalRoom
+    : fullDirectionalRoom * 0.25;
+  const requestedOffset = Number.isFinite(offset) && offset > 0 ? offset : minimumOffset;
+  const preferredVisibleOffset = Math.max(minimumOffset, rangeSpan * 0.18);
+  const visibleOffset = Math.min(requestedOffset, preferredVisibleOffset, availableOffset);
+  if (!(visibleOffset > 0)) {
+    return fallbackPrice;
+  }
+
+  return roundPrice(entryPrice + direction * visibleOffset);
 };

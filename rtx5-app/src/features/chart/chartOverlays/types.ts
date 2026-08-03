@@ -33,6 +33,7 @@ export type ChartOverlayPriceLine = {
   labelSideColor?: string;
   labelValueColor?: string;
   labelPlacement?: 'floating' | 'line';
+  labelMinTop?: number;
   dragKey?: string;
 };
 

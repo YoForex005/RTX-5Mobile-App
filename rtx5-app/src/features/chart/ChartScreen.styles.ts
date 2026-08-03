@@ -657,6 +657,10 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       justifyContent: 'flex-end',
       zIndex: 120,
       elevation: 120,
+      // Collapsed and hidden modes keep the full-height sheet mounted and
+      // translate it below this host. The normal Chart host is portaled above
+      // app tabs and ends at the system-safe boundary; clip animation there.
+      overflow: 'hidden',
     },
     chartTradeSheetBackdrop: {
       ...StyleSheet.absoluteFillObject,
@@ -719,6 +723,9 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     chartTradeSheetDragRegionPending: {
       backgroundColor: isDark ? T.bg : '#F5F6F8',
     },
+    chartTradeSheetDragRegionCompact: {
+      minHeight: 9,
+    },
     chartTradeSheetDragSpacer: {
       height: 4,
       backgroundColor: isDark ? T.bg : '#F5F6F8',
@@ -731,6 +738,10 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       flex: 1,
       minHeight: 0,
     },
+    chartTradeSheetCollapsedDragSurface: {
+      flex: 1,
+      minHeight: 0,
+    },
     chartTradeSheetHandleWrap: {
       alignItems: 'center',
       justifyContent: 'center',
@@ -738,11 +749,20 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingTop: 8,
       paddingBottom: 6,
     },
+    chartTradeSheetHandleWrapCompact: {
+      minHeight: 8,
+      paddingTop: 1,
+      paddingBottom: 1,
+    },
     chartTradeSheetHandle: {
       width: 52,
       height: 5,
       borderRadius: 999,
       backgroundColor: isDark ? 'rgba(148,163,184,0.5)' : '#CBD5E1',
+    },
+    chartTradeSheetHandleCompact: {
+      width: 44,
+      height: 4,
     },
     chartTradeQuickBar: {
       flexDirection: 'row',
@@ -817,10 +837,17 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingTop: 8,
       paddingBottom: 6,
     },
+    chartTradeSheetHeaderCompact: {
+      paddingTop: 1,
+      paddingBottom: 1,
+    },
     chartTradeSheetSymbolBlock: {
       flex: 1,
       minWidth: 0,
       paddingRight: 10,
+    },
+    chartTradeSheetSymbolBlockCompact: {
+      paddingRight: 4,
     },
     chartTradeSheetSymbolRow: {
       flexDirection: 'row',

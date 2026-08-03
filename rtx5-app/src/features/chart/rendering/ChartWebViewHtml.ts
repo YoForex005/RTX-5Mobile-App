@@ -3986,14 +3986,19 @@ export const CH_HTML = `
         }
         try {
           var metrics = resolvePrimaryPaneMetrics();
+          var visiblePriceRange = resolveRightPriceScaleFallbackRange();
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'CHART_GEOMETRY',
+            dataContextSig: lastInitDataContextSig || '',
             plotArea: {
               left: metrics.leftAxisWidth,
               top: metrics.plotTop,
               width: metrics.paneWidth,
               height: metrics.plotHeight,
             },
+            priceRange: isValidPriceRange(visiblePriceRange)
+              ? { from: visiblePriceRange.from, to: visiblePriceRange.to }
+              : null,
           }));
           scheduleMovingVerticalGridUpdate();
           scheduleChartAxisDividersUpdate();
@@ -4244,6 +4249,7 @@ export const CH_HTML = `
         chartTradeLineDragDomRefreshFrame = null;
         lastChartTradeLineDragDomRefreshAt = Date.now();
         refreshOverlayDomLabels(_overlayPayload);
+        renderTradeLineMagnifier();
       }
 
       function scheduleTradeLineDragDomRefresh() {
@@ -4722,13 +4728,20 @@ export const CH_HTML = `
           }
           var prevTouchAction = el.style.touchAction;
           el.style.touchAction = 'none';
+          var startPointFromEvent = getClientPoint(event);
+          var startPoint = startPointFromEvent
+            ? getTradeLineDragPoint(startPointFromEvent.x, startPointFromEvent.y)
+            : null;
           activeTradeLineDrag = {
             dragKey: hit.dragKey,
             lastPrice: typeof startPrice === 'number' && isFinite(startPrice) ? startPrice : hit.price,
+            pointerX: startPoint && typeof startPoint.x === 'number' ? startPoint.x : null,
+            pointerY: startPoint && typeof startPoint.y === 'number' ? startPoint.y : hit.y,
             pointerId: capturedPointerId,
             prevTouchAction: prevTouchAction,
             priceScaleRangeLock: captureTradeLineDragPriceScaleLock(),
           };
+          prepareTradeLineMagnifierSources();
           suspendChartTouchInteractions();
           pendingPointerTap = null;
           vertPanState = null;
@@ -4766,6 +4779,11 @@ export const CH_HTML = `
             stopChartEvent(event);
             return true;
           }
+          activeTradeLineDrag.pointerX = point.x;
+          activeTradeLineDrag.pointerY = point.y;
+          // The pointer can move while a rounded/edge-clamped price stays the
+          // same. Refresh the loupe independently so it never lags the finger.
+          scheduleTradeLineDragDomRefresh();
           var nextPrice = resolveTradeLineDragPrice(point);
           if (typeof nextPrice === 'number' && isFinite(nextPrice) && nextPrice > 0) {
             if (activeTradeLineDrag.lastPrice !== nextPrice) {
@@ -4788,6 +4806,8 @@ export const CH_HTML = `
           if (!activeTradeLineDrag) return false;
           var drag = activeTradeLineDrag;
           activeTradeLineDrag = null;
+          hideTradeLineMagnifier();
+          discardTradeLineMagnifierSources();
           // Release the pointer capture and restore the original touch
           // action so the chart resumes its normal pan/scroll behaviour.
           if (drag.pointerId !== null && drag.pointerId !== undefined && typeof el.releasePointerCapture === 'function') {
@@ -5208,6 +5228,8 @@ export const CH_HTML = `
           syntheticRightPriceScaleFallbackRange = null;
           rightPriceScaleGestureActive = false;
           activeTradeLineDrag = null;
+          hideTradeLineMagnifier();
+          discardTradeLineMagnifierSources();
           suppressNextChartClickUntil = 0;
           suppressChartTapUntil = 0;
           chartTouchInteractionSuspendDepth = 0;
@@ -6049,6 +6071,7 @@ export const CH_HTML = `
           moveDirectionPriceLine = null;
           _positionLinesArr = [];
         }
+        discardTradeLineMagnifier();
         if (_overlayLabelLayer && _overlayLabelLayer.parentNode) {
           try { _overlayLabelLayer.parentNode.removeChild(_overlayLabelLayer); } catch (_e) {}
           _overlayLabelLayer = null;
@@ -7814,13 +7837,21 @@ export const CH_HTML = `
       var TRADE_LINE_DRAG_HIT_SLOP = 30;
       var CHART_TRADE_LINE_DRAG_NATIVE_MOVE_INTERVAL_MS = 96;
       // The dragged price line itself moves every pointermove (lightweight-charts
-      // coalesces its own paints to one frame), but the floating price label is
-      // redrawn by refreshOverlayDomLabels, gated by this interval. At 64ms the
-      // label visibly lagged the line (~15fps) and the drag felt stuttery.
+      // coalesces its own paints to one frame), while the custom anchored line
+      // is redrawn by refreshOverlayDomLabels. Its text and price value remain
+      // hidden until the drag finishes.
       // scheduleTradeLineDragDomRefresh already coalesces through requestAnimationFrame,
       // so this can never rebuild more than once per frame — lowering the floor to
-      // one frame (~60fps) just lets the label keep pace with the line.
+      // one frame (~60fps) keeps the visible horizontal guide tracking the finger.
       var CHART_TRADE_LINE_DRAG_DOM_REFRESH_INTERVAL_MS = 16;
+      var TRADE_LINE_MAGNIFIER_SIZE = 120;
+      var TRADE_LINE_MAGNIFIER_ZOOM = 2.25;
+      var TRADE_LINE_MAGNIFIER_GAP = 22;
+      var TRADE_LINE_MAGNIFIER_EDGE_PADDING = 8;
+      var _tradeLineMagnifier = null;
+      var _tradeLineMagnifierCanvas = null;
+      var _tradeLineMagnifierSourceCanvases = [];
+      var _tradeLineMagnifierChartRect = null;
 
       function clearOverlayPriceLines() {
         if (series) {
@@ -7834,6 +7865,8 @@ export const CH_HTML = `
         // payload cannot skip recreation against an empty canvas.
         _lastAppliedOverlayNativeSignature = '';
         activeTradeLineDrag = null;
+        hideTradeLineMagnifier();
+        discardTradeLineMagnifierSources();
         chartTouchInteractionSuspendDepth = 0;
       }
 
@@ -7869,12 +7902,16 @@ export const CH_HTML = `
       function clearOverlayDomLabels() {
         if (!_overlayLabelLayer) {
           _overlayDomNodesByKey = Object.create(null);
+          discardTradeLineMagnifier();
           return;
         }
         while (_overlayLabelLayer.firstChild) {
           _overlayLabelLayer.removeChild(_overlayLabelLayer.firstChild);
         }
         _overlayDomNodesByKey = Object.create(null);
+        _tradeLineMagnifier = null;
+        _tradeLineMagnifierCanvas = null;
+        discardTradeLineMagnifierSources();
       }
 
       function upsertOverlayDomNode(layer, key, className) {
@@ -8097,6 +8134,344 @@ export const CH_HTML = `
             return line;
           }),
         });
+      }
+
+      function isActiveSltpDragLine(line) {
+        if (
+          !activeTradeLineDrag ||
+          !line ||
+          typeof line.dragKey !== 'string' ||
+          line.dragKey !== activeTradeLineDrag.dragKey
+        ) {
+          return false;
+        }
+        return line.dragKey === 'sl' ||
+          line.dragKey === 'tp' ||
+          /^position-stop:(?:sl|tp):/.test(line.dragKey);
+      }
+
+      function resolveActiveSltpDragLine() {
+        if (!activeTradeLineDrag) return null;
+        var lines = Array.isArray(_overlayPayload && _overlayPayload.priceLines)
+          ? _overlayPayload.priceLines
+          : [];
+        for (var i = 0; i < lines.length; i++) {
+          if (isActiveSltpDragLine(lines[i])) {
+            return lines[i];
+          }
+        }
+        return null;
+      }
+
+      function discardTradeLineMagnifierSources() {
+        _tradeLineMagnifierSourceCanvases = [];
+        _tradeLineMagnifierChartRect = null;
+      }
+
+      function hideTradeLineMagnifier() {
+        if (_tradeLineMagnifier) {
+          _tradeLineMagnifier.style.display = 'none';
+        }
+      }
+
+      function discardTradeLineMagnifier() {
+        hideTradeLineMagnifier();
+        if (_tradeLineMagnifier && _tradeLineMagnifier.parentNode) {
+          try {
+            _tradeLineMagnifier.parentNode.removeChild(_tradeLineMagnifier);
+          } catch (_e) {}
+        }
+        _tradeLineMagnifier = null;
+        _tradeLineMagnifierCanvas = null;
+        discardTradeLineMagnifierSources();
+      }
+
+      function ensureTradeLineMagnifier(layer) {
+        if (!layer) return null;
+        if (
+          _tradeLineMagnifier &&
+          _tradeLineMagnifierCanvas &&
+          _tradeLineMagnifier.parentNode === layer
+        ) {
+          return _tradeLineMagnifier;
+        }
+        _tradeLineMagnifier = document.createElement('div');
+        _tradeLineMagnifier.className = 'rtx5-trade-line-magnifier';
+        _tradeLineMagnifier.setAttribute('data-rtx5-role', 'trade-line-magnifier');
+        _tradeLineMagnifier.setAttribute('aria-hidden', 'true');
+        _tradeLineMagnifier.style.position = 'absolute';
+        _tradeLineMagnifier.style.left = '0';
+        _tradeLineMagnifier.style.top = '0';
+        _tradeLineMagnifier.style.width = TRADE_LINE_MAGNIFIER_SIZE + 'px';
+        _tradeLineMagnifier.style.height = TRADE_LINE_MAGNIFIER_SIZE + 'px';
+        _tradeLineMagnifier.style.boxSizing = 'border-box';
+        _tradeLineMagnifier.style.border = '2px solid #2962FF';
+        _tradeLineMagnifier.style.borderRadius = '50%';
+        _tradeLineMagnifier.style.overflow = 'hidden';
+        _tradeLineMagnifier.style.background = lastChartBackgroundColor || '#FFFFFF';
+        _tradeLineMagnifier.style.boxShadow = '0 4px 14px rgba(15, 23, 42, 0.28)';
+        _tradeLineMagnifier.style.pointerEvents = 'none';
+        _tradeLineMagnifier.style.zIndex = '70';
+        _tradeLineMagnifier.style.willChange = 'transform';
+        _tradeLineMagnifier.style.display = 'none';
+
+        _tradeLineMagnifierCanvas = document.createElement('canvas');
+        _tradeLineMagnifierCanvas.className = 'rtx5-trade-line-magnifier-canvas';
+        _tradeLineMagnifierCanvas.setAttribute('aria-hidden', 'true');
+        _tradeLineMagnifierCanvas.style.position = 'absolute';
+        _tradeLineMagnifierCanvas.style.left = '0';
+        _tradeLineMagnifierCanvas.style.top = '0';
+        _tradeLineMagnifierCanvas.style.width = '100%';
+        _tradeLineMagnifierCanvas.style.height = '100%';
+        _tradeLineMagnifierCanvas.style.borderRadius = '50%';
+        _tradeLineMagnifierCanvas.style.pointerEvents = 'none';
+        _tradeLineMagnifier.appendChild(_tradeLineMagnifierCanvas);
+        layer.appendChild(_tradeLineMagnifier);
+        return _tradeLineMagnifier;
+      }
+
+      function prepareTradeLineMagnifierSources() {
+        discardTradeLineMagnifierSources();
+        if (!resolveActiveSltpDragLine()) {
+          hideTradeLineMagnifier();
+          return;
+        }
+        var chartElement = document.getElementById('chart');
+        if (!chartElement || typeof chartElement.querySelectorAll !== 'function') return;
+        var chartRect = typeof chartElement.getBoundingClientRect === 'function'
+          ? chartElement.getBoundingClientRect()
+          : null;
+        if (!chartRect || !(chartRect.width > 0) || !(chartRect.height > 0)) return;
+        _tradeLineMagnifierChartRect = {
+          left: chartRect.left,
+          top: chartRect.top,
+          right: chartRect.right,
+          bottom: chartRect.bottom,
+          width: chartRect.width,
+          height: chartRect.height,
+        };
+        var canvases = chartElement.querySelectorAll('canvas');
+        for (var canvasIndex = 0; canvasIndex < canvases.length; canvasIndex++) {
+          var sourceCanvas = canvases[canvasIndex];
+          if (
+            !sourceCanvas ||
+            sourceCanvas === _tradeLineMagnifierCanvas ||
+            isCustomRightPriceScaleOverlayNode(sourceCanvas)
+          ) {
+            continue;
+          }
+          var sourceRect = typeof sourceCanvas.getBoundingClientRect === 'function'
+            ? sourceCanvas.getBoundingClientRect()
+            : null;
+          if (
+            !sourceRect ||
+            !(sourceRect.width > 0) ||
+            !(sourceRect.height > 0) ||
+            !(sourceCanvas.width > 0) ||
+            !(sourceCanvas.height > 0)
+          ) {
+            continue;
+          }
+          _tradeLineMagnifierSourceCanvases.push({
+            canvas: sourceCanvas,
+            left: sourceRect.left,
+            top: sourceRect.top,
+            right: sourceRect.right,
+            bottom: sourceRect.bottom,
+            scaleX: sourceCanvas.width / sourceRect.width,
+            scaleY: sourceCanvas.height / sourceRect.height,
+          });
+        }
+      }
+
+      function clampTradeLineMagnifierValue(value, minimum, maximum) {
+        return Math.max(minimum, Math.min(maximum, value));
+      }
+
+      function resolveTradeLineMagnifierGeometry(layer, lineY) {
+        if (!layer || !activeTradeLineDrag) return null;
+        var chartWidth = Math.max(0, layer.clientWidth || 0);
+        var chartHeight = Math.max(0, layer.clientHeight || 0);
+        var size = TRADE_LINE_MAGNIFIER_SIZE;
+        var padding = TRADE_LINE_MAGNIFIER_EDGE_PADDING;
+        if (chartWidth < size + padding * 2 || chartHeight < size + padding * 2) return null;
+
+        var metrics = resolvePrimaryPaneMetrics();
+        var plotLeft = clampTradeLineMagnifierValue(
+          Math.round(metrics && metrics.leftAxisWidth ? metrics.leftAxisWidth : 0),
+          0,
+          chartWidth
+        );
+        var plotRight = clampTradeLineMagnifierValue(
+          plotLeft + Math.round(metrics && metrics.paneWidth ? metrics.paneWidth : chartWidth - plotLeft),
+          plotLeft,
+          chartWidth
+        );
+        var plotTop = clampTradeLineMagnifierValue(
+          Math.round(metrics && metrics.plotTop ? metrics.plotTop : 0),
+          0,
+          chartHeight
+        );
+        var plotBottom = clampTradeLineMagnifierValue(
+          plotTop + Math.round(metrics && metrics.plotHeight ? metrics.plotHeight : chartHeight - plotTop),
+          plotTop,
+          chartHeight
+        );
+        if (plotRight - plotLeft < size + padding * 2) {
+          plotLeft = 0;
+          plotRight = chartWidth;
+        }
+        if (plotBottom - plotTop < size + padding * 2) {
+          plotTop = 0;
+          plotBottom = chartHeight;
+        }
+
+        var pointerX = typeof activeTradeLineDrag.pointerX === 'number' && isFinite(activeTradeLineDrag.pointerX)
+          ? activeTradeLineDrag.pointerX
+          : (plotLeft + plotRight) / 2;
+        var sampleX = clampTradeLineMagnifierValue(pointerX, plotLeft, plotRight);
+        var sampleY = clampTradeLineMagnifierValue(lineY, plotTop, plotBottom);
+        var minLeft = Math.max(padding, plotLeft + padding);
+        var maxLeft = Math.max(minLeft, Math.min(chartWidth - size - padding, plotRight - size - padding));
+        var minTop = Math.max(padding, plotTop + padding);
+        var maxTop = Math.max(minTop, Math.min(chartHeight - size - padding, plotBottom - size - padding));
+
+        var preferredLeft = sampleX + TRADE_LINE_MAGNIFIER_GAP;
+        if (preferredLeft + size > plotRight - padding) {
+          preferredLeft = sampleX - size - TRADE_LINE_MAGNIFIER_GAP;
+        }
+        var preferredTop = sampleY - size - TRADE_LINE_MAGNIFIER_GAP;
+        if (preferredTop < plotTop + padding) {
+          preferredTop = sampleY + TRADE_LINE_MAGNIFIER_GAP;
+        }
+        return {
+          left: clampTradeLineMagnifierValue(preferredLeft, minLeft, maxLeft),
+          top: clampTradeLineMagnifierValue(preferredTop, minTop, maxTop),
+          sampleX: sampleX,
+          sampleY: sampleY,
+          size: size,
+        };
+      }
+
+      function drawTradeLineMagnifierChartContent(canvas, geometry, activeLine) {
+        if (!canvas || !geometry || !activeLine || !_tradeLineMagnifierChartRect) return false;
+        var context = typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null;
+        if (!context) return false;
+        var cssSize = geometry.size;
+        var pixelRatio = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+        var backingSize = Math.max(1, Math.round(cssSize * pixelRatio));
+        if (canvas.width !== backingSize || canvas.height !== backingSize) {
+          canvas.width = backingSize;
+          canvas.height = backingSize;
+        }
+        context.setTransform(1, 0, 0, 1, 0, 0);
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        context.imageSmoothingEnabled = true;
+        try { context.imageSmoothingQuality = 'high'; } catch (_e) {}
+        context.save();
+        context.beginPath();
+        context.arc(cssSize / 2, cssSize / 2, cssSize / 2 - 2, 0, Math.PI * 2);
+        context.clip();
+        context.fillStyle = lastChartBackgroundColor || '#FFFFFF';
+        context.fillRect(0, 0, cssSize, cssSize);
+
+        var sourceSpan = cssSize / TRADE_LINE_MAGNIFIER_ZOOM;
+        var sourceLeft = _tradeLineMagnifierChartRect.left + geometry.sampleX - sourceSpan / 2;
+        var sourceTop = _tradeLineMagnifierChartRect.top + geometry.sampleY - sourceSpan / 2;
+        var sourceRight = sourceLeft + sourceSpan;
+        var sourceBottom = sourceTop + sourceSpan;
+        for (var sourceIndex = 0; sourceIndex < _tradeLineMagnifierSourceCanvases.length; sourceIndex++) {
+          var source = _tradeLineMagnifierSourceCanvases[sourceIndex];
+          if (!source || !source.canvas || source.canvas === canvas || !source.canvas.parentNode) continue;
+          var intersectionLeft = Math.max(sourceLeft, source.left);
+          var intersectionTop = Math.max(sourceTop, source.top);
+          var intersectionRight = Math.min(sourceRight, source.right);
+          var intersectionBottom = Math.min(sourceBottom, source.bottom);
+          if (!(intersectionRight > intersectionLeft) || !(intersectionBottom > intersectionTop)) continue;
+          var sourceX = (intersectionLeft - source.left) * source.scaleX;
+          var sourceY = (intersectionTop - source.top) * source.scaleY;
+          var sourceWidth = (intersectionRight - intersectionLeft) * source.scaleX;
+          var sourceHeight = (intersectionBottom - intersectionTop) * source.scaleY;
+          var destinationX = (intersectionLeft - sourceLeft) * TRADE_LINE_MAGNIFIER_ZOOM;
+          var destinationY = (intersectionTop - sourceTop) * TRADE_LINE_MAGNIFIER_ZOOM;
+          var destinationWidth = (intersectionRight - intersectionLeft) * TRADE_LINE_MAGNIFIER_ZOOM;
+          var destinationHeight = (intersectionBottom - intersectionTop) * TRADE_LINE_MAGNIFIER_ZOOM;
+          try {
+            context.drawImage(
+              source.canvas,
+              sourceX,
+              sourceY,
+              sourceWidth,
+              sourceHeight,
+              destinationX,
+              destinationY,
+              destinationWidth,
+              destinationHeight
+            );
+          } catch (_drawErr) {}
+        }
+
+        // The active trade guide is DOM-owned, so it is not present in the
+        // Lightweight Charts canvases. Paint only that line in the lens;
+        // its label/value deliberately remain hidden for the whole drag.
+        var guideColor = activeLine.color || '#2962FF';
+        var guideWidth = Math.max(2, (Number(activeLine.lineWidth) || 1) * TRADE_LINE_MAGNIFIER_ZOOM);
+        var guideStyle = resolveOverlayDomLineBorderStyle(activeLine.lineStyle);
+        context.setLineDash(guideStyle === 'dotted' ? [2, 3] : (guideStyle === 'dashed' ? [7, 5] : []));
+        context.lineWidth = guideWidth;
+        context.strokeStyle = guideColor;
+        context.beginPath();
+        context.moveTo(0, cssSize / 2);
+        context.lineTo(cssSize, cssSize / 2);
+        context.stroke();
+        context.setLineDash([]);
+        context.fillStyle = guideColor;
+        context.beginPath();
+        context.arc(cssSize / 2, cssSize / 2, 3, 0, Math.PI * 2);
+        context.fill();
+        context.restore();
+        return true;
+      }
+
+      function renderTradeLineMagnifier() {
+        try {
+          var activeLine = resolveActiveSltpDragLine();
+          if (!activeLine || !series || typeof series.priceToCoordinate !== 'function') {
+            hideTradeLineMagnifier();
+            return;
+          }
+          if (_tradeLineMagnifierSourceCanvases.length === 0 || !_tradeLineMagnifierChartRect) {
+            prepareTradeLineMagnifierSources();
+          }
+          var lineY = series.priceToCoordinate(activeTradeLineDrag.lastPrice);
+          if (typeof lineY !== 'number' || !isFinite(lineY)) {
+            lineY = activeTradeLineDrag.pointerY;
+          }
+          if (typeof lineY !== 'number' || !isFinite(lineY)) {
+            hideTradeLineMagnifier();
+            return;
+          }
+          var layer = ensureOverlayLabelLayer();
+          var magnifier = ensureTradeLineMagnifier(layer);
+          var geometry = resolveTradeLineMagnifierGeometry(layer, lineY);
+          if (
+            !magnifier ||
+            !geometry ||
+            !drawTradeLineMagnifierChartContent(_tradeLineMagnifierCanvas, geometry, activeLine)
+          ) {
+            hideTradeLineMagnifier();
+            return;
+          }
+          magnifier.style.width = geometry.size + 'px';
+          magnifier.style.height = geometry.size + 'px';
+          magnifier.style.background = lastChartBackgroundColor || '#FFFFFF';
+          magnifier.style.borderColor = activeLine.color || '#2962FF';
+          magnifier.style.transform = 'translate3d(' + Math.round(geometry.left) + 'px,' + Math.round(geometry.top) + 'px,0)';
+          magnifier.style.display = 'block';
+        } catch (_magnifierErr) {
+          hideTradeLineMagnifier();
+        }
       }
 
       function updateDraggedOverlayLinePreview(dragKey, price) {
@@ -8574,11 +8949,13 @@ export const CH_HTML = `
             var labelRecord = {
               color: ln.color || '#2962FF',
               drawAnchoredTradeLine: ln.labelPlacement === 'line',
+              dragKey: typeof ln.dragKey === 'string' ? ln.dragKey : '',
               id: ln.id || '',
               labelSideColor: typeof ln.labelSideColor === 'string' && ln.labelSideColor ? ln.labelSideColor : '',
               labelSideText: typeof ln.labelSideText === 'string' ? ln.labelSideText : '',
               labelValueColor: typeof ln.labelValueColor === 'string' && ln.labelValueColor ? ln.labelValueColor : '',
               labelValueText: typeof ln.labelValueText === 'string' ? ln.labelValueText : '',
+              labelMinTop: typeof ln.labelMinTop === 'number' && isFinite(ln.labelMinTop) ? ln.labelMinTop : null,
               lineStyle: typeof ln.lineStyle === 'number' ? ln.lineStyle : 0,
               lineWidth: typeof ln.lineWidth === 'number' ? ln.lineWidth : 1,
               text: String(ln.title),
@@ -8604,6 +8981,12 @@ export const CH_HTML = `
           var anchoredTops = [];
           for (var anchoredTopIndex = 0; anchoredTopIndex < anchoredLabels.length; anchoredTopIndex++) {
             var anchoredDesiredTop = Math.round(anchoredLabels[anchoredTopIndex].y - OVERLAY_LABEL_LINE_HEIGHT - OVERLAY_LABEL_LINE_GAP);
+            var anchoredLabelMinTop = anchoredLabels[anchoredTopIndex].labelMinTop;
+            var anchoredLineIsVisible = anchoredLabels[anchoredTopIndex].y >= 0 &&
+              anchoredLabels[anchoredTopIndex].y <= (layer.clientHeight || 0);
+            if (anchoredLineIsVisible && typeof anchoredLabelMinTop === 'number' && isFinite(anchoredLabelMinTop)) {
+              anchoredDesiredTop = Math.max(anchoredDesiredTop, Math.round(anchoredLabelMinTop));
+            }
             anchoredTops[anchoredTopIndex] = anchoredDesiredTop;
           }
           var anchoredLefts = resolveAnchoredOverlayLabelLefts(anchoredLabels, anchoredTops, layer);
@@ -8687,7 +9070,9 @@ export const CH_HTML = `
             var lineKey = 'line:' + (anchoredItem.id || anchoredIndex);
             liveOverlayKeys.push(lineKey);
             renderAnchoredTradeLine(layer, anchoredItem, lineKey);
-            renderLabel(anchoredItem, anchoredTop, anchoredLefts[anchoredIndex], 'label:anchored:' + (anchoredItem.id || anchoredIndex));
+            if (!isActiveSltpDragLine(anchoredItem)) {
+              renderLabel(anchoredItem, anchoredTop, anchoredLefts[anchoredIndex], 'label:anchored:' + (anchoredItem.id || anchoredIndex));
+            }
           }
 
           // MT5-parity: render OUTLINED right-axis price box for every
@@ -8707,6 +9092,7 @@ export const CH_HTML = `
           for (var pi = 0; pi < lines.length; pi++) {
             var pln = lines[pi];
             if (!pln || typeof pln.id !== 'string' || !POSITION_BOX_ID.test(pln.id)) continue;
+            if (isActiveSltpDragLine(pln)) continue;
             if (typeof pln.price !== 'number' || !isFinite(pln.price)) continue;
             if (typeof series.priceToCoordinate !== 'function') continue;
             var boxKey = Number(pln.price).toFixed(boxDecimals);

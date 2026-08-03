@@ -32,6 +32,39 @@ const chartTradeControlsSource = (() => {
   }
   return readFileSync(filePath, 'utf8');
 })();
+const chartStylesSource = (() => {
+  const candidates = [
+    resolve(process.cwd(), 'src/features/chart/ChartScreen.styles.ts'),
+    resolve(process.cwd(), 'rtx5-app/src/features/chart/ChartScreen.styles.ts'),
+  ];
+  const filePath = candidates.find((candidate) => existsSync(candidate));
+  if (!filePath) {
+    throw new Error('ChartScreen.styles.ts was not found from the test working directory');
+  }
+  return readFileSync(filePath, 'utf8');
+})();
+const chartTradeSheetPortalSource = (() => {
+  const candidates = [
+    resolve(process.cwd(), 'src/ui/navigation/ChartTradeSheetPortal.tsx'),
+    resolve(process.cwd(), 'rtx5-app/src/ui/navigation/ChartTradeSheetPortal.tsx'),
+  ];
+  const filePath = candidates.find((candidate) => existsSync(candidate));
+  if (!filePath) {
+    throw new Error('ChartTradeSheetPortal.tsx was not found from the test working directory');
+  }
+  return readFileSync(filePath, 'utf8');
+})();
+const tabsLayoutSource = (() => {
+  const candidates = [
+    resolve(process.cwd(), 'app/(tabs)/_layout.tsx'),
+    resolve(process.cwd(), 'rtx5-app/app/(tabs)/_layout.tsx'),
+  ];
+  const filePath = candidates.find((candidate) => existsSync(candidate));
+  if (!filePath) {
+    throw new Error('tabs layout was not found from the test working directory');
+  }
+  return readFileSync(filePath, 'utf8');
+})();
 
 const extractAssignedFunctionBody = (sourceText: string, functionName: string): string => {
   const functionStart = sourceText.indexOf(`var ${functionName} = function`);
@@ -261,7 +294,7 @@ test('SL and TP drag coalesces native move messages for smooth WebView movement'
   );
 });
 
-test('SL and TP drag throttles label redraw separately from the local line movement', () => {
+test('SL and TP drag throttles DOM-line redraw separately from the local line movement', () => {
   const updatePreviewBody = extractFunctionBody(source, 'updateDraggedOverlayLinePreview');
   const continueDragStart = source.indexOf('var continueTradeLineDrag = function');
   const continueDragEnd = source.indexOf('var finishTradeLineDrag = function');
@@ -273,7 +306,7 @@ test('SL and TP drag throttles label redraw separately from the local line movem
   assertSourceContains(
     source,
     /var CHART_TRADE_LINE_DRAG_DOM_REFRESH_INTERVAL_MS = 16/,
-    'drag label redraws must be throttled separately from price-line movement',
+    'drag DOM-line redraws must be throttled separately from native price-line movement',
   );
   assertSourceContains(
     updatePreviewBody,
@@ -288,7 +321,7 @@ test('SL and TP drag throttles label redraw separately from the local line movem
   assertSourceContains(
     domRefreshBody,
     /CHART_TRADE_LINE_DRAG_DOM_REFRESH_INTERVAL_MS - \(now - lastChartTradeLineDragDomRefreshAt\)/,
-    'drag label redraws must be time-throttled while the finger is moving',
+    'drag DOM-line redraws must be time-throttled while the finger is moving',
   );
 });
 
@@ -300,6 +333,122 @@ test('SL and TP drag moves the line while keeping right-axis badges hidden', () 
     /entry\.api\.applyOptions\(\{\s*price: price,\s*axisLabelVisible: false,\s*title: '',\s*\}\)/,
     'local SL/TP drag preview must move the price line without painting a right-axis badge',
   );
+});
+
+test('SL and TP drag hides only the active label and price value while retaining its line', () => {
+  const activeDragBody = extractFunctionBody(source, 'isActiveSltpDragLine');
+  const refreshBody = extractFunctionBody(source, 'refreshOverlayDomLabels(payload)');
+  const finishDragBody = extractAssignedFunctionBody(source, 'finishTradeLineDrag');
+
+  assertSourceContains(
+    activeDragBody,
+    /line\.dragKey !== activeTradeLineDrag\.dragKey[\s\S]*line\.dragKey === 'sl'[\s\S]*line\.dragKey === 'tp'[\s\S]*\/\^position-stop:\(\?:sl\|tp\):\//,
+    'only the exact active draft or existing-position SL/TP line may suppress its text',
+  );
+  assertSourceContains(
+    refreshBody,
+    /renderAnchoredTradeLine\(layer, anchoredItem, lineKey\);[\s\S]*if \(!isActiveSltpDragLine\(anchoredItem\)\) \{[\s\S]*renderLabel\(anchoredItem/,
+    'active SL/TP drag must retain the horizontal line while omitting its label and value',
+  );
+  assertSourceContains(
+    refreshBody,
+    /if \(isActiveSltpDragLine\(pln\)\) continue;/,
+    'the active SL/TP right-axis price value must also stay hidden during drag',
+  );
+  assertSourceContains(
+    finishDragBody,
+    /activeTradeLineDrag = null;[\s\S]*scheduleTradeLineDragDomRefresh\(\)/,
+    'ending or cancelling the drag must restore the label from the retained payload',
+  );
+});
+
+test('SL and TP drag magnifier follows only the exact active protection line and always cleans up', () => {
+  const resolveMagnifierLineBody = extractFunctionBody(source, 'resolveActiveSltpDragLine');
+  const beginDragBody = extractAssignedFunctionBody(source, 'beginTradeLineDrag');
+  const continueDragBody = extractAssignedFunctionBody(source, 'continueTradeLineDrag');
+  const finishDragBody = extractAssignedFunctionBody(source, 'finishTradeLineDrag');
+  const clearLinesBody = extractFunctionBody(source, 'clearOverlayPriceLines');
+
+  assertSourceContains(
+    resolveMagnifierLineBody,
+    /if \(isActiveSltpDragLine\(lines\[i\]\)\) \{\s*return lines\[i\];/,
+    'the magnifier must reuse the exact SL/TP drag-key gate instead of appearing for entry or pending lines',
+  );
+  assertSourceContains(
+    beginDragBody,
+    /pointerX: startPoint[\s\S]*pointerY: startPoint[\s\S]*prepareTradeLineMagnifierSources\(\)/,
+    'drag start must seed the magnifier at the captured pointer and prepare its local chart sources',
+  );
+  assertSourceContains(
+    continueDragBody,
+    /activeTradeLineDrag\.pointerX = point\.x[\s\S]*activeTradeLineDrag\.pointerY = point\.y[\s\S]*scheduleTradeLineDragDomRefresh\(\)[\s\S]*var nextPrice = resolveTradeLineDragPrice\(point\)/,
+    'the magnifier must keep following every pointer move even when the resolved price is unchanged',
+  );
+  assertSourceContains(
+    finishDragBody,
+    /activeTradeLineDrag = null;[\s\S]*hideTradeLineMagnifier\(\)[\s\S]*discardTradeLineMagnifierSources\(\)[\s\S]*if \(!cancelled\)/,
+    'release and cancellation must synchronously hide the magnifier before either finish path continues',
+  );
+  assertSourceContains(
+    clearLinesBody,
+    /activeTradeLineDrag = null;[\s\S]*hideTradeLineMagnifier\(\)[\s\S]*discardTradeLineMagnifierSources\(\)/,
+    'overlay teardown must not strand a magnifier after its SL/TP line disappears',
+  );
+  assertSourceContains(
+    source,
+    /detachChartTapListeners = function\(\) \{[\s\S]*activeTradeLineDrag = null;[\s\S]*hideTradeLineMagnifier\(\)[\s\S]*discardTradeLineMagnifierSources\(\)/,
+    'chart listener teardown must remove the magnifier and its cached canvas references',
+  );
+});
+
+test('SL and TP drag magnifier enlarges live chart canvases sharply and stays inside the plot', () => {
+  const ensureMagnifierBody = extractFunctionBody(source, 'ensureTradeLineMagnifier');
+  const prepareSourcesBody = extractFunctionBody(source, 'prepareTradeLineMagnifierSources');
+  const geometryBody = extractFunctionBody(source, 'resolveTradeLineMagnifierGeometry');
+  const drawBody = extractFunctionBody(source, 'drawTradeLineMagnifierChartContent');
+  const flushBody = extractFunctionBody(source, 'flushTradeLineDragDomRefresh');
+
+  assertSourceContains(
+    source,
+    /var TRADE_LINE_MAGNIFIER_SIZE = 120;[\s\S]*var TRADE_LINE_MAGNIFIER_ZOOM = 2\.25;/,
+    'the loupe must use a source crop smaller than its visible destination',
+  );
+  assertSourceContains(
+    ensureMagnifierBody,
+    /document\.createElement\('canvas'\)[\s\S]*pointerEvents = 'none'[\s\S]*layer\.appendChild\(_tradeLineMagnifier\)/,
+    'the reusable magnifier canvas must remain non-interactive inside the WebView overlay layer',
+  );
+  assertSourceContains(
+    prepareSourcesBody,
+    /chartElement\.querySelectorAll\('canvas'\)[\s\S]*sourceCanvas === _tradeLineMagnifierCanvas[\s\S]*isCustomRightPriceScaleOverlayNode\(sourceCanvas\)/,
+    'the magnifier must cache real chart canvases while excluding itself and custom DOM overlays',
+  );
+  assertSourceContains(
+    drawBody,
+    /sourceSpan = cssSize \/ TRADE_LINE_MAGNIFIER_ZOOM[\s\S]*context\.drawImage\([\s\S]*destinationWidth[\s\S]*destinationHeight/,
+    'the loupe must composite a magnified crop rather than render a decorative empty circle',
+  );
+  assertSourceContains(
+    drawBody,
+    /window\.devicePixelRatio[\s\S]*canvas\.width = backingSize[\s\S]*context\.setTransform\(pixelRatio/,
+    'the magnified chart must use a DPR-backed canvas so it stays sharp on Android',
+  );
+  assertSourceContains(
+    drawBody,
+    /context\.moveTo\(0, cssSize \/ 2\)[\s\S]*context\.lineTo\(cssSize, cssSize \/ 2\)[\s\S]*context\.stroke\(\)/,
+    'the DOM-owned active SL/TP line must be redrawn through the center of the magnified crop',
+  );
+  assertSourceContains(
+    geometryBody,
+    /sampleX = clampTradeLineMagnifierValue\(pointerX, plotLeft, plotRight\)[\s\S]*sampleY = clampTradeLineMagnifierValue\(lineY, plotTop, plotBottom\)[\s\S]*left: clampTradeLineMagnifierValue\(preferredLeft, minLeft, maxLeft\)[\s\S]*top: clampTradeLineMagnifierValue\(preferredTop, minTop, maxTop\)/,
+    'both the sampled chart point and visible magnifier must stay within the chart plot at every edge',
+  );
+  assertSourceContains(
+    flushBody,
+    /refreshOverlayDomLabels\(_overlayPayload\)[\s\S]*renderTradeLineMagnifier\(\)/,
+    'the magnifier must reuse the existing frame-coalesced drag refresh path',
+  );
+  assert.doesNotMatch(drawBody, /getImageData|toDataURL|postMessage|requestAnimationFrame/, 'the loupe must avoid pixel readback, bridge traffic, and a competing animation loop');
 });
 
 test('SL and TP drag preserves the active WebView price while native overlays resync', () => {
@@ -364,11 +513,21 @@ test('pending chart CTA submits the pending order and then exposes chart-side le
   }
 });
 
-test('collapsed SL/TP sheet keeps full frame height and translateY so header tabs stay visible', () => {
+test('collapsed SL/TP sheet replaces only app-menu pixels below Sell/Lot/Buy', () => {
   assertSourceContains(
     source,
-    /const chartTradeSheetCollapsedHeight = 186/,
-    'collapsed SL/TP height must fit handle + symbol header + order-type tabs',
+    /const chartTradeSheetFullChromeMinimumHeight = 186/,
+    'expanded and fullscreen SL/TP geometry must retain the full-chrome minimum',
+  );
+  assertSourceContains(
+    source,
+    /const chartTradeSheetCollapsedHeight = resolveChartTradeSheetCollapsedHeight\(\{[\s\S]*bottomTabBarHeight: chartBottomTabBarHeight,[\s\S]*safeAreaBottom: safeInsets\.bottom,[\s\S]*portalEnabled: chartTradeSheetPortalEnabled,[\s\S]*nonPortalHeight: chartTradeSheetFullChromeMinimumHeight/,
+    'normal compact height must equal app-tab height minus the system safe area',
+  );
+  assertSourceContains(
+    source,
+    /resolveChartTradeSheetMaxHeight\(\{\s*collapsedHeight: chartTradeSheetFullChromeMinimumHeight,/,
+    'shrinking compact visibility must not shrink expanded-sheet geometry',
   );
   assertSourceContains(
     chartTradeFeatureSource,
@@ -382,7 +541,60 @@ test('collapsed SL/TP sheet keeps full frame height and translateY so header tab
   );
 });
 
-test('collapsed SL/TP sheet drag gesture covers the pinned header surface', () => {
+test('SL/TP sheet is hosted above app tabs and clipped at the system-safe boundary', () => {
+  assertSourceContains(
+    chartStylesSource,
+    /chartTradeSheetLayer:\s*\{[\s\S]*StyleSheet\.absoluteFillObject[\s\S]*justifyContent: 'flex-end'[\s\S]*overflow: 'hidden'/,
+    'the hosted sheet must clip its translated frame at the portal boundary',
+  );
+  assertSourceContains(
+    chartTradeFeatureSource,
+    /<ChartTradeSheetPortal[\s\S]*enabled=\{!!sheet\.chartTradeSheetPortalEnabled\}[\s\S]*styles\.chartTradeSheetLayer[\s\S]*styles\.chartTradeSheetFrame[\s\S]*sheet\.chartTradeSheetAnimatedStyle/,
+    'the one live sheet branch must render through the tabs-level portal',
+  );
+  const presentationStart = source.indexOf('const chartTradeSheetPresentationHostHeight');
+  const presentationEnd = source.indexOf('const chartTradeSheetHeaderLift', presentationStart);
+  assert.notEqual(presentationStart, -1, 'portal presentation-height block was not found');
+  assert.notEqual(presentationEnd, -1, 'portal presentation-height block was not terminated');
+  const presentationSource = source.slice(presentationStart, presentationEnd);
+  assertSourceContains(
+    presentationSource,
+    /resolveChartTradeSheetPortalHostHeight\(\{[\s\S]*hostHeight: resolvedChartTradeSheetHostHeight,[\s\S]*bottomTabBarHeight: chartBottomTabBarHeight,[\s\S]*safeAreaBottom: safeInsets\.bottom,[\s\S]*portalEnabled: chartTradeSheetPortalEnabled/,
+    'portal geometry must add app-tab pixels while preserving the system safe area',
+  );
+  assertSourceContains(
+    chartTradeSheetPortalSource,
+    /top: snapshot\.top[\s\S]*bottom: snapshot\.bottom[\s\S]*snapshot\.visible && styles\.entryVisible/,
+    'the portal entry must use measured Chart top and safe bottom boundaries',
+  );
+  assertSourceContains(
+    tabsLayoutSource,
+    /<ThemedTabsChrome[\s\S]*<ChartTradeSheetPortalHost \/>[\s\S]*<OrderTicketLaunchHost \/>[\s\S]*<GlobalActionSheetHost \/>/,
+    'the chart sheet host must sit above tab chrome and below higher-priority launch/action hosts',
+  );
+  assertSourceContains(
+    source,
+    /!isChartExpanded && showChartMarketExecutionFooter && chartOneClickPanelAtBottom && \(/,
+    'the canonical Sell/Lot/Buy row must remain mounted while compact SL/TP covers app tabs',
+  );
+  assertSourceContains(
+    source,
+    /const showInlineFooterWhileChartTradeSheetOpen = false/,
+    'the duplicate trade footer must remain disabled so it cannot lift the compact sheet',
+  );
+  assertSourceContains(
+    chartTradeFeatureSource,
+    /const compactForAppMenu =[\s\S]*chartTradeSheetPortalEnabled && sheet\.chartTradeSheetMode === 'collapsed'/,
+    'the portaled collapsed state must use compact header chrome',
+  );
+  assertSourceContains(
+    chartTradeFeatureSource,
+    /!compactForAppMenu \? \([\s\S]*styles\.chartTradeSheetSymbolMeta/,
+    'the compact header must omit the second symbol line so actions and tabs fit the menu area',
+  );
+});
+
+test('collapsed SL/TP sheet drag gesture covers the entire visible surface', () => {
   const visibleSheetStart = chartTradeFeatureSource.indexOf('{mountTradeSheet ? (');
   const visibleSheetBodyStart = chartTradeFeatureSource.indexOf('{showSheetBody ? (', visibleSheetStart);
   assert.notEqual(visibleSheetStart, -1, 'visible chart trade sheet branch was not found');
@@ -391,13 +603,88 @@ test('collapsed SL/TP sheet drag gesture covers the pinned header surface', () =
   const visibleSheetHeaderSource = chartTradeFeatureSource.slice(visibleSheetStart, visibleSheetBodyStart);
   assertSourceContains(
     visibleSheetHeaderSource,
-    /<GestureDetector gesture=\{sheet\.chartTradeSheetDragGesture\}>[\s\S]*<ChartTradeSheetDragHeader[\s\S]*<ChartTradeSheetPinnedHeader/,
-    'SL/TP sheet drag gesture must cover the visible pinned header, not only the tiny handle',
+    /<GestureDetector gesture=\{sheet\.chartTradeSheetDragGesture\}>\s*<View\s*collapsable=\{false\}\s*style=\{!showSheetBody \? styles\.chartTradeSheetCollapsedDragSurface : undefined\}[\s\S]*<ChartTradeSheetDragHeader[\s\S]*<ChartTradeSheetPinnedHeader/,
+    'the single SL/TP drag wrapper must fill collapsed blank space and cover the visible pinned header',
   );
 
   const dragDetectorCount =
     visibleSheetHeaderSource.match(/<GestureDetector gesture=\{sheet\.chartTradeSheetDragGesture\}>/g)?.length ?? 0;
   assert.equal(dragDetectorCount, 1, 'visible sheet header should use one gesture detector around handle and header');
+  const visibleSheetEnd = chartTradeFeatureSource.indexOf('{sheet.showHiddenInlineTradeSheet ? (', visibleSheetStart);
+  const visibleSheetSource = chartTradeFeatureSource.slice(visibleSheetStart, visibleSheetEnd);
+  const visibleSheetDragDetectorCount =
+    visibleSheetSource.match(/<GestureDetector gesture=\{sheet\.chartTradeSheetDragGesture\}>/g)?.length ?? 0;
+  assert.equal(
+    visibleSheetDragDetectorCount,
+    1,
+    'one gesture instance must be attached to only one visible-sheet GestureDetector',
+  );
+  const totalSheetDragDetectorCount =
+    chartTradeFeatureSource.match(/<GestureDetector gesture=\{sheet\.chartTradeSheetDragGesture\}>/g)?.length ?? 0;
+  assert.equal(
+    totalSheetDragDetectorCount,
+    1,
+    'the sheet pan gesture instance must not also attach to the display-none legacy branch',
+  );
+  assert.doesNotMatch(
+    source,
+    /<GestureDetector gesture=\{chartTradeSheetDragGesture\}>/,
+    'the display-none legacy Chart branch must not attach the visible sheet gesture a second time',
+  );
+  assertSourceContains(
+    chartStylesSource,
+    /chartTradeSheetCollapsedDragSurface:\s*\{\s*flex: 1,\s*minHeight: 0,\s*\}/,
+    'collapsed SL/TP drag surface must fill all space below the pinned header',
+  );
+  const dragGestureStart = source.indexOf('const chartTradeSheetDragGesture = useMemo');
+  const dragGestureEnd = source.indexOf('const isPendingChartOrder =', dragGestureStart);
+  assert.notEqual(dragGestureStart, -1, 'chart trade sheet drag gesture was not found');
+  assert.notEqual(dragGestureEnd, -1, 'chart trade sheet drag gesture end was not found');
+  const dragGestureSource = source.slice(dragGestureStart, dragGestureEnd);
+  const onBeginStart = dragGestureSource.indexOf('.onBegin');
+  const onUpdateStart = dragGestureSource.indexOf('.onUpdate', onBeginStart);
+  const onEndStart = dragGestureSource.indexOf('.onEnd', onUpdateStart);
+  const onFinalizeStart = dragGestureSource.indexOf('.onFinalize', onEndStart);
+  assert.ok(onBeginStart >= 0 && onUpdateStart > onBeginStart, 'sheet drag begin/update handlers were not found');
+  assert.ok(onEndStart > onUpdateStart && onFinalizeStart > onEndStart, 'sheet drag end/finalize handlers were not found');
+  const onBeginSource = dragGestureSource.slice(onBeginStart, onUpdateStart);
+  const onUpdateSource = dragGestureSource.slice(onUpdateStart, onEndStart);
+  const onEndSource = dragGestureSource.slice(onEndStart, onFinalizeStart);
+  assertSourceContains(
+    onBeginSource,
+    /chartTradeSheetDragStartY\.value = chartTradeSheetTranslateY\.value/,
+    'each drag must start from the sheet current resting height',
+  );
+  assertSourceContains(
+    onUpdateSource,
+    /chartTradeSheetTranslateY\.value = Math\.min\(\s*chartTradeSheetHiddenTranslateY,\s*Math\.max\(\s*chartTradeSheetExpandedTranslateY,\s*chartTradeSheetDragStartY\.value \+ event\.translationY/,
+    'the sheet must track upward and downward finger movement continuously between expanded and hidden positions',
+  );
+  assertSourceContains(
+    onEndSource,
+    /const hideOffsetThreshold = chartTradeSheetCollapsedTranslateY \+ 24[\s\S]*current > hideOffsetThreshold[\s\S]*event\.velocityY > 900[\s\S]*runOnJS\(snapTradeSheet\)\('hidden'\)/,
+    'a downward drag or fling from the collapsed surface must dismiss the SL/TP sheet',
+  );
+  assertSourceContains(
+    onEndSource,
+    /const restingOffset = Math\.min\(\s*chartTradeSheetCollapsedTranslateY,\s*Math\.max\(chartTradeSheetExpandedTranslateY, current\),\s*\)[\s\S]*chartTradeSheetDragStartY\.value = restingOffset[\s\S]*runOnJS\(commitChartTradeSheetOffset\)\(restingOffset\)/,
+    'a non-dismissed drag must preserve the exact intermediate height chosen on release',
+  );
+  assert.doesNotMatch(
+    onEndSource,
+    /const mid =|event\.velocityY < -400/,
+    'sheet release must not snap an intermediate height to an endpoint',
+  );
+  assertSourceContains(
+    source,
+    /const commitChartTradeSheetOffset = useCallback\(\(offset: number\) => \{\s*chartTradeSheetLastVisibleOffsetRef\.current = offset;/,
+    'the chosen intermediate height must survive the mode render',
+  );
+  assertSourceContains(
+    source,
+    /Math\.max\(chartTradeSheetExpandedTranslateY, chartTradeSheetLastVisibleOffsetRef\.current\)[\s\S]*chartTradeSheetTranslateY\.value = nextTranslateY[\s\S]*chartTradeSheetDragStartY\.value = nextTranslateY/,
+    'the layout synchronization effect must restore the chosen intermediate height',
+  );
   assertSourceContains(
     chartTradeFeatureSource,
     /const mountTradeSheet = !!\(sheet\.mountChartTradeSheet \|\| sheet\.showChartTradeSheet\)/,
@@ -410,6 +697,30 @@ test('collapsed SL/TP sheet drag gesture covers the pinned header surface', () =
   );
 });
 
+test('expanded SL/TP scrolling can cancel an Expiration-row press', () => {
+  const expirationRows: string[] = [];
+  const expirationHandler = 'onPress={handlers.onOpenExpirationMenu}';
+  let expirationCursor = 0;
+  while (true) {
+    const handlerIndex = chartTradeFeatureSource.indexOf(expirationHandler, expirationCursor);
+    if (handlerIndex < 0) break;
+    const rowStart = chartTradeFeatureSource.lastIndexOf('<Pressable', handlerIndex);
+    const rowEnd = chartTradeFeatureSource.indexOf('>', handlerIndex);
+    assert.ok(rowStart >= 0 && rowEnd > handlerIndex, 'Expiration Pressable bounds must be discoverable');
+    expirationRows.push(chartTradeFeatureSource.slice(rowStart, rowEnd + 1));
+    expirationCursor = rowEnd + 1;
+  }
+
+  assert.equal(expirationRows.length, 2, 'both chart trade-sheet render paths must expose an Expiration row');
+  for (const row of expirationRows) {
+    assert.doesNotMatch(
+      row,
+      /activateOnPressIn|activateOnTouchStart/,
+      'Expiration must wait for a completed tap so a vertical scroll can cancel it',
+    );
+  }
+});
+
 test('tap menu is suppressed while lot input or picker interaction is active', () => {
   assertSourceContains(
     source,
@@ -418,7 +729,7 @@ test('tap menu is suppressed while lot input or picker interaction is active', (
   );
 });
 
-test('toolbar SL/TP opens the Market Execution panel without activating either level', () => {
+test('toolbar SL/TP toggles the compact Market Execution panel without activating either level', () => {
   const openHandlerStart = source.indexOf('const handleActivateDirectChartProtection = useCallback');
   const openHandlerEnd = source.indexOf('const scrollChartTradeTypeTabsToOrderType', openHandlerStart);
   assert.notEqual(openHandlerStart, -1, 'direct SL/TP toolbar handler was not found');
@@ -436,13 +747,18 @@ test('toolbar SL/TP opens the Market Execution panel without activating either l
   const openSheetSource = source.slice(openSheetStart, openSheetEnd);
   assertSourceContains(
     openSheetSource,
-    /const orderType: ChartOrderType = 'Market Execution'[\s\S]*if \(!chartDirectProtectionActive\) \{[\s\S]*setSelectedChartPositionTicket\(null\)[\s\S]*resetChartTradePanelLevels\(orderType, \{\s*enableProtectionDrafts: false,\s*positionTargetOverride: null,\s*\}\)[\s\S]*setChartShowOnChartItem\('slTpLevels', true\)[\s\S]*setChartDirectProtectionActive\(true\)[\s\S]*\}\s*snapTradeSheet\('collapsed'\)/,
-    'SL/TP must force Market Execution, keep both guides off, and reveal the collapsed panel',
+    /const nextSheetMode = resolveChartSltpToolbarTapMode\(showChartTradeSheet\)[\s\S]*if \(nextSheetMode === 'hidden'\) \{[\s\S]*snapTradeSheet\(nextSheetMode\)[\s\S]*return;[\s\S]*if \(!chartDirectProtectionActive\) \{[\s\S]*setSelectedChartPositionTicket\(null\)[\s\S]*resetChartTradePanelLevels\(orderType, \{\s*enableProtectionDrafts: false,\s*positionTargetOverride: null,\s*\}\)[\s\S]*setChartShowOnChartItem\('slTpLevels', true\)[\s\S]*setChartDirectProtectionActive\(true\)[\s\S]*\}[\s\S]*snapTradeSheet\(nextSheetMode\)/,
+    'SL/TP must close when visible, otherwise initialize one Market Execution draft and open compact',
   );
   assertSourceContains(
     openSheetSource,
-    /if \(!chartDirectProtectionActive\) \{[\s\S]*resetChartTradePanelLevels[\s\S]*\}\s*snapTradeSheet\('collapsed'\)/,
-    'reopening the panel must preserve an already-enabled or dragged direct SL/TP draft',
+    /if \(!chartDirectProtectionActive\) \{[\s\S]*resetChartTradePanelLevels[\s\S]*\}[\s\S]*snapTradeSheet\(nextSheetMode\)/,
+    'reopening the compact panel must preserve an already-enabled or dragged direct SL/TP draft',
+  );
+  assert.doesNotMatch(
+    openSheetSource,
+    /snapTradeSheet\('expanded'\)/,
+    'the toolbar must never expand the sheet on first open or repeat tap',
   );
   assert.doesNotMatch(
     openSheetSource,
@@ -468,6 +784,21 @@ test('toolbar SL/TP opens the Market Execution panel without activating either l
     toggleHandlerSource,
     /if \(kind === 'sl'\) \{[\s\S]*setChartTradeSlEnabled\(true\);[\s\S]*setChartTradeSlPrice\(nextPrice\);[\s\S]*return;[\s\S]*setChartTradeTpEnabled\(true\);[\s\S]*setChartTradeTpPrice\(nextPrice\)/,
     'the SL and TP chips must activate their own guide independently',
+  );
+  assertSourceContains(
+    toggleHandlerSource,
+    /const nextPrice = resolveChartVisibleStopPreviewPrice\(kind, baseEntry, side\)/,
+    'new SL/TP guides must use the current visible chart range instead of a fixed off-screen price',
+  );
+  assertSourceContains(
+    toggleHandlerSource,
+    /if \(chartTradeSlEnabled\) \{[\s\S]*setChartTradeSlEnabled\(false\)[\s\S]*commitChartTradeSheetStopsForPosition\(positionTarget, 0, currentTp\)[\s\S]*if \(chartTradeTpEnabled\) \{[\s\S]*setChartTradeTpEnabled\(false\)[\s\S]*commitChartTradeSheetStopsForPosition\(positionTarget, currentSl, 0\)/,
+    'disabling either chip must remove only its own guide and preserve the peer level',
+  );
+  assertSourceContains(
+    source,
+    /resolveVisibleTradeStopPreviewPrice\([\s\S]*chartVisiblePriceRangeRef\.current/,
+    'the chart preview resolver must consume the latest WebView price range',
   );
   assertSourceContains(
     chartTradeFeatureSource,
@@ -551,7 +882,7 @@ test('chart trade sheet keeps Market Execution available and locks pending order
   );
 });
 
-test('expanded SL/TP sheet maximum height keeps only a small gap below the compact chart toolbar', () => {
+test('expanded SL/TP sheet maximum height stops exactly at the compact toolbar divider', () => {
   assertSourceContains(
     source,
     /CHART_TRADE_COMPACT_SHEET_TOP_GAP/,
@@ -565,7 +896,7 @@ test('expanded SL/TP sheet maximum height keeps only a small gap below the compa
   assertSourceContains(
     source,
     /const chartTradeSheetTopGap = isChartExpanded[\s\S]*\? CHART_TRADE_SHEET_TOP_GAP[\s\S]*: CHART_TRADE_COMPACT_SHEET_TOP_GAP;/,
-    'normal chart SL/TP sheet must keep only a small visual gap below the compact toolbar',
+    'normal chart SL/TP sheet must use the compact divider-alignment gap',
   );
   assertSourceContains(
     source,
@@ -587,6 +918,11 @@ test('expanded SL/TP sheet maximum height keeps only a small gap below the compa
     /isChartExpanded && chartTradeTopToolbarBottomOffset > 0/,
     'compact chart SL/TP sheet must not apply fullscreen toolbar offsets in normal mode',
   );
+  assertSourceContains(
+    source,
+    /const chartTradeSheetExpandedTranslateY = 0;/,
+    'expanded sheet translation must stop at its measured toolbar-divider boundary',
+  );
   const constantsPath = (() => {
     const candidates = [
       resolve(process.cwd(), 'src/features/chart/ChartScreen.constants.ts'),
@@ -598,8 +934,8 @@ test('expanded SL/TP sheet maximum height keeps only a small gap below the compa
   const constantsSource = readFileSync(constantsPath, 'utf8');
   assertSourceContains(
     constantsSource,
-    /CHART_TRADE_COMPACT_SHEET_TOP_GAP = 4/,
-    'compact chart SL/TP sheet must leave only a small 4px gap under the top toolbar',
+    /CHART_TRADE_COMPACT_SHEET_TOP_GAP = 0/,
+    'compact chart SL/TP sheet must align exactly with the divider under the top toolbar',
   );
 });
 

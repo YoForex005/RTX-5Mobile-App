@@ -135,8 +135,8 @@ test('overlay bridge: draggable SL and TP lines emit CHART_TRADE_LINE_DRAG', () 
     /renderPositionStopsFromOpenPosition/,
     'one persisted position level must not blanket-suppress both drafts',
   );
-  assertSourceContains(previewLinesSource, /id: 'chart-trade-sl-preview'[\s\S]*labelPlacement: 'line'[\s\S]*dragKey: chartTradeSlDragKey/, 'SL preview line must draw to the right price scale');
-  assertSourceContains(previewLinesSource, /id: 'chart-trade-tp-preview'[\s\S]*labelPlacement: 'line'[\s\S]*dragKey: chartTradeTpDragKey/, 'TP preview line must draw to the right price scale');
+  assertSourceContains(previewLinesSource, /id: 'chart-trade-sl-preview'[\s\S]*labelPlacement: 'line'[\s\S]*labelMinTop: chartDisplay\.showTicker \|\| chartDisplay\.showOHLC \? 78 : undefined[\s\S]*dragKey: chartTradeSlDragKey/, 'SL preview line must draw to the right price scale below the native chart header');
+  assertSourceContains(previewLinesSource, /id: 'chart-trade-tp-preview'[\s\S]*labelPlacement: 'line'[\s\S]*labelMinTop: chartDisplay\.showTicker \|\| chartDisplay\.showOHLC \? 78 : undefined[\s\S]*dragKey: chartTradeTpDragKey/, 'TP preview line must draw to the right price scale below the native chart header');
 });
 
 test('overlay bridge: dragged open-position SL/TP commits through the shared exact-ticket coordinator', () => {
@@ -652,6 +652,11 @@ test('overlay bridge: trade labels follow their price coordinate off screen', ()
     refreshBody,
     /var anchoredDesiredTop = Math\.round\(anchoredLabels\[anchoredTopIndex\]\.y - OVERLAY_LABEL_LINE_HEIGHT - OVERLAY_LABEL_LINE_GAP\)[\s\S]*anchoredTops\[anchoredTopIndex\] = anchoredDesiredTop/,
     'MT5-style open-position labels must leave the chart when their price coordinate leaves the chart',
+  );
+  assertSourceContains(
+    refreshBody,
+    /anchoredLineIsVisible[\s\S]*typeof anchoredLabelMinTop === 'number'[\s\S]*anchoredDesiredTop = Math\.max\(anchoredDesiredTop, Math\.round\(anchoredLabelMinTop\)\)/,
+    'visible chart-trade draft labels may reserve the native ticker header without pinning off-screen persisted labels',
   );
   assertSourceContains(
     refreshBody,

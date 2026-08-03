@@ -7,6 +7,7 @@ import { CHART_ORDER_TYPES } from '../chart/chartTradeOrderUtils';
 import {
   BROKER_SLTP_CAPABILITIES,
   CANONICAL_SLTP_BROKER_IDS,
+  MARKET_AND_POSITION_SLTP_CAPABILITIES,
   NO_BROKER_SLTP_CAPABILITIES,
   canonicalBrokerId,
   getSltpUnavailableMessage,
@@ -32,12 +33,13 @@ const resolveAppFile = (fileName: string) => {
   return path;
 };
 
-test('the fixed broker matrix exposes exactly eight independently false capabilities', () => {
+test('the fixed broker matrix enables only market and existing-position SL/TP', () => {
   assert.deepEqual(
     Object.keys(BROKER_SLTP_CAPABILITIES).sort(),
     [...CANONICAL_SLTP_BROKER_IDS].sort(),
   );
   assert.equal(Object.isFrozen(BROKER_SLTP_CAPABILITIES), true);
+  assert.equal(Object.isFrozen(MARKET_AND_POSITION_SLTP_CAPABILITIES), true);
   assert.equal(Object.isFrozen(NO_BROKER_SLTP_CAPABILITIES), true);
 
   const expectedKeys: Array<keyof BrokerSltpCapabilities> = [
@@ -55,12 +57,16 @@ test('the fixed broker matrix exposes exactly eight independently false capabili
       Object.keys(BROKER_SLTP_CAPABILITIES[brokerId]).sort(),
       [...expectedKeys].sort(),
     );
-    assert.deepEqual(BROKER_SLTP_CAPABILITIES[brokerId], NO_BROKER_SLTP_CAPABILITIES);
+    assert.deepEqual(
+      BROKER_SLTP_CAPABILITIES[brokerId],
+      MARKET_AND_POSITION_SLTP_CAPABILITIES,
+    );
     assert.equal(Object.isFrozen(BROKER_SLTP_CAPABILITIES[brokerId]), true);
   }
 });
 
 test('only documented broker identifiers canonicalize and the GTA alias is exact', () => {
+  assert.equal(canonicalBrokerId(' ACHIEVER-FINANCIALS '), 'achiever-financials');
   assert.equal(canonicalBrokerId('orrnn-demo'), 'orrnn-demo');
   assert.equal(canonicalBrokerId(' GTA_BROKER '), 'gta_broker');
   assert.equal(canonicalBrokerId('grow-trading-academy'), 'gta_broker');
@@ -76,6 +82,7 @@ test('only documented broker identifiers canonicalize and the GTA alias is exact
     'gta',
     'gta_broker.example.com',
     'prefix-gta_broker',
+    'achiever-financials.example.com',
     'myprop-trade-copy',
     'https://myprop-trade.example',
   ]) {
@@ -102,11 +109,37 @@ test('public environment values cannot activate any broker SL/TP capability', ()
     }),
   };
 
-  for (const brokerId of [...CANONICAL_SLTP_BROKER_IDS, 'unknown']) {
+  for (const brokerId of CANONICAL_SLTP_BROKER_IDS) {
     assert.deepEqual(
       resolveTradeBackendCapabilities(hostileEnvironment, brokerId).sltp,
-      NO_BROKER_SLTP_CAPABILITIES,
+      MARKET_AND_POSITION_SLTP_CAPABILITIES,
     );
+  }
+  assert.deepEqual(
+    resolveTradeBackendCapabilities(hostileEnvironment, 'unknown').sltp,
+    NO_BROKER_SLTP_CAPABILITIES,
+  );
+});
+
+test('known brokers unlock only market-order and existing-position SL/TP flows', () => {
+  for (const brokerId of CANONICAL_SLTP_BROKER_IDS) {
+    const capabilities = resolveTradeBackendCapabilities({}, brokerId);
+
+    assert.equal(isExistingPositionModifyBackendLocked(capabilities), false);
+    assert.equal(isNewMarketOrderProtectionBackendLocked(capabilities), false);
+    assert.equal(isPendingOrderProtectionBackendLocked(capabilities), true);
+    assert.equal(isTrailingStopBackendLocked(capabilities), true);
+    assert.equal(isDynamicSltpConstraintsBackendLocked(capabilities), true);
+    assert.equal(isVenueBrokerConfirmationBackendLocked(capabilities), true);
+    assert.equal(isRevisionedModifyBackendLocked(capabilities), true);
+
+    for (const orderType of CHART_ORDER_TYPES) {
+      assert.equal(
+        isPendingOrderTypeBackendLocked(orderType, capabilities),
+        orderType !== 'Market Execution',
+        `${brokerId} ${orderType} lock state`,
+      );
+    }
   }
 });
 
@@ -188,30 +221,37 @@ test('pending-order creation remains independent from SL/TP protection readiness
   }
 });
 
-test('unsupported stop-limit pending types remain locked even if pending creation is enabled', () => {
+test('every pending order type remains locked even if pending creation is enabled', () => {
   const capabilities = resolveTradeBackendCapabilities(
     { EXPO_PUBLIC_PENDING_ORDERS_API_READY: 'true' },
     'orrnn-demo',
   );
 
-  assert.equal(isPendingOrderTypeBackendLocked('Buy Limit', capabilities), false);
-  assert.equal(isPendingOrderTypeBackendLocked('Sell Stop', capabilities), false);
-  assert.equal(isPendingOrderTypeBackendLocked('Buy Stop Limit', capabilities), true);
-  assert.equal(isPendingOrderTypeBackendLocked('Sell Stop Limit', capabilities), true);
+  for (const orderType of CHART_ORDER_TYPES) {
+    assert.equal(
+      isPendingOrderTypeBackendLocked(orderType, capabilities),
+      orderType !== 'Market Execution',
+      `${orderType} lock state`,
+    );
+  }
 });
 
 test('unavailable feedback is broker specific and fail closed for unknown identity', () => {
   assert.equal(
+    getSltpUnavailableMessage('achiever-financials'),
+    'SL/TP is unavailable for the requested Achiever trade flow. Only market-order and existing-position SL/TP are enabled.',
+  );
+  assert.equal(
     getSltpUnavailableMessage('orrnn-demo'),
-    'SL/TP is unavailable for this broker runtime. Server-managed protection was proven unhealthy on the verified runtime snapshot and has not been re-certified.',
+    'SL/TP is unavailable for the requested Orrnn Demo trade flow. Only market-order and existing-position SL/TP are enabled.',
   );
   assert.equal(
     getSltpUnavailableMessage('grow-trading-academy'),
-    'SL/TP is unavailable for GTA because this exact broker runtime has not been verified.',
+    'SL/TP is unavailable for the requested GTA trade flow. Only market-order and existing-position SL/TP are enabled.',
   );
   assert.equal(
     getSltpUnavailableMessage('myprop-trade'),
-    'SL/TP is unavailable for MyProp because this exact broker runtime has not been verified.',
+    'SL/TP is unavailable for the requested MyProp trade flow. Only market-order and existing-position SL/TP are enabled.',
   );
   assert.equal(
     getSltpUnavailableMessage('unknown'),

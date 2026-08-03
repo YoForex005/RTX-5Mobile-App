@@ -80,14 +80,17 @@ test('market price lines extend over the right price scale without filled badges
   );
 });
 
-test('empty overlay payload clears old price lines and markers immediately', () => {
+test('empty overlay payload clears old price lines, labels, values, and markers immediately', () => {
   const body = extractFunctionBody(source, 'applyOverlayPayload');
   const setChartOverlaysBody = extractFunctionBody(source, 'setChartOverlays');
+  const refreshLabelsBody = extractFunctionBody(source, 'refreshOverlayDomLabels(payload)');
 
   assertSourceContains(body, /var lines = Array\.isArray\(payload\.priceLines\) \? payload\.priceLines : \[\]/, 'empty payload must normalize priceLines to []');
   assertSourceContains(body, /var markers = Array\.isArray\(payload\.markers\) \? payload\.markers : \[\]/, 'empty payload must normalize markers to []');
   assertSourceContains(body, /clearOverlayPriceLines\(\)/, 'empty payload must clear previous price lines');
   assertSourceContains(body, /clearOverlayMarkers\(\)/, 'empty payload must clear previous markers');
+  assertSourceContains(body, /refreshOverlayDomLabels\(_appliedOverlayPayload\)/, 'empty payload must refresh the DOM overlay against no trade levels');
+  assertSourceContains(refreshLabelsBody, /pruneOverlayDomNodes\(liveOverlayKeys\)/, 'empty payload must prune stale line labels and right-axis values');
   assertSourceContains(body, /emptyPayloadClearConfirmed/, 'empty payload clear must be diagnostically confirmed');
   assertSourceContains(setChartOverlaysBody, /postWebViewOverlayLog\('setChartOverlays received'/, 'WebView must log received overlay payloads');
 });

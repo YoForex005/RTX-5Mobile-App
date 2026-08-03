@@ -442,7 +442,14 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.doesNotMatch(timeframeTextStyle, /color:\s*BLUE/);
   assert.match(toolbarTradeTextStyle, /color:\s*TEXT_MUTED/);
   assert.doesNotMatch(toolbarTradeTextStyle, /color:\s*BLUE/);
-  assert.match(tradeFeatureSource, /onPress=\{handlers\.onOpenExpirationMenu\}[\s\S]*activateOnPressIn/);
+  const scrollableExpirationOpeners = tradeFeatureSource.match(
+    /<Pressable\b[^>]*\bonPress=\{handlers\.onOpenExpirationMenu\}[^>]*>/g,
+  ) ?? [];
+  assert.equal(scrollableExpirationOpeners.length, 2);
+  scrollableExpirationOpeners.forEach((opener) => {
+    assert.match(opener, /unstable_pressDelay=\{0\}/);
+    assert.doesNotMatch(opener, /activateOnPressIn|activateOnTouchStart/);
+  });
   assert.match(menuSource, /onPressIn=\{onPress\}/);
   assert.match(drawingSource, /onPress=\{onPress\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart/);
 });

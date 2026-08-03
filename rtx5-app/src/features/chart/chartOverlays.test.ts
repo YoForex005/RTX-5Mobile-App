@@ -14,6 +14,7 @@ import {
 } from './chartOverlays';
 import { buildPendingOrderLines } from './chartOverlays/lineBuilders';
 import type { LoginOrder } from '../../api/orders';
+import { buildMergedPositions } from '../../state/positionsState.helpers';
 
 const TEST_CHART_COLORS = {
   background: '#000000',
@@ -244,6 +245,54 @@ test('buildChartOverlayPayload drops a position and its SL/TP once it is no long
 
   assert.deepEqual(afterHit.priceLines, []);
   assert.deepEqual(afterHit.markers, []);
+});
+
+test('an exact SL or TP hit removes the full matching overlay while preserving a peer position', () => {
+  const hitPosition = {
+    id: 'hit-601',
+    symbol: 'EURUSD',
+    side: 'buy' as const,
+    volume: 0.1,
+    openPrice: 1.111,
+    currentPrice: 1.114,
+    pnl: 30,
+    swap: 0,
+    openTime: new Date(candles[5].time * 1000).toISOString(),
+    sl: 1.106,
+    tp: 1.116,
+  };
+  const peerPosition = {
+    ...hitPosition,
+    id: 'peer-602',
+    openPrice: 1.112,
+    sl: 1.107,
+    tp: 1.117,
+  };
+
+  for (const event of ['position.sl_hit', 'position.tp_hit']) {
+    const remainingPositions = buildMergedPositions(
+      [hitPosition, peerPosition],
+      [{ ticket: hitPosition.id, event }],
+      { preserveMissingExisting: true },
+    );
+    const payload = buildChartOverlayPayload({
+      chartSymbol: 'EURUSD',
+      candles,
+      positions: remainingPositions,
+      colors: TEST_CHART_COLORS,
+      sellColor: '#EF5350',
+      liveAccount: null,
+      showOnChart: BOTH_SIDES,
+    });
+    const lineIds = payload.priceLines.map((line) => line.id).sort();
+
+    assert.deepEqual(remainingPositions.map((position) => position.id), [peerPosition.id], event);
+    assert.deepEqual(
+      lineIds,
+      [`open-${peerPosition.id}`, `sl-${peerPosition.id}`, `tp-${peerPosition.id}`].sort(),
+      event,
+    );
+  }
 });
 
 test('buildChartOverlayPayload updates open position labels from live bid and ask prices', () => {
