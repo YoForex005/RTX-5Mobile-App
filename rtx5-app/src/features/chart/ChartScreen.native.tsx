@@ -104,7 +104,9 @@ import {
 import { resolveTradingLogin, resolveTradingLoginString } from '../../state/tradingLogin';
 import { prepareOrderTicketLaunch } from '../trade/orderTicketLaunchController';
 import {
+  captureModifyPositionSessionKey,
   getModifyPositionTicketState,
+  isModifyPositionSessionKeyCurrent,
   submitModifyPosition,
   useModifyPositionTicketState,
 } from '../trade/modifyPositionCoordinator';
@@ -2722,9 +2724,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       if (!sessionCapture) {
         return false;
       }
-      const sessionProvenance = getActiveBrokerSessionProvenance(sessionCapture.session);
+      const modifySessionKey = captureModifyPositionSessionKey();
+      if (!modifySessionKey) {
+        return false;
+      }
       const isModifySessionCurrent = () =>
-        isActiveBrokerSessionProvenanceCurrent(sessionProvenance);
+        isModifyPositionSessionKeyCurrent(modifySessionKey);
 
       const requestedSlCandidate =
         Number.isFinite(requestedSlRaw) && requestedSlRaw > 0 ? requestedSlRaw : 0;

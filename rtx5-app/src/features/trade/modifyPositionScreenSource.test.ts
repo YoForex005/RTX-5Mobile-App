@@ -36,19 +36,22 @@ test('modify position uses executable-side checks and broker tick size without i
   assert.match(source, /snapStopTargetToTickSize\(value, tickSize, decimals\)/);
   assert.match(source, /isStopTargetOnCorrectSide\('sl'/);
   assert.match(source, /isStopTargetOnCorrectSide\('tp'/);
-  assert.match(source, /stopLoss === null \|\| stopLoss === 0/);
-  assert.match(source, /takeProfit === null \|\| takeProfit === 0/);
+  assert.match(source, /stopLoss !== null &&[\s\S]*stopLoss > 0/);
+  assert.match(source, /takeProfit !== null &&[\s\S]*takeProfit > 0/);
   assert.match(source, /Prices are snapped only to the broker tick size/);
   assert.doesNotMatch(source, /MIN_STOP_DISTANCE_POINTS|DEFAULT_MIN_STOP_DISTANCE_POINTS/);
   assert.doesNotMatch(source, /trade_stops_level|trade_freeze_level|const point = Math\.pow/);
 });
 
-test('modify position keeps the button pressable and validates market price and stops in its handler', () => {
+test('modify position disables stale quotes and revalidates market price and stops in its handler', () => {
   assert.match(
     source,
     /useExecutableQuote\([\s\S]*viewSymbol,[\s\S]*isScreenFocused && Boolean\(viewSymbol\),[\s\S]*MODIFY_POSITION_QUOTE_COMMIT_INTERVAL_MS/,
   );
-  assert.match(source, /const hasUsableMarketPrice = closingMarketPrice > 0/);
+  assert.match(
+    source,
+    /const hasUsableMarketPrice = quoteAvailability\.allowed && closingMarketPrice > 0/,
+  );
   assert.match(source, /const stopValidationError = useMemo\(\(\) => validateStopTargets\(\)/);
   assert.match(
     source,
@@ -58,12 +61,13 @@ test('modify position keeps the button pressable and validates market price and 
     source.indexOf('const canModifyPosition = Boolean('),
     source.indexOf('/**', source.indexOf('const canModifyPosition = Boolean(')),
   );
-  assert.doesNotMatch(eligibilitySource, /hasUsableMarketPrice|stopValidationError|isSlDistanceValid|isTpDistanceValid/);
+  assert.match(eligibilitySource, /hasUsableMarketPrice/);
+  assert.doesNotMatch(eligibilitySource, /stopValidationError|isSlDistanceValid|isTpDistanceValid/);
   assert.match(eligibilitySource, /!coordinatorBusy/);
   assert.match(source, /disabled=\{!canModifyPosition\}/);
   assert.match(
     source,
-    /const coordinatorSaving =[\s\S]*phase === 'pending'[\s\S]*const coordinatorReconciling =[\s\S]*phase === 'reconciling'/,
+    /const coordinatorSaving =[\s\S]*phase === 'pending'[\s\S]*const coordinatorReconciling =[\s\S]*activeAttemptId !== undefined[\s\S]*phase === 'reconciling'/,
   );
   assert.match(
     source,
@@ -77,15 +81,21 @@ test('modify position keeps the button pressable and validates market price and 
   assert.match(source, /onPress=\{\(\) => onStep\(pipSize \* 10\)\}[\s\S]*?activateOnPressIn[\s\S]*?latencyLabel=\{`modifyPosition\.\$\{kind\}\.stepUp`\}/);
   assert.match(
     source,
-    /const direction = resolveStopTargetPresetDirection\(kind, position\.side\)/,
+    /onPress=\{\(\) => onPreset\(p\)\}/,
   );
+  assert.match(source, /resolveStopTargetPresetPrice\([\s\S]*currentMarket\.price,[\s\S]*pipSize,[\s\S]*pips/);
+  assert.doesNotMatch(source, /onStep\(pipSize \* p/);
   assert.match(source, /onPress=\{handleModify\}[\s\S]*activateOnTouchStart[\s\S]*activateOnPressIn/);
   assert.match(
     source,
-    /!submitMessage && !stopValidationError && !hasUsableMarketPrice && !quoteAvailability\.allowed/,
+    /!submitMessage && !stopValidationError && !hasUsableMarketPrice/,
   );
-  assert.match(source, /if \(!hasUsableMarketPrice\) \{[\s\S]*getCurrentAvailability\(\)/);
-  assert.match(source, /distanceError \|\| !isSlDistanceValid \|\| !isTpDistanceValid/);
+  assert.match(
+    source,
+    /const currentMarket = getCurrentClosingMarketPrice\(\);[\s\S]*!currentMarket\.availability\.allowed \|\| currentMarket\.price === null/,
+  );
+  assert.match(source, /validateStopTargets\(currentMarket\.price\)/);
+  assert.doesNotMatch(source, /if \(!hasUsableMarketPrice\) \{[\s\S]*submitModifyPosition/);
   assert.match(source, /if \(!resolvedLogin\) \{[\s\S]*Authentication Error[\s\S]*setSubmitMessage/);
   assert.doesNotMatch(source, /accountDetails\?\.credentials\?\.accessToken/);
 });
@@ -146,8 +156,13 @@ test('modify position step controls stay synchronous while decorative chart work
   );
   assert.match(
     executableQuoteSource,
-    /getCurrentLiveQuoteSnapshot\(symbol\)[\s\S]*resolveSessionQuoteActionAvailability/,
+    /const getCurrentExecutableQuoteState = useCallback[\s\S]*getCurrentLiveQuoteSnapshot\(symbol\)[\s\S]*resolveSessionQuoteActionAvailability/,
     'execution checks must read the newest in-memory quote rather than the coalesced render',
+  );
+  assert.match(
+    source,
+    /getCurrentExecutableQuoteState\(\)[\s\S]*current\.quote\?\.bid[\s\S]*current\.quote\?\.ask[\s\S]*availability: current\.availability/,
+    'SL/TP anchors and their availability must come from the same current quote snapshot',
   );
   assert.match(
     liveQuotesSource,
@@ -189,7 +204,7 @@ test('modify position mounts usable controls immediately with non-overlapping to
   );
   assert.match(
     source,
-    /if \(!hasUsableMarketPrice\) \{[\s\S]*reportUnavailableMarketPrice\(\);[\s\S]*return;/,
+    /!currentMarket\.availability\.allowed \|\| livePrice === null[\s\S]*reportUnavailableMarketPrice\(currentMarket\.availability\);[\s\S]*return;/,
   );
 });
 

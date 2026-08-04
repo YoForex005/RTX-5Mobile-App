@@ -56,7 +56,11 @@ export type TicketMutationState = Readonly<{
 
 type PutOutcome =
   | Readonly<{ kind: 'acknowledged' }>
-  | Readonly<{ kind: 'rejected'; error: unknown }>
+  | Readonly<{
+      kind: 'rejected';
+      error: unknown;
+      requiresReconciliation: boolean;
+    }>
   | Readonly<{ kind: 'unknown'; error: unknown }>
   | Readonly<{ kind: 'hint' }>;
 
@@ -83,12 +87,17 @@ type TicketEntry = {
   activeJob?: ActiveJob;
   queuedJob?: QueuedJob;
   idleHintInFlight: boolean;
+  idleHintAllowsTrailing: boolean;
 };
 
 export type ModifyPositionCoordinatorDependencies = Readonly<{
-  modify: (input: ModifyPositionCoordinatorInput) => Promise<unknown>;
+  modify: (
+    input: ModifyPositionCoordinatorInput,
+    signal?: AbortSignal,
+  ) => Promise<unknown>;
   readPositions: (
     input: ModifyPositionCoordinatorInput,
+    signal?: AbortSignal,
   ) => Promise<ReadonlyArray<Record<string, unknown>>>;
   commitPosition: (
     position: Record<string, unknown> | undefined,
@@ -106,6 +115,8 @@ export type ModifyPositionCoordinatorDependencies = Readonly<{
     details?: Record<string, unknown>,
   ) => void;
   beginProtectedMutation?: () => (() => void);
+  mutationTimeoutMs?: number;
+  reconciliationTimeoutMs?: number;
 }>;
 
 const EMPTY_STATE: TicketMutationState = Object.freeze({
@@ -126,6 +137,13 @@ const createDeferred = (): Deferred => {
   });
   return Object.freeze({ promise, resolve });
 };
+
+class ModifyPositionStageTimeoutError extends Error {
+  constructor(stage: 'request' | 'reconciliation', timeoutMs: number) {
+    super(`Modify Position ${stage} timed out after ${timeoutMs}ms.`);
+    this.name = 'AbortError';
+  }
+}
 
 const errorStatus = (error: unknown): number | undefined => {
   if (!error || typeof error !== 'object') return undefined;
@@ -164,8 +182,18 @@ const classifyPutError = (error: unknown): PutOutcome => {
   ) {
     return Object.freeze({ kind: 'unknown', error });
   }
-  return status !== undefined
-    ? Object.freeze({ kind: 'rejected', error })
+  const deterministicNoApplyStatus =
+    status === 400 ||
+    status === 401 ||
+    status === 403 ||
+    status === 422 ||
+    status === 429;
+  return status !== undefined && status >= 400 && status < 500 && status !== 408
+    ? Object.freeze({
+        kind: 'rejected',
+        error,
+        requiresReconciliation: !deterministicNoApplyStatus,
+      })
     : Object.freeze({ kind: 'unknown', error });
 };
 
@@ -261,9 +289,12 @@ export class ModifyPositionCoordinatorCore {
     tickets?: ReadonlyArray<string | number>,
     accountLogin?: string | number,
   ): void {
-    const ticketSet = tickets?.length
-      ? new Set(tickets.map((ticket) => String(ticket)))
-      : null;
+    // `undefined` is the intentional all-ticket signal used after a protected
+    // global positions refresh. An explicit empty list means no affected
+    // tickets and must never fan out to every retained coordinator entry.
+    const ticketSet = tickets === undefined
+      ? null
+      : new Set(tickets.map((ticket) => String(ticket)));
     for (const [key, entry] of this.entries) {
       if (ticketSet && !ticketSet.has(key)) continue;
       if (
@@ -274,6 +305,9 @@ export class ModifyPositionCoordinatorCore {
         continue;
       }
       if (!entry.lastInput) continue;
+      if (entry.idleHintInFlight && !entry.idleHintAllowsTrailing) {
+        continue;
+      }
       this.patchState(entry, { hintQueued: true });
       this.record('websocket_hint', entry.lastInput, {
         mutationEpoch: entry.state.mutationEpoch,
@@ -289,16 +323,30 @@ export class ModifyPositionCoordinatorCore {
   notifySocketSubscription(): void {
     this.socketSubscriptionEpoch += 1;
     for (const entry of this.entries.values()) {
+      const shouldRefresh = Boolean(
+        entry.lastInput &&
+        (
+          entry.activeJob ||
+          entry.idleHintInFlight ||
+          entry.state.phase === 'unknown' ||
+          entry.state.phase === 'reconciling'
+        ),
+      );
+      if (entry.idleHintInFlight) {
+        // A socket epoch change invalidates the current GET and must force one
+        // eligible replacement even during the otherwise bounded trailing pass.
+        entry.idleHintAllowsTrailing = true;
+      }
       this.patchState(entry, {
         socketSubscriptionEpoch: this.socketSubscriptionEpoch,
-        hintQueued: Boolean(entry.lastInput),
+        hintQueued: shouldRefresh,
       });
-      if (entry.lastInput) {
+      if (entry.lastInput && shouldRefresh) {
         this.record('socket_subscription', entry.lastInput, {
           socketEpoch: this.socketSubscriptionEpoch,
         });
       }
-      if (entry.lastInput && !entry.activeJob && !entry.idleHintInFlight) {
+      if (shouldRefresh && entry.lastInput && !entry.activeJob && !entry.idleHintInFlight) {
         void this.runIdleHint(entry);
       }
     }
@@ -308,6 +356,11 @@ export class ModifyPositionCoordinatorCore {
     this.generation += 1;
     this.socketSubscriptionEpoch = 0;
     for (const [key, entry] of this.entries) {
+      entry.activeJob?.deferred.resolve(Object.freeze({
+        status: 'session_changed',
+        ticket: entry.activeJob.input.ticket,
+        request: entry.activeJob.input.request,
+      }));
       entry.queuedJob?.deferred.resolve(Object.freeze({
         status: 'session_changed',
         ticket: entry.queuedJob.input.ticket,
@@ -331,6 +384,7 @@ export class ModifyPositionCoordinatorCore {
       }),
       sessionKey: input.sessionKey,
       idleHintInFlight: false,
+      idleHintAllowsTrailing: false,
     };
     this.entries.set(key, entry);
     this.emit(key);
@@ -338,11 +392,20 @@ export class ModifyPositionCoordinatorCore {
   }
 
   private async runMutationJob(entry: TicketEntry, job: ActiveJob): Promise<void> {
-    const releaseBarrier = this.dependencies.beginProtectedMutation?.();
+    let releaseBarrier: (() => void) | undefined;
     try {
+      releaseBarrier = this.dependencies.beginProtectedMutation?.();
       await this.runProtectedMutationJob(entry, job);
+    } catch (error) {
+      this.finishUnexpectedJob(entry, job, error);
     } finally {
-      releaseBarrier?.();
+      try {
+        releaseBarrier?.();
+      } catch (error) {
+        this.record('mutation_barrier_release_error', job.input, {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   }
 
@@ -367,7 +430,11 @@ export class ModifyPositionCoordinatorCore {
 
     let putOutcome: PutOutcome;
     try {
-      await this.dependencies.modify(input);
+      await this.runStage(
+        (signal) => this.dependencies.modify(input, signal),
+        this.dependencies.mutationTimeoutMs,
+        'request',
+      );
       putOutcome = Object.freeze({ kind: 'acknowledged' });
       this.record('request_end', input, {
         mutationEpoch,
@@ -392,16 +459,28 @@ export class ModifyPositionCoordinatorCore {
     }
 
     if (!this.isJobCurrent(entry, job, mutationEpoch)) {
-      job.deferred.resolve(Object.freeze({
-        status: 'session_changed',
+      this.finishSessionChangedJob(entry, job);
+      return;
+    }
+
+    // A deterministic client/backend rejection did not apply the mutation.
+    // Surface its original error immediately instead of hiding it behind a
+    // second request. Ambiguous/network/5xx outcomes still reconcile below.
+    if (putOutcome.kind === 'rejected' && !putOutcome.requiresReconciliation) {
+      this.completeActiveJob(entry, job, Object.freeze({
+        status: 'rejected',
         ticket: input.ticket,
         request: input.request,
+        error: putOutcome.error,
       }));
       return;
     }
 
     this.patchState(entry, {
       mutationInFlight: false,
+      // Any websocket hint observed before this point is subsumed by the
+      // causally newer mandatory authoritative GET.
+      hintQueued: false,
       phase: 'reconciling',
     });
     let result = await this.dispatchReconciliation(
@@ -412,24 +491,26 @@ export class ModifyPositionCoordinatorCore {
       true,
     );
 
-    if (this.isJobCurrent(entry, job, mutationEpoch) && entry.state.hintQueued) {
+    // A socket resubscription changes the epoch and deliberately invalidates
+    // the in-flight GET. Replace that stale mandatory read once before
+    // reporting an outcome; ordinary position hints remain background work.
+    if (
+      result === null &&
+      this.isJobCurrent(entry, job, mutationEpoch) &&
+      entry.state.hintQueued
+    ) {
       this.patchState(entry, { hintQueued: false });
-      const hintedResult = await this.dispatchReconciliation(
+      result = await this.dispatchReconciliation(
         entry,
         input,
         mutationEpoch,
         putOutcome,
-        false,
+        true,
       );
-      result = hintedResult ?? result;
     }
 
     if (!this.isJobCurrent(entry, job, mutationEpoch)) {
-      job.deferred.resolve(Object.freeze({
-        status: 'session_changed',
-        ticket: input.ticket,
-        request: input.request,
-      }));
+      this.finishSessionChangedJob(entry, job);
       return;
     }
 
@@ -438,59 +519,47 @@ export class ModifyPositionCoordinatorCore {
       ticket: input.ticket,
       request: input.request,
     });
-    this.patchState(entry, {
-      activeAttemptId: undefined,
-      activeIntent: undefined,
-      confirmedBeforeAttempt: undefined,
-      phase: finalResult.status === 'superseded' ||
-        finalResult.status === 'rate_limited' ||
-        finalResult.status === 'session_changed'
-        ? 'unknown'
-        : finalResult.status,
-      lastResult: finalResult,
-    });
-    job.deferred.resolve(finalResult);
-    entry.activeJob = undefined;
-
-    const queued = entry.queuedJob;
-    entry.queuedJob = undefined;
-    this.patchState(entry, { queuedLatestIntent: undefined });
-    if (queued) {
-      const nextJob = Object.freeze({
-        input: queued.input,
-        deferred: queued.deferred,
-        generation: this.generation,
-      });
-      entry.activeJob = nextJob;
-      entry.lastInput = queued.input;
-      void this.runMutationJob(entry, nextJob);
-      return;
-    }
-    if (entry.state.hintQueued && !entry.idleHintInFlight) {
-      void this.runIdleHint(entry);
-    }
+    this.completeActiveJob(entry, job, finalResult);
   }
 
-  private async runIdleHint(entry: TicketEntry): Promise<void> {
+  private async runIdleHint(
+    entry: TicketEntry,
+    allowTrailing = true,
+  ): Promise<void> {
     const input = entry.lastInput;
     if (!input || entry.activeJob || entry.idleHintInFlight) return;
     entry.idleHintInFlight = true;
+    entry.idleHintAllowsTrailing = allowTrailing;
     this.patchState(entry, {
       hintQueued: false,
-      phase: 'reconciling',
     });
     const mutationEpoch = entry.state.mutationEpoch;
-    await this.dispatchReconciliation(
-      entry,
-      input,
-      mutationEpoch,
-      Object.freeze({ kind: 'hint' }),
-      false,
-    );
-    entry.idleHintInFlight = false;
-    if (entry.state.hintQueued && !entry.activeJob) {
-      this.patchState(entry, { hintQueued: false });
-      void this.runIdleHint(entry);
+    try {
+      await this.dispatchReconciliation(
+        entry,
+        input,
+        mutationEpoch,
+        Object.freeze({ kind: 'hint' }),
+        false,
+      );
+    } catch (error) {
+      // dispatchReconciliation owns expected transport failures. This guard is
+      // for unexpected frontend exceptions and must still release idle state.
+      this.record('idle_reconciliation_error', input, {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      const shouldRunTrailing = Boolean(
+        entry.idleHintAllowsTrailing && entry.state.hintQueued && !entry.activeJob,
+      );
+      entry.idleHintInFlight = false;
+      entry.idleHintAllowsTrailing = false;
+      if (!entry.activeJob && entry.state.hintQueued) {
+        this.patchState(entry, { hintQueued: false });
+      }
+      if (shouldRunTrailing) {
+        void this.runIdleHint(entry, false);
+      }
     }
   }
 
@@ -506,8 +575,9 @@ export class ModifyPositionCoordinatorCore {
     this.patchState(entry, {
       refreshSequence: sequence,
       latestEligibleSequence: sequence,
-      ...(mandatory ? { reconciliationFloorSequence: sequence } : {}),
-      phase: 'reconciling',
+      ...(mandatory
+        ? { reconciliationFloorSequence: sequence, phase: 'reconciling' as const }
+        : {}),
     });
     this.record('reconciliation_start', input, {
       mutationEpoch,
@@ -517,7 +587,11 @@ export class ModifyPositionCoordinatorCore {
     });
 
     try {
-      const positions = await this.dependencies.readPositions(input);
+      const positions = await this.runStage(
+        (signal) => this.dependencies.readPositions(input, signal),
+        this.dependencies.reconciliationTimeoutMs,
+        'reconciliation',
+      );
       if (!this.isReconciliationEligible(
         entry,
         input,
@@ -608,23 +682,160 @@ export class ModifyPositionCoordinatorCore {
         return null;
       }
       const result = Object.freeze({
-        status: 'unknown' as const,
+        status: putOutcome.kind === 'rejected' ? 'rejected' as const : 'unknown' as const,
         ticket: input.ticket,
         request: input.request,
-        error,
+        error: putOutcome.kind === 'rejected' ? putOutcome.error : error,
       });
       this.patchState(entry, {
-        phase: 'unknown',
+        phase: result.status,
         lastResult: result,
       });
       this.record('reconciliation_end', input, {
         mutationEpoch,
         sequence,
-        outcome: 'unknown',
+        outcome: result.status,
         status: errorStatus(error),
       });
       return result;
     }
+  }
+
+  private completeActiveJob(
+    entry: TicketEntry,
+    job: ActiveJob,
+    result: ModifyPositionCoordinatorResult,
+  ): void {
+    if (entry.activeJob !== job) {
+      job.deferred.resolve(result);
+      return;
+    }
+
+    this.patchState(entry, {
+      mutationInFlight: false,
+      activeAttemptId: undefined,
+      activeIntent: undefined,
+      confirmedBeforeAttempt: undefined,
+      phase: result.status === 'superseded' ||
+        result.status === 'rate_limited' ||
+        result.status === 'session_changed'
+        ? 'unknown'
+        : result.status,
+      lastResult: result,
+    });
+    job.deferred.resolve(result);
+    entry.activeJob = undefined;
+
+    const queued = entry.queuedJob;
+    entry.queuedJob = undefined;
+    this.patchState(entry, { queuedLatestIntent: undefined });
+    if (queued) {
+      const nextJob = Object.freeze({
+        input: queued.input,
+        deferred: queued.deferred,
+        generation: this.generation,
+      });
+      entry.activeJob = nextJob;
+      entry.lastInput = queued.input;
+      void this.runMutationJob(entry, nextJob);
+      return;
+    }
+    if (entry.state.hintQueued && !entry.idleHintInFlight) {
+      void this.runIdleHint(entry);
+    }
+  }
+
+  private finishSessionChangedJob(entry: TicketEntry, job: ActiveJob): void {
+    const result = Object.freeze({
+      status: 'session_changed' as const,
+      ticket: job.input.ticket,
+      request: job.input.request,
+    });
+    job.deferred.resolve(result);
+    if (entry.activeJob !== job) return;
+    entry.activeJob = undefined;
+    entry.queuedJob?.deferred.resolve(Object.freeze({
+      status: 'session_changed',
+      ticket: entry.queuedJob.input.ticket,
+      request: entry.queuedJob.input.request,
+    }));
+    entry.queuedJob = undefined;
+  }
+
+  private finishUnexpectedJob(
+    entry: TicketEntry,
+    job: ActiveJob,
+    error: unknown,
+  ): void {
+    if (
+      entry.activeJob !== job ||
+      job.generation !== this.generation
+    ) {
+      this.finishSessionChangedJob(entry, job);
+      return;
+    }
+    let sessionCurrent: boolean;
+    try {
+      sessionCurrent = this.dependencies.isSessionCurrent(job.input.sessionKey);
+    } catch {
+      sessionCurrent = true;
+    }
+    if (!sessionCurrent) {
+      this.finishSessionChangedJob(entry, job);
+      return;
+    }
+    this.record('coordinator_error', job.input, {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    this.completeActiveJob(entry, job, Object.freeze({
+      status: 'unknown',
+      ticket: job.input.ticket,
+      request: job.input.request,
+      error,
+    }));
+  }
+
+  private runStage<T>(
+    operation: (signal?: AbortSignal) => Promise<T>,
+    timeoutMs: number | undefined,
+    stage: 'request' | 'reconciliation',
+  ): Promise<T> {
+    const controller = typeof AbortController === 'undefined'
+      ? null
+      : new AbortController();
+    // Start synchronously so the API layer captures the same broker/session
+    // owner before submit() returns. Deferring this call to a microtask would
+    // let an immediate account switch retarget an old ticket to a new session.
+    let pending: Promise<T>;
+    try {
+      pending = Promise.resolve(operation(controller?.signal));
+    } catch (error) {
+      pending = Promise.reject(error);
+    }
+    if (!Number.isFinite(timeoutMs) || !(Number(timeoutMs) > 0)) {
+      return pending;
+    }
+
+    return new Promise<T>((resolve, reject) => {
+      let settled = false;
+      const finish = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        callback();
+      };
+      const timer = setTimeout(() => {
+        controller?.abort();
+        finish(() => reject(new ModifyPositionStageTimeoutError(
+          stage,
+          Number(timeoutMs),
+        )));
+      }, Number(timeoutMs));
+      pending.then(
+        (value) => finish(() => resolve(value)),
+        (error) => finish(() => reject(error)),
+      );
+    });
   }
 
   private isJobCurrent(
@@ -664,7 +875,13 @@ export class ModifyPositionCoordinatorCore {
   }
 
   private emit(key: string): void {
-    for (const listener of this.listeners.get(key) ?? []) listener();
+    for (const listener of this.listeners.get(key) ?? []) {
+      try {
+        listener();
+      } catch {
+        // One view subscription must never strand the shared mutation worker.
+      }
+    }
   }
 
   private now(): number {
@@ -682,6 +899,10 @@ export class ModifyPositionCoordinatorCore {
     input: ModifyPositionCoordinatorInput,
     details: Record<string, unknown>,
   ): void {
-    this.dependencies.recordEvent?.(phase, input, details);
+    try {
+      this.dependencies.recordEvent?.(phase, input, details);
+    } catch {
+      // Telemetry is best-effort and never owns mutation progress.
+    }
   }
 }

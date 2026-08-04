@@ -26,17 +26,39 @@ test('trade completions invalidate only their captured broker/account/epoch name
 
   const modifyScreenSource = readTradeSource('ModifyPositionScreen.tsx');
   const modifyCoordinatorSource = readTradeSource('modifyPositionCoordinator.ts');
+  const modifySessionKeySource = readTradeSource('modifyPositionSessionKey.ts');
   assert.match(modifyScreenSource, /submitModifyPosition\(\{/);
+  assert.match(modifyScreenSource, /captureModifyPositionSessionKey\(\)/);
+  assert.match(modifyScreenSource, /isModifyPositionSessionKeyCurrent\(/);
   assert.doesNotMatch(
     modifyScreenSource,
     /invalidateSessionQueryRoots|\.invalidateQueries\(|positionsApi\.modifyPosition/,
   );
-  assert.match(modifyCoordinatorSource, /captureActiveBrokerSessionOwnerStamp\(\)/);
-  assert.match(modifyCoordinatorSource, /owner\.cacheNamespace/);
-  assert.match(modifyCoordinatorSource, /owner\.apiBase/);
-  assert.match(modifyCoordinatorSource, /owner\.credentialGeneration/);
-  assert.match(modifyCoordinatorSource, /owner\.credentialIdentity/);
+  assert.match(modifyCoordinatorSource, /captureActiveBrokerSession\(\)/);
+  assert.match(modifyCoordinatorSource, /buildModifyPositionSessionKey\(capture\.session\)/);
+  assert.match(modifySessionKeySource, /session\.cacheNamespace/);
+  assert.match(modifySessionKeySource, /session\.apiBase/);
+  assert.match(modifyCoordinatorSource, /handleModifyPositionSessionEvent\(event\.type/);
+  assert.match(modifySessionKeySource, /eventType === 'transition'/);
+  assert.doesNotMatch(modifySessionKeySource, /eventType === 'credentials_updated'/);
+  assert.doesNotMatch(
+    `${modifyCoordinatorSource}\n${modifySessionKeySource}`,
+    /credentialGeneration|credentialIdentity/,
+  );
   assert.match(modifyCoordinatorSource, /positionsApi\.getPositionsForReconciliation/);
+  assert.match(
+    modifyCoordinatorSource,
+    /modify: \(input, signal\)[\s\S]*positionsApi\.modifyPosition\([\s\S]*signal,[\s\S]*timeoutMs: MODIFY_POSITION_REQUEST_TIMEOUT_MS/,
+  );
+  assert.match(
+    modifyCoordinatorSource,
+    /readPositions: async \(input, signal\)[\s\S]*getPositionsForReconciliation\([\s\S]*signal,[\s\S]*timeoutMs: MODIFY_POSITION_RECONCILIATION_TIMEOUT_MS/,
+  );
+  assert.match(modifyCoordinatorSource, /mutationTimeoutMs: MODIFY_POSITION_REQUEST_TIMEOUT_MS/);
+  assert.match(
+    modifyCoordinatorSource,
+    /reconciliationTimeoutMs: MODIFY_POSITION_RECONCILIATION_TIMEOUT_MS/,
+  );
 
   const unsupportedCloseBy = readTradeSource('CloseByScreen.tsx');
   assert.match(unsupportedCloseBy, /Close By is unavailable for this API contract/);

@@ -307,6 +307,7 @@ function ChartTradeStopLevelsSection({
   const showStopControls = slEnabled || tpEnabled;
   const isDirectMarketProtection = !!sheet.chartDirectProtectionActive;
   const modifyPhase = String(sheet.chartModifyTicketState?.phase ?? 'idle');
+  const modifyAttemptActive = sheet.chartModifyTicketState?.activeAttemptId !== undefined;
   const positionCandidates = Array.isArray(sheet.chartPositionCandidates)
     ? sheet.chartPositionCandidates
     : [];
@@ -325,25 +326,25 @@ function ChartTradeStopLevelsSection({
     ? t('Unavailable')
     : modifyRateLimited
       ? t('Rate limited')
-    : positionSelectionRequired
-      ? t('Select position')
-    : modifyPhase === 'pending'
-      ? t('Saving')
-      : modifyPhase === 'reconciling'
-        ? t('Confirming')
-        : modifyPhase === 'unknown'
-          ? t('Outcome unknown')
-          : modifyPhase === 'changed_elsewhere'
-            ? t('Changed elsewhere')
-            : modifyPhase === 'position_unavailable'
-              ? t('Unavailable')
-              : modifyPhase === 'rejected'
-                ? t('Not saved')
-                : modifyPhase === 'saved'
-                  ? t('Saved')
-                  : showStopControls
-                    ? t('Active')
-                    : t('Off');
+      : positionSelectionRequired
+        ? t('Select position')
+        : modifyPhase === 'pending'
+          ? t('Saving')
+          : modifyPhase === 'reconciling' && modifyAttemptActive
+            ? t('Confirming')
+            : modifyPhase === 'unknown'
+              ? t('Outcome unknown')
+              : modifyPhase === 'changed_elsewhere'
+                ? t('Changed elsewhere')
+                : modifyPhase === 'position_unavailable'
+                  ? t('Unavailable')
+                  : modifyPhase === 'rejected'
+                    ? t('Not saved')
+                    : modifyPhase === 'saved'
+                      ? t('Saved')
+                      : showStopControls
+                        ? t('Active')
+                        : t('Off');
   const showPositionSelector =
     !isDirectMarketProtection &&
     !isPendingChartOrderType(sheet.chartTradeOrderType) &&

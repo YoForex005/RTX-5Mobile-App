@@ -40,7 +40,7 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { resolveModifyPositionMarkerYPositions } from './modifyPositionChartLayout';
 import {
   isStopTargetOnCorrectSide,
-  resolveStopTargetPresetDirection,
+  resolveStopTargetPresetPrice,
   snapStopTargetToTickSize,
 } from './modifyPositionStopDistance';
 import {
@@ -50,8 +50,14 @@ import {
 } from '../../api/tradingErrors';
 import { hideTradePositionActionHost } from './tradePositionActionHostController';
 import { useExecutableQuote } from '../quotes/useExecutableQuote';
-import { quoteActionBlockMessage, recordBlockedPriceAction } from '../../market/quoteIntegrity';
 import {
+  quoteActionBlockMessage,
+  recordBlockedPriceAction,
+  type QuoteActionAvailability,
+} from '../../market/quoteIntegrity';
+import {
+  captureModifyPositionSessionKey,
+  isModifyPositionSessionKeyCurrent,
   submitModifyPosition,
   useModifyPositionTicketState,
 } from './modifyPositionCoordinator';
@@ -60,11 +66,6 @@ import {
   isExistingPositionModifyBackendLocked,
   SLTP_COMING_SOON_TITLE,
 } from './tradeBackendCapabilities';
-import {
-  captureActiveBrokerSessionProvenance,
-  isActiveBrokerSessionProvenanceCurrent,
-} from '../../state/activeBrokerSession';
-
 const SETTINGS_DARK_BACKGROUND = '#121212';
 const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E';
 const MODIFY_POSITION_QUOTE_COMMIT_INTERVAL_MS = 50;
@@ -425,6 +426,7 @@ export function ModifyPositionScreen({
     modifyTicketState.mutationInFlight ||
     modifyTicketState.phase === 'pending';
   const coordinatorReconciling =
+    modifyTicketState.activeAttemptId !== undefined &&
     modifyTicketState.phase === 'reconciling';
   const coordinatorBusy = coordinatorSaving || coordinatorReconciling;
 
@@ -461,6 +463,7 @@ export function ModifyPositionScreen({
     quote: executableQuote,
     availability: quoteAvailability,
     getCurrentAvailability,
+    getCurrentExecutableQuoteState,
   } = useExecutableQuote(
     viewSymbol,
     isScreenFocused && Boolean(viewSymbol),
@@ -668,12 +671,26 @@ export function ModifyPositionScreen({
   // SL/TP against that closing price. The client validates only the correct
   // side and snaps to broker-provided tick size; the broker owns distance rules.
   const closingMarketPrice = position ? (position.side === 'buy' ? BID : ASK) : 0;
-  // Usable market prices for SL/TP distance — prefer the integrity gate, but do
-  // not block the whole form when bid/ask are already painted on this screen.
-  const hasUsableMarketPrice = closingMarketPrice > 0;
+  // A retained painted price is display-only once the executable-quote gate
+  // expires. Market-anchored edits and submission fail closed below.
+  const hasUsableMarketPrice = quoteAvailability.allowed && closingMarketPrice > 0;
 
-  const reportUnavailableMarketPrice = useCallback(() => {
-    const currentQuoteAvailability = getCurrentAvailability();
+  const getCurrentClosingMarketPrice = useCallback(() => {
+    const current = getCurrentExecutableQuoteState();
+    const rawPrice = position
+      ? (position.side === 'buy' ? current.quote?.bid : current.quote?.ask)
+      : undefined;
+    const price = typeof rawPrice === 'number' ? rawPrice : Number(rawPrice);
+    return {
+      availability: current.availability,
+      price: Number.isFinite(price) && price > 0 ? price : null,
+    } as const;
+  }, [getCurrentExecutableQuoteState, position]);
+
+  const reportUnavailableMarketPrice = useCallback((
+    availability?: QuoteActionAvailability,
+  ) => {
+    const currentQuoteAvailability = availability ?? getCurrentAvailability();
     recordBlockedPriceAction('modify_position', currentQuoteAvailability);
     setSubmitMessage(t(
       quoteActionBlockMessage(currentQuoteAvailability)
@@ -687,13 +704,15 @@ export function ModifyPositionScreen({
     return snapStopTargetToTickSize(value, tickSize, decimals);
   }, [decimals, tickSize]);
 
-  const validateStopTargets = useCallback((): string | null => {
-    if (!position || !(closingMarketPrice > 0)) return null;
-    const priceLabel = closingMarketPrice.toFixed(decimals);
+  const validateStopTargets = useCallback((
+    marketPrice = closingMarketPrice,
+  ): string | null => {
+    if (!position || !(marketPrice > 0)) return null;
+    const priceLabel = marketPrice.toFixed(decimals);
     if (
       stopLoss !== null &&
       stopLoss > 0 &&
-      !isStopTargetOnCorrectSide('sl', position.side, stopLoss, closingMarketPrice)
+      !isStopTargetOnCorrectSide('sl', position.side, stopLoss, marketPrice)
     ) {
       return position.side === 'buy'
         ? t('Stop Loss must be below the current Bid ({price}) for a buy position.').replace('{price}', priceLabel)
@@ -702,7 +721,7 @@ export function ModifyPositionScreen({
     if (
       takeProfit !== null &&
       takeProfit > 0 &&
-      !isStopTargetOnCorrectSide('tp', position.side, takeProfit, closingMarketPrice)
+      !isStopTargetOnCorrectSide('tp', position.side, takeProfit, marketPrice)
     ) {
       return position.side === 'buy'
         ? t('Take Profit must be above the current Bid ({price}) for a buy position.').replace('{price}', priceLabel)
@@ -718,23 +737,13 @@ export function ModifyPositionScreen({
       setSubmitMessage(null);
     }
   }, [stopValidationError]);
-  const isSlDistanceValid = useMemo(() => {
-    if (!position || stopLoss === null || stopLoss === 0 || !(closingMarketPrice > 0)) {
-      return true;
-    }
-    return isStopTargetOnCorrectSide('sl', position.side, stopLoss, closingMarketPrice);
-  }, [closingMarketPrice, position, stopLoss]);
-  const isTpDistanceValid = useMemo(() => {
-    if (!position || takeProfit === null || takeProfit === 0 || !(closingMarketPrice > 0)) {
-      return true;
-    }
-    return isStopTargetOnCorrectSide('tp', position.side, takeProfit, closingMarketPrice);
-  }, [closingMarketPrice, position, takeProfit]);
-  // Keep the press target available while live ticks move. The handler below
-  // validates quote, distance, and session state and always explains a block.
+  // A retained price remains visible for context, but a stale/non-executable
+  // quote must disable the mutation affordance. The handler still rechecks the
+  // latest snapshot to close the small gap between render and press.
   const canModifyPosition = Boolean(
     position
     && symbolsMatch
+    && hasUsableMarketPrice
     && !existingPositionModifyLocked
     && !coordinatorBusy
     && !coordinatorRateLimited
@@ -745,8 +754,10 @@ export function ModifyPositionScreen({
    */
   const handleStepSl = useCallback((delta: number) => {
     if (!position) return;
-    if (!hasUsableMarketPrice) {
-      reportUnavailableMarketPrice();
+    const currentMarket = getCurrentClosingMarketPrice();
+    const livePrice = currentMarket.price;
+    if (!currentMarket.availability.allowed || livePrice === null) {
+      reportUnavailableMarketPrice(currentMarket.availability);
       return;
     }
     if (!tickSize) {
@@ -756,7 +767,6 @@ export function ModifyPositionScreen({
     setSubmitMessage(null);
     setStopLoss((prev) => {
       // If setting for the first time, bias it directly against the live matching price for the position side
-      const livePrice = closingMarketPrice;
       let base = prev;
       if (!base) {
         // Auto offset properly based on side
@@ -766,9 +776,8 @@ export function ModifyPositionScreen({
       return parseFloat(val.toFixed(decimals));
     });
   }, [
-    closingMarketPrice,
     decimals,
-    hasUsableMarketPrice,
+    getCurrentClosingMarketPrice,
     pipSize,
     position,
     reportUnavailableMarketPrice,
@@ -782,8 +791,10 @@ export function ModifyPositionScreen({
    */
   const handleStepTp = useCallback((delta: number) => {
     if (!position) return;
-    if (!hasUsableMarketPrice) {
-      reportUnavailableMarketPrice();
+    const currentMarket = getCurrentClosingMarketPrice();
+    const livePrice = currentMarket.price;
+    if (!currentMarket.availability.allowed || livePrice === null) {
+      reportUnavailableMarketPrice(currentMarket.availability);
       return;
     }
     if (!tickSize) {
@@ -792,7 +803,6 @@ export function ModifyPositionScreen({
     }
     setSubmitMessage(null);
     setTakeProfit((prev) => {
-      const livePrice = closingMarketPrice;
       let base = prev;
       if (!base) {
         // Auto offset properly based on side
@@ -802,9 +812,8 @@ export function ModifyPositionScreen({
       return parseFloat(val.toFixed(decimals));
     });
   }, [
-    closingMarketPrice,
     decimals,
-    hasUsableMarketPrice,
+    getCurrentClosingMarketPrice,
     pipSize,
     position,
     reportUnavailableMarketPrice,
@@ -812,6 +821,51 @@ export function ModifyPositionScreen({
     t,
     tickSize,
   ]);
+
+  const handleStopTargetPreset = useCallback((kind: 'sl' | 'tp', pips: number) => {
+    if (!position) return;
+    const currentMarket = getCurrentClosingMarketPrice();
+    if (!currentMarket.availability.allowed || currentMarket.price === null) {
+      reportUnavailableMarketPrice(currentMarket.availability);
+      return;
+    }
+    if (!tickSize) {
+      setSubmitMessage(t('Instrument tick size is unavailable. Wait for broker instrument metadata before setting SL/TP.'));
+      return;
+    }
+    setSubmitMessage(null);
+    const target = snapStopTarget(resolveStopTargetPresetPrice(
+      kind,
+      position.side,
+      currentMarket.price,
+      pipSize,
+      pips,
+    ));
+    const normalizedTarget = parseFloat(target.toFixed(decimals));
+    if (kind === 'sl') {
+      setStopLoss(normalizedTarget);
+    } else {
+      setTakeProfit(normalizedTarget);
+    }
+  }, [
+    decimals,
+    getCurrentClosingMarketPrice,
+    pipSize,
+    position,
+    reportUnavailableMarketPrice,
+    snapStopTarget,
+    t,
+    tickSize,
+  ]);
+
+  const handleSlPreset = useCallback(
+    (pips: number) => handleStopTargetPreset('sl', pips),
+    [handleStopTargetPreset],
+  );
+  const handleTpPreset = useCallback(
+    (pips: number) => handleStopTargetPreset('tp', pips),
+    [handleStopTargetPreset],
+  );
 
   /**
    * Callback fired when the user manually types a new Stop Loss price into the input field.
@@ -857,25 +911,15 @@ export function ModifyPositionScreen({
       return;
     }
 
-    if (!hasUsableMarketPrice) {
-      const currentQuoteAvailability = getCurrentAvailability();
-      if (!currentQuoteAvailability.allowed) {
-        recordBlockedPriceAction('modify_position', currentQuoteAvailability);
-        setSubmitMessage(
-          formatTradingErrorFeedback(
-            createFrontendTradingError(
-              t('Market Data Unavailable'),
-              t(quoteActionBlockMessage(currentQuoteAvailability)),
-            ),
-          ),
-        );
-        return;
-      }
+    const currentMarket = getCurrentClosingMarketPrice();
+    if (!currentMarket.availability.allowed || currentMarket.price === null) {
+      recordBlockedPriceAction('modify_position', currentMarket.availability);
+      const quoteBlockMessage = quoteActionBlockMessage(currentMarket.availability);
       setSubmitMessage(
         formatTradingErrorFeedback(
           createFrontendTradingError(
             t('Market Data Unavailable'),
-            t('Wait for a live bid/ask before modifying Stop Loss or Take Profit.'),
+            t(quoteBlockMessage || 'Wait for a live bid/ask before modifying Stop Loss or Take Profit.'),
           ),
         ),
       );
@@ -883,13 +927,11 @@ export function ModifyPositionScreen({
     }
 
     // Typed values bypass the stepper, so re-validate before submitting.
-    const distanceError = validateStopTargets();
-    if (distanceError || !isSlDistanceValid || !isTpDistanceValid) {
-      const message = distanceError
-        ?? t('SL/TP is on the wrong side of the current executable market price.');
+    const distanceError = validateStopTargets(currentMarket.price);
+    if (distanceError) {
       setSubmitMessage(
         formatTradingErrorFeedback(
-          createFrontendTradingError(t('Invalid Stop Levels'), message),
+          createFrontendTradingError(t('Invalid Stop Levels'), distanceError),
         ),
       );
       return;
@@ -929,8 +971,8 @@ export function ModifyPositionScreen({
     }
 
     modifySubmittingRef.current = true;
-    const actionProvenance = captureActiveBrokerSessionProvenance();
-    if (!actionProvenance) {
+    const actionSessionKey = captureModifyPositionSessionKey();
+    if (!actionSessionKey) {
       modifySubmittingRef.current = false;
       setSubmitMessage(
         formatTradingErrorFeedback(
@@ -972,7 +1014,7 @@ export function ModifyPositionScreen({
       Alert.alert(feedback.title, feedback.message);
     }
     runAfterModifyClosePaint(() => {
-      if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) {
+      if (!isModifyPositionSessionKeyCurrent(actionSessionKey)) {
         return;
       }
       if (requestedSl > 0 || requestedTp > 0) {
@@ -994,7 +1036,7 @@ export function ModifyPositionScreen({
 
     void submission
       .then((result) => {
-        if (!isActiveBrokerSessionProvenanceCurrent(actionProvenance)) {
+        if (!isModifyPositionSessionKeyCurrent(actionSessionKey)) {
           return;
         }
         if (result.status === 'saved' || result.status === 'superseded' || result.status === 'session_changed') {
@@ -1240,6 +1282,7 @@ export function ModifyPositionScreen({
               distanceValid: boolean;
             } | null,
             onStep: (delta: number) => void,
+            onPreset: (pips: number) => void,
             onChangeText: (text: string) => void,
             onClear: () => void,
             rawValue: number | null,
@@ -1343,10 +1386,7 @@ export function ModifyPositionScreen({
                   <Pressable
                     key={p}
                     testID={`modify-position-${kind}-preset-${p}`}
-                    onPress={() => {
-                      const direction = resolveStopTargetPresetDirection(kind, position.side);
-                      onStep(pipSize * p * direction);
-                    }}
+                    onPress={() => onPreset(p)}
                     activateOnPressIn
                     latencyLabel={`modifyPosition.${kind}.preset.${p}`}
                     latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
@@ -1395,8 +1435,8 @@ export function ModifyPositionScreen({
 
           return (
             <View style={styles.stepperRow}>
-              {renderCard('sl', SL_COLOR, t('Stop Loss'), slParts, slImpact, handleStepSl, handleSlChange, () => setStopLoss(null), stopLoss)}
-              {renderCard('tp', TP_COLOR, t('Take Profit'), tpParts, tpImpact, handleStepTp, handleTpChange, () => setTakeProfit(null), takeProfit)}
+              {renderCard('sl', SL_COLOR, t('Stop Loss'), slParts, slImpact, handleStepSl, handleSlPreset, handleSlChange, () => setStopLoss(null), stopLoss)}
+              {renderCard('tp', TP_COLOR, t('Take Profit'), tpParts, tpImpact, handleStepTp, handleTpPreset, handleTpChange, () => setTakeProfit(null), takeProfit)}
             </View>
           );
         })()}
@@ -1441,9 +1481,12 @@ export function ModifyPositionScreen({
               {stopValidationError}
             </Text>
           ) : null}
-          {!existingPositionModifyLocked && !submitMessage && !stopValidationError && !hasUsableMarketPrice && !quoteAvailability.allowed && (
+          {!existingPositionModifyLocked && !submitMessage && !stopValidationError && !hasUsableMarketPrice && (
             <Text style={styles.validationText} accessibilityRole="alert">
-              {t(quoteActionBlockMessage(quoteAvailability))}
+              {t(
+                quoteActionBlockMessage(quoteAvailability)
+                || 'Wait for a live bid/ask before modifying Stop Loss or Take Profit.',
+              )}
             </Text>
           )}
         </View>

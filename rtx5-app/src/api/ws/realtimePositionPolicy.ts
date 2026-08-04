@@ -7,6 +7,8 @@ export type RealtimePositionFilterResult = Readonly<{
   rejectedRows: number;
 }>;
 
+type PositionProtectionSnapshot = Pick<PositionItem, 'id' | 'sl' | 'tp'>;
+
 const normalizeIdentity = (value: unknown): string | null => {
   if (typeof value !== 'string' && typeof value !== 'number') {
     return null;
@@ -86,6 +88,65 @@ export function filterRealtimePositionRows(
   }
 
   return { acceptedRows, rejectedRows };
+}
+
+const readProtectionCandidates = (
+  row: PositionRecord,
+  keys: ReadonlyArray<'price_sl' | 'sl' | 'price_tp' | 'tp'>,
+): ReadonlyArray<number | null> => keys
+  .filter((key) => Object.prototype.hasOwnProperty.call(row, key))
+  .map((key) => {
+    const value = row[key];
+    if (value === null || value === undefined) return 0;
+    if (typeof value === 'string' && value.trim() === '') return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric >= 0 ? numeric : null;
+  });
+
+const normalizeConfirmedProtection = (value: unknown): number => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
+};
+
+/**
+ * Returns only tickets whose unversioned websocket row carries meaningful
+ * protection evidence. Ordinary price/profit ticks and unchanged full rows do
+ * not justify an authoritative positions GET.
+ */
+export function resolveProtectionChangeHintTickets(
+  rows: ReadonlyArray<PositionRecord>,
+  currentPositions: ReadonlyArray<PositionProtectionSnapshot>,
+): Array<string | number> {
+  const confirmedByTicket = new Map(
+    currentPositions.map((position) => [String(position.id), position] as const),
+  );
+  const tickets = new Map<string, string | number>();
+
+  for (const row of rows) {
+    const rawTicket = row.ticket ?? row.position_ticket ?? row.id;
+    if (typeof rawTicket !== 'string' && typeof rawTicket !== 'number') continue;
+    const ticket = String(rawTicket).trim();
+    if (!ticket) continue;
+
+    const slCandidates = readProtectionCandidates(row, ['price_sl', 'sl']);
+    const tpCandidates = readProtectionCandidates(row, ['price_tp', 'tp']);
+    if (slCandidates.length === 0 && tpCandidates.length === 0) continue;
+
+    const confirmed = confirmedByTicket.get(ticket);
+    const slChanged = slCandidates.some((candidate) => (
+      candidate === null ||
+      !confirmed ||
+      candidate !== normalizeConfirmedProtection(confirmed.sl)
+    ));
+    const tpChanged = tpCandidates.some((candidate) => (
+      candidate === null ||
+      !confirmed ||
+      candidate !== normalizeConfirmedProtection(confirmed.tp)
+    ));
+    if (slChanged || tpChanged) tickets.set(ticket, rawTicket);
+  }
+
+  return [...tickets.values()];
 }
 
 const normalizeHint = (value: unknown): string =>

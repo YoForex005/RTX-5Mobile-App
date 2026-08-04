@@ -85,18 +85,30 @@ export function useExecutableQuote(
     () => resolveSessionQuoteActionAvailability(executableQuote, now),
     [health, now, executableQuote],
   );
-  const getCurrentAvailability = useCallback(
+  const getCurrentExecutableQuoteState = useCallback(
     () => {
       const latestQuote = active
         ? getCurrentLiveQuoteSnapshot(symbol)
         : quote;
-      return resolveSessionQuoteActionAvailability(
-        toExecutableQuoteInput(latestQuote),
-        Date.now(),
-      );
+      return {
+        quote: latestQuote,
+        availability: resolveSessionQuoteActionAvailability(
+          toExecutableQuoteInput(latestQuote),
+          Date.now(),
+        ),
+      } as const;
     },
     [active, quote, symbol],
   );
+  const getCurrentAvailability = useCallback(
+    () => getCurrentExecutableQuoteState().availability,
+    [getCurrentExecutableQuoteState],
+  );
 
-  return { quote, availability, getCurrentAvailability } as const;
+  return {
+    quote,
+    availability,
+    getCurrentAvailability,
+    getCurrentExecutableQuoteState,
+  } as const;
 }

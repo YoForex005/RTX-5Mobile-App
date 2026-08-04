@@ -23,6 +23,7 @@ import { redactDiagnosticValue } from '../../utils/securityRedaction';
 import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope';
 import {
   filterRealtimePositionRows,
+  resolveProtectionChangeHintTickets,
 } from './realtimePositionPolicy';
 import { extractLiveAccountMetrics } from './accountSocket.helpers';
 import {
@@ -129,11 +130,21 @@ export const stripUnversionedPositionProtection = (
 
 const resolvePositionHintTickets = (
   rows: ReadonlyArray<Record<string, unknown>>,
-): Array<string | number> => rows
-  .map((row) => row.ticket ?? row.position_ticket)
-  .filter((ticket): ticket is string | number => (
-    typeof ticket === 'string' || typeof ticket === 'number'
-  ));
+  currentPositions: Parameters<typeof resolveProtectionChangeHintTickets>[1],
+): Array<string | number> => {
+  const tickets = new Map<string, string | number>();
+  for (const ticket of resolveProtectionChangeHintTickets(rows, currentPositions)) {
+    tickets.set(String(ticket), ticket);
+  }
+  for (const row of rows) {
+    if (!isTerminalPositionUpdate(row)) continue;
+    const ticket = row.ticket ?? row.position_ticket;
+    if (typeof ticket === 'string' || typeof ticket === 'number') {
+      tickets.set(String(ticket), ticket);
+    }
+  }
+  return [...tickets.values()];
+};
 
 const sameIdentity = (
   left: ActiveBrokerSessionIdentity | null,
@@ -537,7 +548,7 @@ class BrokerRealtimeService {
       positionsState.positions,
     );
     notifyModifyPositionSocketHint(
-      resolvePositionHintTickets(acceptedRows),
+      resolvePositionHintTickets(acceptedRows, positionsState.positions),
       identity.accountLogin,
     );
     if (rejectedRows > 0) {
@@ -577,7 +588,7 @@ class BrokerRealtimeService {
 
     if (acceptedRows[0]) {
       notifyModifyPositionSocketHint(
-        resolvePositionHintTickets(acceptedRows),
+        resolvePositionHintTickets(acceptedRows, positionsState.positions),
         identity.accountLogin,
       );
       if (isTerminalPositionUpdate(acceptedRows[0])) {

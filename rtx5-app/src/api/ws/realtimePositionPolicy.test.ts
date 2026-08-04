@@ -6,6 +6,7 @@ import { mapPositionToItem } from '../../state/positionsMapper.ts';
 import {
   filterRealtimePositionRows,
   isAuthoritativeRealtimePositionsBatch,
+  resolveProtectionChangeHintTickets,
 } from './realtimePositionPolicy.ts';
 
 const makePositionRow = (identity: Record<string, unknown>, index: number) => ({
@@ -63,6 +64,25 @@ test('realtime creates only canonical position tickets while generic aliases may
     [91_002, '91003', 91_001],
   );
   assert.equal(filtered.rejectedRows, 3);
+});
+
+test('modify reconciliation hints ignore ordinary ticks and unchanged protection rows', () => {
+  const current = [{ id: '91001', sl: 1.07, tp: 1.1 }];
+  assert.deepEqual(resolveProtectionChangeHintTickets([
+    { ticket: 91_001, price_current: 1.081, profit: 1.25 },
+    { ticket: 91_001, price_sl: 1.07, price_tp: 1.1, profit: 1.5 },
+  ], current), []);
+
+  assert.deepEqual(resolveProtectionChangeHintTickets([
+    { ticket: 91_001, price_sl: 1.071, price_tp: 1.1 },
+    { ticket: 91_001, sl: 1.071, tp: 1.1 },
+  ], current), [91_001]);
+  assert.deepEqual(resolveProtectionChangeHintTickets([
+    { ticket: 91_001, price_sl: null, price_tp: 1.1 },
+  ], current), [91_001]);
+  assert.deepEqual(resolveProtectionChangeHintTickets([
+    { ticket: 91_001, price_sl: 'malformed' },
+  ], current), [91_001]);
 });
 
 test('explicit full snapshots replace while scoped and default arrays remain incremental', () => {

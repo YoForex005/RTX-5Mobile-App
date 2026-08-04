@@ -288,13 +288,14 @@ test('coordinator rate-limit state requires a strict positive integer Retry-Afte
   }
 });
 
-test('success, structured rejection, and ambiguous PUT outcomes all reconcile', async () => {
+test('only acknowledged or ambiguous PUT outcomes reconcile', async () => {
   const cases = [
     {
       name: 'acknowledged',
       modify: async () => {},
       expectedStatus: 'saved',
       matching: true,
+      expectedReads: 1,
     },
     {
       name: 'structured rejection',
@@ -303,6 +304,7 @@ test('success, structured rejection, and ambiguous PUT outcomes all reconcile', 
       },
       expectedStatus: 'rejected',
       matching: false,
+      expectedReads: 0,
     },
     {
       name: 'ambiguous response',
@@ -311,6 +313,25 @@ test('success, structured rejection, and ambiguous PUT outcomes all reconcile', 
       },
       expectedStatus: 'unknown',
       matching: false,
+      expectedReads: 1,
+    },
+    {
+      name: 'server failure',
+      modify: async () => {
+        throw Object.assign(new Error('gateway unavailable'), { status: 503 });
+      },
+      expectedStatus: 'unknown',
+      matching: false,
+      expectedReads: 1,
+    },
+    {
+      name: 'missing position rejection',
+      modify: async () => {
+        throw Object.assign(new Error('position not found'), { status: 404 });
+      },
+      expectedStatus: 'rejected',
+      matching: false,
+      expectedReads: 1,
     },
   ] as const;
 
@@ -335,10 +356,76 @@ test('success, structured rejection, and ambiguous PUT outcomes all reconcile', 
 
     const result = await core.submit(job);
     assert.equal(result.status, scenario.expectedStatus, scenario.name);
-    assert.equal(reads, 1, `${scenario.name} must perform one mandatory GET`);
-    assert.equal(commits, 1, `${scenario.name} must commit the eligible REST snapshot`);
-    assert.equal(core.getTicketState(job.ticket).reconciliationFloorSequence, 1);
+    assert.equal(reads, scenario.expectedReads, scenario.name);
+    assert.equal(commits, scenario.expectedReads, scenario.name);
+    assert.equal(
+      core.getTicketState(job.ticket).reconciliationFloorSequence,
+      scenario.expectedReads,
+    );
   }
+});
+
+test('a reconciliation failure preserves the original backend rejection', async () => {
+  const backendError = Object.assign(new Error('position not found'), { status: 404 });
+  const job = input(302, request(1.08, 1.12));
+  const core = coordinator({
+    modify: async () => {
+      throw backendError;
+    },
+    readPositions: async () => {
+      throw new Error('positions refresh unavailable');
+    },
+    commitPosition: () => {},
+  });
+
+  const result = await core.submit(job);
+  assert.equal(result.status, 'rejected');
+  assert.equal(result.error, backendError);
+  assert.equal(core.getTicketState(job.ticket).phase, 'rejected');
+});
+
+test('the mutation transport starts synchronously before submit returns', async () => {
+  const modifyGate = controlledPromise<void>();
+  const job = input(303, request(1.08, 1.12));
+  let modifyCalls = 0;
+  const core = coordinator({
+    modify: () => {
+      modifyCalls += 1;
+      return modifyGate.promise;
+    },
+    readPositions: async (currentJob) => [matchingSnapshot(currentJob)],
+    commitPosition: () => {},
+  });
+
+  const resultPromise = core.submit(job);
+  assert.equal(modifyCalls, 1);
+  modifyGate.resolve(undefined);
+  assert.equal((await resultPromise).status, 'saved');
+});
+
+test('a socket epoch change replaces a stale mandatory reconciliation before settling', async () => {
+  const staleRead = controlledPromise<ReadonlyArray<Record<string, unknown>>>();
+  const currentRead = controlledPromise<ReadonlyArray<Record<string, unknown>>>();
+  const job = input(304, request(1.08, 1.12));
+  let reads = 0;
+  const core = coordinator({
+    modify: async () => {},
+    readPositions: () => {
+      reads += 1;
+      return reads === 1 ? staleRead.promise : currentRead.promise;
+    },
+    commitPosition: () => {},
+  });
+
+  const resultPromise = core.submit(job);
+  await waitUntil(() => reads === 1, 'mandatory reconciliation did not start');
+  core.notifySocketSubscription();
+  staleRead.resolve([matchingSnapshot(job)]);
+  await waitUntil(() => reads === 2, 'current socket-epoch reconciliation did not replace stale GET');
+  currentRead.resolve([matchingSnapshot(job)]);
+
+  assert.equal((await resultPromise).status, 'saved');
+  assert.equal(reads, 2);
 });
 
 test('a socket-epoch-stale hint GET cannot commit and is replaced by a current GET', async () => {
@@ -388,7 +475,35 @@ test('a socket-epoch-stale hint GET cannot commit and is replaced by a current G
   assert.equal(state.latestEligibleSequence, 3);
 });
 
-test('websocket hints during a mutation coalesce into one post-reconciliation GET', async () => {
+test('websocket hints queued before mandatory reconciliation are consumed by its GET', async () => {
+  const modifyGate = controlledPromise<void>();
+  const job = input(500, request(1.08, 1.12));
+  let reads = 0;
+  const core = coordinator({
+    modify: () => modifyGate.promise,
+    readPositions: async (currentJob) => {
+      reads += 1;
+      return [matchingSnapshot(currentJob)];
+    },
+    commitPosition: () => {},
+  });
+
+  const resultPromise = core.submit(job);
+  await waitUntil(
+    () => core.getTicketState(job.ticket).mutationInFlight,
+    'mutation did not start',
+  );
+  core.notifyPositionsHint([job.ticket], job.accountLogin);
+  core.notifyPositionsHint([job.ticket], job.accountLogin);
+  modifyGate.resolve(undefined);
+
+  assert.equal((await resultPromise).status, 'saved');
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  assert.equal(reads, 1);
+  assert.equal(core.getTicketState(job.ticket).hintQueued, false);
+});
+
+test('a websocket hint during mandatory reconciliation refreshes in the background', async () => {
   const modifyGate = controlledPromise<void>();
   const mandatoryRead = controlledPromise<ReadonlyArray<Record<string, unknown>>>();
   const hintedRead = controlledPromise<ReadonlyArray<Record<string, unknown>>>();
@@ -424,10 +539,14 @@ test('websocket hints during a mutation coalesce into one post-reconciliation GE
   core.notifyPositionsHint([job.ticket], job.accountLogin);
 
   mandatoryRead.resolve([matchingSnapshot(job)]);
-  await waitUntil(() => reads === 2, 'coalesced hint GET did not start');
-  hintedRead.resolve([matchingSnapshot(job)]);
-
   assert.equal((await resultPromise).status, 'saved');
+  await waitUntil(() => reads === 2, 'coalesced background hint GET did not start');
+  assert.equal(
+    core.getTicketState(job.ticket).activeAttemptId,
+    undefined,
+    'background freshness must not retain the active mutation attempt',
+  );
+  hintedRead.resolve([matchingSnapshot(job)]);
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
   assert.equal(reads, 2, 'multiple websocket hints must coalesce to one extra GET');
   assert.equal(commits, 2);
@@ -465,10 +584,14 @@ test('session reset invalidates active work and resolves queued work without rec
   currentSession = false;
   core.resetSession();
   assert.equal((await queued).status, 'session_changed');
+  assert.equal(
+    (await active).status,
+    'session_changed',
+    'session reset must settle active callers before their transport returns',
+  );
   assert.equal(core.getTicketState(firstInput.ticket).phase, 'idle');
 
   modifyGate.resolve(undefined);
-  assert.equal((await active).status, 'session_changed');
   assert.equal(reads, 0);
   await waitUntil(() => releases === 1, 'session-reset job did not release its mutation barrier');
   assert.equal(releases, 1);
@@ -515,5 +638,177 @@ test('unsubscribing every view does not cancel an already-started ticket job', a
   assert.equal(commits, 1);
   await waitUntil(() => releases === 1, 'completed job did not release its mutation barrier');
   assert.equal(releases, 1);
+  assert.equal(core.getTicketState(job.ticket).phase, 'saved');
+});
+
+test('an explicit empty hint ticket list never fans out to retained entries', async () => {
+  const job = input(801, request(1.08, 1.12));
+  let reads = 0;
+  const core = coordinator({
+    modify: async () => {},
+    readPositions: async (currentJob) => {
+      reads += 1;
+      return [matchingSnapshot(currentJob)];
+    },
+    commitPosition: () => {},
+  });
+  assert.equal((await core.submit(job)).status, 'saved');
+
+  core.notifyPositionsHint([], job.accountLogin);
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  assert.equal(reads, 1);
+  assert.equal(core.getTicketState(job.ticket).phase, 'saved');
+
+  core.notifyPositionsHint(undefined, job.accountLogin);
+  await waitUntil(() => reads === 2, 'undefined all-ticket hint did not refresh');
+});
+
+test('socket resubscription does not fan out GETs for settled saved entries', async () => {
+  const job = input(807, request(1.08, 1.12));
+  let reads = 0;
+  const core = coordinator({
+    modify: async () => {},
+    readPositions: async (currentJob) => {
+      reads += 1;
+      return [matchingSnapshot(currentJob)];
+    },
+    commitPosition: () => {},
+  });
+  assert.equal((await core.submit(job)).status, 'saved');
+
+  core.notifySocketSubscription();
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  assert.equal(reads, 1);
+  assert.equal(core.getTicketState(job.ticket).socketSubscriptionEpoch, 1);
+});
+
+test('whole-stage reconciliation deadline settles unknown and releases mutation ownership', async () => {
+  const never = controlledPromise<ReadonlyArray<Record<string, unknown>>>();
+  const job = input(802, request(1.08, 1.12));
+  let reconciliationSignal: AbortSignal | undefined;
+  let releases = 0;
+  const core = new ModifyPositionCoordinatorCore({
+    modify: async () => {},
+    readPositions: (_currentJob, signal) => {
+      reconciliationSignal = signal;
+      return never.promise;
+    },
+    commitPosition: () => {},
+    isSessionCurrent: () => true,
+    reconciliationTimeoutMs: 5,
+    beginProtectedMutation: () => () => {
+      releases += 1;
+    },
+  });
+
+  const result = await core.submit(job);
+  assert.equal(result.status, 'unknown');
+  assert.equal(reconciliationSignal?.aborted, true);
+  assert.equal(core.getTicketState(job.ticket).phase, 'unknown');
+  assert.equal(core.getTicketState(job.ticket).mutationInFlight, false);
+  assert.equal(core.getTicketState(job.ticket).activeAttemptId, undefined);
+  await waitUntil(() => releases === 1, 'timed-out job did not release its barrier');
+});
+
+test('telemetry exceptions cannot strand a modify-position job', async () => {
+  const job = input(803, request(1.08, 1.12));
+  const core = new ModifyPositionCoordinatorCore({
+    modify: async () => {},
+    readPositions: async (currentJob) => [matchingSnapshot(currentJob)],
+    commitPosition: () => {},
+    isSessionCurrent: () => true,
+    recordEvent: () => {
+      throw new Error('telemetry unavailable');
+    },
+  });
+
+  assert.equal((await core.submit(job)).status, 'saved');
+  assert.equal(core.getTicketState(job.ticket).phase, 'saved');
+});
+
+test('a throwing session probe settles the active job instead of stranding it', async () => {
+  const job = input(805, request(1.08, 1.12));
+  const core = new ModifyPositionCoordinatorCore({
+    modify: async () => {},
+    readPositions: async () => [],
+    commitPosition: () => {},
+    isSessionCurrent: () => {
+      throw new Error('session probe failed');
+    },
+  });
+
+  const result = await core.submit(job);
+  assert.equal(result.status, 'unknown');
+  assert.equal(core.getTicketState(job.ticket).phase, 'unknown');
+  assert.equal(core.getTicketState(job.ticket).activeAttemptId, undefined);
+});
+
+test('idle websocket hint bursts are bounded to one trailing refresh', async () => {
+  const job = input(804, request(1.08, 1.12));
+  const firstIdleRead = controlledPromise<ReadonlyArray<Record<string, unknown>>>();
+  const trailingIdleRead = controlledPromise<ReadonlyArray<Record<string, unknown>>>();
+  let reads = 0;
+  const core = coordinator({
+    modify: async () => {},
+    readPositions: async (currentJob) => {
+      reads += 1;
+      if (reads === 1) return [matchingSnapshot(currentJob)];
+      if (reads === 2) return firstIdleRead.promise;
+      return trailingIdleRead.promise;
+    },
+    commitPosition: () => {},
+  });
+  assert.equal((await core.submit(job)).status, 'saved');
+
+  core.notifyPositionsHint([job.ticket], job.accountLogin);
+  await waitUntil(() => reads === 2, 'first idle refresh did not start');
+  for (let index = 0; index < 5; index += 1) {
+    core.notifyPositionsHint([job.ticket], job.accountLogin);
+  }
+  firstIdleRead.resolve([matchingSnapshot(job)]);
+  await waitUntil(() => reads === 3, 'single trailing idle refresh did not start');
+  for (let index = 0; index < 5; index += 1) {
+    core.notifyPositionsHint([job.ticket], job.accountLogin);
+  }
+  trailingIdleRead.resolve([matchingSnapshot(job)]);
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  assert.equal(reads, 3);
+  assert.equal(core.getTicketState(job.ticket).hintQueued, false);
+});
+
+test('socket resubscription during a trailing idle GET forces one eligible replacement', async () => {
+  const job = input(806, request(1.08, 1.12));
+  const firstIdleRead = controlledPromise<ReadonlyArray<Record<string, unknown>>>();
+  const staleTrailingRead = controlledPromise<ReadonlyArray<Record<string, unknown>>>();
+  const replacementRead = controlledPromise<ReadonlyArray<Record<string, unknown>>>();
+  let reads = 0;
+  let commits = 0;
+  const core = coordinator({
+    modify: async () => {},
+    readPositions: async (currentJob) => {
+      reads += 1;
+      if (reads === 1) return [matchingSnapshot(currentJob)];
+      if (reads === 2) return firstIdleRead.promise;
+      if (reads === 3) return staleTrailingRead.promise;
+      return replacementRead.promise;
+    },
+    commitPosition: () => {
+      commits += 1;
+    },
+  });
+  assert.equal((await core.submit(job)).status, 'saved');
+
+  core.notifyPositionsHint([job.ticket], job.accountLogin);
+  await waitUntil(() => reads === 2, 'first idle GET did not start');
+  core.notifyPositionsHint([job.ticket], job.accountLogin);
+  firstIdleRead.resolve([matchingSnapshot(job)]);
+  await waitUntil(() => reads === 3, 'trailing idle GET did not start');
+
+  core.notifySocketSubscription();
+  staleTrailingRead.resolve([matchingSnapshot(job)]);
+  await waitUntil(() => reads === 4, 'socket-current replacement GET did not start');
+  replacementRead.resolve([matchingSnapshot(job)]);
+  await waitUntil(() => commits === 3, 'replacement GET did not commit');
+  assert.equal(reads, 4);
   assert.equal(core.getTicketState(job.ticket).phase, 'saved');
 });

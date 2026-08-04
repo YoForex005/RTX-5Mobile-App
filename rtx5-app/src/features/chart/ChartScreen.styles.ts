@@ -715,8 +715,6 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       marginBottom: 0,
     },
     chartTradeSheetDragRegion: {
-      borderBottomWidth: 1,
-      borderBottomColor: TRADE_SHEET_BORDER,
       backgroundColor: TRADE_SHEET_BG,
       paddingTop: 2,
     },
@@ -830,8 +828,6 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingTop: 10,
       paddingBottom: 8,
       gap: 12,
-      borderBottomWidth: 1,
-      borderBottomColor: TRADE_SHEET_BORDER_SOFT,
     },
     chartTradeSheetHeaderPending: {
       paddingTop: 8,

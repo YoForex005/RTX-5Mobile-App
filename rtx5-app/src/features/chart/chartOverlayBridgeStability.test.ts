@@ -270,7 +270,7 @@ test('chart modify selection stays ticket-durable and exposes coordinator reconc
   );
   assertSourceContains(
     chartTradeFeatureSource,
-    /modifyPhase === 'pending'[\s\S]*modifyPhase === 'reconciling'[\s\S]*modifyPhase === 'unknown'[\s\S]*modifyPhase === 'changed_elsewhere'/,
+    /modifyAttemptActive[\s\S]*modifyPhase === 'pending'[\s\S]*modifyPhase === 'reconciling' && modifyAttemptActive[\s\S]*modifyPhase === 'unknown'[\s\S]*modifyPhase === 'changed_elsewhere'/,
     'the chart sheet must visibly expose shared pending and reconciliation outcomes',
   );
   assert.doesNotMatch(

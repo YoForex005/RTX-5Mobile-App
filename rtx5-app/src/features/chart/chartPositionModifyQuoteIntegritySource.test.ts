@@ -17,8 +17,8 @@ test('native chart position SL/TP modification is live-quote and owner-provenanc
 
   assert.match(body, /resolveSessionQuoteActionAvailability\(chartLiveQuote, Date\.now\(\)\)/);
   assert.match(body, /quoteActionBlockMessage\(quoteAvailability\)/);
-  assert.match(body, /getActiveBrokerSessionProvenance\(sessionCapture\.session\)/);
-  assert.match(body, /isActiveBrokerSessionProvenanceCurrent\(sessionProvenance\)/);
+  assert.match(body, /captureModifyPositionSessionKey\(\)/);
+  assert.match(body, /isModifyPositionSessionKeyCurrent\(modifySessionKey\)/);
   assert.match(body, /position\.side === 'buy'[\s\S]*quoteAvailability\.bid[\s\S]*quoteAvailability\.ask/);
   assert.match(
     body,

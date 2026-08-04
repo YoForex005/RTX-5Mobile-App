@@ -8,7 +8,6 @@ import {
 } from '../../api/positions';
 import {
   captureActiveBrokerSession,
-  captureActiveBrokerSessionOwnerStamp,
   subscribeActiveBrokerSession,
 } from '../../state/activeBrokerSession';
 import { usePositionsState } from '../../state/positionsState';
@@ -23,33 +22,36 @@ import {
   type ModifyPositionCoordinatorResult,
   type TicketMutationState,
 } from './modifyPositionCoordinatorCore';
+import {
+  buildModifyPositionSessionKey,
+  handleModifyPositionSessionEvent,
+} from './modifyPositionSessionKey';
 
-const MODIFY_POSITION_TIMEOUT_MS = 10_000;
+const MODIFY_POSITION_REQUEST_TIMEOUT_MS = 10_000;
+// Live device reads normally complete in 1-2.4s and the observed slow healthy
+// tail was just under 5s. Keep headroom without allowing reconciliation to
+// hold the UI behind the 30-40s auth/request stalls reproduced on-device.
+const MODIFY_POSITION_RECONCILIATION_TIMEOUT_MS = 6_000;
 
-const getActiveModifySessionKey = (): string | null => {
-  const owner = captureActiveBrokerSessionOwnerStamp();
-  if (!owner) return null;
-  return JSON.stringify([
-    owner.brokerId,
-    owner.apiBase,
-    owner.accountLogin,
-    owner.cacheNamespace,
-    owner.sessionEpoch,
-    owner.credentialGeneration,
-    owner.credentialIdentity,
-  ]);
+export const captureModifyPositionSessionKey = (): string | null => {
+  const capture = captureActiveBrokerSession();
+  return capture ? buildModifyPositionSessionKey(capture.session) : null;
 };
 
+export const isModifyPositionSessionKeyCurrent = (sessionKey: string): boolean =>
+  captureModifyPositionSessionKey() === sessionKey;
+
 const coordinator = new ModifyPositionCoordinatorCore({
-  modify: (input) => positionsApi.modifyPosition(
+  modify: (input, signal) => positionsApi.modifyPosition(
     input.ticket,
     input.request,
     {
       expectedSymbol: input.symbol,
-      timeoutMs: MODIFY_POSITION_TIMEOUT_MS,
+      signal,
+      timeoutMs: MODIFY_POSITION_REQUEST_TIMEOUT_MS,
       onResponseMetadata: (metadata) => {
         const capture = captureActiveBrokerSession();
-        if (!capture || getActiveModifySessionKey() !== input.sessionKey) return;
+        if (!capture || captureModifyPositionSessionKey() !== input.sessionKey) return;
         recordMarketDataEvent('modify_position', {
           phase: 'http_response',
           brokerId: capture.session.brokerId,
@@ -61,10 +63,13 @@ const coordinator = new ModifyPositionCoordinatorCore({
       },
     },
   ),
-  readPositions: async (input) => (
+  readPositions: async (input, signal) => (
     await positionsApi.getPositionsForReconciliation(
       input.accountLogin,
-      { timeoutMs: MODIFY_POSITION_TIMEOUT_MS },
+      {
+        signal,
+        timeoutMs: MODIFY_POSITION_RECONCILIATION_TIMEOUT_MS,
+      },
     )
   ) as unknown as ReadonlyArray<Record<string, unknown>>,
   commitPosition: (position, input) => {
@@ -87,11 +92,13 @@ const coordinator = new ModifyPositionCoordinatorCore({
     });
   },
   isSessionCurrent: (sessionKey) =>
-    getActiveModifySessionKey() === sessionKey,
+    captureModifyPositionSessionKey() === sessionKey,
   beginProtectedMutation: beginProtectedPositionsMutation,
+  mutationTimeoutMs: MODIFY_POSITION_REQUEST_TIMEOUT_MS,
+  reconciliationTimeoutMs: MODIFY_POSITION_RECONCILIATION_TIMEOUT_MS,
   recordEvent: (phase, input, details) => {
     const capture = captureActiveBrokerSession();
-    if (!capture || getActiveModifySessionKey() !== input.sessionKey) return;
+    if (!capture || captureModifyPositionSessionKey() !== input.sessionKey) return;
     recordMarketDataEvent('modify_position', {
       phase,
       brokerId: capture.session.brokerId,
@@ -104,9 +111,9 @@ const coordinator = new ModifyPositionCoordinatorCore({
 });
 
 subscribeActiveBrokerSession((event) => {
-  if (event.type === 'transition' || event.type === 'credentials_updated') {
-    coordinator.resetSession();
-  }
+  // BrokerAPI rebinds an in-flight request to the exact refreshed credential
+  // lease. Only a real broker/account transition may cancel reconciliation.
+  handleModifyPositionSessionEvent(event.type, () => coordinator.resetSession());
 });
 
 export type SubmitModifyPositionInput = Readonly<{
@@ -123,8 +130,7 @@ export const submitModifyPosition = (
   // that is fail-closed for the selected broker runtime.
   assertActiveExistingPositionSltpAllowed();
   const capture = captureActiveBrokerSession();
-  const owner = captureActiveBrokerSessionOwnerStamp();
-  if (!capture || !owner) {
+  if (!capture) {
     throw new Error('The active broker session is unavailable.');
   }
   const ticket = normalizePositiveSafeIntegerPathSegment(input.ticket, 'Position ticket');
@@ -149,7 +155,7 @@ export const submitModifyPosition = (
     ticket: ticket.numeric,
     symbol,
     accountLogin: accountLogin.numeric,
-    sessionKey: getActiveModifySessionKey()!,
+    sessionKey: buildModifyPositionSessionKey(capture.session),
     request,
   }));
 };
