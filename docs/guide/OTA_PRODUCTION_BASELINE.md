@@ -1,6 +1,6 @@
 # RTX5 Production OTA Baseline
 
-> **CURRENT STATUS: PRODUCTION OTA `1.1.32` IS LIVE FOR ANDROID AND IOS.
+> **CURRENT STATUS: PRODUCTION OTA `1.1.33` IS LIVE FOR ANDROID AND IOS.
 > DO NOT PUBLISH THE ASSESSED `main` SOURCE LINE DIRECTLY TO THE OLD RUNTIMES.**
 >
 > This tracked file is the shared production OTA baseline. It is a
@@ -8,7 +8,7 @@
 > state, the installed binary source commit, and both resolved runtimes before
 > an OTA.
 
-Last verified: `2026-08-03` (Asia/Calcutta)
+Last verified: `2026-08-04` (Asia/Calcutta)
 
 ## Authoritative Project Location
 
@@ -63,14 +63,15 @@ target binary must also be freshly determined and recorded.
 
 | Item | Android | iOS |
 | --- | --- | --- |
-| Last verified `1.1.32` target runtime; installed/store confirmation required | `30cba83220fc6c92180eed477863c3e3e3087ce6` | `ef38da275b765380037fc377f5c596de31690b7d` |
-| Assessed `9f39e0c...` product-source runtime | `9677dac3c4cdd2d471a3def0258968a0670e321e` | `75d947e7eaf665910e2754aff5b4c033c8a2b36b` |
+| Last verified `1.1.33` target runtime; installed/store confirmation required | `30cba83220fc6c92180eed477863c3e3e3087ce6` | `ef38da275b765380037fc377f5c596de31690b7d` |
+| Assessed isolated `1.1.33` release-source natural runtime (before explicit targeting) | `a932efc24840cbde7f4306bd72a5cb8a8d4c00b6` | `44b87287efd7b5495c414eea72bde8d23429baf4` |
 | Runtime match | **NO** | **NO** |
 
-Product-source commit assessed before this documentation-only update:
+Product-source commit assessed and synced into the isolated release worktree
+for the `1.1.33` OTA (main line, `ota update version 1.1.33`):
 
 ```text
-9f39e0c590b4678e0eacba2bcba23253bf2d9919
+0d5aaf325afb87a6a935685ad86ca3a33253ee5d
 ```
 
 Documentation-only commits may appear after that SHA. Always run
@@ -85,17 +86,23 @@ Latest production OTA source commit:
 
 The assessed `main` source was not published directly. Its normally resolved
 runtimes do not match the compatible installed binary runtimes. Production OTA
-`1.1.32` was instead assembled in an isolated worktree based on the last OTA
-source commit above. Current OTA-deliverable application changes were applied,
-while native-sensitive configuration and dependencies remained on that
-compatible baseline. EAS therefore records source commit `2975156...` with a
-dirty-worktree marker.
+`1.1.33` (like `1.1.32` before it) was instead assembled in an isolated
+worktree based on the last OTA source commit above. Current OTA-deliverable
+application changes from main commit `0d5aaf32...` (`rtx5-app/app`,
+`rtx5-app/src`, `rtx5-app/tests`, `rtx5-app/scripts`, plus non-native support
+files) were synced in, while native-sensitive configuration, dependencies
+(`package.json`/`package-lock.json`/`eas.json`), and icon assets remained on
+that compatible baseline. Dependency sections of `package.json` were verified
+byte-identical between main and the baseline before syncing. EAS therefore
+records source commit `2975156...` with a dirty-worktree marker.
 
 The Android and iOS updates were published separately and explicitly targeted
-the same platform runtime values used by `1.1.31`. The release safety comparison
-against `2975156...` reported zero native-impacting changes. This exceptional,
-reviewed continuation of the prior runtime lines is not permission to publish
-raw current `main` or another unreviewed source against those runtimes.
+the same platform runtime values used by `1.1.31` and `1.1.32`
+(`RTX5_FORCE_RUNTIME_VERSION` with `RTX5_ALLOW_FORCE_RUNTIME_VERSION=true`,
+per platform). The release safety comparison against `2975156...` reported
+zero native-impacting changes (299 changed files). This exceptional, reviewed
+continuation of the prior runtime lines is not permission to publish raw
+current `main` or another unreviewed source against those runtimes.
 
 Before shipping source from this line, either:
 
@@ -141,59 +148,63 @@ than assuming the highest EAS build number is the active store binary.
 
 ## Last Verified Production OTA Snapshot
 
-Production OTA `1.1.32` was published on `2026-08-01` to the same Android and
-iOS runtime lines used by `1.1.31`. Re-evaluate runtime compatibility for every
-later change.
+Production OTA `1.1.33` was published on `2026-08-04` to the same Android and
+iOS runtime lines used by `1.1.31` and `1.1.32`. Re-evaluate runtime
+compatibility for every later change.
 
 ### Android
 
 | Field | Verified value |
 | --- | --- |
-| OTA-visible version | `1.1.32` |
+| OTA-visible version | `1.1.33` |
 | Compatible EAS build reference | `cfe3b101-ab15-4e18-854b-ef808e96d708` — installed/store confirmation required |
 | Source commit | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` |
 | EAS source status | Dirty isolated release worktree (`2975156...*`) |
+| Main-line product source synced in | `0d5aaf325afb87a6a935685ad86ca3a33253ee5d` |
 | OTA safety-comparison base | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` |
 | Runtime | `30cba83220fc6c92180eed477863c3e3e3087ce6` |
-| Update group | `5b7f6e87-870f-4f37-94fc-8639b1c23920` |
-| Update ID | `019fbde7-12fc-7876-97d7-fe7493c87f8f` |
-| Created | `2026-08-01T15:17:45.340Z` |
-| Message | `Android production OTA 1.1.32 trading + chart + account stability runtime 30cba832` |
-| Manifest | `https://u.expo.dev/update/019fbde7-12fc-7876-97d7-fe7493c87f8f` |
-| Dashboard | `https://expo.dev/accounts/yoforex/projects/rtx5-app/updates/5b7f6e87-870f-4f37-94fc-8639b1c23920` |
+| Update group | `69c232da-cddd-4b2b-b298-e3f270eea8a2` |
+| Update ID | `019fcd3f-f8c4-7c61-9360-8de8544c3120` |
+| Created | `2026-08-04T14:49:09.572Z` |
+| Message | `Android production OTA 1.1.33 chart SL/TP protected trading runtime 30cba832` |
+| Manifest | `https://u.expo.dev/update/019fcd3f-f8c4-7c61-9360-8de8544c3120` |
+| Dashboard | `https://expo.dev/accounts/yoforex/projects/rtx5-app/updates/69c232da-cddd-4b2b-b298-e3f270eea8a2` |
 
 ### iOS
 
 | Field | Verified value |
 | --- | --- |
-| OTA-visible version | `1.1.32` |
+| OTA-visible version | `1.1.33` |
 | Compatible EAS build reference | `1b1bd2e3-da6c-4c8b-94c2-285b0329dce2` — installed/store confirmation required |
 | Source commit | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` |
 | EAS source status | Dirty isolated release worktree (`2975156...*`) |
+| Main-line product source synced in | `0d5aaf325afb87a6a935685ad86ca3a33253ee5d` |
 | OTA safety-comparison base | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` |
 | Runtime | `ef38da275b765380037fc377f5c596de31690b7d` |
-| Update group | `827f2197-ee6e-4651-8b6c-11d0190d37d1` |
-| Update ID | `019fbde9-9e15-7873-bdf1-c4013264d7df` |
-| Created | `2026-08-01T15:20:32.021Z` |
-| Message | `iOS production OTA 1.1.32 trading + chart + account stability runtime ef38da27` |
-| Manifest | `https://u.expo.dev/update/019fbde9-9e15-7873-bdf1-c4013264d7df` |
-| Dashboard | `https://expo.dev/accounts/yoforex/projects/rtx5-app/updates/827f2197-ee6e-4651-8b6c-11d0190d37d1` |
+| Update group | `ed38a801-9549-4949-9888-710a7b9cf63b` |
+| Update ID | `019fcd42-81b3-77e4-bb3c-75ead61ec1b4` |
+| Created | `2026-08-04T14:51:55.699Z` |
+| Message | `iOS production OTA 1.1.33 chart SL/TP protected trading runtime ef38da27` |
+| Manifest | `https://u.expo.dev/update/019fcd42-81b3-77e4-bb3c-75ead61ec1b4` |
+| Dashboard | `https://expo.dev/accounts/yoforex/projects/rtx5-app/updates/ed38a801-9549-4949-9888-710a7b9cf63b` |
 
-### Release validation recorded for `1.1.32`
+### Release validation recorded for `1.1.33`
 
-- Full tests: 292 test files passed.
-- TypeScript typecheck: passed.
-- Expo Doctor: 18/18 checks passed.
-- Interaction tests: 167/167 passed.
-- Stability tests: 291/291 passed.
-- Clean Android and iOS production exports: passed.
-- Production EAS environment validation: passed.
-- OTA safety comparison against `2975156...`: zero native-impacting changes.
+- Full tests on main (`0d5aaf32...`): all 295 test files passed.
+- Full tests in the isolated release worktree: all 295 test files passed.
+- TypeScript typecheck: passed on main and in the release worktree.
+- Production EAS environment validation (`check-eas-env.js production`): passed.
+- OTA safety comparison against `2975156...`: 299 changed files, zero
+  native-impacting changes.
+- Dependency sections of `package.json` verified identical between main and the
+  release baseline before syncing app code.
+- Clean Android and iOS production exports: passed (performed by `eas update`).
 - Live `channel:view`, `update:list`, and both `update:view` checks: passed.
+- Physical-device delivery confirmation: pending.
 
-The previous `1.1.31` groups were Android
-`ce03e9a3-1890-4be1-bfc7-33c017c40f51` and iOS
-`ddb13542-3c16-4774-9c46-16920db0d904`.
+The previous `1.1.32` groups were Android
+`5b7f6e87-870f-4f37-94fc-8639b1c23920` and iOS
+`827f2197-ee6e-4651-8b6c-11d0190d37d1`.
 
 ## Start From Another Computer
 
