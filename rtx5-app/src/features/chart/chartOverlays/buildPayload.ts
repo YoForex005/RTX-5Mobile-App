@@ -28,7 +28,6 @@ import {
   sanitizeCandles,
 } from './markerCollections';
 import {
-  calculatePositionTargetPnl,
   formatPositionVolumeLabel,
   formatTpSlOverlayLabel,
   formatTpSlOverlayValueLabel,
@@ -136,17 +135,6 @@ export const buildChartOverlayMarkers = ({
 // The WebView still handles right-axis boxes separately.
 const applyRightAxisLabelVisibility = (lines: ChartOverlayPriceLine[]): ChartOverlayPriceLine[] => {
   return lines.map((line) => ({ ...line, axisLabelVisible: false }));
-};
-
-const resolveProjectedPositionPnlColor = (
-  pnl: number,
-  side: 'buy' | 'sell',
-  colors: ChartColorsConfig,
-  sellColor: string,
-): string => {
-  if (pnl > 0) return colors.tradeTpSl || '#089981';
-  if (pnl < 0) return colors.tradeStopOut || sellColor || '#DC2626';
-  return side === 'buy' ? colors.tradeOpen || '#2962FF' : sellColor;
 };
 
 const resolveOpenPositionSideColor = (
@@ -363,13 +351,6 @@ export const buildChartOverlayPayload = ({
     if (showOnChart.slTpLevels) {
       const tpValue = Number(position.tp);
       if (Number.isFinite(tpValue) && tpValue > 0) {
-        const tpProjectedPnl = calculatePositionTargetPnl({
-          symbol: position.symbol,
-          side: position.side,
-          volume: Number(position.volume),
-          entryPrice: parsedPrice,
-          targetPrice: tpValue,
-        }) ?? 0;
         const tpColor = colors.tradeTpSl || '#089981';
         addUniquePriceLine(priceLines, {
           id: `tp-${position.id}`,
@@ -395,12 +376,7 @@ export const buildChartOverlayPayload = ({
             Number(position.volume),
           ),
           labelSideColor: tpColor,
-          labelValueColor: resolveProjectedPositionPnlColor(
-            tpProjectedPnl,
-            position.side,
-            colors,
-            sellColor,
-          ),
+          labelValueColor: tpColor,
           labelPlacement: 'line',
           ...(allowPositionStopDragging
             ? { dragKey: buildChartPositionStopDragKey(position.id, 'tp') }
@@ -410,13 +386,6 @@ export const buildChartOverlayPayload = ({
 
       const slValue = Number(position.sl);
       if (Number.isFinite(slValue) && slValue > 0) {
-        const slProjectedPnl = calculatePositionTargetPnl({
-          symbol: position.symbol,
-          side: position.side,
-          volume: Number(position.volume),
-          entryPrice: parsedPrice,
-          targetPrice: slValue,
-        }) ?? 0;
         const slColor = colors.tradeStopOut || '#F23645';
         addUniquePriceLine(priceLines, {
           id: `sl-${position.id}`,
@@ -442,12 +411,7 @@ export const buildChartOverlayPayload = ({
             Number(position.volume),
           ),
           labelSideColor: slColor,
-          labelValueColor: resolveProjectedPositionPnlColor(
-            slProjectedPnl,
-            position.side,
-            colors,
-            sellColor,
-          ),
+          labelValueColor: slColor,
           labelPlacement: 'line',
           ...(allowPositionStopDragging
             ? { dragKey: buildChartPositionStopDragKey(position.id, 'sl') }

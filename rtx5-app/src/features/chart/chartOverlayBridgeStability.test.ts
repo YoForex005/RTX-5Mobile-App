@@ -137,6 +137,26 @@ test('overlay bridge: draggable SL and TP lines emit CHART_TRADE_LINE_DRAG', () 
   );
   assertSourceContains(previewLinesSource, /id: 'chart-trade-sl-preview'[\s\S]*labelPlacement: 'line'[\s\S]*labelMinTop: chartDisplay\.showTicker \|\| chartDisplay\.showOHLC \? 78 : undefined[\s\S]*dragKey: chartTradeSlDragKey/, 'SL preview line must draw to the right price scale below the native chart header');
   assertSourceContains(previewLinesSource, /id: 'chart-trade-tp-preview'[\s\S]*labelPlacement: 'line'[\s\S]*labelMinTop: chartDisplay\.showTicker \|\| chartDisplay\.showOHLC \? 78 : undefined[\s\S]*dragKey: chartTradeTpDragKey/, 'TP preview line must draw to the right price scale below the native chart header');
+  const tpPreviewSource = previewLinesSource.slice(
+    previewLinesSource.indexOf("if (!positionHasTp"),
+    previewLinesSource.indexOf("if (!positionHasSl"),
+  );
+  const slPreviewSource = previewLinesSource.slice(previewLinesSource.indexOf("if (!positionHasSl"));
+  assertSourceContains(
+    tpPreviewSource,
+    /labelSideColor: tpColor,\s*labelValueColor: tpColor,/,
+    'a TP draft must keep both parts of its label green even when its projected value is negative',
+  );
+  assertSourceContains(
+    slPreviewSource,
+    /labelSideColor: slColor,\s*labelValueColor: slColor,/,
+    'an SL draft must keep both parts of its label red even when its projected value is positive',
+  );
+  assert.doesNotMatch(
+    previewLinesSource,
+    /tpProjectedPnl|slProjectedPnl/,
+    'draft protection colors must not branch on projected profit or loss',
+  );
 });
 
 test('overlay bridge: dragged open-position SL/TP commits through the shared exact-ticket coordinator', () => {
@@ -153,6 +173,9 @@ test('overlay bridge: dragged open-position SL/TP commits through the shared exa
   const sharedCommitSource = nativeSource.slice(sharedCommitStart, sharedCommitEnd);
   const commitSource = nativeSource.slice(commitStart, commitEnd);
   const handlerSource = nativeSource.slice(commitEnd, handlerEnd);
+  const dragPreviewStart = nativeSource.indexOf('const basePriceLines = Object.keys(chartPositionStopDragPreviews)');
+  const dragPreviewEnd = nativeSource.indexOf('if (chartTradePreviewLines.length === 0)', dragPreviewStart);
+  const dragPreviewSource = nativeSource.slice(dragPreviewStart, dragPreviewEnd);
 
   assertSourceContains(
     handlerSource,
@@ -163,6 +186,16 @@ test('overlay bridge: dragged open-position SL/TP commits through the shared exa
     handlerSource,
     /if \(selectedChartPositionTicket !== target\.positionId\) \{\s*handleSelectChartPositionTicket\(target\.positionId\);\s*\}/,
     'dragging an already-selected draft must not rehydrate the ticket and disable its other local draft',
+  );
+  assertSourceContains(
+    dragPreviewSource,
+    /labelValueColor: line\.color/,
+    'dragged persisted SL/TP labels must retain the semantic color of their source line',
+  );
+  assert.doesNotMatch(
+    dragPreviewSource,
+    /projectedPnl/,
+    'dragged persisted SL/TP label colors must not flip with projected profit or loss',
   );
   assertSourceContains(
     handlerSource,
@@ -753,6 +786,23 @@ test('overlay bridge: trade labels follow their price coordinate off screen', ()
 
 test('overlay bridge: right-axis trade price boxes keep close entries visible', () => {
   const refreshBody = extractFunctionBody(source, 'refreshOverlayDomLabels');
+  const priceBoxEligibilityBody = extractFunctionBody(source, 'shouldRenderRightAxisTradePriceBox');
+
+  assertSourceContains(
+    priceBoxEligibilityBody,
+    /line\.id === 'chart-trade-sl-preview' \|\| line\.id === 'chart-trade-tp-preview'/,
+    'direct Market Execution SL and TP drafts must render an MT5-style right-axis price marker',
+  );
+  assert.doesNotMatch(
+    priceBoxEligibilityBody,
+    /startsWith\('chart-trade-'\)|\^chart-trade-/,
+    'locked pending-order previews must not inherit the Market Execution right-axis marker',
+  );
+  assertSourceContains(
+    refreshBody,
+    /if \(!shouldRenderRightAxisTradePriceBox\(pln\)\) continue/,
+    'right-axis price boxes must use the explicit trade-level eligibility gate',
+  );
 
   assertSourceContains(
     refreshBody,
@@ -781,8 +831,8 @@ test('overlay bridge: right-axis trade price boxes keep close entries visible', 
   );
   assertSourceContains(
     refreshBody,
-    /boxEl\.style\.left = \(positionBoxMetrics \? positionBoxMetrics\.axisLeft[\s\S]*boxEl\.style\.width = \(positionBoxMetrics \? positionBoxMetrics\.axisWidth[\s\S]*boxEl\.style\.textAlign = 'right'[\s\S]*boxEl\.style\.zIndex = '16'/,
-    'right-axis trade boxes must stay pinned inside the measured price-scale strip during chart movement',
+    /boxEl\.style\.left = \(positionBoxMetrics \? positionBoxMetrics\.axisLeft[\s\S]*boxEl\.style\.width = \(positionBoxMetrics \? positionBoxMetrics\.axisWidth[\s\S]*boxEl\.style\.background = '#FFFFFF'[\s\S]*boxEl\.style\.color = box\.color[\s\S]*boxEl\.style\.border = '1px solid ' \+ box\.color[\s\S]*boxEl\.style\.textAlign = 'right'[\s\S]*boxEl\.style\.zIndex = '16'/,
+    'right-axis trade boxes must stay pinned to the measured scale and use MT5 white-fill colored-outline styling',
   );
   assert.doesNotMatch(refreshBody, /positionBoxMinTop|positionBoxMaxTop|Math\.max\(positionBoxMinTop/);
   assert.doesNotMatch(refreshBody, /boxEl\.style\.right = '2px'/);

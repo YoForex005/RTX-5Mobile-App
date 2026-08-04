@@ -171,6 +171,47 @@ test('SL/TP projected labels use the position side instead of assuming every SL 
   );
 });
 
+test('SL/TP protection colors stay type-owned when their projected P/L signs are inverted', () => {
+  const payload = buildChartOverlayPayload({
+    chartSymbol: 'XAUUSD',
+    candles,
+    positions: [
+      {
+        id: 'inverted-protection',
+        symbol: 'XAUUSD',
+        side: 'buy',
+        volume: 0.01,
+        openPrice: 4053.25,
+        currentPrice: 4053.25,
+        pnl: 0,
+        swap: 0,
+        openTime: new Date(candles[5].time * 1000).toISOString(),
+        // Deliberately invert the usual price relationship to prove that the
+        // signed value remains financial while the color remains semantic.
+        sl: 4057.76,
+        tp: 4048.74,
+      },
+    ],
+    colors: TEST_CHART_COLORS,
+    sellColor: '#EF5350',
+    liveAccount: null,
+    showOnChart: BOTH_SIDES,
+  });
+
+  const slLine = payload.priceLines.find((line) => line.id === 'sl-inverted-protection');
+  const tpLine = payload.priceLines.find((line) => line.id === 'tp-inverted-protection');
+
+  assert.equal(slLine?.labelValueText, '+ 4.51 USD, 451 points');
+  assert.equal(slLine?.color, TEST_CHART_COLORS.tradeStopOut);
+  assert.equal(slLine?.labelSideColor, TEST_CHART_COLORS.tradeStopOut);
+  assert.equal(slLine?.labelValueColor, TEST_CHART_COLORS.tradeStopOut);
+
+  assert.equal(tpLine?.labelValueText, '- 4.51 USD, 451 points');
+  assert.equal(tpLine?.color, TEST_CHART_COLORS.tradeTpSl);
+  assert.equal(tpLine?.labelSideColor, TEST_CHART_COLORS.tradeTpSl);
+  assert.equal(tpLine?.labelValueColor, TEST_CHART_COLORS.tradeTpSl);
+});
+
 test('buildPendingOrderLines anchors pending SL, TP, and stop-limit labels to visible guide lines', () => {
   const lines = buildPendingOrderLines(
     [

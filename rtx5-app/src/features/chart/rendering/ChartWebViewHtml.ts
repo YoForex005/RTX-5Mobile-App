@@ -2825,6 +2825,18 @@ export const CH_HTML = `
         return /^(open-|order-entry-|order-stop-limit-|order-sl-|order-tp-|sl-|tp-|chart-trade-)/.test(line.id);
       }
 
+      function shouldRenderRightAxisTradePriceBox(line) {
+        if (!line || typeof line.id !== 'string') {
+          return false;
+        }
+        if (/^(open-|order-entry-|order-stop-limit-|order-sl-|order-tp-|sl-|tp-)/.test(line.id)) {
+          return true;
+        }
+        // Only direct Market Execution protection drafts receive an MT5-style
+        // right-scale marker. Pending entry/stop-limit previews stay untouched.
+        return line.id === 'chart-trade-sl-preview' || line.id === 'chart-trade-tp-preview';
+      }
+
       function isTradeOverlayNearScaleRange(price, range) {
         var normalized = normalizePriceRange(range);
         if (!normalized || typeof price !== 'number' || !isFinite(price) || price <= 0) {
@@ -9076,12 +9088,12 @@ export const CH_HTML = `
           }
 
           // MT5-parity: render OUTLINED right-axis price box for every
-          // displayed position / pending order / SL / TP price level. Native
+          // displayed position / pending order / SL / TP price level, including
+          // direct Market Execution SL/TP drafts. Native
           // axis labels stay hidden; these DOM boxes carry the entry price on
           // the right scale. We dedupe only by the exact displayed price text
           // so close GBPUSD entries still get their own highlighted marker.
           // Nearby boxes are stacked vertically so one marker does not cover another.
-          var POSITION_BOX_ID = /^(open-|order-entry-|order-stop-limit-|order-sl-|order-tp-|sl-|tp-)/;
           var boxDecimals = (typeof lastDisplayDecimals === 'number' && isFinite(lastDisplayDecimals) && lastDisplayDecimals >= 0)
             ? Math.min(8, Math.max(0, Math.floor(lastDisplayDecimals)))
             : 2;
@@ -9091,7 +9103,7 @@ export const CH_HTML = `
           var POSITION_BOX_HEIGHT = 18;
           for (var pi = 0; pi < lines.length; pi++) {
             var pln = lines[pi];
-            if (!pln || typeof pln.id !== 'string' || !POSITION_BOX_ID.test(pln.id)) continue;
+            if (!shouldRenderRightAxisTradePriceBox(pln)) continue;
             if (isActiveSltpDragLine(pln)) continue;
             if (typeof pln.price !== 'number' || !isFinite(pln.price)) continue;
             if (typeof series.priceToCoordinate !== 'function') continue;

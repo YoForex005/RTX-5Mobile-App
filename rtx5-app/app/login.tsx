@@ -1113,9 +1113,9 @@ export function AccountLoginScreen() {
             {/* ── Form Body ── */}
             <View style={styles.formContainer}>
 
-              {/* Broker ID Field */}
+              {/* Broker Server Field */}
               <View style={styles.fieldBlock}>
-                <Text style={styles.inputLabel}>{t('Trading Server')}</Text>
+                <Text style={styles.inputLabel}>{t('Broker Server')}</Text>
                 <View style={[styles.inputRow, styles.brokerInputRow]}>
                   <View
                     style={[
@@ -1167,15 +1167,17 @@ export function AccountLoginScreen() {
                         {brokerDirectoryFailureMessage}
                       </Text>
                     ) : null}
-                    {isBrokerHealthChecking ? (
-                      <Text style={styles.brokerInlineHint} numberOfLines={1}>
-                        {t('Checking broker server...')}
-                      </Text>
-                    ) : brokerHealthWarning ? (
-                      <Text style={[styles.brokerInlineHint, styles.brokerInlineHintError]} numberOfLines={2}>
-                        {brokerHealthWarning}
-                      </Text>
-                    ) : null}
+                    <View style={styles.brokerHealthStatusSlot}>
+                      {isBrokerHealthChecking ? (
+                        <Text style={styles.brokerInlineHint} numberOfLines={1}>
+                          {t('Checking broker server...')}
+                        </Text>
+                      ) : brokerHealthWarning ? (
+                        <Text style={[styles.brokerInlineHint, styles.brokerInlineHintError]} numberOfLines={2}>
+                          {brokerHealthWarning}
+                        </Text>
+                      ) : null}
+                    </View>
                   </View>
                   <Pressable
                     style={({ pressed }) => [
@@ -1336,6 +1338,12 @@ export function AccountLoginScreen() {
           searchPlaceholder="Search brokers..."
           detent="large"
           instantOpen
+          // Keep the large searchable sheet at its final geometry on open and
+          // remove every outgoing pixel before broker/health state can reflow
+          // the login form. Replaying the compact close translation here looks
+          // like the picker shrinks whenever a broker is selected.
+          entryMotion="instant"
+          immediateHostHideOnClose
           runActionAfterClose={false}
         />
 
@@ -1449,6 +1457,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       marginBottom: 14,
     },
     inputRow: {
+      width: '100%',
       flexDirection: 'row',
       alignItems: 'center',
       minHeight: 58,
@@ -1467,8 +1476,9 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       elevation: isDark ? 0 : 1,
     },
     brokerInputRow: {
-      minHeight: 74,
-      paddingVertical: 8,
+      height: 80,
+      minHeight: 80,
+      paddingVertical: 0,
       alignItems: 'center',
     },
     inputLabel: {
@@ -1489,6 +1499,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       paddingHorizontal: 0,
       margin: 0,
       height: '100%' as any,
+      textAlignVertical: 'center',
       backgroundColor: 'transparent',
       borderWidth: 0,
       borderColor: 'transparent',
@@ -1534,6 +1545,11 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     brokerInlineHintError: {
       color: T.trading.sell.primary,
     },
+    brokerHealthStatusSlot: {
+      // Keep one status line inside the fixed broker row so health state does
+      // not create an empty band between Broker Server and Login ID.
+      minHeight: 17,
+    },
 
     /* Divider between fields */
     fieldDivider: {
@@ -1553,6 +1569,8 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       backgroundColor: 'transparent',
     },
     inputLeadingIcon: {
+      width: 32,
+      textAlign: 'center',
       marginRight: 10,
     },
     brokerAvatar: {

@@ -149,7 +149,6 @@ import {
   buildChartOverlayMarkers,
   buildChartPositionStopDragKey,
   buildChartOverlayPayload,
-  calculatePositionTargetPnl,
   CHART_LINE_STYLE,
   formatTpSlOverlayLabel,
   formatTpSlOverlayValueLabel,
@@ -3462,12 +3461,121 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const handleSelectChartTradeStopUnit = useCallback((unit: 'Price' | 'Pips' | 'Currency') => {
     runImmediateAction(`chart.tradeSheet.stopUnit.${unit}`, () => setChartTradeStopUnit(unit));
   }, []);
+  const handleOpenChartTradeStopStepper = useCallback((kind: 'sl' | 'tp') => {
+    const enabled = kind === 'sl' ? chartTradeSlEnabled : chartTradeTpEnabled;
+    const currentPrice = kind === 'sl' ? chartTradeSlPrice : chartTradeTpPrice;
+    if (!enabled || !Number.isFinite(currentPrice) || currentPrice <= 0) {
+      const isDirectMarketProtection =
+        chartDirectProtectionActive &&
+        !isPendingChartOrderType(chartTradeOrderType);
+      const positionTarget =
+        isPendingChartOrderType(chartTradeOrderType) || isDirectMarketProtection
+          ? null
+          : resolveSingleChartPositionStopTarget();
+      const baseEntry = isPendingChartOrderType(chartTradeOrderType)
+        ? chartTradePrice
+        : positionTarget
+          ? roundTradePrice(Number(positionTarget.openPrice))
+          : resolveChartTradeEntryPrice(chartTradeOrderType);
+      const side = positionTarget?.side ?? getChartOrderSide(chartTradeOrderType);
+      const nextPrice = resolveChartVisibleStopPreviewPrice(kind, baseEntry, side);
+      if (kind === 'sl') {
+        setChartTradeSlPrice(nextPrice);
+      } else {
+        setChartTradeTpPrice(nextPrice);
+      }
+    }
+    runImmediateAction(`chart.tradeSheet.stepper.${kind}`, () => setChartStepperEditor({ kind }));
+  }, [
+    chartDirectProtectionActive,
+    chartTradeOrderType,
+    chartTradePrice,
+    chartTradeSlEnabled,
+    chartTradeSlPrice,
+    chartTradeTpEnabled,
+    chartTradeTpPrice,
+    resolveChartTradeEntryPrice,
+    resolveChartVisibleStopPreviewPrice,
+    resolveSingleChartPositionStopTarget,
+    roundTradePrice,
+  ]);
   const handleOpenChartTradeSlStepper = useCallback(() => {
-    runImmediateAction('chart.tradeSheet.stepper.sl', () => setChartStepperEditor({ kind: 'sl' }));
-  }, []);
+    handleOpenChartTradeStopStepper('sl');
+  }, [handleOpenChartTradeStopStepper]);
   const handleOpenChartTradeTpStepper = useCallback(() => {
-    runImmediateAction('chart.tradeSheet.stepper.tp', () => setChartStepperEditor({ kind: 'tp' }));
-  }, []);
+    handleOpenChartTradeStopStepper('tp');
+  }, [handleOpenChartTradeStopStepper]);
+  const handleCommitChartStepperValue = useCallback((next: number) => {
+    const kind = chartStepperEditor?.kind;
+    if (kind === 'price') {
+      setChartTradePrice(roundTradePrice(next));
+      return;
+    }
+    if (kind === 'stopLimitPrice') {
+      setChartTradeStopLimitPrice(roundTradePrice(next));
+      return;
+    }
+    if (kind === 'volume') {
+      updateTradeVolume(next);
+      return;
+    }
+    if (kind !== 'sl' && kind !== 'tp') {
+      return;
+    }
+
+    const nextPrice = roundTradePrice(next);
+    if (!Number.isFinite(nextPrice) || nextPrice <= 0) {
+      return;
+    }
+    const isDirectMarketProtection =
+      chartDirectProtectionActive &&
+      !isPendingChartOrderType(chartTradeOrderType);
+    const positionTarget =
+      isPendingChartOrderType(chartTradeOrderType) || isDirectMarketProtection
+        ? null
+        : resolveSingleChartPositionStopTarget();
+    if (
+      !isDirectMarketProtection &&
+      !isPendingChartOrderType(chartTradeOrderType) &&
+      chartMatchingPositionCandidates.length > 0 &&
+      !positionTarget
+    ) {
+      setTradeFeedback({
+        visible: true,
+        type: 'error',
+        title: 'Select Position',
+        message: 'Select the exact position ticket before changing SL/TP.',
+      });
+      return;
+    }
+
+    const currentSl = chartTradeSlEnabled && chartTradeSlPrice > 0 ? chartTradeSlPrice : 0;
+    const currentTp = chartTradeTpEnabled && chartTradeTpPrice > 0 ? chartTradeTpPrice : 0;
+    setChartShowOnChartItem('slTpLevels', true);
+    if (kind === 'sl') {
+      setChartTradeSlEnabled(true);
+      setChartTradeSlPrice(nextPrice);
+      commitChartTradeSheetStopsForPosition(positionTarget, nextPrice, currentTp);
+      return;
+    }
+    setChartTradeTpEnabled(true);
+    setChartTradeTpPrice(nextPrice);
+    commitChartTradeSheetStopsForPosition(positionTarget, currentSl, nextPrice);
+  }, [
+    chartDirectProtectionActive,
+    chartMatchingPositionCandidates.length,
+    chartStepperEditor?.kind,
+    chartTradeOrderType,
+    chartTradeSlEnabled,
+    chartTradeSlPrice,
+    chartTradeTpEnabled,
+    chartTradeTpPrice,
+    commitChartTradeSheetStopsForPosition,
+    resolveSingleChartPositionStopTarget,
+    roundTradePrice,
+    setChartShowOnChartItem,
+    updateTradeVolume,
+  ]);
   const handleToggleChartTradeSlLock = useCallback(() => {
     runImmediateAction('chart.tradeSheet.sl.lockToggle', () => setChartTradeSlLocked((value) => !value));
   }, []);
@@ -4347,13 +4455,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         chartTradeTpPrice,
         tradeVolume,
       );
-      const tpProjectedPnl = calculatePositionTargetPnl({
-        symbol: chartSymbol,
-        side: previewSide,
-        volume: tradeVolume,
-        entryPrice,
-        targetPrice: chartTradeTpPrice,
-      }) ?? 0;
       const tpColor = resolvedChartColors.tradeTpSl || '#089981';
       previewLines.push({
         id: 'chart-trade-tp-preview',
@@ -4377,9 +4478,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           ? tpValueLabel.replace(' USD', ` ${accountCurrency}`)
           : undefined,
         labelSideColor: tpColor,
-        labelValueColor: tpProjectedPnl >= 0
-          ? (resolvedChartColors.tradeTpSl || '#089981')
-          : (resolvedChartColors.tradeStopOut || '#F23645'),
+        labelValueColor: tpColor,
         labelPlacement: 'line',
         // The ticker/OHLC overlay occupies the top ~78 CSS px of the native
         // WebView. Keep only this draft label readable there; persisted trade
@@ -4397,13 +4496,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         chartTradeSlPrice,
         tradeVolume,
       );
-      const slProjectedPnl = calculatePositionTargetPnl({
-        symbol: chartSymbol,
-        side: previewSide,
-        volume: tradeVolume,
-        entryPrice,
-        targetPrice: chartTradeSlPrice,
-      }) ?? 0;
       const slColor = resolvedChartColors.tradeStopOut || '#F23645';
       previewLines.push({
         id: 'chart-trade-sl-preview',
@@ -4427,9 +4519,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           ? slValueLabel.replace(' USD', ` ${accountCurrency}`)
           : undefined,
         labelSideColor: slColor,
-        labelValueColor: slProjectedPnl >= 0
-          ? (resolvedChartColors.tradeTpSl || '#089981')
-          : (resolvedChartColors.tradeStopOut || '#F23645'),
+        labelValueColor: slColor,
         labelPlacement: 'line',
         labelMinTop: chartDisplay.showTicker || chartDisplay.showOHLC ? 78 : undefined,
         dragKey: chartTradeSlDragKey,
@@ -6689,14 +6779,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
               previewPrice,
               Number(position.volume),
             );
-            const projectedPnl = calculatePositionTargetPnl({
-              symbol: position.symbol,
-              side: position.side,
-              volume: Number(position.volume),
-              entryPrice,
-              targetPrice: previewPrice,
-            }) ?? 0;
-
             return {
               ...line,
               price: previewPrice,
@@ -6710,9 +6792,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
               ),
               labelSideText: target.kind.toUpperCase(),
               labelValueText: valueLabel,
-              labelValueColor: projectedPnl >= 0
-                ? (resolvedChartColors.tradeTpSl || '#089981')
-                : (resolvedChartColors.tradeStopOut || '#F23645'),
+              labelValueColor: line.color,
             };
           });
 
@@ -8499,7 +8579,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                                 styles.chartTradeStopPairCardSl,
                                 !chartTradeSlEnabled && styles.chartTradeStopPairCardInactive,
                               ]}
-                              onPress={() => runImmediateAction('chart.tradeSheet.stepper.sl', () => setChartStepperEditor({ kind: 'sl' }))}
+                              onPress={handleOpenChartTradeSlStepper}
                               unstable_pressDelay={0}
                               accessibilityRole="button"
                               accessibilityLabel={t('Stop Loss')}
@@ -8545,7 +8625,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                                 styles.chartTradeStopPairCardTp,
                                 !chartTradeTpEnabled && styles.chartTradeStopPairCardInactive,
                               ]}
-                              onPress={() => runImmediateAction('chart.tradeSheet.stepper.tp', () => setChartStepperEditor({ kind: 'tp' }))}
+                              onPress={handleOpenChartTradeTpStepper}
                               unstable_pressDelay={0}
                               accessibilityRole="button"
                               accessibilityLabel={t('Take Profit')}
@@ -8898,13 +8978,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         editable={chartStepperEditor?.kind === 'volume'}
         styles={styles}
         onClose={() => setChartStepperEditor(null)}
-        onCommit={(next) => {
-          if (chartStepperEditor?.kind === 'price') setChartTradePrice(roundTradePrice(next));
-          else if (chartStepperEditor?.kind === 'stopLimitPrice') setChartTradeStopLimitPrice(roundTradePrice(next));
-          else if (chartStepperEditor?.kind === 'tp') setChartTradeTpPrice(roundTradePrice(next));
-          else if (chartStepperEditor?.kind === 'sl') setChartTradeSlPrice(roundTradePrice(next));
-          else if (chartStepperEditor?.kind === 'volume') updateTradeVolume(next);
-        }}
+        onCommit={handleCommitChartStepperValue}
       />
 
 

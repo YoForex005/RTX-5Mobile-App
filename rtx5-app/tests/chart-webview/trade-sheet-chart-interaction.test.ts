@@ -790,6 +790,29 @@ test('toolbar SL/TP toggles the compact Market Execution panel without activatin
     /const nextPrice = resolveChartVisibleStopPreviewPrice\(kind, baseEntry, side\)/,
     'new SL/TP guides must use the current visible chart range instead of a fixed off-screen price',
   );
+  const stopStepperOpenStart = source.indexOf('const handleOpenChartTradeStopStepper = useCallback');
+  const stopStepperCommitStart = source.indexOf('const handleCommitChartStepperValue = useCallback', stopStepperOpenStart);
+  const stopStepperCommitEnd = source.indexOf('const handleToggleChartTradeSlLock = useCallback', stopStepperCommitStart);
+  assert.notEqual(stopStepperOpenStart, -1, 'shared SL/TP stepper open handler was not found');
+  assert.notEqual(stopStepperCommitStart, -1, 'shared SL/TP stepper commit handler was not found');
+  assert.notEqual(stopStepperCommitEnd, -1, 'shared SL/TP stepper commit handler end was not found');
+  const stopStepperOpenSource = source.slice(stopStepperOpenStart, stopStepperCommitStart);
+  const stopStepperCommitSource = source.slice(stopStepperCommitStart, stopStepperCommitEnd);
+  assertSourceContains(
+    stopStepperOpenSource,
+    /if \(!enabled \|\| !Number\.isFinite\(currentPrice\) \|\| currentPrice <= 0\)[\s\S]*resolveChartVisibleStopPreviewPrice\(kind, baseEntry, side\)[\s\S]*setChartTradeTpPrice\(nextPrice\)/,
+    'opening an inactive TP editor must initialize it to a valid visible protection price',
+  );
+  assertSourceContains(
+    stopStepperCommitSource,
+    /if \(kind === 'sl'\) \{[\s\S]*setChartTradeSlEnabled\(true\);[\s\S]*setChartTradeSlPrice\(nextPrice\);[\s\S]*commitChartTradeSheetStopsForPosition\(positionTarget, nextPrice, currentTp\);[\s\S]*setChartTradeTpEnabled\(true\);[\s\S]*setChartTradeTpPrice\(nextPrice\);[\s\S]*commitChartTradeSheetStopsForPosition\(positionTarget, currentSl, nextPrice\)/,
+    'OK must activate and commit the edited SL or TP instead of only storing a hidden price',
+  );
+  assertSourceContains(
+    source,
+    /<ChartStepperModal[\s\S]*onCommit=\{handleCommitChartStepperValue\}/,
+    'the visible SL/TP stepper must use the activation-aware commit handler',
+  );
   assertSourceContains(
     toggleHandlerSource,
     /if \(chartTradeSlEnabled\) \{[\s\S]*setChartTradeSlEnabled\(false\)[\s\S]*commitChartTradeSheetStopsForPosition\(positionTarget, 0, currentTp\)[\s\S]*if \(chartTradeTpEnabled\) \{[\s\S]*setChartTradeTpEnabled\(false\)[\s\S]*commitChartTradeSheetStopsForPosition\(positionTarget, currentSl, 0\)/,

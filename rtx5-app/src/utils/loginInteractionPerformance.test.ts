@@ -145,11 +145,25 @@ test('login broker id can be selected from the broker directory dropdown', () =>
   assert.match(source, /runImmediateAction\('login\.brokerPicker\.open'/);
   assert.match(source, /Keyboard\.dismiss\(\)/);
   assert.match(source, /testID="login-broker-picker-button"/);
+  assert.match(source, /<Text style=\{styles\.inputLabel\}>\{t\('Broker Server'\)\}<\/Text>/);
+  assert.doesNotMatch(source, /\{t\('Trading Server'\)\}/);
+  assert.match(
+    source,
+    /<View style=\{styles\.fieldValueColumn\}>[\s\S]*?<View style=\{styles\.brokerHealthStatusSlot\}>[\s\S]*?isBrokerHealthChecking[\s\S]*?brokerHealthWarning[\s\S]*?<\/View>\s*<\/View>\s*<Pressable/,
+  );
   assert.match(source, /searchPlaceholder="Search brokers\.\.\."/);
   assert.match(
     source,
-    /<ActionSheet[\s\S]*visible=\{brokerPickerOpen\}[\s\S]*actions=\{brokerPickerActions\}[\s\S]*searchable=\{brokerOptions\.length > 0\}[\s\S]*detent="large"[\s\S]*runActionAfterClose=\{false\}/,
+    /<ActionSheet[\s\S]*visible=\{brokerPickerOpen\}[\s\S]*actions=\{brokerPickerActions\}[\s\S]*searchable=\{brokerOptions\.length > 0\}[\s\S]*detent="large"[\s\S]*instantOpen[\s\S]*entryMotion="instant"[\s\S]*immediateHostHideOnClose[\s\S]*runActionAfterClose=\{false\}/,
   );
+  assert.match(
+    source,
+    /brokerInputRow:\s*\{[\s\S]*height: 80,[\s\S]*minHeight: 80,[\s\S]*paddingVertical: 0,/,
+  );
+  assert.match(source, /inputRow:\s*\{\s*width: '100%',[\s\S]*minHeight: 58,/);
+  assert.match(source, /brokerHealthStatusSlot:\s*\{[\s\S]*minHeight: 17,/);
+  assert.match(source, /inputLeadingIcon:\s*\{[\s\S]*width: 32,[\s\S]*textAlign: 'center',[\s\S]*marginRight: 10,/);
+  assert.match(source, /input:\s*\{[\s\S]*textAlignVertical: 'center',/);
 });
 
 test('login validation snapshots the latest committed native field values', () => {
