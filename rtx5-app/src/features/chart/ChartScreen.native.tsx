@@ -88,6 +88,7 @@ import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket'
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { useOrdersByLoginQuery } from '../../query/orders';
 import { TradeFeedbackModal, TradeFeedbackState, TRADE_MODAL_INITIAL } from '../../ui/components/TradeFeedbackModal';
+import { ChartTradeFeedbackPortal } from '../../ui/navigation/ChartTradeSheetPortal';
 import { resolveConfirmedTradeReceipt } from '../../ui/components/tradeFeedbackPresentation';
 import { useConfirmedTradeReceiptAutoDismiss } from '../../ui/components/useConfirmedTradeReceiptAutoDismiss';
 import { ordersApi } from '../../api/orders';
@@ -7254,6 +7255,63 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const compactHeaderDrawingIconColor = isDrawingToolActive ? BLUE : TEXT_MUTED;
   const compactHeaderFullscreenIconColor = isChartExpanded ? BLUE : TEXT_MUTED;
   const chartSlTpBackendLocked = newMarketOrderProtectionBackendLocked;
+  // Shared by two mount points: inline in the chart layer (normal flow) and
+  // through ChartTradeFeedbackPortal while the SL/TP trade sheet is open, so
+  // the confirmation is visible ABOVE the sheet where the trade was placed.
+  const renderChartTradeReceiptBar = (receipt: NonNullable<typeof chartTradeReceipt>) => (
+    <View
+      pointerEvents="box-none"
+      style={styles.chartTradeReceiptHost}
+    >
+      <View
+        accessibilityLiveRegion="polite"
+        accessibilityRole="alert"
+        accessibilityLabel={
+          `${receipt.symbol}, ${receipt.sideAccessibilityLabel}, `
+          + `${receipt.volumeLabel} lots, ${receipt.doneLabel}`
+        }
+        style={[
+          styles.chartTradeReceiptBar,
+          {
+            borderLeftColor: receipt.side === 'buy'
+              ? BLUE
+              : T.trading.sell.primary,
+          },
+        ]}
+      >
+        <Text style={styles.chartTradeReceiptSymbol} numberOfLines={1}>
+          {receipt.symbol}
+        </Text>
+        <Text
+          style={[
+            styles.chartTradeReceiptSide,
+            {
+              color: receipt.side === 'buy'
+                ? BLUE
+                : T.trading.sell.primary,
+            },
+          ]}
+          numberOfLines={1}
+        >
+          {receipt.sideAccessibilityLabel}
+        </Text>
+        <Text style={styles.chartTradeReceiptVolume} numberOfLines={1}>
+          {receipt.volumeLabel}
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss trade confirmation"
+          hitSlop={10}
+          onPress={handleTradeFeedbackClose}
+          style={styles.chartTradeReceiptDoneButton}
+        >
+          <Text style={styles.chartTradeReceiptDone} numberOfLines={1}>
+            done
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
   const renderCompactHeaderToolbar = () => (
     <>
       <View style={[styles.compactHeaderToolbarSlot, { width: 'auto' }]}>
@@ -7711,7 +7769,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         }}
       >
         <ScrollView
-          canCancelContentTouches={Platform.OS === 'ios'}
+          // iOS: the outer scroll view must never steal a touch the chart
+          // WebView is already tracking. With the default (true), UIScrollView
+          // cancelled content touches and claimed every VERTICAL drag over the
+          // chart before the async chartViewportTouchActive flip could disable
+          // scrolling — vertical chart movement worked on Android (which honors
+          // the WebView's disallow-intercept) but never on iOS.
+          canCancelContentTouches={false}
           ref={chartScrollRef}
           style={styles.card}
           contentContainerStyle={[
@@ -7721,7 +7785,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           nestedScrollEnabled
           scrollEnabled={!shouldCaptureChartGestures && !showChartTradeSheet && !chartViewportTouchActive && !footerLotEditorFocused}
           bounces={!shouldCaptureChartGestures && !showChartTradeSheet && !chartViewportTouchActive && !footerLotEditorFocused}
-          alwaysBounceVertical={!shouldCaptureChartGestures && !showChartTradeSheet && !chartViewportTouchActive && !footerLotEditorFocused}
+          // iOS: always-bounce let the scroll view engage its pan recognizer
+          // for vertical drags even when nothing can scroll, eating the chart's
+          // vertical pan. Regular scrolling (content overflow) is unaffected.
+          alwaysBounceVertical={false}
           keyboardShouldPersistTaps="always"
           scrollEventThrottle={16}
           onScroll={() => syncChartViewportFrame()}
@@ -7861,6 +7928,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                     style={{ flex: 1, backgroundColor: resolvedChartColors.background }}
                     androidLayerType="hardware"
                     scrollEnabled={false}
+                    // iOS: the WKWebView's own scroll view must not rubber-band
+                    // vertical drags either — the chart page owns its gestures.
+                    bounces={false}
                     showsVerticalScrollIndicator={false}
                     showsHorizontalScrollIndicator={false}
                     originWhitelist={['*']}
@@ -8356,60 +8426,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                     onOpenScaleControls={handleOpenChartScaleMenu}
                   />
                 ) : null}
-                {chartTradeReceipt ? (
-                  <View
-                    pointerEvents="box-none"
-                    style={styles.chartTradeReceiptHost}
-                  >
-                    <View
-                      accessibilityLiveRegion="polite"
-                      accessibilityRole="alert"
-                      accessibilityLabel={
-                        `${chartTradeReceipt.symbol}, ${chartTradeReceipt.sideAccessibilityLabel}, `
-                        + `${chartTradeReceipt.volumeLabel} lots, ${chartTradeReceipt.doneLabel}`
-                      }
-                      style={[
-                        styles.chartTradeReceiptBar,
-                        {
-                          borderLeftColor: chartTradeReceipt.side === 'buy'
-                            ? BLUE
-                            : T.trading.sell.primary,
-                        },
-                      ]}
-                    >
-                      <Text style={styles.chartTradeReceiptSymbol} numberOfLines={1}>
-                        {chartTradeReceipt.symbol}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.chartTradeReceiptSide,
-                          {
-                            color: chartTradeReceipt.side === 'buy'
-                              ? BLUE
-                              : T.trading.sell.primary,
-                          },
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {chartTradeReceipt.sideAccessibilityLabel}
-                      </Text>
-                      <Text style={styles.chartTradeReceiptVolume} numberOfLines={1}>
-                        {chartTradeReceipt.volumeLabel}
-                      </Text>
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Dismiss trade confirmation"
-                        hitSlop={10}
-                        onPress={handleTradeFeedbackClose}
-                        style={styles.chartTradeReceiptDoneButton}
-                      >
-                        <Text style={styles.chartTradeReceiptDone} numberOfLines={1}>
-                          done
-                        </Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                ) : null}
+                {chartTradeReceipt && !showChartTradeSheet
+                  ? renderChartTradeReceiptBar(chartTradeReceipt)
+                  : null}
                 <ChartTimeframePickerOverlay
                   activeTimeframe={chartTimeframe}
                   supportedTimeframes={timeframes}
@@ -9203,11 +9222,22 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         onCommit={handleCommitTextLevelEdit}
       />
 
-      <TradeFeedbackModal
-        state={chartTradeReceipt ? TRADE_MODAL_INITIAL : tradeFeedback}
-        onClose={handleTradeFeedbackClose}
-        isDark={isDark}
-      />
+      {/* While the SL/TP trade sheet is open (it portals over this screen),
+          route the result dialog and the compact receipt through the elevated
+          feedback portal so they appear ON the sheet where Buy/Sell was
+          pressed. With the sheet closed they render inline exactly as before. */}
+      <ChartTradeFeedbackPortal enabled={showChartTradeSheet}>
+        <>
+          {chartTradeReceipt && showChartTradeSheet
+            ? renderChartTradeReceiptBar(chartTradeReceipt)
+            : null}
+          <TradeFeedbackModal
+            state={chartTradeReceipt ? TRADE_MODAL_INITIAL : tradeFeedback}
+            onClose={handleTradeFeedbackClose}
+            isDark={isDark}
+          />
+        </>
+      </ChartTradeFeedbackPortal>
     </Screen>
   );
 });

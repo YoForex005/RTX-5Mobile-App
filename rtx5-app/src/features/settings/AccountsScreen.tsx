@@ -1360,11 +1360,13 @@ export const AccountsScreenInner = React.memo(function AccountsScreenInner({
     // Delete must NOT redirect to /login (that's the logout flow). Go back
     // to the settings tab so the user sees the app in a logged-out state
     // without their old credentials pre-filled anywhere.
-    void logoutBrokerSession()
-      .catch((error) => {
-        console.warn('[Accounts] Secure logout cleanup failed', redactAuthPayload(error));
-      })
-      .finally(closeAccountsScreen);
+    // logoutBrokerSession invalidates the session synchronously; close the
+    // screen immediately while the secure cleanup finishes in the background.
+    const cleanup = logoutBrokerSession();
+    closeAccountsScreen();
+    void cleanup.catch((error) => {
+      console.warn('[Accounts] Secure logout cleanup failed', redactAuthPayload(error));
+    });
   };
 
   const accountsOptionsSheetConfig = React.useMemo<Parameters<typeof showAccountsActionSheet>[0]>(() => ({

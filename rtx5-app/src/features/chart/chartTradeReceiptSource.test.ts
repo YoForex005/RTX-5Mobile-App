@@ -24,23 +24,37 @@ test('confirmed chart fills use the thin receipt inside the chart viewport', () 
     /const activeReceiptKeyRef = useRef\(receiptKey\)[\s\S]*setTimeout\(\(\) => \{[\s\S]*activeReceiptKeyRef\.current === receiptKey[\s\S]*onClose\(\)[\s\S]*CONFIRMED_TRADE_RECEIPT_VISIBLE_MS[\s\S]*clearTimeout\(timer\)/,
   );
 
+  // The receipt markup is shared by two mount points: inline in the chart
+  // viewport (normal flow) and through the elevated feedback portal while the
+  // SL/TP trade sheet is open, so the confirmation shows ABOVE the sheet.
+  const receiptRendererStart = chartSource.indexOf(
+    'const renderChartTradeReceiptBar = (receipt: NonNullable<typeof chartTradeReceipt>)',
+  );
+  assert.notEqual(receiptRendererStart, -1);
+  const receiptMarkup = chartSource.slice(receiptRendererStart, receiptRendererStart + 3000);
+  assert.match(
+    receiptMarkup,
+    /chartTradeReceiptSymbol[\s\S]*receipt\.symbol[\s\S]*chartTradeReceiptSide[\s\S]*sideAccessibilityLabel[\s\S]*chartTradeReceiptVolume[\s\S]*volumeLabel[\s\S]*chartTradeReceiptDone[\s\S]*done/,
+  );
+  assert.match(receiptMarkup, /onPress=\{handleTradeFeedbackClose\}/);
+
   const viewportStart = chartSource.indexOf('ref={chartViewportRef}');
-  const receiptStart = chartSource.indexOf('{chartTradeReceipt ? (', viewportStart);
+  const receiptStart = chartSource.indexOf(
+    '{chartTradeReceipt && !showChartTradeSheet',
+    viewportStart,
+  );
   const timeframeOverlayStart = chartSource.indexOf('<ChartTimeframePickerOverlay', receiptStart);
   assert.notEqual(viewportStart, -1);
   assert.ok(receiptStart > viewportStart);
   assert.ok(timeframeOverlayStart > receiptStart);
-
-  const receiptMarkup = chartSource.slice(receiptStart, timeframeOverlayStart);
   assert.match(
-    receiptMarkup,
-    /chartTradeReceiptSymbol[\s\S]*chartTradeReceipt\.symbol[\s\S]*chartTradeReceiptSide[\s\S]*sideAccessibilityLabel[\s\S]*chartTradeReceiptVolume[\s\S]*volumeLabel[\s\S]*chartTradeReceiptDone[\s\S]*done/,
+    chartSource.slice(receiptStart, timeframeOverlayStart),
+    /renderChartTradeReceiptBar\(chartTradeReceipt\)/,
   );
-  assert.match(receiptMarkup, /onPress=\{handleTradeFeedbackClose\}/);
 
   assert.match(
     chartSource,
-    /<TradeFeedbackModal[\s\S]*state=\{chartTradeReceipt \? TRADE_MODAL_INITIAL : tradeFeedback\}/,
+    /<ChartTradeFeedbackPortal enabled=\{showChartTradeSheet\}>[\s\S]*?\{chartTradeReceipt && showChartTradeSheet[\s\S]*?renderChartTradeReceiptBar\(chartTradeReceipt\)[\s\S]*?<TradeFeedbackModal[\s\S]*state=\{chartTradeReceipt \? TRADE_MODAL_INITIAL : tradeFeedback\}[\s\S]*?<\/ChartTradeFeedbackPortal>/,
   );
 
   const receiptStylesStart = stylesSource.indexOf('chartTradeReceiptHost:');

@@ -2699,7 +2699,12 @@ export const CH_HTML = `
           return null;
         }
         var span = maxPrice - minPrice;
-        var padding = Math.max(span * 0.08, Math.abs(maxPrice || 1) * 0.0002);
+        // MT5-parity tight fit. The old 8% pad left a wide empty band above/
+        // below the candles, so an old trade entry sitting just outside the
+        // candle lows stayed inside the pane and looked glued to the bottom
+        // edge. MT5 auto-scales tight to the candles, which pushes such
+        // markers fully off-pane (hidden) until the user scrolls to them.
+        var padding = Math.max(span * 0.02, Math.abs(maxPrice || 1) * 0.0002);
         if (!(padding > 0)) padding = 1;
         return {
           from: minPrice - padding,

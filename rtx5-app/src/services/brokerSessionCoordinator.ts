@@ -1,3 +1,4 @@
+import { InteractionManager } from 'react-native';
 import { brokerApi } from '../api/brokerApi';
 import { resolveEffectiveFeedAuthForSession } from '../api/feedAuthContract';
 import { accountWsService } from '../api/ws/accountSocket';
@@ -441,13 +442,37 @@ export const restoreBrokerSession = (): Promise<BrokerSessionRestoreResult> =>
     }
   });
 
-export const logoutBrokerSession = (): Promise<void> =>
-  enqueueMutation(async () => {
+/**
+ * Logs out the active broker session.
+ *
+ * The session is invalidated SYNCHRONOUSLY (epoch bump + preference logout)
+ * before this returns, so callers can reveal the login screen in the same
+ * frame as the tap. The expensive parts — socket teardown, query-cache
+ * clear, SecureStore erase — run afterwards inside the serialized mutation
+ * queue. Safety is unchanged: a login commit that races the fast-path
+ * fail-closes on its stale transition epoch, a follow-up login queues
+ * behind this cleanup, and the queued body re-asserts the logged-out state
+ * in case a commit was already past activation when the fast-path ran.
+ */
+export const logoutBrokerSession = (): Promise<void> => {
+  beginActiveBrokerSessionTransition();
+  useUserPreferences.getState().logout();
+  return enqueueMutation(async () => {
+    // Let the login screen commit its first frame before the teardown
+    // competes for the JS thread (bounded so cleanup can never stall).
+    await new Promise<void>((resolve) => {
+      const failsafe = setTimeout(resolve, 250);
+      InteractionManager.runAfterInteractions(() => {
+        clearTimeout(failsafe);
+        resolve();
+      });
+    });
     beginActiveBrokerSessionTransition();
     await teardownBrokerSessionRuntime();
     useUserPreferences.getState().logout();
     await erasePersistedSession();
   });
+};
 
 /** Used after refresh/auth integrity failure; never changes to another broker. */
 export const invalidateBrokerSession = (

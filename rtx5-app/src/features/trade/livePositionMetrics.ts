@@ -62,22 +62,28 @@ function getSignedPriceDelta(position: PositionItem, price: number): number {
 }
 
 function inferContractSize(position: PositionItem, quote?: QuoteLike): number {
+  const normalizedSymbol = normalizeSymbol(position.symbol);
+  const isCryptoSymbol =
+    normalizedSymbol.startsWith('BTC') ||
+    normalizedSymbol.startsWith('ETH') ||
+    normalizedSymbol.startsWith('MBT');
+
   const quoteContractSize = toFiniteNumber(quote?.contractSize);
   if (quoteContractSize && quoteContractSize > 0) {
-    return quoteContractSize;
+    // Crypto contracts are 1 coin (or a sub-unit). Some backend quote
+    // payloads carry a generic default (100/100000) here, which inflated the
+    // chart's live P/L label 100x+ on BTC. Trust the symbol class over an
+    // implausibly large metadata value; smaller values (mBTC-style) pass.
+    if (!isCryptoSymbol || quoteContractSize <= 1) {
+      return quoteContractSize;
+    }
   }
-
-  const normalizedSymbol = normalizeSymbol(position.symbol);
 
   if (normalizedSymbol.startsWith('XAU') || normalizedSymbol.startsWith('XAG')) {
     return 100;
   }
 
-  if (
-    normalizedSymbol.startsWith('BTC') ||
-    normalizedSymbol.startsWith('ETH') ||
-    normalizedSymbol.startsWith('MBT')
-  ) {
+  if (isCryptoSymbol) {
     return 1;
   }
 

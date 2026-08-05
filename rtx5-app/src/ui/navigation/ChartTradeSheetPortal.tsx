@@ -16,16 +16,25 @@ import {
 } from './chartTradeSheetPortalController';
 
 const ChartTradeSheetPortalContext = createContext<ChartTradeSheetPortalController | null>(null);
+// Trade execution feedback (receipt bar / result dialog) must stack ABOVE the
+// sheet entry, so it gets its own single-slot controller and host.
+const ChartTradeFeedbackPortalContext = createContext<ChartTradeSheetPortalController | null>(null);
 
 export function ChartTradeSheetPortalProvider({ children }: PropsWithChildren) {
   const controllerRef = useRef<ChartTradeSheetPortalController | null>(null);
   if (controllerRef.current === null) {
     controllerRef.current = createChartTradeSheetPortalController();
   }
+  const feedbackControllerRef = useRef<ChartTradeSheetPortalController | null>(null);
+  if (feedbackControllerRef.current === null) {
+    feedbackControllerRef.current = createChartTradeSheetPortalController();
+  }
 
   return (
     <ChartTradeSheetPortalContext.Provider value={controllerRef.current}>
-      {children}
+      <ChartTradeFeedbackPortalContext.Provider value={feedbackControllerRef.current}>
+        {children}
+      </ChartTradeFeedbackPortalContext.Provider>
     </ChartTradeSheetPortalContext.Provider>
   );
 }
@@ -131,6 +140,90 @@ export function ChartTradeSheetPortalHost() {
     : null;
 }
 
+type ChartTradeFeedbackPortalProps = PropsWithChildren<{
+  /**
+   * When true, the children render through the elevated feedback host (above
+   * the trade sheet). When false they render inline, exactly where declared —
+   * the normal chart flow is untouched.
+   */
+  enabled: boolean;
+}>;
+
+/**
+ * Lifts trade execution feedback (receipt bar, success/error dialog) above the
+ * SL/TP trade sheet. The sheet portals over the whole tab scene, so feedback
+ * declared inside ChartScreen would otherwise be buried underneath it.
+ */
+export function ChartTradeFeedbackPortal({ children, enabled }: ChartTradeFeedbackPortalProps) {
+  const controller = useContext(ChartTradeFeedbackPortalContext);
+  const ownerRef = useRef<symbol | null>(null);
+  const latestChildrenRef = useRef<ReactNode>(children);
+  latestChildrenRef.current = children;
+  if (ownerRef.current === null) {
+    ownerRef.current = Symbol('chart-trade-feedback-portal-owner');
+  }
+  const owner = ownerRef.current;
+  const renderCurrent = useCallback(() => latestChildrenRef.current, []);
+
+  useLayoutEffect(() => {
+    if (!controller || !enabled) {
+      return undefined;
+    }
+    return controller.register(owner, renderCurrent);
+  }, [controller, enabled, owner, renderCurrent]);
+
+  useLayoutEffect(() => {
+    if (!controller || !enabled) {
+      return;
+    }
+    // Full-screen entry; visibility is managed by the children themselves.
+    const presentationChanged = controller.setPresentation(owner, {
+      keepMounted: true,
+      visible: true,
+      top: 0,
+      bottom: 0,
+    });
+    if (!presentationChanged) {
+      controller.invalidate(owner);
+    }
+  }, [children, controller, enabled, owner]);
+
+  return controller && enabled ? null : <>{children}</>;
+}
+
+const SubscribedChartTradeFeedbackPortalHost = memo(function SubscribedChartTradeFeedbackPortalHost({
+  controller,
+}: {
+  controller: ChartTradeSheetPortalController;
+}) {
+  const snapshot = useSyncExternalStore(
+    controller.subscribe,
+    controller.getSnapshot,
+    controller.getSnapshot,
+  );
+
+  if (!snapshot.keepMounted || !snapshot.renderCurrent) {
+    return null;
+  }
+
+  return (
+    <View
+      pointerEvents="box-none"
+      style={styles.feedbackHost}
+      testID="chart-trade-feedback-portal-host"
+    >
+      {snapshot.renderCurrent()}
+    </View>
+  );
+});
+
+export function ChartTradeFeedbackPortalHost() {
+  const controller = useContext(ChartTradeFeedbackPortalContext);
+  return controller
+    ? <SubscribedChartTradeFeedbackPortalHost controller={controller} />
+    : null;
+}
+
 const styles = StyleSheet.create({
   host: {
     ...StyleSheet.absoluteFillObject,
@@ -149,5 +242,13 @@ const styles = StyleSheet.create({
     // Above bottom tab chrome; below OrderTicketLaunchHost (38/39).
     elevation: 37,
     zIndex: 37,
+  },
+  feedbackHost: {
+    ...StyleSheet.absoluteFillObject,
+    // Above the trade sheet entry (37); declared before OrderTicketLaunchHost
+    // so the launch shell still wins ties.
+    elevation: 38,
+    pointerEvents: 'box-none',
+    zIndex: 38,
   },
 });

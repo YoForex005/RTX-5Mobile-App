@@ -257,7 +257,12 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
           text: t('Logout'),
           style: 'destructive',
           onPress: () => {
-            void logoutBrokerSession()
+            // logoutBrokerSession invalidates the session synchronously; the
+            // socket/query/SecureStore cleanup continues in the background.
+            // Reveal the login screen immediately instead of waiting on it.
+            const cleanup = logoutBrokerSession();
+            router.replace('/login');
+            void cleanup
               .then(() => {
                 recordAccountJournalEvent('logged out from current account', {
                   level: 'success',
@@ -266,8 +271,7 @@ const SettingsScreenInner = memo(function SettingsScreenInner({ isScreenFocused 
               })
               .catch((error) => {
                 console.warn('[Settings] Secure logout cleanup failed', error);
-              })
-              .finally(() => router.replace('/login'));
+              });
           },
         },
       ],

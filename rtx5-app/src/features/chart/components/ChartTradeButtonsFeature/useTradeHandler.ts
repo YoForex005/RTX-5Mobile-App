@@ -452,7 +452,10 @@ export function useTradeHandler({
 
     // ── One-click OFF: open New Order as a sidebar-class retained handoff ──
     // Shell first (UI thread), then lock + route — no heavy validation.
-    if (!oneClickAccepted) {
+    // The SL/TP trade sheet (mt5-market variant) IS the explicit order form:
+    // its Buy/Sell always place the market order directly, exactly like MT5's
+    // New Order screen, regardless of the one-click preference.
+    if (!oneClickAccepted && variant !== 'mt5-market') {
       if (tradeTapLockRef.current) {
         logChartTradeDiagnostic('[TRADE-BUTTON-PRESS]', {
           side,

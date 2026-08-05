@@ -32,6 +32,7 @@ import {
 import { OrderTicketLaunchHost } from '../../src/features/trade/OrderTicketLaunchHost';
 import { TradeTabFloatingPnl } from '../../src/features/trade/TradeTabFloatingPnl';
 import {
+  ChartTradeFeedbackPortalHost,
   ChartTradeSheetPortalHost,
   ChartTradeSheetPortalProvider,
 } from '../../src/ui/navigation/ChartTradeSheetPortal';
@@ -88,23 +89,15 @@ type FastTabVisualItemProps = {
   initiallyActive: boolean;
 };
 
-const renderTabIcon = (routeName: FastTabRouteName, color: string) => {
-  if (routeName === 'chart') {
-    return <MaterialIcons name="candlestick-chart" size={27} color={color} />;
-  }
-  if (routeName === 'trade') {
-    // MT5 parity: with open positions the Trade tab shows the live floating
-    // P/L in place of its icon; the icon returns when the account is flat.
-    return <TradeTabFloatingPnl fallbackColor={color} />;
-  }
-  return (
+const renderTabIcon = (routeName: FastTabRouteName, color: string) => routeName === 'chart'
+  ? <MaterialIcons name="candlestick-chart" size={27} color={color} />
+  : (
     <Ionicons
       name={icons[routeName as keyof typeof icons] ?? 'ellipse-outline'}
       size={25}
       color={color}
     />
   );
-};
 
 /**
  * Keeps each tab's icon and label inside the same native opacity layer.
@@ -146,20 +139,33 @@ const FastTabVisualItem = memo(function FastTabVisualItem({
 
   const renderPresentation = (color: string) => (
     <>
-      <View style={[styles.tabIconSlot, routeName === 'trade' && styles.tabIconSlotTrade]}>
+      <View style={styles.tabIconSlot}>
         {renderTabIcon(routeName, color)}
       </View>
-      <Text
-        allowFontScaling={false}
-        numberOfLines={1}
-        style={[
-          styles.tabLabel,
-          isLandscape && styles.tabLabelLandscape,
-          { color },
-        ]}
-      >
-        {label}
-      </Text>
+      {routeName === 'trade' ? (
+        // MT5 parity: with open positions the label reads the live floating
+        // P/L (green/red); the word "Trade" returns when the account is flat.
+        <TradeTabFloatingPnl
+          fallbackLabel={label}
+          fallbackColor={color}
+          labelStyle={[
+            styles.tabLabel,
+            isLandscape && styles.tabLabelLandscape,
+          ]}
+        />
+      ) : (
+        <Text
+          allowFontScaling={false}
+          numberOfLines={1}
+          style={[
+            styles.tabLabel,
+            isLandscape && styles.tabLabelLandscape,
+            { color },
+          ]}
+        >
+          {label}
+        </Text>
+      )}
     </>
   );
 
@@ -583,6 +589,8 @@ const TabsLayoutInner = memo(function TabsLayoutInner({
       <ChartTradeSheetPortalProvider>
         <ThemedTabsChrome isChartTab={isChartTab} />
         <ChartTradeSheetPortalHost />
+        {/* Trade receipts / result dialogs stack above the sheet entry. */}
+        <ChartTradeFeedbackPortalHost />
         <OrderTicketLaunchHost />
         <GlobalActionSheetHost />
       </ChartTradeSheetPortalProvider>
@@ -611,13 +619,6 @@ const styles = StyleSheet.create({
     height: 28,
     justifyContent: 'center',
     width: 31,
-  },
-  // The Trade slot can carry the live floating-P/L value, which needs more
-  // horizontal room than a fixed 31px icon box.
-  tabIconSlotTrade: {
-    minWidth: 31,
-    paddingHorizontal: 4,
-    width: 'auto',
   },
   tabLabel: {
     fontSize: 12,

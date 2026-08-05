@@ -164,3 +164,36 @@ test('sumLivePositionPnl aggregates recalculated row pnl values across symbols',
 
   assert.equal(Number(total.toFixed(2)), 105.12);
 });
+
+test('crypto positions ignore an implausible backend contractSize on the quote', () => {
+  // BTC contract is 1 coin; some backend quote payloads carry a generic
+  // default (100), which inflated the chart's live P/L label 100x. The
+  // position snapshot deliberately provides no calibration data so the
+  // volume x contract fallback is exercised.
+  const position = {
+    id: '2167772',
+    symbol: 'BTCUSD',
+    side: 'buy' as const,
+    volume: 0.01,
+    openPrice: 64010.02,
+    currentPrice: 64010.02,
+    pnl: 0,
+    swap: 0,
+    openTime: '2026-08-05T17:34:27.000Z',
+  };
+
+  const inflated = resolveLivePositionPnl(position, {
+    bid: 64338.37,
+    ask: 64353.37,
+    contractSize: 100,
+  });
+  // (64338.37 - 64010.02) * 0.01 lots * 1 coin = +3.2835
+  assert.equal(Number(inflated.toFixed(4)), 3.2835);
+
+  // A plausible sub-unit contract size still wins (mBTC-style feeds).
+  const subUnit = resolveLivePositionPnl(
+    { ...position, id: '2167773' },
+    { bid: 64338.37, ask: 64353.37, contractSize: 0.1 },
+  );
+  assert.equal(Number(subUnit.toFixed(5)), 0.32835);
+});

@@ -5,9 +5,9 @@ export type ChartTradeActionMeta = {
   side: TradeSide;
   buttonPressed: TradeSide;
   displayLabel: 'BUY' | 'SELL';
-  marketLabel: 'Buy by Market' | 'Sell by Market';
+  marketLabel: 'Buy' | 'Sell';
   accessibilityLabel: 'Buy' | 'Sell';
-  marketAccessibilityLabel: 'Buy by Market' | 'Sell by Market';
+  marketAccessibilityLabel: 'Buy' | 'Sell';
   testID: 'chart-trade-buy-button' | 'chart-trade-sell-button';
   marketTestID: 'chart-trade-buy-market-button' | 'chart-trade-sell-market-button';
   priceSource: 'ask' | 'bid';
@@ -19,9 +19,10 @@ export const CHART_TRADE_ACTIONS: Record<TradeSide, ChartTradeActionMeta> = {
     side: TRADE_SIDE.buy,
     buttonPressed: TRADE_SIDE.buy,
     displayLabel: 'BUY',
-    marketLabel: 'Buy by Market',
+    // MT5 parity: the trade sheet's execution buttons read plain "Buy"/"Sell".
+    marketLabel: 'Buy',
     accessibilityLabel: 'Buy',
-    marketAccessibilityLabel: 'Buy by Market',
+    marketAccessibilityLabel: 'Buy',
     testID: 'chart-trade-buy-button',
     marketTestID: 'chart-trade-buy-market-button',
     priceSource: 'ask',
@@ -31,9 +32,9 @@ export const CHART_TRADE_ACTIONS: Record<TradeSide, ChartTradeActionMeta> = {
     side: TRADE_SIDE.sell,
     buttonPressed: TRADE_SIDE.sell,
     displayLabel: 'SELL',
-    marketLabel: 'Sell by Market',
+    marketLabel: 'Sell',
     accessibilityLabel: 'Sell',
-    marketAccessibilityLabel: 'Sell by Market',
+    marketAccessibilityLabel: 'Sell',
     testID: 'chart-trade-sell-button',
     marketTestID: 'chart-trade-sell-market-button',
     priceSource: 'bid',

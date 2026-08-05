@@ -39,9 +39,11 @@ test('native chart reactively disables Buy and Sell on the executable quote poli
     handler,
     /function processNextQueuedTrade\(options\?: \{ skipQuoteRecheck\?: boolean \}\)[\s\S]*if \(!options\?\.skipQuoteRecheck\)[\s\S]*currentQuoteAvailability[\s\S]*if \(!currentQuoteAvailability\.allowed\)/,
   );
+  // The SL/TP trade sheet (mt5-market) is itself the explicit order form, so
+  // its Buy/Sell bypass the one-click gate and always place directly.
   assert.match(
     handler,
-    /if \(!oneClickAccepted\)[\s\S]*showOrderTicketLaunch\(symbol, 'chart'\)[\s\S]*return;[\s\S]*One-click ON:/,
+    /if \(!oneClickAccepted && variant !== 'mt5-market'\)[\s\S]*showOrderTicketLaunch\(symbol, 'chart'\)[\s\S]*return;[\s\S]*One-click ON:/,
   );
   assert.match(
     handler,

@@ -1,17 +1,16 @@
 /**
  * Live floating-P/L readout for the BOTTOM tab bar's Trade item.
  *
- * MT5-style: while any position is open, the Trade tab shows the account's
- * live floating profit/loss (green/red) in place of the trending-up icon, so
- * the trader sees it from every tab. With no open positions the normal icon
- * returns.
+ * MT5-style: while any position is open, the Trade tab's LABEL (the word
+ * "Trade") is replaced by the account's live floating profit/loss, colored
+ * green/red, so the trader sees it from every tab. The trade icon stays in
+ * the icon slot. With no open positions the normal "Trade" label returns.
  *
  * The tab bar is always mounted, so the quote commit interval is throttled —
  * this badge must never become a background churn source for the Chart tab.
  */
 import React, { useMemo } from 'react';
-import { Text } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Text, type StyleProp, type TextStyle } from 'react-native';
 import { useShallow } from 'zustand/shallow';
 import { usePositionsState } from '../../state/positionsState';
 import { dedupePositionsById } from '../../state/positionsState.helpers';
@@ -25,10 +24,16 @@ const TAB_PNL_DOWN_COLOR = '#F23645';
 const TAB_PNL_QUOTE_COMMIT_INTERVAL_MS = 500;
 
 export const TradeTabFloatingPnl = React.memo(({
+  fallbackLabel,
   fallbackColor,
+  labelStyle,
 }: {
-  /** Tab tint used for the plain icon when no positions are open. */
+  /** The normal tab label text ("Trade") shown when no positions are open. */
+  fallbackLabel: string;
+  /** Tab tint used for the fallback label. */
   fallbackColor: string;
+  /** Base tab-label typography so both states align with the other tabs. */
+  labelStyle?: StyleProp<TextStyle>;
 }) => {
   const { positions, hydratedLogin } = usePositionsState(
     useShallow((state) => ({
@@ -50,7 +55,15 @@ export const TradeTabFloatingPnl = React.memo(({
   });
 
   if (renderablePositions.length === 0) {
-    return <Ionicons name="trending-up-outline" size={25} color={fallbackColor} />;
+    return (
+      <Text
+        allowFontScaling={false}
+        numberOfLines={1}
+        style={[labelStyle, { color: fallbackColor }]}
+      >
+        {fallbackLabel}
+      </Text>
+    );
   }
 
   const floating = Number.isFinite(account.floating) ? account.floating : 0;
@@ -59,14 +72,14 @@ export const TradeTabFloatingPnl = React.memo(({
       allowFontScaling={false}
       numberOfLines={1}
       adjustsFontSizeToFit
-      style={{
-        color: floating >= 0 ? TAB_PNL_UP_COLOR : TAB_PNL_DOWN_COLOR,
-        fontSize: 13,
-        fontWeight: '700',
-        fontVariant: ['tabular-nums'],
-        maxWidth: 92,
-        textAlign: 'center',
-      }}
+      style={[
+        labelStyle,
+        {
+          color: floating >= 0 ? TAB_PNL_UP_COLOR : TAB_PNL_DOWN_COLOR,
+          fontWeight: '700',
+          fontVariant: ['tabular-nums'],
+        },
+      ]}
     >
       {fmt.pnlPrecise(floating)}
     </Text>
