@@ -99,7 +99,10 @@ test('trade rows and summary use direct live websocket quote listeners', () => {
   assert.match(tradeScreenSource, /const flatListExtraData = useMemo\([\s\S]*rowActivationKey/);
   assert.match(rowSource, /const liveQuote = useLiveSymbolQuote\(item\.symbol, active, 0\)/);
   assert.doesNotMatch(rowSource, /liveQuoteOverride|liveQuote\?: Partial<QuoteItem>/);
-  assert.match(summaryHeaderSource, /useLiveSymbolQuotes\(liveQuoteSymbols, active, 0\)/);
+  // Commit interval is parameterized (default 0) so the always-mounted
+  // tab-bar P/L badge can throttle its copy of the stream.
+  assert.match(summaryHeaderSource, /useLiveSymbolQuotes\(liveQuoteSymbols, active, quoteCommitIntervalMs\)/);
+  assert.match(summaryHeaderSource, /quoteCommitIntervalMs = 0/);
   assert.match(summaryHeaderSource, /positions\.map\(\(position\) => position\.symbol\)/);
   assert.doesNotMatch(summaryHeaderSource, /liveQuotes: Record<string, Partial<QuoteItem> \| undefined>/);
 });

@@ -155,28 +155,27 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
   );
 });
 
-export const TradeSummaryHeader = React.memo(({
+/**
+ * Live account summary shared by the Trade summary block and the Trade
+ * menubar floating-P/L readout. Subscriptions stay gated by `active` so a
+ * retained offscreen Trade tab keeps its last values without observing the
+ * high-frequency account stores.
+ */
+export const useTradeLiveAccountSummary = ({
   positions,
   hydratedLogin,
   resolvedLogin,
-  s,
-  T,
-  isDark,
-  totalVolume,
-  onBulkPress,
   active,
   restAccountSummary,
+  quoteCommitIntervalMs = 0,
 }: {
   positions: PositionItem[];
   hydratedLogin: string | null;
   resolvedLogin: number | undefined;
-  s: TradeScreenStyles;
-  T: ThemeColors;
-  isDark: boolean;
-  totalVolume: number;
-  onBulkPress: () => void;
   active: boolean;
   restAccountSummary?: ApiAccountSummary;
+  /** Live-quote commit throttle; the always-mounted tab-bar badge slows this down. */
+  quoteCommitIntervalMs?: number;
 }) => {
   // The Trade tab is retained offscreen. Keep its last rendered account values,
   // but stop observing high-frequency account stores while another tab owns the
@@ -228,12 +227,46 @@ export const TradeSummaryHeader = React.memo(({
     () => Array.from(new Set(positions.map((position) => position.symbol))),
     [positions],
   );
-  const liveQuotes = useLiveSymbolQuotes(liveQuoteSymbols, active, 0);
+  const liveQuotes = useLiveSymbolQuotes(liveQuoteSymbols, active, quoteCommitIntervalMs);
   const account = useMemo(() => {
     const summary = buildTradeAccountSummary(liveAcc, tradingAccount);
     const floating = resolveTradeFloatingPnl(summary.floating, positions, hydratedLogin, resolvedLogin, liveQuotes);
     return resolveRenderableTradeAccountSummary(summary, floating);
   }, [hydratedLogin, liveAcc, liveQuotes, positions, resolvedLogin, tradingAccount]);
+
+  return account;
+};
+
+export const TradeSummaryHeader = React.memo(({
+  positions,
+  hydratedLogin,
+  resolvedLogin,
+  s,
+  T,
+  isDark,
+  totalVolume,
+  onBulkPress,
+  active,
+  restAccountSummary,
+}: {
+  positions: PositionItem[];
+  hydratedLogin: string | null;
+  resolvedLogin: number | undefined;
+  s: TradeScreenStyles;
+  T: ThemeColors;
+  isDark: boolean;
+  totalVolume: number;
+  onBulkPress: () => void;
+  active: boolean;
+  restAccountSummary?: ApiAccountSummary;
+}) => {
+  const account = useTradeLiveAccountSummary({
+    positions,
+    hydratedLogin,
+    resolvedLogin,
+    active,
+    restAccountSummary,
+  });
 
   return (
     <LiveUnrealizedPnLHeader

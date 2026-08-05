@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Dimensions, Keyboard, Platform, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, AppState, Dimensions, Keyboard, PanResponder, Platform, ScrollView, Text, TextInput, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { Gesture } from 'react-native-gesture-handler';
 import Animated, {
@@ -2406,6 +2406,142 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       setChartShowOnChartItem,
     ],
   );
+
+  // ── Movable symbol/OHLC header (3-dot menu opt-in) ──────────────────
+  // Trade markers near the top of the chart can sit under the symbol
+  // dropdown + OHLC readout. With the option enabled, holding the header
+  // for a moment arms a drag so the trader can park it anywhere inside
+  // the chart viewport. A plain tap still opens the symbol picker.
+  const isSymbolHeaderMovable = chartDisplay.movableSymbolHeader === true;
+  const [chartSymbolHeaderOffset, setChartSymbolHeaderOffset] = useState({ x: 0, y: 0 });
+  const [isChartSymbolHeaderDragArmed, setIsChartSymbolHeaderDragArmed] = useState(false);
+  const chartSymbolHeaderOffsetRef = useRef({ x: 0, y: 0 });
+  const chartSymbolHeaderDragArmedRef = useRef(false);
+  const chartSymbolHeaderDragOriginRef = useRef({ x: 0, y: 0 });
+  const chartSymbolHeaderHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chartSymbolHeaderSizeRef = useRef({ width: 0, height: 0 });
+  const chartSymbolHeaderTapSuppressUntilRef = useRef(0);
+  const CHART_SYMBOL_HEADER_HOLD_MS = 550;
+  const CHART_SYMBOL_HEADER_BASE_LEFT = 8;
+  const CHART_SYMBOL_HEADER_BASE_TOP = 16;
+
+  const clearChartSymbolHeaderHoldTimer = useCallback(() => {
+    if (chartSymbolHeaderHoldTimerRef.current !== null) {
+      clearTimeout(chartSymbolHeaderHoldTimerRef.current);
+      chartSymbolHeaderHoldTimerRef.current = null;
+    }
+  }, []);
+
+  const disarmChartSymbolHeaderDrag = useCallback(() => {
+    clearChartSymbolHeaderHoldTimer();
+    if (chartSymbolHeaderDragArmedRef.current) {
+      // Swallow the tap that ends a hold/drag so it cannot open the picker.
+      chartSymbolHeaderTapSuppressUntilRef.current = Date.now() + 400;
+    }
+    chartSymbolHeaderDragArmedRef.current = false;
+    setIsChartSymbolHeaderDragArmed(false);
+  }, [clearChartSymbolHeaderHoldTimer]);
+
+  const applyChartSymbolHeaderOffset = useCallback((nextX: number, nextY: number) => {
+    const bounds = chartTapMenuBoundsRef.current;
+    const size = chartSymbolHeaderSizeRef.current;
+    let x = nextX;
+    let y = nextY;
+    if (bounds.width > 0 && size.width > 0) {
+      const minX = -CHART_SYMBOL_HEADER_BASE_LEFT;
+      const maxX = Math.max(minX, bounds.width - size.width - CHART_SYMBOL_HEADER_BASE_LEFT);
+      x = Math.min(maxX, Math.max(minX, x));
+    }
+    if (bounds.height > 0 && size.height > 0) {
+      const minY = -CHART_SYMBOL_HEADER_BASE_TOP;
+      const maxY = Math.max(minY, bounds.height - size.height - CHART_SYMBOL_HEADER_BASE_TOP);
+      y = Math.min(maxY, Math.max(minY, y));
+    }
+    chartSymbolHeaderOffsetRef.current = { x, y };
+    setChartSymbolHeaderOffset((current) => (
+      current.x === x && current.y === y ? current : { x, y }
+    ));
+  }, []);
+
+  const armChartSymbolHeaderDrag = useCallback(() => {
+    chartSymbolHeaderHoldTimerRef.current = null;
+    chartSymbolHeaderDragArmedRef.current = true;
+    // Purely visual arm cue (scale + dim) — the chart screen has a
+    // no-device-vibration contract.
+    setIsChartSymbolHeaderDragArmed(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isSymbolHeaderMovable) {
+      // Disabling the option parks the header back at its default corner.
+      disarmChartSymbolHeaderDrag();
+      chartSymbolHeaderOffsetRef.current = { x: 0, y: 0 };
+      setChartSymbolHeaderOffset({ x: 0, y: 0 });
+    }
+  }, [disarmChartSymbolHeaderDrag, isSymbolHeaderMovable]);
+
+  const chartSymbolHeaderPanHandlers = useMemo(() => {
+    if (!isSymbolHeaderMovable) {
+      return {};
+    }
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => {
+        // Start (or restart) the hold countdown for this touch without
+        // claiming it — a quick tap must keep opening the symbol picker.
+        clearChartSymbolHeaderHoldTimer();
+        chartSymbolHeaderHoldTimerRef.current = setTimeout(armChartSymbolHeaderDrag, CHART_SYMBOL_HEADER_HOLD_MS);
+        return false;
+      },
+      onMoveShouldSetPanResponder: () => chartSymbolHeaderDragArmedRef.current,
+      onMoveShouldSetPanResponderCapture: (_event, gestureState) => {
+        if (chartSymbolHeaderDragArmedRef.current) {
+          return true;
+        }
+        if (Math.abs(gestureState.dx) + Math.abs(gestureState.dy) > 12) {
+          // Finger slid before the hold completed — normal press semantics.
+          clearChartSymbolHeaderHoldTimer();
+        }
+        return false;
+      },
+      onPanResponderGrant: () => {
+        chartSymbolHeaderDragOriginRef.current = chartSymbolHeaderOffsetRef.current;
+      },
+      onPanResponderMove: (_event, gestureState) => {
+        applyChartSymbolHeaderOffset(
+          chartSymbolHeaderDragOriginRef.current.x + gestureState.dx,
+          chartSymbolHeaderDragOriginRef.current.y + gestureState.dy,
+        );
+      },
+      onPanResponderRelease: (_event, gestureState) => {
+        applyChartSymbolHeaderOffset(
+          chartSymbolHeaderDragOriginRef.current.x + gestureState.dx,
+          chartSymbolHeaderDragOriginRef.current.y + gestureState.dy,
+        );
+        disarmChartSymbolHeaderDrag();
+      },
+      onPanResponderTerminate: () => {
+        disarmChartSymbolHeaderDrag();
+      },
+      onPanResponderTerminationRequest: () => false,
+    }).panHandlers;
+  }, [
+    applyChartSymbolHeaderOffset,
+    armChartSymbolHeaderDrag,
+    clearChartSymbolHeaderHoldTimer,
+    disarmChartSymbolHeaderDrag,
+    isSymbolHeaderMovable,
+  ]);
+
+  const handleChartSymbolHeaderPressOut = useCallback(() => {
+    // The inner Pressable owns the touch until a drag steals it; its
+    // press-out is the reliable "finger lifted before arming" signal.
+    if (!chartSymbolHeaderDragArmedRef.current) {
+      clearChartSymbolHeaderHoldTimer();
+    } else {
+      disarmChartSymbolHeaderDrag();
+    }
+  }, [clearChartSymbolHeaderHoldTimer, disarmChartSymbolHeaderDrag]);
 
   const resolveChartTradeSheetTranslateY = useCallback(
     (mode: 'hidden' | 'collapsed' | 'expanded') => {
@@ -5071,6 +5207,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   ]);
 
   const handleOpenSymbolPicker = useCallback(() => {
+    // A hold-drag of the movable symbol header ends with the same tap event;
+    // it must reposition the header, not open the picker.
+    if (
+      chartSymbolHeaderDragArmedRef.current ||
+      Date.now() <= chartSymbolHeaderTapSuppressUntilRef.current
+    ) {
+      return;
+    }
     runImmediateAction('chart.symbolPicker.open', () => {
       openChartActionSheetSmoothly(symbolPickerActionSheetConfig);
       scheduleChartActionSheetContextReset();
@@ -5429,6 +5573,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         icon: <Ionicons name={showChartVolumePane ? 'eye-off-outline' : 'bar-chart-outline'} size={20} color={TEXT_MUTED} />,
         onPress: () => setChartViewportShowVolumePane(!showChartVolumePane),
       },
+      // Opt-in hold-and-drag repositioning of the symbol/OHLC header so it
+      // never covers a trade marker rendered near the top of the chart.
+      {
+        label: t('Movable symbol header'),
+        icon: <Ionicons name="move-outline" size={20} color={TEXT_MUTED} />,
+        muted: chartDisplay.movableSymbolHeader === true,
+        onPress: () => handleToggleChartDisplayAction('movableSymbolHeader'),
+      },
       // Conditional action: Toggles the drawing tools sidebar when the chart is in fullscreen mode
       ...(isChartExpanded
         ? [{
@@ -5492,6 +5644,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     ],
     [
       TEXT_MUTED,
+      chartDisplay.movableSymbolHeader,
       chartTypeIconName,
       chartViewportShowDrawingToolbar,
       handleChartMoreRemoveFromFavorites,
@@ -5501,6 +5654,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       handleOpenChartTypePicker,
       handleOpenObjectsScreen,
       handleResetChartViewport,
+      handleToggleChartDisplayAction,
       isChartExpanded,
       setChartViewportShowDrawingToolbar,
       setChartViewportShowVolumePane,
@@ -8090,15 +8244,39 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                   />
                 ) : null}
                 {(chartDisplay.showTicker || showChartMetaRow) && (
-                  <View style={styles.chartOverlaySymbolSection}>
+                  <View
+                    style={[
+                      styles.chartOverlaySymbolSection,
+                      isSymbolHeaderMovable && {
+                        transform: [
+                          { translateX: chartSymbolHeaderOffset.x },
+                          { translateY: chartSymbolHeaderOffset.y },
+                        ],
+                      },
+                      isChartSymbolHeaderDragArmed && {
+                        opacity: 0.75,
+                        transform: [
+                          { translateX: chartSymbolHeaderOffset.x },
+                          { translateY: chartSymbolHeaderOffset.y },
+                          { scale: 1.04 },
+                        ],
+                      },
+                    ]}
+                    onLayout={(event) => {
+                      const { width, height } = event.nativeEvent.layout;
+                      chartSymbolHeaderSizeRef.current = { width, height };
+                    }}
+                    {...chartSymbolHeaderPanHandlers}
+                  >
                     <View style={[styles.symbolSection, { minHeight: 'auto' }]}>
                       <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={t('Select Symbol')}
                         style={styles.symbolSectionTapTarget}
                         onPress={handleOpenSymbolPicker}
-                        activateOnPressIn
-                        activateOnTouchStart
+                        onPressOut={handleChartSymbolHeaderPressOut}
+                        activateOnPressIn={!isSymbolHeaderMovable}
+                        activateOnTouchStart={!isSymbolHeaderMovable}
                         hitSlop={8}
                         unstable_pressDelay={0}
                       >

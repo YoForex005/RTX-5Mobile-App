@@ -386,8 +386,8 @@ test('compact footer keeps Sell red and Buy blue while quotes update', () => {
 test('order ticket buy and sell execution buttons call the matching side', () => {
   const source = readSource('src/features/trade/OrderTicketScreen.tsx');
 
-  assert.match(source, /side: TRADE_SIDE\.sell[\s\S]*displayLabel: 'SELL'[\s\S]*marketLabel: 'SELL BY MARKET'[\s\S]*priceLabel: 'BID'/);
-  assert.match(source, /side: TRADE_SIDE\.buy[\s\S]*displayLabel: 'BUY'[\s\S]*marketLabel: 'BUY BY MARKET'[\s\S]*priceLabel: 'ASK'/);
+  assert.match(source, /side: TRADE_SIDE\.sell[\s\S]*displayLabel: 'SELL'[\s\S]*marketLabel: 'SELL'[\s\S]*priceLabel: 'BID'/);
+  assert.match(source, /side: TRADE_SIDE\.buy[\s\S]*displayLabel: 'BUY'[\s\S]*marketLabel: 'BUY'[\s\S]*priceLabel: 'ASK'/);
   assert.match(source, /onPress=\{\(\) => \{ void handlePlaceOrder\(sellTradeAction\.side\); \}\}/);
   assert.match(source, /onPress=\{\(\) => \{ void handlePlaceOrder\(buyTradeAction\.side\); \}\}/);
   assert.match(source, /onPress=\{\(\) => \{ void handlePlaceOrder\(action\.side\); \}\}/);

@@ -206,6 +206,16 @@ export const CH_HTML = `
       var activeHorizontalScrollGestureUntil = 0;
       var visibleRangeIdleTimer = null;
       var visibleRangeIdlePendingAfterGesture = false;
+      // Trade-marker position-only refresh (style.top writes on existing DOM
+      // nodes). Runs on every visible-range change, including active gesture
+      // frames, so open-trade markers never drift off their real price.
+      var tradeOverlayRepositionRaf = 0;
+      // Last time any gesture-deferral bookkeeping ran. The overlay resync
+      // watchdog uses this to detect stranded gesture flags (missed
+      // pointerup/pointercancel) that would otherwise freeze overlay DOM
+      // work forever.
+      var lastOverlayGestureDeferralActivityAt = 0;
+      var OVERLAY_GESTURE_DEFERRAL_STALL_MS = 3000;
       var liveRightEdgeClampActive = false;
       var lastHistoryPaginationPostAt = 0;
       var movingVerticalGridRaf = 0;
@@ -243,6 +253,10 @@ export const CH_HTML = `
       var AXIS_DIVIDER_STROKE_WIDTH = ${CHART_AXIS_DIVIDER_STROKE_WIDTH};
       var manualPriceScaleRangeActive = false;
       var verticalPricePanGestureActive = false;
+      // Set by the gesture layer; lets module-level resets (auto-scale toggle,
+      // series replacement, manual-range clears) stop an in-flight kinetic
+      // vertical glide.
+      var stopVerticalPanGlideHook = null;
       var chartScaleGestureActive = false;
       var verticalScrollingLocked = false;
       var chartAutoScaleEnabled = false;
@@ -260,6 +274,7 @@ export const CH_HTML = `
       var OVERLAY_LABEL_HEIGHT = 18;
       var OVERLAY_LABEL_GAP = 4;
       var OVERLAY_LABEL_LINE_GAP = 1;
+      var OVERLAY_POSITION_BOX_HEIGHT = 18;
       var OVERLAY_ANCHORED_LABEL_LEFT = 8;
       var OVERLAY_ANCHORED_LABEL_LANE_WIDTH = 164;
       var OVERLAY_ANCHORED_LABEL_RIGHT_PADDING = 16;
@@ -3614,6 +3629,9 @@ export const CH_HTML = `
       }
 
       function clearManualVerticalPanRange() {
+        if (stopVerticalPanGlideHook) {
+          try { stopVerticalPanGlideHook(); } catch (_glideStopErr) {}
+        }
         manualVerticalPanRangeActive = false;
         manualVerticalPanLockedRange = null;
         manualVerticalPanPreserveUntil = 0;
@@ -4148,15 +4166,23 @@ export const CH_HTML = `
       }
 
       function deferHorizontalGestureDomWork() {
+        lastOverlayGestureDeferralActivityAt = Date.now();
         visibleRangeIdlePendingAfterGesture = true;
         cancelOverlayDomRefreshFrame();
         cancelGestureRightPriceScaleFallbackRefresh();
+        // Full DOM rebuilds wait for gesture idle, but trade markers must not
+        // drift off their real prices meanwhile — keep positions glued.
+        scheduleTradeOverlayReposition();
       }
 
       function deferVerticalGestureDomWork() {
+        lastOverlayGestureDeferralActivityAt = Date.now();
         verticalGestureDomWorkPending = true;
         cancelOverlayDomRefreshFrame();
         scheduleGestureRightPriceScaleFallbackRefresh();
+        // Right-price-scale drags reach here on every pointermove; the
+        // position-only pass keeps trade markers tracking the moving scale.
+        scheduleTradeOverlayReposition();
       }
 
       function refreshVerticalGestureOverlayPositions() {
@@ -4213,6 +4239,7 @@ export const CH_HTML = `
       }
 
       function scheduleVisibleRangeIdleWork() {
+        lastOverlayGestureDeferralActivityAt = Date.now();
         if (activeHorizontalScrollGesture) {
           visibleRangeIdlePendingAfterGesture = true;
           return;
@@ -4435,9 +4462,19 @@ export const CH_HTML = `
           vertPanPending = null;
         };
 
-        var vertPanState = null; // { startY, startRange, latestRange, pricePerPixel }
+        var vertPanState = null; // { startY, startRange, latestRange, pricePerPixel, lastMoveY, lastMoveAt, velocityPxMs }
         var VERT_PAN_THRESHOLD = 6; // px before we commit to a vertical pan
         var VERT_PAN_PRICE_DELTA_MULTIPLIER = 1;
+        // MT5-style kinetic vertical glide. One finger-drag is limited to
+        // roughly a screen-height of price travel, which made far-away areas
+        // (long-ago trade entries) take dozens of swipes to reach. A fling now
+        // continues the pan with decaying velocity, so vertical reach is
+        // unlimited — repeated flings compound, and any touch stops the glide.
+        var VERT_PAN_GLIDE_MIN_VELOCITY_PX_MS = 0.25;
+        var VERT_PAN_GLIDE_MAX_VELOCITY_PX_MS = 5;
+        var VERT_PAN_GLIDE_DECAY_PER_FRAME = 0.97;
+        var VERT_PAN_GLIDE_STOP_VELOCITY_PX_MS = 0.02;
+        var vertPanGlide = null; // { v, lastAt, pricePerPixel, range, raf }
         var vertPanPending = null; // { startX, startY } - waiting for threshold
         var rightPriceScaleGestureActive = false;
         var lastCompletedChartTap = null;
@@ -4538,6 +4575,7 @@ export const CH_HTML = `
           var rangeSpan = range.to - range.from;
           vertPanState = {
             startY: clientY,
+            startAt: Date.now(),
             startRange: { from: range.from, to: range.to },
             latestRange: { from: range.from, to: range.to },
             pricePerPixel: rangeSpan / chartHeight,
@@ -4568,6 +4606,23 @@ export const CH_HTML = `
 
         var applyVerticalPanAt = function(clientY) {
           if (!vertPanState || !chart || !series) return;
+          // Track fling velocity (px/ms, smoothed) for the kinetic glide.
+          var moveNow = Date.now();
+          if (typeof vertPanState.lastMoveAt === 'number') {
+            var moveDt = moveNow - vertPanState.lastMoveAt;
+            if (moveDt > 0 && moveDt < 120) {
+              var instantVelocity = (clientY - vertPanState.lastMoveY) / moveDt;
+              vertPanState.velocityPxMs =
+                typeof vertPanState.velocityPxMs === 'number'
+                  ? 0.6 * instantVelocity + 0.4 * vertPanState.velocityPxMs
+                  : instantVelocity;
+            } else if (moveDt >= 120) {
+              // The finger paused — a lift now is a place, not a fling.
+              vertPanState.velocityPxMs = 0;
+            }
+          }
+          vertPanState.lastMoveY = clientY;
+          vertPanState.lastMoveAt = moveNow;
           // Calculate how much the finger moved in pixels.
           var deltaPixels = clientY - vertPanState.startY;
           // Convert pixel delta to price delta. Dragging up lowers the visible
@@ -4584,6 +4639,69 @@ export const CH_HTML = `
           renderVerticalPanRange(nextRange);
         };
 
+        var stopVerticalPanGlide = function() {
+          if (vertPanGlide) {
+            if (vertPanGlide.raf) {
+              try { cancelAnimationFrame(vertPanGlide.raf); } catch (_e) {}
+            }
+            vertPanGlide = null;
+          }
+        };
+        stopVerticalPanGlideHook = stopVerticalPanGlide;
+
+        // Kinetic continuation of a vertical fling. Distance is unbounded —
+        // the range keeps shifting until the decayed velocity dies out or a
+        // touch/reset interrupts it, so any historical price level (long-ago
+        // trade entries included) is reachable with repeated flings.
+        var startVerticalPanGlide = function(velocityPxMs, pricePerPixel, startRange) {
+          stopVerticalPanGlide();
+          if (!isValidPriceRange(startRange) || !(pricePerPixel > 0)) return;
+          if (typeof velocityPxMs !== 'number' || !isFinite(velocityPxMs)) return;
+          var clampedVelocity = Math.max(
+            -VERT_PAN_GLIDE_MAX_VELOCITY_PX_MS,
+            Math.min(VERT_PAN_GLIDE_MAX_VELOCITY_PX_MS, velocityPxMs)
+          );
+          if (Math.abs(clampedVelocity) < VERT_PAN_GLIDE_MIN_VELOCITY_PX_MS) return;
+          if (isVerticalChartMovementBlocked()) return;
+          var state = {
+            v: clampedVelocity,
+            lastAt: Date.now(),
+            pricePerPixel: pricePerPixel,
+            range: { from: startRange.from, to: startRange.to },
+            raf: 0,
+          };
+          vertPanGlide = state;
+          var step = function() {
+            if (vertPanGlide !== state) return;
+            state.raf = 0;
+            if (isVerticalChartMovementBlocked() || !chart || !series) {
+              vertPanGlide = null;
+              return;
+            }
+            var now = Date.now();
+            var dt = Math.max(1, Math.min(64, now - state.lastAt));
+            state.lastAt = now;
+            var priceShift = state.v * dt * state.pricePerPixel * VERT_PAN_PRICE_DELTA_MULTIPLIER;
+            state.range = {
+              from: state.range.from + priceShift,
+              to: state.range.to + priceShift,
+            };
+            renderVerticalPanRange(state.range);
+            state.v *= Math.pow(VERT_PAN_GLIDE_DECAY_PER_FRAME, dt / 16);
+            if (Math.abs(state.v) <= VERT_PAN_GLIDE_STOP_VELOCITY_PX_MS) {
+              var settledRange = { from: state.range.from, to: state.range.to };
+              vertPanGlide = null;
+              rememberManualVerticalPanRange(settledRange);
+              syntheticRightPriceScaleFallbackRange = settledRange;
+              applyManualVerticalPanLockedRange();
+              settleVerticalPriceGestureDomWork();
+              return;
+            }
+            state.raf = requestAnimationFrame(step);
+          };
+          state.raf = requestAnimationFrame(step);
+        };
+
         var continueVerticalPan = function(clientY) {
           if (typeof clientY !== 'number' || !isFinite(clientY)) return;
           // Android WebView can postpone requestAnimationFrame callbacks while
@@ -4597,6 +4715,37 @@ export const CH_HTML = `
             vertPanState && isValidPriceRange(vertPanState.latestRange)
               ? normalizePriceRange(vertPanState.latestRange)
               : null;
+          var flingVelocityPxMs =
+            vertPanState &&
+            typeof vertPanState.velocityPxMs === 'number' &&
+            isFinite(vertPanState.velocityPxMs) &&
+            typeof vertPanState.lastMoveAt === 'number' &&
+            Date.now() - vertPanState.lastMoveAt < 160
+              ? vertPanState.velocityPxMs
+              : 0;
+          // A busy JS thread can coalesce a fast fling into one or two move
+          // events, leaving per-move velocity unset. Fall back to the whole
+          // gesture's displacement/duration for short, fast strokes so a
+          // genuine fling still glides.
+          if (
+            Math.abs(flingVelocityPxMs) < VERT_PAN_GLIDE_MIN_VELOCITY_PX_MS &&
+            vertPanState &&
+            typeof vertPanState.startAt === 'number' &&
+            typeof vertPanState.lastMoveAt === 'number' &&
+            typeof vertPanState.lastMoveY === 'number' &&
+            Date.now() - vertPanState.lastMoveAt < 160
+          ) {
+            var gestureDurationMs = vertPanState.lastMoveAt - vertPanState.startAt;
+            var gestureDisplacementPx = vertPanState.lastMoveY - vertPanState.startY;
+            if (
+              gestureDurationMs > 0 &&
+              gestureDurationMs <= 350 &&
+              Math.abs(gestureDisplacementPx) >= 160
+            ) {
+              flingVelocityPxMs = gestureDisplacementPx / gestureDurationMs;
+            }
+          }
+          var flingPricePerPixel = vertPanState ? vertPanState.pricePerPixel : 0;
           if (finalRange) {
             renderVerticalPanRange(finalRange);
           }
@@ -4611,6 +4760,10 @@ export const CH_HTML = `
           }
           vertPanState = null;
           vertPanPending = null;
+          if (finalRange && flingVelocityPxMs !== 0) {
+            // Hand the pan over to the kinetic glide for MT5-style reach.
+            startVerticalPanGlide(flingVelocityPxMs, flingPricePerPixel, finalRange);
+          }
           if (verticalGestureDomWorkPending || pendingVerticalOverlayApply) {
             verticalGestureDomWorkPending = false;
             applyDeferredVerticalOverlayPayload();
@@ -4853,6 +5006,9 @@ export const CH_HTML = `
         var onPointerDown = function(event) {
           rememberPointerDown(event);
           cancelFreshSeriesVerticalCenter();
+          // Touching the chart catches an in-flight kinetic vertical glide,
+          // exactly like grabbing a scrolling list.
+          stopVerticalPanGlide();
           postChartTouchState(true);
           if (horizontalScrollMotionActive && visibleRangeIdleTimer !== null) {
             clearTimeout(visibleRangeIdleTimer);
@@ -4912,6 +5068,10 @@ export const CH_HTML = `
             // Keep pinch/scale gestures light. Rebuilding every custom overlay
             // on each move drops the WebView far below MT5-like frame cadence.
             scheduleGestureRightPriceScaleFallbackRefresh();
+            // Position-only trade-marker tracking is cheap enough to run per
+            // pinch frame — markers stay pinned to their real prices while
+            // the scale changes under them.
+            scheduleTradeOverlayReposition();
             return;
           }
           if (continueTradeLineDrag(event)) {
@@ -6204,6 +6364,11 @@ export const CH_HTML = `
               if (clampVisibleLogicalRangeToLiveEdge(range)) {
                 return;
               }
+              // Any visible-range change (pan, momentum, zoom, autoscroll
+              // follow, history load) can shift the autoscaled price range —
+              // recompute trade-marker positions from their real prices every
+              // time so markers never drift or stick at stale pixels.
+              scheduleTradeOverlayReposition();
               var isLightweightHorizontalMotion = isHorizontalScrollMotionActive();
               scheduleMovingVerticalGridUpdate(isLightweightHorizontalMotion);
               schedulePeriodSeparatorsUpdate(isLightweightHorizontalMotion);
@@ -6211,6 +6376,7 @@ export const CH_HTML = `
                 // Keep both finger drag and post-release kinetic scrolling on
                 // transform-only SVG work. The idle timer is reset by every
                 // momentum frame and performs one full settle at the end.
+                lastOverlayGestureDeferralActivityAt = Date.now();
                 visibleRangeIdlePendingAfterGesture = true;
                 scheduleVisibleRangeIdleWork();
                 return;
@@ -6962,6 +7128,9 @@ export const CH_HTML = `
             ? lastRawSeriesData.slice()
             : [];
           var previousVisibleLogicalRange = getVisibleLogicalRangeSnapshot();
+          // Captured BEFORE this update overwrites it — used to distinguish a
+          // same symbol+timeframe background refresh from a context switch.
+          var previousDataContextSig = lastInitDataContextSig;
           lastRawSeriesData = sanitizeSeriesData(data);
           try {
             chartDebugLog('[WEBVIEW-CANDLE] updateChartData', {
@@ -6997,6 +7166,25 @@ export const CH_HTML = `
           var didReplaceVisibleSeries =
             !didPrependHistory &&
             (resetVisibleRange || shouldResetViewportForSeriesReplacement(previousRawSeriesData, lastRawSeriesData));
+          // MT5 free-movement parity: a background refresh of the SAME
+          // symbol+timeframe (live-edge gap bridge, slid fetch window — the
+          // first bar time routinely advances on M1) must not steal a
+          // user-owned vertical pan. The trader may have panned the price
+          // scale away to inspect an old trade's entry; yanking the range
+          // back to the live candles here was the "chart forces me back"
+          // bug. Explicit context switches still pass resetVisibleRange=true
+          // (or a changed dataContextSig) and reset normally.
+          var suppressedManualPanReset = false;
+          if (
+            didReplaceVisibleSeries &&
+            !resetVisibleRange &&
+            paintedDataContextSig !== '' &&
+            paintedDataContextSig === previousDataContextSig &&
+            isManualVerticalPanRangeLocked()
+          ) {
+            didReplaceVisibleSeries = false;
+            suppressedManualPanReset = true;
+          }
           var priceScaleReason = didPrependHistory
             ? 'update_data_prepend_history'
             : (didReplaceVisibleSeries ? 'update_data_replace_series' : 'update_data');
@@ -7023,6 +7211,12 @@ export const CH_HTML = `
           }
           if (restoredStableReplacementViewport) {
             healCollapsedPriceScaleRange(priceScaleReason, true);
+          }
+          if (suppressedManualPanReset) {
+            // setData can disturb the fixed scale — reassert the user's
+            // locked price range and reposition trade markers against it.
+            applyManualVerticalPanLockedRange();
+            scheduleOverlayDomRefresh();
           }
           if (
             !restoredPrependedViewport &&
@@ -7971,6 +8165,88 @@ export const CH_HTML = `
         }
       }
 
+      // The candle pane's vertical pixel bounds. Trade markers whose real
+      // price maps outside these bounds are CLIPPED (visibility:hidden), never
+      // removed — MT5 parity: an open trade may be off-viewport while the
+      // market is far from its entry, and must reappear at its exact entry
+      // price as soon as panning/zooming brings that price back on screen.
+      function resolveTradeOverlayPaneBounds() {
+        var metrics = resolvePrimaryPaneMetrics();
+        var paneTop = Math.max(0, Math.round(metrics.plotTop || 0));
+        var paneHeight = Math.max(0, Math.round(metrics.plotHeight || metrics.paneHeight || 0));
+        if (!(paneHeight > 4)) {
+          // Metrics unavailable (layout still settling) — never hide markers
+          // on bad data.
+          return null;
+        }
+        return { top: paneTop, bottom: paneTop + paneHeight };
+      }
+
+      function isTradeOverlayYInsidePane(y, bounds) {
+        if (!bounds) return true;
+        return y >= bounds.top && y <= bounds.bottom;
+      }
+
+      // Position-only pass over the trade-anchored overlay DOM (entry/SL/TP
+      // dotted lines, their BUY/SELL labels, right-axis price boxes). It
+      // recomputes each node's y from the trade's REAL price via
+      // series.priceToCoordinate on every visible-range change — including
+      // active pan / pinch / momentum frames — so markers stay glued to their
+      // price while the chart moves. It never creates, removes, sorts, or
+      // measures nodes; the full refreshOverlayDomLabels pass at gesture-idle
+      // restores label stacking/lane layout.
+      function repositionTradeOverlayDomNodes() {
+        try {
+          if (!series || typeof series.priceToCoordinate !== 'function') return;
+          var payload =
+            _appliedOverlayPayload &&
+            Array.isArray(_appliedOverlayPayload.priceLines) &&
+            _appliedOverlayPayload.priceLines.length > 0
+              ? _appliedOverlayPayload
+              : _overlayPayload;
+          var lines = payload && Array.isArray(payload.priceLines) ? payload.priceLines : [];
+          if (lines.length === 0) return;
+          var bounds = resolveTradeOverlayPaneBounds();
+          for (var i = 0; i < lines.length; i++) {
+            var ln = lines[i];
+            if (!ln || !ln.id || typeof ln.price !== 'number' || !isFinite(ln.price)) continue;
+            var lineNode = _overlayDomNodesByKey['line:' + ln.id];
+            var labelNode = _overlayDomNodesByKey['label:anchored:' + ln.id];
+            var boxNode = _overlayDomNodesByKey['box:' + ln.id];
+            if (!lineNode && !labelNode && !boxNode) continue;
+            var y = series.priceToCoordinate(ln.price);
+            if (typeof y !== 'number' || !isFinite(y)) continue;
+            var visibility = isTradeOverlayYInsidePane(y, bounds) ? 'visible' : 'hidden';
+            if (lineNode) {
+              lineNode.style.top = Math.round(y) + 'px';
+              lineNode.style.visibility = visibility;
+            }
+            if (labelNode) {
+              labelNode.style.top =
+                Math.round(y - OVERLAY_LABEL_LINE_HEIGHT - OVERLAY_LABEL_LINE_GAP) + 'px';
+              labelNode.style.visibility = visibility;
+            }
+            if (boxNode) {
+              boxNode.style.top = Math.round(y - OVERLAY_POSITION_BOX_HEIGHT / 2) + 'px';
+              boxNode.style.visibility = visibility;
+            }
+          }
+        } catch (_repositionTradeOverlayErr) {}
+      }
+
+      function scheduleTradeOverlayReposition() {
+        if (tradeOverlayRepositionRaf) return;
+        try {
+          tradeOverlayRepositionRaf = requestAnimationFrame(function() {
+            tradeOverlayRepositionRaf = 0;
+            repositionTradeOverlayDomNodes();
+          });
+        } catch (_scheduleTradeRepositionErr) {
+          tradeOverlayRepositionRaf = 0;
+          repositionTradeOverlayDomNodes();
+        }
+      }
+
       function resolveOverlayDisplayDecimals() {
         return typeof lastRequestedDisplayDecimals === 'number' && isFinite(lastRequestedDisplayDecimals)
           ? Math.max(0, Math.min(10, Math.round(lastRequestedDisplayDecimals)))
@@ -8604,6 +8880,11 @@ export const CH_HTML = `
         line.style.position = 'absolute';
         line.style.left = Math.max(0, Math.round(metrics.leftAxisWidth || 0)) + 'px';
         line.style.top = Math.round(item.y) + 'px';
+        // Viewport clipping only — an off-pane trade line stays in the DOM at
+        // its true coordinate and reappears when its price scrolls back in.
+        line.style.visibility = isTradeOverlayYInsidePane(item.y, resolveTradeOverlayPaneBounds())
+          ? 'visible'
+          : 'hidden';
         line.style.width = paneWidth + 'px';
         line.style.height = '0px';
         line.style.borderTop =
@@ -8952,6 +9233,7 @@ export const CH_HTML = `
           var lines = Array.isArray(payload && payload.priceLines) ? payload.priceLines : [];
           var floatingLabels = [];
           var anchoredLabels = [];
+          var tradeOverlayPaneBounds = resolveTradeOverlayPaneBounds();
           for (var i = 0; i < lines.length; i++) {
             var ln = lines[i];
             if (!ln || !ln.title || typeof ln.price !== 'number' || !isFinite(ln.price)) continue;
@@ -8959,6 +9241,7 @@ export const CH_HTML = `
             var y = series.priceToCoordinate(ln.price);
             if (typeof y !== 'number' || !isFinite(y)) continue;
             var labelRecord = {
+              paneVisible: isTradeOverlayYInsidePane(y, tradeOverlayPaneBounds),
               color: ln.color || '#2962FF',
               drawAnchoredTradeLine: ln.labelPlacement === 'line',
               dragKey: typeof ln.dragKey === 'string' ? ln.dragKey : '',
@@ -9057,7 +9340,9 @@ export const CH_HTML = `
             label.style.left = labelLeft + 'px';
             label.style.top = top + 'px';
             label.style.color = item.labelSideColor || item.color;
-            label.style.fontSize = '12px';
+            // Split trade labels (side, lots, live value) render one step
+            // smaller so open-position rows crowd the chart less.
+            label.style.fontSize = hasSplitTradeLabel ? '10px' : '12px';
             label.style.fontWeight = hasSplitTradeLabel ? '500' : '700';
             label.style.height = OVERLAY_LABEL_LINE_HEIGHT + 'px';
             label.style.lineHeight = OVERLAY_LABEL_LINE_HEIGHT + 'px';
@@ -9068,6 +9353,11 @@ export const CH_HTML = `
             label.style.textShadow = 'none';
             label.style.zIndex = isAnchoredTradeLabel ? '18' : '11';
             label.style.pointerEvents = 'none';
+            if (isAnchoredTradeLabel) {
+              // Clip labels of off-pane trades instead of deleting them; the
+              // node stays keyed and reappears when the price scrolls back.
+              label.style.visibility = item.paneVisible === false ? 'hidden' : 'visible';
+            }
           };
 
           for (var labelIndex = 0; labelIndex < floatingLabels.length; labelIndex++) {
@@ -9100,7 +9390,7 @@ export const CH_HTML = `
           var seenBoxLevels = Object.create(null);
           var positionBoxes = [];
           var positionBoxMetrics = resolveMarketPriceScaleAxisMetrics(layer);
-          var POSITION_BOX_HEIGHT = 18;
+          var POSITION_BOX_HEIGHT = OVERLAY_POSITION_BOX_HEIGHT;
           for (var pi = 0; pi < lines.length; pi++) {
             var pln = lines[pi];
             if (!shouldRenderRightAxisTradePriceBox(pln)) continue;
@@ -9163,6 +9453,12 @@ export const CH_HTML = `
             boxEl.style.fontVariantNumeric = 'tabular-nums';
             boxEl.style.fontFeatureSettings = '"tnum" 1, "lnum" 1';
             boxEl.style.zIndex = '16';
+            // Same clip-don't-delete rule as the trade line itself: gate on
+            // the RAW price coordinate so stacking offsets cannot smear an
+            // off-pane trade's box back into the visible axis strip.
+            boxEl.style.visibility = isTradeOverlayYInsidePane(box.y, tradeOverlayPaneBounds)
+              ? 'visible'
+              : 'hidden';
           }
           // Drop closed/stale trade nodes only — never blank the whole layer.
           pruneOverlayDomNodes(liveOverlayKeys);
@@ -9466,6 +9762,43 @@ export const CH_HTML = `
       function startOverlayResync() {
         if (_overlayResyncTimer) clearInterval(_overlayResyncTimer);
         _overlayResyncTimer = setInterval(function() {
+          // Stranded-gesture watchdog. A dropped pointerup/pointercancel
+          // (Android WebView can tear down a touch stream mid-gesture) leaves
+          // the gesture flags that defer overlay DOM work set forever. Every
+          // overlay apply — quote ticks, the native 5s resync, Chart
+          // Preferences toggles — then early-returns, freezing open-trade
+          // markers at stale pixel positions until they drift out of the
+          // viewport and never come back. If deferral state is still active
+          // long after both touch input and range-change activity stopped,
+          // force one settle pass so markers always recover.
+          var overlayDeferralStranded =
+            !lastPostedChartTouchActive &&
+            !activeTradeLineDrag &&
+            (
+              activeHorizontalScrollGesture ||
+              horizontalScrollMotionActive ||
+              verticalPricePanGestureActive ||
+              chartScaleGestureActive ||
+              pendingHorizontalOverlayApply ||
+              pendingVerticalOverlayApply ||
+              verticalGestureDomWorkPending ||
+              visibleRangeIdlePendingAfterGesture
+            ) &&
+            Date.now() - lastOverlayGestureDeferralActivityAt > OVERLAY_GESTURE_DEFERRAL_STALL_MS;
+          if (overlayDeferralStranded) {
+            activeHorizontalScrollGesture = false;
+            horizontalScrollMotionActive = false;
+            activeHorizontalScrollGestureUntil = 0;
+            verticalPricePanGestureActive = false;
+            chartScaleGestureActive = false;
+            verticalGestureDomWorkPending = false;
+            visibleRangeIdlePendingAfterGesture = false;
+            applyDeferredHorizontalOverlayPayload();
+            applyDeferredVerticalOverlayPayload();
+            if (series) {
+              refreshOverlayDomLabels(_appliedOverlayPayload || _overlayPayload);
+            }
+          }
           if (
             !activeTradeLineDrag &&
             series &&

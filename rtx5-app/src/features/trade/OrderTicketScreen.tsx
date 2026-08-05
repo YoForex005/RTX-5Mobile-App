@@ -53,7 +53,8 @@ import {
 } from '../../market/quoteIntegrity';
 import { assertTradeSide, normalizeTradeSide, TRADE_SIDE, type TradeSide } from '../../domain/tradeSide';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
-import { TradeFeedbackModal, type TradeFeedbackState } from '../../ui/components/TradeFeedbackModal';
+import { TradeFeedbackModal, TRADE_MODAL_INITIAL, type TradeFeedbackState } from '../../ui/components/TradeFeedbackModal';
+import { resolveConfirmedTradeReceipt } from '../../ui/components/tradeFeedbackPresentation';
 import { useConfirmedTradeReceiptAutoDismiss } from '../../ui/components/useConfirmedTradeReceiptAutoDismiss';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { ActionSheet } from '../../ui/components/ActionSheet';
@@ -115,7 +116,7 @@ import {
 type OrderTicketTradeAction = {
   side: TradeSide;
   displayLabel: 'BUY' | 'SELL';
-  marketLabel: 'BUY BY MARKET' | 'SELL BY MARKET';
+  marketLabel: 'BUY' | 'SELL';
   priceLabel: 'ASK' | 'BID';
   price: number;
   color: string;
@@ -479,6 +480,11 @@ function OrderTicketInteractiveContent() {
     setModalState(prev => ({ ...prev, visible: false }));
   }, []);
   useConfirmedTradeReceiptAutoDismiss(modalState, handleModalClose);
+  // Broker-confirmed fills reuse the chart's one-click receipt bar so both
+  // routing modes end with the identical execution popup — here inside the
+  // order screen. Rejections and confirmation-pending results keep the
+  // detailed feedback modal below.
+  const confirmedTradeReceipt = resolveConfirmedTradeReceipt(modalState);
 
   const showTradeConfirmation = useCallback(({
     side,
@@ -810,7 +816,7 @@ function OrderTicketInteractiveContent() {
     {
       side: TRADE_SIDE.sell,
       displayLabel: 'SELL',
-      marketLabel: 'SELL BY MARKET',
+      marketLabel: 'SELL',
       priceLabel: 'BID',
       price: BID,
       color: SELL_C,
@@ -822,7 +828,7 @@ function OrderTicketInteractiveContent() {
     {
       side: TRADE_SIDE.buy,
       displayLabel: 'BUY',
-      marketLabel: 'BUY BY MARKET',
+      marketLabel: 'BUY',
       priceLabel: 'ASK',
       price: ASK,
       color: BUY_C,
@@ -1380,9 +1386,8 @@ function OrderTicketInteractiveContent() {
           accessibilityLabel={sellTradeAction.displayLabel}
           testID={sellTradeAction.priceTestID}
         >
-          <Text style={[styles.priceTag, { color: sellTradeAction.color }]}>{sellTradeAction.displayLabel}</Text>
+          <Text style={[styles.priceTag, { color: sellTradeAction.color }]}>{sellTradeAction.priceLabel}</Text>
           <Text style={styles.priceMain}>{fmt.price(sellTradeAction.price)}</Text>
-          <Text style={styles.priceLabel}>{sellTradeAction.priceLabel}</Text>
         </FastPressable>
 
         {/* Spread pillar: shows the current difference between ASK and BID. */}
@@ -1403,9 +1408,8 @@ function OrderTicketInteractiveContent() {
           accessibilityLabel={buyTradeAction.displayLabel}
           testID={buyTradeAction.priceTestID}
         >
-          <Text style={[styles.priceTag, { color: buyTradeAction.color }]}>{buyTradeAction.displayLabel}</Text>
+          <Text style={[styles.priceTag, { color: buyTradeAction.color }]}>{buyTradeAction.priceLabel}</Text>
           <Text style={styles.priceMain}>{fmt.price(buyTradeAction.price)}</Text>
-          <Text style={styles.priceLabel}>{buyTradeAction.priceLabel}</Text>
         </FastPressable>
       </View>
 
@@ -1624,6 +1628,55 @@ function OrderTicketInteractiveContent() {
           </View>
         ) : null}
 
+        {/* One-click parity: confirmed fills show the same compact receipt bar
+            the chart shows for one-click trades, directly above the SELL/BUY
+            buttons inside the order screen. */}
+        {confirmedTradeReceipt ? (
+          <View style={styles.tradeReceiptHost}>
+            <View
+              accessibilityLiveRegion="polite"
+              accessibilityRole="alert"
+              accessibilityLabel={
+                `${confirmedTradeReceipt.symbol}, ${confirmedTradeReceipt.sideAccessibilityLabel}, `
+                + `${confirmedTradeReceipt.volumeLabel} lots, ${confirmedTradeReceipt.doneLabel}`
+              }
+              style={[
+                styles.tradeReceiptBar,
+                {
+                  borderLeftColor: confirmedTradeReceipt.side === 'buy' ? BUY_C : SELL_C,
+                },
+              ]}
+            >
+              <Text style={styles.tradeReceiptSymbol} numberOfLines={1}>
+                {confirmedTradeReceipt.symbol}
+              </Text>
+              <Text
+                style={[
+                  styles.tradeReceiptSide,
+                  { color: confirmedTradeReceipt.side === 'buy' ? BUY_C : SELL_C },
+                ]}
+                numberOfLines={1}
+              >
+                {confirmedTradeReceipt.sideAccessibilityLabel}
+              </Text>
+              <Text style={styles.tradeReceiptVolume} numberOfLines={1}>
+                {confirmedTradeReceipt.volumeLabel}
+              </Text>
+              <FastPressable
+                accessibilityRole="button"
+                accessibilityLabel="Dismiss trade confirmation"
+                hitSlop={10}
+                onPress={handleModalClose}
+                style={styles.tradeReceiptDoneButton}
+              >
+                <Text style={styles.tradeReceiptDone} numberOfLines={1}>
+                  done
+                </Text>
+              </FastPressable>
+            </View>
+          </View>
+        ) : null}
+
         {/* Execution buttons: market orders submit immediately; pending orders show trigger controls first. */}
         {isMarketExecution ? (
           <View style={styles.execRow}>
@@ -1634,6 +1687,7 @@ function OrderTicketInteractiveContent() {
                   styles.execBtn,
                   action.execStyle,
                   isTradeActionPending(action.side) && styles.execBtnBusy,
+                  tradeActionDisabled && styles.execBtnDisabled,
                   pressed && { opacity: 0.88 }
                 ]}
                 onPress={() => { void handlePlaceOrder(action.side); }}
@@ -1701,6 +1755,7 @@ function OrderTicketInteractiveContent() {
                 style={({ pressed }) => [
                   styles.execBtn,
                   orderType.toLowerCase().startsWith('sell') ? styles.execSell : styles.execBuy,
+                  (tradeActionDisabled || pendingEntryPrice <= 0) && styles.execBtnDisabled,
                   pressed && { opacity: 0.88 },
                 ]}
                 onPress={() => { void handlePlacePendingOrder(); }}
@@ -1773,7 +1828,7 @@ function OrderTicketInteractiveContent() {
 
       {/* Shared RTX5 execution receipt plus detailed rejected/unconfirmed feedback. */}
       <TradeFeedbackModal
-        state={modalState}
+        state={confirmedTradeReceipt ? TRADE_MODAL_INITIAL : modalState}
         onClose={handleModalClose}
         isDark={isDark}
       />
@@ -1842,7 +1897,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     priceHalf: { flex: 1, alignItems: 'center', paddingVertical: 10 },
     priceTag: { fontSize: 10, fontWeight: '600', letterSpacing: 1.2 },
     priceMain: { color: WHITE, fontSize: 24, fontWeight: '600', fontVariant: ['tabular-nums'], padding: 8, letterSpacing: 0 },
-    priceLabel: { color: T.textSub, fontSize: 10, fontWeight: '600', letterSpacing: 0.8, marginTop: 2 },
     spreadCenter: { width: 40, alignItems: 'center', justifyContent: 'center' },
     spreadVal: { color: WHITE, fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'], marginTop: 1 },
     spreadUnit: { color: T.textSub, fontSize: 8, fontWeight: '600' },
@@ -1942,6 +1996,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     execRow: { flexDirection: 'row', direction: 'ltr', paddingHorizontal: 12, paddingVertical: 6, gap: 8 },
     execBtn: { flex: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingVertical: 14, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 6 },
     execBtnBusy: { opacity: 0.88 },
+    // Mirrors the chart trade buttons' stale-quote dim (opacity 0.5) so the
+    // order screen reads as blocked whenever the executable quote is stale.
+    execBtnDisabled: { opacity: 0.5 },
     execSell: { backgroundColor: SELL_C, shadowColor: SELL_C },
     execBuy: { backgroundColor: BUY_C, shadowColor: BUY_C },
     execCta: { color: '#FFFFFF', fontSize: 13, fontWeight: '600', letterSpacing: 0.5 },
@@ -2182,6 +2239,78 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       color: '#fff',
       fontSize: 16,
       fontWeight: '700',
+    },
+    // One-click parity receipt: mirrors ChartScreen's chartTradeReceipt*
+    // styles so confirmed fills show the identical compact popup here. Inline
+    // (not absolute) so it sits directly above the SELL/BUY buttons.
+    tradeReceiptHost: {
+      alignItems: 'center',
+      marginTop: 2,
+      marginBottom: 10,
+    },
+    tradeReceiptBar: {
+      // Slightly wider than the chart's 52%/230 bar: native Text metrics run
+      // wider than the WebView's, and the symbol must not ellipsize.
+      width: '58%',
+      minWidth: 220,
+      maxWidth: 260,
+      minHeight: 40,
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: isDark ? T.glass2 : '#FFFFFF',
+      borderWidth: isDark ? 1 : 0,
+      borderColor: isDark ? T.border : 'transparent',
+      borderLeftWidth: 3,
+      borderRadius: 2,
+      paddingHorizontal: 10,
+      shadowColor: '#000000',
+      shadowOpacity: isDark ? 0.18 : 0.12,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 6,
+      gap: 8,
+    },
+    tradeReceiptSymbol: {
+      flex: 1.2,
+      minWidth: 0,
+      color: isDark ? T.text : '#0F172A',
+      fontSize: 13,
+      fontWeight: '800',
+      letterSpacing: 0,
+    },
+    tradeReceiptSide: {
+      minWidth: 28,
+      flexGrow: 0,
+      flexShrink: 0,
+      fontSize: 13,
+      fontWeight: '700',
+      letterSpacing: 0,
+    },
+    tradeReceiptVolume: {
+      minWidth: 44,
+      flexGrow: 0,
+      flexShrink: 0,
+      color: isDark ? T.text : '#0F172A',
+      fontSize: 13,
+      fontWeight: '800',
+      letterSpacing: 0,
+      textAlign: 'center',
+      fontVariant: ['tabular-nums'] as any,
+    },
+    tradeReceiptDoneButton: {
+      minWidth: 34,
+      flexGrow: 0,
+      flexShrink: 0,
+      alignSelf: 'stretch',
+      alignItems: 'flex-end',
+      justifyContent: 'center',
+    },
+    tradeReceiptDone: {
+      color: BUY_C,
+      fontSize: 13,
+      fontWeight: '800',
+      letterSpacing: 0,
+      textAlign: 'right',
     },
   });
 }

@@ -65,6 +65,12 @@ export type ChartDisplaySettings = {
   showObjectDescriptions: boolean;
   showTradeLevels: boolean;
   showTradeHistory: boolean;
+  /**
+   * When enabled (3-dot chart menu), the symbol/OHLC header overlay can be
+   * repositioned by holding it and dragging, so it never hides a trade
+   * marker near the top of the chart.
+   */
+  movableSymbolHeader: boolean;
 };
 
 export type UserPreferencesState = {

@@ -113,7 +113,7 @@ test('native compact symbol header opens immediately from the full header tap ta
   assert.doesNotMatch(source, /const stopSymbolPickerTouchPropagation = useCallback/);
   assert.doesNotMatch(source, /const handleSymbolPickerStartShouldSetResponder = useCallback/);
   assert.ok(
-    source.indexOf('<WebView') < source.indexOf('style={styles.chartOverlaySymbolSection}'),
+    source.indexOf('<WebView') < source.indexOf('styles.chartOverlaySymbolSection'),
     'symbol dropdown hit target must render after the native WebView so Android taps reach it',
   );
   assert.match(

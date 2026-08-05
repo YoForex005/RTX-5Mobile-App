@@ -251,4 +251,7 @@ export const DEFAULT_CHART_DISPLAY_SETTINGS: ChartDisplaySettings = {
   showObjectDescriptions: false,
   showTradeLevels: true,
   showTradeHistory: true,
+  // Off by default — hold-and-drag repositioning of the symbol/OHLC header is
+  // an opt-in from the chart's 3-dot menu.
+  movableSymbolHeader: false,
 };

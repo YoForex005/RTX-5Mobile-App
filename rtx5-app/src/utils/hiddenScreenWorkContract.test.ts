@@ -349,7 +349,9 @@ test('settings, trade, and history screens pause work when another screen is foc
   assert.match(tradeSummarySource, /positions\.map\(\(position\) => position\.symbol\)/);
   // Rows and summary subscribe directly to the per-symbol websocket listener so
   // TradeScreen itself does not re-render the FlatList on every quote tick.
-  assert.match(tradeSummarySource, /useLiveSymbolQuotes\(liveQuoteSymbols, active, 0\)/);
+  // The quote stream stays gated by `active`; the commit interval is a
+  // parameter so the always-mounted tab-bar P/L badge can throttle it.
+  assert.match(tradeSummarySource, /useLiveSymbolQuotes\(liveQuoteSymbols, active, quoteCommitIntervalMs\)/);
   assert.match(readSource('src/api/ws/quotesSocket/flushPipeline.ts'), /const QUOTE_STORE_FLUSH_INTERVAL_MS = 16/);
   assert.doesNotMatch(tradeSummarySource, /pulseAnim|Animated\.loop|Animated\.Text/);
 
