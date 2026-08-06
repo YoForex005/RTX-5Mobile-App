@@ -123,14 +123,29 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   assert.match(chartSource, /const CHART_FOCUS_WORK_DELAY_MS = 120/);
   assert.match(chartSource, /const CHART_SURFACE_MOUNT_DELAY_MS = 0/);
   assert.match(chartSource, /const chartRuntimeActive = useDeferredActiveFlag\(isChartRouteActive, CHART_RUNTIME_ACTIVE_DELAY_MS\)/);
-  // Never boot-prewarm the WebView behind Quotes. Mount it only after the first
-  // real Chart focus, retain that initialized surface for instant returns, and
-  // keep only its selected-symbol candle+Bid bridge and an imperative
-  // display-price ref warm without waking React in the hidden footer.
+  // The WebView surface boots on the first real Chart focus, or earlier via
+  // the idle-scheduled startup boot so a fresh app open pre-pays the document
+  // boot + initChart + first paint before the first Chart tap. The startup
+  // boot must stay gated (login + preference hydration + idle slot after a
+  // delay) — an unconditional boot-prewarm behind Quotes previously starved
+  // tab navigation on low-memory devices. Once booted, the surface is
+  // retained; only its selected-symbol candle+Bid bridge and an imperative
+  // display-price ref stay warm without waking React in the hidden footer.
+  const chartStartupBootSource = readSource('src/features/chart/useChartSurfaceStartupBoot.ts');
   assert.match(chartSource, /const chartSurfaceActivated = useDeferredActiveFlag\(isChartRouteActive, CHART_SURFACE_MOUNT_DELAY_MS\)/);
-  assert.match(chartSource, /const chartSurfaceReady = useLatchedFlag\(chartSurfaceActivated\)/);
-  assert.doesNotMatch(chartSource, /chartSurfacePrewarmed|setChartSurfacePrewarmed/);
-  assert.doesNotMatch(chartSource, /CHART_SURFACE_PREWARM_DELAY_MS|CHART_STARTUP_HISTORY_PREWARM_DELAY_MS/);
+  assert.match(chartSource, /const chartSurfaceStartupBooted = useChartSurfaceStartupBoot\(chartSurfaceActivated\)/);
+  assert.match(chartSource, /const chartSurfaceReady = useLatchedFlag\(chartSurfaceActivated \|\| chartSurfaceStartupBooted\)/);
+  assert.match(chartStartupBootSource, /export const CHART_SURFACE_STARTUP_BOOT_DELAY_MS = 2000/);
+  assert.match(
+    chartStartupBootSource,
+    /if \(startupBooted \|\| surfaceAlreadyActivated \|\| !isLoggedIn \|\| !preferencesHydrated\) \{[\s\S]*return undefined;/,
+    'the startup boot must wait for login and preference hydration and must yield to the focused-path boot',
+  );
+  assert.match(
+    chartStartupBootSource,
+    /return scheduleIdleWork\([\s\S]*\(\) => setStartupBooted\(true\),[\s\S]*delayMs: CHART_SURFACE_STARTUP_BOOT_DELAY_MS,/,
+    'the startup boot must run through the idle scheduler so it never competes with startup navigation or first paint',
+  );
   assert.doesNotMatch(chartSource, /const chartSurfaceReady = useDeferredActiveFlag\(/);
   assert.match(chartSource, /useLiveSymbolQuote\(chartSymbol, chartRuntimeActive, CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS\)/);
   assert.match(chartTradeOverlayLiveBridgeSource, /useLiveSymbolQuote\(symbol, active, 0\)/);

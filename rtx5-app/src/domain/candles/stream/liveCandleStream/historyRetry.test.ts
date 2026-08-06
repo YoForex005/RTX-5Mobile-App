@@ -1,24 +1,42 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { computeHistoryRetryPlan } from './historyRetryPolicy';
+import {
+  computeHistoryRetryPlan,
+  HISTORY_FAILURE_RETRY_BACKOFF_MS,
+  HISTORY_RETRY_STEADY_INTERVAL_MS,
+} from './historyRetryPolicy';
 
-// Backoff schedule is [1000, 3000] => 2 bounded retries for a failed initial load.
+// Schedule: fast backoff ramp [1000, 3000, 7000], then an unbounded
+// steady-state retry every HISTORY_RETRY_STEADY_INTERVAL_MS while the entry
+// stays subscribed with no history (disposeEntry clears the timer).
 
 test('schedules the first retry after a failed initial load with no history', () => {
   const plan = computeHistoryRetryPlan({ historyCandles: [], historyRetryAttempt: 0 }, false);
   assert.deepEqual(plan, { shouldRetry: true, delayMs: 1000, nextAttempt: 1 });
 });
 
-test('schedules the second retry with a longer backoff', () => {
-  const plan = computeHistoryRetryPlan({ historyCandles: [], historyRetryAttempt: 1 }, false);
-  assert.deepEqual(plan, { shouldRetry: true, delayMs: 3000, nextAttempt: 2 });
+test('walks the fast backoff ramp on consecutive failures', () => {
+  const second = computeHistoryRetryPlan({ historyCandles: [], historyRetryAttempt: 1 }, false);
+  assert.deepEqual(second, { shouldRetry: true, delayMs: 3000, nextAttempt: 2 });
+  const third = computeHistoryRetryPlan({ historyCandles: [], historyRetryAttempt: 2 }, false);
+  assert.deepEqual(third, { shouldRetry: true, delayMs: 7000, nextAttempt: 3 });
 });
 
-test('stops retrying once the bounded budget is spent (no runaway loop)', () => {
-  const plan = computeHistoryRetryPlan({ historyCandles: [], historyRetryAttempt: 2 }, false);
-  assert.equal(plan.shouldRetry, false);
-  assert.equal(plan.nextAttempt, 2);
+test('keeps retrying at the slow steady interval after the fast ramp (never strands an empty chart)', () => {
+  const rampLength = HISTORY_FAILURE_RETRY_BACKOFF_MS.length;
+  const first = computeHistoryRetryPlan({ historyCandles: [], historyRetryAttempt: rampLength }, false);
+  assert.deepEqual(first, {
+    shouldRetry: true,
+    delayMs: HISTORY_RETRY_STEADY_INTERVAL_MS,
+    nextAttempt: rampLength + 1,
+  });
+  const muchLater = computeHistoryRetryPlan({ historyCandles: [], historyRetryAttempt: 50 }, false);
+  assert.deepEqual(muchLater, {
+    shouldRetry: true,
+    delayMs: HISTORY_RETRY_STEADY_INTERVAL_MS,
+    nextAttempt: 51,
+  });
 });
 
 test('does not retry when history already arrived (cache/prefetch healed it)', () => {

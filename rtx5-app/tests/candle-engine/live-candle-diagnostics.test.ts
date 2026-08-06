@@ -47,7 +47,12 @@ test('canonical live stream exposes safe REST history prefetch for fast timefram
   assert.match(source, /renderHistoryLimit: INITIAL_HISTORY_LIMIT/);
   assert.match(source, /entry\.renderHistoryLimit = INITIAL_HISTORY_LIMIT/);
   assert.match(source, /Math\.max\(INITIAL_HISTORY_LIMIT, entry\.renderHistoryLimit \|\| INITIAL_HISTORY_LIMIT\)/);
-  assert.match(source, /this\.historyPrefetches\.has\(entry\.key\)/);
+  // In-flight prefetches are deduplicated at the fetch layer, and the fresh
+  // load path chains onto a pending prefetch (issuing a real load only if it
+  // yields nothing) instead of treating it as an active request — a failed
+  // prefetch must never permanently swallow the history load.
+  assert.match(source, /const existing = manager\.historyPrefetches\.get\(key\)/);
+  assert.doesNotMatch(source, /this\.historyPrefetches\.has\(entry\.key\)/);
   assert.match(source, /const pendingPrefetch = this\.historyPrefetches\.get\(entry\.key\)/);
   assert.match(source, /void pendingPrefetch\.then\(\(\) => \{/);
   assert.match(source, /live\.historyCandles\.length > 0[\s\S]*runLoadHistory\(this, live, INITIAL_HISTORY_LIMIT\)/);

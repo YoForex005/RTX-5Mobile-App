@@ -44,8 +44,8 @@ test('route entry retains the first focused WebView and retries viewport recover
 
   assertSourceContains(
     source,
-    /const chartSurfaceActivated = useDeferredActiveFlag\(isChartRouteActive, CHART_SURFACE_MOUNT_DELAY_MS\)[\s\S]*const chartSurfaceReady = useLatchedFlag\(chartSurfaceActivated\)/,
-    'the chart WebView must mount on first real focus and remain available for later route returns',
+    /const chartSurfaceActivated = useDeferredActiveFlag\(isChartRouteActive, CHART_SURFACE_MOUNT_DELAY_MS\)[\s\S]*const chartSurfaceReady = useLatchedFlag\(chartSurfaceActivated \|\| chartSurfaceStartupBooted\)/,
+    'the chart WebView must mount on first real focus or the idle startup boot and remain available for later route returns',
   );
   assertSourceContains(
     source,

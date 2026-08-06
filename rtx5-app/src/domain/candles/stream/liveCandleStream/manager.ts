@@ -491,11 +491,15 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
   }
 
   private isHistoryRequestActive(entry: StreamEntry): boolean {
+    // A pending background prefetch deliberately does NOT count as active:
+    // loadFreshHistory chains onto it and issues a real load only if the
+    // prefetch yields no candles. Treating it as active made a failed
+    // prefetch permanently swallow the history load for symbol switches and
+    // re-subscribes (blank history while live ticks keep painting).
     return (
       entry.historyLoading ||
       entry.historyPageLoading ||
-      Boolean(entry.abortController) ||
-      this.historyPrefetches.has(entry.key)
+      Boolean(entry.abortController)
     );
   }
 

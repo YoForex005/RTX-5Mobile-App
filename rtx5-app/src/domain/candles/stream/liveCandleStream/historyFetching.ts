@@ -47,6 +47,54 @@ import {
 } from '../../../../state/activeBrokerSession';
 
 /**
+ * Self-heal for an initial history load that produced no candles (network
+ * failure, empty 200, or a not-yet-hydrated broker session on cold open).
+ * Schedules a self-cancelling retry so the chart recovers automatically
+ * instead of staying history-less until the user switches symbol. The timer
+ * no-ops if a newer request superseded it or history arrived meanwhile, and
+ * `disposeEntry` clears it when the last subscriber leaves.
+ */
+const scheduleInitialHistoryRetry = (
+  manager: HistoryFetchManagerBridge,
+  entry: StreamEntry,
+  limit: number,
+  requestId: number,
+  isPaginationRequest: boolean,
+): void => {
+  const retryPlan = computeHistoryRetryPlan(entry, isPaginationRequest);
+  if (!retryPlan.shouldRetry) {
+    return;
+  }
+  entry.historyRetryAttempt = retryPlan.nextAttempt;
+  const attemptNumber = retryPlan.nextAttempt;
+  if (entry.historyRetryTimer) {
+    clearTimeout(entry.historyRetryTimer);
+  }
+  entry.historyRetryTimer = setTimeout(() => {
+    const retryEntry = manager.entries.get(entry.key);
+    if (!retryEntry) {
+      return;
+    }
+    retryEntry.historyRetryTimer = null;
+    // Superseded by a symbol/timeframe switch, manual refresh, or a
+    // request that already started: the requestId moved on — no-op.
+    if (retryEntry.requestId !== requestId) {
+      return;
+    }
+    // Cache/prefetch already filled history while we waited — no-op.
+    if (retryEntry.historyCandles.length > 0) {
+      return;
+    }
+    logDebug('history_retry', {
+      symbol: entry.symbol,
+      timeframe: entry.timeframe,
+      attempt: attemptNumber,
+    });
+    runLoadHistory(manager, retryEntry, limit, { isRetry: true });
+  }, retryPlan.delayMs);
+};
+
+/**
  * Executes an async fetch of authoritative historical candles from the REST API.
  * 
  * - Handles race conditions via `abortController` and `requestId`.
@@ -68,7 +116,17 @@ export const runLoadHistory = (
     return;
   }
   const sessionProvenance = captureActiveBrokerSessionProvenance();
-  if (!sessionProvenance) return;
+  if (!sessionProvenance) {
+    // Cold-open race: the chart can subscribe before the broker session
+    // finishes hydrating from secure storage (notably slow on iOS). Dying
+    // silently here left the entry permanently history-less, so retry until
+    // the session appears or the entry is disposed (logout tears down all
+    // chart subscriptions, which clears this timer).
+    if (!options?.to && entry.historyCandles.length === 0) {
+      scheduleInitialHistoryRetry(manager, entry, limit, entry.requestId, false);
+    }
+    return;
+  }
 
   const isPaginationRequest = Boolean(options?.to);
   // A new load supersedes any pending failure-retry for this entry.
@@ -140,35 +198,45 @@ export const runLoadHistory = (
         }
       }
 
-      // Keep REST history and backend live candles separate. The visible
-      // chart series is rebuilt fresh from these two sources in commit().
-      live.historyCandles = historyCandles;
+      // A 200 with zero candles is as blank-chart-inducing as a failed
+      // request: committing it would wipe any cache-hydrated candles and
+      // (because the success path used to clear the retry state) end the
+      // self-heal loop for good. Keep whatever we already have on screen and
+      // retry like a failure instead.
+      const isEmptyInitialHistory = !isPaginationRequest && historyCandles.length === 0;
 
-      if (!options?.to) {
-        // Preserve wicks we observed live before the live candle is pruned, so a
-        // finalized candle never renders narrower than it did while forming.
-        live.historyCandles = foldCoveredLiveExtremesIntoHistory(
-          live.historyCandles,
-          live.liveCandleMap,
-          historySeed.closedHistoryLastTime,
-          timeframe,
-        );
-        live.liveCandleMap = pruneLiveCandleMapCoveredByHistory(
-          live.liveCandleMap,
-          historySeed.closedHistoryLastTime,
-        );
-        live.historyLastTime = historySeed.closedHistoryLastTime;
+      if (!isEmptyInitialHistory) {
+        // Keep REST history and backend live candles separate. The visible
+        // chart series is rebuilt fresh from these two sources in commit().
+        live.historyCandles = historyCandles;
+
+        if (!options?.to) {
+          // Preserve wicks we observed live before the live candle is pruned, so a
+          // finalized candle never renders narrower than it did while forming.
+          live.historyCandles = foldCoveredLiveExtremesIntoHistory(
+            live.historyCandles,
+            live.liveCandleMap,
+            historySeed.closedHistoryLastTime,
+            timeframe,
+          );
+          live.liveCandleMap = pruneLiveCandleMapCoveredByHistory(
+            live.liveCandleMap,
+            historySeed.closedHistoryLastTime,
+          );
+          live.historyLastTime = historySeed.closedHistoryLastTime;
+        }
+
+        live.historyRetryAttempt = 0;
+        syncMergedCandleCache(symbol, timeframe, history.closedCandles, {
+          canonical: true,
+          provenance: history.provenance,
+        });
       }
-      
+
       live.loading = false;
       live.historyLoading = false;
       live.historyPageLoading = false;
       live.error = null;
-      live.historyRetryAttempt = 0;
-      syncMergedCandleCache(symbol, timeframe, history.closedCandles, {
-        canonical: true,
-        provenance: history.provenance,
-      });
 
       const replayEvents = live.bufferedEvents
         .splice(0)
@@ -185,6 +253,11 @@ export const runLoadHistory = (
         trustedHistoryLastTime: live.historyLastTime,
         replayedLiveEvents: replayEvents.length,
       });
+
+      if (isEmptyInitialHistory && live.historyCandles.length === 0) {
+        logDebug('history_empty_retry', { symbol, timeframe, requestId });
+        scheduleInitialHistoryRetry(manager, live, limit, requestId, isPaginationRequest);
+      }
     })
     .catch((error) => {
       if (!isActiveBrokerSessionProvenanceCurrent(sessionProvenance)) return;
@@ -212,37 +285,12 @@ export const runLoadHistory = (
       });
 
       // Self-heal: the initial history load (which gates the chart render) just
-      // failed and we still have no history. Schedule a bounded, self-cancelling
-      // retry so a transient backend hiccup recovers automatically instead of
+      // failed and we still have no history. Schedule a self-cancelling retry
+      // so a transient backend hiccup recovers automatically instead of
       // leaving the chart blank until the user switches symbol. Pagination
       // failures are excluded (they don't gate the render and already advance
       // their own cursor).
-      const retryPlan = computeHistoryRetryPlan(live, isPaginationRequest);
-      if (retryPlan.shouldRetry) {
-        live.historyRetryAttempt = retryPlan.nextAttempt;
-        const attemptNumber = retryPlan.nextAttempt;
-        if (live.historyRetryTimer) {
-          clearTimeout(live.historyRetryTimer);
-        }
-        live.historyRetryTimer = setTimeout(() => {
-          const retryEntry = manager.entries.get(entry.key);
-          if (!retryEntry) {
-            return;
-          }
-          retryEntry.historyRetryTimer = null;
-          // Superseded by a symbol/timeframe switch, manual refresh, or a
-          // request that already started: the requestId moved on — no-op.
-          if (retryEntry.requestId !== requestId) {
-            return;
-          }
-          // Cache/prefetch already filled history while we waited — no-op.
-          if (retryEntry.historyCandles.length > 0) {
-            return;
-          }
-          logDebug('history_retry', { symbol, timeframe, attempt: attemptNumber });
-          runLoadHistory(manager, retryEntry, limit, { isRetry: true });
-        }, retryPlan.delayMs);
-      }
+      scheduleInitialHistoryRetry(manager, live, limit, requestId, isPaginationRequest);
     })
     .finally(() => {
       const live = manager.entries.get(entry.key);

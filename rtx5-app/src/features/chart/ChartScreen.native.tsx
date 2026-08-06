@@ -29,6 +29,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDeferredActiveFlag } from '../../hooks/useDeferredActiveFlag';
 import { useLatchedFlag } from '../../hooks/useLatchedFlag';
 import { useNextFrameValue } from '../../hooks/useNextFrameValue';
+import { useChartSurfaceStartupBoot } from './useChartSurfaceStartupBoot';
 import {
   ChartTapRadialMenu,
   type ChartTapMenuAnchor,
@@ -500,16 +501,21 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const isScreenFocused = isChartRouteActive;
   const isScreenFocusedRef = useRef(isScreenFocused);
   const chartRuntimeActive = useDeferredActiveFlag(isChartRouteActive, CHART_RUNTIME_ACTIVE_DELAY_MS);
-  // Mount the expensive WebView only after Chart is the real focused route.
-  // Prewarming it behind Quotes caused an Expo Go JS/native allocation loop on
-  // lower-memory Android devices, starving the real tab navigation callback.
-  // After the first real Chart visit, keep the initialized surface mounted so
-  // returning from another tab reveals the existing chart instead of rebuilding
-  // the document. Heavy hidden queries stay paused; only the selected symbol's
+  // Mount the expensive WebView on the first real Chart focus, or earlier via
+  // the idle-scheduled startup boot so a fresh app open pre-pays the WebView
+  // document boot + initChart + first data paint before the first Chart tap.
+  // The startup boot deliberately waits for login + preference hydration and
+  // an idle JS slot (see useChartSurfaceStartupBoot) — an unconditional
+  // boot-prewarm behind Quotes previously caused an Expo Go JS/native
+  // allocation loop on lower-memory Android devices, starving the real tab
+  // navigation callback. Once booted, the initialized surface stays mounted so
+  // any tab return reveals the existing chart instead of rebuilding the
+  // document. Heavy hidden queries stay paused; only the selected symbol's
   // atomic candle+Bid WebView bridge and isolated Buy/Sell footer listener
   // remain warm so the first revealed frame is complete and current.
   const chartSurfaceActivated = useDeferredActiveFlag(isChartRouteActive, CHART_SURFACE_MOUNT_DELAY_MS);
-  const chartSurfaceReady = useLatchedFlag(chartSurfaceActivated);
+  const chartSurfaceStartupBooted = useChartSurfaceStartupBoot(chartSurfaceActivated);
+  const chartSurfaceReady = useLatchedFlag(chartSurfaceActivated || chartSurfaceStartupBooted);
   // Derive login reactively from Zustand so the positions fetch re-triggers
   // when auth completes (login goes from undefined → valid number).
   const liveLogin = useLiveAccountState((s) => s.login);
