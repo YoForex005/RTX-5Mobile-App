@@ -468,7 +468,9 @@ function TradePositionRowComponent({
             <View style={styles.detailGrid}>
               <View style={styles.detailCell}>
                 <Text style={[styles.detailLabel, { color: detailLabelColor }]}>Limits</Text>
-                <Pressable onPressIn={navigateToModifyPosition} hitSlop={12} unstable_pressDelay={0}>
+                {/* Fire on release: the row's swipe pan must be able to cancel
+                    this press when a swipe starts on the Limits text. */}
+                <Pressable onPress={navigateToModifyPosition} hitSlop={12} unstable_pressDelay={0}>
                   <Text
                     numberOfLines={2}
                     style={[styles.detailValue, styles.limitsValue, { color: T.accent }]}

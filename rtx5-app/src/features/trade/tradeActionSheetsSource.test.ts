@@ -132,7 +132,12 @@ test('trade expanded position row shows backend point metadata and backend accou
   assert.match(rowSource, /const leverageText = formatTradeLeverage\(accountLeverage\)/);
   assert.match(expandedSource, />Point<\/Text>[\s\S]*\{pointText\}/);
   assert.match(expandedSource, />Leverage<\/Text>[\s\S]*\{leverageText\}/);
-  assert.doesNotMatch(expandedSource, /onPress=\{|ActionSheet|Select/);
+  // The Limits value is the single intentional tap target, and it must fire on
+  // press RELEASE (never touch-down) so the row's swipe pan can cancel it when
+  // a swipe starts on the text. Everything else stays static metadata.
+  const expandedPressHandlers = expandedSource.match(/onPress(?:In)?=\{[^}]+\}/g) ?? [];
+  assert.deepEqual(expandedPressHandlers, ['onPress={navigateToModifyPosition}']);
+  assert.doesNotMatch(expandedSource, /ActionSheet|Select/);
 });
 
 test('trade expanded point fallback covers digits and common symbol classes', () => {

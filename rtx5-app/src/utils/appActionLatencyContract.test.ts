@@ -1344,7 +1344,13 @@ test('close position actions use the immediate trade path', () => {
   assert.doesNotMatch(tradeScreenSource, /router\.push\(\{ pathname: '\/trade\/close-by'/);
   assert.doesNotMatch(tradeScreenSource, /router\.push\(\{ pathname: '\/trade\/modify-position'/);
   assert.match(overlaySource, /import \{ CRITICAL_TRADE_ACTION_MAX_LATENCY_MS \} from '\.\.\/\.\.\/\.\.\/utils\/actionLatency'/);
-  assert.match(overlaySource, /onPress=\{onClose\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="tradeRow\.closePosition\.submit"[\s\S]*latencyBudgetMs=\{CRITICAL_TRADE_ACTION_MAX_LATENCY_MS\}/);
+  // Overlay actions sit under the row swipe gesture: they must fire on press
+  // RELEASE so a swipe-back that starts on a button is cancelled by the pan
+  // claim instead of instantly submitting (a touch-down close fired the trade
+  // close during reverse swipes). Never re-add activateOnPressIn/onPressIn here.
+  assert.match(overlaySource, /onPress=\{onClose\}[\s\S]*latencyLabel="tradeRow\.closePosition\.submit"[\s\S]*latencyBudgetMs=\{CRITICAL_TRADE_ACTION_MAX_LATENCY_MS\}/);
+  assert.doesNotMatch(overlaySource, /activateOnPressIn|activateOnTouchStart|onPressIn=\{/);
+  assert.match(overlaySource, /onPress=\{onModify\}/);
   // The row's X closes the position immediately (optimistic) instead of opening the Close Position screen.
   assert.match(rowSource, /import \{ closePositionImmediately \} from '\.\.\/\.\.\/\.\.\/features\/trade\/closePositionFlow'/);
   assert.match(rowSource, /import \{ showTradePositionAction \} from '\.\.\/\.\.\/\.\.\/features\/trade\/tradePositionActionHostController'/);

@@ -39,11 +39,18 @@ export function OverlayActions({
         { backgroundColor: T.glass2, borderLeftColor: dividerColor, zIndex: 100 },
       ]}
     >
+      {/*
+        Close (and every other overlay action) must fire on press RELEASE, never
+        on touch-down. The overlay lives under the row's swipe gesture: a
+        swipe-back (left-to-right) that happens to start on this button used to
+        close the position instantly on the first touch frame, before the pan
+        could claim the movement. Release-based onPress lets the pan activation
+        cancel the press, so only a genuine stationary tap submits the close.
+      */}
       <Pressable
         hitSlop={12}
         disabled={overlayActionLocked}
         onPress={onClose}
-        activateOnPressIn
         latencyLabel="tradeRow.closePosition.submit"
         latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
         unstable_pressDelay={0}
@@ -61,7 +68,7 @@ export function OverlayActions({
       <Pressable
         hitSlop={12}
         disabled={overlayActionLocked}
-        onPressIn={onModify}
+        onPress={onModify}
         unstable_pressDelay={0}
         style={({ pressed }) => [
           styles.actionBtnContainer,
