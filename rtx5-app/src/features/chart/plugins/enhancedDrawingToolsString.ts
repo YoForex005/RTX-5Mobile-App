@@ -20,6 +20,29 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     return typeof value === 'number' && isFinite(value);
   }
 
+  function distanceBetweenPoints(a, b) {
+    if (!a || !b || !isFiniteNumber(a.x) || !isFiniteNumber(a.y) || !isFiniteNumber(b.x) || !isFiniteNumber(b.y)) {
+      return Number.POSITIVE_INFINITY;
+    }
+    var dx = a.x - b.x;
+    var dy = a.y - b.y;
+    return Math.sqrt((dx * dx) + (dy * dy));
+  }
+
+  function distanceToSegment(point, a, b) {
+    if (!point || !a || !b) return Number.POSITIVE_INFINITY;
+    var dx = b.x - a.x;
+    var dy = b.y - a.y;
+    var lengthSquared = (dx * dx) + (dy * dy);
+    if (lengthSquared <= 0.0001) return distanceBetweenPoints(point, a);
+    var t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared;
+    t = Math.max(0, Math.min(1, t));
+    return distanceBetweenPoints(point, {
+      x: a.x + (dx * t),
+      y: a.y + (dy * t)
+    });
+  }
+
   function getSeriesData(series) {
     try {
       return series && typeof series.data === 'function' ? series.data() : [];
@@ -786,17 +809,29 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         ctx.stroke();
         if (ctx.setLineDash) ctx.setLineDash([]);
 
-        ctx.fillStyle = source._options.color;
+        var vertexRadius = (source._options.selected ? 4.4 : 2.8) * horizontalRatio;
+        ctx.fillStyle = source._options.selected ? '#FFFFFF' : source._options.color;
         coords.forEach(function (coord) {
           ctx.beginPath();
           ctx.arc(
             coord.x * horizontalRatio,
             coord.y * verticalRatio,
-            2.8 * horizontalRatio,
+            vertexRadius,
             0,
             Math.PI * 2
           );
           ctx.fill();
+          if (source._options.selected) {
+            ctx.beginPath();
+            ctx.arc(
+              coord.x * horizontalRatio,
+              coord.y * verticalRatio,
+              vertexRadius,
+              0,
+              Math.PI * 2
+            );
+            ctx.stroke();
+          }
         });
 
         if (shouldRenderObjectDescriptions(source) && source._options.label) {
@@ -872,6 +907,43 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       this._options.visible = !!visible;
       this.requestUpdate();
     };
+    PolylinePrimitive.prototype.setSelected = function (selected) {
+      this._options.selected = !!selected;
+      this.requestUpdate();
+    };
+    PolylinePrimitive.prototype.setHovered = function (hovered) {
+      this._options.hovered = !!hovered;
+      this.requestUpdate();
+    };
+    PolylinePrimitive.prototype.updatePoints = function () {
+      this._points = Array.prototype.slice.call(arguments).filter(function (point) {
+        return point && typeof point === 'object';
+      });
+      this.requestUpdate();
+    };
+    PolylinePrimitive.prototype.hitTest = function (point, context) {
+      if (!this._options.visible || !point) return null;
+      this.updateAllViews();
+      var coords = (this._paneViews[0] && this._paneViews[0]._coords) || [];
+      var valid = coords.filter(function (item) {
+        return item && isFiniteNumber(item.x) && isFiniteNumber(item.y);
+      });
+      if (!valid.length) return null;
+      var isTouch = context && context.isTouch;
+      var handleThreshold = isTouch ? 18 : 10;
+      var lineThreshold = isTouch ? 14 : 8;
+      for (var i = 0; i < valid.length; i += 1) {
+        if (distanceBetweenPoints(point, valid[i]) <= handleThreshold) {
+          return { part: i === 0 ? 'p1' : (i === 1 ? 'p2' : 'body') };
+        }
+      }
+      for (var j = 0; j < valid.length - 1; j += 1) {
+        if (distanceToSegment(point, valid[j], valid[j + 1]) <= lineThreshold) {
+          return { part: 'body' };
+        }
+      }
+      return null;
+    };
     return new PolylinePrimitive(points, options);
   }
 
@@ -924,6 +996,16 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
           ctx.fill();
           ctx.fillStyle = source._options.labelTextColor;
           ctx.fillText(source._options.label, labelX + padding * 0.7, labelY + labelHeight - padding * 0.5);
+        }
+        if (source._options.selected) {
+          var handleRadius = 4.4 * horizontalRatio;
+          [p1p, p2p].forEach(function (corner) {
+            ctx.beginPath();
+            ctx.arc(corner.x * horizontalRatio, corner.y * verticalRatio, handleRadius, 0, Math.PI * 2);
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fill();
+            ctx.stroke();
+          });
         }
         ctx.restore();
       });
@@ -986,6 +1068,40 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       this._p2 = pointB;
       this.requestUpdate();
     };
+    BoxPrimitive.prototype.setSelected = function (selected) {
+      this._options.selected = !!selected;
+      this.requestUpdate();
+    };
+    BoxPrimitive.prototype.setHovered = function (hovered) {
+      this._options.hovered = !!hovered;
+      this.requestUpdate();
+    };
+    BoxPrimitive.prototype.hitTest = function (point, context) {
+      if (!this._options.visible || !point) return null;
+      this.updateAllViews();
+      var view = this._paneViews[0];
+      var corners = view && view._points ? view._points : null;
+      if (
+        !corners ||
+        !isFiniteNumber(corners.p1.x) || !isFiniteNumber(corners.p1.y) ||
+        !isFiniteNumber(corners.p2.x) || !isFiniteNumber(corners.p2.y)
+      ) {
+        return null;
+      }
+      var isTouch = context && context.isTouch;
+      var handleThreshold = isTouch ? 18 : 10;
+      var edgeThreshold = isTouch ? 14 : 8;
+      if (distanceBetweenPoints(point, corners.p1) <= handleThreshold) return { part: 'p1' };
+      if (distanceBetweenPoints(point, corners.p2) <= handleThreshold) return { part: 'p2' };
+      var left = Math.min(corners.p1.x, corners.p2.x) - edgeThreshold;
+      var right = Math.max(corners.p1.x, corners.p2.x) + edgeThreshold;
+      var top = Math.min(corners.p1.y, corners.p2.y) - edgeThreshold;
+      var bottom = Math.max(corners.p1.y, corners.p2.y) + edgeThreshold;
+      if (point.x >= left && point.x <= right && point.y >= top && point.y <= bottom) {
+        return { part: 'body' };
+      }
+      return null;
+    };
     return new BoxPrimitive(p1, p2, options);
   }
 
@@ -1014,11 +1130,24 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         var bubbleY = y - bubbleHeight - 8 * scope.verticalPixelRatio;
         ctx.fillStyle = source._options.anchorColor;
         ctx.beginPath();
-        ctx.arc(x, y, 3 * scope.horizontalPixelRatio, 0, Math.PI * 2);
+        ctx.arc(x, y, (source._options.selected ? 4.4 : 3) * scope.horizontalPixelRatio, 0, Math.PI * 2);
         ctx.fill();
+        if (source._options.selected) {
+          ctx.strokeStyle = '#FFFFFF';
+          ctx.lineWidth = 1.6 * scope.horizontalPixelRatio;
+          ctx.beginPath();
+          ctx.arc(x, y, 6.4 * scope.horizontalPixelRatio, 0, Math.PI * 2);
+          ctx.stroke();
+        }
         roundRectPath(ctx, bubbleX, bubbleY, bubbleWidth, bubbleHeight, 6 * scope.horizontalPixelRatio);
         ctx.fillStyle = source._options.backgroundColor;
         ctx.fill();
+        if (source._options.selected) {
+          roundRectPath(ctx, bubbleX, bubbleY, bubbleWidth, bubbleHeight, 6 * scope.horizontalPixelRatio);
+          ctx.strokeStyle = '#FFFFFF';
+          ctx.lineWidth = 1.4 * scope.horizontalPixelRatio;
+          ctx.stroke();
+        }
         ctx.fillStyle = source._options.textColor;
         ctx.fillText(source._options.text, bubbleX + padding * 0.9, bubbleY + bubbleHeight - padding * 0.55);
         ctx.restore();
@@ -1070,6 +1199,45 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     PointLabelPrimitive.prototype.setVisible = function (visible) {
       this._options.visible = !!visible;
       this.requestUpdate();
+    };
+    PointLabelPrimitive.prototype.setSelected = function (selected) {
+      this._options.selected = !!selected;
+      this.requestUpdate();
+    };
+    PointLabelPrimitive.prototype.setHovered = function (hovered) {
+      this._options.hovered = !!hovered;
+      this.requestUpdate();
+    };
+    PointLabelPrimitive.prototype.updatePoints = function (pointValue) {
+      if (pointValue && typeof pointValue === 'object') {
+        this._point = pointValue;
+        this.requestUpdate();
+      }
+    };
+    PointLabelPrimitive.prototype.hitTest = function (point, context) {
+      if (!this._options.visible || !point) return null;
+      this.updateAllViews();
+      var coords = this._coords;
+      if (!coords || !isFiniteNumber(coords.x) || !isFiniteNumber(coords.y)) return null;
+      var isTouch = context && context.isTouch;
+      var anchorThreshold = isTouch ? 18 : 10;
+      if (distanceBetweenPoints(point, coords) <= anchorThreshold) return { part: 'body' };
+      // Approximate the label bubble drawn above-right of the anchor.
+      var fontSize = this._options.fontSize || 11;
+      var padding = 6;
+      var text = typeof this._options.text === 'string' ? this._options.text : '';
+      var bubbleWidth = Math.max(24, text.length * fontSize * 0.62 + padding * 1.8);
+      var bubbleHeight = fontSize + padding * 1.4;
+      var bubbleX = coords.x + 10;
+      var bubbleY = coords.y - bubbleHeight - 8;
+      var slack = isTouch ? 8 : 4;
+      if (
+        point.x >= bubbleX - slack && point.x <= bubbleX + bubbleWidth + slack &&
+        point.y >= bubbleY - slack && point.y <= bubbleY + bubbleHeight + slack
+      ) {
+        return { part: 'body' };
+      }
+      return null;
     };
     return new PointLabelPrimitive(point, options);
   }
@@ -1186,11 +1354,17 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         drawPitchforkSegment(ctx, lowerRail, ratioX, ratioY);
         ctx.stroke();
         if (ctx.setLineDash) ctx.setLineDash([]);
-        ctx.fillStyle = source._options.color;
+        var anchorRadius = (source._options.selected ? 4.6 : 3) * ratioX;
+        ctx.fillStyle = source._options.selected ? '#FFFFFF' : source._options.color;
         [ [c1.x * ratioX, c1.y * ratioY], [c2.x * ratioX, c2.y * ratioY], [c3.x * ratioX, c3.y * ratioY] ].forEach(function (pair) {
           ctx.beginPath();
-          ctx.arc(pair[0], pair[1], 3 * ratioX, 0, Math.PI * 2);
+          ctx.arc(pair[0], pair[1], anchorRadius, 0, Math.PI * 2);
           ctx.fill();
+          if (source._options.selected) {
+            ctx.beginPath();
+            ctx.arc(pair[0], pair[1], anchorRadius, 0, Math.PI * 2);
+            ctx.stroke();
+          }
         });
         ctx.restore();
       });
@@ -1232,6 +1406,45 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     PitchforkPrimitive.prototype.setVisible = function (visible) {
       this._options.visible = !!visible;
       this.requestUpdate();
+    };
+    PitchforkPrimitive.prototype.setSelected = function (selected) {
+      this._options.selected = !!selected;
+      this.requestUpdate();
+    };
+    PitchforkPrimitive.prototype.setHovered = function (hovered) {
+      this._options.hovered = !!hovered;
+      this.requestUpdate();
+    };
+    PitchforkPrimitive.prototype.updatePoints = function (pointA, pointB, pointC) {
+      if (pointA) this._p1 = pointA;
+      if (pointB) this._p2 = pointB;
+      if (pointC) this._p3 = pointC;
+      this.requestUpdate();
+    };
+    PitchforkPrimitive.prototype.hitTest = function (point, context) {
+      if (!this._options.visible || !point) return null;
+      this.updateAllViews();
+      var view = this._paneViews[0];
+      var coords = view && view._coords ? view._coords : null;
+      if (!coords) return null;
+      var anchors = [coords.p1, coords.p2, coords.p3].filter(function (item) {
+        return item && isFiniteNumber(item.x) && isFiniteNumber(item.y);
+      });
+      if (!anchors.length) return null;
+      var isTouch = context && context.isTouch;
+      var handleThreshold = isTouch ? 18 : 10;
+      var lineThreshold = isTouch ? 14 : 8;
+      for (var i = 0; i < anchors.length; i += 1) {
+        if (distanceBetweenPoints(point, anchors[i]) <= handleThreshold) {
+          return { part: i === 0 ? 'p1' : (i === 1 ? 'p2' : 'body') };
+        }
+      }
+      for (var j = 0; j < anchors.length - 1; j += 1) {
+        if (distanceToSegment(point, anchors[j], anchors[j + 1]) <= lineThreshold) {
+          return { part: 'body' };
+        }
+      }
+      return null;
     };
     return new PitchforkPrimitive(p1, p2, p3, options);
   }
@@ -1500,8 +1713,13 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._touchStartX = 0;
     this._touchStartY = 0;
     this._lastTextEditTap = null;
+    this._lastDrawingTap = null;
+    this._lastEmptyChartTap = null;
     this._selectedRecordId = null;
     this._hoveredRecordId = null;
+    this._drawingBadgesOverlay = null;
+    this._drawingBadgeElements = {};
+    this._drawingBadgesRangeHandler = null;
     this._lineEditState = null;
     this._lineEditPendingFrame = 0;
     this._lineEditPendingPoints = null;
@@ -1551,6 +1769,16 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         document.addEventListener('keyup', this._handleKeyUp, true);
       }
     } catch (_keyError) {}
+    try {
+      if (this._chart && typeof this._chart.timeScale === 'function') {
+        var badgeTimeScale = this._chart.timeScale();
+        if (badgeTimeScale && typeof badgeTimeScale.subscribeVisibleLogicalRangeChange === 'function') {
+          var badgeManager = this;
+          this._drawingBadgesRangeHandler = function () { badgeManager._refreshDrawingBadges(); };
+          badgeTimeScale.subscribeVisibleLogicalRangeChange(this._drawingBadgesRangeHandler);
+        }
+      }
+    } catch (_badgeSubscribeError) {}
     this._bindTouchBridge();
     this._emitDrawingsChanged();
     this._applyChartInteractionMode();
@@ -2402,6 +2630,8 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
 
   AdvancedDrawingToolsManager.prototype.refreshCrosshairData = function () {
+    // Live data changed → autoscale may have shifted price coordinates.
+    this._refreshDrawingBadges();
     if (!this._lastCrosshairParam || (!this._crosshairVisible && !this._crosshairLocked)) {
       return;
     }
@@ -2741,18 +2971,72 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       !this._locked;
   };
 
+  AdvancedDrawingToolsManager.prototype._registerDrawingDoubleTap = function (touch, recordId) {
+    if (!touch || !recordId) return false;
+    var now = Date.now();
+    var last = this._lastDrawingTap;
+    var dx = last ? touch.clientX - last.x : 0;
+    var dy = last ? touch.clientY - last.y : 0;
+    var isDoubleTap = !!last && last.recordId === recordId && now - last.time <= 420 && (dx * dx + dy * dy) <= 900;
+    if (isDoubleTap) {
+      this._lastDrawingTap = null;
+      return true;
+    }
+    this._lastDrawingTap = { recordId: recordId, x: touch.clientX, y: touch.clientY, time: now };
+    return false;
+  };
+
+  AdvancedDrawingToolsManager.prototype._registerEmptyChartDoubleTap = function (touch) {
+    if (!touch) return false;
+    var now = Date.now();
+    var last = this._lastEmptyChartTap;
+    var dx = last ? touch.clientX - last.x : 0;
+    var dy = last ? touch.clientY - last.y : 0;
+    var isDoubleTap = !!last && now - last.time <= 420 && (dx * dx + dy * dy) <= 900;
+    if (isDoubleTap) {
+      this._lastEmptyChartTap = null;
+      return true;
+    }
+    this._lastEmptyChartTap = { x: touch.clientX, y: touch.clientY, time: now };
+    return false;
+  };
+
+  AdvancedDrawingToolsManager.prototype._notifyDrawingActionMenu = function (record) {
+    if (!record) return;
+    safeNotify('DRAWING_ACTION_MENU_REQUEST', {
+      recordId: record.id,
+      kind: record.kind,
+      label: record.label || record.kind,
+      locked: !!record.locked,
+      hidden: !record.visible
+    });
+  };
+
+  AdvancedDrawingToolsManager.prototype._notifyDrawingQuickActions = function () {
+    safeNotify('DRAWING_QUICK_ACTIONS_REQUEST', { drawingCount: this._records.length });
+  };
+
   AdvancedDrawingToolsManager.prototype._handleHostDoubleClick = function (event) {
     var point = this._resolveHostEventPoint(event);
     if (!point) {
       return;
     }
     var hit = this._hitTestEditableDrawingAtPoint(point);
-    if (!hit || !this._isTextRecordEditable(hit.record)) {
+    if (!hit || !hit.record) {
+      if (this._records.length > 0) {
+        this._consumeTouchEvent(event);
+        this._suppressHostTapMenu();
+        this._notifyDrawingQuickActions();
+      }
       return;
     }
     this._consumeTouchEvent(event);
     this._selectRecord(hit.record.id);
-    this._beginTextRecordEdit(hit.record);
+    if (this._isTextRecordEditable(hit.record)) {
+      this._beginTextRecordEdit(hit.record);
+      return;
+    }
+    this._notifyDrawingActionMenu(hit.record);
   };
 
   AdvancedDrawingToolsManager.prototype._handleTextEditDocumentPointer = function (event) {
@@ -2990,6 +3274,18 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         } else {
           this._lastTextEditTap = null;
         }
+        if (textHit && textHit.record && this._registerDrawingDoubleTap(crosshairTouch, textHit.record.id)) {
+          this._lastTouchParam = crosshairParam;
+          this._crosshairLocked = false;
+          this._hideCrosshairOverlay();
+          this._selectRecord(textHit.record.id);
+          this._notifyDrawingActionMenu(textHit.record);
+          this._consumeTouchEvent(event);
+          return;
+        }
+        if (!textHit) {
+          this._lastDrawingTap = null;
+        }
       }
       if (crosshairParam && this._beginLineEdit(crosshairParam)) {
         this._touchGestureMode = 'line-edit';
@@ -3004,6 +3300,49 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         this._updateCrosshairOverlay(crosshairParam, true);
       }
       return;
+    }
+
+    if (
+      // Browse-like state: 'none' AND armed-but-idle tools (after a non-sticky
+      // drawing commits, the engine keeps the tool armed with no drawing in
+      // progress — double-tap must keep working there too).
+      this._activeTool !== 'crosshair' &&
+      !this._isDrawingToolActive() &&
+      this.shouldUseDirectTouchInput() &&
+      !this._gestureHadMultitouch &&
+      !(event.touches && event.touches.length > 1)
+    ) {
+      // Browse mode: double-tapping a drawing selects it and asks the host to
+      // open the drawing action menu. Single taps keep panning untouched.
+      var browseTouch = this._findTrackedTouch(event.changedTouches || event.touches);
+      if (browseTouch) {
+        var browseParam = this._buildSyntheticPointerParam(browseTouch);
+        var browseHit = browseParam ? this._hitTestEditableDrawingAtPoint(browseParam.point) : null;
+        if (browseHit && browseHit.record) {
+          this._lastEmptyChartTap = null;
+          // Suppress the host tap radial on the FIRST tap already — if it
+          // opened over the chart it would swallow the second tap of the
+          // double-tap before the engine ever saw it.
+          this._suppressHostTapMenu();
+          if (this._registerDrawingDoubleTap(browseTouch, browseHit.record.id)) {
+            this._selectRecord(browseHit.record.id);
+            this._notifyDrawingActionMenu(browseHit.record);
+            this._consumeTouchEvent(event);
+            return;
+          }
+        } else {
+          this._lastDrawingTap = null;
+          if (this._records.length > 0 && this._registerEmptyChartDoubleTap(browseTouch)) {
+            // Empty-area double tap while drawings exist → quick shortcut menu
+            // (undo/redo/lock/hide/delete) on the host, so the user does not
+            // have to reopen the full Drawing Tools sheet.
+            this._suppressHostTapMenu();
+            this._notifyDrawingQuickActions();
+            this._consumeTouchEvent(event);
+            return;
+          }
+        }
+      }
     }
 
     var tool = this._getActiveTouchTool();
@@ -3473,7 +3812,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
   AdvancedDrawingToolsManager.prototype._hitTestTrendLineRecordAtPoint = function (record, point) {
     if (!record || !point || this._locked) return null;
-    if (record.kind !== 'trendline' || record.locked || !this._isRecordPresentationVisible(record) || !record.primitive || typeof record.primitive.getGeometry !== 'function') {
+    // Locked records stay hit-testable so the user can select them and unlock
+    // from the Drawing Tools sheet; _beginLineEdit blocks the actual drag.
+    if (record.kind !== 'trendline' || !this._isRecordPresentationVisible(record) || !record.primitive || typeof record.primitive.getGeometry !== 'function') {
       return null;
     }
     var handleThreshold = this.shouldUseDirectTouchInput() ? 18 : 10;
@@ -3946,8 +4287,223 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     safeNotify('DRAWINGS_CHANGED', {
       drawings: this._records
         .map(function (record) { return this._serializeRecordForHost(record); }, this)
-        .filter(function (record) { return record !== null; })
+        .filter(function (record) { return record !== null; }),
+      canUndo: this._undoSnapshots.length > 0,
+      canRedo: this._redoSnapshots.length > 0,
+      selectedDrawingId: this._selectedRecordId || null
     });
+    this._refreshDrawingBadges();
+  };
+
+  AdvancedDrawingToolsManager.prototype._ensureDrawingBadgesOverlay = function () {
+    if (this._drawingBadgesOverlay) {
+      return this._drawingBadgesOverlay;
+    }
+    if (typeof document === 'undefined' || !document || typeof document.createElement !== 'function') {
+      return null;
+    }
+    if (!this._chartHost) {
+      this._bindTouchBridge();
+    }
+    if (!this._chartHost) {
+      try {
+        this._chartHost = document.getElementById('chart');
+      } catch (_hostError) {
+        this._chartHost = null;
+      }
+    }
+    if (!this._chartHost || typeof this._chartHost.appendChild !== 'function') {
+      return null;
+    }
+    var overlay = document.createElement('div');
+    overlay.setAttribute('data-rtx5-drawing-badges', 'true');
+    this._applyElementStyles(overlay, {
+      position: 'absolute',
+      left: '0',
+      top: '0',
+      width: '100%',
+      height: '100%',
+      pointerEvents: 'none',
+      overflow: 'hidden',
+      zIndex: '44'
+    });
+    this._chartHost.appendChild(overlay);
+    this._drawingBadgesOverlay = overlay;
+    this._drawingBadgeElements = {};
+    return overlay;
+  };
+
+  AdvancedDrawingToolsManager.prototype._destroyDrawingBadgesOverlay = function () {
+    var overlay = this._drawingBadgesOverlay;
+    this._drawingBadgesOverlay = null;
+    this._drawingBadgeElements = {};
+    if (overlay && overlay.parentNode && typeof overlay.parentNode.removeChild === 'function') {
+      try { overlay.parentNode.removeChild(overlay); } catch (_removeError) {}
+    }
+  };
+
+  AdvancedDrawingToolsManager.prototype._resolveDrawingBadgeAnchor = function (record) {
+    if (!record || !Array.isArray(record.points)) return null;
+    for (var i = 0; i < record.points.length; i += 1) {
+      var recordPoint = record.points[i];
+      if (!recordPoint) continue;
+      var x = resolveCoordinateFromTime(this._chart, this._series, recordPoint.time);
+      var y = null;
+      try { y = this._series.priceToCoordinate(recordPoint.price); } catch (_priceError) {}
+      if (isFiniteNumber(y)) {
+        // Level tools use non-bar-aligned helper times that resolve to bogus
+        // coordinates; pin those badges to the left edge at the record price.
+        return { x: isFiniteNumber(x) && x > 0 ? x : 8, y: y };
+      }
+    }
+    return null;
+  };
+
+  // Small floating chips over locked / selected drawings so the user always
+  // sees which drawing is selected and which ones are locked.
+  AdvancedDrawingToolsManager.prototype._refreshDrawingBadges = function () {
+    var badgeRecords = [];
+    for (var i = 0; i < this._records.length; i += 1) {
+      var record = this._records[i];
+      if (!this._isRecordPresentationVisible(record)) continue;
+      var selected = record.id === this._selectedRecordId;
+      var locked = !!record.locked || this._locked;
+      if (selected || locked) {
+        badgeRecords.push({ record: record, selected: selected, locked: locked });
+      }
+    }
+    if (!badgeRecords.length) {
+      if (this._drawingBadgesOverlay) {
+        this._destroyDrawingBadgesOverlay();
+      }
+      return;
+    }
+    var overlay = this._ensureDrawingBadgesOverlay();
+    if (!overlay) return;
+    var hostRect = null;
+    try { hostRect = this._chartHost.getBoundingClientRect(); } catch (_rectError) {}
+    var hostWidth = hostRect && isFiniteNumber(hostRect.width) ? hostRect.width : 0;
+    var hostHeight = hostRect && isFiniteNumber(hostRect.height) ? hostRect.height : 0;
+    var seenIds = {};
+    badgeRecords.forEach(function (entry) {
+      var anchor = this._resolveDrawingBadgeAnchor(entry.record);
+      if (!anchor) return;
+      seenIds[entry.record.id] = true;
+      var chip = this._drawingBadgeElements[entry.record.id];
+      if (!chip) {
+        chip = document.createElement('div');
+        this._applyElementStyles(chip, {
+          position: 'absolute',
+          padding: '2px 7px',
+          borderRadius: '9px',
+          fontFamily: 'Arial, sans-serif',
+          fontSize: '10px',
+          fontWeight: '700',
+          lineHeight: '14px',
+          whiteSpace: 'nowrap',
+          pointerEvents: 'none'
+        });
+        overlay.appendChild(chip);
+        this._drawingBadgeElements[entry.record.id] = chip;
+      }
+      var text = '';
+      if (entry.locked) {
+        text = '\\uD83D\\uDD12';
+      }
+      if (entry.selected) {
+        text = text
+          ? text + ' ' + (entry.record.label || entry.record.kind)
+          : (entry.record.label || entry.record.kind);
+      }
+      chip.textContent = text;
+      this._applyElementStyles(chip, {
+        backgroundColor: entry.selected ? 'rgba(37, 99, 235, 0.94)' : 'rgba(15, 23, 42, 0.85)',
+        color: '#FFFFFF',
+        border: entry.selected ? '1px solid rgba(255, 255, 255, 0.85)' : '1px solid rgba(148, 163, 184, 0.5)'
+      });
+      var left = anchor.x + 8;
+      var top = anchor.y - 26;
+      if (hostWidth > 0) {
+        left = Math.max(2, Math.min(left, hostWidth - 40));
+      } else {
+        left = Math.max(2, left);
+      }
+      if (hostHeight > 0) {
+        top = Math.max(2, Math.min(top, hostHeight - 20));
+      } else {
+        top = Math.max(2, top);
+      }
+      chip.style.left = Math.round(left) + 'px';
+      chip.style.top = Math.round(top) + 'px';
+      chip.style.display = 'block';
+    }, this);
+    Object.keys(this._drawingBadgeElements).forEach(function (id) {
+      if (seenIds[id]) return;
+      var staleChip = this._drawingBadgeElements[id];
+      delete this._drawingBadgeElements[id];
+      if (staleChip && staleChip.parentNode && typeof staleChip.parentNode.removeChild === 'function') {
+        try { staleChip.parentNode.removeChild(staleChip); } catch (_staleError) {}
+      }
+    }, this);
+  };
+
+  AdvancedDrawingToolsManager.prototype.getSelectedDrawingId = function () {
+    return this._selectedRecordId || null;
+  };
+
+  AdvancedDrawingToolsManager.prototype.clearDrawingSelection = function () {
+    this._selectRecord(null);
+  };
+
+  AdvancedDrawingToolsManager.prototype.removeSelectedDrawing = function () {
+    this._removeSelectedRecord();
+  };
+
+  AdvancedDrawingToolsManager.prototype.setSelectedDrawingLocked = function (locked) {
+    var record = this._findRecordById(this._selectedRecordId);
+    if (!record) return false;
+    var nextLocked = !!locked;
+    if (!!record.locked === nextLocked) return true;
+    this._endLineEdit(false);
+    this._endTextRecordEdit(false);
+    this._pushUndoSnapshot();
+    record.locked = nextLocked;
+    record.updatedAt = Date.now();
+    this._emitDrawingsChanged();
+    return true;
+  };
+
+  AdvancedDrawingToolsManager.prototype.setSelectedDrawingHidden = function (hidden) {
+    var record = this._findRecordById(this._selectedRecordId);
+    if (!record) return false;
+    var nextHidden = !!hidden;
+    if (!!record.hidden === nextHidden) return true;
+    this._endLineEdit(false);
+    this._endTextRecordEdit(false);
+    this._pushUndoSnapshot();
+    record.hidden = nextHidden;
+    record.visible = !nextHidden;
+    record.updatedAt = Date.now();
+    if (nextHidden && this._selectedRecordId === record.id) {
+      this._selectedRecordId = null;
+      record.selected = false;
+    }
+    this._applyRecordPresentationVisibility(record);
+    this._emitDrawingsChanged();
+    return true;
+  };
+
+  AdvancedDrawingToolsManager.prototype.unlockAllDrawings = function () {
+    this._locked = false;
+    var hadRecordLocks = this._records.some(function (record) { return !!record.locked; });
+    if (hadRecordLocks) {
+      this._pushUndoSnapshot();
+      this._records.forEach(function (record) {
+        record.locked = false;
+        record.updatedAt = Date.now();
+      });
+    }
+    this._emitDrawingsChanged();
   };
 
   AdvancedDrawingToolsManager.prototype.publishDrawingsToHost = function () {
@@ -4185,6 +4741,16 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         this._chart.unsubscribeClick(this._handleCrosshairClick);
       }
     } catch (_unsubscribeClickError) {}
+    try {
+      if (this._drawingBadgesRangeHandler && this._chart && typeof this._chart.timeScale === 'function') {
+        var badgeTimeScale = this._chart.timeScale();
+        if (badgeTimeScale && typeof badgeTimeScale.unsubscribeVisibleLogicalRangeChange === 'function') {
+          badgeTimeScale.unsubscribeVisibleLogicalRangeChange(this._drawingBadgesRangeHandler);
+        }
+      }
+      this._drawingBadgesRangeHandler = null;
+    } catch (_badgeUnsubscribeError) {}
+    this._destroyDrawingBadgesOverlay();
     try {
       if (typeof document !== 'undefined' && document && typeof document.removeEventListener === 'function') {
         document.removeEventListener('keydown', this._handleKeyDown, true);

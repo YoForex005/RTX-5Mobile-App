@@ -216,6 +216,17 @@ export function resolveChartColorsForTheme(
   (Object.keys(themeStructuralColors) as Array<keyof StructuralChartColors>).forEach((key) => {
     const normalizedValue = normalizeStructuralChartColor(mergedColors[key]);
     const isInvisibleDarkGrid = key === 'grid' && isDark && isNearBlackChartColor(mergedColors[key]);
+    // Hollow body is a candle fill, not canvas structure. A deliberate custom
+    // pick (any non-preset value) must survive every theme override — only
+    // preset/default hollow fills keep auto-following the app theme so hollow
+    // candles stay background-matched when the canvas flips.
+    const isExplicitCustomHollowBody =
+      key === 'hollowBody' &&
+      chartColorScheme === 'custom' &&
+      !BUILTIN_STRUCTURAL_VALUES.hollowBody.has(normalizedValue);
+    if (isExplicitCustomHollowBody) {
+      return;
+    }
     if (
       forceThemeStructure ||
       canvasBrightnessMismatchesTheme ||

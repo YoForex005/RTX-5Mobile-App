@@ -15,6 +15,8 @@ export const hideAllDrawingsDrawingToolAction: DrawingToolCommandDefinition = {
    * @returns true if the command is active, false otherwise.
    */
   isActive: ({ chartHideAll }) => chartHideAll,
+  /** Only offered while at least one drawing exists on the chart. */
+  isVisible: ({ hasDrawings }) => hasDrawings !== false,
   /** The unique key identifying this command action. */
   key: 'hideAllDrawings',
   /**

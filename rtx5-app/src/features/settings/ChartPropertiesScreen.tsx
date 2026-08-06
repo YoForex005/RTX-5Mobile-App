@@ -342,6 +342,19 @@ export function ChartPropertiesScreen({
   };
 
   const commitChartColor = (key: keyof ChartColorsConfig, color: string) => {
+    // Entering Custom from a preset scheme: freeze the palette the user is
+    // actually seeing (theme-resolved) before the first commit. Otherwise the
+    // scheme flips to 'custom' and every OTHER structural color reverts to its
+    // raw stored preset value — e.g. white axis text and white grid from a
+    // dark preset rendered on the light theme's white canvas.
+    if (chartColorScheme !== 'custom') {
+      (Object.keys(resolvedChartColors) as Array<keyof ChartColorsConfig>).forEach((paletteKey) => {
+        const paletteValue = resolvedChartColors[paletteKey];
+        if (paletteKey !== key && typeof paletteValue === 'string') {
+          setChartColor(paletteKey, paletteValue);
+        }
+      });
+    }
     // Bar colors are hidden here, so keep OHLC bars aligned with the visible candle controls.
     setChartColor(key, color);
     const linkedBarKey = LINKED_CANDLE_COLOR_KEYS[key];
@@ -627,12 +640,24 @@ export function ChartPropertiesScreen({
           visible
           animationType="none"
           {...OVERLAY_MODAL_PROPS}
+          // The very FIRST translucent-nav modal of an Android app process lays
+          // out extending under the opaque nav bar (later opens get the proper
+          // inset), which read as the sheet "dropping" on fresh app starts.
+          // Keeping this window out of the nav-bar area gives every open —
+          // first or later — identical geometry.
+          navigationBarTranslucent={false}
+          statusBarTranslucent={false}
           onRequestClose={() => applyDraftColor(draftColor)}
         >
           <KeyboardAvoidingView behavior="padding" style={styles.modalBackdropBottom}>
             {/* Keep the backdrop outside the sheet so color-picker drags cannot bubble out and dismiss the modal. */}
             <Pressable style={StyleSheet.absoluteFillObject} onPress={() => applyDraftColor(draftColor)} />
-            <View style={styles.bottomSheet}>
+            <View
+              style={[
+                styles.bottomSheet,
+                { paddingBottom: Platform.OS === 'ios' ? 18 + insets.bottom : 18 },
+              ]}
+            >
               <ScrollView
                 keyboardShouldPersistTaps="always"
                 canCancelContentTouches={Platform.OS === 'ios'} showsVerticalScrollIndicator={false}>

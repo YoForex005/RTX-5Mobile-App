@@ -40,8 +40,10 @@ test('ActionSheet surfaces use the shared instant Quotes-style sheet contract', 
   ];
 
   // Mailbox/News/Community screens removed — fewer mounts and no News sheet scope.
+  // 15th/16th scoped calls: the chart's selected-drawing context menu (double-tap
+  // a drawing) and the drawing quick-actions shortcut (double-tap empty chart).
   assert.equal(actionSheetMounts.length, 21);
-  assert.equal(scopedActionSheetCalls.length, 14);
+  assert.equal(scopedActionSheetCalls.length, 16);
 
   for (const mount of actionSheetMounts) {
     assert.match(mount[0], /instantOpen/, 'ActionSheet mount must opt into instant open path');

@@ -109,7 +109,7 @@ test('drawing tools open path is resilient to iOS chart overlay touch ordering',
   );
   assertSourceContains(
     actionSheetFactory,
-    /historyCommands\.map\(\(definition\) => \(\{[\s\S]*onPress: commandHandlers\[definition\.key\][\s\S]*utilityCommands\.map\(\(definition\) => \(\{[\s\S]*onPress: commandHandlers\[definition\.key\]/,
+    /const buildCommandAction = \(definition: DrawingToolCommandDefinition\)[\s\S]*onPress: commandHandlers\[definition\.key\][\s\S]*historyCommands\.map\(buildCommandAction\)[\s\S]*utilityCommands\.map\(buildCommandAction\)/,
     'drawing action sheet command rows must retain their confirmed-tap handlers',
   );
   assertSourceOmits(

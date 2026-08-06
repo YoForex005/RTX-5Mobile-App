@@ -1087,7 +1087,7 @@ export function ChartScreen() {
           candleOpacity: CHART_CANDLE_RENDER_OPACITY,
           bearishCandleOpacity: CHART_BEARISH_CANDLE_RENDER_OPACITY,
           bodyUpColor: chartType === 'hollow' ? HOLLOW_BODY : UP_COLOR,
-          bodyDownColor: DOWN_COLOR,
+          bodyDownColor: chartType === 'hollow' ? HOLLOW_BODY : DOWN_COLOR,
           borderUpColor: UP_COLOR,
           borderDownColor: DOWN_COLOR,
           wickUpColor: UP_COLOR,

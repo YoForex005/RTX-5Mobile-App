@@ -8,9 +8,11 @@ import type { DrawingToolCommandDefinition } from './types';
  */
 export const clearDrawingsDrawingToolAction: DrawingToolCommandDefinition = {
   /** The label displayed for this action in the UI, such as in menus or action sheets. */
-  actionLabel: 'Clear Drawings',
+  actionLabel: 'Delete All Drawings',
   /** Indicates if this is a destructive action (e.g., deleting all drawings). If true, it may be styled differently. */
   danger: true,
+  /** Only offered while at least one drawing exists on the chart. */
+  isVisible: ({ hasDrawings }) => hasDrawings !== false,
   /** The unique key identifying this command action. */
   key: 'clearDrawings',
   /**

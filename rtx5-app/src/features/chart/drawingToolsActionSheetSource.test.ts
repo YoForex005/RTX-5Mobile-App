@@ -57,8 +57,11 @@ test('drawing tools action sheet exposes the full supported tool set', () => {
   assert.match(actionSheetFactory, /const historyCommands = DRAWING_TOOL_COMMANDS\.filter/);
   assert.match(
     actionSheetFactory,
-    /return \[\s*\.\.\.historyCommands\.map[\s\S]*\.\.\.DRAWING_SHEET_OPTIONS\.map[\s\S]*\.\.\.utilityCommands\.map/,
+    /return \[\s*\.\.\.historyCommands\.map\(buildCommandAction\)[\s\S]*\.\.\.DRAWING_SHEET_OPTIONS\.map[\s\S]*\.\.\.utilityCommands\.map\(buildCommandAction\)/,
   );
+  // The classic sheet keeps its original roster; selection-management rows are
+  // double-tap-quick-menu-only.
+  assert.doesNotMatch(actionSheetFactory.slice(0, actionSheetFactory.indexOf('export function createDrawingQuickActionsSheetActions')), /selectionCommands/);
   assert.doesNotMatch(actionSheetFactory, /activateOnPressIn:\s*true/);
   assert.match(source, /\bmagnetModeDrawingToolAction\b/);
   assert.match(magnetSource, /actionLabel:\s*\(\{ drawingMagnetMode \}\)/);
@@ -79,6 +82,119 @@ test('drawing tools action sheet exposes the full supported tool set', () => {
     'stickerDrawingTool',
   ]) {
     assert.match(sheetOptions, new RegExp(`\\b${toolDefinition}\\b`));
+  }
+});
+
+test('drawing-management options stay conditional on chart drawing state', () => {
+  const source = readSource('src/features/chart/drawingTools/index.ts');
+  const commandOptions = source.slice(
+    source.indexOf('export const DRAWING_TOOL_COMMANDS'),
+    source.indexOf('export const DRAWING_TOOL_SIDEBAR_GROUPS'),
+  );
+  const undoSource = readSource('src/features/chart/drawingTools/undoDrawingTool.tsx');
+  const redoSource = readSource('src/features/chart/drawingTools/redoDrawingTool.tsx');
+  const selectSource = readSource('src/features/chart/drawingTools/selectDrawingTool.tsx');
+  const deleteSelectedSource = readSource('src/features/chart/drawingTools/deleteSelectedDrawingTool.tsx');
+  const lockSelectedSource = readSource('src/features/chart/drawingTools/lockSelectedDrawingTool.tsx');
+  const hideSelectedSource = readSource('src/features/chart/drawingTools/hideSelectedDrawingTool.tsx');
+  const showAllSource = readSource('src/features/chart/drawingTools/showAllDrawingsTool.tsx');
+  const unlockAllSource = readSource('src/features/chart/drawingTools/unlockAllDrawingsTool.tsx');
+  const lockAllSource = readSource('src/features/chart/drawingTools/lockAllDrawingsTool.tsx');
+  const hideAllSource = readSource('src/features/chart/drawingTools/hideAllDrawingsTool.tsx');
+  const clearSource = readSource('src/features/chart/drawingTools/clearDrawingsTool.tsx');
+
+  // Full command roster, in sheet order.
+  assert.match(
+    commandOptions,
+    /undoDrawingToolAction[\s\S]*redoDrawingToolAction[\s\S]*selectDrawingToolAction[\s\S]*deleteSelectedDrawingToolAction[\s\S]*lockSelectedDrawingToolAction[\s\S]*hideSelectedDrawingToolAction[\s\S]*zoomToFitDrawingToolAction[\s\S]*lockAllDrawingsDrawingToolAction[\s\S]*unlockAllDrawingsToolAction[\s\S]*hideAllDrawingsDrawingToolAction[\s\S]*showAllDrawingsToolAction[\s\S]*clearDrawingsDrawingToolAction/,
+  );
+
+  // Undo/redo only enabled when their history stacks have entries.
+  assert.match(undoSource, /isDisabled:\s*\(\{ canUndoDrawing \}\) => canUndoDrawing === false/);
+  assert.match(redoSource, /isDisabled:\s*\(\{ canRedoDrawing \}\) => canRedoDrawing === false/);
+
+  // Selection management rows require drawings; per-selection rows require a selection.
+  assert.match(selectSource, /actionLabel:\s*'Select Drawing'/);
+  assert.match(selectSource, /isVisible:\s*\(\{ hasDrawings \}\) => hasDrawings !== false/);
+  assert.match(deleteSelectedSource, /actionLabel:\s*'Delete Selected Drawing'/);
+  assert.match(deleteSelectedSource, /danger:\s*true/);
+  assert.match(deleteSelectedSource, /isDisabled:\s*\(\{ hasSelectedDrawing \}\) => hasSelectedDrawing !== true/);
+  assert.match(deleteSelectedSource, /isVisible:\s*\(\{ hasDrawings \}\) => hasDrawings !== false/);
+  assert.match(
+    lockSelectedSource,
+    /selectedDrawingLocked \? 'Unlock Selected Drawing' : 'Lock Selected Drawing'/,
+  );
+  assert.match(lockSelectedSource, /isDisabled:\s*\(\{ hasSelectedDrawing \}\) => hasSelectedDrawing !== true/);
+  assert.match(hideSelectedSource, /actionLabel:\s*'Hide Selected Drawing'/);
+  assert.match(hideSelectedSource, /isDisabled:\s*\(\{ hasSelectedDrawing \}\) => hasSelectedDrawing !== true/);
+
+  // The classic Drawing Tools sheet keeps its original fixed roster with
+  // Delete All Drawings last; the conditional visibility below applies to the
+  // double-tap quick menu.
+  assert.match(
+    source.slice(source.indexOf('const CLASSIC_UTILITY_COMMAND_KEYS'), source.indexOf('export function createDrawingToolsCommandHandlers')),
+    /'zoomToFit',\s*'toggleMagnetMode',\s*'stayInDrawingMode',\s*'lockAllDrawings',\s*'hideAllDrawings',\s*'clearDrawings',/,
+  );
+
+  // Bulk rows hide with no drawings; Show All / Unlock All appear only for
+  // individually hidden/locked drawings while the global toggles are off.
+  assert.match(lockAllSource, /isVisible:\s*\(\{ hasDrawings \}\) => hasDrawings !== false/);
+  assert.match(hideAllSource, /isVisible:\s*\(\{ hasDrawings \}\) => hasDrawings !== false/);
+  assert.match(showAllSource, /hasDrawings !== false && !chartHideAll && hasHiddenDrawings === true/);
+  assert.match(unlockAllSource, /hasDrawings !== false && !chartLockAll && hasLockedDrawings === true/);
+  assert.match(clearSource, /actionLabel:\s*'Delete All Drawings'/);
+  assert.match(clearSource, /isVisible:\s*\(\{ hasDrawings \}\) => hasDrawings !== false/);
+
+  // ChartScreen wiring: delete-all confirms first, selected-drawing commands
+  // reach the WebView engine, and the engine's menu request opens the sheet.
+  const chartSource = readSource('src/features/chart/ChartScreen.native.tsx');
+  assert.match(chartSource, /onClearDrawings:\s*handleRequestDeleteAllDrawings/);
+  assert.match(
+    chartSource,
+    /const handleRequestDeleteAllDrawings = useCallback\(\(\) => \{[\s\S]*?Alert\.alert\([\s\S]*?t\('Delete All Drawings'\)[\s\S]*?style: 'destructive'/,
+  );
+  assert.match(chartSource, /injectChartScript\('removeSelectedDrawing\(\);'\)/);
+  assert.match(chartSource, /injectChartScript\('setSelectedDrawingHidden\(true\);'\)/);
+  assert.match(chartSource, /injectChartScript\('clearDrawingSelection\(\);'\)/);
+  assert.match(chartSource, /injectChartScript\('unlockAllDrawings\(\);'\)/);
+  assert.match(chartSource, /msg\.type === 'DRAWING_ACTION_MENU_REQUEST'/);
+  assert.match(chartSource, /openSelectedDrawingActionSheet\(/);
+  assert.match(chartSource, /msg\.selectedDrawingId/);
+  assert.match(chartSource, /msg\.canUndo === true/);
+
+  // Empty-chart double-tap shortcut: quick sheet carries only the management
+  // commands and reuses the exact same handlers as the full sheet.
+  assert.match(chartSource, /msg\.type === 'DRAWING_QUICK_ACTIONS_REQUEST'/);
+  assert.match(
+    chartSource,
+    /const openDrawingQuickActionsSheet = useCallback\(\(\) => \{[\s\S]*?if \(!hasChartDrawings\)[\s\S]*?createDrawingQuickActionsSheetActions\(/,
+  );
+  const quickFactory = source.slice(
+    source.indexOf('export function createDrawingQuickActionsSheetActions'),
+  );
+  assert.match(
+    quickFactory,
+    /QUICK_ACTION_COMMAND_KEYS\.has\(definition\.key\)[\s\S]*onPress: commandHandlers\[definition\.key\]/,
+  );
+  for (const quickKey of [
+    "'undoDrawing'",
+    "'redoDrawing'",
+    "'selectDrawing'",
+    "'deleteSelectedDrawing'",
+    "'lockSelectedDrawing'",
+    "'hideSelectedDrawing'",
+    "'lockAllDrawings'",
+    "'unlockAllDrawings'",
+    "'hideAllDrawings'",
+    "'showAllDrawings'",
+    "'clearDrawings'",
+  ]) {
+    assert.ok(
+      source
+        .slice(source.indexOf('const QUICK_ACTION_COMMAND_KEYS'), source.indexOf('export function createDrawingQuickActionsSheetActions'))
+        .includes(quickKey),
+      `quick actions must include ${quickKey}`,
+    );
   }
 });
 

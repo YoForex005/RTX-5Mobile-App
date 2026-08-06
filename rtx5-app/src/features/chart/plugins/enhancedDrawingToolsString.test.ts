@@ -7,9 +7,14 @@ type ChartClickParam = { point: ChartPoint; time: number };
 type WebViewMessage = {
   active?: boolean;
   candle?: { close: number | null; high: number | null; low: number | null; open: number | null; time: number | null };
+  canRedo?: boolean;
+  canUndo?: boolean;
   drawings?: Array<any>;
   drawingActive?: boolean;
+  label?: string;
+  locked?: boolean;
   recordId?: string;
+  selectedDrawingId?: string | null;
   text?: string;
   tool?: string;
   type: string;
@@ -2347,6 +2352,182 @@ test('Repeated tool switching does not duplicate native chart listeners', () => 
     touchMove: 0,
     touchStart: 0,
   });
+});
+
+test('DRAWINGS_CHANGED reports undo/redo availability and the selected drawing id', () => {
+  const harness = createFakeChartEnvironment();
+
+  harness.manager.setActiveTool('trendline');
+  harness.click(10, 100);
+  harness.click(20, 90);
+
+  let latest = harness.drawingMessages().at(-1);
+  assert.equal(latest?.canUndo, true);
+  assert.equal(latest?.canRedo, false);
+  assert.equal(latest?.selectedDrawingId, null);
+
+  harness.manager.undoDrawingAction();
+  latest = harness.drawingMessages().at(-1);
+  assert.equal(harness.latestDrawings().length, 0);
+  assert.equal(latest?.canUndo, false);
+  assert.equal(latest?.canRedo, true);
+
+  harness.manager.redoDrawingAction();
+  latest = harness.drawingMessages().at(-1);
+  assert.equal(harness.latestDrawings().length, 1);
+  assert.equal(latest?.canUndo, true);
+  assert.equal(latest?.canRedo, false);
+
+  harness.manager.setActiveTool('crosshair');
+  (harness.manager as any)._ignoreCrosshairClickUntil = 0;
+  harness.click(15, 95);
+  latest = harness.drawingMessages().at(-1);
+  assert.equal(latest?.selectedDrawingId, harness.latestDrawings()[0].id);
+});
+
+test('Selected-drawing commands lock, hide, and delete only the selected drawing', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+  const manager: any = harness.manager;
+
+  harness.manager.setActiveTool('trendline');
+  harness.touchStart(10, 100);
+  harness.touchMove(60, 80);
+  harness.touchEnd(60, 80);
+  harness.manager.setActiveTool('trendline');
+  harness.touchStart(10, 180);
+  harness.touchMove(60, 160);
+  harness.touchEnd(60, 160);
+  assert.equal(harness.latestDrawings().length, 2);
+
+  // Tap the second line's body in crosshair (selection) mode.
+  harness.manager.setActiveTool('crosshair');
+  manager._lastDrawingTap = null;
+  harness.touchStart(35, 170);
+  harness.touchEnd(35, 170);
+  const selectedId = manager.getSelectedDrawingId();
+  assert.equal(typeof selectedId, 'string');
+  let drawings = harness.latestDrawings();
+  assert.equal(drawings[1].id, selectedId);
+  assert.equal(drawings[1].selected, true);
+  assert.equal(drawings[0].selected, false);
+
+  // Lock only the selected drawing.
+  manager.setSelectedDrawingLocked(true);
+  drawings = harness.latestDrawings();
+  assert.equal(drawings[1].locked, true);
+  assert.equal(drawings[0].locked, false);
+
+  // Locked drawings show a floating lock badge chip.
+  const badgeOverlay = (harness.host.children as any[]).find(
+    (child) => child['data-rtx5-drawing-badges'] === 'true',
+  );
+  assert.ok(badgeOverlay, 'expected a drawing badge overlay for the locked drawing');
+  assert.ok(
+    (badgeOverlay.children as any[]).some(
+      (chip) => typeof chip.textContent === 'string'
+        && chip.textContent.includes(String.fromCodePoint(0x1f512)),
+    ),
+    'expected a lock glyph badge chip',
+  );
+
+  // A drag on the locked drawing selects it but must not move its points.
+  const lockedPoints = JSON.stringify(drawings[1].points);
+  manager._lastDrawingTap = null;
+  harness.touchStart(35, 170);
+  harness.touchMove(45, 210);
+  harness.touchEnd(45, 210);
+  drawings = harness.latestDrawings();
+  assert.equal(JSON.stringify(drawings[1].points), lockedPoints);
+  assert.equal(manager.getSelectedDrawingId(), selectedId);
+
+  // Unlock All releases per-record locks.
+  manager.unlockAllDrawings();
+  drawings = harness.latestDrawings();
+  assert.equal(drawings[0].locked, false);
+  assert.equal(drawings[1].locked, false);
+
+  // Hide only the selected drawing: record stays stored, loses selection,
+  // and no longer receives touches.
+  manager.setSelectedDrawingHidden(true);
+  drawings = harness.latestDrawings();
+  assert.equal(drawings.length, 2);
+  assert.equal(drawings[1].hidden, true);
+  assert.equal(drawings[1].selected, false);
+  assert.equal(harness.drawingMessages().at(-1)?.selectedDrawingId, null);
+  manager._lastDrawingTap = null;
+  harness.touchStart(35, 170);
+  harness.touchEnd(35, 170);
+  assert.equal(manager.getSelectedDrawingId(), null);
+
+  // Show All restores the individually hidden drawing.
+  harness.manager.setDrawingsHidden(false);
+  drawings = harness.latestDrawings();
+  assert.equal(drawings[1].hidden, false);
+
+  // Delete Selected removes only the selected drawing.
+  manager._lastDrawingTap = null;
+  harness.touchStart(35, 170);
+  harness.touchEnd(35, 170);
+  assert.equal(manager.getSelectedDrawingId(), drawings[1].id);
+  manager.removeSelectedDrawing();
+  drawings = harness.latestDrawings();
+  assert.equal(drawings.length, 1);
+  assert.equal(drawings[0].points[0].price, 90);
+});
+
+test('Double-tapping a drawing in browse mode selects it and requests the action menu', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+
+  harness.manager.setActiveTool('trendline');
+  harness.touchStart(10, 100);
+  harness.touchMove(60, 80);
+  harness.touchEnd(60, 80);
+  harness.manager.setActiveTool('none');
+
+  const menuRequests = () =>
+    harness.messages.filter((message) => message.type === 'DRAWING_ACTION_MENU_REQUEST');
+
+  // First tap on the drawing must stay passive (panning keeps working).
+  harness.touchStart(35, 90);
+  harness.touchEnd(35, 90);
+  assert.equal(menuRequests().length, 0);
+
+  // Second tap on the same drawing selects it and asks the host for the menu.
+  harness.touchStart(35, 90);
+  harness.touchEnd(35, 90);
+  assert.equal(menuRequests().length, 1);
+  const drawings = harness.latestDrawings();
+  assert.equal(menuRequests()[0].recordId, drawings[0].id);
+  assert.equal(menuRequests()[0].locked, false);
+  assert.equal(drawings[0].selected, true);
+
+  // Double-tapping empty chart space never selects a drawing; with drawings
+  // present it instead requests the quick drawing-actions shortcut sheet.
+  const quickRequests = () =>
+    harness.messages.filter((message) => message.type === 'DRAWING_QUICK_ACTIONS_REQUEST');
+  harness.touchStart(300, 300);
+  harness.touchEnd(300, 300);
+  assert.equal(quickRequests().length, 0);
+  harness.touchStart(300, 300);
+  harness.touchEnd(300, 300);
+  assert.equal(menuRequests().length, 1);
+  assert.equal(quickRequests().length, 1);
+  assert.equal(harness.latestDrawings()[0].selected, true);
+});
+
+test('Empty-chart double tap stays silent while no drawings exist', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+
+  harness.manager.setActiveTool('none');
+  harness.touchStart(300, 300);
+  harness.touchEnd(300, 300);
+  harness.touchStart(300, 300);
+  harness.touchEnd(300, 300);
+
+  const quickRequests = harness.messages.filter(
+    (message) => message.type === 'DRAWING_QUICK_ACTIONS_REQUEST',
+  );
+  assert.equal(quickRequests.length, 0);
 });
 
 test('Direct touch bridge stays single-bound through repeated drawing activation', () => {

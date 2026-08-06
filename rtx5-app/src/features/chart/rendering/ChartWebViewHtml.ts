@@ -7995,6 +7995,31 @@ export const CH_HTML = `
           window._drawingManager.setDrawingsHidden(hidden);
         }
       }
+      function removeSelectedDrawing() {
+        if (window._drawingManager && typeof window._drawingManager.removeSelectedDrawing === 'function') {
+          window._drawingManager.removeSelectedDrawing();
+        }
+      }
+      function clearDrawingSelection() {
+        if (window._drawingManager && typeof window._drawingManager.clearDrawingSelection === 'function') {
+          window._drawingManager.clearDrawingSelection();
+        }
+      }
+      function setSelectedDrawingLocked(locked) {
+        if (window._drawingManager && typeof window._drawingManager.setSelectedDrawingLocked === 'function') {
+          window._drawingManager.setSelectedDrawingLocked(locked);
+        }
+      }
+      function setSelectedDrawingHidden(hidden) {
+        if (window._drawingManager && typeof window._drawingManager.setSelectedDrawingHidden === 'function') {
+          window._drawingManager.setSelectedDrawingHidden(hidden);
+        }
+      }
+      function unlockAllDrawings() {
+        if (window._drawingManager && typeof window._drawingManager.unlockAllDrawings === 'function') {
+          window._drawingManager.unlockAllDrawings();
+        }
+      }
       function setShowObjectDescriptions(enabled) {
         window.__rtx5ShowObjectDescriptions = enabled !== false;
         if (

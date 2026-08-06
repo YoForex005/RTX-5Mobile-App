@@ -181,7 +181,7 @@ const CH_HTML = `
           if (chartType === 'candles' || chartType === 'hollow') {
             series = chart.addSeries(LightweightCharts.CandlestickSeries, {
               upColor: chartType === 'hollow' ? hollowBody : cUp,
-              downColor: cDown,
+              downColor: chartType === 'hollow' ? hollowBody : cDown,
               borderUpColor: cUp,
               borderDownColor: cDown,
               wickUpColor: cUp,
@@ -243,6 +243,62 @@ const CH_HTML = `
           if (!series) return;
           window._lastChartData = Array.isArray(data) ? data.slice() : [];
           series.setData(window._lastChartData);
+          setVolumeSeriesData(window._lastChartData);
+        } catch (_error) {}
+      }
+
+      // Colors-only fast path: recolor the existing chart in place instead of
+      // re-injecting the full candle history from the host (which took seconds).
+      function applyPreviewColors(opts, customColors) {
+        try {
+          if (!chart || !series) return;
+          window._customColors = customColors || {};
+          var chartType = window._chartType;
+          var cUp = window._customColors.candlesUptrend || '#2962FF';
+          var cDown = window._customColors.candlesDowntrend || '#EF5350';
+          var hollowBody = window._customColors.hollowBody || 'transparent';
+          var bUp = window._customColors.barsUptrend || '#2962FF';
+          var bDown = window._customColors.barsDowntrend || '#EF5350';
+          var lineColor = window._customColors.lineBody || '#2962FF';
+
+          if (opts && opts.layout && opts.layout.background) {
+            opts.layout.background = { type: 'solid', color: opts.layout.background.color };
+            if (opts.grid) {
+              opts.grid.vertLines.style = LightweightCharts.LineStyle.SparseDotted;
+              opts.grid.horzLines.style = LightweightCharts.LineStyle.SparseDotted;
+            }
+            chart.applyOptions(opts);
+          }
+
+          if (chartType === 'candles' || chartType === 'hollow') {
+            series.applyOptions({
+              upColor: chartType === 'hollow' ? hollowBody : cUp,
+              downColor: chartType === 'hollow' ? hollowBody : cDown,
+              borderUpColor: cUp,
+              borderDownColor: cDown,
+              wickUpColor: cUp,
+              wickDownColor: cDown,
+              color: cUp
+            });
+            // Data items carry baked per-candle colors that override the series
+            // options — recolor them from the copy already inside the WebView.
+            if (Array.isArray(window._lastChartData) && window._lastChartData.length > 0) {
+              var recolored = window._lastChartData.map(function(item) {
+                if (!item || typeof item.open !== 'number' || typeof item.close !== 'number') return item;
+                var nextColor = chartType === 'hollow'
+                  ? hollowBody
+                  : (item.close >= item.open ? cUp : cDown);
+                return Object.assign({}, item, { color: nextColor });
+              });
+              window._lastChartData = recolored;
+              series.setData(recolored);
+            }
+          } else if (chartType === 'bars') {
+            series.applyOptions({ upColor: bUp, downColor: bDown });
+          } else {
+            series.applyOptions({ color: lineColor });
+          }
+
           setVolumeSeriesData(window._lastChartData);
         } catch (_error) {}
       }
@@ -413,6 +469,14 @@ export default function LiveChartPreviewNative({
     () => JSON.stringify({ chartOptions, colors, display, chartType, displayDecimals }),
     [chartOptions, colors, display, chartType, displayDecimals],
   );
+  // Colors are excluded here on purpose: a color-only change recolors the
+  // existing chart in place (applyPreviewColors) instead of paying the full
+  // candle-history re-injection that made Done feel seconds late.
+  const structuralSignature = useMemo(
+    () => JSON.stringify({ chartType, display, displayDecimals }),
+    [chartType, display, displayDecimals],
+  );
+  const structuralSignatureRef = useRef('');
 
   useEffect(() => {
     previewCandlesRef.current = previewCandles;
@@ -422,16 +486,26 @@ export default function LiveChartPreviewNative({
     if (!webViewReady || !webViewRef.current) return;
 
     const lastSignature = getLastPreviewCandleSignature(previewCandles);
-    const shouldInit = chartSignatureRef.current !== chartSignature;
+    const shouldInit = structuralSignatureRef.current !== structuralSignature;
+    const anythingChanged = chartSignatureRef.current !== chartSignature;
 
     if (shouldInit) {
       webViewRef.current.injectJavaScript(
         `initChart(${JSON.stringify(chartOptions)}, ${JSON.stringify(chartType)}, ${JSON.stringify(mappedPreviewData)}, ${displayDecimals}, ${JSON.stringify(colors)}, ${JSON.stringify(display)}); true;`,
       );
+      structuralSignatureRef.current = structuralSignature;
       chartSignatureRef.current = chartSignature;
       lastCandleLengthRef.current = previewCandles.length;
       lastRenderedCandleSignatureRef.current = lastSignature;
       return;
+    }
+
+    if (anythingChanged) {
+      // Colors-only change — instant in-place recolor, no data payload.
+      webViewRef.current.injectJavaScript(
+        `if (typeof applyPreviewColors === 'function') applyPreviewColors(${JSON.stringify(chartOptions)}, ${JSON.stringify(colors)}); true;`,
+      );
+      chartSignatureRef.current = chartSignature;
     }
 
     if (
@@ -450,46 +524,78 @@ export default function LiveChartPreviewNative({
     mappedPreviewData,
     chartOptions,
     chartSignature,
+    structuralSignature,
     colors,
     display,
     chartType,
     displayDecimals,
   ]);
 
+  // Main-chart parity: the live price line carries the direction-colored axis
+  // label ("price highlight"), coloured up/down by the latest tick move.
+  const lastPreviewLinePriceRef = useRef<number | null>(null);
+  const lastPreviewLineDirectionRef = useRef<'up' | 'down'>('up');
+
   useEffect(() => {
     if (!webViewReady || !webViewRef.current) return;
     const lines: Array<{ price: number; color: string; lineWidth: number; lineStyle: number; axisLabelVisible: boolean; title: string }> = [];
-    const shouldShowSelectedPriceLine = display.showBidPriceLine || display.showAskPriceLine;
+    const shouldShowSelectedPriceLine =
+      display.showLivePriceLine || display.showBidPriceLine || display.showAskPriceLine;
     const selectedPrice = priceSource === 'bid' ? liveQuote?.bid : liveQuote?.ask;
 
     if (shouldShowSelectedPriceLine && typeof selectedPrice === 'number' && selectedPrice > 0) {
+      const previousPrice = lastPreviewLinePriceRef.current;
+      if (previousPrice !== null && selectedPrice !== previousPrice) {
+        lastPreviewLineDirectionRef.current = selectedPrice > previousPrice ? 'up' : 'down';
+      }
+      lastPreviewLinePriceRef.current = selectedPrice;
+      const liveColor = lastPreviewLineDirectionRef.current === 'up'
+        ? (colors.candlesUptrend || '#2962FF')
+        : (colors.candlesDowntrend || '#EF5350');
       lines.push({
         price: selectedPrice,
-        color: priceSource === 'bid' ? '#2962FF' : '#EF5350',
+        color: liveColor,
         lineWidth: 1,
         lineStyle: 0,
-        axisLabelVisible: false,
-        title: priceSource === 'bid' ? 'Bid' : 'Ask',
+        axisLabelVisible: true,
+        title: '',
       });
     }
 
     webViewRef.current.injectJavaScript(
       `if (typeof setPriceLines === 'function') setPriceLines(${JSON.stringify(lines)}); true;`,
     );
-  }, [display.showBidPriceLine, display.showAskPriceLine, liveQuote?.bid, liveQuote?.ask, webViewReady, priceSource]);
+  }, [
+    colors.candlesDowntrend,
+    colors.candlesUptrend,
+    display.showAskPriceLine,
+    display.showBidPriceLine,
+    display.showLivePriceLine,
+    liveQuote?.ask,
+    liveQuote?.bid,
+    priceSource,
+    webViewReady,
+  ]);
 
+  const colorsRef = useRef(colors);
+  useEffect(() => {
+    colorsRef.current = colors;
+  }, [colors]);
+
+  // Deliberately NOT keyed on colors: color edits recolor in place via
+  // applyPreviewColors; this resync only replays data for candle/symbol moves.
   useEffect(() => {
     const resyncPreview = () => {
       if (!webViewRef.current || !webViewReady) return;
       const currentCandles = previewCandlesRef.current;
       webViewRef.current.injectJavaScript(
-        `updateChartData(${JSON.stringify(mapPreviewCandles(currentCandles, chartType, colors))}); true;`,
+        `updateChartData(${JSON.stringify(mapPreviewCandles(currentCandles, chartType, colorsRef.current))}); true;`,
       );
       lastCandleLengthRef.current = currentCandles.length;
       lastRenderedCandleSignatureRef.current = getLastPreviewCandleSignature(currentCandles);
     };
     resyncPreview();
-  }, [candles, symbol, timeframe, webViewReady, chartType, colors]);
+  }, [candles, symbol, timeframe, webViewReady, chartType]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>

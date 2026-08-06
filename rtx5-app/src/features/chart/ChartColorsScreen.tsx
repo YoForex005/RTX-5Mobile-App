@@ -10,10 +10,11 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
 import { Modal } from 'react-native';
 import { ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { useTheme } from '../../ui/theme/useTheme';
 import { useIsDarkTheme } from '../../state/themeMode';
-import { useUserPreferences } from '../../state/userPreferences';
+import { resolveChartColorsForTheme, useUserPreferences } from '../../state/userPreferences';
 import { useTranslation } from '../../i18n/useTranslation';
 import { ThemeColors } from '../../ui/theme/glass';
 import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
@@ -54,13 +55,19 @@ export function ChartColorsScreen() {
   const { t } = useTranslation();
   const T = useTheme();
   const isDark = useIsDarkTheme();
+  const insets = useSafeAreaInsets();
   const chartColors = useUserPreferences((s) => s.chartColors);
   const router = require('expo-router').useRouter();
   
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const [activeKey, setActiveKey] = useState<keyof ChartColorsConfig | null>(null);
+  const chartColorScheme = useUserPreferences((s) => s.chartColorScheme);
   const setChartColor = useUserPreferences((s) => s.setChartColor);
+  const resolvedChartColors = useMemo(
+    () => resolveChartColorsForTheme(chartColors, chartColorScheme, isDark),
+    [chartColorScheme, chartColors, isDark],
+  );
 
   const PRESET_COLORS = [
     '#2962FF', '#EF5350', '#26A69A', '#F59E0B', '#8B5CF6', 
@@ -72,10 +79,20 @@ export function ChartColorsScreen() {
     value && value !== 'transparent' ? value.toUpperCase() : t('Transparent').toUpperCase();
 
   const handleSelectColor = (color: string) => {
-    if (activeKey) {
-      setChartColor(activeKey, color);
-      setActiveKey(null);
+    if (!activeKey) return;
+    // Entering Custom from a preset scheme: freeze the theme-resolved palette
+    // first so the other structural colors keep looking exactly as rendered
+    // (see ChartPropertiesScreen.commitChartColor).
+    if (chartColorScheme !== 'custom') {
+      (Object.keys(resolvedChartColors) as Array<keyof ChartColorsConfig>).forEach((paletteKey) => {
+        const paletteValue = resolvedChartColors[paletteKey];
+        if (paletteKey !== activeKey && typeof paletteValue === 'string') {
+          setChartColor(paletteKey, paletteValue);
+        }
+      });
     }
+    setChartColor(activeKey, color);
+    setActiveKey(null);
   };
 
 
@@ -129,10 +146,15 @@ export function ChartColorsScreen() {
         visible={!!activeKey}
         animationType="none"
         {...OVERLAY_MODAL_PROPS}
+        // See ChartPropertiesScreen: the first translucent-nav modal of an
+        // Android process lays out under the opaque nav bar. Non-translucent
+        // keeps every open at identical geometry.
+        navigationBarTranslucent={false}
+        statusBarTranslucent={false}
         onRequestClose={() => setActiveKey(null)}
       >
         <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }} onPress={() => setActiveKey(null)}>
-          <Pressable style={{ backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 48 }} onPress={(e) => e.stopPropagation()}>
+          <Pressable style={{ backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: Platform.OS === 'ios' ? Math.max(48, 24 + insets.bottom) : 48 }} onPress={(e) => e.stopPropagation()}>
             <Text style={{ fontSize: 16, fontWeight: '600', color: isDark ? '#FFFFFF' : '#000000', marginBottom: 16, textAlign: 'center' }}>{t('Select Color')}</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center' }}>
               {PRESET_COLORS.map(c => (

@@ -350,7 +350,17 @@ test('broker detail preserves only the exact selected broker ID and server URL',
   assert.match(source, /const isExactBrokerServerSelection = \(/);
   assert.match(source, /leftBrokerId === rightBrokerId[\s\S]*leftServerUrl === rightServerUrl/);
   assert.match(source, /serverOptions\.find\(\(option\) => \([\s\S]*isExactBrokerServerSelection\(option, initialServerOption\)[\s\S]*\)\) \?\? initialServerOption/);
-  assert.match(source, /\.map\(buildServerOptionFromBrokerServer\)[\s\S]*\.filter\(\(option\) => isExactBrokerServerSelection\(option, initialServerOption\)\)/);
+  // The Server dropdown lists the FULL validated directory (broker switcher),
+  // launch broker first; every option's endpoints come from
+  // buildServerOptionFromBrokerServer, never from route params.
+  assert.match(
+    source,
+    /\.map\(buildServerOptionFromBrokerServer\)[\s\S]*isExactBrokerServerSelection\(b, initialServerOption\)[\s\S]*isExactBrokerServerSelection\(a, initialServerOption\)/,
+  );
+  assert.match(
+    source,
+    /const hasInitialOption = out\.some\(\(option\) => \([\s\S]*isExactBrokerServerSelection\(option, initialServerOption\)[\s\S]*if \(!hasInitialOption && \(initialServerOption\.label \|\| initialServerOption\.brokerId\)\)/,
+  );
   assert.doesNotMatch(source, /serverOptions\[0\] \?\? initialServerOption/);
   assert.match(reconcileSource, /option\.endpoints !== null[\s\S]*isExactBrokerServerSelection\(option, current\)/);
   assert.doesNotMatch(reconcileSource, /option\.brokerId\.trim\(\)\.toLowerCase\(\) === current\.brokerId\.trim\(\)\.toLowerCase\(\)/);

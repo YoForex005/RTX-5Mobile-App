@@ -377,11 +377,16 @@ function BrokerDetailInteractiveContent({
       out.push(option);
     };
 
+    // The Server field doubles as a broker/server switcher: it lists the FULL
+    // validated directory so the user can retarget the login form without
+    // navigating back to the Brokers screen. Every option carries its own
+    // directory-validated endpoints; the launch broker's entries sort first.
     const directoryOptions = (brokerServers ?? [])
       .map(buildServerOptionFromBrokerServer)
       .filter((option): option is ServerOption => option !== null)
-      .filter((option) => isExactBrokerServerSelection(option, initialServerOption))
       .sort((a, b) => (
+        Number(isExactBrokerServerSelection(b, initialServerOption))
+          - Number(isExactBrokerServerSelection(a, initialServerOption)) ||
         a.brokerName.localeCompare(b.brokerName) ||
         a.label.localeCompare(b.label) ||
         a.brokerId.localeCompare(b.brokerId)
@@ -392,8 +397,12 @@ function BrokerDetailInteractiveContent({
     }
 
     // Route params remain display-only. They can render while discovery is in
-    // flight, but never gain authenticated routing authority.
-    if (out.length === 0 && (initialServerOption.label || initialServerOption.brokerId)) {
+    // flight (or when the directory no longer lists the launch broker), but
+    // never gain authenticated routing authority.
+    const hasInitialOption = out.some((option) => (
+      isExactBrokerServerSelection(option, initialServerOption)
+    ));
+    if (!hasInitialOption && (initialServerOption.label || initialServerOption.brokerId)) {
       pushOption(initialServerOption);
     }
 
@@ -552,6 +561,25 @@ function BrokerDetailInteractiveContent({
     };
   }, []);
 
+  // When the user retargets the login form via the Server dropdown, demo/real
+  // registration must follow the newly selected broker — not the route params
+  // this screen was originally opened with.
+  const activeLaunchSelection = useMemo(() => {
+    if (!selectedServer.endpoints) {
+      return selection;
+    }
+    const sameBrokerAsRoute =
+      selectedServer.brokerId.trim().toLowerCase() === selection.brokerId.trim().toLowerCase();
+    return normalizeBrokerDetailLaunchSelection({
+      brokerId: selectedServer.brokerId,
+      brokerName: selectedServer.brokerName,
+      brokerServer: selectedServer.label,
+      brokerServerUrl: selectedServer.serverUrl,
+      brokerLogoUrl: selectedServer.logoUrl,
+      brokerDomain: sameBrokerAsRoute ? selection.brokerDomain : '',
+    });
+  }, [selectedServer, selection]);
+
   const navigateToRegister = useCallback((type: 'demo' | 'real') => {
     if (type === 'real') {
       // The real-account onboarding requires KYC/identity flows that are not
@@ -566,7 +594,7 @@ function BrokerDetailInteractiveContent({
     // Same class as Accounts "+" → Brokers: reveal retained Demo shell in this
     // press turn, then push the route after it has painted.
     runImmediateAction('brokerDetail.openDemo', () => {
-      const registerRevision = showRegisterLaunch(selection);
+      const registerRevision = showRegisterLaunch(activeLaunchSelection);
       scheduleRegisterLaunchNavigation(registerRevision, () => {
         router.push({
           pathname: '/register-entry',
@@ -577,7 +605,7 @@ function BrokerDetailInteractiveContent({
         });
       });
     });
-  }, [router, selection, t]);
+  }, [activeLaunchSelection, router, t]);
 
   const openServerSelector = () => {
     if (serverOptions.length <= 1) return;

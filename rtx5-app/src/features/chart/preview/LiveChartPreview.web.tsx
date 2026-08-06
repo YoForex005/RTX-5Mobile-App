@@ -177,7 +177,7 @@ export default function LiveChartPreviewWeb({
         createRTX5CustomCandlestickPaneView(),
         buildRTX5CustomCandlestickSeriesOptions({
           bodyUpColor: chartType === 'hollow' ? colors.hollowBody : colors.candlesUptrend,
-          bodyDownColor: colors.candlesDowntrend,
+          bodyDownColor: chartType === 'hollow' ? colors.hollowBody : colors.candlesDowntrend,
           borderUpColor: colors.candlesUptrend,
           borderDownColor: colors.candlesDowntrend,
           wickUpColor: colors.candlesUptrend,

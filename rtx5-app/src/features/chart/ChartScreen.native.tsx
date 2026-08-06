@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Dimensions, Keyboard, PanResponder, Platform, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Dimensions, Keyboard, PanResponder, Platform, ScrollView, Text, TextInput, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { Gesture } from 'react-native-gesture-handler';
 import Animated, {
@@ -43,7 +43,11 @@ import {
 import {
   ChartDrawingToolsSidebar,
 } from './components/ChartDrawingToolsFeature';
-import { createDrawingToolsActionSheetActions } from './drawingTools';
+import {
+  createDrawingQuickActionsSheetActions,
+  createDrawingToolsActionSheetActions,
+  createSelectedDrawingActionSheetActions,
+} from './drawingTools';
 import { dismissBeforeDrawingToolsSelection } from './drawingTools/actionSheetSelection';
 import {
   TextLevelEditOverlay,
@@ -1400,6 +1404,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const [activeTool, setActiveTool] = useState<string>(CHART_NO_DRAWING_TOOL);
   const [chartDrawingInputActive, setChartDrawingInputActive] = useState(false);
   const [chartTapMenuAnchor, setChartTapMenuAnchor] = useState<ChartTapMenuAnchor | null>(null);
+  const chartTapMenuOpenedAtRef = useRef<number | null>(null);
   const [chartTapMenuBounds, setChartTapMenuBounds] = useState<ChartTapMenuBounds>({ width: 0, height: 0 });
   const [chartTapMenuViewport, setChartTapMenuViewport] = useState<ChartTapMenuViewport>({ x: 0, y: 0, width: 0, height: 0 });
   const [, setChartPlotArea] = useState<FixedHorizontalGridPlotArea | null>(null);
@@ -1759,6 +1764,24 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     [chartSymbol, chartTimeframe, sanitizedBackendCandles, scopedChartDrawingRecords],
   );
   const chartDrawingSignature = useMemo(() => JSON.stringify(chartDrawingRecords), [chartDrawingRecords]);
+  // Selection + history state reported live by the WebView drawing engine.
+  const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
+  const [drawingHistoryState, setDrawingHistoryState] = useState({ canRedo: false, canUndo: false });
+  const hasChartDrawings = chartDrawingRecords.length > 0;
+  const selectedDrawingRecord = useMemo(
+    () => (selectedDrawingId
+      ? chartDrawingRecords.find((record) => record.id === selectedDrawingId) ?? null
+      : null),
+    [chartDrawingRecords, selectedDrawingId],
+  );
+  const hasHiddenChartDrawings = useMemo(
+    () => chartDrawingRecords.some((record) => record.hidden),
+    [chartDrawingRecords],
+  );
+  const hasLockedChartDrawings = useMemo(
+    () => chartDrawingRecords.some((record) => record.locked === true),
+    [chartDrawingRecords],
+  );
   const latestChartPrecisionPrices = useMemo(() => {
     const latest = sanitizedBackendCandles[sanitizedBackendCandles.length - 1];
     return latest ? [latest.open, latest.high, latest.low, latest.close] : [];
@@ -2302,8 +2325,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     if (next) {
       setActiveTool(CHART_NO_DRAWING_TOOL);
       setChartDrawingInputActive(false);
+      injectChartScript('setDrawingsLocked(true);');
+      return;
     }
-    injectChartScript(`setDrawingsLocked(${next});`);
+    // Unlock All also releases individually locked drawings.
+    injectChartScript('unlockAllDrawings();');
   }, [chartLockAll, closeChartTapMenu, injectChartScript, setChartDrawingInputActive]);
 
   const handleToggleHide = useCallback(() => {
@@ -2317,6 +2343,190 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     closeChartTapMenu();
     injectChartScript('zoomChart();');
   }, [closeChartTapMenu, injectChartScript]);
+
+  const handleRequestDeleteAllDrawings = useCallback(() => {
+    closeChartTapMenu();
+    Alert.alert(
+      t('Delete All Drawings'),
+      t('This will permanently remove every drawing from the chart.'),
+      [
+        { style: 'cancel', text: t('Cancel') },
+        { onPress: handleClearDrawings, style: 'destructive', text: t('Delete All') },
+      ],
+    );
+  }, [closeChartTapMenu, handleClearDrawings, t]);
+
+  const handleSelectDrawingMode = useCallback(() => {
+    // Crosshair mode is the chart's selection/edit mode: tapping a drawing
+    // selects it, dragging edits it, empty taps deselect.
+    handleSetTool('crosshair');
+  }, [handleSetTool]);
+
+  const handleDeleteSelectedDrawing = useCallback(() => {
+    closeChartTapMenu();
+    allowNextEmptyDrawingSyncRef.current = true;
+    injectChartScript('removeSelectedDrawing();');
+  }, [closeChartTapMenu, injectChartScript]);
+
+  const handleToggleSelectedDrawingLock = useCallback(() => {
+    closeChartTapMenu();
+    const next = !(selectedDrawingRecord?.locked === true);
+    injectChartScript(`setSelectedDrawingLocked(${next});`);
+  }, [closeChartTapMenu, injectChartScript, selectedDrawingRecord]);
+
+  const handleHideSelectedDrawing = useCallback(() => {
+    closeChartTapMenu();
+    injectChartScript('setSelectedDrawingHidden(true);');
+  }, [closeChartTapMenu, injectChartScript]);
+
+  const handleShowAllDrawings = useCallback(() => {
+    closeChartTapMenu();
+    setChartHideAll(false);
+    injectChartScript('setDrawingsHidden(false);');
+  }, [closeChartTapMenu, injectChartScript]);
+
+  const handleUnlockAllDrawings = useCallback(() => {
+    closeChartTapMenu();
+    setChartLockAll(false);
+    injectChartScript('unlockAllDrawings();');
+  }, [closeChartTapMenu, injectChartScript]);
+
+  const handleDeselectDrawing = useCallback(() => {
+    closeChartTapMenu();
+    injectChartScript('clearDrawingSelection();');
+  }, [closeChartTapMenu, injectChartScript]);
+
+  // Compact per-drawing menu the engine requests when the user double-taps a
+  // drawing on the chart. Dismissing it keeps the drawing unchanged.
+  const openSelectedDrawingActionSheet = useCallback(
+    (request: { label: string; locked: boolean }) => {
+      const actions = dismissBeforeDrawingToolsSelection(
+        createSelectedDrawingActionSheetActions({
+          dangerIconColor: T.trading.sell.primary,
+          iconColor: TEXT_MUTED,
+          locked: request.locked,
+          onDelete: handleDeleteSelectedDrawing,
+          onDeselect: handleDeselectDrawing,
+          onHide: handleHideSelectedDrawing,
+          onToggleLock: () => {
+            closeChartTapMenu();
+            injectChartScript(`setSelectedDrawingLocked(${!request.locked});`);
+          },
+        }),
+        hideChartActionSheet,
+      );
+      showChartActionSheet({
+        actions,
+        compactText: true,
+        presentation: 'mt5Plain',
+        showActionIcons: true,
+        title: request.label,
+      });
+    },
+    [
+      TEXT_MUTED,
+      T.trading.sell.primary,
+      closeChartTapMenu,
+      handleDeleteSelectedDrawing,
+      handleDeselectDrawing,
+      handleHideSelectedDrawing,
+      hideChartActionSheet,
+      injectChartScript,
+      showChartActionSheet,
+    ],
+  );
+
+  // Shortcut sheet the engine requests when the user double-taps empty chart
+  // space while drawings exist: just the drawing-management commands, with the
+  // same handlers and conditional state as the full Drawing Tools sheet.
+  const openDrawingQuickActionsSheet = useCallback(() => {
+    if (!hasChartDrawings) {
+      return;
+    }
+    const actions = dismissBeforeDrawingToolsSelection(
+      createDrawingQuickActionsSheetActions({
+        canRedoDrawing: drawingHistoryState.canRedo,
+        canUndoDrawing: drawingHistoryState.canUndo,
+        chartHideAll,
+        chartLockAll,
+        dangerIconColor: T.trading.sell.primary,
+        drawingMagnetMode,
+        hasDrawings: hasChartDrawings,
+        hasHiddenDrawings: hasHiddenChartDrawings,
+        hasLockedDrawings: hasLockedChartDrawings,
+        hasSelectedDrawing: selectedDrawingId !== null,
+        iconColor: TEXT_MUTED,
+        onClearDrawings: handleRequestDeleteAllDrawings,
+        onDeleteSelectedDrawing: handleDeleteSelectedDrawing,
+        onHideSelectedDrawing: handleHideSelectedDrawing,
+        onRedoDrawing: handleRedoDrawing,
+        onSelectDrawingMode: handleSelectDrawingMode,
+        onSelectTool: handleSetTool,
+        onShowAllDrawings: handleShowAllDrawings,
+        onToggleHide: handleToggleHide,
+        onToggleLock: handleToggleLock,
+        onToggleMagnetMode: handleToggleMagnetMode,
+        onToggleSelectedDrawingLock: handleToggleSelectedDrawingLock,
+        onToggleStickyMode: handleToggleStickyMode,
+        onUndoDrawing: handleUndoDrawing,
+        onUnlockAllDrawings: handleUnlockAllDrawings,
+        onZoomTool: handleZoomTool,
+        selectedDrawingLocked: selectedDrawingRecord?.locked === true,
+        stickyDrawingMode,
+      }),
+      hideChartActionSheet,
+    );
+    showChartActionSheet({
+      actions,
+      compactText: true,
+      presentation: 'mt5Plain',
+      showActionIcons: true,
+      title: t('Drawing Tools'),
+    });
+  }, [
+    TEXT_MUTED,
+    T.trading.sell.primary,
+    chartHideAll,
+    chartLockAll,
+    drawingHistoryState,
+    drawingMagnetMode,
+    handleDeleteSelectedDrawing,
+    handleHideSelectedDrawing,
+    handleRedoDrawing,
+    handleRequestDeleteAllDrawings,
+    handleSelectDrawingMode,
+    handleSetTool,
+    handleShowAllDrawings,
+    handleToggleHide,
+    handleToggleLock,
+    handleToggleMagnetMode,
+    handleToggleSelectedDrawingLock,
+    handleToggleStickyMode,
+    handleUndoDrawing,
+    handleUnlockAllDrawings,
+    handleZoomTool,
+    hasChartDrawings,
+    hasHiddenChartDrawings,
+    hasLockedChartDrawings,
+    hideChartActionSheet,
+    selectedDrawingId,
+    selectedDrawingRecord,
+    showChartActionSheet,
+    stickyDrawingMode,
+    t,
+  ]);
+
+  // The radial opens on the FIRST tap of a chart double-tap, and its backdrop
+  // then swallows the second tap before the WebView can see it. A dismissal
+  // that arrives right after opening therefore IS the double-tap — surface the
+  // drawing quick-actions shortcut just like the engine's own path does.
+  const handleChartTapMenuDismiss = useCallback(() => {
+    const openedAt = chartTapMenuOpenedAtRef.current;
+    closeChartTapMenu();
+    if (hasChartDrawings && openedAt !== null && Date.now() - openedAt <= 450) {
+      openDrawingQuickActionsSheet();
+    }
+  }, [closeChartTapMenu, hasChartDrawings, openDrawingQuickActionsSheet]);
 
   const handleToggleVerticalScrollingLock = () => {
     closeChartTapMenu();
@@ -5331,20 +5541,33 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const drawingToolsActions = useMemo(
     () => dismissBeforeDrawingToolsSelection(
       createDrawingToolsActionSheetActions({
+        canRedoDrawing: drawingHistoryState.canRedo,
+        canUndoDrawing: drawingHistoryState.canUndo,
         chartHideAll,
         chartLockAll,
         dangerIconColor: T.trading.sell.primary,
         drawingMagnetMode,
+        hasDrawings: hasChartDrawings,
+        hasHiddenDrawings: hasHiddenChartDrawings,
+        hasLockedDrawings: hasLockedChartDrawings,
+        hasSelectedDrawing: selectedDrawingId !== null,
         iconColor: TEXT_MUTED,
-        onClearDrawings: handleClearDrawings,
+        onClearDrawings: handleRequestDeleteAllDrawings,
+        onDeleteSelectedDrawing: handleDeleteSelectedDrawing,
+        onHideSelectedDrawing: handleHideSelectedDrawing,
         onRedoDrawing: handleRedoDrawing,
+        onSelectDrawingMode: handleSelectDrawingMode,
         onSelectTool: handleSetTool,
+        onShowAllDrawings: handleShowAllDrawings,
         onToggleHide: handleToggleHide,
         onToggleLock: handleToggleLock,
         onToggleMagnetMode: handleToggleMagnetMode,
+        onToggleSelectedDrawingLock: handleToggleSelectedDrawingLock,
         onToggleStickyMode: handleToggleStickyMode,
         onUndoDrawing: handleUndoDrawing,
+        onUnlockAllDrawings: handleUnlockAllDrawings,
         onZoomTool: handleZoomTool,
+        selectedDrawingLocked: selectedDrawingRecord?.locked === true,
         stickyDrawingMode,
       }),
       hideChartActionSheet,
@@ -5354,17 +5577,29 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       T.trading.sell.primary,
       chartHideAll,
       chartLockAll,
+      drawingHistoryState,
       drawingMagnetMode,
-      handleClearDrawings,
+      handleDeleteSelectedDrawing,
+      handleHideSelectedDrawing,
       handleRedoDrawing,
+      handleRequestDeleteAllDrawings,
+      handleSelectDrawingMode,
       handleSetTool,
+      handleShowAllDrawings,
       handleToggleHide,
       handleToggleLock,
       handleToggleMagnetMode,
+      handleToggleSelectedDrawingLock,
       handleToggleStickyMode,
       handleUndoDrawing,
+      handleUnlockAllDrawings,
       handleZoomTool,
+      hasChartDrawings,
+      hasHiddenChartDrawings,
+      hasLockedChartDrawings,
       hideChartActionSheet,
+      selectedDrawingId,
+      selectedDrawingRecord,
       stickyDrawingMode,
     ],
   );
@@ -5377,11 +5612,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       chartLockAll ? 'lock' : 'unlock',
       drawingMagnetMode ? 'magnet' : 'free',
       stickyDrawingMode ? 'sticky' : 'once',
+      drawingHistoryState.canUndo ? 'undo' : 'noUndo',
+      drawingHistoryState.canRedo ? 'redo' : 'noRedo',
       t('Undo Drawing'),
     ].join('|'),
     [
       chartHideAll,
       chartLockAll,
+      drawingHistoryState,
       drawingMagnetMode,
       drawingToolsActions.length,
       stickyDrawingMode,
@@ -8160,6 +8398,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                             recordId,
                             text: typeof msg.text === 'string' ? msg.text : 'Level',
                           });
+                        } else if (msg.type === 'DRAWING_QUICK_ACTIONS_REQUEST') {
+                          closeChartTapMenu();
+                          openDrawingQuickActionsSheet();
+                        } else if (msg.type === 'DRAWING_ACTION_MENU_REQUEST') {
+                          closeChartTapMenu();
+                          openSelectedDrawingActionSheet({
+                            label:
+                              typeof msg.label === 'string' && msg.label
+                                ? msg.label
+                                : t('Drawing'),
+                            locked: msg.locked === true,
+                          });
                         } else if (msg.type === 'DRAWINGS_CHANGED') {
                           if (
                             !chartInitializedRef.current ||
@@ -8168,6 +8418,19 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                           ) {
                             return;
                           }
+
+                          const nextSelectedDrawingId =
+                            typeof msg.selectedDrawingId === 'string' && msg.selectedDrawingId
+                              ? msg.selectedDrawingId
+                              : null;
+                          setSelectedDrawingId((previous) =>
+                            (previous === nextSelectedDrawingId ? previous : nextSelectedDrawingId));
+                          const nextCanUndo = msg.canUndo === true;
+                          const nextCanRedo = msg.canRedo === true;
+                          setDrawingHistoryState((previous) =>
+                            (previous.canUndo === nextCanUndo && previous.canRedo === nextCanRedo
+                              ? previous
+                              : { canRedo: nextCanRedo, canUndo: nextCanUndo }));
 
                           const nextDrawings = filterChartDrawingRecordsForCurrentChart(
                             sanitizePersistedChartDrawings(msg.drawings),
@@ -8247,6 +8510,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                             y,
                             price: typeof msg.price === 'number' && Number.isFinite(msg.price) ? msg.price : null,
                           };
+                          chartTapMenuOpenedAtRef.current = Date.now();
                           syncChartViewportFrame(() => {
                             setChartTapMenuAnchor((currentAnchor) => (
                               currentAnchor ? null : nextAnchor
@@ -8403,7 +8667,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                     accentColor={BLUE}
                     mutedColor="#FFFFFF"
                     isDark={isDark}
-                    onDismiss={closeChartTapMenu}
+                    onDismiss={handleChartTapMenuDismiss}
                     onSelectTimeframe={handleTimeframeSelect}
                     onOpenObjects={() => {
                       // Always clear the radial first so the next sheet/route

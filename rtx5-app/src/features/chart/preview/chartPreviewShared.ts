@@ -77,7 +77,8 @@ export const sanitizePreviewCandles = (candles: PreviewSourceCandle[]) => {
 export const mapPreviewCandles = (
   candles: PreviewSourceCandle[],
   chartType: PreviewChartType,
-  colors: Pick<ChartColorsConfig, 'candlesUptrend' | 'candlesDowntrend'>,
+  colors: Pick<ChartColorsConfig, 'candlesUptrend' | 'candlesDowntrend'>
+    & Partial<Pick<ChartColorsConfig, 'hollowBody'>>,
 ) => {
   if (chartType === 'line') {
     return candles.map((item) => ({
@@ -90,10 +91,14 @@ export const mapPreviewCandles = (
   }
 
   if (chartType === 'candles' || chartType === 'hollow') {
+    // Per-item colors override series options in lightweight-charts, so hollow
+    // charts must bake the hollow body fill here too — otherwise the baked
+    // bull/bear colors defeat the hollow style in the native preview.
+    const useHollowFill = chartType === 'hollow' && typeof colors.hollowBody === 'string';
     return mapCandlesToRTX5CustomCandlestickData({
       candles,
-      bullishColor: colors.candlesUptrend,
-      bearishColor: colors.candlesDowntrend,
+      bullishColor: useHollowFill ? (colors.hollowBody as string) : colors.candlesUptrend,
+      bearishColor: useHollowFill ? (colors.hollowBody as string) : colors.candlesDowntrend,
     });
   }
 

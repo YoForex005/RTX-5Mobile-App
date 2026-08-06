@@ -118,5 +118,47 @@ test('chart color resolver rejects explicit custom dark canvas colors in light t
   assert.equal(lightColors.background, CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.background);
   assert.equal(lightColors.foreground, CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.foreground);
   assert.equal(lightColors.grid, CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.grid);
+  // Hollow body is a candle fill, not canvas structure — the user's explicit
+  // pick survives even when the canvas colors get theme-corrected.
+  assert.equal(lightColors.hollowBody, '#101827');
+});
+
+test('chart color resolver preserves an explicitly picked hollow body in both themes', () => {
+  const picked = '#8B5CF6';
+
+  const darkColors = resolveChartColorsForTheme(
+    { ...DEFAULT_CHART_COLORS, hollowBody: picked },
+    'custom',
+    true,
+  );
+  assert.equal(darkColors.hollowBody, picked);
+
+  // Dark default canvas on a light app theme trips the canvas-brightness
+  // override for background/foreground/grid — the hollow pick must survive it.
+  const lightColors = resolveChartColorsForTheme(
+    { ...DEFAULT_CHART_COLORS, hollowBody: picked },
+    'custom',
+    false,
+  );
+  assert.equal(lightColors.background, CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.background);
+  assert.equal(lightColors.hollowBody, picked);
+
+  const transparentPick = resolveChartColorsForTheme(
+    { ...DEFAULT_CHART_COLORS, hollowBody: 'transparent' },
+    'custom',
+    true,
+  );
+  assert.equal(transparentPick.hollowBody, 'transparent');
+});
+
+test('chart color resolver keeps preset hollow body values following the app theme', () => {
+  // A stale preset hollow fill (e.g. dark preset value after switching to a
+  // light app theme) still flips with the canvas so hollow candles stay
+  // background-matched.
+  const lightColors = resolveChartColorsForTheme(
+    { ...DEFAULT_CHART_COLORS },
+    'custom',
+    false,
+  );
   assert.equal(lightColors.hollowBody, CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.hollowBody);
 });
