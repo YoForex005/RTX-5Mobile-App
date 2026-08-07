@@ -62,7 +62,7 @@ import { runImmediateAction } from '../../utils/actionLatency';
 import {
   parkRetainedActionSheetHostForConfigSwap,
 } from '../../ui/components/ActionSheet/retainedActionSheetVisualController';
-import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
+import { isCryptoSymbol, normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
 import { useNextFrameValue } from '../../hooks/useNextFrameValue';
 import { MARKET_QUOTE_STALE_AFTER_MS } from '../../market/quotePolicy';
 import {
@@ -1337,7 +1337,7 @@ function LegacyAddSymbolModal({
 /* ───── QuotesScreen ───── */
 
 /* Add symbol tree: MT5-style folders derived from broker symbols. */
-type AddSymbolLeafCategory = 'commodities' | 'cryptocurrenciesMtt' | 'forexMarket' | 'indices' | 'metalsMtt';
+type AddSymbolLeafCategory = 'commodities' | 'cryptocurrenciesMtt' | 'forexMarket' | 'indices' | 'metalsMtt' | 'other';
 type AddSymbolFolderKey = 'root' | 'forex' | 'metals' | 'quotes' | AddSymbolLeafCategory;
 type SymbolKind = 'forex' | 'metal' | 'crypto' | 'commodity' | 'index' | 'other';
 
@@ -1380,6 +1380,9 @@ const ADD_SYMBOL_FOLDER_LOGO_META: Record<AddSymbolFolderKey, AddSymbolFolderLog
   },
   metalsMtt: {
     icon: 'diamond',
+  },
+  other: {
+    icon: 'apps',
   },
 };
 
@@ -1488,6 +1491,9 @@ const QUOTES_CATEGORY_DEFS: Array<{ key: AddSymbolLeafCategory; label: string }>
   { key: 'forexMarket', label: 'Forex Market' },
   { key: 'indices', label: 'Indices' },
   { key: 'metalsMtt', label: 'Metals MTT' },
+  // Catch-all so a broker symbol the classifier does not recognise is still
+  // reachable from the folder tree. Hidden while empty (see folderRows).
+  { key: 'other', label: 'Other' },
 ];
 
 const ADD_SYMBOL_FOLDER_LABELS: Record<AddSymbolFolderKey, string> = {
@@ -1500,6 +1506,7 @@ const ADD_SYMBOL_FOLDER_LABELS: Record<AddSymbolFolderKey, string> = {
   forexMarket: 'Forex Market',
   indices: 'Indices',
   metalsMtt: 'Metals MTT',
+  other: 'Other',
 };
 
 const stripTransportSuffix = (symbol: string) =>
@@ -1536,6 +1543,13 @@ function classifyCleanSymbol(symbol: string): SymbolKind {
 
   if (resolveMetalName(symbol)) {
     return 'metal';
+  }
+
+  // Shared domain classifier first (~33 coins, same set the chart header
+  // uses), then the local quoted-asset check as a fallback for quote
+  // currencies the shared list does not cover (GBP/JPY).
+  if (isCryptoSymbol(symbol)) {
+    return 'crypto';
   }
 
   const quotedAsset = splitQuotedAsset(symbol);
@@ -1742,10 +1756,13 @@ function AddSymbolModal({
       forexMarket: [],
       indices: [],
       metalsMtt: [],
+      other: [],
     };
 
     // The picker mirrors MT5 folders from broker symbols, with a typed local
     // catalog only when the broker catalog is unavailable in dev/offline mode.
+    // Every symbol lands in exactly one bucket — unrecognised ones go to
+    // 'other' so no broker symbol can silently disappear from the tree.
     allSymbols.forEach((symbol) => {
       const kind = classifyMarketSymbol(symbol);
       if (kind === 'forex') groups.forexMarket.push(symbol);
@@ -1753,6 +1770,7 @@ function AddSymbolModal({
       else if (kind === 'crypto') groups.cryptocurrenciesMtt.push(symbol);
       else if (kind === 'commodity') groups.commodities.push(symbol);
       else if (kind === 'index') groups.indices.push(symbol);
+      else groups.other.push(symbol);
     });
 
     return groups;
@@ -1796,7 +1814,11 @@ function AddSymbolModal({
       ];
     }
     if (folder === 'quotes') {
-      return QUOTES_CATEGORY_DEFS.map((entry) => ({
+      // 'Other' is a safety net for unclassified broker symbols; keep the
+      // stock 5-folder layout while it is empty.
+      return QUOTES_CATEGORY_DEFS.filter(
+        (entry) => entry.key !== 'other' || groupedSymbols.other.length > 0,
+      ).map((entry) => ({
         key: entry.key,
         label: entry.label,
         symbols: groupedSymbols[entry.key],

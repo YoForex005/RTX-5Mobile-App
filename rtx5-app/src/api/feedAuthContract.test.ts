@@ -305,21 +305,19 @@ test('Achiever rejects unsafe, duplicate, aliased, or access-token query contrac
   }
 });
 
-test('Achiever context requires exactly four raw keys, including rejecting blank extras', () => {
+test('Achiever context tolerates extra raw keys like every other broker (gateway handoff parity)', () => {
+  // The shared gateway login handoff emits account_login_query_param (and may
+  // add future keys) alongside the four required fields. GTA's generic path
+  // ignores unknown keys — Achiever must too, or a benign backend addition
+  // silently blacks out live data. Extra keys are ignored; the resolved
+  // context keeps the exact four-field shape the session validators require.
   for (const feed_auth_context of [
     {
       mode: 'query',
       credential: 'feed_token',
       token_query_param: 'token',
       broker_id_query_param: 'broker_id',
-      future_extension: 'unsupported',
-    },
-    {
-      mode: 'query',
-      credential: 'feed_token',
-      token_query_param: 'token',
-      broker_id_query_param: 'broker_id',
-      future_extension: '',
+      account_login_query_param: 'account_login',
     },
     {
       mode: 'query',
@@ -328,17 +326,26 @@ test('Achiever context requires exactly four raw keys, including rejecting blank
       broker_id_query_param: 'broker_id',
       account_login_query_param: '',
     },
+    {
+      mode: 'query',
+      credential: 'feed_token',
+      token_query_param: 'token',
+      broker_id_query_param: 'broker_id',
+      future_extension: 'unsupported',
+    },
   ]) {
     const resolved = resolveSessionFeedAuth({
       response: exactAchieverResponse({ feed_auth_context }),
       brokerId: 'achiever-financials',
       accountLogin: '10001',
     });
-    assert.equal(resolved.source, 'none');
-    assert.equal(resolved.feedToken, undefined);
+    assert.equal(resolved.source, 'backend');
+    assert.equal(resolved.feedToken, 'achiever-feed-token');
     assert.deepEqual(resolved.feedAuthContext, {
-      mode: 'disabled_unconfigured',
-      reason: 'missing_contract',
+      mode: 'query',
+      credential: 'feed_token',
+      tokenQueryParam: 'token',
+      brokerIdQueryParam: 'broker_id',
     });
   }
 });

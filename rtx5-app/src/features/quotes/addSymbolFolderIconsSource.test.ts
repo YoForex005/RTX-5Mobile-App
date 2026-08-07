@@ -25,6 +25,24 @@ test('add symbol category rows use professional monochrome market logos', () => 
   assert.doesNotMatch(source, /code: 'BTC'/);
 });
 
+test('add symbol tree never drops an unclassified broker symbol', () => {
+  const source = readSource('src/features/quotes/QuotesScreen.tsx');
+
+  // The shared domain crypto classifier backs the local one (33-coin set,
+  // same as the chart header badge).
+  assert.match(source, /import \{ isCryptoSymbol, normalizeQuoteSymbolKey, normalizeSymbol \} from '\.\.\/\.\.\/domain\/symbols'/);
+  assert.match(source, /if \(isCryptoSymbol\(symbol\)\) \{\s*\n\s*return 'crypto';/);
+
+  // Every symbol lands in exactly one bucket; 'other' is the catch-all.
+  assert.match(source, /type AddSymbolLeafCategory = [^;]*'other';/);
+  assert.match(source, /else if \(kind === 'index'\) groups\.indices\.push\(symbol\);\s*\n\s*else groups\.other\.push\(symbol\);/);
+
+  // The Other folder stays hidden while empty so the stock layout is unchanged.
+  assert.match(source, /\{ key: 'other', label: 'Other' \}/);
+  assert.match(source, /entry\.key !== 'other' \|\| groupedSymbols\.other\.length > 0/);
+  assert.match(source, /other: \{[\s\S]*?icon: 'apps'/);
+});
+
 test('add symbol navigation and count chips use restrained badge colors', () => {
   const source = readSource('src/features/quotes/QuotesScreen.tsx');
 

@@ -72,6 +72,10 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
   const setTradeSummaryDetailsVisible = useUserPreferences((state) => state.setTradeSummaryDetailsVisible);
   const accountCurrency = account.currency || 'USD';
 
+  const totalSwap = useMemo(() => {
+    return positions.reduce((sum: number, pos: any) => sum + (Number.isFinite(pos.swap) ? pos.swap : 0), 0);
+  }, [positions]);
+
   const toggleTradeSummaryDetails = useCallback(() => {
     setTradeSummaryDetailsVisible(!tradeSummaryDetailsVisible);
   }, [setTradeSummaryDetailsVisible, tradeSummaryDetailsVisible]);
@@ -115,6 +119,7 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
             <SummaryMetricRow label={t('Margin')} value={fmt.decimal(safeMargin)} s={s} T={T} />
             <SummaryMetricRow label={t('Free Margin')} value={fmt.decimal(safeFreeMargin)} s={s} T={T} />
             <SummaryMetricRow label={t('Margin Level')} value={`${fmt.decimal(safeMarginLevel)}%`} s={s} T={T} />
+            <SummaryMetricRow label={t('Swap')} value={fmt.pnl(totalSwap)} s={s} T={T} />
 
             {account.credit > 0 ? (
               <SummaryMetricRow

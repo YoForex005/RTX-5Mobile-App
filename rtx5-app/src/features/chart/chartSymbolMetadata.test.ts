@@ -35,6 +35,41 @@ test('chart symbol metadata resolves header categories', () => {
   assert.equal(resolveChartSymbolCategory('ABCDEF'), null);
 });
 
+test('chart symbol metadata classifies exotic FX, indices, energies, commodities and non-USD metals', () => {
+  // Exotic / minor FX pairs (currencies beyond the original eight).
+  for (const pair of ['USDZAR', 'USDMXN', 'USDSEK', 'USDNOK', 'USDSGD', 'USDHKD', 'USDPLN', 'USDHUF', 'USDCZK', 'USDCNH', 'USDTRY', 'USDINR', 'USDBRL', 'USDRUB', 'USDILS', 'USDDKK', 'EURZAR', 'EURSEK', 'EURNOK']) {
+    assert.equal(resolveChartSymbolCategory(pair), 'FOREX', pair);
+  }
+
+  // Indices.
+  for (const index of ['SPX500', 'US30', 'NAS100', 'UK100', 'GER40', 'FRA40', 'JPN225', 'AUS200', 'HK50']) {
+    assert.equal(resolveChartSymbolCategory(index), 'INDEX', index);
+  }
+
+  // Energies.
+  for (const energy of ['USOIL', 'UKOIL', 'NATGAS']) {
+    assert.equal(resolveChartSymbolCategory(energy), 'ENERGY', energy);
+  }
+
+  // Commodities.
+  assert.equal(resolveChartSymbolCategory('COPPER'), 'COMMODITY');
+
+  // Metals quoted in a non-USD currency (and long-form aliases).
+  assert.equal(resolveChartSymbolCategory('XAUEUR'), 'METAL');
+  assert.equal(resolveChartSymbolCategory('GOLD'), 'METAL');
+
+  // Metals must win over the FX heuristic even when broker-suffixed.
+  assert.equal(resolveChartSymbolCategory('XAGUSDm'), 'METAL');
+});
+
 test('unknown six-letter pairs still get a readable pair subtitle', () => {
   assert.equal(resolveChartSymbolFullName('ABCDEF'), 'ABC / DEF');
+});
+
+test('extended instruments resolve readable subtitles', () => {
+  assert.equal(resolveChartSymbolFullName('USDZAR'), 'US Dollar / South African Rand');
+  assert.equal(resolveChartSymbolFullName('SPX500'), 'S&P 500 Index');
+  assert.equal(resolveChartSymbolFullName('USOIL'), 'US Crude Oil (WTI)');
+  assert.equal(resolveChartSymbolFullName('XAUEUR'), 'Gold / Euro');
+  assert.equal(resolveChartSymbolFullName('COPPER'), 'Copper');
 });

@@ -7,13 +7,6 @@ import {
 
 export const ACHIEVER_BROKER_ID = 'achiever-financials';
 
-const ACHIEVER_FEED_AUTH_CONTEXT_KEYS = Object.freeze([
-  'broker_id_query_param',
-  'credential',
-  'mode',
-  'token_query_param',
-] as const);
-
 const cleanString = (value: unknown): string =>
   typeof value === 'string' || typeof value === 'number'
     ? String(value).trim()
@@ -42,16 +35,6 @@ const normalizeBrokerId = (value: unknown): string =>
 const readAuthResponseAccountLogin = (
   response: Record<string, unknown>,
 ): string => cleanString(response.account_login);
-
-const hasExactAchieverFeedAuthContextKeys = (
-  value: Record<string, unknown>,
-): boolean => {
-  const keys = Object.keys(value).sort();
-  return (
-    keys.length === ACHIEVER_FEED_AUTH_CONTEXT_KEYS.length &&
-    keys.every((key, index) => key === ACHIEVER_FEED_AUTH_CONTEXT_KEYS[index])
-  );
-};
 
 const readNonBlankRootCredential = (
   response: Record<string, unknown>,
@@ -142,9 +125,11 @@ export const resolveFeedAuthContextFromAuthResponse = (
   if (!metadata) {
     return disabledFeedAuth('missing_contract');
   }
-  if (isAchiever && !hasExactAchieverFeedAuthContextKeys(metadata)) {
-    return disabledFeedAuth('missing_contract');
-  }
+  // Extra keys in feed_auth_context are tolerated and ignored for every
+  // broker (the shared gateway handoff also emits account_login_query_param,
+  // which the GTA/generic path already accepts). Achiever keeps its strict
+  // per-field requirements below; unknown keys alone must not disable the
+  // feed, or a benign backend addition blacks out live data.
 
   const mode = cleanString(metadata.mode).toLowerCase();
   if (!isAchiever && mode === 'none' && metadata.auth_required === false) {
@@ -170,11 +155,12 @@ export const resolveFeedAuthContextFromAuthResponse = (
       ? metadata.broker_id_query_param
       : metadata.brokerIdQueryParam ?? metadata.broker_id_query_param,
   );
-  const accountLoginQueryParam = cleanParam(
-    isAchiever
-      ? metadata.account_login_query_param
-      : metadata.accountLoginQueryParam ?? metadata.account_login_query_param,
-  );
+  // Achiever's feed URL carries token + broker_id only; the handoff's
+  // account_login_query_param is deliberately ignored so the resolved context
+  // keeps the exact shape the session/storage validators require.
+  const accountLoginQueryParam = isAchiever
+    ? ''
+    : cleanParam(metadata.accountLoginQueryParam ?? metadata.account_login_query_param);
 
   const distinctParams = new Set(
     [tokenQueryParam, brokerIdQueryParam, accountLoginQueryParam].filter(Boolean),
