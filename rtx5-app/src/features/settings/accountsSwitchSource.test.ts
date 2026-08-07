@@ -47,17 +47,17 @@ test('saved account switch promotes the selected account and refreshes account-s
   assert.doesNotMatch(switchBody, /checkBrokerServerHealth\(exactServerUrl\)/);
   assert.ok(
     switchBody.indexOf('ensureSavedAccountBrokerHealth(exactServerUrl)')
-      < switchBody.indexOf('const result = await signInWithCredentials'),
+    < switchBody.indexOf('const result = await signInWithCredentials'),
     'exact-server health verification must finish before saved-account login',
   );
   assert.ok(
     switchBody.indexOf('const brokerHealthResultPromise = ensureSavedAccountBrokerHealth(exactServerUrl)')
-      < switchBody.indexOf('const password = await passwordPromise'),
+    < switchBody.indexOf('const password = await passwordPromise'),
     'password retrieval and exact-server health must overlap on the valid route',
   );
   assert.ok(
     switchBody.indexOf('if (!password)')
-      < switchBody.indexOf('const brokerHealthResult = await brokerHealthResultPromise'),
+    < switchBody.indexOf('const brokerHealthResult = await brokerHealthResultPromise'),
     'a missing saved password must redirect without waiting for broker health',
   );
   assert.match(switchBody, /serverUrl: exactServerUrl/);
@@ -93,12 +93,19 @@ test('saved account switch promotes the selected account and refreshes account-s
 
   // The coordinator owns the epoch-first teardown and cache/query reset; the
   // screen must not partially mutate the old account before the handoff commits.
+  // The reset stays targeted: the public broker directory survives so the
+  // login screen matches the saved broker instantly after logout.
   assert.match(coordinatorSource, /const transition = beginActiveBrokerSessionTransition\(\);[\s\S]*await teardownBrokerSessionRuntime\(\)/);
   assert.match(coordinatorSource, /resetQuoteRuntimeState\(\)/);
   assert.match(coordinatorSource, /resetSessionMarketData\(\)/);
   assert.match(coordinatorSource, /resetPositionsSessionState\(\)/);
   assert.match(coordinatorSource, /resetPersistedCandleCacheSession\(\)/);
-  assert.match(coordinatorSource, /appQueryClient\.clear\(\)/);
+  assert.match(
+    coordinatorSource,
+    /appQueryClient\.removeQueries\(\{[\s\S]*query\.queryKey\[0\] !== BROKER_SERVERS_KEY/,
+  );
+  assert.match(coordinatorSource, /appQueryClient\.getMutationCache\(\)\.clear\(\)/);
+  assert.doesNotMatch(coordinatorSource, /appQueryClient\.clear\(\)/);
 });
 
 test('saved account switch removes stale entries when the broker reports a missing account', () => {

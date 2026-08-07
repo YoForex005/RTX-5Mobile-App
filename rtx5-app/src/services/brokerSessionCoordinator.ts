@@ -13,6 +13,7 @@ import { resetQuoteRuntimeState } from '../features/quotes/resetQuoteRuntimeStat
 import { resetBrokerSymbolResolverCache } from '../api/orders/symbolResolver';
 import { resetAcceptedMarketOrderSymbolCache } from '../api/orders/placeMarketOrder';
 import { resetAcceptedPendingOrderSymbolCache } from '../api/orders/placePendingOrder';
+import { BROKER_SERVERS_KEY } from '../query/broker';
 import {
   activateBrokerSession,
   beginActiveBrokerSessionTransition,
@@ -229,7 +230,14 @@ export const teardownBrokerSessionRuntime = async (): Promise<void> => {
   resetPersistedCandleCacheSession();
   useLiveAccountState.getState().resetMetrics();
   await appQueryClient.cancelQueries();
-  appQueryClient.clear();
+  // The public broker directory is not session-scoped. Keep it cached so the
+  // login screen matches the saved broker instantly after logout instead of
+  // re-paying the full /broker/servers fetch ("Please wait while the broker
+  // list loads."). Every other query is session data and still gets wiped.
+  appQueryClient.removeQueries({
+    predicate: (query) => query.queryKey[0] !== BROKER_SERVERS_KEY,
+  });
+  appQueryClient.getMutationCache().clear();
 };
 
 const erasePersistedSession = async (): Promise<void> => {

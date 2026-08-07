@@ -79,9 +79,20 @@ test('trade and registration paths record backend response latency', () => {
   assert.match(candlesSource, /commitApiJson\(result, cacheNamespace,/);
   assert.doesNotMatch(candlesSource, /label: 'candles\.publicHistory'/);
   assert.match(brokerSource, /const BROKER_SERVERS_TIMEOUT_MS = 10000/);
-  // Login-critical path: keep health probe short so a slow/down broker does not
-  // block submit for the full multi-second window (see login latency work).
-  assert.match(brokerSource, /const BROKER_HEALTH_TIMEOUT_MS = 1500/);
+  // Matches the Settings/Accounts gate (SELECTED_BROKER_HEALTH_TIMEOUT_MS).
+  // The first probe after logout pays a cold DNS + TCP + TLS handshake before
+  // the backend responds; a tighter budget false-fired "broker unavailable"
+  // on healthy brokers. Retry once on timeout only — genuine failures stay
+  // fail-closed so a down broker never stalls login.
+  assert.match(brokerSource, /const BROKER_HEALTH_TIMEOUT_MS = 3000/);
+  assert.match(
+    brokerSource,
+    /const isHealthProbeTimeout = \(error: unknown\): boolean =>[\s\S]*error\.name === 'AbortError'/,
+  );
+  assert.match(
+    brokerSource,
+    /if \(!isHealthProbeTimeout\(firstError\)\) \{[\s\S]*?throw new BrokerConfigError\(0, 'Selected broker is unavailable'\);[\s\S]*?\}[\s\S]*?response = await requestBrokerHealthUrl\(healthUrl\);/,
+  );
   assert.match(brokerSource, /const controller = new AbortController\(\)/);
   assert.match(brokerSource, /timedFetch\(`\$\{PUBLIC_BROKER_DIRECTORY_BASE_URL\}\/broker\/servers`/);
   assert.match(brokerSource, /label: 'broker\.servers'/);

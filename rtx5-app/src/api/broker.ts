@@ -308,7 +308,7 @@ const parseDirectoryRecord = (
   // derived as {server_url}/api/v2 and must match the resolved apiBase.
   const exactServerUrl = toBrokerServiceRoot(
     normalizeBrokerServerUrl(optionalDirectoryString(record, 'server_url'))
-      || endpoints.apiBase,
+    || endpoints.apiBase,
   );
   if (!exactServerUrl || !isBrokerServerUrlForApiBase(exactServerUrl, endpoints.apiBase)) {
     throw new BrokerDirectorySchemaError(
@@ -320,13 +320,13 @@ const parseDirectoryRecord = (
   const domainsRecord = asDirectoryRecord(record.domains);
   const domains = domainsRecord
     ? {
-        ...(optionalDirectoryString(domainsRecord, 'admin') ? { admin: optionalDirectoryString(domainsRecord, 'admin') } : {}),
-        ...(optionalDirectoryString(domainsRecord, 'domain_name') ? { domain_name: optionalDirectoryString(domainsRecord, 'domain_name') } : {}),
-        ...(optionalDirectoryString(domainsRecord, 'manager') ? { manager: optionalDirectoryString(domainsRecord, 'manager') } : {}),
-        ...(optionalDirectoryString(domainsRecord, 'server') ? { server: optionalDirectoryString(domainsRecord, 'server') } : {}),
-        ...(optionalDirectoryString(domainsRecord, 'services') ? { services: optionalDirectoryString(domainsRecord, 'services') } : {}),
-        ...(optionalDirectoryString(domainsRecord, 'webterminal') ? { webterminal: optionalDirectoryString(domainsRecord, 'webterminal') } : {}),
-      }
+      ...(optionalDirectoryString(domainsRecord, 'admin') ? { admin: optionalDirectoryString(domainsRecord, 'admin') } : {}),
+      ...(optionalDirectoryString(domainsRecord, 'domain_name') ? { domain_name: optionalDirectoryString(domainsRecord, 'domain_name') } : {}),
+      ...(optionalDirectoryString(domainsRecord, 'manager') ? { manager: optionalDirectoryString(domainsRecord, 'manager') } : {}),
+      ...(optionalDirectoryString(domainsRecord, 'server') ? { server: optionalDirectoryString(domainsRecord, 'server') } : {}),
+      ...(optionalDirectoryString(domainsRecord, 'services') ? { services: optionalDirectoryString(domainsRecord, 'services') } : {}),
+      ...(optionalDirectoryString(domainsRecord, 'webterminal') ? { webterminal: optionalDirectoryString(domainsRecord, 'webterminal') } : {}),
+    }
     : undefined;
 
   return Object.freeze({
@@ -771,8 +771,11 @@ const HTTP_ERROR_MESSAGES: Record<number, string> = {
 // setup on a mobile network. Keep enough headroom for transient/cold latency;
 // the query layer still owns bounded retries and the UI remains fail-closed.
 const BROKER_SERVERS_TIMEOUT_MS = 10000;
-// Short enough that broker pre-warm finishes before a typical password type-in.
-const BROKER_HEALTH_TIMEOUT_MS = 1500;
+// Matches the Settings/Accounts gate (SELECTED_BROKER_HEALTH_TIMEOUT_MS). The
+// first probe after logout pays a cold DNS + TCP + TLS handshake before the
+// backend responds, so a tighter budget false-fired "broker unavailable" on
+// healthy brokers; the probe additionally retries once on timeout only.
+const BROKER_HEALTH_TIMEOUT_MS = 3000;
 
 export function isBrokerConfigFull(
   data: BrokerConfigResponse | BrokerConfigFallbackResponse
@@ -929,6 +932,23 @@ export async function getBrokerServers(): Promise<ValidatedBrokerServer[]> {
   return [...directory.selectableServers];
 }
 
+const requestBrokerHealthUrl = (healthUrl: string): Promise<Response> => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), BROKER_HEALTH_TIMEOUT_MS);
+  return timedFetch(healthUrl, {
+    signal: controller.signal,
+    headers: { accept: 'application/json' },
+  }, {
+    label: 'broker.health',
+    method: 'GET',
+    endpoint: '/health',
+    source: 'broker',
+  }).finally(() => clearTimeout(timeout));
+};
+
+const isHealthProbeTimeout = (error: unknown): boolean =>
+  error instanceof Error && error.name === 'AbortError';
+
 export async function checkBrokerServerHealth(serverUrl: string): Promise<void> {
   const healthUrl = buildBrokerHealthUrl(serverUrl);
   if (!healthUrl) {
@@ -936,25 +956,21 @@ export async function checkBrokerServerHealth(serverUrl: string): Promise<void> 
   }
 
   let response: Response;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), BROKER_HEALTH_TIMEOUT_MS);
   try {
-    response = await timedFetch(healthUrl, {
-      signal: controller.signal,
-      headers: { accept: 'application/json' },
-    }, {
-      label: 'broker.health',
-      method: 'GET',
-      endpoint: '/health',
-      source: 'broker',
-    });
-  } catch (networkError) {
-    if (networkError instanceof Error && networkError.name === 'AbortError') {
+    response = await requestBrokerHealthUrl(healthUrl);
+  } catch (firstError) {
+    // Retry once on timeout only: the first probe after logout pays a cold
+    // DNS + TCP + TLS handshake and can exceed the budget once while the
+    // broker is actually healthy. Real failures stay fail-closed with no
+    // retry so a genuinely down broker never stalls login.
+    if (!isHealthProbeTimeout(firstError)) {
       throw new BrokerConfigError(0, 'Selected broker is unavailable');
     }
-    throw new BrokerConfigError(0, 'Selected broker is unavailable');
-  } finally {
-    clearTimeout(timeout);
+    try {
+      response = await requestBrokerHealthUrl(healthUrl);
+    } catch {
+      throw new BrokerConfigError(0, 'Selected broker is unavailable');
+    }
   }
 
   if (!response.ok) {
