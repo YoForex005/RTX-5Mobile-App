@@ -77,8 +77,8 @@ test('symbol and timeframe switching reuse the initialized WebView surface', () 
 
   assertSourceContains(
     source,
-    /const chartDataContextSig = useMemo\([\s\S]*`\$\{chartSymbol\}-\$\{normalizeTimeframe\(chartTimeframe\)\}`/,
-    'symbol/timeframe must be tracked as a data context separate from the chart shell',
+    /const chartDataContextSig = useMemo\([\s\S]*`\$\{activeChartSessionCacheNamespace\}:\$\{chartSymbol\}:\$\{normalizeTimeframe\(chartTimeframe\)\}`/,
+    'broker session, symbol, and timeframe must be tracked as a data context separate from the chart shell',
   );
   assert.doesNotMatch(
     currentSigSource,
@@ -101,7 +101,12 @@ test('symbol switching dispatches selected history before the deferred heavy cha
   assertSourceContains(
     source,
     /const refreshSelectedChartHistory = useCallback\([\s\S]*liveCandlesEngine\.prefetchHistory\(nextSymbol, nextTimeframe\)[\s\S]*liveCandlesEngine\.refreshHistoryForContext\(nextSymbol, nextTimeframe\)/,
-    'fast chart switches must start the selected context prefetch before refreshing an existing target context',
+    'same-context refreshes must keep their canonical engine refresh path',
+  );
+  assertSourceContains(
+    source,
+    /prepare: \(\) => \{[\s\S]*prefetchChartSelectionHistory\(nextSymbol, nextTimeframe\)[\s\S]*prefetchInstrument\(nextSymbol\)/,
+    'new symbol switches must start the status-aware history warm-up before committing the context',
   );
 
   const switchStart = source.indexOf('const warmChartContextAndCommit');
@@ -111,17 +116,17 @@ test('symbol switching dispatches selected history before the deferred heavy cha
   const switchSource = source.slice(switchStart, switchEnd);
   const requestIndex = switchSource.indexOf('chartContextCommitScheduler.request');
   const prepareIndex = switchSource.indexOf('prepare:');
-  const refreshIndex = switchSource.indexOf('refreshSelectedChartHistory', prepareIndex);
+  const historyPreparationIndex = switchSource.indexOf('prefetchChartSelectionHistory', prepareIndex);
   const commitIndex = switchSource.indexOf('commit:');
   const symbolCommitIndex = switchSource.indexOf('preferences.setChartSymbol', commitIndex);
 
   assert.ok(requestIndex >= 0, 'symbol changes must use the cancellable deferred commit scheduler');
   assert.ok(
-    prepareIndex > requestIndex && refreshIndex > prepareIndex,
+    prepareIndex > requestIndex && historyPreparationIndex > prepareIndex,
     'selected history preparation must be part of the pre-render scheduler phase',
   );
   assert.ok(
-    commitIndex > refreshIndex && symbolCommitIndex > commitIndex,
+    commitIndex > historyPreparationIndex && symbolCommitIndex > commitIndex,
     'the Zustand symbol update must happen only in the deferred commit phase',
   );
   assert.doesNotMatch(
@@ -159,7 +164,7 @@ test('symbol and timeframe switching full-reloads data and resets the first view
   );
   assertSourceContains(
     source,
-    /updateChartData\(\$\{JSON\.stringify\(mapped\)\}, \{[\s\S]*resetVisibleRange: \$\{contextChanged\},[\s\S]*dataContextSig: \$\{JSON\.stringify\(chartDataContextSig\)\},[\s\S]*paintToken: \$\{JSON\.stringify\(issuedPaintToken\)\}/,
+    /updateChartData\(\$\{JSON\.stringify\(mapped\)\}, \{[\s\S]*resetVisibleRange: \$\{contextChanged \|\| resetForClosedMarketClamp\},[\s\S]*dataContextSig: \$\{JSON\.stringify\(chartDataContextSig\)\},[\s\S]*paintToken: \$\{JSON\.stringify\(issuedPaintToken\)\}/,
     'symbol/timeframe full reloads must reset the visible range for the newly selected context',
   );
   assertSourceContains(

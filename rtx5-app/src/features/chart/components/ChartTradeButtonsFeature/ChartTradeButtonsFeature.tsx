@@ -24,6 +24,7 @@ import {
 import { splitFormattedChartTradePrice } from './pricePresentation';
 import { baseStyles, darkStyles, lightStyles, textBaseStyles } from './styles';
 import { useTradeHandler, type TradeFeedback } from './useTradeHandler';
+import type { ChartTradeQueueEvent } from '../ChartTradeReceiptStack';
 
 type FooterLotPickerMode = 'absolute' | 'increase' | 'decrease';
 
@@ -41,6 +42,7 @@ type ChartTradeButtonsProps = {
   lotSize: number;
   volumeBounds?: TradeVolumeBounds;
   onTradeResult?: (feedback: TradeFeedback) => void;
+  onTradeQueueEvent?: (event: ChartTradeQueueEvent) => void;
   comment?: string;
   stopLossPrice?: number | null;
   takeProfitPrice?: number | null;
@@ -131,6 +133,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
   lotSize,
   volumeBounds,
   onTradeResult,
+  onTradeQueueEvent,
   comment,
   stopLossPrice,
   takeProfitPrice,
@@ -289,6 +292,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
     quoteActionAllowed: quoteActionAvailability.allowed,
     quoteActionQuote: liveQuote,
     onTradeResult,
+    onTradeQueueEvent,
   });
   // Lot chrome only cares about identity + invalid draft — not quote integrity.
   const tradeControlsDisabled = !isCurrentChartSymbol;

@@ -56,6 +56,9 @@ test('persisted user preferences are normalized before second-launch hydration r
     storeSource,
     /setItem: \(name, value\) => \{\s*pendingPreferenceWrites\.set\(name, value\);\s*schedulePreferenceWriteFlush\(\);\s*\}/,
   );
+  assert.match(storeSource, /isAsyncStorageCapacityError\(error\)/);
+  assert.match(storeSource, /await pruneObsoleteSessionCaches\(\);[\s\S]*await persistWrites\(\)/);
+  assert.match(storeSource, /export const flushUserPreferencesPersistence/);
 });
 
 test('persisted preferences strip credentials and migrate the legacy blob before hydration', () => {
@@ -73,6 +76,11 @@ test('persisted preferences strip credentials and migrate the legacy blob before
   const partializeEnd = storeSource.indexOf('\nexport const useUserPreferences', partializeStart);
   const partializeSource = storeSource.slice(partializeStart, partializeEnd);
   assert.doesNotMatch(partializeSource, /accessToken|refreshToken|expiresAt|credentials:/);
+  assert.doesNotMatch(storeSource, /clearAuthSessionTokens/);
+  assert.match(
+    storeSource,
+    /Missing\/stale plain preferences must not erase it/,
+  );
 });
 
 test('candidate broker setters cannot rebind an authenticated session', () => {

@@ -52,8 +52,34 @@ test('native bridge binds the exact selected timeframe and series context to the
   );
   assertSourceContains(
     nativeSource,
-    /setCandleCountdownActive\(\$\{chartRuntimeActive && chartDisplay\.showLivePriceLine\}\)/,
-    'native must pause the DOM ticker while the retained chart or live-price line is inactive',
+    /setCandleCountdownActive\(\$\{chartRuntimeActive && chartDisplay\.showLivePriceLine && !isChartMarketClosed\}\)/,
+    'native must pause the DOM ticker while the retained chart, live-price line, or market is inactive',
+  );
+});
+
+test('confirmed quote-closed charts remove the expired countdown immediately', () => {
+  const resolveBody = extractFunctionBody(webViewSource, 'resolveCandleCountdownLabel');
+  const activeSetterBody = extractFunctionBody(webViewSource, 'setCandleCountdownActive');
+
+  assertSourceContains(
+    nativeSource,
+    /const isChartMarketClosed = chartMarketSessionPolicy\.quotePhase === 'closed'/,
+    'only a confirmed per-symbol quote closure may disable the countdown',
+  );
+  assertSourceContains(
+    resolveBody,
+    /if \(!candleCountdownActive\) \{[\s\S]*return null/,
+    'an inactive countdown must not leave a stale 00:00 row in the price badge',
+  );
+  assertSourceContains(
+    activeSetterBody,
+    /candleCountdownActive = active === true[\s\S]*stopCandleCountdownTicker\(\)[\s\S]*scheduleMarketPriceScaleDomOnly\(\)/,
+    'activity changes must repaint the badge for both open and closed transitions',
+  );
+  assertSourceContains(
+    nativeSource,
+    /\{symbolName\}\{isChartMarketClosed \? ` · \$\{t\('Market Closed'\)\}` : ''\}/,
+    'closed charts must show the localized market state without growing the symbol header',
   );
 });
 

@@ -85,7 +85,7 @@ test('native Chart isolates static markers and slow React commits without delayi
   assert.match(source, /useLiveCandles\(\s*chartSymbol,\s*chartTimeframe,\s*chartDataActive,\s*CHART_SCREEN_CANDLE_COMMIT_INTERVAL_MS/);
   assert.match(
     source,
-    /const readCanonicalCandles = \(\) => liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\)[\s\S]*const paintCanonicalLiveTick = \(allowUnchangedSnapshot = false\) => \{[\s\S]*updateLiveTick\([\s\S]*paintCanonicalLiveTick\(true\);[\s\S]*liveCandlesEngine\.subscribe\(\s*chartSymbol,\s*chartTimeframe,\s*paintCanonicalLiveTick/,
+    /const readRenderableCanonicalCandles = useCallback\(\(\) => \{[\s\S]*liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\)[\s\S]*const paintCanonicalLiveTick = \(allowUnchangedSnapshot = false\) => \{[\s\S]*const exactQuote = readExactChartQuoteForScope\([\s\S]*updateLiveTick\([\s\S]*paintCanonicalLiveTick\(true\);[\s\S]*liveCandlesEngine\.subscribe\(\s*chartSymbol,\s*chartTimeframe,\s*paintCanonicalLiveTick/,
     'the WebView live-paint path must repaint atomically on resume and subscribe to the canonical engine instead of waiting for React commits',
   );
   assert.doesNotMatch(source, /requestMarketPriceLineFlush|pendingMarketPriceLinesRef/);

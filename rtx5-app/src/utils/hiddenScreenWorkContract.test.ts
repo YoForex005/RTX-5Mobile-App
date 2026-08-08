@@ -87,7 +87,15 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   assert.match(instrumentsSource, /enabled: isEnabled/);
   assert.match(alertsSource, /const enabled = Boolean\(session\) && \(options\.enabled \?\? true\) && isLoggedIn/);
   assert.match(marketStatusSource, /const isEnabled = enabled && isLoggedIn && Boolean\(session\) && !!symbol/);
-  assert.match(marketStatusSource, /refetchInterval: isEnabled \? 30_000 : false/);
+  assert.match(marketStatusSource, /pollingEnabled = enabled/);
+  assert.match(marketStatusSource, /const isPollingEnabled = isEnabled && pollingEnabled/);
+  assert.match(marketStatusSource, /refetchInterval: isPollingEnabled \? 30_000 : false/);
+  assert.match(marketStatusSource, /refetchOnWindowFocus: isPollingEnabled/);
+  assert.match(marketStatusSource, /refetchOnReconnect: isPollingEnabled/);
+  assert.match(
+    chartSource,
+    /useMarketStatus\(\s*chartSymbol,\s*chartSurfaceReady,\s*chartRuntimeActive,\s*\)/,
+  );
   assert.match(registerSource, /const isScreenFocused = useIsFocused\(\)/);
   assert.match(registerSource, /const registerDataActive = useDeferredActiveFlag\(\s*isScreenFocused && firstPaintReady,\s*REGISTER_ROUTE_DATA_DELAY_MS,\s*\)/);
   assert.match(registerSource, /useOrrnnDemoStatus\(registerDataActive\)/);
@@ -173,7 +181,7 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   assert.match(chartSource, /const activeChartSessionCacheNamespace = activeChartSession\?\.cacheNamespace \?\? ''/);
   assert.match(
     chartSource,
-    /Fast retained live-paint path[\s\S]*if \([\s\S]*!chartSurfaceReady[\s\S]*!activeChartSessionCacheNamespace[\s\S]*const paintCanonicalLiveTick = \(allowUnchangedSnapshot = false\) => \{[\s\S]*updateLiveTick\([\s\S]*const releaseCandleConsumer = liveCandlesEngine\.subscribe\([\s\S]*chartSymbol,[\s\S]*chartTimeframe,[\s\S]*paintCanonicalLiveTick,[\s\S]*const retainLatestChartTradeDisplayQuote = \(tick: QuoteTickEvent\) => \{[\s\S]*retainedChartTradeDisplayQuoteRef\.current = \{[\s\S]*const releaseQuoteDemand = quotesWsService\.subscribeToSymbol\([\s\S]*chartSymbol,[\s\S]*retainLatestChartTradeDisplayQuote,[\s\S]*releaseQuoteDemand\(\);[\s\S]*releaseCandleConsumer\(\);/,
+    /Fast retained live-paint path[\s\S]*if \([\s\S]*!chartSurfaceReady[\s\S]*!activeChartSessionCacheNamespace[\s\S]*const paintCanonicalLiveTick = \(allowUnchangedSnapshot = false\) => \{[\s\S]*updateLiveTick\([\s\S]*const releaseCandleConsumer = liveCandlesEngine\.subscribe\([\s\S]*chartSymbol,[\s\S]*chartTimeframe,[\s\S]*paintCanonicalLiveTick,[\s\S]*const retainLatestChartTradeDisplayQuote = \(tick: QuoteTickEvent\) => \{[\s\S]*captureExactChartQuote\(chartTradeDisplayQuoteScopeKey, tick\)[\s\S]*retainedChartTradeDisplayQuoteRef\.current = exactQuote;[\s\S]*paintCanonicalLiveTick\(true\)[\s\S]*const releaseQuoteDemand = quotesWsService\.subscribeToSymbol\([\s\S]*chartSymbol,[\s\S]*retainLatestChartTradeDisplayQuote,[\s\S]*releaseQuoteDemand\(\);[\s\S]*releaseCandleConsumer\(\);/,
   );
   const retainedLivePaintSource = chartSource.slice(
     chartSource.indexOf('// Fast retained live-paint path.'),
@@ -186,7 +194,7 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   );
   assert.match(
     retainedLivePaintSource,
-    /updateMode !== 'full_reload'[\s\S]*updateChartData\([\s\S]*preserveVisibleLogicalSpan: true[\s\S]*updateLiveTick\(/,
+    /updateMode !== 'full_reload'[\s\S]*updateChartData\([\s\S]*preserveVisibleLogicalSpan: \$\{!resetForClosedMarketClamp\}[\s\S]*resetVisibleRange: \$\{resetForClosedMarketClamp\}[\s\S]*updateLiveTick\(/,
     'a rare hidden full-series replacement must catch up before the retained Chart can be revealed',
   );
   assert.doesNotMatch(
@@ -196,7 +204,7 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   );
   assert.match(
     chartSource,
-    /const chartTradeDisplayQuoteScopeKey =[\s\S]*activeChartSessionCacheNamespace[\s\S]*chartSymbol\.trim\(\)\.toUpperCase\(\)[\s\S]*const retainedChartTradeDisplayQuoteRef = useRef<RetainedChartTradeDisplayQuote \| null>\(null\)/,
+    /const chartTradeDisplayQuoteScopeKey =[\s\S]*activeChartSessionCacheNamespace[\s\S]*chartSymbol\.trim\(\)\.toUpperCase\(\)[\s\S]*const retainedChartTradeDisplayQuoteRef = useRef<ExactChartQuoteSnapshot \| null>\(null\)/,
     'retained footer prices must be scoped to the active session and symbol',
   );
   assert.match(

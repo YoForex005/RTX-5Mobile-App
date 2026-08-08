@@ -150,6 +150,12 @@ export const INITIAL_VIEWPORT_HISTORY_LIMIT = 120;
 export const INITIAL_HISTORY_LIMIT = Math.min(INITIAL_VIEWPORT_HISTORY_LIMIT, MAX_CANDLE_SERIES_LENGTH);
 /** Smaller left-scroll page size so older history can be prepended without a heavy full-window fetch. */
 export const PAGINATED_HISTORY_LIMIT = Math.min(500, MAX_CANDLE_SERIES_LENGTH);
+/**
+ * Deeper one-shot warm-up used only after backend status explicitly reports
+ * `quote_open: false`. It finds the genuine pre-close bars even when a broker
+ * incorrectly leaves many frozen rows at the newest edge.
+ */
+export const CLOSED_MARKET_HISTORY_WARM_LIMIT = PAGINATED_HISTORY_LIMIT;
 /** Hard cap for lazily rendered history; high enough for deep M1 scroll, bounded for mobile WebView cost. */
 export const MAX_RENDERED_HISTORY_CANDLES = Math.max(MAX_CANDLE_SERIES_LENGTH, 10_000);
 /** Retained normalized REST history cap; larger than render cap so repeated pagination can dedupe safely. */

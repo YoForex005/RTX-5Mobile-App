@@ -111,7 +111,7 @@ test('legacy credentials migrate once into the versioned bundle and are erased',
   assert.deepEqual(restored, migrated);
 });
 
-test('identity mismatch with no current credentials clears a stale secure bundle', async () => {
+test('stale preference identity cannot erase the current secure session bundle', async () => {
   const storage = new MemorySecureStorage();
   const store = new SecureCredentialBundleStore(storage);
   await store.replace(credentials('broker-a', '1001', 'access-a', 'feed-a'));
@@ -119,7 +119,35 @@ test('identity mismatch with no current credentials clears a stale secure bundle
   const migrated = await store.migrateLegacy({ brokerId: 'broker-b', accountLogin: '2002' });
 
   assert.equal(migrated, null);
-  assert.equal(storage.values.has(AUTH_CREDENTIAL_BUNDLE_KEY), false);
+  assert.equal(
+    JSON.parse(storage.values.get(AUTH_CREDENTIAL_BUNDLE_KEY) ?? '{}').brokerId,
+    'broker-a',
+  );
+  assert.equal(
+    JSON.parse(storage.values.get(AUTH_CREDENTIAL_BUNDLE_KEY) ?? '{}').accountLogin,
+    '1001',
+  );
+});
+
+test('stale legacy credentials cannot overwrite the current secure session bundle', async () => {
+  const storage = new MemorySecureStorage();
+  const store = new SecureCredentialBundleStore(storage);
+  await store.replace(credentials('achiever-financials', '200002', 'achiever-access'));
+
+  const migrated = await store.migrateLegacy({
+    brokerId: 'gta',
+    accountLogin: '100001',
+    credentials: {
+      accessToken: 'stale-gta-access',
+      refreshToken: 'stale-gta-refresh',
+    },
+  });
+
+  assert.equal(migrated, null);
+  const current = await store.get();
+  assert.equal(current?.brokerId, 'achiever-financials');
+  assert.equal(current?.accountLogin, '200002');
+  assert.equal(current?.accessToken, 'achiever-access');
 });
 
 test('unbound individual legacy tokens are erased rather than rebound to a broker', async () => {

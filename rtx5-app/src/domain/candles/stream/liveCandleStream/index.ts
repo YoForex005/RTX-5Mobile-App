@@ -18,6 +18,8 @@ export { LiveCandleStreamManager } from './manager';
 export {
   EMPTY_CANDLES,
   DEFAULT_HISTORY_LIMIT,
+  CLOSED_MARKET_HISTORY_WARM_LIMIT,
+  INITIAL_HISTORY_LIMIT,
   MAX_BUFFERED_LIVE_EVENTS,
   FLUSH_INTERVAL_MS,
 } from './types';

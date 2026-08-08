@@ -33,11 +33,16 @@ import {
  */
 export interface HistoryFetchManagerBridge {
   readonly entries: Map<string, StreamEntry>;
-  readonly historyPrefetches: Map<string, Promise<number>>;
+  readonly historyPrefetches: Map<string, HistoryPrefetchRecord>;
   notify(entry: StreamEntry): void;
   applyLiveEvents(entry: StreamEntry, events: BufferedLiveEvent[]): boolean;
   commit(entry: StreamEntry): void;
 }
+
+export type HistoryPrefetchRecord = {
+  limit: number;
+  promise: Promise<number>;
+};
 
 import { sanitizeCandlesForChart } from '../../normalization/chartAdapter';
 import { computeHistoryRetryPlan } from './historyRetryPolicy';
@@ -149,7 +154,13 @@ export const runLoadHistory = (
   if (isPaginationRequest) {
     entry.historyPageLoading = true;
   } else {
-    entry.renderHistoryLimit = INITIAL_HISTORY_LIMIT;
+    // A confirmed-closed warm-up may intentionally request a deeper first
+    // window. Keep all of those exact backend candles renderable so genuine
+    // pre-close bars are not hidden behind a second pagination request.
+    entry.renderHistoryLimit = Math.min(
+      MAX_RENDERED_HISTORY_CANDLES,
+      Math.max(INITIAL_HISTORY_LIMIT, limit),
+    );
     entry.historyPaginationCursorTime = null;
     entry.historyLoading = true;
     entry.historyPageLoading = false;
@@ -314,6 +325,7 @@ export const runPrefetchHistory = (
   symbol: string,
   timeframe: string,
   resolveKey: (symbol: string, timeframe: string) => string,
+  limit = INITIAL_HISTORY_LIMIT,
 ): Promise<number> => {
   const normalizedSymbol = normalizeSymbol(symbol);
   const normalizedTimeframe = normalizeCandleHistoryTimeframeStrict(timeframe);
@@ -322,29 +334,54 @@ export const runPrefetchHistory = (
   }
   const sessionProvenance = captureActiveBrokerSessionProvenance();
   if (!sessionProvenance) return Promise.resolve(0);
+  const finiteRequestedLimit = Number.isFinite(limit)
+    ? Math.floor(limit)
+    : INITIAL_HISTORY_LIMIT;
+  const requestedLimit = Math.min(
+    MAX_RENDERED_HISTORY_CANDLES,
+    Math.max(INITIAL_HISTORY_LIMIT, finiteRequestedLimit),
+  );
 
   const key = resolveKey(normalizedSymbol, normalizedTimeframe);
   const activeEntry = manager.entries.get(key);
-  if (activeEntry?.historyLoading) {
+  if (activeEntry?.historyLoading && requestedLimit <= activeEntry.renderHistoryLimit) {
     return Promise.resolve(activeEntry.candles.length);
   }
-  if (activeEntry && activeEntry.candles.length > 0 && !activeEntry.loading) {
+  if (
+    activeEntry &&
+    activeEntry.historyCandles.length >= requestedLimit &&
+    !activeEntry.loading
+  ) {
     return Promise.resolve(activeEntry.candles.length);
+  }
+
+  // An accepted Quotes-row tap may finish this exact symbol/timeframe warm-up
+  // while the ActionSheet is still open. Reuse that authoritative memory seed
+  // when the user then chooses Chart instead of issuing the same REST request
+  // twice. The active Chart stream still starts its normal fresh-history load
+  // after synchronously painting this seed.
+  const memorySeed = candleMemoryCache.get(normalizedSymbol, normalizedTimeframe);
+  if (memorySeed.length >= requestedLimit) {
+    return Promise.resolve(memorySeed.length);
   }
 
   const existing = manager.historyPrefetches.get(key);
-  if (existing) {
-    return existing;
+  if (existing && existing.limit >= requestedLimit) {
+    return existing.promise;
   }
 
+  let prefetchRecord: HistoryPrefetchRecord;
   const prefetch = getCandleHistory(
     normalizedSymbol,
     normalizedTimeframe,
-    INITIAL_HISTORY_LIMIT,
+    requestedLimit,
     { cacheNamespace: sessionProvenance.cacheNamespace },
   )
     .then((history) => {
       if (!isActiveBrokerSessionProvenanceCurrent(history.provenance)) return 0;
+      // A deeper request can supersede an earlier shallow warm-up. Never let
+      // the late shallow response replace the deeper exact history.
+      if (manager.historyPrefetches.get(key) !== prefetchRecord) return 0;
       const seed = getHistorySeedSnapshot(history);
       const candles = seed.candles;
       candleMemoryCache.set(normalizedSymbol, normalizedTimeframe, candles);
@@ -362,6 +399,10 @@ export const runPrefetchHistory = (
         liveEntry.requestId === 0 &&
         !liveEntry.historyLoading
       ) {
+        liveEntry.renderHistoryLimit = Math.min(
+          MAX_RENDERED_HISTORY_CANDLES,
+          Math.max(INITIAL_HISTORY_LIMIT, requestedLimit),
+        );
         liveEntry.historyCandles = foldCoveredLiveExtremesIntoHistory(
           candles,
           liveEntry.liveCandleMap,
@@ -387,9 +428,12 @@ export const runPrefetchHistory = (
       return 0;
     })
     .finally(() => {
-      manager.historyPrefetches.delete(key);
+      if (manager.historyPrefetches.get(key) === prefetchRecord) {
+        manager.historyPrefetches.delete(key);
+      }
     });
 
-  manager.historyPrefetches.set(key, prefetch);
+  prefetchRecord = { limit: requestedLimit, promise: prefetch };
+  manager.historyPrefetches.set(key, prefetchRecord);
   return prefetch;
 };

@@ -22,11 +22,16 @@ export const getMarketStatusQueryKey = (
   symbol: string,
 ) => [MARKET_STATUS_KEY, cacheNamespace, symbol] as const;
 
-export function useMarketStatus(symbol: string, enabled = true) {
+export function useMarketStatus(
+  symbol: string,
+  enabled = true,
+  pollingEnabled = enabled,
+) {
   const session = useActiveBrokerQuerySession();
   const cacheNamespace = getSessionQueryCacheNamespace(session);
   const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
   const isEnabled = enabled && isLoggedIn && Boolean(session) && !!symbol;
+  const isPollingEnabled = isEnabled && pollingEnabled;
 
   return useQuery({
     queryKey: getMarketStatusQueryKey(cacheNamespace, symbol),
@@ -35,7 +40,9 @@ export function useMarketStatus(symbol: string, enabled = true) {
       () => fetchMarketStatus(symbol),
     ),
     enabled: isEnabled,
-    refetchInterval: isEnabled ? 30_000 : false,
+    refetchInterval: isPollingEnabled ? 30_000 : false,
+    refetchOnWindowFocus: isPollingEnabled,
+    refetchOnReconnect: isPollingEnabled,
     retry: 1,
   });
 }

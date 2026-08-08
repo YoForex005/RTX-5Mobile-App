@@ -30,9 +30,12 @@ import { normalizeCandleHistoryTimeframe } from '../../domain/candles/core/candl
 import { DEFAULT_TRADE_VOLUME, normalizeTradeVolume } from '../../utils/tradeVolume';
 import { normalizeLanguageCode } from '../../i18n/translations';
 import {
-  clearAuthSessionTokens,
   migrateLegacyAuthSessionCredentials,
 } from '../brokerSessionStorage';
+import {
+  isAsyncStorageCapacityError,
+  pruneObsoleteSessionCaches,
+} from '../sessionCacheStorage';
 import {
   CHART_COLOR_SCHEME_PRESETS,
   DEFAULT_CHART_COLOR_SCHEME,
@@ -110,6 +113,7 @@ type PersistedUserPreferencesState = Omit<
 const pendingPreferenceWrites = new Map<string, StorageValue<PersistedUserPreferencesState>>();
 let preferenceWriteFlushScheduled = false;
 let preferenceWriteFlushFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+let preferenceWriteQueue: Promise<void> = Promise.resolve();
 const PREFERENCES_STORAGE_VERSION = 23;
 const CHART_DRAWING_RECORDS_STORAGE_KEY = 'rtx5-chart-drawing-records-v1';
 const LEGACY_BLUE_DEFAULT_CHART_COLORS: ChartColorsConfig = {
@@ -485,17 +489,46 @@ function flushPendingPreferenceWrites() {
   }
   const writes = Array.from(pendingPreferenceWrites.entries());
   pendingPreferenceWrites.clear();
+  if (writes.length === 0) {
+    return preferenceWriteQueue;
+  }
 
-  writes.forEach(([name, value]) => {
-    // Deep auth redaction and serialization stay off the interaction frame.
-    // `partializeUserPreferences` already omits runtime credentials, and this
-    // final sanitizer still guarantees that only a clean envelope reaches disk.
-    const sanitized = sanitizePreferenceAuthStorageValue(value).sanitizedStorageValue;
-    void AsyncStorage.setItem(name, JSON.stringify(sanitized)).catch((error) => {
-      console.warn('[UserPreferences] Failed to persist preferences', error);
-    });
+  const persistWrites = async (): Promise<void> => {
+    for (const [name, value] of writes) {
+      // Deep auth redaction and serialization stay off the interaction frame.
+      // `partializeUserPreferences` already omits runtime credentials, and this
+      // final sanitizer still guarantees that only a clean envelope reaches disk.
+      const sanitized = sanitizePreferenceAuthStorageValue(value).sanitizedStorageValue;
+      await AsyncStorage.setItem(name, JSON.stringify(sanitized));
+    }
+  };
+
+  const operation = preferenceWriteQueue.then(async () => {
+    try {
+      await persistWrites();
+    } catch (error) {
+      if (!isAsyncStorageCapacityError(error)) {
+        throw error;
+      }
+
+      // Session namespaces are deliberately single-use. Reclaim only those
+      // obsolete cache records, then retry the important preference write once.
+      await pruneObsoleteSessionCaches();
+      await persistWrites();
+    }
   });
+  preferenceWriteQueue = operation.catch(() => undefined);
+  // Scheduled UI-preference writes remain non-blocking, but an explicit session
+  // commit can await the same operation through flushUserPreferencesPersistence.
+  void operation.catch((error) => {
+    console.warn('[UserPreferences] Failed to persist preferences', error);
+  });
+  return operation;
 }
+
+/** Waits until the current preference snapshot has reached AsyncStorage. */
+export const flushUserPreferencesPersistence = (): Promise<void> =>
+  flushPendingPreferenceWrites();
 
 function schedulePreferenceWriteFlush() {
   if (preferenceWriteFlushScheduled) return;
@@ -539,7 +572,6 @@ const userPreferencesStorage: PersistStorage<PersistedUserPreferencesState, void
           credentials: authSnapshot.legacyCredentials,
         }).catch(async (error) => {
           console.warn('[UserPreferences] Secure auth restore failed closed', error);
-          await clearAuthSessionTokens().catch(() => undefined);
           return null;
         });
 
@@ -558,7 +590,9 @@ const userPreferencesStorage: PersistStorage<PersistedUserPreferencesState, void
           persistedStorageValue = failClosedPersistedAuthState(persistedStorageValue);
           runtimeStorageValue = persistedStorageValue;
         }
-        await clearAuthSessionTokens().catch(() => undefined);
+        // A SecureStore manifest + credential bundle is the cold-start session
+        // authority. Missing/stale plain preferences must not erase it; the
+        // broker session coordinator validates that secure pair after hydration.
       }
 
       if (

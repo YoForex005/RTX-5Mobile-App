@@ -7161,6 +7161,7 @@ export const CH_HTML = `
             try { window._drawingManager.refreshCrosshairData(); } catch (_crosshairRefreshErr) {}
           }
           var didPrependHistory =
+            !resetVisibleRange &&
             previousRawSeriesData.length > 0 &&
             lastRawSeriesData.length > 0 &&
             lastRawSeriesData[0] &&
@@ -7193,7 +7194,7 @@ export const CH_HTML = `
           var priceScaleReason = didPrependHistory
             ? 'update_data_prepend_history'
             : (didReplaceVisibleSeries ? 'update_data_replace_series' : 'update_data');
-          var restoredPrependedViewport = restorePrependedHistoryViewport(
+          var restoredPrependedViewport = !resetVisibleRange && restorePrependedHistoryViewport(
             previousRawSeriesData,
             lastRawSeriesData,
             previousVisibleLogicalRange
@@ -7201,6 +7202,7 @@ export const CH_HTML = `
           var restoredStableReplacementViewport = false;
           if (
             !restoredPrependedViewport &&
+            !resetVisibleRange &&
             preserveVisibleLogicalSpan &&
             didReplaceVisibleSeries &&
             mapped.length > 0
@@ -7375,6 +7377,12 @@ export const CH_HTML = `
           var revision = typeof pending.revision === 'number' && isFinite(pending.revision)
             ? pending.revision
             : null;
+          var pendingDataContextSig =
+            typeof pending.dataContextSig === 'string' ? pending.dataContextSig : '';
+          if (
+            pendingDataContextSig &&
+            pendingDataContextSig !== lastInitDataContextSig
+          ) return;
           if (revision !== null && revision <= lastAppliedLiveTickRevision) return;
           var applied = applyTickUpdate(tick);
           if (!applied) return;
@@ -7404,12 +7412,15 @@ export const CH_HTML = `
         tickFlushHandle = requestAnimationFrame(flushPendingTick);
       }
 
-      // Canonical live paint transaction. The native host supplies one
-      // aggregated Bid candle and that exact Bid close for the existing market
-      // line. Both are applied inside the same animation frame, so independent
-      // timers can never make the line chase or overshoot the forming candle.
+      // Canonical live paint transaction. The native host supplies the candle
+      // snapshot and the separately-owned exact backend Bid for the market
+      // line. They are applied inside one animation frame, but are never forced
+      // equal: candle.close and the latest quote Bid can legitimately differ.
       function updateLiveTick(update) {
         if (!update || !update.candle || typeof update.candle.time !== 'number') return;
+        var updateDataContextSig =
+          typeof update.dataContextSig === 'string' ? update.dataContextSig : '';
+        if (!updateDataContextSig || updateDataContextSig !== lastInitDataContextSig) return;
         var revision = Number(update.revision);
         if (!isFinite(revision) || revision <= lastAppliedLiveTickRevision) return;
         if (
@@ -7424,6 +7435,7 @@ export const CH_HTML = `
           livePrice: update.livePrice,
           showLivePriceLine: update.showLivePriceLine === true,
           syncLivePriceLine: true,
+          dataContextSig: updateDataContextSig,
           revision: revision,
         };
         if (tickFlushHandle) return;
@@ -7791,6 +7803,9 @@ export const CH_HTML = `
       }
 
       function resolveCandleCountdownLabel() {
+        if (!candleCountdownActive) {
+          return null;
+        }
         return formatCandleCountdownLabel(getCandleCountdownRemainingSeconds(Date.now()));
       }
 
@@ -7831,9 +7846,9 @@ export const CH_HTML = `
         if (candleCountdownActive && candleCountdownTimeframe) {
           scheduleNextCandleCountdownTick();
         }
-        if (candleCountdownActive) {
-          scheduleMarketPriceScaleDomOnly();
-        }
+        // Repaint on both transitions so a retained closed-market chart removes
+        // a stale 00:00 row immediately instead of waiting for another quote.
+        scheduleMarketPriceScaleDomOnly();
       }
 
       function scheduleMarketPriceScaleDomOnly() {
@@ -7893,6 +7908,18 @@ export const CH_HTML = `
         } catch (e) {
           postError('setLivePriceLine', e);
         }
+      }
+
+      // Reject a delayed native command after a symbol, timeframe, broker, or
+      // account switch. Closed markets have no future tick to heal a stale
+      // ordering mistake, so the context check is part of the bridge contract.
+      function setLivePriceLineForContext(price, dataContextSig, shouldScheduleRefresh) {
+        var requestedContextSig = typeof dataContextSig === 'string' ? dataContextSig : '';
+        if (!requestedContextSig || requestedContextSig !== lastInitDataContextSig) {
+          return false;
+        }
+        setLivePriceLine(price, shouldScheduleRefresh);
+        return true;
       }
 
       function setBidPriceLine(price, shouldScheduleRefresh) {
@@ -9855,6 +9882,7 @@ export const CH_HTML = `
       window.setDisplayDecimals = setDisplayDecimals;
       window.setPeriodSeparators = setPeriodSeparators;
       window.setLivePriceLine = setLivePriceLine;
+      window.setLivePriceLineForContext = setLivePriceLineForContext;
       window.setBidPriceLine = setBidPriceLine;
       window.setAskPriceLine = setAskPriceLine;
       window.setMarketPriceLines = setMarketPriceLines;

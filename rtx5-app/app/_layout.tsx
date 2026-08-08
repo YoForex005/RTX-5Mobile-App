@@ -248,7 +248,7 @@ import { brokerApi } from '../src/api/brokerApi';
 import { accountWsService } from '../src/api/ws/accountSocket';
 import { wsService } from '../src/api/ws/socket';
 import { candlesWsService } from '../src/domain/candles/ws/candlesSocket';
-import { getAccountByIdResult } from '../src/api/accounts';
+import { AccountsApiError, getAccountByIdResult } from '../src/api/accounts';
 import { useLiveAccountState } from '../src/state/liveAccountState';
 import { usePositionsState } from '../src/state/positionsState';
 import { prefetchAccountSummary } from '../src/utils/navigationPrefetch';
@@ -526,6 +526,21 @@ function RootLayout() {
               );
             } catch (e) {
               if (cancelled) return;
+              if (
+                e instanceof AccountsApiError
+                && (
+                  e.statusCode === 0
+                  || e.statusCode === 408
+                  || e.statusCode === 429
+                  || e.statusCode >= 500
+                )
+              ) {
+                console.info('[Hydration] Initial account metrics temporarily unavailable', {
+                  errorName: e.name,
+                  statusCode: e.statusCode,
+                });
+                return;
+              }
               console.warn(
                 '[Hydration Error] Failed to fetch initial account metrics:',
                 redactDiagnosticValue(e),

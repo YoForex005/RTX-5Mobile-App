@@ -44,11 +44,12 @@ import {
   isNewMarketOrderProtectionBackendLocked,
   SLTP_COMING_SOON_TITLE,
 } from '../../../trade/tradeBackendCapabilities';
+import type { ChartTradeQueueEvent } from '../ChartTradeReceiptStack';
 
 const CHART_TRADE_DIAGNOSTICS_ENABLED =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CHART_TRADE === 'true';
-const CHART_TRADE_QUEUE_LIMIT = 10;
 const CHART_TRADE_QUEUE_RETRY_MS = 50;
+let nextChartTradeQueueId = 1;
 
 const logChartTradeDiagnostic = (...args: Parameters<typeof console.log>) => {
   if (CHART_TRADE_DIAGNOSTICS_ENABLED) {
@@ -104,6 +105,7 @@ export type TradeHandlerOptions = {
   quoteActionAllowed: boolean;
   quoteActionQuote?: ExecutableQuoteInput;
   onTradeResult?: (feedback: TradeFeedback) => void;
+  onTradeQueueEvent?: (event: ChartTradeQueueEvent) => void;
 };
 
 export function useTradeHandler({
@@ -120,6 +122,7 @@ export function useTradeHandler({
   quoteActionAllowed,
   quoteActionQuote,
   onTradeResult,
+  onTradeQueueEvent,
 }: TradeHandlerOptions) {
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
   const currentChartSymbol = useUserPreferences((s) => s.chartSymbol);
@@ -130,19 +133,53 @@ export function useTradeHandler({
   const tradeTapLockSideRef = React.useRef<TradeSide | null>(null);
   const tradeQueueRef = React.useRef<QueuedChartTrade[]>([]);
   const tradeQueueDrainTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const nextTradeQueueIdRef = React.useRef(1);
+  const onTradeQueueEventRef = React.useRef(onTradeQueueEvent);
+  onTradeQueueEventRef.current = onTradeQueueEvent;
   const quoteActionQuoteRef = React.useRef<ExecutableQuoteInput | undefined>(quoteActionQuote);
   quoteActionQuoteRef.current = quoteActionQuote;
   const isCurrentChartSymbol =
     normalizeSymbol(currentChartSymbol) === normalizeSymbol(symbol);
-  const clearQueuedTrades = React.useCallback(() => {
-    tradeQueueRef.current.forEach((queuedTrade) => {
+  const emitTradeQueueEvent = React.useCallback((
+    queuedTrade: QueuedChartTrade,
+    status: ChartTradeQueueEvent['status'],
+    feedback?: TradeFeedback,
+  ) => {
+    onTradeQueueEventRef.current?.({
+      queueId: queuedTrade.id,
+      status,
+      side: queuedTrade.side,
+      symbol: queuedTrade.symbol,
+      volume: queuedTrade.volume,
+      ...(feedback ? { feedback } : {}),
+    });
+  }, []);
+  const reportQueuedTradeResult = (
+    queuedTrade: QueuedChartTrade,
+    status: Extract<ChartTradeQueueEvent['status'], 'confirmed' | 'failed' | 'unconfirmed'>,
+    feedback: TradeFeedback,
+  ) => {
+    if (onTradeQueueEventRef.current) {
+      emitTradeQueueEvent(queuedTrade, status, feedback);
+      return;
+    }
+    // Backward-compatible fallback for any chart button host that has not yet
+    // mounted the independent MT5-style receipt stack.
+    onTradeResult?.(feedback);
+  };
+  const clearQueuedTrades = React.useCallback((
+    receiptStatus?: Extract<ChartTradeQueueEvent['status'], 'failed' | 'cancelled'>,
+  ) => {
+    const queuedTrades = tradeQueueRef.current;
+    tradeQueueRef.current = [];
+    queuedTrades.forEach((queuedTrade) => {
       if (queuedTrade.protectionDraftId) {
         releaseChartProtectionDraftSubmission(queuedTrade.protectionDraftId);
       }
+      if (receiptStatus) {
+        emitTradeQueueEvent(queuedTrade, receiptStatus);
+      }
     });
-    tradeQueueRef.current = [];
-  }, []);
+  }, [emitTradeQueueEvent]);
 
   React.useEffect(() => () => {
     if (activeSideResetTimeoutRef.current) {
@@ -154,7 +191,7 @@ export function useTradeHandler({
       releaseChartTradeButtonSharedLock(tradeTapLockSideRef.current);
       tradeTapLockSideRef.current = null;
     }
-    clearQueuedTrades();
+    clearQueuedTrades('cancelled');
     if (tradeQueueDrainTimerRef.current) {
       clearTimeout(tradeQueueDrainTimerRef.current);
       tradeQueueDrainTimerRef.current = null;
@@ -172,7 +209,7 @@ export function useTradeHandler({
       releaseChartTradeButtonSharedLock(tradeTapLockSideRef.current);
       tradeTapLockSideRef.current = null;
     }
-    clearQueuedTrades();
+    clearQueuedTrades('cancelled');
     if (tradeQueueDrainTimerRef.current) {
       clearTimeout(tradeQueueDrainTimerRef.current);
       tradeQueueDrainTimerRef.current = null;
@@ -238,7 +275,7 @@ export function useTradeHandler({
       const currentQuoteAvailability = resolveSessionQuoteActionAvailability(quoteActionQuoteRef.current);
       if (!currentQuoteAvailability.allowed) {
         recordBlockedPriceAction('chart_queued_trade', currentQuoteAvailability);
-        clearQueuedTrades();
+        clearQueuedTrades('failed');
         onTradeResult?.({
           visible: true,
           type: 'error',
@@ -260,7 +297,7 @@ export function useTradeHandler({
       if (queuedTrade.protectionDraftId) {
         releaseChartProtectionDraftSubmission(queuedTrade.protectionDraftId);
       }
-      onTradeResult?.({
+      reportQueuedTradeResult(queuedTrade, 'failed', {
         visible: true,
         type: 'error',
         title: SLTP_COMING_SOON_TITLE,
@@ -344,13 +381,14 @@ export function useTradeHandler({
             },
             { action: 'place-order' },
           );
-          onTradeResult?.({
+          const rejectedFeedback: TradeFeedback = {
             visible: true,
             type: 'error',
             title: feedback.title,
             message: feedback.message,
             side: action.side,
-          });
+          };
+          reportQueuedTradeResult(queuedTrade, 'failed', rejectedFeedback);
           if (queuedTrade.protectionDraftId) {
             releaseChartProtectionDraftSubmission(queuedTrade.protectionDraftId);
           }
@@ -359,7 +397,7 @@ export function useTradeHandler({
           return;
         }
         const executionEvidence = resolveBrokerExecutionEvidence(data);
-        onTradeResult?.(executionEvidence.confirmed
+        const executionFeedback: TradeFeedback = executionEvidence.confirmed
           ? {
             visible: true,
             type: 'success',
@@ -393,7 +431,12 @@ export function useTradeHandler({
             ...(queuedTrade.protectionDraftId
               ? { protectionDraftId: queuedTrade.protectionDraftId }
               : {}),
-          });
+          };
+        reportQueuedTradeResult(
+          queuedTrade,
+          executionEvidence.confirmed ? 'confirmed' : 'unconfirmed',
+          executionFeedback,
+        );
         releaseTradeTapLock();
         scheduleProcessNextQueuedTrade();
       },
@@ -411,19 +454,20 @@ export function useTradeHandler({
           rawResponse: err?.response?.data ?? err?.data ?? err,
         });
         warnChartTradeDiagnostic('[Trade] error', feedback.kind, feedback.title, '|', feedback.detail ?? feedback.message);
-        onTradeResult?.({
+        const rejectedFeedback: TradeFeedback = {
           visible: true,
           type: 'error',
           title: feedback.title,
           message: feedback.message,
           side: action.side,
-        });
+        };
+        reportQueuedTradeResult(queuedTrade, 'failed', rejectedFeedback);
         if (queuedTrade.protectionDraftId) {
           releaseChartProtectionDraftSubmission(queuedTrade.protectionDraftId);
         }
         releaseTradeTapLock();
         if (feedback.kind === 'session-expired' || feedback.kind === 'rate-limit' || feedback.kind === 'backend-unavailable') {
-          clearQueuedTrades();
+          clearQueuedTrades('failed');
           return;
         }
         scheduleProcessNextQueuedTrade();
@@ -660,7 +704,7 @@ export function useTradeHandler({
 
     logChartTradeDiagnostic('[Trade] one-click path, login=', tradingLogin);
     const queuedTrade: QueuedChartTrade = {
-      id: nextTradeQueueIdRef.current,
+      id: nextChartTradeQueueId,
       side: action.side,
       symbol,
       tradingLogin,
@@ -671,24 +715,6 @@ export function useTradeHandler({
       ...(protectionDraftId ? { protectionDraftId } : {}),
       queuedAtMs: getApiLatencyNow(),
     };
-    const pendingTradeCount = tradeQueueRef.current.length + (tradeTapLockRef.current ? 1 : 0);
-    if (pendingTradeCount >= CHART_TRADE_QUEUE_LIMIT) {
-      warnChartTradeDiagnostic('[TRADE-QUEUE-FULL]', {
-        side: action.side,
-        symbol,
-        pendingTradeCount,
-        limit: CHART_TRADE_QUEUE_LIMIT,
-        timestamp: new Date().toISOString(),
-      });
-      onTradeResult?.({
-        visible: true,
-        type: 'error',
-        title: 'Trade Queue Full',
-        message: `Wait for the current orders to finish before sending more than ${CHART_TRADE_QUEUE_LIMIT} rapid trades.`,
-        side: action.side,
-      });
-      return;
-    }
     if (
       queuedTrade.protectionDraftId &&
       !tryBeginChartProtectionDraftSubmission(queuedTrade.protectionDraftId)
@@ -702,8 +728,9 @@ export function useTradeHandler({
       });
       return;
     }
-    nextTradeQueueIdRef.current += 1;
+    nextChartTradeQueueId += 1;
     tradeQueueRef.current.push(queuedTrade);
+    emitTradeQueueEvent(queuedTrade, 'pending');
     logChartTradeDiagnostic('[TRADE-QUEUE-ENQUEUE]', {
       queueId: queuedTrade.id,
       side: action.side,

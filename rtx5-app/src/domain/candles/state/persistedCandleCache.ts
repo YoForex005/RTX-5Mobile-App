@@ -10,6 +10,7 @@ import {
 } from '../core/candles';
 import type { Candle } from '../../../state/tradingState';
 import { useTradingState } from '../../../state/tradingState';
+import { CANDLE_SESSION_CACHE_STORAGE_PREFIX } from '../../../state/sessionCacheStorage';
 import {
   captureActiveBrokerSession,
   getActiveBrokerSessionIdentity,
@@ -19,7 +20,7 @@ import {
   type ActiveBrokerSessionProvenance,
 } from '../../../state/activeBrokerSession';
 
-const STORAGE_KEY_PREFIX = 'rtx5:chart-candle-cache:v2';
+const STORAGE_KEY_PREFIX = CANDLE_SESSION_CACHE_STORAGE_PREFIX;
 /** Schema version. Bump this if `PersistedCandleCacheEntry` structure changes. */
 const STORAGE_VERSION = 4;
 /** Minimum delay between writing to device storage to prevent IO thrashing. */
@@ -445,8 +446,8 @@ export const hydratePersistedCandleCache = async (
 
 /**
  * Cancels delayed persistence/hydration work and clears the in-memory candle
- * state for the broker session being left. Namespaced on-disk data is retained
- * for a future activation of the same immutable session identity.
+ * state for the broker session being left. The coordinator separately removes
+ * the now-unreachable on-disk namespace during login, restore, and logout.
  */
 export const resetPersistedCandleCacheSession = (): void => {
   clearPersistedCandleCacheRuntime();

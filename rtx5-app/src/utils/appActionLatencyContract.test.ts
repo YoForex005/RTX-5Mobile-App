@@ -215,6 +215,7 @@ test('chart trade one-click and ticket paths keep heavy work out of the tap pain
   const placeOrderSource = readSource('src/api/orders/placeMarketOrder.ts');
   const reconciliationSource = readSource('src/api/orders/marketPositionReconciliation.ts');
   const chartTradeHandlerSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/useTradeHandler.ts');
+  const chartTradeButtonsSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/ChartTradeButtonsFeature.tsx');
   const chartWebSource = readSource('src/features/chart/ChartScreen.web.tsx');
   const openPathStart = chartTradeHandlerSource.indexOf('// ── One-click OFF:');
   const oneClickPathStart = chartTradeHandlerSource.indexOf('// ── One-click ON:');
@@ -249,14 +250,28 @@ test('chart trade one-click and ticket paths keep heavy work out of the tap pain
   assert.match(chartTradeHandlerSource, /import \{ usePlaceOrderExecutor \} from '..\/..\/..\/..\/query\/orders'/);
   assert.match(chartTradeHandlerSource, /import \{ getApiLatencyNow \} from '..\/..\/..\/..\/utils\/apiLatency'/);
   assert.match(chartTradeHandlerSource, /const placeOrder = usePlaceOrderExecutor\(\);/);
-  assert.match(chartTradeHandlerSource, /const CHART_TRADE_QUEUE_LIMIT = 10/);
+  assert.doesNotMatch(
+    chartTradeHandlerSource,
+    /CHART_TRADE_QUEUE_LIMIT|pendingTradeCount|TRADE-QUEUE-FULL|Trade Queue Full/,
+  );
   assert.match(chartTradeHandlerSource, /type QueuedChartTrade = \{/);
   assert.match(chartTradeHandlerSource, /const tradeQueueRef = React\.useRef<QueuedChartTrade\[\]>\(\[\]\);/);
   assert.match(chartTradeHandlerSource, /function processNextQueuedTrade\(options\?: \{ skipQuoteRecheck\?: boolean \}\) \{[\s\S]*placeOrder\(payload,/);
   assert.match(chartTradeHandlerSource, /queueWaitMs/);
   assert.match(chartTradeHandlerSource, /backendMs/);
-  assert.match(chartTradeHandlerSource, /title: 'Trade Queue Full'/);
-  assert.match(oneClickSource, /tradeQueueRef\.current\.push\(queuedTrade\);[\s\S]*processNextQueuedTrade\(\{ skipQuoteRecheck: true \}\);/);
+  assert.match(
+    oneClickSource,
+    /nextChartTradeQueueId \+= 1;[\s\S]*tradeQueueRef\.current\.push\(queuedTrade\);[\s\S]*emitTradeQueueEvent\(queuedTrade, 'pending'\);[\s\S]*processNextQueuedTrade\(\{ skipQuoteRecheck: true \}\);/,
+  );
+  assert.match(
+    chartTradeHandlerSource,
+    /reportQueuedTradeResult\([\s\S]*executionEvidence\.confirmed \? 'confirmed' : 'unconfirmed'/,
+  );
+  assert.match(chartTradeButtonsSource, /disabled=\{tradeBlocked\}/);
+  assert.doesNotMatch(
+    chartTradeButtonsSource,
+    /disabled=\{[^}]*(?:isChartTradeActionBusy|isChartTradeActionVisuallyLocked)/,
+  );
   assert.match(chartTradeHandlerSource, /const isChartTradeActionBusy = \(side: TradeSide\) => activeSide === side && tradeTapLockRef\.current;/);
   // Open path: shell first, before auth/volume/SL validation or setState locks.
   assert.match(
@@ -348,11 +363,14 @@ test('trade buy/sell success feedback uses the shared popup without device vibra
   );
   assert.match(
     chartResultSource,
-    /if \(feedback\.type !== 'success'\) \{[\s\S]*setTradeFeedback\(feedback\);[\s\S]*return;[\s\S]*\}[\s\S]*setTradeFeedback\(feedback\);[\s\S]*refetchClosedPositions\(\)[\s\S]*refetchOrders\(\)[\s\S]*refetchAccountSummary\(\)/,
+    /if \(feedback\.type !== 'success'\) \{[\s\S]*setTradeFeedback\(feedback\);[\s\S]*return;[\s\S]*\}[\s\S]*if \(!suppressConfirmedReceipt\) \{[\s\S]*setTradeFeedback\(feedback\);[\s\S]*refetchClosedPositions\(\)[\s\S]*refetchOrders\(\)[\s\S]*refetchAccountSummary\(\)/,
   );
   assert.doesNotMatch(chartResultSource, /refreshPositions\(/);
-  assert.doesNotMatch(chartResultSource, /setChartTradeConfirmations/);
-  assert.doesNotMatch(chartSource, /ChartTradeConfirmation|CHART_TRADE_CONFIRMATION|chartTradeConfirmationStack|chartTradeConfirmationDone/);
+  assert.match(
+    chartSource,
+    /handleChartTradeQueueEvent[\s\S]*chartTradeReceiptStackController\.applyEvent\(event\)[\s\S]*event\.status === 'confirmed'/,
+  );
+  assert.match(chartSource, /<ChartTradeReceiptStack[\s\S]*controller=\{chartTradeReceiptStackController\}/);
 });
 
 test('action destination modules warm without boot-time route prefetch', () => {

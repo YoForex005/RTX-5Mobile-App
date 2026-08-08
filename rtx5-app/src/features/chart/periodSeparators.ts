@@ -1,8 +1,6 @@
 import {
   getExpectedNextCandleTime,
-  getBucketStart,
   getTimeframeSeconds,
-  normalizeTimestampToSeconds,
   normalizeTimeframe,
 } from '../../domain/candles/core/timeframeUtils';
 
@@ -157,19 +155,23 @@ export const getPeriodSeparators = (
 
 export const getMarketCloseSeparator = (
   candles: readonly PeriodSeparatorCandle[],
-  timeframe: string,
+  _timeframe: string,
   sessionClose: unknown,
 ): PeriodSeparator | null => {
   if (candles.length === 0) {
     return null;
   }
 
-  const closeTime = normalizeTimestampToSeconds(sessionClose);
-  if (closeTime === null) {
+  const parsedClose = typeof sessionClose === 'number'
+    ? sessionClose
+    : typeof sessionClose === 'string' && sessionClose.trim()
+      ? Number(sessionClose)
+      : Number.NaN;
+  const closeSeconds = parsedClose > 10_000_000_000 ? parsedClose / 1000 : parsedClose;
+  if (!Number.isFinite(closeSeconds) || closeSeconds <= 0) {
     return null;
   }
 
-  const closeBucket = getBucketStart(closeTime, timeframe) ?? closeTime;
   let boundaryIndex = -1;
 
   for (let index = 0; index < candles.length; index += 1) {
@@ -177,7 +179,9 @@ export const getMarketCloseSeparator = (
     if (!isFinitePositiveTime(candleTime)) {
       continue;
     }
-    if (candleTime <= closeBucket) {
+    // The backend close is exclusive. Direct comparison respects broker-local
+    // D1/W1/MN rollovers instead of forcing those candles onto UTC buckets.
+    if (candleTime < closeSeconds) {
       boundaryIndex = index;
       continue;
     }

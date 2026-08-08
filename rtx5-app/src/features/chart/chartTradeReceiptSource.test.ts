@@ -76,3 +76,49 @@ test('confirmed chart fills use the thin receipt inside the chart viewport', () 
     /minHeight: 68|width: 42|height: 42|borderRadius: 16|paddingVertical: 12/,
   );
 });
+
+test('rapid chart trades use one uncapped MT5-style receipt row per accepted tap', () => {
+  const chartSource = readSource('src/features/chart/ChartScreen.native.tsx');
+  const handlerSource = readSource(
+    'src/features/chart/components/ChartTradeButtonsFeature/useTradeHandler.ts',
+  );
+  const stackSource = readSource(
+    'src/features/chart/components/ChartTradeReceiptStack.tsx',
+  );
+  const controllerSource = readSource(
+    'src/features/chart/components/chartTradeReceiptStackController.ts',
+  );
+
+  assert.doesNotMatch(
+    handlerSource,
+    /CHART_TRADE_QUEUE_LIMIT|pendingTradeCount|TRADE-QUEUE-FULL|Trade Queue Full/,
+  );
+  assert.match(
+    handlerSource,
+    /tradeQueueRef\.current\.push\(queuedTrade\);[\s\S]*emitTradeQueueEvent\(queuedTrade, 'pending'\);[\s\S]*processNextQueuedTrade\(\{ skipQuoteRecheck: true \}\);/,
+  );
+  assert.match(
+    handlerSource,
+    /reportQueuedTradeResult\([\s\S]*executionEvidence\.confirmed \? 'confirmed' : 'unconfirmed'/,
+  );
+  assert.match(
+    chartSource,
+    /createChartTradeReceiptStackController\(\)[\s\S]*handleChartTradeQueueEvent[\s\S]*chartTradeReceiptStackController\.applyEvent\(event\)/,
+  );
+  assert.equal(
+    chartSource.match(/<ChartTradeReceiptStack/g)?.length,
+    2,
+    'the same external stack must render inline and through the elevated trade-sheet portal',
+  );
+  assert.match(stackSource, /useSyncExternalStore\([\s\S]*controller\.subscribe/);
+  assert.match(stackSource, /<FlatList[\s\S]*data=\{receipts\}[\s\S]*keyExtractor=\{\(item\) => String\(item\.queueId\)\}/);
+  assert.match(stackSource, /event\.status === 'pending'[\s\S]*<ActivityIndicator/);
+  assert.match(stackSource, /onPress=\{\(\) => onDismiss\(event\.queueId\)\}/);
+  assert.match(
+    controllerSource,
+    /if \(existingIndex < 0\) \{\s*return \[event, \.\.\.snapshot\];/,
+  );
+  assert.match(controllerSource, /const dismissTimers = new Map<number,/);
+  assert.match(controllerSource, /removeChartTradeReceipt\(snapshot, queueId\)/);
+  assert.doesNotMatch(controllerSource, /\.slice\(0\s*,/);
+});

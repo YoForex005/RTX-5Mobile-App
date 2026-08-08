@@ -30,6 +30,34 @@ test('secure restore failures advance the epoch and stay logged out', () => {
   assert.match(source, /catch \{\s*return failClosed\('Stored broker credentials could not be read securely\.'/);
 });
 
+test('cold restore trusts the matching secure manifest and bundle instead of stale preferences', () => {
+  const restoreStart = source.indexOf('export const restoreBrokerSession =');
+  const restoreEnd = source.indexOf('/**\n * Logs out the active broker session.', restoreStart);
+  const restoreBody = source.slice(restoreStart, restoreEnd);
+  const manifestRead = restoreBody.indexOf('manifest = await readActiveBrokerSessionManifest()');
+  const credentialRead = restoreBody.indexOf('credentials = await getStoredAuthSessionCredentials({');
+
+  assert.ok(manifestRead >= 0);
+  assert.ok(credentialRead > manifestRead);
+  assert.doesNotMatch(restoreBody, /!preferences\.isLoggedIn|!preferences\.accountDetails/);
+  assert.doesNotMatch(restoreBody, /manifest\.brokerId !== expectedBrokerId/);
+  assert.match(restoreBody, /const profile = resolveRestoredAccountProfile\(manifest\)/);
+  assert.match(restoreBody, /await persistSessionPreferences\(\);[\s\S]*status: 'restored'/);
+});
+
+test('session transitions prune disposable caches without deleting user data keys', () => {
+  assert.match(source, /const pruneDisposableSessionStorage = async/);
+  assert.match(source, /await pruneObsoleteSessionCaches\(\)/);
+  const commitBody = source.slice(
+    source.indexOf('const commitBrokerSessionInternal'),
+    source.indexOf('/** Commits credentials', source.indexOf('const commitBrokerSessionInternal')),
+  );
+  assert.ok(
+    commitBody.indexOf('await pruneDisposableSessionStorage()') <
+      commitBody.indexOf('useUserPreferences.getState().login('),
+  );
+});
+
 test('interactive session commits are authorized at queued coordinator execution time', () => {
   assert.match(source, /export const authorizeBrokerSessionCommit = \(\): BrokerSessionCommitAuthorization =>[\s\S]*getActiveBrokerSessionEpoch\(\)/);
   const commitStart = source.indexOf('export const commitBrokerSession =');
@@ -64,7 +92,7 @@ test('session coordinator commits and restores account-scoped environment state'
   );
   assert.match(
     source,
-    /accountType: hasMatchingAccountEnvironment[\s\S]*preferences\.accountType[\s\S]*: 'unknown'/,
+    /accountType: preferenceEnvironmentMatches[\s\S]*preferences\.accountType[\s\S]*savedAccount\?\.accountType \?\? 'unknown'/,
   );
   assert.doesNotMatch(source, /isDemoAccount: input\.account|isDemoAccount: profile/);
 });

@@ -284,17 +284,21 @@ export class SecureCredentialBundleStore {
       const brokerId = normalizeBrokerId(input.brokerId);
       const accountLogin = cleanString(input.accountLogin);
       if (!brokerId || !accountLogin) {
-        await Promise.all([
-          this.storage.removeItem(AUTH_CREDENTIAL_BUNDLE_KEY),
-          ...LEGACY_AUTH_CREDENTIAL_KEYS.map((key) => this.storage.removeItem(key)),
-        ]);
+        await this.removeLegacyCredentials();
         return null;
       }
 
       const existingBundle = await this.readBundle();
-      if (existingBundle && matchesIdentity(existingBundle, brokerId, accountLogin)) {
+      if (existingBundle) {
         await this.removeLegacyCredentials();
-        return existingBundle;
+        if (matchesIdentity(existingBundle, brokerId, accountLogin)) {
+          return existingBundle;
+        }
+
+        // The plain preference blob may be stale when its AsyncStorage write
+        // failed. It must never delete or overwrite a valid secure bundle that
+        // belongs to the session manifest for another broker/account.
+        return null;
       }
 
       const supplied = input.credentials ?? {};
@@ -308,10 +312,7 @@ export class SecureCredentialBundleStore {
       const feedToken = preserveNonBlankFeedToken(supplied.feedToken);
 
       if (!accessToken) {
-        await Promise.all([
-          this.storage.removeItem(AUTH_CREDENTIAL_BUNDLE_KEY),
-          ...LEGACY_AUTH_CREDENTIAL_KEYS.map((key) => this.storage.removeItem(key)),
-        ]);
+        await this.removeLegacyCredentials();
         return null;
       }
 

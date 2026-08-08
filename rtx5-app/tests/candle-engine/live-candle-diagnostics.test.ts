@@ -41,21 +41,26 @@ test('canonical live stream exposes safe REST history prefetch for fast timefram
   assert.match(source, /const DEFAULT_HISTORY_LIMIT = MAX_CANDLE_SERIES_LENGTH/);
   assert.match(source, /const INITIAL_VIEWPORT_HISTORY_LIMIT = 120/);
   assert.match(source, /const INITIAL_HISTORY_LIMIT = Math\.min\(INITIAL_VIEWPORT_HISTORY_LIMIT, MAX_CANDLE_SERIES_LENGTH\)/);
-  assert.match(source, /public async prefetchHistory\(symbol: string, timeframe: string\): Promise<number>/);
-  assert.match(source, /getCandleHistory\([\s\S]*normalizedSymbol,[\s\S]*normalizedTimeframe,[\s\S]*INITIAL_HISTORY_LIMIT,[\s\S]*cacheNamespace: sessionProvenance\.cacheNamespace/);
-  assert.match(source, /slice\(-INITIAL_HISTORY_LIMIT\)/);
+  assert.match(source, /const CLOSED_MARKET_HISTORY_WARM_LIMIT = PAGINATED_HISTORY_LIMIT/);
+  assert.match(source, /public async prefetchHistory\([\s\S]*limit = INITIAL_HISTORY_LIMIT,[\s\S]*\): Promise<number>/);
+  assert.match(source, /getCandleHistory\([\s\S]*normalizedSymbol,[\s\S]*normalizedTimeframe,[\s\S]*requestedLimit,[\s\S]*cacheNamespace: sessionProvenance\.cacheNamespace/);
+  assert.match(source, /slice\(-MAX_RETAINED_HISTORY_CANDLES\)/);
   assert.match(source, /renderHistoryLimit: INITIAL_HISTORY_LIMIT/);
-  assert.match(source, /entry\.renderHistoryLimit = INITIAL_HISTORY_LIMIT/);
+  assert.match(source, /entry\.renderHistoryLimit = initialLoadLimit/);
   assert.match(source, /Math\.max\(INITIAL_HISTORY_LIMIT, entry\.renderHistoryLimit \|\| INITIAL_HISTORY_LIMIT\)/);
+  assert.match(source, /const shouldLoadIntoActiveEntry = Boolean\([\s\S]*requestedLimit > entry\.renderHistoryLimit[\s\S]*requestedLimit === entry\.renderHistoryLimit[\s\S]*!this\.isHistoryRequestActive\(entry\)[\s\S]*entry\.renderHistoryLimit = requestedLimit/);
+  assert.match(source, /entry\.historyCandles\.length >= requestedLimit[\s\S]*this\.commit\(entry\)/);
+  assert.match(source, /pendingPrefetch && pendingPrefetch\.limit >= requestedLimit[\s\S]*return pendingPrefetch\.promise/);
   // In-flight prefetches are deduplicated at the fetch layer, and the fresh
   // load path chains onto a pending prefetch (issuing a real load only if it
   // yields nothing) instead of treating it as an active request — a failed
   // prefetch must never permanently swallow the history load.
   assert.match(source, /const existing = manager\.historyPrefetches\.get\(key\)/);
+  assert.match(source, /existing && existing\.limit >= requestedLimit[\s\S]*return existing\.promise/);
   assert.doesNotMatch(source, /this\.historyPrefetches\.has\(entry\.key\)/);
-  assert.match(source, /const pendingPrefetch = this\.historyPrefetches\.get\(entry\.key\)/);
+  assert.match(source, /const pendingPrefetch = this\.historyPrefetches\.get\(entry\.key\)\?\.promise/);
   assert.match(source, /void pendingPrefetch\.then\(\(\) => \{/);
-  assert.match(source, /live\.historyCandles\.length > 0[\s\S]*runLoadHistory\(this, live, INITIAL_HISTORY_LIMIT\)/);
+  assert.match(source, /live\.historyCandles\.length > 0[\s\S]*const fallbackLoadLimit = Math\.min\([\s\S]*live\.renderHistoryLimit[\s\S]*runLoadHistory\(this, live, fallbackLoadLimit\)/);
   assert.match(source, /candleMemoryCache\.set\(normalizedSymbol, normalizedTimeframe, candles\)/);
   assert.match(source, /syncMergedCandleCache\(normalizedSymbol, normalizedTimeframe, history\.closedCandles, \{[\s\S]*provenance: history\.provenance/);
 });

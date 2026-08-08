@@ -21,4 +21,7 @@ export {
   DEFAULT_CHART_DISPLAY_SETTINGS,
   resolveChartColorsForTheme,
 } from './chartColors';
-export { useUserPreferences } from './store';
+export {
+  flushUserPreferencesPersistence,
+  useUserPreferences,
+} from './store';

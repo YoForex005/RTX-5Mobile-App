@@ -37,6 +37,10 @@ import { MARKET_QUOTE_STALE_AFTER_MS } from '../market/quotePolicy';
 const LIVE_QUOTE_STALE_MS = MARKET_QUOTE_STALE_AFTER_MS;
 const LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS = 16;
 const LIVE_SYMBOL_REST_DIRECT_TICK_SUPPRESS_MS = 2_000;
+// Closed markets can be silent on websocket by design. Retry only a few times
+// so a transient 409/503 from the exact quote snapshot cannot permanently hide
+// the retained Bid line, while still avoiding a background polling loop.
+const LIVE_SYMBOL_REST_RETRY_DELAYS_MS = [0, 750, 2_000, 4_000] as const;
 const EMPTY_LIVE_QUOTES: Record<string, any> = Object.freeze({});
 
 type LiveSymbolQuoteListener = (tick: QuoteTickEvent) => void;
@@ -99,9 +103,13 @@ type RestQuoteFallbackEntry = {
   symbol: string;
   listeners: Set<LiveSymbolQuoteListener>;
   directTickAnchors: Map<LiveSymbolQuoteListener, LiveSymbolDirectTickAnchor>;
-  attempted: boolean;
+  attemptCount: number;
+  completed: boolean;
   inFlight: boolean;
+  retryTimer: ReturnType<typeof setTimeout> | null;
 };
+
+type RestQuoteFallbackOutcome = 'resolved' | 'retry' | 'stop';
 
 const restQuoteFallbackEntries = new Map<string, RestQuoteFallbackEntry>();
 
@@ -118,6 +126,23 @@ const hasRecentDirectSymbolTick = (entry: RestQuoteFallbackEntry, now = Date.now
   }
 
   return false;
+};
+
+const hasObservedDirectSymbolTick = (entry: RestQuoteFallbackEntry): boolean => {
+  for (const getDirectTickAt of entry.directTickAnchors.values()) {
+    const directTickAt = getDirectTickAt();
+    if (Number.isFinite(directTickAt) && directTickAt > 0) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const hasExactQuotePair = (quote?: Partial<QuoteItem>): boolean => {
+  const bid = Number(quote?.bid);
+  const ask = Number(quote?.ask);
+  return Number.isFinite(bid) && bid > 0 && Number.isFinite(ask) && ask >= bid;
 };
 
 function getQuoteFreshnessAnchorMs(liveQuote?: Partial<QuoteItem>): number | null {
@@ -189,39 +214,44 @@ const publishQuoteTickToSharedStores = (tick: QuoteTickEvent): void => {
 
 };
 
-const fetchRestQuoteSnapshotForEntry = async (entry: RestQuoteFallbackEntry): Promise<void> => {
+const fetchRestQuoteSnapshotForEntry = async (
+  entry: RestQuoteFallbackEntry,
+): Promise<RestQuoteFallbackOutcome> => {
   if (entry.inFlight || entry.listeners.size === 0) {
-    return;
+    return 'stop';
   }
 
-  if (hasRecentDirectSymbolTick(entry)) {
-    return;
+  // A real websocket tick is authoritative and permanently settles this
+  // subscription's fallback. Do not wake a live/24x7 symbol with later retries.
+  if (hasObservedDirectSymbolTick(entry)) {
+    return 'resolved';
   }
 
   const liveQuote = useTradingState.getState().quotes[entry.symbol];
-  if (isFreshLiveQuote(liveQuote)) {
-    return;
+  if (isFreshLiveQuote(liveQuote) && hasExactQuotePair(liveQuote)) {
+    return 'resolved';
   }
 
   entry.inFlight = true;
+  entry.attemptCount += 1;
   const requestGeneration = liveQuoteRuntimeGeneration;
-  const receivedAt = Date.now();
   try {
     const sessionCapture = captureActiveBrokerSession();
     if (!sessionCapture) {
-      return;
+      return 'stop';
     }
     const owner = captureActiveBrokerSessionOwnerStamp();
     if (!owner) {
-      return;
+      return 'stop';
     }
 
     const response = await apiClient(`/quotes?symbols=${encodeURIComponent(entry.symbol)}`);
     if (!response.ok) {
-      return;
+      return 'retry';
     }
 
     const payload = await response.json();
+    const receivedAt = Date.now();
     const requestedSymbol = normalizeSymbol(entry.symbol);
     let selectedTick: QuoteTickEvent | null = null;
     for (const snapshot of asQuoteSnapshotArray(payload)) {
@@ -236,28 +266,72 @@ const fetchRestQuoteSnapshotForEntry = async (entry: RestQuoteFallbackEntry): Pr
     }
 
     if (!selectedTick) {
-      return;
+      return 'retry';
     }
 
     if (
       requestGeneration !== liveQuoteRuntimeGeneration ||
       !isActiveBrokerSessionOwnerStampCurrent(owner) ||
-      entry.listeners.size === 0 ||
-      hasRecentDirectSymbolTick(entry)
+      entry.listeners.size === 0
     ) {
-      return;
+      return 'stop';
+    }
+    if (hasRecentDirectSymbolTick(entry) || hasObservedDirectSymbolTick(entry)) {
+      return 'resolved';
     }
 
     publishQuoteTickToSharedStores(selectedTick);
     entry.listeners.forEach((listener) => listener(selectedTick));
+    return 'resolved';
   } catch (error) {
     console.warn(
-      '[Quotes REST] One-shot symbol snapshot repair failed',
+      '[Quotes REST] Bounded symbol snapshot repair failed',
       redactDiagnosticValue(error),
     );
+    return 'retry';
   } finally {
     entry.inFlight = false;
   }
+};
+
+const scheduleRestQuoteSnapshotFallback = (entry: RestQuoteFallbackEntry): void => {
+  if (
+    entry.completed ||
+    entry.inFlight ||
+    entry.retryTimer !== null ||
+    entry.listeners.size === 0 ||
+    hasObservedDirectSymbolTick(entry)
+  ) {
+    return;
+  }
+
+  const delayMs = LIVE_SYMBOL_REST_RETRY_DELAYS_MS[entry.attemptCount];
+  if (delayMs === undefined) {
+    entry.completed = true;
+    return;
+  }
+
+  const requestGeneration = liveQuoteRuntimeGeneration;
+  entry.retryTimer = setTimeout(() => {
+    entry.retryTimer = null;
+    if (
+      requestGeneration !== liveQuoteRuntimeGeneration ||
+      restQuoteFallbackEntries.get(entry.symbol) !== entry ||
+      entry.listeners.size === 0 ||
+      hasObservedDirectSymbolTick(entry)
+    ) {
+      entry.completed = true;
+      return;
+    }
+
+    void fetchRestQuoteSnapshotForEntry(entry).then((outcome) => {
+      if (outcome !== 'retry') {
+        entry.completed = true;
+        return;
+      }
+      scheduleRestQuoteSnapshotFallback(entry);
+    });
+  }, delayMs);
 };
 
 const subscribeLiveSymbolRestQuoteFallback = (
@@ -276,18 +350,25 @@ const subscribeLiveSymbolRestQuoteFallback = (
       symbol: normalizedSymbol,
       listeners: new Set(),
       directTickAnchors: new Map(),
-      attempted: false,
+      attemptCount: 0,
+      completed: false,
       inFlight: false,
+      retryTimer: null,
     };
     restQuoteFallbackEntries.set(normalizedSymbol, entry);
   }
 
   entry.listeners.add(listener);
   entry.directTickAnchors.set(listener, getDirectTickAt ?? (() => 0));
-  if (!entry.attempted) {
-    entry.attempted = true;
-    void fetchRestQuoteSnapshotForEntry(entry);
+  if (entry.completed && !hasObservedDirectSymbolTick(entry)) {
+    // A previous bounded cycle may have ended on transient 409/503 responses.
+    // A later screen consumer is a new explicit demand signal, so give it one
+    // fresh bounded cycle. The fetch path still exits before network I/O when
+    // an exact recent snapshot is already present.
+    entry.attemptCount = 0;
+    entry.completed = false;
   }
+  scheduleRestQuoteSnapshotFallback(entry);
 
   return () => {
     const activeEntry = restQuoteFallbackEntries.get(normalizedSymbol);
@@ -299,11 +380,15 @@ const subscribeLiveSymbolRestQuoteFallback = (
     if (activeEntry.listeners.size > 0) {
       return;
     }
+    if (activeEntry.retryTimer !== null) {
+      clearTimeout(activeEntry.retryTimer);
+      activeEntry.retryTimer = null;
+    }
     restQuoteFallbackEntries.delete(normalizedSymbol);
   };
 };
 
-/** Clears module-level quote listeners and one-shot REST repair state on epoch changes. */
+/** Clears module-level quote listeners and bounded REST repair state on epoch changes. */
 export const resetLiveSymbolQuoteRuntimeState = (): void => {
   liveQuoteRuntimeGeneration += 1;
   liveSymbolPauseTimers.forEach((timer) => clearTimeout(timer));
@@ -311,6 +396,10 @@ export const resetLiveSymbolQuoteRuntimeState = (): void => {
   liveSymbolNotificationPauseDepth = 0;
   pendingLiveSymbolTicks.clear();
   restQuoteFallbackEntries.forEach((entry) => {
+    if (entry.retryTimer !== null) {
+      clearTimeout(entry.retryTimer);
+      entry.retryTimer = null;
+    }
     entry.listeners.clear();
     entry.directTickAnchors.clear();
   });

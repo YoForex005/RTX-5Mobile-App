@@ -40,7 +40,7 @@ import { AppHeader } from '../../ui/components/AppHeader';
 import { FastPressable, FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { useTranslation } from '../../i18n/useTranslation';
 import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
-import { liveCandlesEngine } from '../../api/ws/liveCandlesEngine';
+import { prefetchChartSelectionHistory } from '../../utils/navigationPrefetch';
 import {
   hideOrderTicketLaunch,
   prepareOrderTicketLaunch,
@@ -2684,20 +2684,31 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
 
   const openChartTabForSymbol = useCallback((sym: string) => {
     runQuoteSheetOption(() => {
-      // Sidebar-style: flip the already-mounted Chart tab in THIS tap turn
-      // before any symbol/candle work can stall the first paint.
-      const visualRevision = showFastTabVisual('chart');
-      if (visualRevision !== null) {
-        if (!navigateMountedSidebarTab('/chart')) {
+      // Commit the requested symbol before revealing the retained Chart tab.
+      // Revealing first briefly exposed the previous symbol's OHLC (for
+      // example XAUUSD while BTCUSD was opening), which is incorrect even for
+      // a single frame. The history warm-up is exact backend candle data; it
+      // never builds OHLC from Bid/Ask or another symbol.
+      const chartTimeframe = prepareChartSymbol(sym);
+      void prefetchChartSelectionHistory(sym, chartTimeframe);
+
+      const revealRequestedChart = () => {
+        const visualRevision = showFastTabVisual('chart');
+        if (visualRevision !== null) {
+          if (!navigateMountedSidebarTab('/chart')) {
+            router.push('/(tabs)/chart');
+          }
+        } else {
           router.push('/(tabs)/chart');
         }
-      } else {
-        router.push('/(tabs)/chart');
-      }
-      // Symbol + history warm after the visual flip so they cannot compete
-      // with the retained Chart surface reveal (same ordering as sidebar tabs).
-      const chartTimeframe = prepareChartSymbol(sym);
-      void liveCandlesEngine.prefetchHistory(sym, chartTimeframe);
+      };
+
+      // Give the chartSymbol store update one bounded paint boundary to reach
+      // the already-mounted Chart tree. The 34 ms fallback matters on Android,
+      // where a throttled requestAnimationFrame must never hold a confirmed
+      // Chart tap for seconds. During this short handoff Quotes remains visible
+      // instead of exposing OHLC owned by the previous symbol.
+      scheduleQuoteSheetVisualBoundary(revealRequestedChart);
     }, { routeChange: true });
   }, [router, runQuoteSheetOption]);
 
@@ -2976,9 +2987,9 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
         return;
       }
       quoteSheetDestinationPrepTimerRef.current = null;
-      // Only prepare the two lightweight retained shells. Network requests,
-      // candle history, route imports, and router prefetches start only after
-      // the user explicitly chooses a destination.
+      // Only prepare the two lightweight retained shells here. The accepted
+      // row tap owns its one-symbol candle warm-up separately; this delayed
+      // task never imports routes or mounts hidden destination screens.
       prepareOrderTicketLaunch(sym, 'quotes');
       prepareQuoteInfoLaunch(sym);
     };
@@ -3030,6 +3041,14 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
       }
       runImmediateAction(actionName, () => {
         showQuotesActionSheet(config);
+        if (actionName === 'quotes.symbolSheet.tap.open') {
+          // A normal row tap is strong intent for this symbol's primary
+          // actions. Warm only its saved Chart timeframe while the user reads
+          // the sheet, so Chart can paint authoritative OHLC immediately.
+          // Long-press menus keep their lightweight/no-network behavior.
+          const { chartTimeframe } = useUserPreferences.getState();
+          void prefetchChartSelectionHistory(sym, chartTimeframe);
+        }
         prepareSymbolDestinationShellsAfterSheetSettle(sym);
       });
     };

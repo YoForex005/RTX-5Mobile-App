@@ -36,6 +36,7 @@ import {
   createActiveBrokerSessionManifest,
   readActiveBrokerSessionManifest,
   writeActiveBrokerSessionManifest,
+  type ActiveBrokerSessionManifest,
 } from '../state/activeBrokerSessionStorage';
 import {
   clearAuthSessionTokens,
@@ -46,8 +47,13 @@ import {
 import { useLiveAccountState } from '../state/liveAccountState';
 import { resetPositionsSessionState } from '../state/positionsState';
 import { appQueryClient } from '../state/providers/AppProviders';
+import { useSavedAccounts } from '../state/savedAccounts';
+import { pruneObsoleteSessionCaches } from '../state/sessionCacheStorage';
 import { resetSessionMarketData } from '../state/tradingState';
-import { useUserPreferences } from '../state/userPreferences';
+import {
+  flushUserPreferencesPersistence,
+  useUserPreferences,
+} from '../state/userPreferences';
 import {
   bindFeedHealthSession,
   unbindFeedHealthSession,
@@ -252,9 +258,69 @@ const erasePersistedSession = async (): Promise<void> => {
   }
 };
 
+const pruneDisposableSessionStorage = async (): Promise<void> => {
+  try {
+    await pruneObsoleteSessionCaches();
+  } catch (error) {
+    // Cache cleanup is recovery/housekeeping. Secure session validation remains
+    // authoritative even if the device temporarily refuses this deletion.
+    console.warn('[Session] Failed to prune obsolete session caches', error);
+  }
+};
+
+const persistSessionPreferences = async (): Promise<void> => {
+  try {
+    await flushUserPreferencesPersistence();
+  } catch (error) {
+    // Preferences contain profile/UI metadata, never the secure session
+    // authority. Keep the validated SecureStore session usable and retry on
+    // later writes instead of forcing the user through another broker login.
+    console.warn('[Session] Secure session is active but preferences were not persisted', error);
+  }
+};
+
+const resolveRestoredAccountProfile = (
+  manifest: ActiveBrokerSessionManifest,
+): BrokerSessionAccountProfile => {
+  const preferences = useUserPreferences.getState();
+  const preferenceIdentityMatches =
+    cleanString(preferences.brokerId).toLowerCase() === manifest.brokerId &&
+    cleanString(preferences.accountDetails?.id) === manifest.accountLogin;
+  const savedAccount = useSavedAccounts.getState().accounts.find((account) =>
+    cleanString(account.brokerId).toLowerCase() === manifest.brokerId &&
+    cleanString(account.login) === manifest.accountLogin,
+  );
+  const expectedAccountEnvironmentKey = buildAccountEnvironmentKey(
+    manifest.brokerId,
+    manifest.accountLogin,
+  );
+  const preferenceEnvironmentMatches =
+    preferenceIdentityMatches &&
+    preferences.accountEnvironmentKey === expectedAccountEnvironmentKey;
+
+  return {
+    name: preferenceIdentityMatches
+      ? cleanString(preferences.accountDetails?.name) || `Account ${manifest.accountLogin}`
+      : cleanString(savedAccount?.name) || `Account ${manifest.accountLogin}`,
+    serverName: preferenceIdentityMatches
+      ? cleanString(preferences.accountDetails?.server) || manifest.brokerId
+      : cleanString(savedAccount?.server) || manifest.brokerId,
+    logoUrl: preferenceIdentityMatches
+      ? cleanString(preferences.brokerLogoUrl)
+      : cleanString(savedAccount?.logoUrl),
+    accountType: preferenceEnvironmentMatches
+      ? preferences.accountType
+      : savedAccount?.accountType ?? 'unknown',
+    accountEnvironmentSource: preferenceEnvironmentMatches
+      ? preferences.accountEnvironmentSource
+      : savedAccount?.accountEnvironmentSource ?? 'unknown',
+  };
+};
+
 const failClosed = async (reason: string): Promise<BrokerSessionRestoreResult> => {
   beginActiveBrokerSessionTransition();
   await teardownBrokerSessionRuntime();
+  await pruneDisposableSessionStorage();
   useUserPreferences.getState().logout();
   // Storage can itself be the failure source. The epoch and memory state are
   // already invalidated; cleanup remains best-effort without re-enabling UI.
@@ -263,6 +329,7 @@ const failClosed = async (reason: string): Promise<BrokerSessionRestoreResult> =
     clearActiveBrokerSessionManifest(),
     clearLegacySelectedBrokerSession(),
   ]);
+  await persistSessionPreferences();
   return { status: 'invalidated', reason };
 };
 
@@ -275,6 +342,7 @@ const commitBrokerSessionInternal = async (
   // persistence prep — sequential SecureStore + socket teardown was the bulk
   // of post-auth wait before router.replace.
   await teardownBrokerSessionRuntime();
+  await pruneDisposableSessionStorage();
   useUserPreferences.getState().logout();
 
   try {
@@ -317,18 +385,21 @@ const commitBrokerSessionInternal = async (
         accountEnvironmentSource: input.account.accountEnvironmentSource,
       },
     );
+    await persistSessionPreferences();
     return capture;
   } catch (error) {
     if (captureActiveBrokerSession()) {
       beginActiveBrokerSessionTransition();
     }
     await teardownBrokerSessionRuntime();
+    await pruneDisposableSessionStorage();
     useUserPreferences.getState().logout();
     await Promise.allSettled([
       clearAuthSessionTokens(),
       clearActiveBrokerSessionManifest(),
       clearLegacySelectedBrokerSession(),
     ]);
+    await persistSessionPreferences();
     throw error;
   }
 };
@@ -351,32 +422,26 @@ export const commitBrokerSession = (
 
 export const restoreBrokerSession = (): Promise<BrokerSessionRestoreResult> =>
   enqueueMutation(async () => {
-    const preferences = useUserPreferences.getState();
-    if (!preferences.isLoggedIn || !preferences.accountDetails?.id) {
-      beginActiveBrokerSessionTransition();
-      await teardownBrokerSessionRuntime();
-      await Promise.allSettled([
-        clearAuthSessionTokens(),
-        clearActiveBrokerSessionManifest(),
-        clearLegacySelectedBrokerSession(),
-      ]);
-      return { status: 'logged_out' };
-    }
-
     let manifest;
     try {
       manifest = await readActiveBrokerSessionManifest();
     } catch {
       return failClosed('Stored broker session manifest could not be read securely.');
     }
-    const expectedBrokerId = cleanString(preferences.brokerId).toLowerCase();
-    const expectedAccountLogin = cleanString(preferences.accountDetails.id);
-    if (
-      !manifest ||
-      manifest.brokerId !== expectedBrokerId ||
-      manifest.accountLogin !== expectedAccountLogin
-    ) {
-      return failClosed('Stored broker session identity or endpoint manifest is missing.');
+    if (!manifest) {
+      // An explicit logout removes this secure manifest. Plain AsyncStorage may
+      // still contain an older `isLoggedIn` snapshot, but it cannot resurrect a
+      // session without the matching secure authority record.
+      beginActiveBrokerSessionTransition();
+      await teardownBrokerSessionRuntime();
+      await pruneDisposableSessionStorage();
+      useUserPreferences.getState().logout();
+      await Promise.allSettled([
+        clearAuthSessionTokens(),
+        clearLegacySelectedBrokerSession(),
+      ]);
+      await persistSessionPreferences();
+      return { status: 'logged_out' };
     }
 
     let credentials;
@@ -392,25 +457,12 @@ export const restoreBrokerSession = (): Promise<BrokerSessionRestoreResult> =>
       return failClosed('Stored broker credentials are missing or belong to another identity.');
     }
 
-    const expectedAccountEnvironmentKey = buildAccountEnvironmentKey(
-      manifest.brokerId,
-      manifest.accountLogin,
-    );
-    const hasMatchingAccountEnvironment =
-      preferences.accountEnvironmentKey === expectedAccountEnvironmentKey;
-    const profile: BrokerSessionAccountProfile = {
-      name: preferences.accountDetails.name,
-      serverName: preferences.accountDetails.server,
-      logoUrl: preferences.brokerLogoUrl,
-      accountType: hasMatchingAccountEnvironment
-        ? preferences.accountType
-        : 'unknown',
-      accountEnvironmentSource: hasMatchingAccountEnvironment
-        ? preferences.accountEnvironmentSource
-        : 'unknown',
-    };
+    // Preferences and saved accounts supply display metadata only. A stale GTA
+    // snapshot cannot reject a valid Achiever manifest/credential pair.
+    const profile = resolveRestoredAccountProfile(manifest);
     const transition = beginActiveBrokerSessionTransition();
     await teardownBrokerSessionRuntime();
+    await pruneDisposableSessionStorage();
     useUserPreferences.getState().logout();
 
     try {
@@ -444,6 +496,7 @@ export const restoreBrokerSession = (): Promise<BrokerSessionRestoreResult> =>
           accountEnvironmentSource: profile.accountEnvironmentSource,
         },
       );
+      await persistSessionPreferences();
       return { status: 'restored', capture };
     } catch {
       return failClosed('Stored broker session failed endpoint validation.');
@@ -477,8 +530,10 @@ export const logoutBrokerSession = (): Promise<void> => {
     });
     beginActiveBrokerSessionTransition();
     await teardownBrokerSessionRuntime();
+    await pruneDisposableSessionStorage();
     useUserPreferences.getState().logout();
     await erasePersistedSession();
+    await persistSessionPreferences();
   });
 };
 
@@ -494,8 +549,10 @@ export const invalidateBrokerSession = (
     }
     beginActiveBrokerSessionTransition();
     await teardownBrokerSessionRuntime();
+    await pruneDisposableSessionStorage();
     useUserPreferences.getState().logout();
     await erasePersistedSession();
+    await persistSessionPreferences();
   });
 
 export const isCommittedBrokerSessionCurrent = (

@@ -8,7 +8,7 @@ const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 
 test('open-position cache is bound to the immutable active-session namespace', () => {
   const source = readSource('src/state/positionsState.ts');
 
-  assert.match(source, /OPEN_POSITIONS_CACHE_PREFIX = 'rtx5-open-positions-v2'/);
+  assert.match(source, /OPEN_POSITIONS_CACHE_PREFIX = OPEN_POSITIONS_SESSION_CACHE_STORAGE_PREFIX/);
   assert.match(source, /getOpenPositionsCacheKey = \(cacheNamespace: string\)/);
   assert.match(source, /cacheNamespace: scope\.cacheNamespace/);
   assert.match(source, /isActiveBrokerSessionCurrent\(scope\.identity\)/);
@@ -49,7 +49,7 @@ test('open-position cache skips market-only ticks before rebuilding or writing t
 test('persisted candle cache is session-namespaced and guards async hydration and writes', () => {
   const source = readSource('src/domain/candles/state/persistedCandleCache.ts');
 
-  assert.match(source, /STORAGE_KEY_PREFIX = 'rtx5:chart-candle-cache:v2'/);
+  assert.match(source, /STORAGE_KEY_PREFIX = CANDLE_SESSION_CACHE_STORAGE_PREFIX/);
   assert.match(source, /getPersistedCandleStorageKey = \(cacheNamespace: string\)/);
   assert.match(source, /parsed\.cacheNamespace !== expectedCacheNamespace/);
   assert.match(source, /await readStorage\(scope\);[\s\S]*if \(!isCandleCacheScopeCurrent\(scope\)\)/);

@@ -274,6 +274,22 @@ export const getBucketStart = (timestamp: unknown, timeframe: string): number | 
   return Math.floor(timestampSeconds / intervalSeconds) * intervalSeconds;
 };
 
+/**
+ * Resolves the final candle bucket that belongs to a completed market session.
+ * Session close is exclusive, so an exact-boundary close belongs to the prior
+ * bucket rather than permitting a synthetic candle at the close timestamp.
+ */
+export const getLastClosedSessionBucketStart = (
+  sessionClose: unknown,
+  timeframe: string,
+): number | null => {
+  const closeTimeSeconds = normalizeTimestampToSeconds(sessionClose);
+  if (closeTimeSeconds === null || closeTimeSeconds <= 0) {
+    return null;
+  }
+  return getBucketStart(closeTimeSeconds - 1, timeframe);
+};
+
 /** Alias for getBucketStart that returns Unix MILLISECONDS. */
 export const getBucketStartMs = (timestamp: unknown, timeframe: string): number | null => {
   const bucketStart = getBucketStart(timestamp, timeframe);

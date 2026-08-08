@@ -31,6 +31,10 @@ const chartTapRadialMenuSource = readProjectSource('src/features/chart/component
 const liveCandlesHookSource = readProjectSource('src/domain/candles/hooks/useLiveCandles.ts');
 const liveCandleStreamManagerSource = readProjectSource('src/domain/candles/stream/liveCandleStream/manager.ts');
 const liveCandleHistoryFetchingSource = readProjectSource('src/domain/candles/stream/liveCandleStream/historyFetching.ts');
+const liveCandleStreamTypesSource = readProjectSource('src/domain/candles/stream/liveCandleStream/types.ts');
+const navigationPrefetchSource = readProjectSource('src/utils/navigationPrefetch.ts');
+const chartHistoryWarmupPolicySource = readProjectSource('src/market/chartHistoryWarmupPolicy.ts');
+const quotesScreenSource = readProjectSource('src/features/quotes/QuotesScreen.tsx');
 const enhancedDrawingToolsSource = readProjectSource('src/features/chart/plugins/enhancedDrawingToolsString.ts');
 
 test('custom candle renderers lower main-chart contrast without changing saved schema colors', () => {
@@ -89,11 +93,11 @@ test('webview bridge: ChartScreen initializes chart only after WebView READY ena
   );
   assertSourceContains(source, /msg\.type === 'READY'[\s\S]*resetChartBridgeState\(\)[\s\S]*setWebViewReady\(true\)/, 'READY must reset bridge state and enable WebView');
   assertSourceContains(source, /const sendInit = useCallback[\s\S]*if \(!webViewRef\.current \|\| !webViewReady\) return/, 'sendInit must wait for WebView readiness');
-  assertSourceContains(source, /useEffect\(\(\) => \{[\s\S]*sendInit\(\);[\s\S]*\}, \[sanitizedCandles, sendInit\]\)/, 'sanitized candle arrival must trigger init after READY');
+  assertSourceContains(source, /useEffect\(\(\) => \{[\s\S]*sendInit\(\);[\s\S]*\}, \[readRenderableCanonicalCandles, sanitizedCandles, sendInit\]\)/, 'sanitized candle or closed-session boundary arrival must trigger init after READY');
 });
 
 test('webview bridge: candles arriving before READY are retained and sent after readiness', () => {
-  assertSourceContains(source, /const sanitizedBackendCandles = useMemo\([\s\S]*sanitizeCandlesForChart\(candles, \{[\s\S]*timeframe: chartTimeframe,[\s\S]*pruneSyntheticFlatLiveTail: chartMarketStatus\?\.status === 'closed' && !isCryptoChartSymbol/, 'native host must sanitize backend candles with closed-market flat-tail pruning only when safe');
+  assertSourceContains(source, /const sanitizedBackendCandles = useMemo\([\s\S]*sanitizeCandlesForChart\(candles, \{[\s\S]*timeframe: chartTimeframe,[\s\S]*pruneSyntheticFlatLiveTail: shouldApplyClosedCandlePolicy,[\s\S]*closedMarketSessionClose: shouldApplyClosedCandlePolicy[\s\S]*closedCandlePolicySessionClose/, 'native host must clamp and prune backend candles only for a confirmed close or bounded reopen repair');
   assertSourceContains(source, /const sanitizedCandles = useMemo\([\s\S]*return sanitizedBackendCandles;[\s\S]*\[\s*sanitizedBackendCandles\s*\]/, 'native host must render backend candle data without live-quote candle synthesis');
   assert.doesNotMatch(source, /resolveLivePriceCoherentCandles/, 'native host must not build display candles from quote ticks');
   assertSourceContains(source, /const overlayCandles = sanitizedBackendCandles\.length > 0 \? sanitizedBackendCandles : sanitizedCandles/, 'overlay rebuilds must stay tied to backend candles when backend history exists');
@@ -102,35 +106,93 @@ test('webview bridge: candles arriving before READY are retained and sent after 
   assertSourceContains(source, /const candlesRef = useRef\(sanitizedCandles\)/, 'sanitized candles must be retained outside render timing');
   assertSourceContains(
     source,
-    /useEffect\(\(\) => \{[\s\S]*const canonicalCandles = liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\);[\s\S]*candlesRef\.current = canonicalCandles\.length > 0 \? canonicalCandles : sanitizedCandles;[\s\S]*\}, \[[^\]]*sanitizedCandles[^\]]*\]\)/,
+    /useEffect\(\(\) => \{[\s\S]*const canonicalCandles = readRenderableCanonicalCandles\(\);[\s\S]*candlesRef\.current = canonicalCandles\.length > 0 \? canonicalCandles : sanitizedCandles;[\s\S]*\}, \[[^\]]*readRenderableCanonicalCandles[^\]]*sanitizedCandles[^\]]*\]\)/,
     'the retained READY snapshot must prefer the newest canonical candle state over the slower React snapshot',
   );
   assertSourceContains(source, /const data = candlesRef\.current[\s\S]*const mapped = data\.length > 0 \? buildMappedData\(data\) : \[\][\s\S]*initChart\(/, 'sendInit must initialize the chart shell even before candles arrive');
 });
 
-test('webview bridge: crypto symbols never use market-close flat-tail pruning or close separators', () => {
-  assertSourceContains(
-    source,
-    /const isCryptoChartSymbol = useMemo\([\s\S]*resolveChartSymbolCategory\(chartSymbol\) === 'CRYPTO'/,
-    'native chart must classify crypto symbols before applying market-close behavior',
+test('webview bridge: confirmed closed charts use one session-clamped canonical reader everywhere', () => {
+  assert.equal(
+    (source.match(/liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\)/g) ?? []).length,
+    1,
+    'the raw engine series must be read only inside the centralized renderable-candle reader',
   );
   assertSourceContains(
     source,
-    /pruneSyntheticFlatLiveTail: chartMarketStatus\?\.status === 'closed' && !isCryptoChartSymbol/,
-    'flat-tail pruning must be disabled for crypto even if market status says closed',
+    /const readRenderableCanonicalCandles = useCallback\(\(\) => \{[\s\S]*const canonicalCandles = liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\)[\s\S]*if \(!shouldApplyClosedCandlePolicy \|\| canonicalCandles\.length === 0\)[\s\S]*sanitizeCandlesForChart\(canonicalCandles, \{[\s\S]*pruneSyntheticFlatLiveTail: true,[\s\S]*closedMarketSessionClose: closedCandlePolicySessionClose/,
+    'the centralized reader must clamp confirmed closed/reopening series only',
   );
   assertSourceContains(
     source,
-    /if \(chartMarketStatus\?\.status !== 'closed' \|\| isCryptoChartSymbol\) \{[\s\S]*return \[\]/,
-    'market-close separator payload must be disabled for crypto symbols',
+    /const chartMetaCanonicalCandles =[\s\S]*readRenderableCanonicalCandles\(\)/,
+    'first-visible OHLC must use the centralized reader',
+  );
+  assertSourceContains(
+    source,
+    /const canonicalCandles = readRenderableCanonicalCandles\(\);[\s\S]*candlesRef\.current = canonicalCandles\.length > 0 \? canonicalCandles : sanitizedCandles/,
+    'READY initialization must be seeded from the centralized reader',
+  );
+  assertSourceContains(
+    source,
+    /const paintCanonicalLiveTick = \(allowUnchangedSnapshot = false\) => \{[\s\S]*const canonicalCandles = readRenderableCanonicalCandles\(\)/,
+    'fast live painting must use the centralized reader',
+  );
+  assertSourceContains(
+    source,
+    /keep full history\/replacement data aligned[\s\S]*const canonicalCandles = readRenderableCanonicalCandles\(\)/,
+    'full history replacement must use the centralized reader',
+  );
+  assertSourceContains(
+    source,
+    /useMarketStatus\(\s*chartSymbol,\s*chartSurfaceReady,\s*chartRuntimeActive,\s*\)/,
+    'the retained chart surface must preload the session boundary before first reveal and poll only while active',
+  );
+  assertSourceContains(
+    source,
+    /if \(!chartRuntimeActive \|\| !chartSurfaceReady\) return;[\s\S]*void refetchChartMarketStatus\(\)/,
+    'revealing a retained chart must refetch market status immediately instead of waiting for the polling interval',
+  );
+  assertSourceContains(
+    source,
+    /shouldRefreshChartHistoryOnSessionTransition\([\s\S]*setChartReopenHistoryRepair\([\s\S]*refreshChartHistory\(\)/,
+    'a confirmed closed-to-open transition must reconcile history exactly once while retaining the sanitized view',
+  );
+  assertSourceContains(
+    source,
+    /const closedMarketFlatBackfillRef = useRef\(\{ contextKey: '', requested: false \}\)[\s\S]*if \(!isChartMarketClosed\)[\s\S]*candles\.length < INITIAL_HISTORY_LIMIT[\s\S]*!hasOnlyRepeatedFlatCandles\(candles\)[\s\S]*liveCandlesEngine\.getState\(chartSymbol, chartTimeframe\)[\s\S]*if \(!streamState \|\| streamState\.loading\)[\s\S]*backfillState\.requested = true;[\s\S]*paginate\(\)/,
+    'a cold closed-market chart must request one guarded older page when its full initial window is frozen',
   );
 });
 
-test('webview bridge: symbol switches do not paint cached candles before fresh history commits', () => {
+test('webview bridge: per-symbol quote activity replaces static crypto and broker exceptions', () => {
+  assertSourceContains(
+    source,
+    /resolveChartMarketSessionPolicy\(chartMarketStatus\)/,
+    'native chart must normalize the per-symbol backend quote-session contract',
+  );
+  assertSourceContains(
+    source,
+    /const isChartMarketClosed = chartMarketSessionPolicy\.quotePhase === 'closed'/,
+    'the closed-session display gate must follow per-symbol quote activity',
+  );
+  assert.doesNotMatch(
+    source,
+    /isCryptoChartSymbol|brokerId\s*===\s*['"]achiever/i,
+    'chart session behavior must not depend on a crypto-name or broker-name exception',
+  );
+  assertSourceContains(
+    source,
+    /if \(!isChartMarketClosed\) \{[\s\S]*return \[\]/,
+    'market-close separators must be disabled whenever the symbol quote session is not confirmed closed',
+  );
+});
+
+test('webview bridge: symbol switches isolate candle state before the context history path commits', () => {
   assertSourceContains(
     liveCandleStreamManagerSource,
-    /historyCandles:\s*\[\][\s\S]*candles:\s*EMPTY_CANDLES as CandleParams\[\][\s\S]*runLoadHistory\(this, entry, INITIAL_HISTORY_LIMIT\)/,
-    'new candle streams must expose an empty UI series until the authoritative REST history load commits',
+    /historyCandles:\s*\[\][\s\S]*renderHistoryLimit:\s*INITIAL_HISTORY_LIMIT[\s\S]*candles:\s*EMPTY_CANDLES as CandleParams\[\][\s\S]*this\.entries\.set\(key, entry\)[\s\S]*this\.loadFreshHistory\(entry\)/,
+    'each chart context must begin with isolated state and enter the session-aware fresh-history path',
   );
   assertSourceContains(
     liveCandleStreamManagerSource,
@@ -159,7 +221,7 @@ test('webview bridge: symbol switches do not paint cached candles before fresh h
   );
   assertSourceContains(
     source,
-    /const chartDataActive = chartRuntimeActive[\s\S]*const \{[\s\S]*candles,[\s\S]*paginate,[\s\S]*loading: chartDataLoading,[\s\S]*error: chartDataError,[\s\S]*\} = useLiveCandles\([\s\S]*chartSymbol,[\s\S]*chartTimeframe,[\s\S]*chartDataActive,[\s\S]*CHART_SCREEN_CANDLE_COMMIT_INTERVAL_MS,[\s\S]*\)[\s\S]*candles\.length > 0[\s\S]*sanitizeCandlesForChart\(candles, \{[\s\S]*timeframe: chartTimeframe,[\s\S]*pruneSyntheticFlatLiveTail: chartMarketStatus\?\.status === 'closed' && !isCryptoChartSymbol,[\s\S]*\}\)[\s\S]*EMPTY_DISPLAY_CANDLES/,
+    /const chartDataActive = chartRuntimeActive[\s\S]*const \{[\s\S]*candles,[\s\S]*paginate,[\s\S]*refresh: refreshChartHistory,[\s\S]*loading: chartDataLoading,[\s\S]*error: chartDataError,[\s\S]*\} = useLiveCandles\([\s\S]*chartSymbol,[\s\S]*chartTimeframe,[\s\S]*chartDataActive,[\s\S]*CHART_SCREEN_CANDLE_COMMIT_INTERVAL_MS,[\s\S]*\)[\s\S]*candles\.length > 0[\s\S]*sanitizeCandlesForChart\(candles, \{[\s\S]*timeframe: chartTimeframe,[\s\S]*pruneSyntheticFlatLiveTail: shouldApplyClosedCandlePolicy,[\s\S]*closedMarketSessionClose: shouldApplyClosedCandlePolicy[\s\S]*closedCandlePolicySessionClose[\s\S]*\}\)[\s\S]*EMPTY_DISPLAY_CANDLES/,
     'native chart may paint live candle ticks before slow REST history finishes',
   );
   assertSourceContains(
@@ -199,13 +261,13 @@ test('live candle stream: startup prefetch seeds first chart render before REST 
   );
   assertSourceContains(
     liveCandleStreamManagerSource,
-    /const memoryCachedCandles = candleMemoryCache\.get\(symbol, timeframe\)[\s\S]*this\.hydrateFromCache\(symbol, timeframe, memoryCachedCandles as CandleParams\[\]\)[\s\S]*runLoadHistory\(this, entry, INITIAL_HISTORY_LIMIT\)/,
-    'new chart subscriptions must synchronously paint memory-prefetched candles before starting the REST refresh',
+    /const memoryCachedCandles = candleMemoryCache\.get\(symbol, timeframe\)[\s\S]*this\.hydrateFromCache\([\s\S]*memoryCachedCandles as CandleParams\[\],[\s\S]*Math\.min\(PAGINATED_HISTORY_LIMIT, memoryCachedCandles\.length\)[\s\S]*this\.loadFreshHistory\(entry\)/,
+    'new chart subscriptions must synchronously paint the complete exact memory warm-up before entering the fresh REST path',
   );
   assertSourceContains(
     liveCandleStreamManagerSource,
-    /public hydrateFromCache\(symbol: string, timeframe: string, candles: CandleParams\[\]\): void[\s\S]*entry\.historyCandles\.length > 0[\s\S]*entry\.historyCandles = safeCandles;[\s\S]*Preserve any live ticks[\s\S]*this\.commit\(entry\)/,
-    'exact-key persisted candles may paint during the initial REST request without discarding live ticks',
+    /public hydrateFromCache\([\s\S]*candles: CandleParams\[\],[\s\S]*renderLimit = INITIAL_HISTORY_LIMIT[\s\S]*entry\.historyCandles\.length > 0[\s\S]*entry\.historyCandles = safeCandles;[\s\S]*Preserve any live ticks[\s\S]*entry\.renderHistoryLimit = safeRenderLimit[\s\S]*this\.commit\(entry\)/,
+    'exact-key cached candles may paint at their bounded warm limit without discarding live ticks',
   );
   const hydrateFromCacheStart = liveCandleStreamManagerSource.indexOf('public hydrateFromCache');
   const hydrateFromCacheEnd = liveCandleStreamManagerSource.indexOf('/**', hydrateFromCacheStart + 3);
@@ -294,8 +356,13 @@ test('webview bridge: native live candles use fresh quotes while precision stays
 test('webview bridge: OHLC header follows the latest live candle', () => {
   assertSourceContains(
     source,
-    /const chartMetaLiveLastCandle = sanitizedCandles\.length > 0 \? sanitizedCandles\[sanitizedCandles\.length - 1\] : null;[\s\S]*const chartMetaLastCandle = chartMetaLiveLastCandle;/,
-    'O/H/L/C header must read the latest backend live candle, not a filtered chart-window candle',
+    /const chartMetaLiveLastCandle = sanitizedCandles\.length > 0 \? sanitizedCandles\[sanitizedCandles\.length - 1\] : null;[\s\S]*const chartMetaCanonicalCandles =[\s\S]*!chartMetaLiveLastCandle && activeChartSessionCacheNamespace[\s\S]*readRenderableCanonicalCandles\(\)[\s\S]*const chartMetaLastCandle = chartMetaLiveLastCandle \?\? chartMetaCanonicalLastCandle/,
+    'O/H/L/C header must prefer the latest committed candle and immediately fall back to the exact canonical chart context on first reveal',
+  );
+  assert.doesNotMatch(
+    source,
+    /const chartMetaCanonicalCandles\s*=\s*!chartMetaLiveLastCandle\s*&&\s*isScreenFocused/,
+    'first-visible OHLC fallback must not wait for deferred Chart focus',
   );
   assertSourceContains(
     source,
@@ -474,6 +541,171 @@ test('webview bridge: updateLiveTick paints the forming candle and Bid line atom
     legacyBody,
     /pendingTick = \{ tick: tick \}/,
     'the legacy candle-only bridge must remain isolated from live Bid-line synchronization',
+  );
+});
+
+test('webview bridge: chart data identity is scoped to broker account symbol and timeframe', () => {
+  assertSourceContains(
+    source,
+    /const chartDataContextSig = useMemo\(\s*\(\) => `\$\{activeChartSessionCacheNamespace\}:\$\{chartSymbol\}:\$\{normalizeTimeframe\(chartTimeframe\)\}`,[\s\S]*\[activeChartSessionCacheNamespace, chartSymbol, chartTimeframe\]/,
+    'bridge data identity must change across broker accounts, symbols, and normalized timeframes',
+  );
+  assertSourceContains(
+    source,
+    /const displayDecimalsKey =\s*`\$\{activeChartSessionCacheNamespace\}::\$\{chartSymbol\}::\$\{chartTimeframe\}`/,
+    'display precision must not leak between accounts that expose the same symbol',
+  );
+  assertSourceContains(
+    source,
+    /const startupPrefetchKey =\s*`\$\{activeChartSessionCacheNamespace\}:\$\{chartSymbol\}:\$\{normalizedTimeframe\}`/,
+    'startup history dedupe must remain local to the active broker account and chart context',
+  );
+});
+
+test('webview bridge: quote-first and candle-first cold loads both replay the exact retained Bid', () => {
+  assertSourceContains(
+    source,
+    /const replacementExactQuote = readExactChartQuoteForScope\(\s*chartTradeDisplayQuoteScopeKey,\s*retainedChartTradeDisplayQuoteRef\.current,\s*\);[\s\S]*const replacementLivePrice =[\s\S]*replacementExactQuote\.bid[\s\S]*updateChartData\([\s\S]*setLivePriceLineForContext\(\s*\$\{replacementLivePrice \?\? 'null'\},\s*\$\{JSON\.stringify\(chartDataContextSig\)\}/,
+    'when the exact quote arrives first, candle replacement must restore its Bid in the same context-tagged transaction',
+  );
+  assertSourceContains(
+    source,
+    /useEffect\(\(\) => \{\s*if \(!observedExactChartQuote\) return;[\s\S]*paintCanonicalLiveTickRef\.current\(true\);[\s\S]*\}, \[observedExactChartQuote\]\)/,
+    'when candles arrive first, the later exact REST quote must repaint the line without waiting for another candle or websocket tick',
+  );
+  assertSourceContains(
+    source,
+    /const readyExactQuote = readExactChartQuoteForScope\([\s\S]*const visibleLivePrice =[\s\S]*readyExactQuote\.bid[\s\S]*setLivePriceLineForContext\(\s*\$\{visibleLivePrice \?\? 'null'\},\s*\$\{JSON\.stringify\(chartDataContextSig\)\}/,
+    'WebView readiness must replay only the exact retained Bid through the guarded context bridge',
+  );
+});
+
+test('webview bridge: live price commands and queued ticks reject stale chart contexts', () => {
+  const contextPriceLineBody = extractFunctionBody(
+    chartWebViewHtmlSource,
+    'setLivePriceLineForContext',
+  );
+  const liveTickBody = extractFunctionBody(chartWebViewHtmlSource, 'updateLiveTick');
+  const flushBody = extractFunctionBody(chartWebViewHtmlSource, 'flushPendingTick');
+
+  assertSourceContains(
+    source,
+    /const liveUpdate = \{[\s\S]*candle: buildChartTickPayload\(lastCandle, chartType\),[\s\S]*dataContextSig: chartDataContextSig,[\s\S]*livePrice: exactBidLine/,
+    'every native candle and Bid transaction must carry its broker/account/symbol/timeframe identity',
+  );
+  assertSourceContains(
+    contextPriceLineBody,
+    /requestedContextSig[\s\S]*!requestedContextSig \|\| requestedContextSig !== lastInitDataContextSig[\s\S]*return false;[\s\S]*setLivePriceLine\(price, shouldScheduleRefresh\)/,
+    'a delayed standalone Bid-line replay must not paint over a newer chart context',
+  );
+  assertSourceContains(
+    liveTickBody,
+    /updateDataContextSig[\s\S]*!updateDataContextSig \|\| updateDataContextSig !== lastInitDataContextSig[\s\S]*return;[\s\S]*dataContextSig: updateDataContextSig/,
+    'the atomic live bridge must reject missing or stale data identity before queueing a paint',
+  );
+  assertSourceContains(
+    flushBody,
+    /pendingDataContextSig[\s\S]*pendingDataContextSig &&[\s\S]*pendingDataContextSig !== lastInitDataContextSig[\s\S]*return;[\s\S]*applyTickUpdate\(tick\)/,
+    'a queued live frame must recheck its context in case the user switches charts before animation-frame flush',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /window\.setLivePriceLineForContext = setLivePriceLineForContext/,
+    'native replay must use the exported guarded Bid-line bridge',
+  );
+});
+
+test('webview bridge: the market price line never falls back to candle close', () => {
+  assertSourceContains(
+    source,
+    /const exactBidLine = exactQuote\?\.bid \?\? null;[\s\S]*livePrice: exactBidLine/,
+    'live paint must source the market line only from the exact backend Bid',
+  );
+  assertSourceContains(
+    source,
+    /const replacementLivePrice =[\s\S]*replacementExactQuote[\s\S]*\? replacementExactQuote\.bid[\s\S]*: null/,
+    'cold replacement replay must use the retained exact Bid or no line',
+  );
+  assert.doesNotMatch(
+    source,
+    /livePrice:\s*lastCandle\.close|exactBidLine\s*=[^;]*lastCandle\.close|replacementLivePrice\s*=[^;]*lastCandle\.close/,
+    'a missing quote must never be guessed from the final candle close',
+  );
+});
+
+test('webview bridge: toggling the live-price filter replays or clears a closed symbol without a new tick', () => {
+  assertSourceContains(
+    source,
+    /paintCanonicalLiveTick\(true\);[\s\S]*quotesWsService\.subscribeToSymbol\([\s\S]*\}, \[[\s\S]*chartDisplay\.showLivePriceLine[\s\S]*\]\);/,
+    'the canonical retained-quote effect must rerun when the live-price filter changes',
+  );
+  assertSourceContains(
+    source,
+    /const replacementLivePrice =\s*chartDisplay\.showLivePriceLine && replacementExactQuote\s*\? replacementExactQuote\.bid\s*: null/,
+    'filter-off must clear the line while filter-on restores the exact retained Bid',
+  );
+});
+
+test('closed-market chart intent warms a deeper exact history window without broker or asset guesses', () => {
+  const selectionWarmBody = extractFunctionBody(
+    navigationPrefetchSource,
+    'prefetchChartSelectionHistory',
+  );
+  const prefetchHistoryStart = liveCandleHistoryFetchingSource.indexOf(
+    'export const runPrefetchHistory =',
+  );
+  assert.notEqual(prefetchHistoryStart, -1, 'runPrefetchHistory arrow function must exist');
+  const prefetchHistoryEnd = liveCandleHistoryFetchingSource.indexOf('\n};', prefetchHistoryStart);
+  assert.notEqual(prefetchHistoryEnd, -1, 'runPrefetchHistory arrow function must have a closing body');
+  const prefetchHistoryBody = liveCandleHistoryFetchingSource.slice(
+    prefetchHistoryStart,
+    prefetchHistoryEnd + 3,
+  );
+
+  assertSourceContains(
+    liveCandleStreamTypesSource,
+    /INITIAL_VIEWPORT_HISTORY_LIMIT = 120[\s\S]*PAGINATED_HISTORY_LIMIT = Math\.min\(500, MAX_CANDLE_SERIES_LENGTH\)[\s\S]*CLOSED_MARKET_HISTORY_WARM_LIMIT = PAGINATED_HISTORY_LIMIT/,
+    'closed-market warming must use the bounded 500-bar page while normal first paint stays at 120 bars',
+  );
+  assertSourceContains(
+    selectionWarmBody,
+    /const cacheNamespace = capture\?\.session\.cacheNamespace \?\? ''[\s\S]*getMarketStatusQueryKey\(cacheNamespace, requestedSymbol\)/,
+    'the status decision must be scoped to the active broker/account and exact requested symbol',
+  );
+  assertSourceContains(
+    chartHistoryWarmupPolicySource,
+    /status\?\.quote_open === false\s*\? CLOSED_MARKET_HISTORY_WARM_LIMIT\s*:\s*INITIAL_HISTORY_LIMIT/,
+    'the shared warm-up policy must select the deeper window only from an explicit backend quote closure',
+  );
+  assertSourceContains(
+    selectionWarmBody,
+    /const cachedStatus = appQueryClient\.getQueryData<MarketStatusDTO>\(statusQueryKey\)[\s\S]*const initialLimit = resolveChartSelectionHistoryWarmLimit\(cachedStatus\)[\s\S]*liveCandlesEngine\.prefetchHistory\([\s\S]*initialLimit/,
+    'a cached confirmed close must start the deeper warm-up immediately while open or unknown symbols keep the small window',
+  );
+  assertSourceContains(
+    selectionWarmBody,
+    /appQueryClient\.fetchQuery\([\s\S]*runSessionBoundQuery\([\s\S]*cacheNamespace[\s\S]*fetchMarketStatus\(requestedSymbol\)[\s\S]*status\.quote_open !== false[\s\S]*isSessionQueryCacheNamespaceCurrent\(cacheNamespace\)[\s\S]*liveCandlesEngine\.prefetchHistory\([\s\S]*resolveChartSelectionHistoryWarmLimit\(status\)/,
+    'a newly confirmed close must upgrade the same session-scoped warm-up without accepting a late prior-session status',
+  );
+  assertSourceContains(
+    prefetchHistoryBody,
+    /finiteRequestedLimit = Number\.isFinite\(limit\)[\s\S]*\? Math\.floor\(limit\)[\s\S]*: INITIAL_HISTORY_LIMIT[\s\S]*requestedLimit = Math\.min\([\s\S]*Math\.max\(INITIAL_HISTORY_LIMIT, finiteRequestedLimit\)[\s\S]*existing && existing\.limit >= requestedLimit[\s\S]*getCandleHistory\([\s\S]*requestedLimit/,
+    'history prefetch must honor a deeper requested limit and reuse an equal or deeper in-flight request',
+  );
+  assertSourceContains(
+    quotesScreenSource,
+    /openChartTabForSymbol[\s\S]*prefetchChartSelectionHistory\(sym, chartTimeframe\)/,
+    'the Quotes-to-Chart action must begin the exact history warm-up before revealing Chart',
+  );
+  assertSourceContains(
+    source,
+    /warmChartContextAndCommit[\s\S]*prepare: \(\) => \{[\s\S]*prefetchChartSelectionHistory\(nextSymbol, nextTimeframe\)/,
+    'the in-chart symbol picker must use the same dynamic warm-up contract',
+  );
+  assert.doesNotMatch(
+    selectionWarmBody,
+    /isCryptoSymbol|resolveChartSymbolCategory|achiever|gta|weekend|saturday|getDay\(/i,
+    'the deeper warm-up must not contain broker names, crypto exceptions, or frontend calendar guesses',
   );
 });
 
@@ -896,7 +1128,7 @@ test('webview bridge: setLivePriceLine hides native market badges and paints one
   assertSourceContains(chartWebViewHtmlSource, /function refreshMarketPriceScaleDom\(\)[\s\S]*renderMarketPriceScaleExtensions\(layer\)[\s\S]*renderMarketPriceScaleBadges\(layer\)/, 'overlay refresh must render MT5-style custom market price-scale badges after the line accents');
   assertSourceContains(
     source,
-    /const readCanonicalCandles = \(\) => liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\)[\s\S]*const paintCanonicalLiveTick = \(allowUnchangedSnapshot = false\) => \{[\s\S]*allowUnchangedSnapshot && updateMode === 'noop'[\s\S]*updateLiveTick\([\s\S]*paintCanonicalLiveTick\(true\);[\s\S]*liveCandlesEngine\.subscribe\(\s*chartSymbol,\s*chartTimeframe,\s*paintCanonicalLiveTick/,
+    /const paintCanonicalLiveTick = \(allowUnchangedSnapshot = false\) => \{[\s\S]*const canonicalCandles = readRenderableCanonicalCandles\(\);[\s\S]*allowUnchangedSnapshot && updateMode === 'noop'[\s\S]*updateLiveTick\([\s\S]*paintCanonicalLiveTick\(true\);[\s\S]*liveCandlesEngine\.subscribe\(\s*chartSymbol,\s*chartTimeframe,\s*paintCanonicalLiveTick/,
     'native live paints must atomically repaint the current candle and Bid line on route resume before subscribing for later ticks',
   );
   assert.doesNotMatch(

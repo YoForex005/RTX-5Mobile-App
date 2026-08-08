@@ -325,7 +325,7 @@ test('chart adapter never sends malformed candlestick objects to setData', () =>
   );
 });
 
-test('canonical live candle updates move the forming candle and Bid line together', () => {
+test('canonical candle and exact backend Bid update through one atomic bridge payload', () => {
   assert.doesNotMatch(
     chartSource,
     /resolveLivePriceCoherentCandles/,
@@ -333,9 +333,10 @@ test('canonical live candle updates move the forming candle and Bid line togethe
   );
   assertSourceContains(
     chartSource,
-    /const readCanonicalCandles = \(\) => liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\)[\s\S]*candle: buildChartTickPayload\(lastCandle, chartType\),[\s\S]*livePrice: lastCandle\.close,[\s\S]*updateLiveTick\([\s\S]*liveCandlesEngine\.subscribe\(\s*chartSymbol,\s*chartTimeframe,\s*paintCanonicalLiveTick,\s*\)/,
-    'ChartScreen must paint canonical candle OHLC and its exact Bid close through one atomic bridge call',
+    /const readRenderableCanonicalCandles = useCallback\([\s\S]*liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\)[\s\S]*const canonicalCandles = readRenderableCanonicalCandles\(\)[\s\S]*const exactQuote = readExactChartQuoteForScope\([\s\S]*candle: buildChartTickPayload\(lastCandle, chartType\),[\s\S]*livePrice: exactBidLine,[\s\S]*updateLiveTick\([\s\S]*liveCandlesEngine\.subscribe\(\s*chartSymbol,\s*chartTimeframe,\s*paintCanonicalLiveTick,\s*\)/,
+    'ChartScreen must paint candle-owned OHLC and the separately-owned exact backend Bid through one atomic bridge call',
   );
+  assert.doesNotMatch(chartSource, /livePrice: lastCandle\.close/);
   assert.doesNotMatch(
     chartSource,
     /pendingMarketPriceLinesRef|requestMarketPriceLineFlush|flushPendingMarketPriceLines/,

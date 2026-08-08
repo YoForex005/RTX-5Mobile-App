@@ -8,6 +8,7 @@ import {
   getChartSeriesUpdateMode,
   RenderableChartCandle,
   resolveLatestCandleGap,
+  shouldResetViewportForClosedMarketClamp,
 } from './liveChartSync';
 
 const makeCandle = (
@@ -88,6 +89,33 @@ test('getChartSeriesUpdateMode requests a full reload for the first synced serie
   const next = buildChartSeriesSnapshot([makeCandle(100)]);
 
   assert.equal(getChartSeriesUpdateMode(EMPTY_CHART_SERIES_SNAPSHOT, next), 'full_reload');
+});
+
+test('closed-market tail removal requests one recent-viewport reset', () => {
+  const previous = buildChartSeriesSnapshot([
+    makeCandle(100),
+    makeCandle(160),
+    makeCandle(220),
+  ]);
+  const clamped = buildChartSeriesSnapshot([
+    makeCandle(100),
+    makeCandle(160),
+  ]);
+  const appended = buildChartSeriesSnapshot([
+    makeCandle(100),
+    makeCandle(160),
+    makeCandle(220),
+    makeCandle(280),
+  ]);
+
+  assert.equal(shouldResetViewportForClosedMarketClamp(previous, clamped, true), true);
+  assert.equal(shouldResetViewportForClosedMarketClamp(previous, clamped, false), false);
+  assert.equal(shouldResetViewportForClosedMarketClamp(previous, previous, true), false);
+  assert.equal(shouldResetViewportForClosedMarketClamp(previous, appended, true), false);
+  assert.equal(
+    shouldResetViewportForClosedMarketClamp(EMPTY_CHART_SERIES_SNAPSHOT, clamped, true),
+    false,
+  );
 });
 
 test('resolveLatestCandleGap reports the last visible missing candle span in bars', () => {

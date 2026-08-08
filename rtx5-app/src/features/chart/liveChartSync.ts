@@ -45,6 +45,16 @@ export const EMPTY_CHART_SERIES_SNAPSHOT: ChartSeriesSnapshot = {
   tailWithoutLastSignature: '',
 };
 
+export const shouldResetViewportForClosedMarketClamp = (
+  previous: ChartSeriesSnapshot,
+  next: ChartSeriesSnapshot,
+  isMarketClosed: boolean,
+): boolean =>
+  isMarketClosed &&
+  previous.lastTime !== null &&
+  next.lastTime !== null &&
+  next.lastTime < previous.lastTime;
+
 const buildCandleSignature = (candle: RenderableChartCandle | undefined): string => {
   if (!candle) {
     return '';

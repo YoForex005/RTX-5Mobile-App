@@ -4,6 +4,7 @@
 
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { OPEN_POSITIONS_SESSION_CACHE_STORAGE_PREFIX } from './sessionCacheStorage';
 import type { PositionItem } from '../dev/mock/tradingData';
 import { positionsApi, type Position } from '../api/positions';
 import { appQueryClient } from './providers/AppProviders';
@@ -71,7 +72,7 @@ const DEBUG_POSITIONS_STATE =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_POSITIONS_STATE === 'true';
 const DEFAULT_RATE_LIMIT_BACKOFF_SECONDS = 30;
 const positionsRateLimitUntilByNamespace = new Map<string, number>();
-const OPEN_POSITIONS_CACHE_PREFIX = 'rtx5-open-positions-v2';
+const OPEN_POSITIONS_CACHE_PREFIX = OPEN_POSITIONS_SESSION_CACHE_STORAGE_PREFIX;
 const OPTIMISTIC_CLOSE_SUPPRESS_MS = 60_000;
 // After a close tap we hide that ticket immediately. This guard stops a stale
 // positions poll from briefly adding the same position back before backend sync.

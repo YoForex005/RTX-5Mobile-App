@@ -500,8 +500,8 @@ test('chart market execution only submits SL and TP that target a new order', ()
   );
   assertSourceContains(
     chartTradeResultSource,
-    /if \(feedback\.type !== 'success'\) \{[\s\S]*setTradeFeedback\(feedback\);[\s\S]*return;[\s\S]*\}[\s\S]*setTradeFeedback\(feedback\);[\s\S]*refetchOrders\(\)[\s\S]*refetchAccountSummary\(\)/,
-    'chart one-click success must show shared feedback and refresh query-backed trade data',
+    /if \(feedback\.type !== 'success'\) \{[\s\S]*setTradeFeedback\(feedback\);[\s\S]*return;[\s\S]*\}[\s\S]*if \(!suppressConfirmedReceipt\) \{[\s\S]*setTradeFeedback\(feedback\);[\s\S]*refetchOrders\(\)[\s\S]*refetchAccountSummary\(\)/,
+    'chart success must suppress duplicate single receipts only for stacked fills and still refresh query-backed trade data',
   );
   assert.doesNotMatch(
     chartTradeResultSource,
@@ -510,7 +510,7 @@ test('chart market execution only submits SL and TP that target a new order', ()
   );
   assertSourceContains(
     chartTradeExecutionResultSource,
-    /handleChartTradeResult\(feedback\)[\s\S]*feedback\.type !== 'success'[\s\S]*!chartDirectProtectionActive[\s\S]*!feedback\.protectionDraftId[\s\S]*applyChartProtectionDraftExecution\(\{[\s\S]*draftId: feedback\.protectionDraftId,[\s\S]*executionConfirmed: feedback\.executionConfirmed === true/,
+    /handleChartTradeResult\(feedback, suppressConfirmedReceipt\)[\s\S]*feedback\.type !== 'success'[\s\S]*!chartDirectProtectionActive[\s\S]*!feedback\.protectionDraftId[\s\S]*applyChartProtectionDraftExecution\(\{[\s\S]*draftId: feedback\.protectionDraftId,[\s\S]*executionConfirmed: feedback\.executionConfirmed === true/,
     'market execution must retain drafts unless the exact draft receives broker-confirmed evidence or a reconcilable ticket',
   );
   assertSourceContains(

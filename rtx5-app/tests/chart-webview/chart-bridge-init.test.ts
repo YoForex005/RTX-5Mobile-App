@@ -17,7 +17,7 @@ test('READY resets bridge state and allows candles that arrived earlier to initi
   );
   assertSourceContains(
     source,
-    /const candlesRef = useRef\(sanitizedCandles\)[\s\S]*const canonicalCandles = liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\);[\s\S]*candlesRef\.current = canonicalCandles\.length > 0 \? canonicalCandles : sanitizedCandles/,
+    /const candlesRef = useRef\(sanitizedCandles\)[\s\S]*const canonicalCandles = readRenderableCanonicalCandles\(\);[\s\S]*candlesRef\.current = canonicalCandles\.length > 0 \? canonicalCandles : sanitizedCandles/,
     'READY retention must prefer the newest canonical candle array and use the React snapshot only as bootstrap fallback',
   );
   assertSourceContains(

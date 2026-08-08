@@ -112,3 +112,36 @@ test('startup diagnostics redact credential-bearing error text and stacks', () =
   assert.match(diagnosticsSource, /redactDiagnosticValue\(\{/);
   assert.match(diagnosticsSource, /redactSensitiveString\(event\)/);
 });
+
+test('transient account hydration failures stay stack-free in Expo diagnostics', () => {
+  const source = readSource('app/_layout.tsx');
+  const hydrationStart = source.indexOf('const environmentRefreshToken = beginAccountEnvironmentRefresh');
+  const hydrationEnd = source.indexOf('}, { delayMs: 5000, timeoutMs: 6000 })', hydrationStart);
+
+  assert.ok(hydrationStart >= 0, 'expected the delayed account hydration block');
+  assert.ok(hydrationEnd > hydrationStart, 'expected the end of the delayed account hydration block');
+
+  const hydrationBlock = source.slice(hydrationStart, hydrationEnd);
+  assert.match(hydrationBlock, /e instanceof AccountsApiError/);
+  assert.match(hydrationBlock, /e\.statusCode === 0/);
+  assert.match(hydrationBlock, /e\.statusCode === 408/);
+  assert.match(hydrationBlock, /e\.statusCode === 429/);
+  assert.match(hydrationBlock, /e\.statusCode >= 500/);
+  assert.match(
+    hydrationBlock,
+    /console\.info\('\[Hydration\] Initial account metrics temporarily unavailable',[\s\S]*errorName: e\.name,[\s\S]*statusCode: e\.statusCode/,
+  );
+
+  const transientBranchStart = hydrationBlock.indexOf('e instanceof AccountsApiError');
+  const transientBranchEnd = hydrationBlock.indexOf('console.warn(', transientBranchStart);
+  assert.ok(transientBranchStart >= 0, 'expected the transient AccountsApiError branch');
+  assert.ok(transientBranchEnd > transientBranchStart, 'expected the unexpected-error warning branch');
+
+  const transientBranch = hydrationBlock.slice(transientBranchStart, transientBranchEnd);
+  assert.doesNotMatch(transientBranch, /console\.(?:warn|error)/);
+  assert.doesNotMatch(transientBranch, /redactDiagnosticValue\(e\)|e\.stack|throw e/);
+  assert.match(
+    hydrationBlock.slice(transientBranchEnd),
+    /console\.warn\([\s\S]*redactDiagnosticValue\(e\)/,
+  );
+});

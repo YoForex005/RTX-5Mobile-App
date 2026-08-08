@@ -42,14 +42,23 @@ test('buildRestQuoteTickEvent rejects snapshots without a usable bid/ask pair', 
   );
 });
 
-test('live symbol REST repair is one-shot and skips a fresh websocket quote', () => {
+test('live symbol REST repair retries transient failures but stops for an exact websocket quote', () => {
   const source = readSource('src/query/websocket.ts');
 
   assert.match(
     source,
-    /const liveQuote = useTradingState\.getState\(\)\.quotes\[entry\.symbol\];[\s\S]*if \(isFreshLiveQuote\(liveQuote\)\) \{\s*return;\s*\}/,
+    /const liveQuote = useTradingState\.getState\(\)\.quotes\[entry\.symbol\];[\s\S]*if \(isFreshLiveQuote\(liveQuote\) && hasExactQuotePair\(liveQuote\)\) \{\s*return 'resolved';\s*\}/,
   );
-  assert.match(source, /if \(!entry\.attempted\) \{\s*entry\.attempted = true;\s*void fetchRestQuoteSnapshotForEntry\(entry\);\s*\}/);
+  assert.match(source, /LIVE_SYMBOL_REST_RETRY_DELAYS_MS = \[0, 750, 2_000, 4_000\] as const/);
+  assert.match(source, /const scheduleRestQuoteSnapshotFallback = \(entry: RestQuoteFallbackEntry\): void =>/);
+  assert.match(source, /if \(outcome !== 'retry'\) \{\s*entry\.completed = true;/);
+  assert.match(source, /hasObservedDirectSymbolTick\(entry\)/);
+  assert.match(
+    source,
+    /entry\.completed && !hasObservedDirectSymbolTick\(entry\)[\s\S]*entry\.attemptCount = 0;[\s\S]*entry\.completed = false;/,
+  );
+  assert.match(source, /clearTimeout\(activeEntry\.retryTimer\)/);
+  assert.match(source, /clearTimeout\(entry\.retryTimer\)/);
   assert.doesNotMatch(source, /setInterval\s*\(/);
   assert.doesNotMatch(source, /quotes as mockQuotes/);
 });

@@ -4,6 +4,7 @@ import {
   getCandleHistory,
 } from '../domain/candles/api/candles';
 import { fetchInstrumentMeta } from '../api/instruments';
+import { fetchMarketStatus, type MarketStatusDTO } from '../api/marketStatus';
 import {
   CANDLE_HISTORY_QUERY_GC_MS,
   DEFAULT_CANDLE_HISTORY_LIMIT,
@@ -14,10 +15,16 @@ import { normalizeSymbol } from '../domain/symbols';
 import { appQueryClient } from '../state/providers/AppProviders';
 import { captureActiveBrokerSession } from '../state/activeBrokerSession';
 import { getAccountSummaryQueryKey } from '../query/account';
-import { runSessionBoundQuery } from '../query/authenticatedQueryScope';
+import {
+  isSessionQueryCacheNamespaceCurrent,
+  runSessionBoundQuery,
+} from '../query/authenticatedQueryScope';
+import { getMarketStatusQueryKey } from '../query/marketStatus';
 import { INSTRUMENT_META_QUERY_VERSION } from '../query/instruments';
 import { candleKeys } from '../domain/candles/query/candles';
 import { mergeHistoryIntoCandleCache } from '../domain/candles/state/candleCache';
+import { liveCandlesEngine } from '../api/ws/liveCandlesEngine';
+import { resolveChartSelectionHistoryWarmLimit } from '../market/chartHistoryWarmupPolicy';
 
 export function prefetchAccountSummary(login?: string) {
   const capture = captureActiveBrokerSession();
@@ -79,6 +86,61 @@ export function prefetchChartCandles(symbol: string, timeframe: string) {
     staleTime: 30_000,
     gcTime: CANDLE_HISTORY_QUERY_GC_MS,
   }).catch(() => {});
+}
+
+/**
+ * Warms the exact chart history for an explicit symbol selection.
+ *
+ * Open/unknown symbols keep the small 120-bar first request. Only an explicit
+ * backend `quote_open: false` response upgrades that same session-scoped warm-
+ * up to 500 bars, which avoids a second request when a broken adapter leaves a
+ * long frozen tail after market close. No symbol class or trading calendar is
+ * guessed here, so 24x7 crypto remains on the normal path unless its backend
+ * explicitly reports maintenance closure.
+ */
+export function prefetchChartSelectionHistory(symbol: string, timeframe: string): Promise<number> {
+  const requestedSymbol = symbol.trim();
+  const normalizedSymbol = normalizeSymbol(requestedSymbol);
+  const normalizedTimeframe = normalizeCandleHistoryTimeframeStrict(timeframe);
+  const capture = captureActiveBrokerSession();
+  const cacheNamespace = capture?.session.cacheNamespace ?? '';
+  if (!requestedSymbol || !normalizedSymbol || !normalizedTimeframe || !capture) {
+    return Promise.resolve(0);
+  }
+
+  const statusQueryKey = getMarketStatusQueryKey(cacheNamespace, requestedSymbol);
+  const cachedStatus = appQueryClient.getQueryData<MarketStatusDTO>(statusQueryKey);
+  const initialLimit = resolveChartSelectionHistoryWarmLimit(cachedStatus);
+  const initialHistoryPromise = liveCandlesEngine.prefetchHistory(
+    normalizedSymbol,
+    normalizedTimeframe,
+    initialLimit,
+  );
+
+  const statusPromise = appQueryClient.fetchQuery({
+    queryKey: statusQueryKey,
+    queryFn: () => runSessionBoundQuery(
+      cacheNamespace,
+      () => fetchMarketStatus(requestedSymbol),
+    ),
+    staleTime: 30_000,
+  });
+
+  return statusPromise
+    .then((status) => {
+      if (
+        status.quote_open !== false ||
+        !isSessionQueryCacheNamespaceCurrent(cacheNamespace)
+      ) {
+        return initialHistoryPromise;
+      }
+      return liveCandlesEngine.prefetchHistory(
+        normalizedSymbol,
+        normalizedTimeframe,
+        resolveChartSelectionHistoryWarmLimit(status),
+      );
+    })
+    .catch(() => initialHistoryPromise);
 }
 
 export function prefetchLatestDailyCandle(symbol: string) {

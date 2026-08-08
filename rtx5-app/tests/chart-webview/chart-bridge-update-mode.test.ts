@@ -120,12 +120,12 @@ test('ChartScreen reserves React series commits for full reloads and uses the di
   );
   assertSourceContains(
     source,
-    /const canonicalCandles = liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\);[\s\S]*const renderableCandles = canonicalCandles\.length > 0 \? canonicalCandles : sanitizedCandles/,
+    /const canonicalCandles = readRenderableCanonicalCandles\(\);[\s\S]*const renderableCandles = canonicalCandles\.length > 0 \? canonicalCandles : sanitizedCandles/,
     'full reload mode must prefer the current canonical engine series and use sanitized React data only as a bootstrap fallback',
   );
   assertSourceContains(
     source,
-    /const readCanonicalCandles = \(\) => liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\)[\s\S]*const paintCanonicalLiveTick = \(allowUnchangedSnapshot = false\) => \{[\s\S]*updateLiveTick\([\s\S]*paintCanonicalLiveTick\(true\);[\s\S]*liveCandlesEngine\.subscribe\(\s*chartSymbol,\s*chartTimeframe,\s*paintCanonicalLiveTick/,
+    /const paintCanonicalLiveTick = \(allowUnchangedSnapshot = false\) => \{[\s\S]*const canonicalCandles = readRenderableCanonicalCandles\(\)[\s\S]*updateLiveTick\([\s\S]*paintCanonicalLiveTick\(true\);[\s\S]*liveCandlesEngine\.subscribe\(\s*chartSymbol,\s*chartTimeframe,\s*paintCanonicalLiveTick/,
     'resume and steady live paints must bypass the 400 ms React commit and enter the atomic WebView bridge directly',
   );
 });
@@ -139,8 +139,8 @@ test('direct engine full reload acknowledges the selected chart context paint', 
 
   assertSourceContains(
     directPaint,
-    /if \(updateMode === 'full_reload'\) \{[\s\S]*issuedPaintToken = issueChartDataPaintToken\(chartDataContextSig\)[\s\S]*updateChartData\([\s\S]*preserveVisibleLogicalSpan: true,[\s\S]*dataContextSig: \$\{JSON\.stringify\(chartDataContextSig\)\},[\s\S]*paintToken: \$\{JSON\.stringify\(issuedPaintToken\)\}/,
-    'a direct full reload must request an acknowledgement for the selected symbol and timeframe',
+    /const resetForClosedMarketClamp = shouldResetViewportForClosedMarketClamp\([\s\S]*if \(updateMode === 'full_reload'\) \{[\s\S]*issuedPaintToken = issueChartDataPaintToken\(chartDataContextSig\)[\s\S]*updateChartData\([\s\S]*preserveVisibleLogicalSpan: \$\{!resetForClosedMarketClamp\},[\s\S]*resetVisibleRange: \$\{resetForClosedMarketClamp\},[\s\S]*paintToken: \$\{JSON\.stringify\(issuedPaintToken\)\}/,
+    'a direct closed-tail reload must acknowledge the paint and reset only when the last bar moved backward',
   );
   assertSourceContains(
     directPaint,
@@ -149,7 +149,7 @@ test('direct engine full reload acknowledges the selected chart context paint', 
   );
   assertSourceContains(
     source,
-    /const paintCanonicalLiveTick =[\s\S]*issueChartDataPaintToken,\s*\]\);/,
+    /const paintCanonicalLiveTick =[\s\S]*issueChartDataPaintToken,[\s\S]*readRenderableCanonicalCandles,[\s\S]*\]\);/,
     'the direct candle listener must refresh if the paint-token issuer changes',
   );
 });
@@ -183,7 +183,9 @@ test('WebView full data reload restores overlays and market price lines after se
   assertSourceContains(body, /var resetVisibleRange = updateOptions\.resetVisibleRange === true/, 'context switches must be able to request a fresh first viewport');
   assertSourceContains(body, /series\.setData\(mapped\)/, 'updateChartData must call setData');
   assertSourceContains(body, /previousRawSeriesData = lastRawSeriesData[\s\S]*getVisibleLogicalRangeSnapshot\(\)/, 'full reload must capture the current viewport before replacing data');
-  assertSourceContains(body, /restorePrependedHistoryViewport\([\s\S]*previousRawSeriesData[\s\S]*lastRawSeriesData[\s\S]*previousVisibleLogicalRange[\s\S]*\)/, 'older-history prepends must restore the prior visible viewport after setData');
+  assertSourceContains(body, /var restoredPrependedViewport = !resetVisibleRange && restorePrependedHistoryViewport\([\s\S]*previousRawSeriesData[\s\S]*lastRawSeriesData[\s\S]*previousVisibleLogicalRange[\s\S]*\)/, 'ordinary history prepends must restore the prior visible viewport after setData');
+  assertSourceContains(body, /var didPrependHistory =[\s\S]*!resetVisibleRange &&[\s\S]*previousRawSeriesData\.length > 0/, 'an explicit session reset must outrank pagination detection');
+  assertSourceContains(body, /!restoredPrependedViewport &&[\s\S]*!resetVisibleRange &&[\s\S]*preserveVisibleLogicalSpan/, 'an explicit session reset must not preserve the removed tail logical span');
   assertSourceContains(body, /resetVisibleRange \|\| shouldResetViewportForSeriesReplacement\(previousRawSeriesData, lastRawSeriesData\)/, 'symbol/timeframe replacement reloads must force a fresh viewport even when timestamps match');
   assertSourceContains(source, /function resetVisiblePriceScaleForStableReplacement\(reason\)[\s\S]*clearFreshSeriesVerticalCenterState\(\)[\s\S]*enableRightPriceAutoScale\(\)/, 'stable replacement reset must avoid delayed fresh-series recenter work');
   assertSourceContains(body, /if \(restoredStableReplacementViewport\) \{[\s\S]*resetVisiblePriceScaleForStableReplacement\(priceScaleReason\)[\s\S]*\} else \{[\s\S]*resetVisiblePriceScaleForFreshSeries\(priceScaleReason\)/, 'stable replacement reloads must use the stable reset while first loads keep the fresh reset');
@@ -247,7 +249,7 @@ test('native WebView uses the RTX5 custom candlestick renderer for candle modes'
   );
 });
 
-test('canonical candle engine updates paint one candle-and-Bid-line transaction without a delayed side path', () => {
+test('canonical candle and exact backend Bid cross one revisioned bridge without a delayed side path', () => {
   assert.doesNotMatch(
     source,
     /liveQuoteCandleStateRef/,
@@ -257,8 +259,13 @@ test('canonical candle engine updates paint one candle-and-Bid-line transaction 
   assert.doesNotMatch(source, /price: liveChartPrice/, 'native chart must not pass quote prices to candle synthesis');
   assertSourceContains(
     source,
-    /const lastCandle = canonicalCandles\[canonicalCandles\.length - 1\][\s\S]*candle: buildChartTickPayload\(lastCandle, chartType\),[\s\S]*livePrice: lastCandle\.close,[\s\S]*showLivePriceLine: chartDisplay\.showLivePriceLine,[\s\S]*revision,[\s\S]*updateLiveTick\(/,
-    'the canonical Bid candle close and the existing Bid line must cross the bridge in one revisioned payload',
+    /const lastCandle = canonicalCandles\[canonicalCandles\.length - 1\][\s\S]*const exactQuote = readExactChartQuoteForScope\([\s\S]*const exactBidLine = exactQuote\?\.bid \?\? null[\s\S]*candle: buildChartTickPayload\(lastCandle, chartType\),[\s\S]*livePrice: exactBidLine,[\s\S]*showLivePriceLine: shouldShowExactBidLine,[\s\S]*revision,[\s\S]*updateLiveTick\(/,
+    'candle OHLC and the separately-owned exact backend Bid must cross one revisioned payload',
+  );
+  assert.doesNotMatch(
+    source,
+    /livePrice: lastCandle\.close/,
+    'the market line must never guess Bid from candle close',
   );
   assert.doesNotMatch(
     source,

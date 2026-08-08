@@ -63,6 +63,11 @@ import {
   type ChartTradeOverlayLiveQuote,
 } from './components/ChartTradeOverlayLiveBridge';
 import { ChartTradeButtons } from './components/ChartTradeButtonsFeature';
+import {
+  ChartTradeReceiptStack,
+  createChartTradeReceiptStackController,
+  type ChartTradeQueueEvent,
+} from './components/ChartTradeReceiptStack';
 import { LiveOrderTickExecutionGraph } from '../trade/OrderTickExecutionGraph';
 import { Screen } from '../../ui/components/Screen';
 import { BrokerFeedHealthBanner } from '../../market/BrokerFeedHealthBanner';
@@ -88,7 +93,7 @@ import { redactSensitiveString } from '../../utils/securityRedaction';
 import { useTheme } from '../../ui/theme/useTheme';
 import { resolveBottomTabBarHeight } from '../../ui/layout/bottomTabBar';
 import { useLiveCandles } from '../../domain/candles/hooks/useLiveCandles';
-import { liveCandlesEngine } from '../../api/ws/liveCandlesEngine';
+import { INITIAL_HISTORY_LIMIT, liveCandlesEngine } from '../../api/ws/liveCandlesEngine';
 import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { useOrdersByLoginQuery } from '../../query/orders';
@@ -138,13 +143,17 @@ import { useMarketStatus } from '../../query/marketStatus';
 import { useActiveBrokerQuerySession } from '../../query/authenticatedQueryScope';
 import { WebView } from 'react-native-webview';
 import { hasLiveQuoteFeedData, useLiveSymbolQuote } from '../../query/websocket';
+import { getCurrentLiveQuoteSnapshot } from '../quotes/useLiveQuotes';
 import {
   quoteActionBlockMessage,
   recordBlockedPriceAction,
   resolveSessionQuoteActionAvailability,
 } from '../../market/quoteIntegrity';
 import { normalizeTimeframe } from '../../domain/candles/core/candles';
-import { sanitizeCandlesForChart } from '../../domain/candles/normalization/chartAdapter';
+import {
+  hasOnlyRepeatedFlatCandles,
+  sanitizeCandlesForChart,
+} from '../../domain/candles/normalization/chartAdapter';
 import {
   getBucketGapCount,
   getExpectedNextCandleTime,
@@ -181,6 +190,7 @@ import {
   EMPTY_CHART_SERIES_SNAPSHOT,
   getChartSeriesUpdateMode,
   resolveLatestCandleGap,
+  shouldResetViewportForClosedMarketClamp,
 } from './liveChartSync';
 import { getMarketCloseSeparator, getPeriodSeparators } from './periodSeparators';
 import { useShallow } from 'zustand/shallow';
@@ -241,9 +251,18 @@ import {
   shouldShowChartTradePreviewOnChart,
   shouldShowChartTradeSheetHeader,
 } from './chartTradeInteractionUtils';
-import { prefetchInstrument, prefetchOrderTicketData } from '../../utils/navigationPrefetch';
+import {
+  prefetchChartSelectionHistory,
+  prefetchInstrument,
+  prefetchOrderTicketData,
+} from '../../utils/navigationPrefetch';
 import { roundOrderTicketPrice } from '../trade/orderTicketPreviewUtils';
 import { recordMarketDataEvent } from '../../market/marketDataTelemetry';
+import {
+  resolveChartMarketSessionPolicy,
+  shouldRefreshChartHistoryOnSessionTransition,
+  type ChartQuoteSessionPhase,
+} from '../../market/chartMarketSessionPolicy';
 import { CH_HTML } from "./rendering/ChartWebViewHtml";
 import {
   shouldAcceptChartDataPaint,
@@ -266,6 +285,13 @@ import {
 } from './chartSymbolMetadata';
 import { type ChartShowOnChartKey } from './chartShowOnChart';
 import {
+  captureExactChartQuote,
+  isSameExactChartQuote,
+  readExactChartQuoteForScope,
+  type ExactChartQuoteInput,
+  type ExactChartQuoteSnapshot,
+} from './exactChartQuote';
+import {
   buildChartProtectionPositionSignature,
   createChartProtectionDraftId,
   hasChartProtectionDraftReconciled,
@@ -275,9 +301,8 @@ import {
   type ChartProtectionDraftExecutionEvent,
 } from './chartProtectionDraftLifecycle';
 
-// Micro-component: isolated 4fps render cycle, 0 DOM depth
-// Uses quotes WS (bid/ask) as primary price source and falls back to candle close.
-// Micro-component: isolated 1fps render cycle for the clock
+// Quotes own Bid/Ask display and execution eligibility; candles independently
+// own O/H/L/C. Never substitute a candle close for a missing quote side.
 const buildAvailableChartSymbols = (chartSymbol: string, apiSymbols: readonly string[]): string[] => {
   const ordered: string[] = [];
   const indexByKey = new Map<string, number>();
@@ -358,12 +383,6 @@ type ChartLiveQuoteTickFields = {
   timestamp?: unknown;
   t?: unknown;
 };
-
-type RetainedChartTradeDisplayQuote = Readonly<{
-  scopeKey: string;
-  bid: number;
-  ask: number;
-}>;
 
 const buildChartTickPayload = (
   candle: { time: number; open: number; high: number; low: number; close: number; volume?: number },
@@ -616,7 +635,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const activeChartSessionCacheNamespace = activeChartSession?.cacheNamespace ?? '';
   const chartTradeDisplayQuoteScopeKey =
     `${activeChartSessionCacheNamespace}:${chartSymbol.trim().toUpperCase()}`;
-  const retainedChartTradeDisplayQuoteRef = useRef<RetainedChartTradeDisplayQuote | null>(null);
+  const retainedChartTradeDisplayQuoteRef = useRef<ExactChartQuoteSnapshot | null>(null);
   useEffect(() => {
     // Keep the retained Chart More shells on the exact symbol before any tap;
     // the option press can then be a UI-thread visibility flip only.
@@ -699,7 +718,23 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     [apiSymbols, chartSymbol],
   );
   const { data: chartInstrumentMeta } = useInstrumentMeta(chartSymbol, chartRuntimeActive);
-  const { data: chartMarketStatus } = useMarketStatus(chartSymbol, chartRuntimeActive);
+  // The retained chart surface preloads this lightweight session boundary so
+  // the first visible closed-market frame is already clamped to its last bar.
+  const {
+    data: chartMarketStatus,
+    refetch: refetchChartMarketStatus,
+  } = useMarketStatus(
+    chartSymbol,
+    chartSurfaceReady,
+    chartRuntimeActive,
+  );
+  useEffect(() => {
+    if (!chartRuntimeActive || !chartSurfaceReady) return;
+    // Re-enabling a 30-second TanStack polling interval does not fetch now.
+    // Refetch on reveal so a retained weekend-closed chart cannot remain
+    // clamped for another interval after the market has already reopened.
+    void refetchChartMarketStatus();
+  }, [chartRuntimeActive, chartSurfaceReady, refetchChartMarketStatus]);
   const tradeVolumeBounds = useMemo(
     () => ({
       minVolume: chartInstrumentMeta?.minVolume,
@@ -740,11 +775,29 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   // Safely strip MT4/MT5 suffixes like 'm', '.c', '_std' to resolve flags properly
   const baseSymbol = useMemo(() => resolveChartSymbolKey(chartSymbol), [chartSymbol]);
-  const isCryptoChartSymbol = useMemo(
-    () => resolveChartSymbolCategory(chartSymbol) === 'CRYPTO',
-    [chartSymbol],
+  const chartMarketSessionPolicy = useMemo(
+    () => resolveChartMarketSessionPolicy(chartMarketStatus),
+    [chartMarketStatus],
   );
+  // This is deliberately status-driven, not symbol- or broker-driven. A normal
+  // 24x7 crypto response stays open; an explicit maintenance closure is still
+  // honored. Unknown status never destructively truncates the chart.
+  const isChartMarketClosed = chartMarketSessionPolicy.quotePhase === 'closed';
   const chartLiveQuote = useLiveSymbolQuote(chartSymbol, chartRuntimeActive, CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS);
+  const observedExactChartQuote = useMemo(
+    () => captureExactChartQuote(
+      chartTradeDisplayQuoteScopeKey,
+      chartLiveQuote as ExactChartQuoteInput | undefined,
+    ),
+    [chartLiveQuote, chartTradeDisplayQuoteScopeKey],
+  );
+  if (
+    observedExactChartQuote &&
+    !isSameExactChartQuote(retainedChartTradeDisplayQuoteRef.current, observedExactChartQuote)
+  ) {
+    // Display continuity only. Execution has its own fresh-websocket gate.
+    retainedChartTradeDisplayQuoteRef.current = observedExactChartQuote;
+  }
   const chartLiveQuoteTickFields = chartLiveQuote as ChartLiveQuoteTickFields | undefined;
   const chartLiveQuoteDigitsSource = (chartLiveQuote as { digitsSource?: string } | undefined)?.digitsSource;
   const hasLiveChartQuote = hasLiveQuoteFeedData(chartLiveQuote);
@@ -955,15 +1008,32 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     ? lotInput || committedLotDisplay
     : committedLotDisplay;
 
+  const chartTradeReceiptStackControllerRef = useRef<ReturnType<
+    typeof createChartTradeReceiptStackController
+  > | null>(null);
+  if (chartTradeReceiptStackControllerRef.current === null) {
+    chartTradeReceiptStackControllerRef.current = createChartTradeReceiptStackController();
+  }
+  const chartTradeReceiptStackController = chartTradeReceiptStackControllerRef.current;
+  useEffect(() => () => {
+    // The external controller keeps 50-100+ receipt updates out of this heavy
+    // chart component's render cycle. Clear its timers when the chart unmounts.
+    chartTradeReceiptStackController.clear();
+  }, [chartTradeReceiptStackController]);
   const [tradeFeedback, setTradeFeedback] = useState<TradeFeedbackState>(TRADE_MODAL_INITIAL);
   const handleTradeFeedbackClose = useCallback(() => setTradeFeedback(TRADE_MODAL_INITIAL), []);
-  const handleChartTradeResult = useCallback((feedback: TradeFeedbackState) => {
+  const handleChartTradeResult = useCallback((
+    feedback: TradeFeedbackState,
+    suppressConfirmedReceipt = false,
+  ) => {
     if (feedback.type !== 'success') {
       setTradeFeedback(feedback);
       return;
     }
 
-    setTradeFeedback(feedback);
+    if (!suppressConfirmedReceipt) {
+      setTradeFeedback(feedback);
+    }
     if (chartRuntimeActive) {
       // Market-order reconciliation is already owner-bound from before POST.
       // An immediate second positions read can beat the broker commit and
@@ -1075,8 +1145,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       clearChartDirectProtectionDraft(event.draftId);
     }
   }, [clearChartDirectProtectionDraft]);
-  const handleChartTradeExecutionResult = useCallback((feedback: TradeFeedbackState) => {
-    handleChartTradeResult(feedback);
+  const handleChartTradeExecutionResult = useCallback((
+    feedback: TradeFeedbackState,
+    suppressConfirmedReceipt = false,
+  ) => {
+    handleChartTradeResult(feedback, suppressConfirmedReceipt);
     if (
       feedback.type !== 'success' ||
       !chartDirectProtectionActive ||
@@ -1097,6 +1170,19 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     chartDirectProtectionActive,
     handleChartTradeResult,
   ]);
+  const handleChartTradeQueueEvent = useCallback((event: ChartTradeQueueEvent) => {
+    chartTradeReceiptStackController.applyEvent(event);
+    if (!event.feedback) {
+      return;
+    }
+
+    // A confirmed one-click fill is already represented by its exact stack
+    // row. Rejections and incomplete broker evidence retain the detailed modal.
+    handleChartTradeExecutionResult(
+      event.feedback,
+      event.status === 'confirmed',
+    );
+  }, [chartTradeReceiptStackController, handleChartTradeExecutionResult]);
   useEffect(() => (
     subscribeChartProtectionDraftExecution(applyChartProtectionDraftExecution)
   ), [applyChartProtectionDraftExecution]);
@@ -1734,6 +1820,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const {
     candles,
     paginate,
+    refresh: refreshChartHistory,
     loading: chartDataLoading,
     error: chartDataError,
   } = useLiveCandles(
@@ -1742,17 +1829,191 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     chartDataActive,
     CHART_SCREEN_CANDLE_COMMIT_INTERVAL_MS,
   );
+  const chartMarketLifecycleContextKey =
+    `${activeChartSessionCacheNamespace}:${chartSymbol}:${chartTimeframe}`;
+  const chartMarketLifecycleRef = useRef<{
+    contextKey: string;
+    quotePhase: ChartQuoteSessionPhase;
+    sessionClose: number | null;
+  }>({ contextKey: '', quotePhase: 'unknown', sessionClose: null });
+  const [chartReopenHistoryRepair, setChartReopenHistoryRepair] = useState<{
+    contextKey: string;
+    sawLoading: boolean;
+  } | null>(null);
+  const previousChartMarketLifecycle = chartMarketLifecycleRef.current;
+  const detectedChartMarketReopen =
+    previousChartMarketLifecycle.contextKey === chartMarketLifecycleContextKey &&
+    shouldRefreshChartHistoryOnSessionTransition(
+      previousChartMarketLifecycle.quotePhase,
+      chartMarketSessionPolicy.quotePhase,
+    );
+  const isChartMarketReopening =
+    detectedChartMarketReopen ||
+    chartReopenHistoryRepair?.contextKey === chartMarketLifecycleContextKey;
+  const shouldApplyClosedCandlePolicy = isChartMarketClosed || isChartMarketReopening;
+  const closedCandlePolicySessionClose = isChartMarketClosed
+    ? chartMarketSessionPolicy.sessionClose
+    : isChartMarketReopening &&
+        previousChartMarketLifecycle.contextKey === chartMarketLifecycleContextKey
+      ? previousChartMarketLifecycle.sessionClose
+      : null;
+
+  useEffect(() => {
+    const previous = chartMarketLifecycleRef.current;
+    const sameContext = previous.contextKey === chartMarketLifecycleContextKey;
+    const isReopen =
+      sameContext &&
+      shouldRefreshChartHistoryOnSessionTransition(
+        previous.quotePhase,
+        chartMarketSessionPolicy.quotePhase,
+      );
+
+    chartMarketLifecycleRef.current = {
+      contextKey: chartMarketLifecycleContextKey,
+      quotePhase: chartMarketSessionPolicy.quotePhase,
+      sessionClose:
+        chartMarketSessionPolicy.quotePhase === 'closed'
+          ? chartMarketSessionPolicy.sessionClose
+          : isReopen
+            ? previous.sessionClose
+            : null,
+    };
+
+    if (!sameContext) {
+      setChartReopenHistoryRepair((current) =>
+        current?.contextKey === chartMarketLifecycleContextKey ? current : null,
+      );
+      return;
+    }
+    if (!isReopen) return;
+
+    // Keep the already-sanitized closed view on screen while one fresh REST
+    // history baseline replaces any hidden weekend placeholder rows. Live Bid
+    // and Buy/Sell prices continue through the separate exact-quote path.
+    setChartReopenHistoryRepair({
+      contextKey: chartMarketLifecycleContextKey,
+      sawLoading: false,
+    });
+    refreshChartHistory();
+  }, [
+    chartMarketLifecycleContextKey,
+    chartMarketSessionPolicy.quotePhase,
+    chartMarketSessionPolicy.sessionClose,
+    refreshChartHistory,
+  ]);
+
+  useEffect(() => {
+    if (chartReopenHistoryRepair?.contextKey !== chartMarketLifecycleContextKey) return;
+    if (chartDataLoading && !chartReopenHistoryRepair.sawLoading) {
+      setChartReopenHistoryRepair({
+        contextKey: chartMarketLifecycleContextKey,
+        sawLoading: true,
+      });
+      return;
+    }
+    if (
+      chartReopenHistoryRepair.sawLoading &&
+      !chartDataLoading &&
+      !chartDataError
+    ) {
+      setChartReopenHistoryRepair(null);
+      if (chartMarketLifecycleRef.current.contextKey === chartMarketLifecycleContextKey) {
+        chartMarketLifecycleRef.current.sessionClose = null;
+      }
+    }
+  }, [
+    chartDataError,
+    chartDataLoading,
+    chartMarketLifecycleContextKey,
+    chartReopenHistoryRepair,
+  ]);
+  const closedMarketFlatBackfillRef = useRef({ contextKey: '', requested: false });
+  const closedMarketFlatBackfillContextKey = `${activeChartSessionCacheNamespace}:${chartSymbol}:${chartTimeframe}:${
+    typeof chartMarketSessionPolicy.sessionClose === 'number' && Number.isFinite(chartMarketSessionPolicy.sessionClose)
+      ? chartMarketSessionPolicy.sessionClose
+      : 'missing-session-close'
+  }`;
+  useEffect(() => {
+    if (!isChartMarketClosed) {
+      if (closedMarketFlatBackfillRef.current.contextKey) {
+        closedMarketFlatBackfillRef.current = { contextKey: '', requested: false };
+      }
+      return;
+    }
+
+    if (closedMarketFlatBackfillRef.current.contextKey !== closedMarketFlatBackfillContextKey) {
+      closedMarketFlatBackfillRef.current = {
+        contextKey: closedMarketFlatBackfillContextKey,
+        requested: false,
+      };
+    }
+
+    const backfillState = closedMarketFlatBackfillRef.current;
+    if (
+      !chartDataActive ||
+      chartDataLoading ||
+      backfillState.requested ||
+      candles.length < INITIAL_HISTORY_LIMIT ||
+      !hasOnlyRepeatedFlatCandles(candles)
+    ) {
+      return;
+    }
+
+    // React notifications are throttled, so re-check the engine synchronously
+    // before consuming this context's one automatic backfill attempt.
+    const streamState = liveCandlesEngine.getState(chartSymbol, chartTimeframe);
+    if (!streamState || streamState.loading) {
+      return;
+    }
+
+    backfillState.requested = true;
+    paginate();
+  }, [
+    candles,
+    chartDataActive,
+    chartDataLoading,
+    chartSymbol,
+    chartTimeframe,
+    closedMarketFlatBackfillContextKey,
+    isChartMarketClosed,
+    paginate,
+  ]);
   const sanitizedBackendCandles = useMemo(
     () => (
       candles.length > 0
         ? sanitizeCandlesForChart(candles, {
           timeframe: chartTimeframe,
-          pruneSyntheticFlatLiveTail: chartMarketStatus?.status === 'closed' && !isCryptoChartSymbol,
+          pruneSyntheticFlatLiveTail: shouldApplyClosedCandlePolicy,
+          closedMarketSessionClose: shouldApplyClosedCandlePolicy
+            ? closedCandlePolicySessionClose
+            : undefined,
         })
         : EMPTY_DISPLAY_CANDLES
     ),
-    [candles, chartMarketStatus?.status, chartTimeframe, isCryptoChartSymbol],
+    [
+      candles,
+      chartTimeframe,
+      closedCandlePolicySessionClose,
+      shouldApplyClosedCandlePolicy,
+    ],
   );
+  const readRenderableCanonicalCandles = useCallback(() => {
+    const canonicalCandles = liveCandlesEngine.getCandles(chartSymbol, chartTimeframe);
+    if (!shouldApplyClosedCandlePolicy || canonicalCandles.length === 0) {
+      return canonicalCandles;
+    }
+
+    return sanitizeCandlesForChart(canonicalCandles, {
+      timeframe: chartTimeframe,
+      pruneSyntheticFlatLiveTail: true,
+      closedMarketSessionClose: closedCandlePolicySessionClose,
+    });
+  }, [
+    chartSymbol,
+    chartTimeframe,
+    closedCandlePolicySessionClose,
+    shouldApplyClosedCandlePolicy,
+  ]);
   const chartDrawingRecords = useMemo(
     () =>
       filterChartDrawingRecordsForCurrentChart(
@@ -1848,7 +2109,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     value: rawDisplayDecimals,
     settled: false,
   });
-  const displayDecimalsKey = `${chartSymbol}::${chartTimeframe}`;
+  // Precision belongs to the authenticated broker/account as well as the
+  // symbol. The same symbol can legitimately use different digits elsewhere.
+  const displayDecimalsKey =
+    `${activeChartSessionCacheNamespace}::${chartSymbol}::${chartTimeframe}`;
   if (
     displayDecimalsLatchRef.current.key !== displayDecimalsKey ||
     !displayDecimalsLatchRef.current.settled
@@ -1869,24 +2133,19 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     },
     [sanitizedBackendCandles],
   );
-  const latestChartClose = useMemo(
-    () => sanitizedCandles[sanitizedCandles.length - 1]?.close ?? 0,
-    [sanitizedCandles],
-  );
   const { bid: chartBid, ask: chartAsk } = useMemo(
     () =>
       resolveChartTradeButtonQuote({
         liveBid: hasLiveChartQuote ? chartLiveQuote?.bid : undefined,
         liveAsk: hasLiveChartQuote ? chartLiveQuote?.ask : undefined,
-        fallbackBid: latestChartClose,
-        fallbackAsk: latestChartClose,
       }),
-    [chartLiveQuote?.ask, chartLiveQuote?.bid, hasLiveChartQuote, latestChartClose],
+    [chartLiveQuote?.ask, chartLiveQuote?.bid, hasLiveChartQuote],
   );
   const retainedChartTradeDisplayQuote =
-    retainedChartTradeDisplayQuoteRef.current?.scopeKey === chartTradeDisplayQuoteScopeKey
-      ? retainedChartTradeDisplayQuoteRef.current
-      : null;
+    readExactChartQuoteForScope(
+      chartTradeDisplayQuoteScopeKey,
+      retainedChartTradeDisplayQuoteRef.current,
+    );
   // Display-only fallback: the inactive footer keeps its last exact Bid/Ask
   // instead of painting "---". Order execution still uses the live quote and
   // freshness gate inside ChartTradeButtons, never these retained values.
@@ -4910,8 +5169,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   const chartType = chartVisualType;
   const chartDataContextSig = useMemo(
-    () => `${chartSymbol}-${normalizeTimeframe(chartTimeframe)}`,
-    [chartSymbol, chartTimeframe],
+    () => `${activeChartSessionCacheNamespace}:${chartSymbol}:${normalizeTimeframe(chartTimeframe)}`,
+    [activeChartSessionCacheNamespace, chartSymbol, chartTimeframe],
   );
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [activeDateRange, setActiveDateRange] = useState<ChartTimeRange>('auto');
@@ -4979,7 +5238,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   // Crosshair messages can point at an older inspected candle, so they should not
   // hold this header row back while bid/ask ticks are moving.
   const chartMetaLiveLastCandle = sanitizedCandles.length > 0 ? sanitizedCandles[sanitizedCandles.length - 1] : null;
-  const chartMetaLastCandle = chartMetaLiveLastCandle;
+  // The retained WebView can already be painting the canonical engine while
+  // the focus-gated React snapshot above is still empty on the first Chart
+  // reveal. Read the same engine snapshot as a render-time fallback so the
+  // first visible O/H/L/C row matches the candle already shown by the chart.
+  const chartMetaCanonicalCandles =
+    !chartMetaLiveLastCandle && activeChartSessionCacheNamespace
+      ? readRenderableCanonicalCandles()
+      : EMPTY_DISPLAY_CANDLES;
+  const chartMetaCanonicalLastCandle = chartMetaCanonicalCandles.length > 0
+    ? chartMetaCanonicalCandles[chartMetaCanonicalCandles.length - 1]
+    : null;
+  const chartMetaLastCandle = chartMetaLiveLastCandle ?? chartMetaCanonicalLastCandle;
   const chartMetaNeutralColor = isDark ? CHART_OHLC_NEUTRAL_DARK_COLOR : CHART_OHLC_NEUTRAL_LIGHT_COLOR;
   const chartLatestCandleGap = useMemo(
     () => resolveLatestCandleGap(chartCandles, chartTimeframe),
@@ -5177,7 +5447,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     }
 
     const normalizedTimeframe = normalizeTimeframe(chartTimeframe);
-    const startupPrefetchKey = `${chartSymbol}:${normalizedTimeframe}`;
+    const startupPrefetchKey =
+      `${activeChartSessionCacheNamespace}:${chartSymbol}:${normalizedTimeframe}`;
     if (startupChartPrefetchKeyRef.current === startupPrefetchKey) {
       return undefined;
     }
@@ -5195,7 +5466,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       }
     });
     return undefined;
-  }, [chartSymbol, chartTimeframe, prefetchChartTimeframeHistory]);
+  }, [activeChartSessionCacheNamespace, chartSymbol, chartTimeframe, prefetchChartTimeframeHistory]);
 
   const chartContextCommitScheduler = useMemo(
     () => createChartContextCommitScheduler(),
@@ -5255,7 +5526,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         prepare: () => {
           // Give the authenticated request a real dispatch turn before the
           // retained Chart tree performs its expensive symbol reconciliation.
-          refreshSelectedChartHistory(nextSymbol, nextTimeframe);
+          void prefetchChartSelectionHistory(nextSymbol, nextTimeframe);
           void prefetchInstrument(nextSymbol);
         },
         commit: () => {
@@ -5283,7 +5554,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       chartContextCommitScheduler,
       chartSymbol,
       chartTimeframe,
-      refreshSelectedChartHistory,
       setChartTimeframe,
     ],
   );
@@ -6014,17 +6284,32 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   }, [chartMoreActions, scheduleChartActionSheetContextReset, showChartActionSheet]);
 
   const marketCloseSeparatorPayload = useMemo(() => {
-    if (chartMarketStatus?.status !== 'closed' || isCryptoChartSymbol) {
+    if (!isChartMarketClosed) {
       return [];
     }
 
+    const sessionClose = chartMarketSessionPolicy.sessionClose;
     const separator = getMarketCloseSeparator(
       sanitizedCandles,
       chartTimeframe,
-      chartMarketStatus.session_close,
+      sessionClose,
     );
-    return separator ? [separator] : [];
-  }, [chartMarketStatus?.session_close, chartMarketStatus?.status, chartTimeframe, isCryptoChartSymbol, sanitizedCandles]);
+    if (separator) {
+      return [separator];
+    }
+
+    // Some broker adapters confirm a close without returning session_close.
+    // Once the frozen REST suffix is removed, mark the remaining final candle
+    // as the visible stop point instead of inventing a wall-clock boundary.
+    if (
+      sanitizedCandles.length > 0 &&
+      (typeof sessionClose !== 'number' || !Number.isFinite(sessionClose))
+    ) {
+      const index = sanitizedCandles.length - 1;
+      return [{ time: sanitizedCandles[index].time, index, type: 'market_close' as const }];
+    }
+    return [];
+  }, [chartMarketSessionPolicy.sessionClose, chartTimeframe, isChartMarketClosed, sanitizedCandles]);
 
   const periodSeparatorOptions = useMemo(() => ({
     enabled: chartDisplay.periodSeparators || marketCloseSeparatorPayload.length > 0,
@@ -6466,6 +6751,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const renderedDataContextSigRef = useRef('');
   const lastInjectedLiveQuoteSignatureRef = useRef('');
   const livePaintRevisionRef = useRef(0);
+  const paintCanonicalLiveTickRef = useRef<(allowUnchangedSnapshot?: boolean) => void>(() => {});
   const chartCandleFrontendPaintRef = useRef<{
     availableAt: number;
     length: number;
@@ -6571,7 +6857,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   }, [isScreenFocused]);
 
   useEffect(() => {
-    const canonicalCandles = liveCandlesEngine.getCandles(chartSymbol, chartTimeframe);
+    const canonicalCandles = readRenderableCanonicalCandles();
     candlesRef.current = canonicalCandles.length > 0 ? canonicalCandles : sanitizedCandles;
     if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
       const last = sanitizedCandles[sanitizedCandles.length - 1];
@@ -6587,7 +6873,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         count: sanitizedCandles.length,
       });
     }
-  }, [chartSymbol, chartTimeframe, sanitizedCandles]);
+  }, [chartSymbol, chartTimeframe, readRenderableCanonicalCandles, sanitizedCandles]);
 
   // Render backend candle timestamps directly. The shared candle engine owns
   // sorting, dedupe, and OHLC validation; the WebView receives the same
@@ -6707,7 +6993,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           );
         }
         if (typeof setCandleCountdownActive === 'function') {
-          setCandleCountdownActive(${chartRuntimeActive && chartDisplay.showLivePriceLine});
+          setCandleCountdownActive(${chartRuntimeActive && chartDisplay.showLivePriceLine && !isChartMarketClosed});
         }
         true;
       `);
@@ -6720,6 +7006,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     chartRuntimeActive,
     chartTimeframe,
     chartWebViewGeneration,
+    isChartMarketClosed,
     webViewReady,
   ]);
 
@@ -6770,7 +7057,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   // Effect 1 — request initChart whenever data or config changes.
   useEffect(() => {
     sendInit();
-  }, [sanitizedCandles, sendInit]);
+  }, [readRenderableCanonicalCandles, sanitizedCandles, sendInit]);
 
   useEffect(() => {
     if (!webViewRef.current || !chartInitializedRef.current || !chartCanvasReady) {
@@ -6805,10 +7092,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       return;
     }
 
-    const readCanonicalCandles = () => liveCandlesEngine.getCandles(chartSymbol, chartTimeframe);
+    const cachedExactQuote = captureExactChartQuote(
+      chartTradeDisplayQuoteScopeKey,
+      getCurrentLiveQuoteSnapshot(chartSymbol) as ExactChartQuoteInput | undefined,
+    );
+    if (cachedExactQuote) {
+      retainedChartTradeDisplayQuoteRef.current = cachedExactQuote;
+    }
 
     const paintCanonicalLiveTick = (allowUnchangedSnapshot = false) => {
-      const canonicalCandles = readCanonicalCandles();
+      const canonicalCandles = readRenderableCanonicalCandles();
       if (canonicalCandles.length === 0) {
         return;
       }
@@ -6826,7 +7119,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         return;
       }
 
+      const previousSnapshot = renderedSeriesSnapshotRef.current;
       const nextSnapshot = buildChartSeriesSnapshot(canonicalCandles);
+      const resetForClosedMarketClamp = shouldResetViewportForClosedMarketClamp(
+        previousSnapshot,
+        nextSnapshot,
+        isChartMarketClosed,
+      );
       const updateMode = getChartSeriesUpdateMode(renderedSeriesSnapshotRef.current, nextSnapshot);
       if (
         updateMode !== 'incremental' &&
@@ -6841,11 +7140,22 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         return;
       }
 
+      const exactQuote = readExactChartQuoteForScope(
+        chartTradeDisplayQuoteScopeKey,
+        retainedChartTradeDisplayQuoteRef.current,
+      );
+      // Candle.close owns OHLC; backend Bid owns the MT5-style market line.
+      // These values may legitimately differ after a closed-session REST
+      // reconciliation, so never force one to match the other.
+      const exactBidLine = exactQuote?.bid ?? null;
+      const shouldShowExactBidLine =
+        chartDisplay.showLivePriceLine && exactBidLine !== null;
       const revision = livePaintRevisionRef.current + 1;
       const liveUpdate = {
         candle: buildChartTickPayload(lastCandle, chartType),
-        livePrice: lastCandle.close,
-        showLivePriceLine: chartDisplay.showLivePriceLine,
+        dataContextSig: chartDataContextSig,
+        livePrice: exactBidLine,
+        showLivePriceLine: shouldShowExactBidLine,
         revision,
       };
       let issuedPaintToken = '';
@@ -6857,7 +7167,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           fullReloadScript = `
             if (typeof updateChartData === 'function') {
               updateChartData(${JSON.stringify(buildMappedData(canonicalCandles))}, {
-                preserveVisibleLogicalSpan: true,
+                preserveVisibleLogicalSpan: ${!resetForClosedMarketClamp},
+                resetVisibleRange: ${resetForClosedMarketClamp},
                 dataContextSig: ${JSON.stringify(chartDataContextSig)},
                 paintToken: ${JSON.stringify(issuedPaintToken)}
               });
@@ -6874,15 +7185,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         `);
         livePaintRevisionRef.current = revision;
         renderedSeriesSnapshotRef.current = nextSnapshot;
-        lastInjectedLiveQuoteSignatureRef.current = chartDisplay.showLivePriceLine
-          ? lastCandle.close.toFixed(displayDecimals)
-          : 'off';
+        lastInjectedLiveQuoteSignatureRef.current = !chartDisplay.showLivePriceLine
+          ? 'off'
+          : exactBidLine === null
+            ? 'na'
+            : exactBidLine.toFixed(displayDecimals);
       } catch (_e) {
         if (pendingChartDataPaintRef.current.token === issuedPaintToken) {
           pendingChartDataPaintRef.current = { token: '', dataContextSig: '' };
         }
       }
     };
+    paintCanonicalLiveTickRef.current = paintCanonicalLiveTick;
 
     // Route resume and visibility-setting changes repaint one complete
     // candle+Bid transaction immediately. This avoids exposing a current
@@ -6896,23 +7210,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     );
     const retainLatestChartTradeDisplayQuote = (tick: QuoteTickEvent) => {
       const capture = captureActiveBrokerSession();
-      if (
-        !capture ||
-        capture.session.cacheNamespace !== activeChartSessionCacheNamespace ||
-        !Number.isFinite(tick.bid) ||
-        tick.bid <= 0 ||
-        !Number.isFinite(tick.ask) ||
-        tick.ask <= 0
-      ) {
+      if (!capture || capture.session.cacheNamespace !== activeChartSessionCacheNamespace) {
         return;
       }
+      const exactQuote = captureExactChartQuote(chartTradeDisplayQuoteScopeKey, tick);
+      if (!exactQuote) return;
       // A ref write keeps the latest hidden Bid/Ask available without waking
-      // React or competing with tab navigation.
-      retainedChartTradeDisplayQuoteRef.current = {
-        scopeKey: chartTradeDisplayQuoteScopeKey,
-        bid: tick.bid,
-        ask: tick.ask,
-      };
+      // React or competing with tab navigation. Repaint even when the candle
+      // snapshot is unchanged so the line receives this exact backend Bid.
+      retainedChartTradeDisplayQuoteRef.current = exactQuote;
+      paintCanonicalLiveTick(true);
     };
     const releaseQuoteDemand = quotesWsService.subscribeToSymbol(
       chartSymbol,
@@ -6921,6 +7228,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     return () => {
       releaseQuoteDemand();
       releaseCandleConsumer();
+      if (paintCanonicalLiveTickRef.current === paintCanonicalLiveTick) {
+        paintCanonicalLiveTickRef.current = () => {};
+      }
     };
   }, [
     activeChartSessionCacheNamespace,
@@ -6936,8 +7246,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     chartType,
     displayDecimals,
     isLoggedIn,
+    isChartMarketClosed,
     issueChartDataPaintToken,
+    readRenderableCanonicalCandles,
   ]);
+
+  useEffect(() => {
+    if (!observedExactChartQuote) return;
+    // A REST snapshot can arrive after trading stops without a candle event.
+    // Paint its exact backend Bid once; live websocket ticks use the direct
+    // zero-delay callback in the retained bridge above.
+    paintCanonicalLiveTickRef.current(true);
+  }, [observedExactChartQuote]);
 
   // Effect 2 — keep full history/replacement data aligned with the WebView.
 
@@ -6950,7 +7270,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     // read the engine's current series when a full replacement is required.
     // This prevents history/pagination paint from overwriting a newer live tick
     // with the older React snapshot that merely triggered this effect.
-    const canonicalCandles = liveCandlesEngine.getCandles(chartSymbol, chartTimeframe);
+    const canonicalCandles = readRenderableCanonicalCandles();
     const renderableCandles = canonicalCandles.length > 0 ? canonicalCandles : sanitizedCandles;
     const contextChanged = renderedDataContextSigRef.current !== chartDataContextSig;
     if (renderableCandles.length === 0) {
@@ -6973,7 +7293,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       return;
     }
 
+    const previousSnapshot = renderedSeriesSnapshotRef.current;
     const nextSnapshot = buildChartSeriesSnapshot(renderableCandles);
+    const resetForClosedMarketClamp = shouldResetViewportForClosedMarketClamp(
+      previousSnapshot,
+      nextSnapshot,
+      isChartMarketClosed,
+    );
     const updateMode = contextChanged
       ? 'full_reload'
       : getChartSeriesUpdateMode(renderedSeriesSnapshotRef.current, nextSnapshot);
@@ -6997,6 +7323,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
     let didInject = false;
     let issuedPaintToken = '';
+    const replacementExactQuote = readExactChartQuoteForScope(
+      chartTradeDisplayQuoteScopeKey,
+      retainedChartTradeDisplayQuoteRef.current,
+    );
+    const replacementLivePrice =
+      chartDisplay.showLivePriceLine && replacementExactQuote
+        ? replacementExactQuote.bid
+        : null;
 
     try {
       if (updateMode === 'full_reload') {
@@ -7012,10 +7346,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           }
           webViewRef.current.injectJavaScript(`
             updateChartData(${JSON.stringify(mapped)}, {
-              resetVisibleRange: ${contextChanged},
+              resetVisibleRange: ${contextChanged || resetForClosedMarketClamp},
               dataContextSig: ${JSON.stringify(chartDataContextSig)},
               paintToken: ${JSON.stringify(issuedPaintToken)}
             });
+            // A closed symbol may never emit another tick. Restore its retained
+            // exact backend Bid in the same transaction that replaces candles.
+            if (typeof setLivePriceLineForContext === 'function') {
+              setLivePriceLineForContext(
+                ${replacementLivePrice ?? 'null'},
+                ${JSON.stringify(chartDataContextSig)}
+              );
+            }
             true;
           `);
           didInject = true;
@@ -7030,6 +7372,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     if (didInject) {
       renderedSeriesSnapshotRef.current = nextSnapshot;
       renderedDataContextSigRef.current = chartDataContextSig;
+      lastInjectedLiveQuoteSignatureRef.current = !chartDisplay.showLivePriceLine
+        ? 'off'
+        : replacementLivePrice === null
+          ? 'na'
+          : replacementLivePrice.toFixed(displayDecimals);
     }
   }, [
     sanitizedCandles,
@@ -7038,9 +7385,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     chartType,
     buildMappedData,
     chartDataContextSig,
+    chartDisplay.showLivePriceLine,
     chartSymbol,
+    chartTradeDisplayQuoteScopeKey,
     chartTimeframe,
+    displayDecimals,
+    isChartMarketClosed,
     issueChartDataPaintToken,
+    readRenderableCanonicalCandles,
   ]);
 
   useEffect(() => {
@@ -7874,6 +8226,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         chartAsk,
         chartTradeTickTimestamp,
         onTradeResult: handleChartTradeExecutionResult,
+        onTradeQueueEvent: handleChartTradeQueueEvent,
       }}
       footer={{
         showFloatingFooterTradeRow: shouldMountFloatingFooterTradeRow,
@@ -8058,6 +8411,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
               protectionDraftId={directMarketProtectionDraftId}
               pointSize={chartProtectionTickSize ?? 0}
               onTradeResult={handleChartTradeExecutionResult}
+              onTradeQueueEvent={handleChartTradeQueueEvent}
               onEditLot={handleFocusFooterLotEditor}
               onOpenLotEditor={handleOpenFooterLotPicker}
               isLotEditing={footerLotEditorFocused}
@@ -8327,13 +8681,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                           // without waiting for the next React effect cycle.
                           try {
                             const latestOverlay = overlayPayloadRef.current ?? { priceLines: [], markers: [] };
-                            const readyLiveCandle = candlesRef.current[candlesRef.current.length - 1];
+                            const readyExactQuote = readExactChartQuoteForScope(
+                              chartTradeDisplayQuoteScopeKey,
+                              retainedChartTradeDisplayQuoteRef.current,
+                            );
                             const visibleLivePrice =
                               chartDisplay.showLivePriceLine &&
-                              readyLiveCandle &&
-                              Number.isFinite(readyLiveCandle.close) &&
-                              readyLiveCandle.close > 0
-                                ? readyLiveCandle.close
+                              readyExactQuote &&
+                              Number.isFinite(readyExactQuote.bid) &&
+                              readyExactQuote.bid > 0
+                                ? readyExactQuote.bid
                                 : null;
                             const nextMarketLineSignature =
                               visibleLivePrice !== null ? visibleLivePrice.toFixed(displayDecimals) : chartDisplay.showLivePriceLine ? 'na' : 'off';
@@ -8342,8 +8699,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                             if (typeof setChartOverlays === 'function') {
                               setChartOverlays(${JSON.stringify(latestOverlay)});
                             }
-                            if (typeof setLivePriceLine === 'function') {
-                              setLivePriceLine(${visibleLivePrice ?? 'null'});
+                            if (typeof setLivePriceLineForContext === 'function') {
+                              setLivePriceLineForContext(
+                                ${visibleLivePrice ?? 'null'},
+                                ${JSON.stringify(chartDataContextSig)}
+                              );
                             }
                             true;
                           `);
@@ -8389,6 +8749,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                           setHasPaintedChartOnce(true);
                           setLastPaintedChartDataContextSig(paintedDataContextSig);
                           recordConfirmedChartFrontendPaint();
+                          // The quote can win the cold-load race before candles.
+                          // Replay it after the WebView confirms this exact
+                          // context, even if a closed market sends no next tick.
+                          paintCanonicalLiveTickRef.current(true);
                         } else if (msg.type === 'DRAWING_TEXT_EDIT_REQUEST') {
                           const recordId = typeof msg.recordId === 'string' ? msg.recordId : '';
                           if (!recordId) {
@@ -8636,7 +9000,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                               </View>
 
                               <View style={styles.symbolMetaRow}>
-                                <Text style={[styles.symbolSubText, { textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]} numberOfLines={1} adjustsFontSizeToFit>{symbolName}</Text>
+                                <Text style={[styles.symbolSubText, { textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]} numberOfLines={1} adjustsFontSizeToFit>
+                                  {symbolName}{isChartMarketClosed ? ` · ${t('Market Closed')}` : ''}
+                                </Text>
                               </View>
                             </>
                           ) : null}
@@ -8694,6 +9060,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                       handleOpenSymbolPicker();
                     }}
                     onOpenScaleControls={handleOpenChartScaleMenu}
+                  />
+                ) : null}
+                {!showChartTradeSheet ? (
+                  <ChartTradeReceiptStack
+                    controller={chartTradeReceiptStackController}
+                    isDark={isDark}
+                    buyColor={BLUE}
+                    sellColor={T.trading.sell.primary}
                   />
                 ) : null}
                 {chartTradeReceipt && !showChartTradeSheet
@@ -9249,6 +9623,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                           fallbackBid={chartTradeFooterFallbackBid}
                           fallbackAsk={chartTradeFooterFallbackAsk}
                           onTradeResult={handleChartTradeExecutionResult}
+                          onTradeQueueEvent={handleChartTradeQueueEvent}
                           isDark={isDark}
                           buyColor={BLUE}
                           sellColor={T.trading.sell.primary}
@@ -9316,6 +9691,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
               protectionDraftId={directMarketProtectionDraftId}
               pointSize={chartProtectionTickSize ?? 0}
               onTradeResult={handleChartTradeExecutionResult}
+              onTradeQueueEvent={handleChartTradeQueueEvent}
               onEditLot={handleFocusFooterLotEditor}
               onOpenLotEditor={handleOpenFooterLotPicker}
               isLotEditing={footerLotEditorFocused}
@@ -9361,6 +9737,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
               protectionDraftId={directMarketProtectionDraftId}
               pointSize={chartProtectionTickSize ?? 0}
               onTradeResult={handleChartTradeExecutionResult}
+              onTradeQueueEvent={handleChartTradeQueueEvent}
               onEditLot={handleFocusFooterLotEditor}
               onOpenLotEditor={handleOpenFooterLotPicker}
               isLotEditing={footerLotEditorFocused}
@@ -9498,6 +9875,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           pressed. With the sheet closed they render inline exactly as before. */}
       <ChartTradeFeedbackPortal enabled={showChartTradeSheet}>
         <>
+          {showChartTradeSheet ? (
+            <ChartTradeReceiptStack
+              controller={chartTradeReceiptStackController}
+              isDark={isDark}
+              buyColor={BLUE}
+              sellColor={T.trading.sell.primary}
+              topOffset={72}
+              bottomOffset={104}
+            />
+          ) : null}
           {chartTradeReceipt && showChartTradeSheet
             ? renderChartTradeReceiptBar(chartTradeReceipt)
             : null}

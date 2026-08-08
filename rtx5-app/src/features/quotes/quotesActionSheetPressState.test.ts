@@ -137,8 +137,8 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.match(longPressConfigSource, /label: t\('Properties'\), activateOnPressIn: true, onPress: \(\) => goDetail\(sym\)/);
   assert.match(longPressConfigSource, /label: t\('Hide'\),[\s\S]*danger: true/);
   assert.match(tapConfigSource, /label: t\('New Order'\),[\s\S]*onPress: \(\) => openOrderTicketForSymbol\(sym\)/);
-  // The Chart option rides the same optimistic fast-tab flip as a bottom-bar
-  // tap instead of paying a router.push commit inside the sheet action.
+  // The Chart option still uses the retained fast-tab path, but it must commit
+  // the target symbol before revealing that retained scene.
   assert.match(tapConfigSource, /label: t\('Chart'\),[\s\S]*onPress: \(\) => openChartTabForSymbol\(sym\)/);
   assert.match(tapConfigSource, /label: t\('Market Statistics'\),[\s\S]*onPress: \(\) => openMarketStatisticsForSymbol\(sym\)/);
   assert.match(
@@ -151,7 +151,8 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   );
   assert.match(
     source,
-    /const openChartTabForSymbol = useCallback\(\(sym: string\) => \{[\s\S]*const visualRevision = showFastTabVisual\('chart'\);[\s\S]*navigateMountedSidebarTab\('\/chart'\)[\s\S]*router\.push\('\/\(tabs\)\/chart'\)[\s\S]*const chartTimeframe = prepareChartSymbol\(sym\);[\s\S]*liveCandlesEngine\.prefetchHistory\(sym, chartTimeframe\);[\s\S]*\}, \{ routeChange: true \}\);/,
+    /const openChartTabForSymbol = useCallback\(\(sym: string\) => \{[\s\S]*const chartTimeframe = prepareChartSymbol\(sym\);[\s\S]*prefetchChartSelectionHistory\(sym, chartTimeframe\);[\s\S]*const revealRequestedChart = \(\) => \{[\s\S]*const visualRevision = showFastTabVisual\('chart'\);[\s\S]*navigateMountedSidebarTab\('\/chart'\)[\s\S]*router\.push\('\/\(tabs\)\/chart'\)[\s\S]*scheduleQuoteSheetVisualBoundary\(revealRequestedChart\);[\s\S]*\}, \{ routeChange: true \}\);/,
+    'the previous-symbol Chart surface must stay hidden until the target symbol reaches the retained tree',
   );
   assert.match(
     source,
@@ -159,7 +160,7 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   );
   assert.match(
     source,
-    /const openQuoteSheetWhenConfigIsReady = useCallback[\s\S]*const openSheet = \(\) => \{[\s\S]*runImmediateAction\(actionName, \(\) => \{[\s\S]*showQuotesActionSheet\(config\);[\s\S]*prepareSymbolDestinationShellsAfterSheetSettle\(sym\);[\s\S]*scheduleQuoteSheetConfigPaint\(config, openSheet\)/,
+    /const openQuoteSheetWhenConfigIsReady = useCallback[\s\S]*const openSheet = \(\) => \{[\s\S]*runImmediateAction\(actionName, \(\) => \{[\s\S]*showQuotesActionSheet\(config\);[\s\S]*actionName === 'quotes\.symbolSheet\.tap\.open'[\s\S]*const \{ chartTimeframe \} = useUserPreferences\.getState\(\);[\s\S]*prefetchChartSelectionHistory\(sym, chartTimeframe\);[\s\S]*prepareSymbolDestinationShellsAfterSheetSettle\(sym\);[\s\S]*scheduleQuoteSheetConfigPaint\(config, openSheet\)/,
     'an exact config must open directly through the Quotes-owned immediate action path',
   );
   assert.match(
@@ -183,7 +184,7 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
     'deferred visibility may run only for the exact mounted Quotes config',
   );
   const preparationStart = source.indexOf('const prepareSymbolDestinationShellsAfterSheetSettle');
-  const preparationEnd = source.indexOf('const clearQuoteSheetPressOutTimer', preparationStart);
+  const preparationEnd = source.indexOf('const openQuoteSheetWhenConfigIsReady', preparationStart);
   const preparationSource = source.slice(preparationStart, preparationEnd);
   assert.match(
     preparationSource,
@@ -197,7 +198,7 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.doesNotMatch(
     preparationSource,
     /\bprefetch[A-Z]\w*\(|router\.(?:prefetch|push)|prepareChartSymbol\(|liveCandlesEngine\.prefetchHistory\(|preloadDeferredRouteModule\(|getCandleHistory\(/,
-    'opening the Quotes menu must not start network, route, module, or hidden Chart work',
+    'the delayed shell preparation remains lightweight; exact candle warming is owned explicitly by the accepted row tap',
   );
   assert.match(
     source,

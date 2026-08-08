@@ -25,6 +25,7 @@ import {
   MAX_BUFFERED_LIVE_EVENTS,
   INITIAL_HISTORY_LIMIT,
   MAX_RENDERED_HISTORY_CANDLES,
+  MAX_RETAINED_HISTORY_CANDLES,
   PAGINATED_HISTORY_LIMIT,
   type BufferedLiveEvent,
   type CandleParams,
@@ -41,6 +42,7 @@ import {
 import {
   runLoadHistory,
   runPrefetchHistory,
+  type HistoryPrefetchRecord,
   type HistoryFetchManagerBridge,
 } from './historyFetching';
 import { splitRestHistoryCandles, getConfiguredCandlePriceBasis } from '../../core/candleProvenance';
@@ -70,7 +72,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
   /** @internal Exposed only for sibling modules in this folder. */
   public readonly entries = new Map<string, StreamEntry>();
   /** @internal Exposed only for sibling modules in this folder. */
-  public readonly historyPrefetches = new Map<string, Promise<number>>();
+  public readonly historyPrefetches = new Map<string, HistoryPrefetchRecord>();
 
   /**
    * Subscribes a UI component to a specific (symbol, timeframe) candle stream.
@@ -168,6 +170,18 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       MAX_RENDERED_HISTORY_CANDLES,
       Math.max(INITIAL_HISTORY_LIMIT, entry.renderHistoryLimit || INITIAL_HISTORY_LIMIT),
     );
+    if (entry.historyCandles.length > activeRenderLimit) {
+      // Cache hydration retains older exact backend bars internally. Reveal
+      // those first; pagination should hit the network only after local truth
+      // has been exhausted.
+      entry.renderHistoryLimit = Math.min(
+        MAX_RENDERED_HISTORY_CANDLES,
+        entry.historyCandles.length,
+        activeRenderLimit + PAGINATED_HISTORY_LIMIT,
+      );
+      this.commit(entry);
+      return;
+    }
     if (activeRenderLimit >= MAX_RENDERED_HISTORY_CANDLES && entry.candles.length >= MAX_RENDERED_HISTORY_CANDLES) {
       return;
     }
@@ -187,15 +201,78 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
   }
 
   /** Proactively fetches and caches REST history in the background before a user explicitly opens the chart. */
-  public async prefetchHistory(symbol: string, timeframe: string): Promise<number> {
-    return runPrefetchHistory(this, symbol, timeframe, (s, t) => this.getKey(s, t));
+  public async prefetchHistory(
+    symbol: string,
+    timeframe: string,
+    limit = INITIAL_HISTORY_LIMIT,
+  ): Promise<number> {
+    const normalizedSymbol = normalizeSymbol(symbol);
+    const normalizedTimeframe = normalizeTimeframeStrict(timeframe);
+    if (!normalizedSymbol || !normalizedTimeframe) {
+      return 0;
+    }
+
+    const finiteRequestedLimit = Number.isFinite(limit)
+      ? Math.floor(limit)
+      : INITIAL_HISTORY_LIMIT;
+    const requestedLimit = Math.min(
+      MAX_RENDERED_HISTORY_CANDLES,
+      Math.max(INITIAL_HISTORY_LIMIT, finiteRequestedLimit),
+    );
+    const key = this.getKey(normalizedSymbol, normalizedTimeframe);
+    const entry = this.entries.get(key);
+    const shouldLoadIntoActiveEntry = Boolean(
+      entry && (
+        requestedLimit > entry.renderHistoryLimit ||
+        (
+          requestedLimit === entry.renderHistoryLimit &&
+          entry.historyCandles.length < requestedLimit &&
+          !this.isHistoryRequestActive(entry)
+        )
+      ),
+    );
+    if (entry && shouldLoadIntoActiveEntry) {
+      entry.renderHistoryLimit = requestedLimit;
+      if (entry.historyCandles.length >= requestedLimit) {
+        // Older exact bars are already retained: reveal them synchronously and
+        // avoid another REST round trip.
+        this.commit(entry);
+        return entry.candles.length;
+      }
+
+      const pendingPrefetch = this.historyPrefetches.get(key);
+      if (pendingPrefetch && pendingPrefetch.limit >= requestedLimit) {
+        // A Quotes/action-sheet warm-up may already own this exact deep
+        // request. Reuse it instead of launching a duplicate 500-bar request
+        // when the retained Chart subscribes before that warm-up completes.
+        return pendingPrefetch.promise;
+      }
+
+      // Upgrade an in-flight shallow initial load when backend status confirms
+      // closure. runLoadHistory safely aborts/supersedes the old request.
+      runLoadHistory(this, entry, requestedLimit);
+      return entry.candles.length;
+    }
+
+    return runPrefetchHistory(
+      this,
+      normalizedSymbol,
+      normalizedTimeframe,
+      (s, t) => this.getKey(s, t),
+      requestedLimit,
+    );
   }
 
   /**
    * Restores a stream's initial state from local storage (SQLite/AsyncStorage)
    * to provide a zero-latency chart render while fresh REST history fetches in the background.
    */
-  public hydrateFromCache(symbol: string, timeframe: string, candles: CandleParams[]): void {
+  public hydrateFromCache(
+    symbol: string,
+    timeframe: string,
+    candles: CandleParams[],
+    renderLimit = INITIAL_HISTORY_LIMIT,
+  ): void {
     const entry = this.entries.get(this.getKey(symbol, timeframe));
     // Show saved candles only until fresh history arrives.
     // Fresh history always replaces this cached starting point.
@@ -203,14 +280,25 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       return;
     }
 
-    const safeCandles = sanitizeCandlesForChart(candles, { timeframe: entry.timeframe }).slice(-INITIAL_HISTORY_LIMIT);
-    if (safeCandles.length === 0 || isSameSeries(entry.candles, safeCandles)) {
+    const finiteRenderLimit = Number.isFinite(renderLimit)
+      ? Math.floor(renderLimit)
+      : INITIAL_HISTORY_LIMIT;
+    const safeRenderLimit = Math.min(
+      MAX_RENDERED_HISTORY_CANDLES,
+      Math.max(INITIAL_HISTORY_LIMIT, finiteRenderLimit),
+    );
+    // Retain validated older bars even though the first viewport materializes a
+    // much smaller tail. A closed-market recovery can expose these exact bars
+    // synchronously instead of throwing them away and calling REST again.
+    const safeCandles = sanitizeCandlesForChart(candles, { timeframe: entry.timeframe })
+      .slice(-MAX_RETAINED_HISTORY_CANDLES);
+    if (safeCandles.length === 0) {
       return;
     }
 
     entry.historyCandles = safeCandles;
     // Preserve any live ticks that arrived while saved candles were loading.
-    entry.renderHistoryLimit = INITIAL_HISTORY_LIMIT;
+    entry.renderHistoryLimit = safeRenderLimit;
     entry.historyPaginationCursorTime = null;
 
     const { closedHistory } = splitRestHistoryCandles(
@@ -475,7 +563,12 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       // Startup prefetch stores fresh history in memory before the Chart tab is
       // opened.  Seed the new stream from it synchronously so first tab entry
       // can paint immediately while REST refreshes in the background.
-      this.hydrateFromCache(symbol, timeframe, memoryCachedCandles as CandleParams[]);
+      this.hydrateFromCache(
+        symbol,
+        timeframe,
+        memoryCachedCandles as CandleParams[],
+        Math.min(PAGINATED_HISTORY_LIMIT, memoryCachedCandles.length),
+      );
     } else {
       void hydratePersistedCandleCache(symbol, timeframe).then((persisted) => {
         const live = this.entries.get(key);
@@ -504,10 +597,14 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
   }
 
   private loadFreshHistory(entry: StreamEntry): void {
-    entry.renderHistoryLimit = INITIAL_HISTORY_LIMIT;
+    const initialLoadLimit = Math.min(
+      PAGINATED_HISTORY_LIMIT,
+      Math.max(INITIAL_HISTORY_LIMIT, entry.renderHistoryLimit || INITIAL_HISTORY_LIMIT),
+    );
+    entry.renderHistoryLimit = initialLoadLimit;
     entry.historyPaginationCursorTime = null;
 
-    const pendingPrefetch = this.historyPrefetches.get(entry.key);
+    const pendingPrefetch = this.historyPrefetches.get(entry.key)?.promise;
     if (pendingPrefetch) {
       // If a warm-up is already fetching this history, wait for it.
       // Start another request only if it produced no usable candles.
@@ -525,12 +622,16 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
           return;
         }
 
-        runLoadHistory(this, live, INITIAL_HISTORY_LIMIT);
+        const fallbackLoadLimit = Math.min(
+          PAGINATED_HISTORY_LIMIT,
+          Math.max(INITIAL_HISTORY_LIMIT, live.renderHistoryLimit || initialLoadLimit),
+        );
+        runLoadHistory(this, live, fallbackLoadLimit);
       });
       return;
     }
 
-    runLoadHistory(this, entry, INITIAL_HISTORY_LIMIT);
+    runLoadHistory(this, entry, initialLoadLimit);
   }
 
   private reloadEmptyIdleHistory(entry: StreamEntry): void {

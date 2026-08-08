@@ -135,6 +135,8 @@ test('creates a market close separator on the last candle at or before session c
     candle(utcSeconds(2026, 6, 4, 7, 3)),
     candle(utcSeconds(2026, 6, 4, 7, 4)),
     candle(utcSeconds(2026, 6, 4, 7, 5)),
+    candle(utcSeconds(2026, 6, 4, 7, 6)),
+    candle(utcSeconds(2026, 6, 4, 7, 7)),
   ];
 
   assert.deepEqual(
@@ -147,6 +149,23 @@ test('creates a market close separator on the last candle at or before session c
   );
 });
 
+test('treats an exact session-close boundary as exclusive', () => {
+  const candles = [
+    candle(utcSeconds(2026, 6, 4, 7, 3)),
+    candle(utcSeconds(2026, 6, 4, 7, 4)),
+    candle(utcSeconds(2026, 6, 4, 7, 5)),
+  ];
+
+  assert.deepEqual(
+    getMarketCloseSeparator(candles, 'M1', utcSeconds(2026, 6, 4, 7, 5)),
+    {
+      time: utcSeconds(2026, 6, 4, 7, 4),
+      index: 1,
+      type: 'market_close',
+    },
+  );
+});
+
 test('does not create a market close separator before the visible candle range', () => {
   const candles = [
     candle(utcSeconds(2026, 6, 4, 7, 3)),
@@ -154,4 +173,23 @@ test('does not create a market close separator before the visible candle range',
   ];
 
   assert.equal(getMarketCloseSeparator(candles, 'M1', utcSeconds(2026, 6, 4, 7, 2)), null);
+});
+
+test('uses broker-aligned daily starts and accepts millisecond close timestamps', () => {
+  const daily = 24 * 60 * 60;
+  const brokerRollover = utcSeconds(2026, 6, 1, 17, 0);
+  const candles = [
+    candle(brokerRollover),
+    candle(brokerRollover + daily),
+    candle(brokerRollover + 2 * daily),
+  ];
+
+  assert.deepEqual(
+    getMarketCloseSeparator(candles, 'D1', (brokerRollover + 2 * daily) * 1000),
+    {
+      time: brokerRollover + daily,
+      index: 1,
+      type: 'market_close',
+    },
+  );
 });

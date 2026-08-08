@@ -148,6 +148,15 @@ test('native OHLC row renders below the full symbol name', () => {
   assert.match(styles, /symbolSectionContent:\s*\{[\s\S]*backgroundColor: 'transparent'/);
   assert.match(styles, /symbolOhlcRow:\s*\{[\s\S]*marginTop: 1/);
   assert.doesNotMatch(source, /styles\.fxBadge,\s*\{\s*backgroundColor:/);
+  assert.match(
+    source,
+    /const chartMetaCanonicalCandles\s*=\s*!chartMetaLiveLastCandle[\s\S]*activeChartSessionCacheNamespace[\s\S]*readRenderableCanonicalCandles\(\)[\s\S]*const chartMetaLastCandle = chartMetaLiveLastCandle \?\? chartMetaCanonicalLastCandle/,
+  );
+  assert.doesNotMatch(
+    source,
+    /const chartMetaCanonicalCandles\s*=\s*!chartMetaLiveLastCandle\s*&&\s*isScreenFocused/,
+    'first-visible OHLC fallback must not wait for deferred Chart focus',
+  );
 });
 
 test('chart type pickers stay compact and do not expose the retired OHLC bars chart type', () => {
@@ -418,7 +427,7 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   );
   assert.match(
     source,
-    /const warmChartContextAndCommit = useCallback\([\s\S]*chartContextCommitScheduler\.request\(\{[\s\S]*prepare: \(\) => \{[\s\S]*refreshSelectedChartHistory\(nextSymbol, nextTimeframe\)[\s\S]*prefetchInstrument\(nextSymbol\)[\s\S]*commit: \(\) => \{[\s\S]*preferences\.setChartSymbol\(nextSymbol\)/,
+    /const warmChartContextAndCommit = useCallback\([\s\S]*chartContextCommitScheduler\.request\(\{[\s\S]*prepare: \(\) => \{[\s\S]*prefetchChartSelectionHistory\(nextSymbol, nextTimeframe\)[\s\S]*prefetchInstrument\(nextSymbol\)[\s\S]*commit: \(\) => \{[\s\S]*preferences\.setChartSymbol\(nextSymbol\)/,
   );
   assert.match(
     source,

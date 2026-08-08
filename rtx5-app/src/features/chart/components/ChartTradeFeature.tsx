@@ -936,6 +936,7 @@ function ChartTradeSheetContent({
               protectionDraftId={sheet.directMarketProtectionDraftId}
               variant='mt5-market'
               onTradeResult={sheet.onTradeResult}
+              onTradeQueueEvent={sheet.onTradeQueueEvent}
               fallbackBid={sheet.chartBid}
               fallbackAsk={sheet.chartAsk}
               isDark={isDark}
@@ -1398,6 +1399,7 @@ function ChartTradeSheetBody({
             protectionDraftId={sheet.directMarketProtectionDraftId}
             variant='mt5-market'
             onTradeResult={sheet.onTradeResult}
+            onTradeQueueEvent={sheet.onTradeQueueEvent}
             fallbackBid={sheet.chartBid}
             fallbackAsk={sheet.chartAsk}
             isDark={isDark}
@@ -1779,6 +1781,7 @@ export function ChartTradeOverlayLayer({
               lotSize={sheet.tradeVolume}
               volumeBounds={sheet.tradeVolumeBounds}
               onTradeResult={sheet.onTradeResult}
+              onTradeQueueEvent={sheet.onTradeQueueEvent}
               comment={sheet.chartTradeComment}
               stopLossPrice={sheet.directMarketStopLossPrice}
               takeProfitPrice={sheet.directMarketTakeProfitPrice}
@@ -1841,6 +1844,7 @@ type ChartTradeInlineFooterProps = {
   tradeVolume: number;
   tradeVolumeBounds: any;
   onTradeResult: (feedback: any) => void;
+  onTradeQueueEvent: (event: any) => void;
   comment?: string;
   stopLossPrice?: number | null;
   takeProfitPrice?: number | null;
@@ -1880,6 +1884,7 @@ export function ChartTradeInlineFooter({
   tradeVolume,
   tradeVolumeBounds,
   onTradeResult,
+  onTradeQueueEvent,
   comment,
   stopLossPrice,
   takeProfitPrice,
@@ -1921,6 +1926,7 @@ export function ChartTradeInlineFooter({
           lotSize={tradeVolume}
           volumeBounds={tradeVolumeBounds}
           onTradeResult={onTradeResult}
+          onTradeQueueEvent={onTradeQueueEvent}
           comment={comment}
           stopLossPrice={stopLossPrice}
           takeProfitPrice={takeProfitPrice}
