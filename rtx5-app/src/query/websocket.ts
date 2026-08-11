@@ -8,6 +8,7 @@ import { useShallow } from 'zustand/shallow';
 import { apiClient } from '../api/apiClient';
 import { wsService } from '../api/ws/socket';
 import { quotesWsService } from '../api/ws/quotesSocket';
+import { orrnnDemoPublicMarketSocket } from '../api/ws/orrnnDemoPublicMarketSocket';
 import type { QuoteTickEvent } from '../api/ws/quoteTickNormalizer';
 import { normalizeQuoteTickTimestampToMs } from '../api/ws/quoteTimestamp';
 import { useTradingState } from '../state/tradingState';
@@ -33,6 +34,7 @@ import {
 } from './authenticatedQueryScope';
 import { commitQuoteSnapshotIfSessionCurrent } from './quoteCommitProvenance';
 import { MARKET_QUOTE_STALE_AFTER_MS } from '../market/quotePolicy';
+import { isOrrnnDemoPublicMarketSelection } from '../api/orrnnDemoPublicMarket';
 
 const LIVE_QUOTE_STALE_MS = MARKET_QUOTE_STALE_AFTER_MS;
 const LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS = 16;
@@ -440,7 +442,12 @@ export function useWebSocketConnection() {
  */
 export function useMarketData(symbols: string[] = [], active = true) {
   const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
-  const isActive = active && isLoggedIn;
+  const selectedBrokerId = useUserPreferences((state) => state.brokerId);
+  const isPublicDemoMarket = isOrrnnDemoPublicMarketSelection({
+    brokerId: selectedBrokerId,
+    isLoggedIn,
+  });
+  const isActive = active && (isLoggedIn || isPublicDemoMarket);
   const symbolsKey = JSON.stringify(symbols);
   const transportSymbols = React.useMemo(
     () => Array.from(new Set(symbols.map((symbol) => symbol.trim()).filter(Boolean))),
@@ -473,13 +480,21 @@ export function useMarketData(symbols: string[] = [], active = true) {
 
   useEffect(() => {
     if (!isActive || transportSymbols.length === 0) return;
+    if (isPublicDemoMarket) {
+      const unsubscribers = transportSymbols.map((symbol) =>
+        orrnnDemoPublicMarketSocket.subscribeToSymbol(symbol, () => {}),
+      );
+      return () => {
+        unsubscribers.forEach((unsubscribe) => unsubscribe());
+      };
+    }
     quotesWsService.connect();
     quotesWsService.subscribe(transportSymbols);
 
     return () => {
       quotesWsService.unsubscribe(transportSymbols);
     };
-  }, [isActive, transportSymbols]);
+  }, [isActive, isPublicDemoMarket, transportSymbols]);
 
   if (!isActive || symbols.length === 0) return liveQuotes;
   return symbols.reduce((acc, sym) => {
@@ -620,12 +635,91 @@ const mergeQuoteTickIntoSnapshot = (
   });
 };
 
+function useOrrnnDemoPublicLiveSymbolQuote(
+  symbol: string,
+  active: boolean,
+  commitIntervalMs: number,
+): Partial<QuoteItem> | undefined {
+  const normalizedSymbol = React.useMemo(() => normalizeSymbol(symbol), [symbol]);
+  const safeCommitIntervalMs = Math.max(0, Math.floor(commitIntervalMs));
+  const [quote, setQuote] = React.useState<Partial<QuoteItem> | undefined>();
+  const quoteRef = React.useRef<Partial<QuoteItem> | undefined>(undefined);
+  const commitTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!active || !normalizedSymbol) {
+      quoteRef.current = undefined;
+      setQuote(undefined);
+      return;
+    }
+
+    const seed = resolveMergedQuoteSnapshot(
+      symbol,
+      useTradingState.getState().quotes[normalizedSymbol],
+    );
+    quoteRef.current = seed;
+    setQuote(seed);
+
+    const commit = () => {
+      commitTimerRef.current = null;
+      const next = quoteRef.current;
+      setQuote((current) =>
+        areQuoteSnapshotsEqual(current, next) ? current : next,
+      );
+    };
+    const scheduleCommit = () => {
+      if (safeCommitIntervalMs === 0) {
+        commit();
+        return;
+      }
+      if (!commitTimerRef.current) {
+        commitTimerRef.current = setTimeout(commit, safeCommitIntervalMs);
+      }
+    };
+    const unsubscribe = orrnnDemoPublicMarketSocket.subscribeToSymbol(
+      normalizedSymbol,
+      (tick) => {
+        if (normalizeSymbol(tick.symbol) !== normalizedSymbol) {
+          return;
+        }
+        quoteRef.current = mergeQuoteTickIntoSnapshot(
+          symbol,
+          quoteRef.current,
+          { ...tick, transport: 'websocket' },
+        );
+        scheduleCommit();
+      },
+    );
+
+    return () => {
+      unsubscribe();
+      if (commitTimerRef.current) {
+        clearTimeout(commitTimerRef.current);
+        commitTimerRef.current = null;
+      }
+      quoteRef.current = undefined;
+    };
+  }, [active, normalizedSymbol, safeCommitIntervalMs, symbol]);
+
+  return active ? quote : undefined;
+}
+
 export function useLiveSymbolQuote(
   symbol: string,
   active = true,
   commitIntervalMs = LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS,
 ): Partial<QuoteItem> | undefined {
   const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
+  const selectedBrokerId = useUserPreferences((state) => state.brokerId);
+  const isPublicDemoActive = active && isOrrnnDemoPublicMarketSelection({
+    brokerId: selectedBrokerId,
+    isLoggedIn,
+  });
+  const publicDemoQuote = useOrrnnDemoPublicLiveSymbolQuote(
+    symbol,
+    isPublicDemoActive,
+    commitIntervalMs,
+  );
   const activeSession = useActiveBrokerQuerySession();
   const credentialScopeKey = useActiveBrokerCredentialScopeKey();
   const isActive = active && isLoggedIn && Boolean(activeSession);
@@ -788,7 +882,7 @@ export function useLiveSymbolQuote(
     symbol,
   ]);
 
-  return liveQuote;
+  return isPublicDemoActive ? publicDemoQuote : liveQuote;
 }
 
 /**

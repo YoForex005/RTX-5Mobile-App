@@ -42,6 +42,7 @@ import {
   subscribeActiveBrokerSession,
 } from '../../state/activeBrokerSession';
 import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope';
+import { requestOrrnnDemoTradeAuth } from './tradeAuthPrompt';
 
 const CANVAS_DARK = '#121212';
 const CARD_DARK = '#1E1E1E';
@@ -227,6 +228,13 @@ export function ClosePositionScreen({
   }, [hosted, onHostedBack]);
 
   const handleClosePosition = useCallback(async () => {
+    if (requestOrrnnDemoTradeAuth({
+      kind: 'position-action',
+      symbol: position?.symbol,
+      action: 'close',
+    })) {
+      return;
+    }
     if (!position || actionLockRef.current || isClosing) {
       return;
     }

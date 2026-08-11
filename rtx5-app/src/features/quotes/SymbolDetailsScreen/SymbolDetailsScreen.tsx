@@ -36,7 +36,10 @@ import {
   scheduleBackNavigationAfterVisualFrame,
 } from '../../../utils/navigation';
 import { CRITICAL_TRADE_ACTION_MAX_LATENCY_MS } from '../../../utils/actionLatency';
-import { prefetchOrderTicketData } from '../../../utils/navigationPrefetch';
+import {
+  prefetchChartSelectionHistory,
+  prefetchOrderTicketData,
+} from '../../../utils/navigationPrefetch';
 import { useTranslation } from '../../../i18n/useTranslation';
 import { dCol, getMeta, normalizeTradingSessions, sgn } from './instrumentMeta';
 import { MetricPill, MomentumBar, RangeBar, Row, Section } from './SubComponents';
@@ -51,6 +54,7 @@ import {
 } from '../quoteInfoLaunchController';
 import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
 import { BrokerFeedHealthBanner } from '../../../market/BrokerFeedHealthBanner';
+import { requestOrrnnDemoTradeAuth } from '../../trade/tradeAuthPrompt';
 
 const formatDetailNumber = (value: number | null | undefined) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -183,7 +187,11 @@ export function SymbolDetailsInteractiveContent({
     [routeSymbol, symbolOverride],
   );
   const setChartSymbol = useUserPreferences((s) => s.setChartSymbol);
+  const chartTimeframe = useUserPreferences((s) => s.chartTimeframe);
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
+  const isPublicDemoTradePrompt = useUserPreferences(
+    (state) => !state.isLoggedIn,
+  );
   const { mutate: placeOrder, isPending } = usePlaceOrderMutation();
   const [activeSide, setActiveSide] = useState<'buy' | 'sell' | null>(null);
   const tradeTapLockRef = useRef(false);
@@ -194,6 +202,14 @@ export function SymbolDetailsInteractiveContent({
   const active = activeOverride ?? isScreenFocused;
   const resolvedLogin = useResolvedTradingLogin();
   const accountLoginString = resolvedLogin !== undefined ? String(resolvedLogin) : undefined;
+
+  const handleOpenFullChart = useCallback(() => {
+    // Dispatch the exact public/authenticated history warm-up before changing
+    // the retained Chart context and mounting its visible route.
+    void prefetchChartSelectionHistory(symbol, chartTimeframe);
+    setChartSymbol(symbol);
+    router.push('/(tabs)/chart');
+  }, [chartTimeframe, setChartSymbol, symbol]);
 
   const liveQuotes = useMarketData([symbol], active);
   const liveQuote = liveQuotes[symbol] as Partial<QuoteItem> | undefined;
@@ -347,6 +363,14 @@ export function SymbolDetailsInteractiveContent({
   };
 
   const handleTrade = (side: 'buy' | 'sell') => {
+    if (requestOrrnnDemoTradeAuth({
+      kind: oneClickAccepted ? 'market-order' : 'order-ticket',
+      symbol,
+      side,
+      origin: 'quotes',
+    })) {
+      return;
+    }
     if (tradeTapLockRef.current || isPending) {
       return;
     }
@@ -457,6 +481,18 @@ export function SymbolDetailsInteractiveContent({
     }
   };
 
+  const handleTradeNow = useCallback(() => {
+    if (requestOrrnnDemoTradeAuth({
+      kind: 'order-ticket',
+      symbol,
+      origin: 'quotes',
+    })) {
+      return;
+    }
+    prefetchOrderTicketData(resolveTradingLoginString(), symbol);
+    router.push({ pathname: '/trade/order-ticket', params: { symbol } });
+  }, [symbol]);
+
   return (
     <View style={{ flex: 1, backgroundColor: screenBg }}>
       <View style={{
@@ -540,8 +576,8 @@ export function SymbolDetailsInteractiveContent({
 
             <View style={[s.ticker.inner]}>
               <Pressable
-                style={[s.ticker.side, (activeSide === 'sell' || (isPending && !activeSide) || (oneClickAccepted && !quoteActionAvailability.allowed)) && { opacity: 0.5 }]}
-                disabled={isPending || (oneClickAccepted && !quoteActionAvailability.allowed)}
+                style={[s.ticker.side, (activeSide === 'sell' || (isPending && !activeSide) || (!isPublicDemoTradePrompt && oneClickAccepted && !quoteActionAvailability.allowed)) && { opacity: 0.5 }]}
+                disabled={isPending || (!isPublicDemoTradePrompt && oneClickAccepted && !quoteActionAvailability.allowed)}
                 onPress={() => handleTrade('sell')}
                 latencyLabel="symbolDetails.trade.sell"
                 latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
@@ -568,8 +604,8 @@ export function SymbolDetailsInteractiveContent({
               </View>
 
               <Pressable
-                style={[s.ticker.side, (activeSide === 'buy' || (isPending && !activeSide) || (oneClickAccepted && !quoteActionAvailability.allowed)) && { opacity: 0.5 }]}
-                disabled={isPending || (oneClickAccepted && !quoteActionAvailability.allowed)}
+                style={[s.ticker.side, (activeSide === 'buy' || (isPending && !activeSide) || (!isPublicDemoTradePrompt && oneClickAccepted && !quoteActionAvailability.allowed)) && { opacity: 0.5 }]}
+                disabled={isPending || (!isPublicDemoTradePrompt && oneClickAccepted && !quoteActionAvailability.allowed)}
                 onPress={() => handleTrade('buy')}
                 latencyLabel="symbolDetails.trade.buy"
                 latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
@@ -632,12 +668,12 @@ export function SymbolDetailsInteractiveContent({
         </View>
 
         <View style={s.act.row}>
-          <Pressable style={({ pressed }) => [s.act.btn, s.act.buyBtn, pressed && { opacity: 0.85 }]} onPress={() => { prefetchOrderTicketData(resolveTradingLoginString(), symbol); router.push({ pathname: '/trade/order-ticket', params: { symbol } }); }}>
+          <Pressable style={({ pressed }) => [s.act.btn, s.act.buyBtn, pressed && { opacity: 0.85 }]} onPress={handleTradeNow}>
             <LinearGradient colors={['#2563EB', '#1D4ED8']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFillObject} />
             <Ionicons name="flash" size={15} color="#fff" />
             <Text style={s.act.buyTxt}>{t('Trade Now')}</Text>
           </Pressable>
-          <Pressable style={({ pressed }) => [s.act.btn, s.act.chartBtn, pressed && { opacity: 0.85 }]} onPress={() => { setChartSymbol(symbol); router.push('/(tabs)/chart'); }}>
+          <Pressable style={({ pressed }) => [s.act.btn, s.act.chartBtn, pressed && { opacity: 0.85 }]} onPress={handleOpenFullChart}>
             <Ionicons name="stats-chart-outline" size={15} color={isDark ? "#94A3B8" : T.textSub} />
             <Text style={s.act.chartTxt}>{t('Full Chart')}</Text>
           </Pressable>

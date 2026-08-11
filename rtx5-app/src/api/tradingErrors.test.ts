@@ -86,6 +86,21 @@ test('classifyTradingError maps required market-order policy codes', () => {
   }
 });
 
+test('TRADE_DISABLED uses the exact demo-broker policy copy without becoming an auth error', () => {
+  const feedback = classifyTradingError(
+    createTradingApiError(403, {
+      error: 'TRADE_DISABLED',
+      message: 'backend detail',
+    }),
+    { action: 'place-order', brokerId: 'orrnn-demo' },
+  );
+
+  assert.equal(feedback.origin, 'backend');
+  assert.equal(feedback.kind, 'backend-rejection');
+  assert.equal(feedback.title, 'Order Rejected');
+  assert.equal(feedback.message, 'Trading is temporarily unavailable for this demo broker.');
+});
+
 test('classifyTradingError keeps retry-after information for rate limiting', () => {
   const feedback = classifyTradingError(
     createTradingApiError(429, { message: 'Too many requests' }, { 'retry-after': '17' }),

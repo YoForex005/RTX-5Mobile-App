@@ -2,9 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'r
 import { apiClient } from '../../api/apiClient';
 import { normalizeQuoteTickPayload } from '../../api/ws/quoteTickNormalizer';
 import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket';
+import { orrnnDemoPublicMarketSocket } from '../../api/ws/orrnnDemoPublicMarketSocket';
+import {
+  isOrrnnDemoPublicMarketSelection,
+  ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE,
+} from '../../api/orrnnDemoPublicMarket';
 import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
 import { normalizeQuoteVolume } from '../../utils/quoteVolume';
 import { useTradingState } from '../../state/tradingState';
+import { useUserPreferences } from '../../state/userPreferences';
 import {
   captureActiveBrokerSession,
   captureActiveBrokerSessionOwnerStamp,
@@ -47,18 +53,36 @@ const QUOTE_SNAPSHOT_NOTIFICATION_PAUSE_MS = 2_500;
 // broker B, so the bounded REST snapshot repair repopulates volume per session.
 const getQuoteCacheNamespace = (): string =>
   (() => {
+    const { brokerId, isLoggedIn } = useUserPreferences.getState();
+    if (isOrrnnDemoPublicMarketSelection({ brokerId, isLoggedIn })) {
+      return ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE;
+    }
     const owner = captureActiveBrokerSessionOwnerStamp();
-    return owner
-      ? [
+    if (owner) {
+      return [
           owner.cacheNamespace,
           owner.credentialGeneration,
           owner.credentialIdentity,
-        ].join(':')
-      : '';
+        ].join(':');
+    }
+    return '';
   })();
 
-const subscribeQuoteCacheNamespace = (listener: () => void): (() => void) =>
-  subscribeActiveBrokerSession(() => listener());
+const subscribeQuoteCacheNamespace = (listener: () => void): (() => void) => {
+  const unsubscribeSession = subscribeActiveBrokerSession(() => listener());
+  const unsubscribePreferences = useUserPreferences.subscribe((state, previous) => {
+    if (
+      state.isLoggedIn !== previous.isLoggedIn ||
+      state.brokerId !== previous.brokerId
+    ) {
+      listener();
+    }
+  });
+  return () => {
+    unsubscribeSession();
+    unsubscribePreferences();
+  };
+};
 
 const getQuoteCacheNamespaceSnapshot = (): string =>
   getQuoteCacheNamespace();
@@ -581,7 +605,10 @@ export function useLiveQuoteSubscription(symbol: string, active: boolean): void 
     }
 
     symbolKeys.forEach(ensureSnapshot);
-    return quotesWsService.subscribeToSymbol(symbol, (tick) => {
+    const socket = cacheNamespace === ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE
+      ? orrnnDemoPublicMarketSocket
+      : quotesWsService;
+    return socket.subscribeToSymbol(symbol, (tick) => {
       ingestLiveQuoteTick({ ...tick, transport: 'websocket' });
     });
   }, [active, cacheNamespace, symbol, symbolKeysKey]);
@@ -622,6 +649,13 @@ export function useWatchlistLiveQuotes(
       ingestLiveQuoteTick({ ...tick, transport: 'websocket' }, true);
     };
 
+    if (cacheNamespace === ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE) {
+      return orrnnDemoPublicMarketSocket.subscribeToSymbols(
+        subscriptionSymbols,
+        listener,
+      );
+    }
+
     const unsubscribers = subscriptionSymbols.map((symbol) =>
       quotesWsService.subscribeToSymbol(symbol, listener),
     );
@@ -632,7 +666,9 @@ export function useWatchlistLiveQuotes(
 
   useRestQuoteSnapshotRepair(
     normalizedSymbols,
-    options?.restFallbackActive ?? active,
+    cacheNamespace === ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE
+      ? false
+      : options?.restFallbackActive ?? active,
     cacheNamespace,
   );
 

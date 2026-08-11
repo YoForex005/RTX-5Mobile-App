@@ -54,10 +54,8 @@ test('Demo registration preserves exact backend group casing and seeds canonical
   const register = readSource('app/register.tsx');
 
   assert.match(register, /group: selectedDemoGroup\.name/);
-  assert.match(
-    register,
-    /typeof response\.group === 'string'[\s\S]*typeof response\.Group === 'string'[\s\S]*selectedDemoGroup\.name/,
-  );
+  assert.match(register, /const createdAccountGroup = response\.group/);
+  assert.doesNotMatch(register, /response\.Group/);
   assert.match(
     register,
     /resolved: 'demo',[\s\S]*source: demoRegistrationSource,[\s\S]*allowInitialFallback: true/,

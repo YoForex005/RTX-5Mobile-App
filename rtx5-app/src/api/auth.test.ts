@@ -19,6 +19,53 @@ test('loginAPI requires a broker service domain and does not use shared proxy fa
   assert.doesNotMatch(source, /server: proxyServer/);
 });
 
+test('loginAPI sends numeric demo login to the exact demobackend V2 route', async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedUrl = '';
+  let capturedBody: Record<string, unknown> = {};
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl = String(input);
+    capturedBody = JSON.parse(String(init?.body ?? '{}'));
+    return new Response(JSON.stringify({
+      access_token: 'access',
+      refresh_token: 'refresh',
+      account_login: 200107,
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await loginAPI(
+      { login: 200107, password: 'secret', broker_id: 'orrnn-demo' },
+      { serverUrl: 'https://demobackend.orrnn.com' },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(capturedUrl, 'https://demobackend.orrnn.com/api/v2/auth/login');
+  assert.deepEqual(capturedBody, {
+    login: 200107,
+    password: 'secret',
+    broker_id: 'orrnn-demo',
+  });
+  assert.equal(Object.prototype.hasOwnProperty.call(capturedBody, 'username'), false);
+});
+
+test('both account login screens send numeric login for exact orrnn-demo selection', () => {
+  const loginScreen = readSource('app/login.tsx');
+  const brokerDetail = readSource('src/features/settings/BrokerDetailScreen.tsx');
+
+  for (const source of [loginScreen, brokerDetail]) {
+    assert.match(source, /isOrrnnDemoLogin/);
+    assert.match(source, /login: Number\(numericDemoLogin\)/);
+    assert.match(source, /broker_id: ORRNN_DEMO_PUBLIC_BROKER_ID/);
+    assert.match(source, /username:/);
+  }
+});
+
 test('loginAPI surfaces caller cancellation separately from its timeout', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) =>

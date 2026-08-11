@@ -37,6 +37,11 @@ test('bottom tab press paints optimistically on press-in and delays real navigat
   assert.match(source, /const lastHandledAtMs = recentTabPresses\.get\(latencyLabel\)/);
   assert.match(source, /startedAtMs - lastHandledAtMs < TAB_PRESS_DEDUP_WINDOW_MS/);
   assert.match(source, /recentTabPresses\.set\(latencyLabel, startedAtMs\)/);
+  assert.match(
+    source,
+    /if \(routeName === 'chart'\) \{[\s\S]*prefetchChartSelectionHistory\([\s\S]*preferences\.chartSymbol,[\s\S]*preferences\.chartTimeframe,[\s\S]*\}[\s\S]*const visualRevision = showFastTabVisual\(latencyLabel\)/,
+    'an early first Chart tap must dispatch or join history before revealing the retained route',
+  );
   assert.match(source, /useUIState\.getState\(\)\.hideActionSheet\(\)/);
   assert.match(source, /const visualRevision = showFastTabVisual\(latencyLabel\)/);
   assert.match(source, /if \(visualRevision !== null\) \{[\s\S]*?scheduleFastTabNavigation\(visualRevision, \(\) => onPress\?\.\(event\), TAB_BAR_NAVIGATION_SETTLE_DELAY_MS\);\s*\} else \{\s*onPress\?\.\(event\)/);
@@ -59,6 +64,31 @@ test('bottom tab press paints optimistically on press-in and delays real navigat
   assert.match(visualControllerSource, /export const TAB_BAR_NAVIGATION_SETTLE_DELAY_MS = 0/);
   assert.match(visualControllerSource, /globalThis\.requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(runIfCurrent, settleDelayMs\);/);
   assert.match(visualControllerSource, /export function showFastTabVisual\(pathOrName: string\) \{[\s\S]*fastTabVisualController\.show\(routeName, false\)/);
+});
+
+test('logged-out chart history warms from the lightweight tabs shell', () => {
+  const tabsSource = readSource('app/(tabs)/_layout.tsx');
+  const chartSource = readSource('src/features/chart/ChartScreen.native.tsx');
+
+  assert.match(tabsSource, /const AnonymousChartHistoryStartupPrefetch = memo/);
+  assert.match(
+    tabsSource,
+    /if \(isLoggedIn \|\| !hasHydrated \|\| !normalizedSymbol \|\| !normalizedTimeframe\)/,
+  );
+  assert.match(
+    tabsSource,
+    /return scheduleIdleWork\([\s\S]*dispatchedKeyRef\.current = prefetchKey;[\s\S]*prefetchChartSelectionHistory\(normalizedSymbol, normalizedTimeframe\)/,
+    'the key must be marked only after the startup callback actually dispatches',
+  );
+  assert.match(
+    tabsSource,
+    /<ChartTradeSheetPortalProvider>[\s\S]*<AnonymousChartHistoryStartupPrefetch \/>[\s\S]*<ThemedTabsChrome/,
+  );
+  assert.match(
+    chartSource,
+    /return scheduleIdleWork\([\s\S]*startupChartPrefetchKeyRef\.current = startupPrefetchKey;[\s\S]*prefetchChartSelectionHistory\(chartSymbol, normalizedTimeframe\)/,
+    'a Chart-tree idle callback cancelled before dispatch must remain retryable',
+  );
 });
 
 test('delayed tab navigation is cancelled after its optimistic route is cleared', () => {

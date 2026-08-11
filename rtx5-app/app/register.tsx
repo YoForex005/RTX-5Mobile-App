@@ -31,16 +31,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useBrokerServers } from '../src/query/broker';
 import { invalidateSessionQueryRoots } from '../src/query/authenticatedQueryScope';
 import { useTranslation } from '../src/i18n/useTranslation';
+import { consumePendingTradeAuthIntent } from '../src/features/trade/tradeAuthGate';
 import { getConfiguredPrivacyPolicyUrl, getConfiguredTermsUrl, resolveLegalUrl } from '../src/config/legalLinks';
 import {
   ORRNN_DEMO_BROKER_ID,
   ORRNN_DEMO_INITIAL_BALANCE,
   ORRNN_DEMO_ORIGIN_BROKER,
-  ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME,
-  ORRNN_DEMO_ORIGIN_BROKER_LABEL,
-  TEST_ORRNN_DEMO_ORIGIN_BROKER,
-  TEST_ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME,
-  TEST_ORRNN_DEMO_ORIGIN_BROKER_LABEL,
   isOrrnnDemoHealthy,
   resolveOrrnnDemoBrokerAuthRoute,
 } from '../src/api/publicDemo';
@@ -86,11 +82,8 @@ type RegisterFieldKey =
   | 'lastName'
   | 'email'
   | 'phone'
-  | 'country'
   | 'password'
-  | 'investorPassword'
-  | 'initialBalance'
-  | 'originBroker';
+  | 'initialBalance';
 
 const REGISTER_FIELD_SCROLL_OFFSET_Y = Platform.OS === 'android' ? 232 : 176;
 const REGISTER_FIELD_FOCUS_DELAY_MS = Platform.OS === 'android' ? 260 : 80;
@@ -137,61 +130,9 @@ const DEMO_COUNTRY_OPTIONS = [
 const DEFAULT_DEMO_COUNTRY = DEMO_COUNTRY_OPTIONS[0];
 type DemoCountryCode = (typeof DEMO_COUNTRY_OPTIONS)[number]['code'];
 
-const DEMO_LEVERAGE_MIN = 100;
-const DEMO_LEVERAGE_MAX = 20000;
-const DEMO_LEVERAGE_STEP = 100;
-
-type DemoLeverageOption = {
-  value: number;
-  label: `1:${number}`;
-};
-
 type RegisterPickerHostKey =
-  | 'country'
   | 'phoneCountry'
-  | 'leverage'
-  | 'originBroker'
   | 'group';
-
-type DemoOriginBrokerOption = {
-  value: string;
-  label: string;
-  subtitle: string;
-};
-
-const DEMO_ORIGIN_BROKER_OPTIONS: readonly DemoOriginBrokerOption[] = [
-  {
-    value: ORRNN_DEMO_ORIGIN_BROKER,
-    label: ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME,
-    subtitle: ORRNN_DEMO_ORIGIN_BROKER_LABEL,
-  },
-  {
-    value: TEST_ORRNN_DEMO_ORIGIN_BROKER,
-    label: TEST_ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME,
-    subtitle: TEST_ORRNN_DEMO_ORIGIN_BROKER_LABEL,
-  },
-] as const;
-const DEFAULT_DEMO_ORIGIN_BROKER = DEMO_ORIGIN_BROKER_OPTIONS[0];
-
-const DEMO_LEVERAGE_OPTIONS: readonly DemoLeverageOption[] = Array.from(
-  { length: (DEMO_LEVERAGE_MAX - DEMO_LEVERAGE_MIN) / DEMO_LEVERAGE_STEP + 1 },
-  (_, index) => {
-    const value = DEMO_LEVERAGE_MIN + index * DEMO_LEVERAGE_STEP;
-    return { value, label: `1:${value}` as const };
-  },
-);
-
-const isDemoLeverageValue = (value: number | null | undefined): value is number => (
-  typeof value === 'number' &&
-  Number.isInteger(value) &&
-  value >= DEMO_LEVERAGE_MIN &&
-  value <= DEMO_LEVERAGE_MAX &&
-  value % DEMO_LEVERAGE_STEP === 0
-);
-
-const getDefaultDemoLeverage = (groupLeverage: number | null | undefined) => (
-  isDemoLeverageValue(groupLeverage) ? groupLeverage : DEMO_LEVERAGE_MIN
-);
 
 const formatDemoPhoneForSubmission = (dialCode: string, phoneNumber: string) => {
   const trimmedPhone = phoneNumber.trim();
@@ -279,28 +220,17 @@ export default function RegisterScreen() {
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [country, setCountry] = useState('United States');
-  const [countryPickerOpen, setCountryPickerOpen] = useState(false);
   const [phoneCountryCode, setPhoneCountryCode] = useState<DemoCountryCode>(DEFAULT_DEMO_COUNTRY.code);
   const [phoneCountryPickerOpen, setPhoneCountryPickerOpen] = useState(false);
-  const [selectedLeverageValue, setSelectedLeverageValue] = useState<number | null>(null);
-  const [leveragePickerOpen, setLeveragePickerOpen] = useState(false);
-  const [selectedOriginBrokerValue, setSelectedOriginBrokerValue] = useState(DEFAULT_DEMO_ORIGIN_BROKER.value);
-  const [originBrokerPickerOpen, setOriginBrokerPickerOpen] = useState(false);
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   const [password, setPassword] = useState('');
-  const [investorPassword, setInvestorPassword] = useState('');
   const [initialBalance, setInitialBalance] = useState(String(ORRNN_DEMO_INITIAL_BALANCE));
   const [mountedPickerHosts, setMountedPickerHosts] = useState<Record<RegisterPickerHostKey, boolean>>({
-    country: false,
     phoneCountry: false,
-    leverage: false,
-    originBroker: false,
     group: false,
   });
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [showInvestorPassword, setShowInvestorPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const registerSubmitInFlightRef = React.useRef(false);
   const registerMountedRef = React.useRef(true);
@@ -524,17 +454,13 @@ export default function RegisterScreen() {
     const trimmedLastName = lastName.trim();
     const trimmedEmail = email.trim();
     const trimmedPhone = phone.trim();
-    const selectedCountry = DEMO_COUNTRY_OPTIONS.find((option) => option.label === country);
     const selectedPhoneCountry =
       DEMO_COUNTRY_OPTIONS.find((option) => option.code === phoneCountryCode) ?? DEFAULT_DEMO_COUNTRY;
-    const trimmedCountry = selectedCountry?.code ?? country.trim().toUpperCase();
-    const trimmedOriginBroker = selectedOriginBrokerValue.trim();
+    const trimmedOriginBroker = ORRNN_DEMO_ORIGIN_BROKER.trim();
     const parsedInitialBalance = Number(initialBalance);
     const submissionPhone = formatDemoPhoneForSubmission(selectedPhoneCountry.dialCode, trimmedPhone);
-    const effectiveCurrency = selectedDemoGroup.currency;
-    const effectiveLeverage = selectedLeverageValue ?? getDefaultDemoLeverage(selectedDemoGroup.leverage);
 
-    if (!trimmedFirstName || !trimmedEmail || !password || !investorPassword || !trimmedCountry) {
+    if (!trimmedFirstName || !trimmedEmail || !password) {
       recordAccountJournalEvent('demo account registration blocked: required fields missing', { level: 'error' });
       Alert.alert(t('Error'), t('Please fill in all required fields'));
       return;
@@ -564,7 +490,7 @@ export default function RegisterScreen() {
       return;
     }
 
-    if (!ORRNN_DEMO_BROKER_ID) {
+    if (!ORRNN_DEMO_BROKER_ID || !trimmedOriginBroker) {
       recordAccountJournalEvent('demo account registration blocked: demo broker contract missing', { level: 'error' });
       Alert.alert(t('Error'), t('Demo account service is temporarily unavailable.'));
       return;
@@ -583,6 +509,24 @@ export default function RegisterScreen() {
       loginAbortController.signal.aborted || !registerMountedRef.current
     );
     try {
+      let demoAuthRoute = resolveOrrnnDemoBrokerAuthRoute(ORRNN_DEMO_BROKER_ID, brokerServers);
+      if (demoAuthRoute.source !== 'broker-directory') {
+        const refreshedBrokerServers = await refetchBrokerServers()
+          .then((result) => result.data ?? [])
+          .catch(() => []);
+        if (isRegisterAttemptCancelled()) return;
+        demoAuthRoute = resolveOrrnnDemoBrokerAuthRoute(
+          ORRNN_DEMO_BROKER_ID,
+          refreshedBrokerServers,
+        );
+      }
+      if (!demoAuthRoute.serverUrl || !demoAuthRoute.endpoints) {
+        throw new Error(t('The Orrnn demo broker login server is unavailable.'));
+      }
+      if (demoAuthRoute.endpoints.brokerId !== ORRNN_DEMO_BROKER_ID) {
+        throw new Error(t('The demo broker directory response did not match the configured Orrnn broker.'));
+      }
+
       let brokerConfig: any = null;
       try {
         brokerConfig = await getBrokerConfig(ORRNN_DEMO_BROKER_ID);
@@ -593,98 +537,61 @@ export default function RegisterScreen() {
 
       // INTEGRATED: Public demo registration uses
       // POST /api/v1/public/demo-account. This endpoint is intentionally
-      // unauthenticated; the backend enforces broker_id=orrnn and rejects
-      // non-demo groups, while the app supplies the API-selected demo group
-      // and user-entered account details.
+      // unauthenticated; the backend enforces broker_id=orrnn-demo while the
+      // app sends the exact API-selected group and public creation DTO.
       const response = await createDemoAccount.mutateAsync({
         group: selectedDemoGroup.name,
         email: trimmedEmail,
         master_pass: password,
-        investor_pass: investorPassword,
         first_name: trimmedFirstName,
         last_name: trimmedLastName || undefined,
         phone: submissionPhone,
-        country: trimmedCountry,
-        currency: effectiveCurrency,
-        leverage: effectiveLeverage,
         initial_balance: parsedInitialBalance,
-        origin_broker: trimmedOriginBroker || undefined,
+        origin_broker: trimmedOriginBroker,
       });
       if (isRegisterAttemptCancelled()) return;
-      const createdAccountGroup =
-        typeof response.group === 'string' && response.group.trim()
-          ? response.group
-          : typeof response.Group === 'string' && response.Group.trim()
-            ? response.Group
-            : selectedDemoGroup.name;
-      const createdAccountLogin = String(response.login ?? '').trim();
+      const createdAccountGroup = response.group;
+      const createdAccountLogin = String(response.login).trim();
       if (!createdAccountLogin) {
         throw new Error(t('Demo account was created, but the account login was not returned.'));
       }
 
-      // Use the broker_id from the API response as canonical
-      const canonicalBrokerId = response.broker_id || ORRNN_DEMO_BROKER_ID;
-      let demoAuthRoute = resolveOrrnnDemoBrokerAuthRoute(canonicalBrokerId, brokerServers);
-      if (demoAuthRoute.source !== 'broker-directory') {
-        const refreshedBrokerServers = await refetchBrokerServers()
-          .then((result) => result.data ?? [])
-          .catch(() => []);
-        if (isRegisterAttemptCancelled()) return;
-        const refreshedDemoAuthRoute = resolveOrrnnDemoBrokerAuthRoute(canonicalBrokerId, refreshedBrokerServers);
-        if (refreshedDemoAuthRoute.source === 'broker-directory' || !demoAuthRoute.serverUrl) {
-          demoAuthRoute = refreshedDemoAuthRoute;
-        }
-      }
-      if (!demoAuthRoute.serverUrl || !demoAuthRoute.endpoints) {
-        throw new Error(t('Demo account was created, but the Orrnn broker login server was not found.'));
-      }
-      if (demoAuthRoute.endpoints.brokerId.toLowerCase() !== canonicalBrokerId.toLowerCase()) {
+      const canonicalBrokerId = response.broker_id;
+      if (canonicalBrokerId !== ORRNN_DEMO_BROKER_ID) {
         throw new Error(t('Demo account response did not match the configured Orrnn broker.'));
       }
 
       const accountName = `${trimmedFirstName} ${trimmedLastName}`.trim();
-      let sessionLogin = createdAccountLogin;
-      let sessionToken = response.api_key ?? '';
-      let sessionRefreshToken = '';
+      const authResponse: any = await loginAPI({
+        login: response.login,
+        password,
+        broker_id: canonicalBrokerId,
+      }, {
+        serverUrl: demoAuthRoute.serverUrl,
+        signal: loginAbortController.signal,
+      });
+      if (isRegisterAttemptCancelled()) return;
+      const sessionToken = authResponse.access_token ?? authResponse.token ?? '';
+      const sessionRefreshToken = authResponse.refresh_token ?? authResponse.refreshToken ?? '';
+      const sessionFeedToken = extractFeedBrokerToken(authResponse);
+      const feedAuthContractSource: unknown = authResponse;
+      const authenticatedAccountLogin = String(
+        authResponse.account_login ??
+        authResponse.accountLogin ??
+        authResponse.user?.account_login ??
+        createdAccountLogin,
+      ).trim();
+      if (authenticatedAccountLogin !== createdAccountLogin) {
+        throw new Error(t('Demo account login did not match the newly created account.'));
+      }
+      const sessionLogin = authenticatedAccountLogin;
       let sessionExpiresAt = new Date(Date.now() + 86400 * 1000).toISOString();
-      let sessionFeedToken = extractFeedBrokerToken(response);
-      let feedAuthContractSource: unknown = response;
-
-      if (!sessionToken) {
-        // The documented public endpoint returns `api_key`, but current live
-        // deployments can return only the created login/account fields. In
-        // that case the created demo account is still valid, so immediately
-        // authenticate it through the existing V2 login endpoint using the
-        // master password the user just supplied.
-        const authResponse: any = await loginAPI({
-          username: createdAccountLogin,
-          password,
-          broker_id: canonicalBrokerId,
-        }, {
-          serverUrl: demoAuthRoute.serverUrl,
-          signal: loginAbortController.signal,
-        });
-        sessionToken = authResponse.access_token ?? authResponse.token ?? '';
-        sessionRefreshToken = authResponse.refresh_token ?? authResponse.refreshToken ?? '';
-        sessionFeedToken = extractFeedBrokerToken(authResponse) || sessionFeedToken;
-        feedAuthContractSource = authResponse;
-        const authenticatedAccountLogin = String(
-          authResponse.account_login ??
-          authResponse.accountLogin ??
-          authResponse.user?.account_login ??
-          createdAccountLogin,
-        ).trim();
-        if (authenticatedAccountLogin !== createdAccountLogin) {
-          throw new Error(t('Demo account login did not match the newly created account.'));
-        }
-        sessionLogin = authenticatedAccountLogin;
-        if (typeof authResponse.expires_at === 'number' && authResponse.expires_at > 0) {
-          const ms = authResponse.expires_at > 1e12 ? authResponse.expires_at : authResponse.expires_at * 1000;
-          sessionExpiresAt = new Date(ms).toISOString();
-        } else {
-          const expiresInSec = typeof authResponse.expires_in === 'number' ? authResponse.expires_in : 86400;
-          sessionExpiresAt = new Date(Date.now() + expiresInSec * 1000).toISOString();
-        }
+      if (typeof authResponse.expires_at === 'number' && authResponse.expires_at > 0) {
+        const ms = authResponse.expires_at > 1e12 ? authResponse.expires_at : authResponse.expires_at * 1000;
+        sessionExpiresAt = new Date(ms).toISOString();
+      } else {
+        const expiresInSec = typeof authResponse.expires_in === 'number' ? authResponse.expires_in : 86400;
+        sessionExpiresAt = new Date(Date.now() + expiresInSec * 1000).toISOString();
       }
 
       if (!sessionToken) {
@@ -762,7 +669,28 @@ export default function RegisterScreen() {
         ['accountsList', 'accountDetail', 'brokerConfig'],
       );
 
-      safeRouterBack(router, '/');
+      const pendingTradeIntent = consumePendingTradeAuthIntent();
+      if (
+        pendingTradeIntent?.symbol &&
+        (
+          pendingTradeIntent.kind === 'order-ticket' ||
+          pendingTradeIntent.kind === 'market-order' ||
+          pendingTradeIntent.kind === 'pending-order'
+        )
+      ) {
+        router.replace({
+          pathname: '/trade/order-ticket',
+          params: {
+            symbol: pendingTradeIntent.symbol,
+            ...(pendingTradeIntent.side ? { side: pendingTradeIntent.side } : {}),
+            ...(pendingTradeIntent.origin ? { origin: pendingTradeIntent.origin } : {}),
+          },
+        });
+      } else if (pendingTradeIntent) {
+        router.replace('/(tabs)/trade');
+      } else {
+        safeRouterBack(router, '/');
+      }
     } catch (error: any) {
       if (
         !registerMountedRef.current ||
@@ -814,30 +742,14 @@ export default function RegisterScreen() {
         ? '#F59E0B'
         : '#EF4444';
   const selectedCurrency = selectedDemoGroup?.currency || 'USD';
-  const selectedLeverage = selectedLeverageValue ?? getDefaultDemoLeverage(selectedDemoGroup?.leverage);
+  const selectedLeverage = selectedDemoGroup?.leverage;
   const selectedPhoneCountry =
     DEMO_COUNTRY_OPTIONS.find((option) => option.code === phoneCountryCode) ?? DEFAULT_DEMO_COUNTRY;
-  const selectedOriginBroker =
-    DEMO_ORIGIN_BROKER_OPTIONS.find((option) => option.value === selectedOriginBrokerValue) ??
-    DEFAULT_DEMO_ORIGIN_BROKER;
-  const originBrokerDisplayValue = selectedOriginBroker.label;
   const mountPickerHost = React.useCallback((key: RegisterPickerHostKey) => {
     setMountedPickerHosts((current) => (
       current[key] ? current : { ...current, [key]: true }
     ));
   }, []);
-  const countryPickerMounted = mountedPickerHosts.country || countryPickerOpen;
-  const countryPickerActions = React.useMemo(
-    () => countryPickerMounted ? DEMO_COUNTRY_OPTIONS.map((option) => ({
-      label: t(option.label),
-      subtitle: `${option.code} ${option.dialCode}`,
-      onPress: () => {
-        setCountry(option.label);
-        setPhoneCountryCode(option.code);
-      },
-    })) : [],
-    [countryPickerMounted, t],
-  );
   const phoneCountryPickerMounted = mountedPickerHosts.phoneCountry || phoneCountryPickerOpen;
   const phoneCountryPickerActions = React.useMemo(
     () => phoneCountryPickerMounted ? DEMO_COUNTRY_OPTIONS.map((option) => ({
@@ -847,16 +759,6 @@ export default function RegisterScreen() {
     })) : [],
     [phoneCountryPickerMounted, t],
   );
-  const handleOpenCountryPicker = React.useCallback(() => {
-    if (isRegisterInitialPickerPressBlocked()) {
-      return;
-    }
-
-    Keyboard.dismiss();
-    handleFieldFocus('country');
-    mountPickerHost('country');
-    setCountryPickerOpen(true);
-  }, [handleFieldFocus, isRegisterInitialPickerPressBlocked, mountPickerHost]);
   const handleOpenPhoneCountryPicker = React.useCallback(() => {
     if (isRegisterInitialPickerPressBlocked()) {
       return;
@@ -867,56 +769,15 @@ export default function RegisterScreen() {
     mountPickerHost('phoneCountry');
     setPhoneCountryPickerOpen(true);
   }, [handleFieldFocus, isRegisterInitialPickerPressBlocked, mountPickerHost]);
-  const leveragePickerMounted = mountedPickerHosts.leverage || leveragePickerOpen;
-  const leveragePickerActions = React.useMemo(
-    () => leveragePickerMounted ? DEMO_LEVERAGE_OPTIONS.map((option) => ({
-      label: option.label,
-      subtitle: option.value === selectedDemoGroup?.leverage ? t('Group default') : undefined,
-      onPress: () => setSelectedLeverageValue(option.value),
-    })) : [],
-    [leveragePickerMounted, selectedDemoGroup?.leverage, t],
-  );
-  const originBrokerPickerMounted = mountedPickerHosts.originBroker || originBrokerPickerOpen;
-  const originBrokerPickerActions = React.useMemo(
-    () => originBrokerPickerMounted ? DEMO_ORIGIN_BROKER_OPTIONS.map((option) => ({
-      label: t(option.label),
-      subtitle: t(option.subtitle),
-      selected: option.value === selectedOriginBroker.value,
-      onPress: () => setSelectedOriginBrokerValue(option.value),
-    })) : [],
-    [originBrokerPickerMounted, selectedOriginBroker.value, t],
-  );
   const groupPickerMounted = mountedPickerHosts.group || groupPickerOpen;
   const groupPickerActions = React.useMemo(
     () => groupPickerMounted ? demoGroupOptions.map((group) => ({
       label: group.name,
       subtitle: `${group.currency} / 1:${group.leverage}`,
-      onPress: () => {
-        setSelectedGroupName(group.name);
-        setSelectedLeverageValue(getDefaultDemoLeverage(group.leverage));
-      },
+      onPress: () => setSelectedGroupName(group.name),
     })) : [],
     [demoGroupOptions, groupPickerMounted],
   );
-  const handleOpenLeveragePicker = React.useCallback(() => {
-    if (isRegisterInitialPickerPressBlocked()) {
-      return;
-    }
-
-    Keyboard.dismiss();
-    mountPickerHost('leverage');
-    setLeveragePickerOpen(true);
-  }, [isRegisterInitialPickerPressBlocked, mountPickerHost]);
-  const handleOpenOriginBrokerPicker = React.useCallback(() => {
-    if (isRegisterInitialPickerPressBlocked()) {
-      return;
-    }
-
-    Keyboard.dismiss();
-    handleFieldFocus('originBroker');
-    mountPickerHost('originBroker');
-    setOriginBrokerPickerOpen(true);
-  }, [handleFieldFocus, isRegisterInitialPickerPressBlocked, mountPickerHost]);
   const handleOpenGroupPicker = React.useCallback(() => {
     if (isRegisterInitialPickerPressBlocked()) {
       return;
@@ -1108,28 +969,6 @@ export default function RegisterScreen() {
                 </View>
               </View>
 
-              <View style={styles.inputRow} onLayout={handleFieldLayout('country')}>
-                <Text style={styles.inputLabel}>{t('Country')}</Text>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.inputShell,
-                    pressed && styles.inputShellPressed,
-                  ]}
-                  onPress={handleOpenCountryPicker}
-                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                  latencyLabel="register.country.open"
-                  accessibilityRole="button"
-                  accessibilityLabel={t('Country')}
-                  accessibilityState={{ expanded: countryPickerOpen }}
-                >
-                  <Ionicons name="earth-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
-                  <Text style={styles.selectValue} numberOfLines={1}>
-                    {t(country)}
-                  </Text>
-                  <Ionicons name="chevron-down" size={20} color={fieldIconColor} />
-                </Pressable>
-              </View>
-
               <View style={styles.inputRow} onLayout={handleFieldLayout('password')}>
                 <Text style={styles.inputLabel}>{t('Master password')}</Text>
                 <View style={styles.inputShell}>
@@ -1171,33 +1010,6 @@ export default function RegisterScreen() {
                 </Text>
               </View>
 
-              <View style={styles.inputRow} onLayout={handleFieldLayout('investorPassword')}>
-                <Text style={styles.inputLabel}>{t('Investor password')}</Text>
-                <View style={styles.inputShell}>
-                  <Ionicons name="lock-closed-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
-                  <TextInput
-                    style={[styles.input, { outlineStyle: 'none', outlineWidth: 0 }] as any}
-                    value={investorPassword}
-                    onChangeText={setInvestorPassword}
-                    onFocus={() => handleFieldFocus('investorPassword')}
-                    autoCapitalize="none"
-                    secureTextEntry={!showInvestorPassword}
-                    selectionColor={fieldAccentColor}
-                    cursorColor={fieldAccentColor}
-                    underlineColorAndroid="transparent"
-                    importantForAutofill={"no" as any}
-                    autoComplete="off"
-                    textContentType="none"
-                    spellCheck={false}
-                    autoCorrect={false}
-                    disableFullscreenUI={true}
-                  />
-                  <Pressable onPress={() => setShowInvestorPassword(!showInvestorPassword)} hitSlop={15} style={styles.eyeIconBtn}>
-                    <Ionicons name={showInvestorPassword ? "eye-off-outline" : "eye-outline"} size={21} color={fieldIconColor} />
-                  </Pressable>
-                </View>
-              </View>
-
               <View style={styles.twoColumnRow}>
                 <View style={styles.twoColumnCell}>
                   <Text style={styles.inputLabel}>{t('Currency')}</Text>
@@ -1209,24 +1021,12 @@ export default function RegisterScreen() {
 
                 <View style={styles.twoColumnCell}>
                   <Text style={styles.inputLabel}>{t('Leverage')}</Text>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.inputShell,
-                      pressed && styles.inputShellPressed,
-                    ]}
-                    onPress={handleOpenLeveragePicker}
-                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                    latencyLabel="register.leverage.open"
-                    accessibilityRole="button"
-                    accessibilityLabel={t('Leverage')}
-                    accessibilityState={{ expanded: leveragePickerOpen }}
-                  >
+                  <View style={styles.inputShell}>
                     <Ionicons name="speedometer-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
                     <Text style={styles.selectValue} numberOfLines={1}>
                       {selectedLeverage ? `1:${selectedLeverage}` : '--'}
                     </Text>
-                    <Ionicons name="chevron-down" size={20} color={fieldIconColor} />
-                  </Pressable>
+                  </View>
                 </View>
               </View>
 
@@ -1253,31 +1053,14 @@ export default function RegisterScreen() {
                 </View>
               </View>
 
-              <View style={styles.inputRow} onLayout={handleFieldLayout('originBroker')}>
+              <View style={styles.inputRow}>
                 <Text style={styles.inputLabel}>{t('Origin broker')}</Text>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.inputShell,
-                    pressed && styles.inputShellPressed,
-                  ]}
-                  onPress={handleOpenOriginBrokerPicker}
-                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                  latencyLabel="register.originBroker.open"
-                  accessibilityRole="button"
-                  accessibilityLabel={t('Origin broker')}
-                  accessibilityState={{ expanded: originBrokerPickerOpen }}
-                >
+                <View style={styles.inputShell}>
                   <Ionicons name="business-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
-                  <View style={styles.originBrokerValueStack}>
-                    <Text style={styles.originBrokerPrimaryValue} numberOfLines={1}>
-                      {t(originBrokerDisplayValue)}
-                    </Text>
-                    <Text style={styles.originBrokerSecondaryValue} numberOfLines={1}>
-                      {t(selectedOriginBroker.subtitle)}
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-down" size={20} color={fieldIconColor} />
-                </Pressable>
+                  <Text style={styles.selectValue} numberOfLines={1}>
+                    {ORRNN_DEMO_ORIGIN_BROKER || t('Not configured')}
+                  </Text>
+                </View>
               </View>
 
               <View style={styles.inputRow}>
@@ -1363,20 +1146,6 @@ export default function RegisterScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
 
-        {countryPickerMounted ? (
-          <ActionSheet
-            visible={countryPickerOpen}
-            title={t('Country')}
-            actions={countryPickerActions}
-            onClose={() => setCountryPickerOpen(false)}
-            searchable
-            searchPlaceholder={t('Search countries...')}
-            detent="large"
-            instantOpen
-            runActionAfterClose={false}
-            androidKeyboardAvoidance="resize"
-          />
-        ) : null}
         {phoneCountryPickerMounted ? (
           <ActionSheet
             visible={phoneCountryPickerOpen}
@@ -1389,31 +1158,6 @@ export default function RegisterScreen() {
             instantOpen
             runActionAfterClose={false}
             androidKeyboardAvoidance="resize"
-          />
-        ) : null}
-        {leveragePickerMounted ? (
-          <ActionSheet
-            visible={leveragePickerOpen}
-            title={t('Leverage')}
-            actions={leveragePickerActions}
-            onClose={() => setLeveragePickerOpen(false)}
-            searchable
-            searchPlaceholder={t('Search leverage...')}
-            detent="large"
-            instantOpen
-            runActionAfterClose={false}
-            androidKeyboardAvoidance="resize"
-          />
-        ) : null}
-        {originBrokerPickerMounted ? (
-          <ActionSheet
-            visible={originBrokerPickerOpen}
-            title={t('Origin broker')}
-            actions={originBrokerPickerActions}
-            onClose={() => setOriginBrokerPickerOpen(false)}
-            detent="auto"
-            instantOpen
-            runActionAfterClose={false}
           />
         ) : null}
         {groupPickerMounted ? (

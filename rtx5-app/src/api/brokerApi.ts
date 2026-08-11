@@ -644,7 +644,8 @@ export class BrokerAPI {
     };
     if (!credentials.refreshToken) {
       recordRefreshOutcome('missing_refresh_credential');
-      throw new Error('No refresh token available.');
+      await this.invalidateAuthSession(identity);
+      throw new Error(AUTH_SESSION_EXPIRED_MESSAGE);
     }
 
     const request = this.createInFlightRequest(capture);

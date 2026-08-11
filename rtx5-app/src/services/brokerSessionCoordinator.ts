@@ -14,6 +14,7 @@ import { resetBrokerSymbolResolverCache } from '../api/orders/symbolResolver';
 import { resetAcceptedMarketOrderSymbolCache } from '../api/orders/placeMarketOrder';
 import { resetAcceptedPendingOrderSymbolCache } from '../api/orders/placePendingOrder';
 import { BROKER_SERVERS_KEY } from '../query/broker';
+import { ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE } from '../config/orrnnDemoPublicMarket';
 import {
   activateBrokerSession,
   beginActiveBrokerSessionTransition,
@@ -235,13 +236,18 @@ export const teardownBrokerSessionRuntime = async (): Promise<void> => {
   resetAcceptedPendingOrderSymbolCache();
   resetPersistedCandleCacheSession();
   useLiveAccountState.getState().resetMetrics();
-  await appQueryClient.cancelQueries();
-  // The public broker directory is not session-scoped. Keep it cached so the
-  // login screen matches the saved broker instantly after logout instead of
-  // re-paying the full /broker/servers fetch ("Please wait while the broker
-  // list loads."). Every other query is session data and still gets wiped.
+  const isSessionIndependentQuery = (queryKey: readonly unknown[]) =>
+    queryKey[0] === BROKER_SERVERS_KEY
+    || queryKey.includes(ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE);
+  await appQueryClient.cancelQueries({
+    predicate: (query) => !isSessionIndependentQuery(query.queryKey),
+  });
+  // The broker directory and tokenless public-market data are not account-
+  // scoped. Preserve them across startup's fail-closed session teardown so a
+  // logged-out Quotes/Chart warm-up cannot be cancelled or erased after its
+  // request has already started. Every authenticated query is still wiped.
   appQueryClient.removeQueries({
-    predicate: (query) => query.queryKey[0] !== BROKER_SERVERS_KEY,
+    predicate: (query) => !isSessionIndependentQuery(query.queryKey),
   });
   appQueryClient.getMutationCache().clear();
 };

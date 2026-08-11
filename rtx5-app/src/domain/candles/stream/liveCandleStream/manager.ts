@@ -712,6 +712,18 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     }
 
     const flushPendingEvents = () => {
+      if (entry.flushFrame !== null) {
+        try {
+          if (typeof globalThis.cancelAnimationFrame === 'function') {
+            globalThis.cancelAnimationFrame(entry.flushFrame);
+          }
+        } catch (_error) {
+          // The frame may already be executing.
+        }
+      }
+      if (entry.flushTimer) {
+        clearTimeout(entry.flushTimer);
+      }
       entry.flushFrame = null;
       entry.flushTimer = null;
       const live = this.entries.get(entry.key);
@@ -728,14 +740,17 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       }
     };
 
-    if (typeof globalThis.requestAnimationFrame === 'function') {
-      // Paint the latest quote-fed candle on the next frame, same as the fast
-      // bid/ask UI, while still merging multiple ticks into one chart update.
-      entry.flushFrame = globalThis.requestAnimationFrame(flushPendingEvents);
-      return;
-    }
-
+    // Paint on the next frame while merging bursts, but arm a simultaneous
+    // timeout. Android can indefinitely defer a retained/hidden surface rAF;
+    // whichever callback wins cancels the other and clears both handles.
     entry.flushTimer = setTimeout(flushPendingEvents, FLUSH_INTERVAL_MS);
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      try {
+        entry.flushFrame = globalThis.requestAnimationFrame(flushPendingEvents);
+      } catch (_error) {
+        entry.flushFrame = null;
+      }
+    }
   }
 
   private applyQuoteTickExtension(

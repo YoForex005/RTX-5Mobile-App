@@ -146,28 +146,28 @@ test('stranded gesture flags cannot permanently freeze or hide trade markers', (
   );
 });
 
-test('same-context background history refresh preserves a user-owned vertical pan', () => {
+test('history refresh and context replacement preserve a user-owned vertical pan', () => {
   const updateBody = extractFunctionBody(source, 'updateChartData');
 
   assertSourceContains(
     updateBody,
-    /var previousDataContextSig = lastInitDataContextSig/,
-    'update must capture the previous data context before overwriting it',
+    /var manualRangeBeforeUpdate = isManualVerticalPanRangeLocked\(\)[\s\S]*normalizePriceRange\(manualVerticalPanLockedRange\)[\s\S]*var shouldPreserveManualPriceScale = isValidPriceRange\(manualRangeBeforeUpdate\)/,
+    'update must capture the user-owned numeric range before setData',
   );
   assertSourceContains(
     updateBody,
-    /paintedDataContextSig === previousDataContextSig &&\s*isManualVerticalPanRangeLocked\(\)/,
-    'a same symbol+timeframe refresh must not reset a locked manual vertical pan',
+    /This ownership also crosses symbol\/timeframe contexts/,
+    'manual price-scale ownership must survive a selected chart context change',
   );
   assertSourceContains(
     updateBody,
-    /didReplaceVisibleSeries = false;\s*suppressedManualPanReset = true;/,
-    'suppression must downgrade the replacement to a stable update',
+    /!shouldPreserveManualPriceScale &&[\s\S]*\(previousRawSeriesData\.length === 0 \|\| didReplaceVisibleSeries\)/,
+    'fresh-series autoscale must stay disabled while the user owns the range',
   );
   assertSourceContains(
     updateBody,
-    /if \(suppressedManualPanReset\) \{[\s\S]{0,300}applyManualVerticalPanLockedRange\(\);/,
-    'suppression must reassert the user\'s locked price range after setData',
+    /if \(shouldPreserveManualPriceScale\) \{[\s\S]{0,300}rememberManualVerticalPanRange\(manualRangeBeforeUpdate\);[\s\S]{0,200}applyManualVerticalPanLockedRange\(\);/,
+    'replacement must restore and reassert the locked numeric range after overlays rebuild',
   );
 });
 

@@ -123,3 +123,19 @@ export const hasFreshSustainedQuoteLiveProof = (
   Number.isFinite(now) &&
   now >= state.lastQualifyingTickAt &&
   now - state.lastQualifyingTickAt <= staleAfterMs;
+
+/**
+ * Public demo quotes are display-only and already passed the strict frame
+ * validator above. One fresh accepted WebSocket tick is sufficient to show
+ * anonymous users that prices are live; authenticated execution health keeps
+ * the stronger sustained three-second proof.
+ */
+export const hasFreshAcceptedQuoteLiveProof = (
+  state: QuoteLiveProofState,
+  now: number,
+  staleAfterMs: number,
+): boolean =>
+  state.qualifyingTickCount > 0 &&
+  Number.isFinite(now) &&
+  now >= state.lastQualifyingTickAt &&
+  now - state.lastQualifyingTickAt <= staleAfterMs;

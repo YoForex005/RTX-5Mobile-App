@@ -872,18 +872,15 @@ test('overlay bridge: trade overlays stay out of price-scale autoscale', () => {
     /var candleSpan = getPriceRangeSpan\(candleDataRange\)[\s\S]*scaleSpan > candleSpan \* PRICE_SCALE_CANDLE_COMPRESSION_SPAN_MULTIPLE[\s\S]*candleScaleTooWide/,
     'price-scale health recovery must reset a wide axis when candle bodies are visibly compressed by far XAUUSD levels',
   );
-  const manualPanResetBody = source.match(
-    /function shouldResetManualVerticalPanForHealth\(reason\) \{[\s\S]*?\n      \}/,
-  )?.[0] ?? '';
-  assertSourceContains(
-    manualPanResetBody,
-    /reason === 'update_data_replace_series'[\s\S]*reason === 'recover_data'[\s\S]*reason === 'recover_surface'/,
-    'series replacement and surface recovery may clear a manual vertical pan range',
-  );
   assert.doesNotMatch(
-    manualPanResetBody,
-    /overlay_update|overlay_resync/,
-    'live overlay updates must NOT clear a user-owned vertical pan range (they fire on every tick and would snap the pan back ~1s after finger-up)',
+    source,
+    /function shouldResetManualVerticalPanForHealth/,
+    'no health or context reason may reclaim a user-owned MT5-style price window',
+  );
+  assertSourceContains(
+    healthBody,
+    /void allowManualReset[\s\S]*verticalPricePanGestureActive \|\|[\s\S]*isManualVerticalPanRangePreserved\(\) \|\|[\s\S]*isManualVerticalPanRangeLocked\(\) \|\|[\s\S]*manualPriceScaleRangeActive[\s\S]*return;/,
+    'price-scale health recovery must return before fitting candles whenever manual ownership is active',
   );
   assertSourceContains(
     setOverlayBody,

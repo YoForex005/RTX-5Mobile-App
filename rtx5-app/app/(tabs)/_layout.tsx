@@ -31,6 +31,11 @@ import {
 } from '../../src/features/trade/tradePositionActionHostController';
 import { OrderTicketLaunchHost } from '../../src/features/trade/OrderTicketLaunchHost';
 import { TradeTabFloatingPnl } from '../../src/features/trade/TradeTabFloatingPnl';
+import { QuotesSymbolActionSheetHost } from '../../src/features/quotes/QuotesSymbolActionSheet';
+import { requestOrrnnDemoTradeAuth } from '../../src/features/trade/tradeAuthPrompt';
+import { useUserPreferences } from '../../src/state/userPreferences';
+import { prefetchChartSelectionHistory } from '../../src/utils/navigationPrefetch';
+import { scheduleIdleWork } from '../../src/utils/startupScheduler';
 import {
   ChartTradeFeedbackPortalHost,
   ChartTradeSheetPortalHost,
@@ -67,6 +72,8 @@ const STALE_TAB_SWITCH_SAMPLE_MS = 5000;
 // short enough that a deliberate return tap (A -> B -> A) is never swallowed.
 // 1500ms silently dropped rapid back-and-forth switches on the bottom menu.
 const TAB_PRESS_DEDUP_WINDOW_MS = 350;
+const PUBLIC_CHART_HISTORY_STARTUP_PREFETCH_DELAY_MS = 500;
+const PUBLIC_CHART_HISTORY_STARTUP_PREFETCH_TIMEOUT_MS = 1500;
 const recentTabPresses = new Map<string, number>();
 type TabPressEvent = Parameters<NonNullable<BottomTabBarButtonProps['onPress']>>[0];
 type TabPressInEvent = Parameters<NonNullable<BottomTabBarButtonProps['onPressIn']>>[0];
@@ -264,6 +271,21 @@ const FastTabBarButton = memo(function FastTabBarButton({
       return;
     }
     recentTabPresses.set(latencyLabel, startedAtMs);
+    if (
+      routeName === 'trade'
+      && requestOrrnnDemoTradeAuth({ kind: 'trade-tab' })
+    ) {
+      return;
+    }
+    if (routeName === 'chart') {
+      const preferences = useUserPreferences.getState();
+      // Dispatch before the retained Chart route is revealed. This joins the
+      // idle startup request when present and covers a very early first tap.
+      void prefetchChartSelectionHistory(
+        preferences.chartSymbol,
+        preferences.chartTimeframe,
+      );
+    }
     useUIState.getState().hideActionSheet();
     // Step 1: show the already-mounted screen immediately.
     const visualRevision = showFastTabVisual(latencyLabel);
@@ -276,7 +298,7 @@ const FastTabBarButton = memo(function FastTabBarButton({
       onPress?.(event);
     }
     scheduleTabSwitchBudgetCheck(latencyLabel, startedAtMs, getNow());
-  }, [latencyLabel, onPress]);
+  }, [latencyLabel, onPress, routeName]);
 
   const handleTouchStart = useCallback((_event: TabTouchEvent) => {
     handledOnPressInRef.current = false;
@@ -380,6 +402,50 @@ const GlobalActionSheetHost = memo(function GlobalActionSheetHost() {
       keepFullHeightOnKeyboard={activeConfig?.keepFullHeightOnKeyboard}
     />
   );
+});
+
+/**
+ * Starts the logged-out Chart baseline from the lightweight tabs shell.
+ *
+ * Keeping this outside the retained Chart tree means its network dispatch is
+ * not delayed by that screen's large initial render. It also survives Chart
+ * surface lifecycle changes while Quotes remains visible. QueryClient owns
+ * deduplication, so a very early Chart press safely joins this same request.
+ */
+const AnonymousChartHistoryStartupPrefetch = memo(function AnonymousChartHistoryStartupPrefetch() {
+  const hasHydrated = useUserPreferences((state) => state.hasHydrated);
+  const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
+  const chartSymbol = useUserPreferences((state) => state.chartSymbol);
+  const chartTimeframe = useUserPreferences((state) => state.chartTimeframe);
+  const dispatchedKeyRef = useRef('');
+
+  useEffect(() => {
+    const normalizedSymbol = chartSymbol.trim().toUpperCase();
+    const normalizedTimeframe = chartTimeframe.trim().toUpperCase();
+    if (isLoggedIn || !hasHydrated || !normalizedSymbol || !normalizedTimeframe) {
+      return undefined;
+    }
+
+    const prefetchKey = `${normalizedSymbol}:${normalizedTimeframe}`;
+    if (dispatchedKeyRef.current === prefetchKey) {
+      return undefined;
+    }
+
+    return scheduleIdleWork(
+      () => {
+        // Mark the key only when work really starts. If an intervening state
+        // change cancels the idle callback, the next effect can reschedule it.
+        dispatchedKeyRef.current = prefetchKey;
+        void prefetchChartSelectionHistory(normalizedSymbol, normalizedTimeframe);
+      },
+      {
+        delayMs: PUBLIC_CHART_HISTORY_STARTUP_PREFETCH_DELAY_MS,
+        timeoutMs: PUBLIC_CHART_HISTORY_STARTUP_PREFETCH_TIMEOUT_MS,
+      },
+    );
+  }, [chartSymbol, chartTimeframe, hasHydrated, isLoggedIn]);
+
+  return null;
 });
 
 function SidebarTabNavigationRegistrar({
@@ -587,12 +653,14 @@ const TabsLayoutInner = memo(function TabsLayoutInner({
   return (
     <View style={styles.root}>
       <ChartTradeSheetPortalProvider>
+        <AnonymousChartHistoryStartupPrefetch />
         <ThemedTabsChrome isChartTab={isChartTab} />
         <ChartTradeSheetPortalHost />
         {/* Trade receipts / result dialogs stack above the sheet entry. */}
         <ChartTradeFeedbackPortalHost />
         <OrderTicketLaunchHost />
         <GlobalActionSheetHost />
+        <QuotesSymbolActionSheetHost />
       </ChartTradeSheetPortalProvider>
     </View>
   );

@@ -120,13 +120,13 @@ test('ChartScreen reserves React series commits for full reloads and uses the di
   );
   assertSourceContains(
     source,
-    /const canonicalCandles = readRenderableCanonicalCandles\(\);[\s\S]*const renderableCandles = canonicalCandles\.length > 0 \? canonicalCandles : sanitizedCandles/,
-    'full reload mode must prefer the current canonical engine series and use sanitized React data only as a bootstrap fallback',
+    /const canonicalCandles = readRenderableCanonicalCandles\(\);[\s\S]*const baseRenderableCandles = canonicalCandles\.length > 0 \? canonicalCandles : sanitizedCandles[\s\S]*const replacementProjection = projectChartLiveTickCandles\([\s\S]*const renderableCandles = replacementProjection\.candles/,
+    'full reload mode must prefer canonical data, use React data only as a bootstrap fallback, and preserve the newer projected Bid candle',
   );
   assertSourceContains(
     source,
-    /const paintCanonicalLiveTick = \(allowUnchangedSnapshot = false\) => \{[\s\S]*const canonicalCandles = readRenderableCanonicalCandles\(\)[\s\S]*updateLiveTick\([\s\S]*paintCanonicalLiveTick\(true\);[\s\S]*liveCandlesEngine\.subscribe\(\s*chartSymbol,\s*chartTimeframe,\s*paintCanonicalLiveTick/,
-    'resume and steady live paints must bypass the 400 ms React commit and enter the atomic WebView bridge directly',
+    /const paintCanonicalLiveTick = \(allowUnchangedSnapshot = false\) => \{[\s\S]*const canonicalCandles = readRenderableCanonicalCandles\(\)[\s\S]*projectChartLiveTickCandles\([\s\S]*updateLiveTick\([\s\S]*const scheduleCanonicalLivePaint =[\s\S]*flushCanonicalLivePaint\(\);[\s\S]*liveCandlesEngine\.subscribe\(\s*chartSymbol,\s*chartTimeframe,\s*scheduleCanonicalLivePaint/,
+    'resume and steady live paints must bypass the 400 ms React commit while sharing the projected atomic WebView path',
   );
 });
 
@@ -168,6 +168,11 @@ test('display precision updates on the existing WebView chart surface', () => {
     'main series precision must update without recreating the chart',
   );
   assertSourceContains(
+    setDisplayDecimalsBody,
+    /isManualVerticalPanRangeLocked\(\)[\s\S]*applyManualVerticalPanLockedRange\(\)/,
+    'symbol precision changes must reassert the same manually owned numeric window',
+  );
+  assertSourceContains(
     source,
     /window\.setDisplayDecimals = setDisplayDecimals/,
     'setDisplayDecimals must be exposed on the WebView bridge',
@@ -188,9 +193,10 @@ test('WebView full data reload restores overlays and market price lines after se
   assertSourceContains(body, /!restoredPrependedViewport &&[\s\S]*!resetVisibleRange &&[\s\S]*preserveVisibleLogicalSpan/, 'an explicit session reset must not preserve the removed tail logical span');
   assertSourceContains(body, /resetVisibleRange \|\| shouldResetViewportForSeriesReplacement\(previousRawSeriesData, lastRawSeriesData\)/, 'symbol/timeframe replacement reloads must force a fresh viewport even when timestamps match');
   assertSourceContains(source, /function resetVisiblePriceScaleForStableReplacement\(reason\)[\s\S]*clearFreshSeriesVerticalCenterState\(\)[\s\S]*enableRightPriceAutoScale\(\)/, 'stable replacement reset must avoid delayed fresh-series recenter work');
-  assertSourceContains(body, /if \(restoredStableReplacementViewport\) \{[\s\S]*resetVisiblePriceScaleForStableReplacement\(priceScaleReason\)[\s\S]*\} else \{[\s\S]*resetVisiblePriceScaleForFreshSeries\(priceScaleReason\)/, 'stable replacement reloads must use the stable reset while first loads keep the fresh reset');
-  assertSourceContains(body, /if \(restoredStableReplacementViewport\) \{[\s\S]*healCollapsedPriceScaleRange\(priceScaleReason, true\)/, 'stable replacement reloads must heal price scale synchronously before the next paint');
-  assertSourceContains(body, /if \(!restoredStableReplacementViewport\) \{[\s\S]*schedulePriceScaleHealthCheck\(/, 'stable replacement reloads must skip delayed price-scale health passes after the synchronous heal');
+  assertSourceContains(body, /var manualRangeBeforeUpdate = isManualVerticalPanRangeLocked\(\)[\s\S]*var shouldPreserveManualPriceScale = isValidPriceRange\(manualRangeBeforeUpdate\)/, 'full reloads must capture manual price-scale ownership before setData');
+  assertSourceContains(body, /!shouldPreserveManualPriceScale &&[\s\S]*if \(restoredStableReplacementViewport\) \{[\s\S]*resetVisiblePriceScaleForStableReplacement\(priceScaleReason\)[\s\S]*\} else \{[\s\S]*resetVisiblePriceScaleForFreshSeries\(priceScaleReason\)/, 'stable and fresh price resets must run only for auto-owned vertical ranges');
+  assertSourceContains(body, /if \(restoredStableReplacementViewport && !shouldPreserveManualPriceScale\) \{[\s\S]*healCollapsedPriceScaleRange\(priceScaleReason, true\)/, 'stable replacement may heal synchronously only while auto-scale owns the range');
+  assertSourceContains(body, /if \(!restoredStableReplacementViewport && !shouldPreserveManualPriceScale\) \{[\s\S]*schedulePriceScaleHealthCheck\(/, 'manual ownership must suppress delayed price-scale health passes');
   assertSourceContains(body, /!restoredStableReplacementViewport[\s\S]*applyRecentViewport\(mapped\.length\)/, 'recent viewport spacing must be recalculated for fresh context replacements');
   assertSourceContains(body, /previousRawSeriesData\.length === 0[\s\S]*applyRecentViewport\(mapped\.length\)/, 'first data load after an empty chart shell must show only the recent viewport');
   assertSourceContains(body, /_positionLinesArr = \[\]/, 'stale overlay refs must be cleared');
@@ -250,23 +256,24 @@ test('native WebView uses the RTX5 custom candlestick renderer for candle modes'
 });
 
 test('canonical candle and exact backend Bid cross one revisioned bridge without a delayed side path', () => {
-  assert.doesNotMatch(
+  assertSourceContains(
     source,
-    /liveQuoteCandleStateRef/,
-    'native chart must not keep a separate quote-built candle projection',
+    /const chartLiveTickAccumulatorRef = useRef<ChartLiveTickAccumulator \| null>\(null\)[\s\S]*const accumulateCurrentChartBid = useCallback\([\s\S]*accumulateChartBidTick\(chartLiveTickAccumulatorRef\.current,[\s\S]*contextKey: chartDataContextSig,[\s\S]*timeframe: chartTimeframe/,
+    'native chart must keep one context-keyed, broker-neutral Bid candle accumulator',
   );
   assert.doesNotMatch(source, /resolveLivePriceCoherentCandles/, 'native chart must not fold live quotes into sanitizedCandles');
   assert.doesNotMatch(source, /price: liveChartPrice/, 'native chart must not pass quote prices to candle synthesis');
   assertSourceContains(
     source,
-    /const lastCandle = canonicalCandles\[canonicalCandles\.length - 1\][\s\S]*const exactQuote = readExactChartQuoteForScope\([\s\S]*const exactBidLine = exactQuote\?\.bid \?\? null[\s\S]*candle: buildChartTickPayload\(lastCandle, chartType\),[\s\S]*livePrice: exactBidLine,[\s\S]*showLivePriceLine: shouldShowExactBidLine,[\s\S]*revision,[\s\S]*updateLiveTick\(/,
-    'candle OHLC and the separately-owned exact backend Bid must cross one revisioned payload',
+    /const exactQuote = readExactChartQuoteForScope\([\s\S]*accumulateCurrentChartBid\(exactQuote, canonicalCandles\)[\s\S]*const projection = projectChartLiveTickCandles\([\s\S]*const lastCandle = renderableCandles\[renderableCandles\.length - 1\][\s\S]*const exactBidLine = exactQuote \? lastCandle\.close : null[\s\S]*candle: buildChartTickPayload\(lastCandle, chartType\),[\s\S]*livePrice: exactBidLine,[\s\S]*showLivePriceLine: shouldShowExactBidLine,[\s\S]*revision,[\s\S]*updateLiveTick\(/,
+    'the exact backend Bid must be projected into candle OHLC before both cross one revisioned payload',
   );
-  assert.doesNotMatch(
+  assertSourceContains(
     source,
-    /livePrice: lastCandle\.close/,
-    'the market line must never guess Bid from candle close',
+    /function updateLiveTick\(update\)[\s\S]*var acceptedCandlePrice = seriesType === 'line'[\s\S]*Number\(update\.candle\.value\)[\s\S]*Number\(update\.candle\.close\)[\s\S]*livePrice: acceptedCandlePrice/,
+    'the WebView must enforce that the one Bid marker uses the same accepted candle generation',
   );
+  assert.doesNotMatch(source, /livePrice:\s*update\.livePrice/);
   assert.doesNotMatch(
     source,
     /pendingMarketPriceLinesRef|requestMarketPriceLineFlush|flushPendingMarketPriceLines|CHART_MARKET_PRICE_LINE_SYNC_INTERVAL_MS/,
@@ -274,7 +281,7 @@ test('canonical candle and exact backend Bid cross one revisioned bridge without
   );
 });
 
-test('horizontal zoom and pan keeps price autoscale attached to visible bars', () => {
+test('horizontal zoom and pan heals auto ranges while preserving manual ownership', () => {
   assertSourceContains(
     source,
     /subscribeVisibleLogicalRangeChange\(function\(range\) \{[\s\S]*isLightweightHorizontalMotion = isHorizontalScrollMotionActive\(\)[\s\S]*scheduleMovingVerticalGridUpdate\(isLightweightHorizontalMotion\)[\s\S]*schedulePeriodSeparatorsUpdate\(isLightweightHorizontalMotion\)[\s\S]*if \(isLightweightHorizontalMotion\) \{[\s\S]*scheduleVisibleRangeIdleWork\(\)[\s\S]*return;[\s\S]*scheduleActiveScrollPriceScaleRecovery\('visible_range_active'\)/,
@@ -302,8 +309,8 @@ test('horizontal zoom and pan keeps price autoscale attached to visible bars', (
   );
   assertSourceContains(
     source,
-    /dx > VERT_PAN_THRESHOLD && dx > dy \* 1\.2[\s\S]*ensureRightPriceAutoScaleForHorizontalPan\(\)[\s\S]*markHorizontalScrollGestureActive\(\)[\s\S]*scheduleActiveScrollPriceScaleRecovery\('horizontal_pan_active'\)/,
-    'active-scroll recovery must be armed only after the gesture is classified as horizontal pan',
+    /dx > VERT_PAN_THRESHOLD && dx > dy \* 1\.2[\s\S]*preserveManualPriceScaleForHorizontalPan\(\)[\s\S]*markHorizontalScrollGestureActive\(\)[\s\S]*scheduleActiveScrollPriceScaleRecovery\('horizontal_pan_active'\)/,
+    'active-scroll recovery must be armed only after horizontal classification and must reassert manual ownership first',
   );
   assertSourceContains(
     source,
@@ -408,12 +415,12 @@ test('horizontal zoom and pan keeps price autoscale attached to visible bars', (
   assertSourceContains(
     source,
     /function scheduleVisibleRangeIdleWork\(\)[\s\S]*schedulePriceScaleHealthCheck\('visible_range_change', true\)/,
-    'horizontal navigation must be allowed to clear a stale manual price range after scroll settles',
+    'horizontal navigation may schedule health work, whose manual-ownership guard keeps the fixed range intact',
   );
   assertSourceContains(
     source,
-    /var priceScaleReason = didPrependHistory[\s\S]*'update_data_prepend_history'[\s\S]*schedulePriceScaleHealthCheck\([\s\S]*priceScaleReason[\s\S]*didPrependHistory \|\| didReplaceVisibleSeries[\s\S]*didPrependHistory \|\| didReplaceVisibleSeries \? 5 : 1/,
-    'older-history full reloads must run repeated price-scale recovery passes and clear stale manual ranges',
+    /var priceScaleReason = didPrependHistory[\s\S]*'update_data_prepend_history'[\s\S]*!restoredStableReplacementViewport && !shouldPreserveManualPriceScale[\s\S]*schedulePriceScaleHealthCheck\([\s\S]*didPrependHistory \|\| didReplaceVisibleSeries \? 5 : 1/,
+    'older-history recovery passes must be skipped while the user owns a fixed numeric range',
   );
   assertSourceContains(
     source,
@@ -422,8 +429,8 @@ test('horizontal zoom and pan keeps price autoscale attached to visible bars', (
   );
   assertSourceContains(
     source,
-    /handleScale: \{[\s\S]*pinch: true[\s\S]*axisPressedMouseMove: true/,
-    'mobile pinch zoom and price-axis scaling must stay enabled in the host chart options',
+    /handleScale: \{[\s\S]*pinch: true[\s\S]*axisPressedMouseMove: \{ time: true, price: false \}/,
+    'mobile pinch stays enabled while the custom WebView exclusively owns right price-axis scaling',
   );
   assertSourceContains(
     source,
@@ -483,8 +490,8 @@ test('vertical candle drag can own the price range without autoscale fighting it
   );
   assertSourceContains(
     source,
-    /function healCollapsedPriceScaleRange\(reason, allowManualReset\)[\s\S]*isManualVerticalPanRangeLocked\(\)[\s\S]*shouldResetManualVerticalPanForHealth\(reason\)[\s\S]*return;[\s\S]*manualPriceScaleRangeActive && allowManualReset !== true/,
-    'idle price-scale health checks must not snap back a user-locked vertical pan',
+    /function healCollapsedPriceScaleRange\(reason, allowManualReset\)[\s\S]*void allowManualReset[\s\S]*verticalPricePanGestureActive \|\|[\s\S]*isManualVerticalPanRangePreserved\(\) \|\|[\s\S]*isManualVerticalPanRangeLocked\(\) \|\|[\s\S]*manualPriceScaleRangeActive[\s\S]*return;/,
+    'every health reason must leave a user-owned manual range untouched',
   );
   assertSourceContains(
     source,
@@ -498,7 +505,7 @@ test('vertical candle drag can own the price range without autoscale fighting it
   );
   assertSourceContains(
     source,
-    /var onPointerUp = function\(event\)[\s\S]*releasePointer\(event\);[\s\S]*finishRightPriceScaleGesture\(\)[\s\S]*if \(vertPanState\) \{[\s\S]*endVerticalPan\(\)[\s\S]*return;[\s\S]*finishHorizontalScrollGesture\(\);/,
+    /var onPointerUp = function\(event\)[\s\S]*releasePointer\(event\);[\s\S]*finishRightPriceScaleGesture\(false\)[\s\S]*if \(vertPanState\) \{[\s\S]*endVerticalPan\(\)[\s\S]*return;[\s\S]*finishHorizontalScrollGesture\(\);/,
     'vertical pan release must finish before horizontal-scroll idle recovery is allowed to run',
   );
   const setChartOverlaysBody = extractFunctionBody(source, 'setChartOverlays');
@@ -602,6 +609,11 @@ test('manual vertical range survives pending locks and delayed surface recovery'
   const recoverChartSurface = extractFunctionBody(source, 'recoverChartSurface');
   assertSourceContains(
     recoverChartSurface,
+    /var recoveryManualRange = isManualVerticalPanRangeLocked\(\)[\s\S]*series\.setData\(mapped\)[\s\S]*rememberManualVerticalPanRange\(recoveryManualRange\)[\s\S]*applyManualVerticalPanLockedRange\(\)[\s\S]*applyOverlayPayload\(_overlayPayload\)[\s\S]*rememberManualVerticalPanRange\(recoveryManualRange\)[\s\S]*applyManualVerticalPanLockedRange\(\)/,
+    'surface recovery must reapply the same manual window both after setData and after overlay reconstruction',
+  );
+  assertSourceContains(
+    recoverChartSurface,
     /scheduleOverlayPriceScaleLock\(chartAutoScaleEnabled === true\)/,
     'surface recovery may force autoscale only when the preference is enabled',
   );
@@ -613,20 +625,82 @@ test('manual vertical range survives pending locks and delayed surface recovery'
 });
 
 test('right price scale drag is routed separately from body vertical pan', () => {
+  const beginRightPriceScaleGesture = extractAssignedFunctionBody('beginRightPriceScaleGesture');
   assertSourceContains(
     source,
-    /var isRightPriceScaleGesturePoint = function\(clientX, clientY\)[\s\S]*axisLeft[\s\S]*axisRight[\s\S]*point\.x >= axisLeft - 6/,
-    'right price-scale hit testing must recognize the reserved axis strip',
+    /\$\{MT5_PRICE_SCALE_GESTURE_WEBVIEW_JS\}/,
+    'Hermes must inject explicit resolver source instead of serializing compiled bytecode with Function#toString',
+  );
+  assert.doesNotMatch(
+    source,
+    /resolveMt5PriceScaleDragRange\.toString\(\)/,
+    'the WebView resolver must never depend on Hermes Function#toString output',
   );
   assertSourceContains(
     source,
-    /if \(isRightPriceScaleGesturePoint\(point\.x, point\.y\)\) \{[\s\S]*rightPriceScaleGestureActive = true[\s\S]*vertPanPending = null[\s\S]*scheduleGestureRightPriceScaleFallbackRefresh\(\)[\s\S]*return;/,
+    /\.rtx5-right-price-scale-fallback-axis \{[\s\S]*pointer-events: auto;[\s\S]*touch-action: none;/,
+    'the painted price-axis surface must predeclare exclusive touch ownership before pointer-down',
+  );
+  assertSourceContains(
+    source,
+    /var isRightPriceScaleGesturePoint = function\(clientX, clientY\)[\s\S]*resolveFallbackPlotMetrics\(\)[\s\S]*resolveRightPriceScaleFallbackAxisMetrics\(metrics\)[\s\S]*axisLeft[\s\S]*axisRight[\s\S]*point\.x >= axisLeft - 6/,
+    'right price-scale hit testing must use the exact full-height fallback strip that is visibly rendered',
+  );
+  assertSourceContains(
+    source,
+    /if \(isRightPriceScaleGesturePoint\(point\.x, point\.y\)\) \{[\s\S]*beginRightPriceScaleGesture\(event, point\.x, point\.y\)[\s\S]*stopChartEvent\(event\)[\s\S]*return;/,
     'right-axis touches must not enter chart-body vertical pan tracking',
   );
   assertSourceContains(
     source,
-    /if \(rightPriceScaleGestureActive\) \{[\s\S]*manualPriceScaleRangeActive = true[\s\S]*deferVerticalGestureDomWork\(\)[\s\S]*return;/,
-    'right-axis drag must defer custom right-scale and trade overlay refresh work during movement',
+    /var beginRightPriceScaleGesture = function\(event, clientX, clientY\)[\s\S]*resolveFallbackPlotMetrics\(\)[\s\S]*var referenceSpan =[\s\S]*anchorRatio[\s\S]*setPointerCapture\(event\.pointerId\)[\s\S]*el\.style\.touchAction = 'none'[\s\S]*rightPriceScaleGestureActive = true[\s\S]*verticalPricePanGestureActive = true[\s\S]*deferVerticalGestureDomWork\(\)/,
+    'right-axis drag must capture its focal price and retain exclusive pointer ownership',
+  );
+  assert.doesNotMatch(
+    beginRightPriceScaleGesture,
+    /manualPriceScaleReferenceSpan\s*=(?!=)/,
+    'a right-axis tap without movement must not commit a stale zoom envelope',
+  );
+  assertSourceContains(
+    beginRightPriceScaleGesture,
+    /series\.coordinateToPrice\(relativePoint\.y\)[\s\S]*\(range\.to - anchorPrice\) \/ startSpan/,
+    'the focal anchor must use the rendered price coordinate when scale margins are present',
+  );
+  assertSourceContains(
+    source,
+    /var applyRightPriceScaleGestureAt = function\(clientY\)[\s\S]*resolveMt5PriceScaleDragRange\(\{[\s\S]*deltaY: deltaY[\s\S]*plotHeight: state\.plotHeight[\s\S]*renderVerticalPanRange\(state\.latestRange\)/,
+    'right-axis movement must apply pane-relative MT5 zoom math to the manual range',
+  );
+  assertSourceContains(
+    source,
+    /if \(rightPriceScaleGestureActive\) \{[\s\S]*applyRightPriceScaleGestureAt\(rightScalePoint\.y\)[\s\S]*deferVerticalGestureDomWork\(\)[\s\S]*stopChartEvent\(event\)[\s\S]*return;/,
+    'right-axis drag must exclusively own move events without rebuilding custom overlays',
+  );
+  const onPointerDown = extractAssignedFunctionBody('onPointerDown');
+  assert.ok(
+    onPointerDown.indexOf('isRightPriceScaleGesturePoint(point.x, point.y)') <
+      onPointerDown.indexOf('resolveTradeLineDragHitFromEvent(event)'),
+    'right-axis ownership must be resolved before Y-only SL/TP hit testing',
+  );
+  assertSourceContains(
+    source,
+    /var applyRightPriceScaleGestureAt = function\(clientY\)[\s\S]*manualPriceScaleReferenceSpan = state\.referenceSpan[\s\S]*clearCompletedRightPriceScaleTap\(\)/,
+    'the global zoom envelope must be committed only after movement crosses the drag threshold',
+  );
+  assertSourceContains(
+    source,
+    /var finishRightPriceScaleGesture = function\(cancelled\)[\s\S]*consumeCompletedRightPriceScaleTap\([\s\S]*resetChartVerticalScale\(\)/,
+    'two completed right-axis taps must explicitly reset the vertical scale',
+  );
+  assertSourceContains(
+    source,
+    /var finishRightPriceScaleGesture = function\(cancelled\)[\s\S]*releasePointerCapture\(gestureState\.pointerId\)[\s\S]*el\.style\.touchAction =[\s\S]*gestureState\.previousTouchAction/,
+    'right-axis completion must release pointer capture and restore normal touch behavior',
+  );
+  assertSourceContains(
+    source,
+    /var onWindowPointerMove = function\(event\)[\s\S]*rightPriceScaleGestureActive[\s\S]*applyRightPriceScaleGestureAt\(rightScalePoint\.y\)[\s\S]*stopChartEvent\(event\)/,
+    'window-level movement must continue an owned axis drag if the pointer leaves the element bounds',
   );
   assertSourceContains(
     source,

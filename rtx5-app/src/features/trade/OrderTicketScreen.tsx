@@ -88,6 +88,7 @@ import {
   captureActiveBrokerSessionProvenance,
   isActiveBrokerSessionProvenanceCurrent,
 } from '../../state/activeBrokerSession';
+import { requestOrrnnDemoTradeAuth } from './tradeAuthPrompt';
 import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope';
 import {
   resolveOrderTicketDefaultPendingPrice,
@@ -844,6 +845,14 @@ function OrderTicketInteractiveContent() {
   // Submit a market order. This path validates account context, builds the API
   // payload, handles backend rejection, and updates the positions list.
   const handlePlaceOrder = async (side: TradeSide) => {
+    if (requestOrrnnDemoTradeAuth({
+      kind: 'market-order',
+      symbol,
+      side,
+      origin: resolvedOrigin,
+    })) {
+      return;
+    }
     const requestedSide = assertTradeSide(side);
     if (!isMarketExecution) {
       logOrderTicketDiagnostic('[TRADE-BUTTON-PRESS]', {
@@ -1198,6 +1207,14 @@ function OrderTicketInteractiveContent() {
   // Pending orders share market-order safety checks, then add price_open and
   // type so the backend can create the correct pending order.
   const handlePlacePendingOrder = async () => {
+    if (requestOrrnnDemoTradeAuth({
+      kind: 'pending-order',
+      symbol,
+      side: getChartOrderSide(orderType),
+      origin: resolvedOrigin,
+    })) {
+      return;
+    }
     // Defense in depth: the visible tabs are locked too, but a stale retained
     // screen must never reach the dormant API path before backend readiness.
     if (isPendingOrderTypeBackendLocked(orderType)) return;

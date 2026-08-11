@@ -36,6 +36,9 @@ test('persisted user preferences are normalized before second-launch hydration r
   assert.match(storeSource, /readChartDrawingRecordsBySymbol\(\)[\s\S]*\.then\(\(storedRecordsBySymbol\) => \{[\s\S]*\.finally\(\(\) => \{[\s\S]*setHasHydrated\(true\)/);
   assert.doesNotMatch(storeSource, /marketNewsSavedIds|setMarketNewsSavedIds|toggleMarketNewsSavedId/);
   assert.match(storeSource, /Boolean\(accountDetails\?\.credentials\?\.accessToken\)/);
+  assert.match(storeSource, /resolveBrokerConnectionWithPublicDemoDefault\(\{/);
+  assert.match(storeSource, /brokerId: ORRNN_DEMO_PUBLIC_BROKER_ID/);
+  assert.match(storeSource, /brokerServerUrl: ORRNN_DEMO_PUBLIC_GATEWAY_BASE_URL/);
   assert.match(storeSource, /buildAccountEnvironmentKey\(brokerId, accountDetails\.id\)/);
   assert.match(storeSource, /source: 'legacy-persisted'/);
   assert.match(storeSource, /allowInitialFallback: true/);

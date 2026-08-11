@@ -54,11 +54,15 @@ const extractBackendErrorMessage = (payload: any, fallback: string): string => {
 // ─── Request Types ──────────────────────────────────────────────────────────────
 
 /** POST /auth/login — request body */
-export interface LoginRequest {
-  username: string;
+type LoginRequestBase = {
   password: string;
   broker_id: string;
-}
+};
+
+export type LoginRequest = LoginRequestBase & (
+  | { username: string; login?: never }
+  | { login: number; username?: never }
+);
 
 export type LoginRequestOptions = {
   serverUrl?: string;
@@ -142,7 +146,7 @@ export interface AuthResponse {
  * Authenticate with login credentials and receive JWT tokens.
  * Does NOT require existing Bearer token — this is the entry point.
  *
- * @param credentials - { username, password, broker_id }
+ * @param credentials - { username, password, broker_id } or { login, password, broker_id }
  * @returns AuthResponse with access_token, refresh_token, expires_in, account_login
  * @throws Error with server message on 401 (invalid credentials) or other failures
  */

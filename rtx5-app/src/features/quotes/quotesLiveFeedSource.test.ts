@@ -13,6 +13,7 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   const queryWebsocketSource = readSource('src/query/websocket.ts');
   const liveQuotesSource = readSource('src/features/quotes/useLiveQuotes.ts');
   const quotesScreenSource = readSource('src/features/quotes/QuotesScreen.tsx');
+  const publicMarketSocketSource = readSource('src/api/ws/orrnnDemoPublicMarketSocket.ts');
 
   const subscribeToSymbolStart = serviceSource.indexOf('public subscribeToSymbol');
   const unsubscribeStart = serviceSource.indexOf('let unsubscribed = false', subscribeToSymbolStart);
@@ -124,14 +125,14 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(queryWebsocketSource, /commitQuoteSnapshotIfSessionCurrent\(scheduledProvenance/);
   assert.match(queryWebsocketSource, /const LIVE_SYMBOL_REST_DIRECT_TICK_SUPPRESS_MS = 2_000/);
   assert.match(queryWebsocketSource, /const hasRecentDirectSymbolTick = \(entry: RestQuoteFallbackEntry/);
-  assert.match(queryWebsocketSource, /if \(hasRecentDirectSymbolTick\(entry\)\) \{[\s\S]*return;/);
+  assert.match(queryWebsocketSource, /if \(hasObservedDirectSymbolTick\(entry\)\) \{[\s\S]*return 'resolved';/);
   assert.match(
     queryWebsocketSource,
-    /const sessionCapture = captureActiveBrokerSession\(\);[\s\S]*if \(!sessionCapture\) \{[\s\S]*return;[\s\S]*\}[\s\S]*const owner = captureActiveBrokerSessionOwnerStamp\(\);[\s\S]*if \(!owner\) \{[\s\S]*return;/,
+    /const sessionCapture = captureActiveBrokerSession\(\);[\s\S]*if \(!sessionCapture\) \{[\s\S]*return 'stop';[\s\S]*\}[\s\S]*const owner = captureActiveBrokerSessionOwnerStamp\(\);[\s\S]*if \(!owner\) \{[\s\S]*return 'stop';/,
   );
   assert.match(
     queryWebsocketSource,
-    /if \(!selectedTick\) \{[\s\S]*return;[\s\S]*\}[\s\S]*requestGeneration !== liveQuoteRuntimeGeneration[\s\S]*!isActiveBrokerSessionOwnerStampCurrent\(owner\)[\s\S]*hasRecentDirectSymbolTick\(entry\)[\s\S]*publishQuoteTickToSharedStores\(selectedTick\)/,
+    /if \(!selectedTick\) \{[\s\S]*return 'retry';[\s\S]*\}[\s\S]*requestGeneration !== liveQuoteRuntimeGeneration[\s\S]*!isActiveBrokerSessionOwnerStampCurrent\(owner\)[\s\S]*hasRecentDirectSymbolTick\(entry\)[\s\S]*publishQuoteTickToSharedStores\(selectedTick\)/,
   );
   assert.match(queryWebsocketSource, /directTickAnchors: Map<LiveSymbolQuoteListener, LiveSymbolDirectTickAnchor>/);
   assert.match(queryWebsocketSource, /const subscribeLiveSymbolRestQuoteFallback = \([\s\S]*getDirectTickAt\?: LiveSymbolDirectTickAnchor/);
@@ -142,17 +143,24 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(liveQuotesSource, /const notifySymbolImmediately = \(symbol: string\): void => \{[\s\S]*pendingNotifySymbols\.delete\(symbol\);[\s\S]*notifySymbol\(symbol\);[\s\S]*\}/);
   assert.match(liveQuotesSource, /export const ingestLiveQuoteTick = \(tick: QuoteTickEvent, notifyImmediately = true\): void =>/);
   assert.match(liveQuotesSource, /scheduleSymbolNotification\(scopedKey, notifyImmediately\)/);
-  assert.match(liveQuotesSource, /export function useLiveQuoteSubscription\(symbol: string, active: boolean\): void \{[\s\S]*quotesWsService\.subscribeToSymbol\(symbol, \(tick\) => \{[\s\S]*transport: 'websocket'/);
+  assert.match(liveQuotesSource, /export function useLiveQuoteSubscription\(symbol: string, active: boolean\): void \{[\s\S]*const socket = cacheNamespace === ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE[\s\S]*socket\.subscribeToSymbol\(symbol, \(tick\) => \{[\s\S]*transport: 'websocket'/);
   const watchlistHookStart = liveQuotesSource.indexOf('export function useWatchlistLiveQuotes');
   const snapshotHookStart = liveQuotesSource.indexOf('export function useLiveQuoteSnapshot', watchlistHookStart);
   assert.notEqual(watchlistHookStart, -1);
   assert.notEqual(snapshotHookStart, -1);
   const watchlistHookSource = liveQuotesSource.slice(watchlistHookStart, snapshotHookStart);
   assert.match(watchlistHookSource, /const subscriptionSymbols = useMemo\(/);
-  assert.match(watchlistHookSource, /quotesWsService\.subscribeToSymbol\(symbol, listener\)/);
+  assert.match(
+    watchlistHookSource,
+    /cacheNamespace === ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE\) \{[\s\S]*orrnnDemoPublicMarketSocket\.subscribeToSymbols\([\s\S]*subscriptionSymbols,[\s\S]*listener/,
+  );
+  assert.match(
+    watchlistHookSource,
+    /subscriptionSymbols\.map\(\(symbol\) =>[\s\S]*quotesWsService\.subscribeToSymbol\(symbol, listener\)/,
+  );
   assert.match(watchlistHookSource, /unsubscribers\.forEach\(\(unsubscribe\) => unsubscribe\(\)\)/);
   assert.match(watchlistHookSource, /ingestLiveQuoteTick\(\{ \.\.\.tick, transport: 'websocket' \}, true\)/);
-  assert.match(watchlistHookSource, /useRestQuoteSnapshotRepair\([\s\S]*normalizedSymbols,[\s\S]*options\?\.restFallbackActive \?\? active,[\s\S]*cacheNamespace/);
+  assert.match(watchlistHookSource, /useRestQuoteSnapshotRepair\([\s\S]*normalizedSymbols,[\s\S]*cacheNamespace === ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE[\s\S]*false[\s\S]*options\?\.restFallbackActive \?\? active,[\s\S]*cacheNamespace/);
   assert.match(watchlistHookSource, /return active && cacheNamespace \? subscriptionSymbols : \[\]/);
   assert.doesNotMatch(watchlistHookSource, /addTickListener/);
   assert.match(liveQuotesSource, /export const subscribeLiveQuoteSnapshots = \(/);
@@ -217,7 +225,7 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(quotesScreenSource, /getItemLayout=\{getQuoteItemLayout\}/);
   assert.doesNotMatch(quotesScreenSource, /const rawLastPrice = item\.close \?\? item\.last/);
   assert.doesNotMatch(quotesScreenSource, /\{t\('Last'\)\}:/);
-  assert.match(quotesScreenSource, /const quoteStickyFeedActive = quoteCatalogActive && isLoggedIn/);
+  assert.match(quotesScreenSource, /const quoteStickyFeedActive = quoteCatalogActive && \(isLoggedIn \|\| isPublicDemoMarket\)/);
   assert.doesNotMatch(quotesScreenSource, /useFeedStatusActiveSymbols/);
   assert.match(quotesScreenSource, /const feedAwareSymbols = apiSymbols/);
   assert.match(quotesScreenSource, /quotesWsService\.setSubscriptions\(quoteFeedSymbols\)/);
@@ -246,11 +254,15 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(quotesScreenSource, /<TickCounter[\s\S]*active=\{quoteStickyFeedActive\}[\s\S]*symbols=\{quoteFeedSymbols\}/);
   assert.match(
     quotesScreenSource,
-    /<TickCounter[\s\S]*feedHealthStatus=\{scopedFeedHealth\.status\}/,
+    /const quoteFeedHealthStatus: FeedHealthStatus = isPublicDemoMarket[\s\S]*\? 'connecting'[\s\S]*: scopedFeedHealth\.status/,
   );
   assert.match(
     quotesScreenSource,
-    /<QuoteCard[\s\S]*feedHealthStatus=\{scopedFeedHealth\.status\}/,
+    /<QuoteCard[\s\S]*feedHealthStatus=\{quoteFeedHealthStatus\}/,
+  );
+  assert.match(
+    quotesScreenSource,
+    /<TickCounter[\s\S]*feedHealthStatus=\{quoteFeedHealthStatus\}/,
   );
   assert.match(
     quotesScreenSource,
@@ -276,7 +288,7 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
     quotesScreenSource,
     /if \(result\.accepted\) \{[\s\S]*tickTimesRef\.current\.push\(result\.state\.lastQualifyingTickAt\)/,
   );
-  assert.match(quotesScreenSource, /quotesWsService\.subscribeToSymbol\(symbol, listener\)/);
+  assert.match(quotesScreenSource, /const socket = publicDemoMarket[\s\S]*orrnnDemoPublicMarketSocket[\s\S]*quotesWsService[\s\S]*socket\.subscribeToSymbol\(symbol, listener\)/);
   assert.match(quotesScreenSource, /unsubscribers\.forEach\(\(unsubscribe\) => unsubscribe\(\)\)/);
   const tickCounterSource = quotesScreenSource.slice(quotesScreenSource.indexOf('function TickCounter'));
   assert.doesNotMatch(tickCounterSource, /quotesWsService\.addTickListener\(listener\)/);
@@ -299,4 +311,18 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.doesNotMatch(quotesScreenSource, /snapshotTimesRef|latestSnapshotAtRef|visibleUpdateCount/);
   assert.doesNotMatch(quotesScreenSource, /lastSampledStateTicks|stateTickDelta|useTradingState\.getState\(\)\.tickCount/);
   assert.doesNotMatch(quotesScreenSource, /useLiveQuoteSubscription\(liveSymbol, feedActive\)/);
+  assert.match(publicMarketSocketSource, /new WebSocket\(socketUrl\)/);
+  assert.match(
+    publicMarketSocketSource,
+    /getOrrnnDemoPublicQuotePayloads\(payload\)[\s\S]*toQuoteTick\(quotePayload, receivedAt\)/,
+  );
+  assert.doesNotMatch(publicMarketSocketSource, /Authorization|accessToken|refreshToken|feedToken/);
+  assert.match(publicMarketSocketSource, /type: 'subscribe', symbols/);
+  assert.match(publicMarketSocketSource, /type: 'subscribe_candles', symbol, tf/);
+  assert.doesNotMatch(publicMarketSocketSource, /MAX_RECONNECT_ATTEMPTS/);
+  assert.match(publicMarketSocketSource, /this\.reconnectAttempts = Math\.min\([\s\S]*RECONNECT_DELAYS_MS\.length/);
+  assert.match(publicMarketSocketSource, /AppState\.addEventListener\('change'/);
+  assert.match(publicMarketSocketSource, /useUserPreferences\.subscribe\(\(state, previous\) =>/);
+  assert.match(publicMarketSocketSource, /if \(!this\.isSelectionActive\(\)\) \{[\s\S]*this\.deactivatePublicScope\(\)/);
+  assert.match(publicMarketSocketSource, /private deactivatePublicScope\(\): void \{[\s\S]*this\.teardownSocket\(false\)[\s\S]*resetQuoteMarketData\(\)/);
 });

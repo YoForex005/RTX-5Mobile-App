@@ -181,10 +181,32 @@ test('recoverChartSurface restores data, overlays, market price lines, direction
   const body = extractFunctionBody(source, 'recoverChartSurface');
 
   assertSourceContains(body, /series\.setData\(mapped\)/, 'recovery must restore chart data');
+  assertSourceContains(body, /var recoveryManualRange = isManualVerticalPanRangeLocked\(\)[\s\S]*series\.setData\(mapped\)[\s\S]*rememberManualVerticalPanRange\(recoveryManualRange\)[\s\S]*applyManualVerticalPanLockedRange\(\)/, 'recovery must immediately restore a fixed manual price window after data replacement');
   assertSourceContains(body, /applyOverlayPayload\(_overlayPayload\)/, 'recovery must restore overlays');
+  assertSourceContains(body, /applyOverlayPayload\(_overlayPayload\)[\s\S]*rememberManualVerticalPanRange\(recoveryManualRange\)[\s\S]*applyManualVerticalPanLockedRange\(\)/, 'recovery must reassert the manual window after overlays can alter price-scale state');
   assertSourceContains(body, /setLivePriceLine\(lastLivePrice\)/, 'recovery must restore the live price line');
   assertSourceContains(body, /refreshDirectionPriceLine\(\)/, 'recovery must restore direction price line');
   assertSourceContains(body, /postChartGeometry\(\)/, 'recovery must report geometry');
+});
+
+test('full chart rebuild retains the exact manual price window', () => {
+  const body = extractFunctionBody(source, '_doInitChart');
+
+  assertSourceContains(
+    body,
+    /var retainedManualPriceScaleRange = isManualVerticalPanRangeLocked\(\)[\s\S]*var retainedManualPriceScaleReferenceSpan =[\s\S]*clearManualPriceScaleState\(\)/,
+    'rebuild must snapshot manual range and zoom envelope before disposing instance state',
+  );
+  assertSourceContains(
+    body,
+    /chart = LightweightCharts\.createChart[\s\S]*rememberManualVerticalPanRange\(retainedManualPriceScaleRange\)[\s\S]*manualPriceScaleReferenceSpan = retainedManualPriceScaleReferenceSpan[\s\S]*applyManualVerticalPanLockedRange\(\)/,
+    'the replacement chart instance must receive the retained numeric range',
+  );
+  assertSourceContains(
+    body,
+    /scheduleOverlayPriceScaleLock\(!isValidPriceRange\(retainedManualPriceScaleRange\)\)[\s\S]*if \(!isValidPriceRange\(retainedManualPriceScaleRange\)\) \{[\s\S]*scheduleFreshSeriesVerticalCenter/,
+    'rebuild recovery must never queue forced autoscale or fresh centering for a retained manual range',
+  );
 });
 
 test('AppState foreground recovery refreshes overlay sources and chart surface', () => {

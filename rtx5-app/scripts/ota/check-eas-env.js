@@ -22,6 +22,9 @@ const requiredNames = [
   'EXPO_PUBLIC_API_BASE_URL',
   'EXPO_PUBLIC_BROKER_DIRECTORY_BASE_URL',
   'EXPO_PUBLIC_DEMO_API_BASE_URL',
+  'EXPO_PUBLIC_ORRNN_DEMO_BROKER_ID',
+  'EXPO_PUBLIC_ORRNN_DEMO_INITIAL_BALANCE',
+  'EXPO_PUBLIC_ORRNN_DEMO_ORIGIN_BROKER',
   'EXPO_PUBLIC_TERMS_URL',
   'EXPO_PUBLIC_PRIVACY_POLICY_URL',
   // Chart candle history after login — without these, OTA builds fail closed
@@ -65,20 +68,38 @@ if (result.status !== 0) {
 }
 
 const output = result.stdout || '';
-const present = new Set();
+const configured = new Map();
 for (const line of output.split(/\r?\n/)) {
-  const match = line.match(/^([A-Z0-9_]+)=/);
+  const match = line.match(/^([A-Z0-9_]+)=(.*)$/);
   if (match) {
-    present.add(match[1]);
+    configured.set(match[1], match[2].trim());
   }
 }
 
-const missing = requiredNames.filter((name) => !present.has(name));
+const missing = requiredNames.filter((name) => !configured.has(name));
 if (missing.length > 0) {
   console.error(`[OTA env] ${environment} EAS environment is missing required public variables:`);
   missing.forEach((name) => console.error(`- ${name}`));
   console.error('Do not publish OTA for this channel until the EAS environment matches the app config.');
   process.exit(2);
+}
+
+const requiredDemoContract = new Map([
+  ['EXPO_PUBLIC_DEMO_API_BASE_URL', 'https://demomanager.orrnn.com/api/v1'],
+  ['EXPO_PUBLIC_ORRNN_DEMO_BROKER_ID', 'orrnn-demo'],
+  ['EXPO_PUBLIC_ORRNN_DEMO_INITIAL_BALANCE', '10000'],
+  ['EXPO_PUBLIC_ORRNN_DEMO_ORIGIN_BROKER', 'orrnn-demo-mobile'],
+]);
+const mismatchedDemoContract = [...requiredDemoContract.entries()].filter(
+  ([name, expected]) => configured.get(name) !== expected,
+);
+if (mismatchedDemoContract.length > 0) {
+  console.error(`[OTA env] ${environment} EAS environment has an invalid public demo contract:`);
+  mismatchedDemoContract.forEach(([name, expected]) => {
+    console.error(`- ${name} must equal ${expected}`);
+  });
+  console.error('Do not publish OTA for this channel until the EAS demo contract is corrected.');
+  process.exit(3);
 }
 
 console.log(`[OTA env] ${environment} contains required public env names: ${requiredNames.join(', ')}`);

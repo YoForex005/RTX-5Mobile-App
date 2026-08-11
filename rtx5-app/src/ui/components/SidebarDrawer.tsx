@@ -39,6 +39,7 @@ import {
 import {
   showFastTabVisualForSidebar,
 } from '../navigation/fastTabVisualController';
+import { requestOrrnnDemoTradeAuth } from '../../features/trade/tradeAuthPrompt';
 
 // ─── Menu Items ──────────────────────────────────────────────────────────────
 type MenuItem = {
@@ -521,6 +522,18 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
       return;
     }
 
+    if (route === '/trade' && requestOrrnnDemoTradeAuth({ kind: 'trade-tab' })) {
+      // The trade-access dialog owns the next destination. Close the drawer underneath it so
+      // choosing Demo Account or Log In cannot reveal a stale open overlay.
+      navigationLockedRef.current = true;
+      snapClosedForNavigation();
+      hideInteractiveNow();
+      onClose();
+      scheduleLiveWorkResumeAfterClose();
+      unlockSidebarNavigation();
+      return;
+    }
+
     navigationLockedRef.current = true;
 
     const targetPath = normalizeSidebarPath(route);
@@ -577,7 +590,15 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
       unlockSidebarNavigation();
       throw error;
     }
-  }, [handleClose, runSidebarNavigation, unlockSidebarNavigation]);
+  }, [
+    handleClose,
+    hideInteractiveNow,
+    onClose,
+    runSidebarNavigation,
+    scheduleLiveWorkResumeAfterClose,
+    snapClosedForNavigation,
+    unlockSidebarNavigation,
+  ]);
 
   const openSupportEmail = useCallback(async () => {
     const mailtoUrl = buildHelpMailto({

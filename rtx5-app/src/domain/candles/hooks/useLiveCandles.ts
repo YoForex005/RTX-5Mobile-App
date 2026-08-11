@@ -25,6 +25,10 @@ import { hydratePersistedCandleCache } from '../state/persistedCandleCache';
 import { shouldUseServerCandleStream } from '../ws/liveCandlesEnginePolicy';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { MARKET_QUOTE_STALE_AFTER_MS } from '../../../market/quotePolicy';
+import {
+  isOrrnnDemoPublicMarketSelection,
+} from '../../../api/orrnnDemoPublicMarket';
+import { useOrrnnDemoPublicCandles } from './useOrrnnDemoPublicCandles';
 
 // Cache the empty-snapshot reference for useSyncExternalStore. Returning a new
 // `[]` each call would trip React's "cache the snapshot" guard and infinite-loop.
@@ -127,6 +131,17 @@ export function useLiveCandles(
   const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
   const normalizedTimeframe = useMemo(() => normalizeTimeframeStrict(timeframe), [timeframe]);
   const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
+  const selectedBrokerId = useUserPreferences((state) => state.brokerId);
+  const isPublicDemoSelection = isOrrnnDemoPublicMarketSelection({
+    brokerId: selectedBrokerId,
+    isLoggedIn,
+  });
+  const isPublicDemoActive = active && isPublicDemoSelection;
+  const publicDemoCandles = useOrrnnDemoPublicCandles(
+    symbol,
+    timeframe,
+    isPublicDemoActive,
+  );
   const isLiveActive = active && isLoggedIn;
   const useServerCandleStream = shouldUseServerCandleStream();
   const safeCommitIntervalMs = Math.max(0, Math.floor(commitIntervalMs));
@@ -277,7 +292,7 @@ export function useLiveCandles(
     liveCandlesEngine.paginateHistory(normalizedSymbol, normalizedTimeframe);
   }, [normalizedSymbol, normalizedTimeframe]);
 
-  return {
+  const authenticatedCandles = {
     candles,
     hasHistoryCandles,
     loading: streamState?.loading ?? false,
@@ -285,6 +300,10 @@ export function useLiveCandles(
     refresh,
     paginate,
   };
+
+  // Logged-out history may pre-render the retained WebView while inactive;
+  // useOrrnnDemoPublicCandles still gates its WebSocket on isPublicDemoActive.
+  return isPublicDemoSelection ? publicDemoCandles : authenticatedCandles;
 }
 
 /**

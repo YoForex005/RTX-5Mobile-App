@@ -45,6 +45,7 @@ import {
   SLTP_COMING_SOON_TITLE,
 } from '../../../trade/tradeBackendCapabilities';
 import type { ChartTradeQueueEvent } from '../ChartTradeReceiptStack';
+import { requestOrrnnDemoTradeAuth } from '../../../trade/tradeAuthPrompt';
 
 const CHART_TRADE_DIAGNOSTICS_ENABLED =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CHART_TRADE === 'true';
@@ -126,6 +127,9 @@ export function useTradeHandler({
 }: TradeHandlerOptions) {
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
   const currentChartSymbol = useUserPreferences((s) => s.chartSymbol);
+  const isPublicDemoTradePrompt = useUserPreferences(
+    (state) => !state.isLoggedIn,
+  );
   const placeOrder = usePlaceOrderExecutor();
   const [activeSide, setActiveSide] = React.useState<TradeSide | null>(null);
   const activeSideResetTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -476,6 +480,14 @@ export function useTradeHandler({
   }
 
   const executeTrade = (side: TradeSide) => {
+    if (requestOrrnnDemoTradeAuth({
+      kind: oneClickAccepted || variant === 'mt5-market' ? 'market-order' : 'order-ticket',
+      symbol,
+      side,
+      origin: 'chart',
+    })) {
+      return;
+    }
     const action = getChartTradeAction(side);
     const stateChartSymbol = useUserPreferences.getState().chartSymbol;
     // Normalize once — hot path used to normalize both sides twice.
@@ -749,11 +761,13 @@ export function useTradeHandler({
     runCriticalTradeAction(`chart.${variant}.trade.${side}`, () => executeTrade(side));
 
   const isChartTradeActionBusy = (side: TradeSide) => activeSide === side && tradeTapLockRef.current;
-  const chartTradeActionDisabled = resolveChartTradeActionDisabled({
-    isCurrentChartSymbol,
-    oneClickAccepted,
-    quoteActionAllowed,
-  });
+  const chartTradeActionDisabled = isPublicDemoTradePrompt
+    ? false
+    : resolveChartTradeActionDisabled({
+        isCurrentChartSymbol,
+        oneClickAccepted,
+        quoteActionAllowed,
+      });
   // This side-specific signal is reserved for in-flight feedback. Quote
   // readiness disables and dims both controls through chartTradeActionDisabled.
   const isChartTradeActionVisuallyLocked = (side: TradeSide) => isChartTradeActionBusy(side);
@@ -763,6 +777,7 @@ export function useTradeHandler({
     isChartTradeActionBusy,
     isChartTradeActionVisuallyLocked,
     chartTradeActionDisabled,
+    isPublicDemoTradePrompt,
     isCurrentChartSymbol,
   };
 }

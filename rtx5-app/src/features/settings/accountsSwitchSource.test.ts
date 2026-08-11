@@ -93,8 +93,8 @@ test('saved account switch promotes the selected account and refreshes account-s
 
   // The coordinator owns the epoch-first teardown and cache/query reset; the
   // screen must not partially mutate the old account before the handoff commits.
-  // The reset stays targeted: the public broker directory survives so the
-  // login screen matches the saved broker instantly after logout.
+  // The reset stays targeted: the public broker directory and tokenless market
+  // cache survive, while every account-scoped query is still removed.
   assert.match(coordinatorSource, /const transition = beginActiveBrokerSessionTransition\(\);[\s\S]*await teardownBrokerSessionRuntime\(\)/);
   assert.match(coordinatorSource, /resetQuoteRuntimeState\(\)/);
   assert.match(coordinatorSource, /resetSessionMarketData\(\)/);
@@ -102,7 +102,7 @@ test('saved account switch promotes the selected account and refreshes account-s
   assert.match(coordinatorSource, /resetPersistedCandleCacheSession\(\)/);
   assert.match(
     coordinatorSource,
-    /appQueryClient\.removeQueries\(\{[\s\S]*query\.queryKey\[0\] !== BROKER_SERVERS_KEY/,
+    /const isSessionIndependentQuery[\s\S]*BROKER_SERVERS_KEY[\s\S]*ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE[\s\S]*appQueryClient\.removeQueries\(\{[\s\S]*!isSessionIndependentQuery\(query\.queryKey\)/,
   );
   assert.match(coordinatorSource, /appQueryClient\.getMutationCache\(\)\.clear\(\)/);
   assert.doesNotMatch(coordinatorSource, /appQueryClient\.clear\(\)/);

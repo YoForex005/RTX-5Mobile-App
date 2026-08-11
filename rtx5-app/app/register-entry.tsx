@@ -30,7 +30,7 @@ const REGISTER_ENTRY_PREVIEW_FALLBACK_HIDE_DELAY_MS = 3200;
 const REGISTER_BACK_FALLBACK_HREF = '/(tabs)/settings';
 
 /**
- * Landing screen for registration, prompting the user to choose between opening a Demo account or a Real account.
+ * Retained handoff route that opens the demo-account registration form directly.
  */
 export default function RegisterEntryScreen() {
   const isScreenFocused = useIsFocused();

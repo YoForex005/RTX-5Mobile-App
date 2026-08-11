@@ -55,6 +55,7 @@ import {
   isActiveBrokerSessionProvenanceCurrent,
 } from '../../state/activeBrokerSession';
 import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope';
+import { requestOrrnnDemoTradeAuth } from './tradeAuthPrompt';
 
 const CANVAS_DARK = '#121212';
 const CARD_DARK = '#1E1E1E';
@@ -163,6 +164,18 @@ export function BulkOperationScreen() {
   const extraPreviewCount = Math.max(0, affectedPositions.length - PREVIEW_LIMIT);
 
   const handleExecute = useCallback(async () => {
+    if (requestOrrnnDemoTradeAuth({
+      kind: 'bulk-action',
+      bulkMode: mode === 'all'
+        || mode === 'profitable'
+        || mode === 'losing'
+        || mode === 'buy'
+        || mode === 'sell'
+        ? mode
+        : undefined,
+    })) {
+      return;
+    }
     if (runningRef.current || affectedPositions.length === 0) {
       return;
     }
@@ -251,7 +264,7 @@ export function BulkOperationScreen() {
 
     runningRef.current = false;
     setIsRunning(false);
-  }, [affectedPositions, resolveBulkQuoteBlock, resolvedLogin, t]);
+  }, [affectedPositions, mode, resolveBulkQuoteBlock, resolvedLogin, t]);
 
   if (!isScreenFocused) {
     return <View style={[styles.root, { backgroundColor: screenBg }]} />;

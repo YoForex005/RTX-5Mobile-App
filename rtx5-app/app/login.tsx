@@ -29,6 +29,9 @@ import {
   invalidateSessionQueryRoots,
 } from '../src/query/authenticatedQueryScope';
 import { useTranslation } from '../src/i18n/useTranslation';
+import { useUserPreferences } from '../src/state/userPreferences';
+import { ORRNN_DEMO_PUBLIC_BROKER_ID } from '../src/api/orrnnDemoPublicMarket';
+import { consumePendingTradeAuthIntent } from '../src/features/trade/tradeAuthGate';
 import {
   buildAccountEnvironmentKey,
   mergeAccountEnvironment,
@@ -156,6 +159,9 @@ export function AccountLoginScreen() {
   const queryClient = useQueryClient();
   const screenCopy = LOGIN_SCREEN_COPY;
   const { t } = useTranslation();
+  const requestedLoggedOutBrokerId = useUserPreferences((state) =>
+    state.isLoggedIn ? '' : state.brokerId,
+  );
 
   const [accountId, setAccountId] = useState('');
   const [password, setPassword] = useState('');
@@ -195,6 +201,7 @@ export function AccountLoginScreen() {
   const warmedBrokerServerUrlRef = useRef('');
   const hasSavedCredentialsRef = useRef(false);
   const hasAppliedDevDefaultsRef = useRef(false);
+  const hasResolvedLoggedOutBrokerDefaultRef = useRef(false);
   const {
     data: brokerServers = [],
     isLoading: isBrokerServersLoading,
@@ -317,6 +324,7 @@ export function AccountLoginScreen() {
   }, [clearBrokerHealthVerification, t]);
 
   const updateBrokerId = (value: string) => {
+    hasResolvedLoggedOutBrokerDefaultRef.current = true;
     brokerHealthProbeRef.current += 1;
     clearBrokerHealthVerification();
     brokerIdValueRef.current = value;
@@ -350,6 +358,11 @@ export function AccountLoginScreen() {
     warmedBrokerServerUrlRef.current = option.serverUrl;
     void probeBrokerHealth(option.serverUrl);
   }, [clearBrokerHealthVerification, probeBrokerHealth]);
+
+  const selectBrokerOptionFromPicker = useCallback((option: LoginBrokerOption) => {
+    hasResolvedLoggedOutBrokerDefaultRef.current = true;
+    selectBrokerOption(option);
+  }, [selectBrokerOption]);
 
   const updateAccountId = (value: string) => {
     accountIdValueRef.current = value;
@@ -432,6 +445,43 @@ export function AccountLoginScreen() {
     if (!selectedKey) return undefined;
     return brokerOptions.find((option) => option.key === selectedKey);
   }, [brokerId, brokerOptions]);
+
+  useEffect(() => {
+    if (
+      hasResolvedLoggedOutBrokerDefaultRef.current ||
+      !savedCredentialsChecked ||
+      requestedLoggedOutBrokerId !== ORRNN_DEMO_PUBLIC_BROKER_ID
+    ) {
+      return;
+    }
+    const publicDemoOption = brokerOptions.find(
+      (option) => option.brokerId === ORRNN_DEMO_PUBLIC_BROKER_ID,
+    );
+    if (!publicDemoOption) {
+      return;
+    }
+
+    // This is an initial default, not a broker lock. Once it resolves, later
+    // picker or text-input changes remain fully user-controlled.
+    hasResolvedLoggedOutBrokerDefaultRef.current = true;
+    if (brokerId === publicDemoOption.brokerId) {
+      return;
+    }
+
+    // The trade guard was opened from the selected public demo broker. Do not
+    // carry a different broker's saved account/password into this login form.
+    selectBrokerOption(publicDemoOption);
+    accountIdValueRef.current = '';
+    passwordValueRef.current = '';
+    setAccountId('');
+    setPassword('');
+  }, [
+    brokerId,
+    brokerOptions,
+    requestedLoggedOutBrokerId,
+    savedCredentialsChecked,
+    selectBrokerOption,
+  ]);
   const selectedBrokerServerUrl = brokerServerUrl || selectedBrokerOption?.serverUrl || '';
   const selectedBrokerLogoUrl = brokerLogoUrl || selectedBrokerOption?.logoUrl || '';
   const selectedBrokerLogoUri = selectedBrokerLogoUrl || (
@@ -610,7 +660,7 @@ export function AccountLoginScreen() {
     return brokerOptions.map((option) => ({
       label: option.brokerName,
       subtitle: formatBrokerOptionSubtitle(option),
-      onPress: () => selectBrokerOption(option),
+      onPress: () => selectBrokerOptionFromPicker(option),
     }));
   }, [
     brokerDirectoryFailureMessage,
@@ -619,7 +669,7 @@ export function AccountLoginScreen() {
     isBrokerServersLoading,
     refetchBrokerServers,
     t,
-    selectBrokerOption,
+    selectBrokerOptionFromPicker,
   ]);
 
   const getLoginCredentialsSnapshot = (): LoginCredentialsSnapshot => {
@@ -724,6 +774,21 @@ export function AccountLoginScreen() {
       setModalState({ visible: true, type: 'error', title: t('Error'), message: t('Please enter both Login ID and Password') });
       return;
     }
+    const isOrrnnDemoLogin = normalizedBrokerId === ORRNN_DEMO_PUBLIC_BROKER_ID;
+    const numericDemoLogin = isOrrnnDemoLogin ? Number(normalizedAccountId) : null;
+    if (
+      isOrrnnDemoLogin &&
+      (!Number.isSafeInteger(numericDemoLogin) || Number(numericDemoLogin) <= 0)
+    ) {
+      setIsLoading(false);
+      setModalState({
+        visible: true,
+        type: 'error',
+        title: t('Error'),
+        message: t('Please enter a valid numeric demo account login.'),
+      });
+      return;
+    }
 
     loginRequestInFlightRef.current = true;
     const commitAuthorization = authorizeBrokerSessionCommit();
@@ -735,11 +800,20 @@ export function AccountLoginScreen() {
     let didStartSuccessNavigation = false;
     // Kick the POST before React loading-state re-render work so the network
     // RTT starts in this same touch turn.
-    const loginRequestPromise = loginAPI({
-      username: normalizedAccountId,
-      password: currentPassword,
-      broker_id: normalizedBrokerId,
-    }, { serverUrl: normalizedServerUrl, signal: loginAbortController.signal });
+    const loginRequestPromise = loginAPI(
+      isOrrnnDemoLogin
+        ? {
+            login: Number(numericDemoLogin),
+            password: currentPassword,
+            broker_id: ORRNN_DEMO_PUBLIC_BROKER_ID,
+          }
+        : {
+            username: normalizedAccountId,
+            password: currentPassword,
+            broker_id: normalizedBrokerId,
+          },
+      { serverUrl: normalizedServerUrl, signal: loginAbortController.signal },
+    );
     setIsLoading(true);
     recordAccountJournalEvent(`login requested for broker ${normalizedBrokerId}`, {
       accountLogin: normalizedAccountId,
@@ -877,7 +951,28 @@ export function AccountLoginScreen() {
         accountLogin: savedLogin,
       });
 
-      router.replace('/(tabs)/quotes');
+      const pendingTradeIntent = consumePendingTradeAuthIntent();
+      if (
+        pendingTradeIntent?.symbol &&
+        (
+          pendingTradeIntent.kind === 'order-ticket' ||
+          pendingTradeIntent.kind === 'market-order' ||
+          pendingTradeIntent.kind === 'pending-order'
+        )
+      ) {
+        router.replace({
+          pathname: '/trade/order-ticket',
+          params: {
+            symbol: pendingTradeIntent.symbol,
+            ...(pendingTradeIntent.side ? { side: pendingTradeIntent.side } : {}),
+            ...(pendingTradeIntent.origin ? { origin: pendingTradeIntent.origin } : {}),
+          },
+        });
+      } else if (pendingTradeIntent) {
+        router.replace('/(tabs)/trade');
+      } else {
+        router.replace('/(tabs)/quotes');
+      }
       didStartSuccessNavigation = true;
       schedulePostLoginWork(() => {
         // Record this account in the persistent directory and stash the master

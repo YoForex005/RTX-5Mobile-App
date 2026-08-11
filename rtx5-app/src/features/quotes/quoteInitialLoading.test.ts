@@ -97,5 +97,16 @@ test('QuotesScreen wires the skeleton to initial query loading and preserves rea
     source,
     /if \(!hasSetInitialSymbols\) \{[\s\S]*if \(!quoteCatalogActive\)[\s\S]*catalogIsLoading \|\| \(quoteWatchlistActive && watchlistIsLoading\)/,
   );
+  const publicSeedIndex = source.indexOf(
+    'if (isPublicDemoMarket && currentSymbols.length === 0)',
+  );
+  const catalogWaitIndex = source.indexOf(
+    'if (catalogIsLoading || (quoteWatchlistActive && watchlistIsLoading))',
+  );
+  assert.ok(publicSeedIndex >= 0 && publicSeedIndex < catalogWaitIndex);
+  assert.match(
+    source,
+    /if \(isPublicDemoMarket && currentSymbols\.length === 0\) \{[\s\S]*setQuoteSymbols\(\[\.\.\.DEFAULT_QUOTE_WATCHLIST\]\)/,
+  );
   assert.doesNotMatch(source, /isFetching: (catalog|watchlist)IsLoading/);
 });

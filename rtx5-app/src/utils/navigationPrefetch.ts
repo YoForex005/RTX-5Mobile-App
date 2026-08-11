@@ -22,9 +22,15 @@ import {
 import { getMarketStatusQueryKey } from '../query/marketStatus';
 import { INSTRUMENT_META_QUERY_VERSION } from '../query/instruments';
 import { candleKeys } from '../domain/candles/query/candles';
+import {
+  getOrrnnDemoPublicCandleQueryOptions,
+  resolveOrrnnDemoPublicCandleSelection,
+} from '../domain/candles/query/orrnnDemoPublicCandles';
 import { mergeHistoryIntoCandleCache } from '../domain/candles/state/candleCache';
 import { liveCandlesEngine } from '../api/ws/liveCandlesEngine';
 import { resolveChartSelectionHistoryWarmLimit } from '../market/chartHistoryWarmupPolicy';
+import { isOrrnnDemoPublicMarketSelection } from '../api/orrnnDemoPublicMarket';
+import { useUserPreferences } from '../state/userPreferences';
 
 export function prefetchAccountSummary(login?: string) {
   const capture = captureActiveBrokerSession();
@@ -88,6 +94,21 @@ export function prefetchChartCandles(symbol: string, timeframe: string) {
   }).catch(() => {});
 }
 
+/** Starts or joins anonymous REST history without attaching the live socket. */
+export function prefetchOrrnnDemoPublicCandles(
+  symbol: string,
+  timeframe: string,
+): Promise<number> {
+  const selection = resolveOrrnnDemoPublicCandleSelection(symbol, timeframe);
+  if (!selection) {
+    return Promise.resolve(0);
+  }
+
+  return appQueryClient.fetchQuery(
+    getOrrnnDemoPublicCandleQueryOptions(selection.symbol, selection.timeframe),
+  ).then((candles) => candles.length).catch(() => 0);
+}
+
 /**
  * Warms the exact chart history for an explicit symbol selection.
  *
@@ -102,9 +123,25 @@ export function prefetchChartSelectionHistory(symbol: string, timeframe: string)
   const requestedSymbol = symbol.trim();
   const normalizedSymbol = normalizeSymbol(requestedSymbol);
   const normalizedTimeframe = normalizeCandleHistoryTimeframeStrict(timeframe);
+  if (!requestedSymbol || !normalizedSymbol || !normalizedTimeframe) {
+    return Promise.resolve(0);
+  }
+
+  const preferences = useUserPreferences.getState();
+  if (isOrrnnDemoPublicMarketSelection({
+    brokerId: preferences.brokerId,
+    isLoggedIn: preferences.isLoggedIn,
+  })) {
+    // QueryClient owns the exact-key cache and in-flight request. The focused
+    // public candle hook uses these same options, so it can synchronously read
+    // a completed warm-up or join one still in progress without starting a
+    // hidden WebSocket subscription.
+    return prefetchOrrnnDemoPublicCandles(normalizedSymbol, normalizedTimeframe);
+  }
+
   const capture = captureActiveBrokerSession();
   const cacheNamespace = capture?.session.cacheNamespace ?? '';
-  if (!requestedSymbol || !normalizedSymbol || !normalizedTimeframe || !capture) {
+  if (!capture) {
     return Promise.resolve(0);
   }
 

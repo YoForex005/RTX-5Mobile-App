@@ -240,7 +240,7 @@ test('chart trade one-click and ticket paths keep heavy work out of the tap pain
   assert.match(ordersSource, /invalidateSessionQueryRoots\(queryClient, cacheNamespace, \[[\s\S]*'positions'/);
   assert.match(
     chartTradeHandlerSource,
-    /const chartTradeActionDisabled = resolveChartTradeActionDisabled\(\{[\s\S]*isCurrentChartSymbol,[\s\S]*oneClickAccepted,[\s\S]*quoteActionAllowed,[\s\S]*\}\);/,
+    /const isPublicDemoTradePrompt = useUserPreferences\([\s\S]*!state\.isLoggedIn[\s\S]*const chartTradeActionDisabled = isPublicDemoTradePrompt[\s\S]*\? false[\s\S]*: resolveChartTradeActionDisabled\(\{[\s\S]*isCurrentChartSymbol,[\s\S]*oneClickAccepted,[\s\S]*quoteActionAllowed,[\s\S]*\}\);/,
   );
   assert.doesNotMatch(openPathSource, /resolveSessionQuoteActionAvailability/);
   assert.match(
@@ -1079,8 +1079,8 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   assert.match(registerSource, /if \(registerPickerFocusSeenRef\.current !== isScreenFocused\) \{[\s\S]*registerPickerPressBlockedUntilRef\.current =\s*getRegisterInteractionNow\(\) \+ REGISTER_INITIAL_PICKER_PRESS_GUARD_MS;[\s\S]*\}/);
   assert.match(registerSource, /const isRegisterInitialPickerPressBlocked = React\.useCallback\(\(\) => \(\s*getRegisterInteractionNow\(\) < registerPickerPressBlockedUntilRef\.current\s*\), \[\]\)/);
   assert.doesNotMatch(registerSource, /registerPickerPressReady|setRegisterPickerPressReady/);
-  assert.match(registerSource, /const handleOpenCountryPicker = React\.useCallback\(\(\) => \{\s*if \(isRegisterInitialPickerPressBlocked\(\)\) \{\s*return;\s*\}[\s\S]*setCountryPickerOpen\(true\);/);
   assert.match(registerSource, /const handleOpenPhoneCountryPicker = React\.useCallback\(\(\) => \{\s*if \(isRegisterInitialPickerPressBlocked\(\)\) \{\s*return;\s*\}[\s\S]*setPhoneCountryPickerOpen\(true\);/);
+  assert.match(registerSource, /const handleOpenGroupPicker = React\.useCallback\(\(\) => \{\s*if \(isRegisterInitialPickerPressBlocked\(\)\) \{\s*return;\s*\}[\s\S]*setGroupPickerOpen\(true\);/);
   assert.match(registerSource, /onLayout=\{handleFieldLayout\('password'\)\}[\s\S]*journalActionLabel="pressed Register demo account button"/);
   assert.doesNotMatch(registerSource, /if \(!registerSecondaryContentReady\)|\{registerSecondaryContentReady \?/);
   assert.match(registerSource, /const \[mountedPickerHosts, setMountedPickerHosts\] = useState<Record<RegisterPickerHostKey, boolean>>/);
@@ -1089,12 +1089,13 @@ test('settings navigation surfaces keep heavyweight routes responsive on first t
   assert.match(registerSource, /useOrrnnDemoStatus\(registerDataActive\)/);
   assert.match(registerSource, /useOrrnnDemoGroups\(registerDataActive && isDemoServiceReady\)/);
   assert.match(registerSource, /useBrokerServers\(registerDataActive\)/);
-  assert.match(registerSource, /const countryPickerMounted = mountedPickerHosts\.country \|\| countryPickerOpen/);
-  assert.match(registerSource, /const leveragePickerMounted = mountedPickerHosts\.leverage \|\| leveragePickerOpen/);
-  assert.match(registerSource, /mountPickerHost\('country'\)/);
-  assert.match(registerSource, /mountPickerHost\('leverage'\)/);
-  assert.match(registerSource, /\{countryPickerMounted \? \([\s\S]*<ActionSheet[\s\S]*visible=\{countryPickerOpen\}/);
-  assert.match(registerSource, /\{leveragePickerMounted \? \([\s\S]*<ActionSheet[\s\S]*visible=\{leveragePickerOpen\}/);
+  assert.match(registerSource, /type RegisterPickerHostKey =[\s\S]*\| 'phoneCountry'[\s\S]*\| 'group'/);
+  assert.match(registerSource, /const phoneCountryPickerMounted = mountedPickerHosts\.phoneCountry \|\| phoneCountryPickerOpen/);
+  assert.match(registerSource, /const groupPickerMounted = mountedPickerHosts\.group \|\| groupPickerOpen/);
+  assert.match(registerSource, /mountPickerHost\('phoneCountry'\)/);
+  assert.match(registerSource, /mountPickerHost\('group'\)/);
+  assert.match(registerSource, /\{phoneCountryPickerMounted \? \([\s\S]*<ActionSheet[\s\S]*visible=\{phoneCountryPickerOpen\}/);
+  assert.match(registerSource, /\{groupPickerMounted \? \([\s\S]*<ActionSheet[\s\S]*visible=\{groupPickerOpen\}/);
   assert.doesNotMatch(registerSource, /REGISTER_ROUTE_CONTENT_DELAY_MS|RegisterScreenContent|routeShell|useDeferredRouteContentReady/);
   assert.doesNotMatch(settingsSource, /title=\{t\('Mailbox'\)\}[\s\S]*onPress=\{\(\) => openReadySettingsRoute\('\/settings\/mailbox'\)\}/);
   assert.doesNotMatch(settingsSource, /title=\{t\('News'\)\}[\s\S]*onPress=\{\(\) => openReadySettingsRoute\('\/settings\/news'\)\}/);

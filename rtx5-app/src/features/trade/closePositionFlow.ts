@@ -30,6 +30,7 @@ import {
   isActiveBrokerSessionProvenanceCurrent,
 } from '../../state/activeBrokerSession';
 import { invalidateSessionQueryRoots } from '../../query/authenticatedQueryScope';
+import { requestOrrnnDemoTradeAuth } from './tradeAuthPrompt';
 
 function isValidCloseTicket(value: unknown): value is string | number {
   return typeof value === 'number'
@@ -62,6 +63,13 @@ export function closePositionImmediately(
     resolvedLogin?: string | null;
   }>,
 ): void {
+  if (requestOrrnnDemoTradeAuth({
+    kind: 'position-action',
+    symbol: position.symbol,
+    action: 'close',
+  })) {
+    return;
+  }
   const quoteAvailability = resolveSessionQuoteActionAvailability(options.quote, Date.now());
   if (!quoteAvailability.allowed) {
     recordBlockedPriceAction('close_position_flow', quoteAvailability);

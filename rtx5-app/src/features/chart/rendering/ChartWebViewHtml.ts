@@ -3,6 +3,13 @@ import { RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS } from "../../../domain/candl
 import { ENHANCED_DRAWING_TOOLS_JS } from "../plugins/enhancedDrawingToolsString";
 import { CHART_AXIS_DIVIDER_STROKE_WIDTH, CHART_BEARISH_CANDLE_RENDER_OPACITY, CHART_CANDLE_RENDER_OPACITY, CHART_DEFAULT_VISIBLE_BAR_MAX, CHART_DEFAULT_VISIBLE_BAR_TARGET_PX, CHART_DEFAULT_VISIBLE_BAR_MIN, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_RESET_BAR_SPACING_MAX, CHART_DEFAULT_RESET_BAR_SPACING_MIN, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_DRAWING_MAGNET_THRESHOLD_PX, CHART_GRID_DASH_PATTERN, CHART_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET, CHART_GRID_HORIZONTAL_LINE_COUNT, CHART_GRID_HORIZONTAL_SPACING, CHART_GRID_STROKE_WIDTH, CHART_GRID_VERTICAL_SPACING, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE } from "../ChartScreen.constants";
 import { CHART_CANDLE_COUNTDOWN_FIXED_SECONDS } from "../chartCandleCountdown";
+import {
+  MT5_PRICE_SCALE_BOUND_OCTAVES,
+  MT5_PRICE_SCALE_MAX_DRAG_OCTAVES,
+  MT5_PRICE_SCALE_MIN_VISIBLE_TICK_INTERVALS,
+  MT5_PRICE_SCALE_OCTAVES_PER_PLOT,
+  MT5_PRICE_SCALE_GESTURE_WEBVIEW_JS,
+} from "../mt5PriceScaleGesture";
 
 export const CH_HTML = `
 <!DOCTYPE html>
@@ -32,7 +39,12 @@ export const CH_HTML = `
       }
       .rtx5-right-price-scale-fallback-axis {
         position: absolute;
-        pointer-events: none;
+        /* This is the visible price-axis surface, so let it own input before
+           Lightweight Charts or Android's parent scroller can cancel it. */
+        pointer-events: auto;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
         z-index: 0;
       }
       .rtx5-right-price-scale-fallback-label {
@@ -140,7 +152,12 @@ export const CH_HTML = `
       var seriesType = 'candles';
       var pendingTick = null;
       var tickFlushHandle = 0;
+      var tickFlushFallbackHandle = 0;
+      var LIVE_TICK_FLUSH_FALLBACK_MS = 64;
+      var LIVE_TICK_LINE_RETRY_LIMIT = 3;
       var lastAppliedLiveTickRevision = 0;
+      var lastAppliedChartDataPaintRevision = 0;
+      var lastAppliedChartDataPaintToken = '';
       var currentSeriesLength = 0;
       var lastDisplayDecimals = 2;
       var lastRawSeriesData = [];
@@ -179,6 +196,10 @@ export const CH_HTML = `
       var suppressChartTapUntil = 0;
       var lastPriceLineDirection = null; // 'up' | 'down' — last colour applied
       var overlayRefreshRaf = 0;
+      var marketPriceScaleDomRefreshRaf = 0;
+      var marketPriceScaleDomRefreshFallbackHandle = 0;
+      var marketPriceScaleDomPending = false;
+      var MARKET_PRICE_SCALE_DOM_FALLBACK_MS = 64;
       var overlayPriceScaleLockRaf = 0;
       var overlayPriceScaleLockForceAutoScale = false;
       var pendingHorizontalOverlayApply = false;
@@ -262,6 +283,7 @@ export const CH_HTML = `
       var chartAutoScaleEnabled = false;
       var manualVerticalPanRangeActive = false;
       var manualVerticalPanLockedRange = null;
+      var manualPriceScaleReferenceSpan = null;
       var manualVerticalPanPreserveUntil = 0;
       var freshSeriesVerticalCenterRaf = 0;
       var freshSeriesVerticalCenterActive = false;
@@ -297,6 +319,11 @@ export const CH_HTML = `
       var RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS = 7;
       var RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS = 30;
       var GESTURE_RIGHT_PRICE_SCALE_REFRESH_INTERVAL_MS = 16;
+      var MT5_PRICE_SCALE_OCTAVES_PER_PLOT = ${MT5_PRICE_SCALE_OCTAVES_PER_PLOT};
+      var MT5_PRICE_SCALE_BOUND_OCTAVES = ${MT5_PRICE_SCALE_BOUND_OCTAVES};
+      var MT5_PRICE_SCALE_MAX_DRAG_OCTAVES = ${MT5_PRICE_SCALE_MAX_DRAG_OCTAVES};
+      var MT5_PRICE_SCALE_MIN_VISIBLE_TICK_INTERVALS = ${MT5_PRICE_SCALE_MIN_VISIBLE_TICK_INTERVALS};
+      ${MT5_PRICE_SCALE_GESTURE_WEBVIEW_JS}
       // Target vertical gap between price labels. The scale now spans the full
       // pane height, so the old 32px target packed labels ~37px apart (cramped).
       // 60px lands the spacing on the next coarser "nice" step (~60-74px),
@@ -3476,23 +3503,22 @@ export const CH_HTML = `
 
       function healCollapsedPriceScaleRange(reason, allowManualReset) {
         try {
+          void allowManualReset;
           if (activeTradeLineDrag) {
             return;
           }
           if (!isRightPriceScaleLayoutHealthy()) {
             recoverRightPriceScaleLayout(reason || 'price_scale_health');
           }
-          if (verticalPricePanGestureActive || isManualVerticalPanRangePreserved()) {
-            return;
-          }
-          if (isManualVerticalPanRangeLocked()) {
-            if (allowManualReset === true && shouldResetManualVerticalPanForHealth(reason)) {
-              clearManualVerticalPanRange();
-            } else {
-              return;
-            }
-          }
-          if (manualPriceScaleRangeActive && allowManualReset !== true) {
+          // Automatic health checks may repair an unowned/collapsed axis, but
+          // they must never pull an MT5-style user-owned window back to live
+          // candles. Only an explicit reset or Auto-scale preference can clear it.
+          if (
+            verticalPricePanGestureActive ||
+            isManualVerticalPanRangePreserved() ||
+            isManualVerticalPanRangeLocked() ||
+            manualPriceScaleRangeActive
+          ) {
             return;
           }
           var priceScaleApi = getRightPriceScaleApi();
@@ -3586,7 +3612,8 @@ export const CH_HTML = `
           verticalPricePanGestureActive ||
           isHorizontalScrollMotionActive() ||
           isManualVerticalPanRangePreserved() ||
-          isManualVerticalPanRangeLocked()
+          isManualVerticalPanRangeLocked() ||
+          manualPriceScaleRangeActive
         ) {
           return;
         }
@@ -3639,6 +3666,7 @@ export const CH_HTML = `
         }
         manualVerticalPanRangeActive = false;
         manualVerticalPanLockedRange = null;
+        manualPriceScaleReferenceSpan = null;
         manualVerticalPanPreserveUntil = 0;
         syntheticRightPriceScaleFallbackRange = null;
       }
@@ -3729,18 +3757,6 @@ export const CH_HTML = `
         return manualVerticalPanRangeActive && isValidPriceRange(manualVerticalPanLockedRange);
       }
 
-      function shouldResetManualVerticalPanForHealth(reason) {
-        // Overlay updates fire on every live tick, so they must not count as
-        // a reset trigger — otherwise a user-owned vertical pan is destroyed
-        // ~1s after finger-up on any live symbol. Only genuine series
-        // replacement / recovery may drop the manual range.
-        return (
-          reason === 'update_data_replace_series' ||
-          reason === 'recover_data' ||
-          reason === 'recover_surface'
-        );
-      }
-
       function applyManualVerticalPanLockedRange() {
         var lockedRange = normalizePriceRange(manualVerticalPanLockedRange);
         if (!lockedRange) {
@@ -3752,7 +3768,10 @@ export const CH_HTML = `
           return false;
         }
         manualPriceScaleRangeActive = true;
-        syntheticRightPriceScaleFallbackRange = lockedRange;
+        // The logical range excludes Lightweight Charts' configured scale
+        // margins. Let coordinateToPrice() derive the full rendered axis range
+        // instead of publishing the narrower logical range as fallback labels.
+        syntheticRightPriceScaleFallbackRange = null;
         try {
           if (typeof priceScaleApi.setAutoScale === 'function') {
             priceScaleApi.setAutoScale(false);
@@ -3765,6 +3784,29 @@ export const CH_HTML = `
         }
         scheduleGestureRightPriceScaleFallbackRefresh();
         scheduleOverlayDomRefresh();
+        return true;
+      }
+
+      function restoreManualPriceScale(snapshot) {
+        var restoredRange = normalizePriceRange(snapshot);
+        if (!restoredRange) {
+          return false;
+        }
+        var restoredReferenceSpan =
+          snapshot &&
+          typeof snapshot.referenceSpan === 'number' &&
+          isFinite(snapshot.referenceSpan) &&
+          snapshot.referenceSpan > 0
+            ? snapshot.referenceSpan
+            : restoredRange.to - restoredRange.from;
+        clearFreshSeriesVerticalCenterState();
+        manualPriceScaleReferenceSpan = restoredReferenceSpan;
+        rememberManualVerticalPanRange(restoredRange);
+        syntheticRightPriceScaleFallbackRange = null;
+        if (chart) {
+          applyManualVerticalPanLockedRange();
+          postChartGeometry();
+        }
         return true;
       }
 
@@ -3816,11 +3858,10 @@ export const CH_HTML = `
         visibleRangeIdlePendingAfterGesture = false;
       }
 
-      function ensureRightPriceAutoScaleForHorizontalPan() {
-        if (!manualPriceScaleRangeActive && !isManualVerticalPanRangeLocked()) {
-          return;
+      function preserveManualPriceScaleForHorizontalPan() {
+        if (isManualVerticalPanRangeLocked()) {
+          applyManualVerticalPanLockedRange();
         }
-        enableRightPriceAutoScale();
       }
 
       function healVisiblePriceScaleDuringActiveScroll(reason) {
@@ -4022,6 +4063,17 @@ export const CH_HTML = `
         try {
           var metrics = resolvePrimaryPaneMetrics();
           var visiblePriceRange = resolveRightPriceScaleFallbackRange();
+          var manualPriceRange = isManualVerticalPanRangeLocked()
+            ? normalizePriceRange(manualVerticalPanLockedRange)
+            : null;
+          var manualReferenceSpan =
+            typeof manualPriceScaleReferenceSpan === 'number' &&
+            isFinite(manualPriceScaleReferenceSpan) &&
+            manualPriceScaleReferenceSpan > 0
+              ? manualPriceScaleReferenceSpan
+              : (isValidPriceRange(manualPriceRange)
+                ? manualPriceRange.to - manualPriceRange.from
+                : null);
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'CHART_GEOMETRY',
             dataContextSig: lastInitDataContextSig || '',
@@ -4033,6 +4085,13 @@ export const CH_HTML = `
             },
             priceRange: isValidPriceRange(visiblePriceRange)
               ? { from: visiblePriceRange.from, to: visiblePriceRange.to }
+              : null,
+            manualPriceScale: isValidPriceRange(manualPriceRange)
+              ? {
+                from: manualPriceRange.from,
+                to: manualPriceRange.to,
+                referenceSpan: manualReferenceSpan,
+              }
               : null,
           }));
           scheduleMovingVerticalGridUpdate();
@@ -4168,6 +4227,9 @@ export const CH_HTML = `
           try { cancelAnimationFrame(overlayRefreshRaf); } catch (_e) {}
           overlayRefreshRaf = 0;
         }
+        // Gesture deferral cancels scheduled DOM writes, but leaves the latest
+        // market-price request pending for the settle pass.
+        cancelMarketPriceScaleDomRefreshSchedule();
       }
 
       function deferHorizontalGestureDomWork() {
@@ -4226,6 +4288,9 @@ export const CH_HTML = `
       }
 
       function scheduleOverlayDomRefresh() {
+        // Full overlay work also settles any exact Bid badge deferred by a
+        // gesture or a stranded animation frame.
+        scheduleMarketPriceScaleDomOnly();
         if (isHorizontalScrollMotionActive()) {
           deferHorizontalGestureDomWork();
           return;
@@ -4482,7 +4547,10 @@ export const CH_HTML = `
         var vertPanGlide = null; // { v, lastAt, pricePerPixel, range, raf }
         var vertPanPending = null; // { startX, startY } - waiting for threshold
         var rightPriceScaleGestureActive = false;
+        var rightPriceScaleGestureState = null; // { startX, startY, startRange, latestRange, anchorRatio, referenceSpan, plotHeight, minMove, moved, pointerId, previousTouchAction }
+        var RIGHT_PRICE_SCALE_DRAG_THRESHOLD_PX = 3;
         var lastCompletedChartTap = null;
+        var lastCompletedRightPriceScaleTap = null;
         var CHART_DOUBLE_TAP_MAX_DELAY_MS = 350;
         var CHART_DOUBLE_TAP_MAX_DISTANCE_PX = 24;
 
@@ -4520,18 +4588,55 @@ export const CH_HTML = `
           return isDoubleTap;
         };
 
+        var clearCompletedRightPriceScaleTap = function() {
+          lastCompletedRightPriceScaleTap = null;
+        };
+
+        var consumeCompletedRightPriceScaleTap = function(point, completedAt) {
+          if (
+            !point ||
+            typeof point.x !== 'number' ||
+            typeof point.y !== 'number' ||
+            !isFinite(point.x) ||
+            !isFinite(point.y) ||
+            typeof completedAt !== 'number' ||
+            !isFinite(completedAt)
+          ) {
+            clearCompletedRightPriceScaleTap();
+            return false;
+          }
+          var previousTap = lastCompletedRightPriceScaleTap;
+          var elapsed = previousTap ? completedAt - previousTap.at : Infinity;
+          var dx = previousTap ? point.x - previousTap.x : Infinity;
+          var dy = previousTap ? point.y - previousTap.y : Infinity;
+          var maxDistanceSquared =
+            CHART_DOUBLE_TAP_MAX_DISTANCE_PX * CHART_DOUBLE_TAP_MAX_DISTANCE_PX;
+          var isDoubleTap =
+            !!previousTap &&
+            elapsed >= 0 &&
+            elapsed <= CHART_DOUBLE_TAP_MAX_DELAY_MS &&
+            dx * dx + dy * dy <= maxDistanceSquared;
+          lastCompletedRightPriceScaleTap = isDoubleTap
+            ? null
+            : { x: point.x, y: point.y, at: completedAt };
+          return isDoubleTap;
+        };
+
         var isRightPriceScaleGesturePoint = function(clientX, clientY) {
           var point = getRelativePoint(clientX, clientY);
           if (!point) return false;
-          var metrics = resolvePrimaryPaneMetrics();
-          var chartWidth = Math.max(0, metrics.chartWidth || el.clientWidth || 0);
-          var paneWidth = Math.max(0, metrics.paneWidth || 0);
-          var leftAxisWidth = Math.max(0, metrics.leftAxisWidth || 0);
-          var axisWidth = Math.max(
-            ${CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH},
-            Math.round(metrics.rightAxisWidth || 0)
-          );
-          var axisLeft = Math.max(0, Math.min(chartWidth, leftAxisWidth + paneWidth));
+          // The owned/custom price labels span the full pane, including the
+          // visual area reserved below candles for move bars.
+          var metrics = resolveFallbackPlotMetrics();
+          // Use the exact same fallback geometry that paints the visible axis.
+          // On Android Lightweight Charts can report rightAxisWidth=0 while
+          // RTX5 still renders its owned 62px strip at the right edge. Using
+          // leftAxisWidth + paneWidth in that state places the hit target at
+          // chartWidth (offscreen), so every visible axis swipe is missed.
+          var axisMetrics = resolveRightPriceScaleFallbackAxisMetrics(metrics);
+          var chartWidth = Math.max(0, axisMetrics.chartWidth || el.clientWidth || 0);
+          var axisLeft = Math.max(0, Math.min(chartWidth, axisMetrics.axisLeft || 0));
+          var axisWidth = Math.max(0, Math.round(axisMetrics.axisWidth || 0));
           var axisRight = Math.min(chartWidth, axisLeft + axisWidth);
           var plotTop = Math.max(0, Math.round(metrics.plotTop || 0));
           var plotBottom = Math.max(
@@ -4539,6 +4644,99 @@ export const CH_HTML = `
             Math.round(plotTop + (metrics.plotHeight || metrics.paneHeight || el.clientHeight || 0))
           );
           return point.x >= axisLeft - 6 && point.x <= axisRight + 4 && point.y >= plotTop && point.y <= plotBottom;
+        };
+
+        var beginRightPriceScaleGesture = function(event, clientX, clientY) {
+          if (isVerticalChartMovementBlocked()) return false;
+          var relativePoint = getRelativePoint(clientX, clientY);
+          if (!relativePoint) return false;
+          var range = normalizePriceRange(resolveVerticalPanStartPriceRange());
+          if (!range) return false;
+          var startSpan = range.to - range.from;
+          if (!(startSpan > 0)) return false;
+          var metrics = resolveFallbackPlotMetrics();
+          var plotTop = Math.max(0, Number(metrics.plotTop) || 0);
+          var plotHeight = Math.max(1, Number(metrics.plotHeight || metrics.paneHeight) || 0);
+          var precision =
+            typeof lastDisplayDecimals === 'number' && isFinite(lastDisplayDecimals)
+              ? Math.max(0, Math.min(10, Math.round(lastDisplayDecimals)))
+              : 2;
+          var minMove = 1 / Math.pow(10, precision);
+          var referenceSpan =
+            typeof manualPriceScaleReferenceSpan === 'number' && manualPriceScaleReferenceSpan > 0
+              ? manualPriceScaleReferenceSpan
+              : startSpan;
+          // The owned axis interpolates a height-derived number of labels over
+          // the full coordinate range. Project that rendered range back into
+          // Lightweight Charts' logical range so maximum zoom is exactly one
+          // displayed decimal unit between every neighboring label. This also
+          // accounts for candle/volume scale margins and short/tall panes.
+          var coordinateRange = normalizePriceRange(resolveRightPriceScaleCoordinateRange());
+          var coordinateSpan = coordinateRange ? coordinateRange.to - coordinateRange.from : 0;
+          var fallbackLabelIntervals = Math.max(
+            1,
+            resolveRightPriceScaleFallbackLabelCount(metrics) - 1
+          );
+          var priceScaleProjection =
+            coordinateSpan > 0 && startSpan > 0 ? coordinateSpan / startSpan : 0;
+          var minimumSpan =
+            priceScaleProjection > 0 && isFinite(priceScaleProjection)
+              ? (minMove * fallbackLabelIntervals) / priceScaleProjection
+              : minMove * MT5_PRICE_SCALE_MIN_VISIBLE_TICK_INTERVALS;
+          var anchorPrice =
+            series && typeof series.coordinateToPrice === 'function'
+              ? series.coordinateToPrice(relativePoint.y)
+              : null;
+          var anchorRatio =
+            typeof anchorPrice === 'number' && isFinite(anchorPrice)
+              ? (range.to - anchorPrice) / startSpan
+              : (relativePoint.y - plotTop) / plotHeight;
+
+          clearFreshSeriesVerticalCenterState();
+          clearCompletedChartTap();
+          if (overlayPriceScaleLockRaf) {
+            cancelAnimationFrame(overlayPriceScaleLockRaf);
+            overlayPriceScaleLockRaf = 0;
+          }
+          overlayPriceScaleLockForceAutoScale = false;
+          if (priceScaleHealthRaf) {
+            cancelAnimationFrame(priceScaleHealthRaf);
+            priceScaleHealthRaf = 0;
+          }
+          var capturedPointerId = null;
+          if (
+            event &&
+            typeof event.pointerId === 'number' &&
+            typeof el.setPointerCapture === 'function'
+          ) {
+            try {
+              el.setPointerCapture(event.pointerId);
+              capturedPointerId = event.pointerId;
+            } catch (_captureErr) {}
+          }
+          var previousTouchAction = el.style.touchAction;
+          el.style.touchAction = 'none';
+          rightPriceScaleGestureState = {
+            startX: clientX,
+            startY: clientY,
+            startRange: { from: range.from, to: range.to },
+            latestRange: { from: range.from, to: range.to },
+            anchorRatio: anchorRatio,
+            minMove: minMove,
+            minimumSpan: minimumSpan,
+            plotHeight: plotHeight,
+            referenceSpan: referenceSpan,
+            moved: false,
+            pointerId: capturedPointerId,
+            previousTouchAction: previousTouchAction,
+          };
+          rightPriceScaleGestureActive = true;
+          verticalPricePanGestureActive = true;
+          pendingPointerTap = null;
+          vertPanState = null;
+          vertPanPending = null;
+          deferVerticalGestureDomWork();
+          return true;
         };
 
         var beginVerticalPan = function(clientY) {
@@ -4600,13 +4798,48 @@ export const CH_HTML = `
           if (!isValidPriceRange(nextRange)) return false;
           var priceScaleApi = getRightPriceScaleApi();
           if (!priceScaleApi || typeof priceScaleApi.setVisibleRange !== 'function') return false;
-          syntheticRightPriceScaleFallbackRange = nextRange;
+          syntheticRightPriceScaleFallbackRange = null;
           rememberManualVerticalPanRange(nextRange);
+          if (typeof priceScaleApi.setAutoScale === 'function') {
+            try { priceScaleApi.setAutoScale(false); } catch (_autoScaleErr) {}
+          }
           priceScaleApi.setVisibleRange(nextRange);
           // MT5 parity: the price line moves with the visible range, and its
           // label/right-axis price box must follow during the active drag.
           refreshVerticalGestureOverlayPositions();
           return true;
+        };
+
+        var applyRightPriceScaleGestureAt = function(clientY) {
+          var state = rightPriceScaleGestureState;
+          if (!state || typeof clientY !== 'number' || !isFinite(clientY)) return false;
+          var deltaY = clientY - state.startY;
+          if (!state.moved && Math.abs(deltaY) < RIGHT_PRICE_SCALE_DRAG_THRESHOLD_PX) {
+            return false;
+          }
+          if (!(typeof manualPriceScaleReferenceSpan === 'number' && manualPriceScaleReferenceSpan > 0)) {
+            manualPriceScaleReferenceSpan = state.referenceSpan;
+          }
+          clearCompletedRightPriceScaleTap();
+          var nextRange = resolveMt5PriceScaleDragRange({
+            startFrom: state.startRange.from,
+            startTo: state.startRange.to,
+            referenceSpan: state.referenceSpan,
+            anchorRatio: state.anchorRatio,
+            deltaY: deltaY,
+            plotHeight: state.plotHeight,
+            minMove: state.minMove,
+            minimumSpan: state.minimumSpan,
+            octavesPerPlot: MT5_PRICE_SCALE_OCTAVES_PER_PLOT,
+            boundOctaves: MT5_PRICE_SCALE_BOUND_OCTAVES,
+            maxDragOctaves: MT5_PRICE_SCALE_MAX_DRAG_OCTAVES,
+            minVisibleTickIntervals: MT5_PRICE_SCALE_MIN_VISIBLE_TICK_INTERVALS,
+          });
+          if (!nextRange || !isValidPriceRange(nextRange)) return false;
+          state.moved = true;
+          state.latestRange = { from: nextRange.from, to: nextRange.to };
+          suppressChartTapAfterScale();
+          return renderVerticalPanRange(state.latestRange);
         };
 
         var applyVerticalPanAt = function(clientY) {
@@ -4793,21 +5026,48 @@ export const CH_HTML = `
           }
         };
 
-        var finishRightPriceScaleGesture = function() {
+        var finishRightPriceScaleGesture = function(cancelled) {
           if (!rightPriceScaleGestureActive) {
             return false;
           }
-          var finalRange = resolveVerticalPanStartPriceRange();
+          var gestureState = rightPriceScaleGestureState;
+          var finalRange =
+            gestureState && gestureState.moved && isValidPriceRange(gestureState.latestRange)
+              ? normalizePriceRange(gestureState.latestRange)
+              : null;
+          if (
+            gestureState &&
+            gestureState.pointerId !== null &&
+            gestureState.pointerId !== undefined &&
+            typeof el.releasePointerCapture === 'function'
+          ) {
+            try { el.releasePointerCapture(gestureState.pointerId); } catch (_releaseErr) {}
+          }
+          el.style.touchAction =
+            gestureState && typeof gestureState.previousTouchAction === 'string'
+              ? gestureState.previousTouchAction
+              : '';
           rightPriceScaleGestureActive = false;
+          rightPriceScaleGestureState = null;
           verticalPricePanGestureActive = false;
           if (isValidPriceRange(finalRange)) {
-            finalRange = normalizePriceRange(finalRange);
+            clearCompletedRightPriceScaleTap();
             rememberManualVerticalPanRange(finalRange);
             syntheticRightPriceScaleFallbackRange = {
               from: finalRange.from,
               to: finalRange.to,
             };
             applyManualVerticalPanLockedRange();
+          } else if (
+            cancelled !== true &&
+            gestureState &&
+            consumeCompletedRightPriceScaleTap(
+              { x: gestureState.startX, y: gestureState.startY },
+              Date.now()
+            )
+          ) {
+            suppressNextChartClickUntil = Date.now() + 350;
+            resetChartVerticalScale();
           }
           settleVerticalPriceGestureDomWork();
           return true;
@@ -4821,8 +5081,23 @@ export const CH_HTML = `
           // chart builds still respond to. Without both, a previous pinch
           // can leave the visible price range stuck at a 50,000-point
           // span, squashing all candles into a thin horizontal line.
+          clearManualPriceScaleState();
           enableRightPriceAutoScale();
           scheduleOverlayDomRefresh();
+          postChartGeometry();
+        };
+
+        var settlePinchPriceScale = function() {
+          // Pinch owns the time scale, not an already user-owned vertical
+          // window. Reassert that window after the library's pinch handler;
+          // only an explicit reset/double-tap or Auto-scale may clear it.
+          if (isManualVerticalPanRangeLocked()) {
+            applyManualVerticalPanLockedRange();
+            scheduleOverlayDomRefresh();
+            postChartGeometry();
+            return;
+          }
+          resetAutoScale();
         };
 
         var captureTradeLineDragPriceScaleLock = function() {
@@ -4837,7 +5112,6 @@ export const CH_HTML = `
           if (!isValidPriceRange(lock)) {
             return null;
           }
-          manualPriceScaleRangeActive = true;
           if (typeof priceScaleApi.setAutoScale === 'function') {
             try { priceScaleApi.setAutoScale(false); } catch (_e1) {}
           }
@@ -4902,6 +5176,15 @@ export const CH_HTML = `
           var startPoint = startPointFromEvent
             ? getTradeLineDragPoint(startPointFromEvent.x, startPointFromEvent.y)
             : null;
+          var manualRangeBeforeDrag = isManualVerticalPanRangeLocked()
+            ? normalizePriceRange(manualVerticalPanLockedRange)
+            : null;
+          var manualReferenceSpanBeforeDrag =
+            typeof manualPriceScaleReferenceSpan === 'number' &&
+            isFinite(manualPriceScaleReferenceSpan) &&
+            manualPriceScaleReferenceSpan > 0
+              ? manualPriceScaleReferenceSpan
+              : null;
           activeTradeLineDrag = {
             dragKey: hit.dragKey,
             lastPrice: typeof startPrice === 'number' && isFinite(startPrice) ? startPrice : hit.price,
@@ -4910,6 +5193,8 @@ export const CH_HTML = `
             pointerId: capturedPointerId,
             prevTouchAction: prevTouchAction,
             priceScaleRangeLock: captureTradeLineDragPriceScaleLock(),
+            manualRangeBeforeDrag: manualRangeBeforeDrag,
+            manualReferenceSpanBeforeDrag: manualReferenceSpanBeforeDrag,
           };
           prepareTradeLineMagnifierSources();
           suspendChartTouchInteractions();
@@ -5001,6 +5286,17 @@ export const CH_HTML = `
 
           cancelChartTradeLineDragMove();
           keepTradeLineDragPriceScaleLocked(drag.priceScaleRangeLock);
+          if (isValidPriceRange(drag.manualRangeBeforeDrag)) {
+            rememberManualVerticalPanRange(drag.manualRangeBeforeDrag);
+            manualPriceScaleReferenceSpan = drag.manualReferenceSpanBeforeDrag ||
+              (drag.manualRangeBeforeDrag.to - drag.manualRangeBeforeDrag.from);
+            applyManualVerticalPanLockedRange();
+          } else {
+            // The line drag temporarily disabled autoscale only to keep price
+            // conversion stable. It must not manufacture persistent manual
+            // ownership on an otherwise auto-owned chart.
+            enableRightPriceAutoScale();
+          }
           postChartTradeLineDrag('end', drag.dragKey, roundOverlayDragPrice(drag.lastPrice) || drag.lastPrice);
           pendingPointerTap = null;
           scheduleTradeLineDragDomRefresh();
@@ -5022,17 +5318,15 @@ export const CH_HTML = `
           }
           activeHorizontalScrollGesture = false;
           activeHorizontalScrollGestureUntil = 0;
-          rightPriceScaleGestureActive = false;
+          if (rightPriceScaleGestureActive) {
+            finishRightPriceScaleGesture(true);
+          }
           if (isScaleGestureEvent(event)) {
             horizontalScrollMotionActive = false;
             chartScaleGestureActive = true;
             clearCompletedChartTap();
+            clearCompletedRightPriceScaleTap();
             suppressChartTapAfterScale();
-            return;
-          }
-          var tradeLineHit = resolveTradeLineDragHitFromEvent(event);
-          if (beginTradeLineDragFromHit(event, tradeLineHit)) {
-            clearCompletedChartTap();
             return;
           }
           var point = getClientPoint(event);
@@ -5044,15 +5338,17 @@ export const CH_HTML = `
               stopChartEvent(event);
               return;
             }
-            clearFreshSeriesVerticalCenterState();
-            rightPriceScaleGestureActive = true;
-            verticalPricePanGestureActive = true;
-            manualPriceScaleRangeActive = true;
+            if (beginRightPriceScaleGesture(event, point.x, point.y)) {
+              stopChartEvent(event);
+            }
+            return;
+          }
+          // Axis ownership is resolved before the Y-only trade-line hit test;
+          // an SL/TP crossing the same row must not steal a price-axis drag.
+          clearCompletedRightPriceScaleTap();
+          var tradeLineHit = resolveTradeLineDragHitFromEvent(event);
+          if (beginTradeLineDragFromHit(event, tradeLineHit)) {
             clearCompletedChartTap();
-            pendingPointerTap = null;
-            vertPanState = null;
-            vertPanPending = null;
-            deferVerticalGestureDomWork();
             return;
           }
           var now = Date.now();
@@ -5083,8 +5379,13 @@ export const CH_HTML = `
             return;
           }
           if (rightPriceScaleGestureActive) {
-            manualPriceScaleRangeActive = true;
-            deferVerticalGestureDomWork();
+            var rightScalePoint = getClientPoint(event);
+            if (!rightScalePoint || !applyRightPriceScaleGestureAt(rightScalePoint.y)) {
+              deferVerticalGestureDomWork();
+            }
+            // The custom MT5-style axis owns the whole gesture, including the
+            // few threshold pixels before scaling begins.
+            stopChartEvent(event);
             return;
           }
           if (activeHorizontalScrollGesture) {
@@ -5120,14 +5421,11 @@ export const CH_HTML = `
               }
             } else if (dx > VERT_PAN_THRESHOLD && dx > dy * 1.2) {
               // Committed to a HORIZONTAL pan / scroll. Lightweight-charts
-              // handles the actual horizontal scroll itself, but we need
-              // to make sure the price scale's autoScale is ON — otherwise
-              // a previously-disabled autoScale (from a prior vertical
-              // pan, pinch, or chart bootstrap lock) leaves new bars at
-              // different prices squashed at the edge of the viewport
-              // when the user scrolls left to view older data.
+              // handles the actual time movement. Keep a user-owned vertical
+              // window fixed; the guarded idle health pass may fit visible
+              // bars only when no manual price-scale ownership exists.
               try {
-                ensureRightPriceAutoScaleForHorizontalPan();
+                preserveManualPriceScaleForHorizontalPan();
               } catch (_e) {}
               clearCompletedChartTap();
               markHorizontalScrollGestureActive();
@@ -5162,7 +5460,8 @@ export const CH_HTML = `
             return;
           }
           releasePointer(event);
-          if (finishRightPriceScaleGesture()) {
+          if (finishRightPriceScaleGesture(false)) {
+            stopChartEvent(event);
             if (activePointerCount <= 0) {
               chartScaleGestureActive = false;
               postChartTouchState(false);
@@ -5182,13 +5481,10 @@ export const CH_HTML = `
             suppressChartTapAfterScale();
             if (activePointerCount <= 0) {
               // Pinch / multi-touch gesture has fully ended. Lightweight-
-              // charts' built-in pinch handler disables price-scale
-              // autoScale and can leave the visible price range expanded
-              // far past the actual data (the "pinch-out and the candles
-              // become a thin line floating in a 50,000-point empty
-              // range" bug). Re-enable autoScale so the price axis snaps
-              // back to fit the data after every pinch.
-              resetAutoScale();
+              // charts' built-in pinch handler can disturb the price scale.
+              // Restore a user-owned manual window; otherwise return the
+              // unowned scale to a healthy auto-fit.
+              settlePinchPriceScale();
               gestureHadMultitouch = false;
               chartScaleGestureActive = false;
               postChartTouchState(false);
@@ -5245,10 +5541,11 @@ export const CH_HTML = `
             return;
           }
           releasePointer(event);
-          if (finishRightPriceScaleGesture()) {
+          if (finishRightPriceScaleGesture(true)) {
+            stopChartEvent(event);
             if (activePointerCount <= 0) {
               if (gestureHadMultitouch) {
-                resetAutoScale();
+                settlePinchPriceScale();
               }
               gestureHadMultitouch = false;
               chartScaleGestureActive = false;
@@ -5260,7 +5557,7 @@ export const CH_HTML = `
             endVerticalPan();
             if (activePointerCount <= 0) {
               if (gestureHadMultitouch) {
-                resetAutoScale();
+                settlePinchPriceScale();
               }
               gestureHadMultitouch = false;
               chartScaleGestureActive = false;
@@ -5271,10 +5568,10 @@ export const CH_HTML = `
           finishHorizontalScrollGesture();
           if (Date.now() <= suppressChartTapUntil) {
             if (activePointerCount <= 0) {
-              // Same auto-scale snap-back when a pinch is cancelled —
-              // see onPointerUp for the full rationale.
+              // Same manual-window restore / unowned auto-fit when a pinch
+              // is cancelled — see onPointerUp for the full rationale.
               if (gestureHadMultitouch) {
-                resetAutoScale();
+                settlePinchPriceScale();
               }
               gestureHadMultitouch = false;
               chartScaleGestureActive = false;
@@ -5285,7 +5582,7 @@ export const CH_HTML = `
           vertPanPending = null;
           pendingPointerTap = null;
           if (gestureHadMultitouch) {
-            resetAutoScale();
+            settlePinchPriceScale();
           }
           gestureHadMultitouch = false;
           chartScaleGestureActive = false;
@@ -5308,6 +5605,14 @@ export const CH_HTML = `
         var onWindowPointerMove = function(event) {
           if (activeTradeLineDrag) {
             continueTradeLineDrag(event);
+            return;
+          }
+          if (rightPriceScaleGestureActive) {
+            var rightScalePoint = getClientPoint(event);
+            if (!rightScalePoint || !applyRightPriceScaleGestureAt(rightScalePoint.y)) {
+              deferVerticalGestureDomWork();
+            }
+            stopChartEvent(event);
           }
         };
 
@@ -5320,8 +5625,9 @@ export const CH_HTML = `
             }
             return;
           }
-          if (finishRightPriceScaleGesture()) {
+          if (finishRightPriceScaleGesture(false)) {
             releasePointer(event);
+            stopChartEvent(event);
             if (activePointerCount <= 0) {
               gestureHadMultitouch = false;
               postChartTouchState(false);
@@ -5338,11 +5644,12 @@ export const CH_HTML = `
             }
             return;
           }
-          if (finishRightPriceScaleGesture()) {
+          if (finishRightPriceScaleGesture(true)) {
             releasePointer(event);
+            stopChartEvent(event);
             if (activePointerCount <= 0) {
               if (gestureHadMultitouch) {
-                resetAutoScale();
+                settlePinchPriceScale();
               }
               gestureHadMultitouch = false;
               postChartTouchState(false);
@@ -5398,12 +5705,14 @@ export const CH_HTML = `
           gestureHadMultitouch = false;
           chartScaleGestureActive = false;
           clearCompletedChartTap();
+          clearCompletedRightPriceScaleTap();
           activeHorizontalScrollGesture = false;
           horizontalScrollMotionActive = false;
           activeHorizontalScrollGestureUntil = 0;
           verticalPricePanGestureActive = false;
           syntheticRightPriceScaleFallbackRange = null;
           rightPriceScaleGestureActive = false;
+          rightPriceScaleGestureState = null;
           activeTradeLineDrag = null;
           hideTradeLineMagnifier();
           discardTradeLineMagnifierSources();
@@ -5793,6 +6102,7 @@ export const CH_HTML = `
       window.__rtx5ResetPriceScale = function() {
         resetChartVerticalScale();
       };
+      window.__rtx5RestoreManualPriceScale = restoreManualPriceScale;
 
       function makePriceFormat(displayDecimals) {
         var decimals = (typeof displayDecimals === 'number' && displayDecimals >= 0) ? displayDecimals : 2;
@@ -5819,6 +6129,9 @@ export const CH_HTML = `
             try { moveBarsSeries.applyOptions({ priceFormat: priceFormat }); } catch (_moveFormatErr) {}
           }
           ensureMoveBarsSeries(decimals);
+          if (isManualVerticalPanRangeLocked()) {
+            applyManualVerticalPanLockedRange();
+          }
           refreshMarketPriceScaleDom();
           refreshOverlayDomLabelsWhenIdle(_overlayPayload);
         } catch (e) {
@@ -6173,6 +6486,10 @@ export const CH_HTML = `
         var resolvedInitSignature = typeof initSignature === 'string' ? initSignature : '';
         var resolvedConfigSig = typeof configSig === 'string' ? configSig : '';
         var resolvedDataContextSig = typeof dataContextSig === 'string' ? dataContextSig : '';
+        var isNewDataContext =
+          !!lastInitDataContextSig &&
+          !!resolvedDataContextSig &&
+          lastInitDataContextSig !== resolvedDataContextSig;
         var el = document.getElementById('chart');
         var viewportSize = resolveChartViewportSize();
         var w = viewportSize.width;
@@ -6230,9 +6547,25 @@ export const CH_HTML = `
           try { window._drawingManager.remove(); } catch (_e) {}
           window._drawingManager = null;
         }
+        // A rebuild replaces the Lightweight Charts instance, but it is not a
+        // user request to reset the vertical axis. Retain the exact numeric
+        // MT5-style window (and its original zoom envelope) across that swap.
+        var retainedManualPriceScaleRange = isManualVerticalPanRangeLocked()
+          ? normalizePriceRange(manualVerticalPanLockedRange)
+          : null;
+        var retainedManualPriceScaleReferenceSpan =
+          typeof manualPriceScaleReferenceSpan === 'number' &&
+          isFinite(manualPriceScaleReferenceSpan) &&
+          manualPriceScaleReferenceSpan > 0
+            ? manualPriceScaleReferenceSpan
+            : null;
         chartTouchInteractionSuspendDepth = 0;
         lastPostedChartTouchActive = false;
         clearManualPriceScaleState();
+        if (isValidPriceRange(retainedManualPriceScaleRange)) {
+          manualPriceScaleReferenceSpan = retainedManualPriceScaleReferenceSpan ||
+            (retainedManualPriceScaleRange.to - retainedManualPriceScaleRange.from);
+        }
         clearMovingVerticalGrid();
         clearChartAxisDividers();
         if (chart) {
@@ -6258,10 +6591,9 @@ export const CH_HTML = `
           try { detachChartTapListeners(); } catch (_e) {}
           detachChartTapListeners = null;
         }
-        if (tickFlushHandle) {
-          try { cancelAnimationFrame(tickFlushHandle); } catch (_) {}
-          tickFlushHandle = 0;
-        }
+        cancelPendingTickFlush();
+        cancelMarketPriceScaleDomRefreshSchedule();
+        marketPriceScaleDomPending = false;
         if (overlayPriceScaleLockRaf) {
           try { cancelAnimationFrame(overlayPriceScaleLockRaf); } catch (_) {}
           overlayPriceScaleLockRaf = 0;
@@ -6285,6 +6617,14 @@ export const CH_HTML = `
         }
         pendingTick = null;
         lastAppliedLiveTickRevision = 0;
+        if (isNewDataContext) {
+          // Never restore the previous broker/account/symbol/timeframe marker
+          // while the new context is initializing. Native will attach the new
+          // context's projected close after the matching candle data is seeded.
+          lastLivePrice = null;
+          lastBidPrice = null;
+          lastAskPrice = null;
+        }
         lastBarTime = 0;
         _liveBar = null;
         _liveBarHasObservedRealtimeUpdate = false;
@@ -6452,6 +6792,12 @@ export const CH_HTML = `
         }
 
         ensureMoveBarsSeries(lastDisplayDecimals);
+        if (isValidPriceRange(retainedManualPriceScaleRange)) {
+          rememberManualVerticalPanRange(retainedManualPriceScaleRange);
+          manualPriceScaleReferenceSpan = retainedManualPriceScaleReferenceSpan ||
+            (retainedManualPriceScaleRange.to - retainedManualPriceScaleRange.from);
+          applyManualVerticalPanLockedRange();
+        }
 
         if (lastRawSeriesData.length > 0) {
           var mapped = mapForSeries(lastRawSeriesData);
@@ -6459,7 +6805,14 @@ export const CH_HTML = `
           detachMarketPriceLineRefsAfterSeriesReset();
           currentSeriesLength = mapped.length;
           lastBarTime = mapped[mapped.length - 1].time;
-          resetVisiblePriceScaleForFreshSeries('init_data');
+          if (isValidPriceRange(retainedManualPriceScaleRange)) {
+            rememberManualVerticalPanRange(retainedManualPriceScaleRange);
+            manualPriceScaleReferenceSpan = retainedManualPriceScaleReferenceSpan ||
+              (retainedManualPriceScaleRange.to - retainedManualPriceScaleRange.from);
+            applyManualVerticalPanLockedRange();
+          } else {
+            resetVisiblePriceScaleForFreshSeries('init_data');
+          }
           if (seriesType !== 'line') {
             var lastSeed = lastRawSeriesData[lastRawSeriesData.length - 1];
             _liveBar = {
@@ -6476,8 +6829,10 @@ export const CH_HTML = `
             try { moveBarsSeries.setData(mapMoveBarsData(lastRawSeriesData)); } catch (_mb) {}
           }
           applyRecentViewport(currentSeriesLength);
-          scheduleOverlayPriceScaleLock(true);
-          scheduleFreshSeriesVerticalCenter('init_data', true);
+          scheduleOverlayPriceScaleLock(!isValidPriceRange(retainedManualPriceScaleRange));
+          if (!isValidPriceRange(retainedManualPriceScaleRange)) {
+            scheduleFreshSeriesVerticalCenter('init_data', true);
+          }
           ensureDirectionPriceLine();
           ensureMoveDirectionPriceLine();
         }
@@ -6519,6 +6874,12 @@ export const CH_HTML = `
 
         applyOverlayPayload(_overlayPayload);
         setLivePriceLine(lastLivePrice);
+        if (isValidPriceRange(retainedManualPriceScaleRange)) {
+          rememberManualVerticalPanRange(retainedManualPriceScaleRange);
+          manualPriceScaleReferenceSpan = retainedManualPriceScaleReferenceSpan ||
+            (retainedManualPriceScaleRange.to - retainedManualPriceScaleRange.from);
+          applyManualVerticalPanLockedRange();
+        }
         schedulePeriodSeparatorsUpdate();
         postChartGeometry();
         postChartReadyWhenPriceScaleHealthy(
@@ -6688,12 +7049,19 @@ export const CH_HTML = `
           chart.resize(w, h);
           updateChartPaneBackgroundLayer();
           ensureMoveBarsSeries(lastDisplayDecimals);
+          var recoveryManualRange = isManualVerticalPanRangeLocked()
+            ? normalizePriceRange(manualVerticalPanLockedRange)
+            : null;
 
           if (lastRawSeriesData && lastRawSeriesData.length > 0) {
             var mapped = mapForSeries(lastRawSeriesData);
             if (mapped && mapped.length > 0) {
               clearMarketPriceLineRefs();
               series.setData(mapped);
+              if (isValidPriceRange(recoveryManualRange)) {
+                rememberManualVerticalPanRange(recoveryManualRange);
+                applyManualVerticalPanLockedRange();
+              }
               currentSeriesLength = mapped.length;
               lastBarTime = mapped[mapped.length - 1].time;
               schedulePriceScaleHealthCheck('recover_data', false);
@@ -6725,6 +7093,10 @@ export const CH_HTML = `
           ensureMoveDirectionPriceLine();
           refreshMoveDirectionPriceLine();
           schedulePeriodSeparatorsUpdate();
+          if (isValidPriceRange(recoveryManualRange)) {
+            rememberManualVerticalPanRange(recoveryManualRange);
+            applyManualVerticalPanLockedRange();
+          }
           // Preserve a user-owned manual vertical range during delayed
           // focus/surface recovery. Auto-scale may force a refit only when the
           // preference itself is enabled.
@@ -7123,19 +7495,52 @@ export const CH_HTML = `
             typeof updateOptions.dataContextSig === 'string' ? updateOptions.dataContextSig : '';
           var paintToken =
             typeof updateOptions.paintToken === 'string' ? updateOptions.paintToken : '';
-          if (tickFlushHandle) {
-            try { cancelAnimationFrame(tickFlushHandle); } catch (_) {}
-            tickFlushHandle = 0;
+          var paintRevision = null;
+          if (paintToken) {
+            var paintRevisionSeparator = paintToken.lastIndexOf(':');
+            var parsedPaintRevision = Number(
+              paintRevisionSeparator >= 0
+                ? paintToken.slice(paintRevisionSeparator + 1)
+                : ''
+            );
+            if (isFinite(parsedPaintRevision) && parsedPaintRevision > 0) {
+              paintRevision = parsedPaintRevision;
+            }
           }
+          if (
+            paintRevision !== null &&
+            (
+              paintRevision < lastAppliedChartDataPaintRevision ||
+              (
+                paintRevision === lastAppliedChartDataPaintRevision &&
+                lastAppliedChartDataPaintToken &&
+                paintToken !== lastAppliedChartDataPaintToken
+              )
+            )
+          ) {
+            return false;
+          }
+          if (
+            paintedDataContextSig &&
+            lastInitDataContextSig &&
+            paintedDataContextSig !== lastInitDataContextSig &&
+            paintRevision === null
+          ) {
+            return false;
+          }
+          cancelPendingTickFlush();
           pendingTick = null;
           lastAppliedLiveTickRevision = 0;
           var previousRawSeriesData = lastRawSeriesData && lastRawSeriesData.length > 0
             ? lastRawSeriesData.slice()
             : [];
           var previousVisibleLogicalRange = getVisibleLogicalRangeSnapshot();
-          // Captured BEFORE this update overwrites it — used to distinguish a
-          // same symbol+timeframe background refresh from a context switch.
-          var previousDataContextSig = lastInitDataContextSig;
+          var manualRangeBeforeUpdate = isManualVerticalPanRangeLocked()
+            ? normalizePriceRange(manualVerticalPanLockedRange)
+            : null;
+          var shouldPreserveManualPriceScale = isValidPriceRange(manualRangeBeforeUpdate);
+          // Capture the user-owned numeric window before setData; chart data
+          // replacement is allowed to change candles, never this manual range.
           lastRawSeriesData = sanitizeSeriesData(data);
           try {
             chartDebugLog('[WEBVIEW-CANDLE] updateChartData', {
@@ -7148,6 +7553,10 @@ export const CH_HTML = `
           currentSeriesLength = mapped.length;
           clearMarketPriceLineRefs();
           series.setData(mapped);
+          if (paintRevision !== null) {
+            lastAppliedChartDataPaintRevision = paintRevision;
+            lastAppliedChartDataPaintToken = paintToken;
+          }
           candleCountdownSeriesContextSig = paintedDataContextSig;
           if (paintedDataContextSig) {
             lastInitDataContextSig = paintedDataContextSig;
@@ -7172,25 +7581,9 @@ export const CH_HTML = `
           var didReplaceVisibleSeries =
             !didPrependHistory &&
             (resetVisibleRange || shouldResetViewportForSeriesReplacement(previousRawSeriesData, lastRawSeriesData));
-          // MT5 free-movement parity: a background refresh of the SAME
-          // symbol+timeframe (live-edge gap bridge, slid fetch window — the
-          // first bar time routinely advances on M1) must not steal a
-          // user-owned vertical pan. The trader may have panned the price
-          // scale away to inspect an old trade's entry; yanking the range
-          // back to the live candles here was the "chart forces me back"
-          // bug. Explicit context switches still pass resetVisibleRange=true
-          // (or a changed dataContextSig) and reset normally.
-          var suppressedManualPanReset = false;
-          if (
-            didReplaceVisibleSeries &&
-            !resetVisibleRange &&
-            paintedDataContextSig !== '' &&
-            paintedDataContextSig === previousDataContextSig &&
-            isManualVerticalPanRangeLocked()
-          ) {
-            didReplaceVisibleSeries = false;
-            suppressedManualPanReset = true;
-          }
+          // This ownership also crosses symbol/timeframe contexts. A newly
+          // selected symbol can intentionally render outside the current
+          // window until the trader moves or explicitly resets the scale.
           var priceScaleReason = didPrependHistory
             ? 'update_data_prepend_history'
             : (didReplaceVisibleSeries ? 'update_data_replace_series' : 'update_data');
@@ -7209,17 +7602,20 @@ export const CH_HTML = `
           ) {
             restoredStableReplacementViewport = followLiveRightEdge(previousVisibleLogicalRange, mapped.length);
           }
-          if (previousRawSeriesData.length === 0 || didReplaceVisibleSeries) {
+          if (
+            !shouldPreserveManualPriceScale &&
+            (previousRawSeriesData.length === 0 || didReplaceVisibleSeries)
+          ) {
             if (restoredStableReplacementViewport) {
               resetVisiblePriceScaleForStableReplacement(priceScaleReason);
             } else {
               resetVisiblePriceScaleForFreshSeries(priceScaleReason);
             }
           }
-          if (restoredStableReplacementViewport) {
+          if (restoredStableReplacementViewport && !shouldPreserveManualPriceScale) {
             healCollapsedPriceScaleRange(priceScaleReason, true);
           }
-          if (suppressedManualPanReset) {
+          if (shouldPreserveManualPriceScale) {
             // setData can disturb the fixed scale — reassert the user's
             // locked price range and reposition trade markers against it.
             applyManualVerticalPanLockedRange();
@@ -7232,9 +7628,11 @@ export const CH_HTML = `
             (previousRawSeriesData.length === 0 || didReplaceVisibleSeries)
           ) {
             applyRecentViewport(mapped.length);
-            scheduleFreshSeriesVerticalCenter(priceScaleReason, true);
+            if (!shouldPreserveManualPriceScale) {
+              scheduleFreshSeriesVerticalCenter(priceScaleReason, true);
+            }
           }
-          if (!restoredStableReplacementViewport) {
+          if (!restoredStableReplacementViewport && !shouldPreserveManualPriceScale) {
             schedulePriceScaleHealthCheck(
               priceScaleReason,
               didPrependHistory || didReplaceVisibleSeries,
@@ -7258,6 +7656,11 @@ export const CH_HTML = `
             applyOverlayPayload(_overlayPayload);
           }
           setLivePriceLine(lastLivePrice);
+          if (shouldPreserveManualPriceScale) {
+            rememberManualVerticalPanRange(manualRangeBeforeUpdate);
+            applyManualVerticalPanLockedRange();
+            postChartGeometry();
+          }
           schedulePeriodSeparatorsUpdate();
 
           if (mapped.length > 0) {
@@ -7367,9 +7770,39 @@ export const CH_HTML = `
         return true;
       }
 
+      function cancelPendingTickFlush() {
+        if (tickFlushHandle) {
+          try { cancelAnimationFrame(tickFlushHandle); } catch (_) {}
+          tickFlushHandle = 0;
+        }
+        if (tickFlushFallbackHandle) {
+          try { clearTimeout(tickFlushFallbackHandle); } catch (_) {}
+          tickFlushFallbackHandle = 0;
+        }
+      }
+
+      function schedulePendingTickFlush() {
+        if (tickFlushHandle || tickFlushFallbackHandle) return;
+        // Android WebView can postpone or drop a requested animation frame
+        // during tab/background transitions. Keep rAF as the fast paint path,
+        // but guarantee that the newest coalesced candle+Bid transaction cannot
+        // leave a non-zero handle blocking every later quote indefinitely.
+        tickFlushFallbackHandle = setTimeout(
+          flushPendingTick,
+          LIVE_TICK_FLUSH_FALLBACK_MS
+        );
+        try {
+          tickFlushHandle = requestAnimationFrame(flushPendingTick);
+        } catch (_) {
+          tickFlushHandle = 0;
+        }
+      }
+
       function flushPendingTick() {
         try {
-          tickFlushHandle = 0;
+          // Whichever scheduler won cancels the other. A callback that was
+          // already queued may still run, but pendingTick will then be empty.
+          cancelPendingTickFlush();
           var pending = pendingTick;
           pendingTick = null;
           if (!pending) return;
@@ -7384,15 +7817,42 @@ export const CH_HTML = `
             pendingDataContextSig !== lastInitDataContextSig
           ) return;
           if (revision !== null && revision <= lastAppliedLiveTickRevision) return;
-          var applied = applyTickUpdate(tick);
-          if (!applied) return;
-          if (pending.syncLivePriceLine === true) {
-            setLivePriceLine(
-              pending.showLivePriceLine === true ? pending.livePrice : null
-            );
+          var applied = false;
+          var tickApplyError = null;
+          try {
+            applied = applyTickUpdate(tick);
+          } catch (applyError) {
+            tickApplyError = applyError;
           }
-          if (revision !== null) {
+          var synchronizedLivePriceLine = false;
+          if (applied && pending.syncLivePriceLine === true) {
+            synchronizedLivePriceLine = setLivePriceLine(
+              pending.showLivePriceLine === true ? pending.livePrice : null
+            ) === true;
+          }
+          // This revision is atomic: a rejected/stale candle must not advance
+          // its marker independently. The accepted candle close/value and the
+          // existing single Bid line always represent one live generation.
+          if (revision !== null && applied && synchronizedLivePriceLine) {
             lastAppliedLiveTickRevision = revision;
+          } else if (revision !== null && applied && pending.syncLivePriceLine === true) {
+            var lineRetryCount = typeof pending.lineRetryCount === 'number'
+              ? pending.lineRetryCount
+              : 0;
+            if (lineRetryCount < LIVE_TICK_LINE_RETRY_LIMIT) {
+              pending.lineRetryCount = lineRetryCount + 1;
+              if (
+                !pendingTick ||
+                typeof pendingTick.revision !== 'number' ||
+                pendingTick.revision <= revision
+              ) {
+                pendingTick = pending;
+                schedulePendingTickFlush();
+              }
+            }
+          }
+          if (tickApplyError) {
+            throw tickApplyError;
           }
         } catch (e) {
           if (typeof e.message === 'string' && e.message.indexOf('Cannot update oldest data') >= 0) {
@@ -7408,14 +7868,12 @@ export const CH_HTML = `
           chartDebugLog('[WEBVIEW-CANDLE] updateTick_queued', { time: tick.time });
         } catch (_logErr) {}
         pendingTick = { tick: tick };
-        if (tickFlushHandle) return;
-        tickFlushHandle = requestAnimationFrame(flushPendingTick);
+        schedulePendingTickFlush();
       }
 
-      // Canonical live paint transaction. The native host supplies the candle
-      // snapshot and the separately-owned exact backend Bid for the market
-      // line. They are applied inside one animation frame, but are never forced
-      // equal: candle.close and the latest quote Bid can legitimately differ.
+      // Canonical live paint transaction. Native already projected exact Bid
+      // into the forming candle; derive the line from that accepted candle here
+      // as a final invariant so the bridge can never display split generations.
       function updateLiveTick(update) {
         if (!update || !update.candle || typeof update.candle.time !== 'number') return;
         var updateDataContextSig =
@@ -7423,6 +7881,10 @@ export const CH_HTML = `
         if (!updateDataContextSig || updateDataContextSig !== lastInitDataContextSig) return;
         var revision = Number(update.revision);
         if (!isFinite(revision) || revision <= lastAppliedLiveTickRevision) return;
+        var acceptedCandlePrice = seriesType === 'line'
+          ? Number(update.candle.value)
+          : Number(update.candle.close);
+        if (!isFinite(acceptedCandlePrice) || acceptedCandlePrice <= 0) return;
         if (
           pendingTick &&
           typeof pendingTick.revision === 'number' &&
@@ -7432,14 +7894,14 @@ export const CH_HTML = `
         }
         pendingTick = {
           tick: update.candle,
-          livePrice: update.livePrice,
+          livePrice: acceptedCandlePrice,
           showLivePriceLine: update.showLivePriceLine === true,
           syncLivePriceLine: true,
           dataContextSig: updateDataContextSig,
           revision: revision,
+          lineRetryCount: 0,
         };
-        if (tickFlushHandle) return;
-        tickFlushHandle = requestAnimationFrame(flushPendingTick);
+        schedulePendingTickFlush();
       }
 
       // Pick the candle-direction colour for the live bid / last-price line.
@@ -7627,12 +8089,10 @@ export const CH_HTML = `
         if (typeof price !== 'number' || !isFinite(price) || price <= 0) {
           return null;
         }
-        var configuredDecimals = resolveRightPriceScaleFallbackConfiguredDecimals();
-        var safeDecimals =
-          typeof configuredDecimals === 'number' && isFinite(configuredDecimals)
-            ? Math.max(0, Math.min(10, Math.round(configuredDecimals)))
-            : resolveOverlayDisplayDecimals();
-        return Number(price.toFixed(safeDecimals));
+        // Keep the exact Bid for the line coordinate so sub-display-precision
+        // ticks move with the forming candle. The right badge still formats
+        // this raw value through formatMarketPriceScaleBadgeLabel().
+        return price;
       }
 
       function normalizeCandleCountdownTimeframe(timeframe) {
@@ -7851,26 +8311,60 @@ export const CH_HTML = `
         scheduleMarketPriceScaleDomOnly();
       }
 
+      function cancelMarketPriceScaleDomRefreshSchedule() {
+        if (marketPriceScaleDomRefreshRaf) {
+          try { cancelAnimationFrame(marketPriceScaleDomRefreshRaf); } catch (_) {}
+          marketPriceScaleDomRefreshRaf = 0;
+        }
+        if (marketPriceScaleDomRefreshFallbackHandle) {
+          try { clearTimeout(marketPriceScaleDomRefreshFallbackHandle); } catch (_) {}
+          marketPriceScaleDomRefreshFallbackHandle = 0;
+        }
+      }
+
+      function flushMarketPriceScaleDomRefresh() {
+        cancelMarketPriceScaleDomRefreshSchedule();
+        if (!marketPriceScaleDomPending) return;
+        if (isHorizontalScrollMotionActive() || verticalPricePanGestureActive) {
+          // Keep the newest Bid pending; scheduleOverlayDomRefresh() is called
+          // again by both horizontal and vertical gesture settlement.
+          return;
+        }
+        marketPriceScaleDomPending = false;
+        try {
+          refreshMarketPriceScaleDom();
+          var layer = ensureOverlayLabelLayer();
+          if (layer) {
+            renderMoveDirectionOverlayBadge(layer, null);
+          }
+        } catch (_e) {}
+      }
+
       function scheduleMarketPriceScaleDomOnly() {
         // Quote ticks only need the live price badge/extension. Rebuilding the
         // entire trade-label layer every tick was residual chart flicker even
         // after in-place upserts (layout thrash on the overlay layer).
+        marketPriceScaleDomPending = true;
         if (isHorizontalScrollMotionActive() || verticalPricePanGestureActive) {
           return;
         }
-        if (overlayRefreshRaf) {
+        if (marketPriceScaleDomRefreshRaf || marketPriceScaleDomRefreshFallbackHandle) {
           return;
         }
-        overlayRefreshRaf = requestAnimationFrame(function() {
-          overlayRefreshRaf = 0;
-          try {
-            refreshMarketPriceScaleDom();
-            var layer = ensureOverlayLabelLayer();
-            if (layer) {
-              renderMoveDirectionOverlayBadge(layer, null);
-            }
-          } catch (_e) {}
-        });
+        // This badge is custom DOM and has its own paint step after the chart
+        // price line moves. Guard that rAF independently so a dropped Android
+        // WebView frame cannot leave the right-axis marker permanently stale.
+        marketPriceScaleDomRefreshFallbackHandle = setTimeout(
+          flushMarketPriceScaleDomRefresh,
+          MARKET_PRICE_SCALE_DOM_FALLBACK_MS
+        );
+        try {
+          marketPriceScaleDomRefreshRaf = requestAnimationFrame(
+            flushMarketPriceScaleDomRefresh
+          );
+        } catch (_) {
+          marketPriceScaleDomRefreshRaf = 0;
+        }
       }
 
       function setLivePriceLine(price, shouldScheduleRefresh) {
@@ -7882,13 +8376,13 @@ export const CH_HTML = `
           lastBidPrice = normalizedPrice;
           lastAskPrice = null;
           marketPriceLinesVisible = lastLivePrice !== null;
-          if (!series) return;
+          if (!series) return false;
           if (normalizedPrice === null) {
             bidPriceLine = removeMarketPriceLine(bidPriceLine);
             askPriceLine = removeMarketPriceLine(askPriceLine);
             ensureMarketPriceBadgesVisible();
             if (shouldScheduleRefresh !== false) scheduleMarketPriceScaleDomOnly();
-            return;
+            return true;
           }
           askPriceLine = removeMarketPriceLine(askPriceLine);
           if (bidPriceLine) {
@@ -7896,30 +8390,65 @@ export const CH_HTML = `
               bidPriceLine.applyOptions(makeMarketPriceLineOptions(normalizedPrice, liveColor));
               ensureMarketPriceBadgesVisible();
               if (shouldScheduleRefresh !== false) scheduleMarketPriceScaleDomOnly();
-              return;
+              return true;
             } catch (_e) {
               bidPriceLine = removeMarketPriceLine(bidPriceLine);
             }
           }
           bidPriceLine = removeMarketPriceLine(bidPriceLine);
           bidPriceLine = createMarketPriceLine(normalizedPrice, liveColor);
+          if (!bidPriceLine) {
+            return false;
+          }
           ensureMarketPriceBadgesVisible();
           if (shouldScheduleRefresh !== false) scheduleMarketPriceScaleDomOnly();
+          return true;
         } catch (e) {
           postError('setLivePriceLine', e);
+          return false;
         }
       }
 
       // Reject a delayed native command after a symbol, timeframe, broker, or
       // account switch. Closed markets have no future tick to heal a stale
       // ordering mistake, so the context check is part of the bridge contract.
-      function setLivePriceLineForContext(price, dataContextSig, shouldScheduleRefresh) {
+      function setLivePriceLineForContext(
+        price,
+        dataContextSig,
+        revision,
+        shouldScheduleRefresh,
+        retryCount
+      ) {
         var requestedContextSig = typeof dataContextSig === 'string' ? dataContextSig : '';
         if (!requestedContextSig || requestedContextSig !== lastInitDataContextSig) {
           return false;
         }
-        setLivePriceLine(price, shouldScheduleRefresh);
-        return true;
+        var requestedRevision = Number(revision);
+        var hasRequestedRevision = isFinite(requestedRevision) && requestedRevision > 0;
+        if (hasRequestedRevision && requestedRevision < lastAppliedLiveTickRevision) {
+          return false;
+        }
+        if (hasRequestedRevision && requestedRevision === lastAppliedLiveTickRevision) {
+          return normalizeMarketPriceLinePrice(price) === lastLivePrice;
+        }
+        var synchronized = setLivePriceLine(price, shouldScheduleRefresh) === true;
+        if (synchronized && hasRequestedRevision) {
+          lastAppliedLiveTickRevision = requestedRevision;
+        } else if (!synchronized && hasRequestedRevision) {
+          var contextLineRetryCount = typeof retryCount === 'number' ? retryCount : 0;
+          if (contextLineRetryCount < LIVE_TICK_LINE_RETRY_LIMIT) {
+            setTimeout(function() {
+              setLivePriceLineForContext(
+                price,
+                requestedContextSig,
+                requestedRevision,
+                shouldScheduleRefresh,
+                contextLineRetryCount + 1
+              );
+            }, LIVE_TICK_FLUSH_FALLBACK_MS);
+          }
+        }
+        return synchronized;
       }
 
       function setBidPriceLine(price, shouldScheduleRefresh) {

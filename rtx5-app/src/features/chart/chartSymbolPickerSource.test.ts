@@ -89,13 +89,19 @@ test('market symbol API cache uses the immutable active-session namespace and pa
 
   assert.match(querySource, /useActiveBrokerQuerySession/);
   assert.match(querySource, /getSessionQueryCacheNamespace/);
-  assert.match(querySource, /const cacheNamespace = getSessionQueryCacheNamespace\(session\)/);
-  assert.match(querySource, /const isEnabled = enabled && Boolean\(session\)/);
+  assert.match(querySource, /const authenticatedCacheNamespace = getSessionQueryCacheNamespace\(session\)/);
+  assert.match(
+    querySource,
+    /const isPublicDemoMarket = isOrrnnDemoPublicMarketSelection\(\{[\s\S]*brokerId: selectedBrokerId,[\s\S]*isLoggedIn,[\s\S]*\}\)/,
+  );
+  assert.match(querySource, /const cacheNamespace = isPublicDemoMarket[\s\S]*\? ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE[\s\S]*: authenticatedCacheNamespace/);
+  assert.match(querySource, /const isEnabled = enabled && \(isPublicDemoMarket \|\| Boolean\(session\)\)/);
   assert.match(querySource, /queryKey:\s*\['market', cacheNamespace, 'symbols', 'instrument-catalog-v3'\]/);
   assert.match(querySource, /staleTime:\s*1000 \* 60 \* 5/);
-  assert.match(querySource, /commitApiJson\(result, cacheNamespace, \(data\) => \{/);
-  assert.match(querySource, /primeInstrumentMetaCacheFromCatalogPayload\(data, cacheNamespace\)/);
-  assert.doesNotMatch(querySource, /useUserPreferences|accountScope|brokerId/);
+  assert.match(querySource, /if \(isPublicDemoMarket\) \{[\s\S]*getOrrnnDemoPublicMarketCatalog\(\)[\s\S]*return catalog\.symbols/);
+  assert.match(querySource, /commitApiJson\(result, authenticatedCacheNamespace, \(data\) => \{/);
+  assert.match(querySource, /primeInstrumentMetaCacheFromCatalogPayload\(data, authenticatedCacheNamespace\)/);
+  assert.doesNotMatch(querySource, /accountScope/);
   assert.match(extractorSource, /'instruments'[\s\S]*'symbols'[\s\S]*'data'[\s\S]*'items'[\s\S]*'results'[\s\S]*'records'/);
   assert.match(extractorSource, /'symbol'[\s\S]*'Symbol'[\s\S]*'instrumentSymbol'[\s\S]*'code'[\s\S]*'ticker'/);
 });
@@ -140,7 +146,11 @@ test('native OHLC row renders below the full symbol name', () => {
   assert.ok(symbolNameRowIndex < ohlcRowIndex, 'OHLC row must render after the full symbol name row');
   assert.ok(ohlcRowIndex < symbolPressableEndIndex, 'OHLC row must stay inside the symbol header tap target');
   assert.doesNotMatch(source, /<DraggableChartMetaOverlay/);
-  assert.match(source, /chartMetaItems\.map\(\(item\) => \(/);
+  assert.match(
+    source,
+    /const ChartLiveOhlcRow = React\.memo\(function ChartLiveOhlcRow\([\s\S]*\{items\.map\(\(item\) => \(/,
+    'the header must render OHLC values through the isolated live row',
+  );
   assert.match(styles, /symbolOhlcRow:/);
   assert.match(styles, /symbolOhlcPair:/);
   assert.match(styles, /symbolOhlcLabel:/);
@@ -150,7 +160,13 @@ test('native OHLC row renders below the full symbol name', () => {
   assert.doesNotMatch(source, /styles\.fxBadge,\s*\{\s*backgroundColor:/);
   assert.match(
     source,
-    /const chartMetaCanonicalCandles\s*=\s*!chartMetaLiveLastCandle[\s\S]*activeChartSessionCacheNamespace[\s\S]*readRenderableCanonicalCandles\(\)[\s\S]*const chartMetaLastCandle = chartMetaLiveLastCandle \?\? chartMetaCanonicalLastCandle/,
+    /const candle =[\s\S]*liveCandle && \(!fallbackCandle \|\| liveCandle\.time >= fallbackCandle\.time\)[\s\S]*\? liveCandle[\s\S]*: fallbackCandle/,
+    'a direct same-bucket or newer live candle must win over the React fallback',
+  );
+  assert.match(
+    source,
+    /\{showChartMetaRow && \([\s\S]*<ChartLiveOhlcRow[\s\S]*contextKey=\{chartDataContextSig\}[\s\S]*fallbackCandle=\{chartMetaLastCandle\}[\s\S]*subscribe=\{subscribeChartLiveOhlc\}/,
+    'the OHLC row below the symbol name must use the context-scoped live component',
   );
   assert.doesNotMatch(
     source,

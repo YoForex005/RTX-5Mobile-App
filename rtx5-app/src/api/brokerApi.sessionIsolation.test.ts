@@ -96,6 +96,40 @@ test('refresh wire sends only the refresh token without bearer authorization', (
   });
 });
 
+test('a 401 with no refresh credential invalidates the unrecoverable session', async () => {
+  activate();
+  const capture = captureActiveBrokerSession();
+  assert.ok(capture);
+  const identity = getActiveBrokerSessionIdentity(capture.session);
+  assert.equal(updateActiveBrokerSessionCredentials(identity, {
+    ...capture.credentials,
+    refreshToken: '',
+  }), true);
+
+  const requestedUrls: string[] = [];
+  globalThis.fetch = (async (input) => {
+    requestedUrls.push(String(input));
+    return new Response(JSON.stringify({ detail: 'expired' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }) as typeof globalThis.fetch;
+
+  const api = new BrokerAPI();
+  let invalidatedIdentity: typeof identity | null = null;
+  api.setSessionInvalidationHandler(async (rejectedIdentity) => {
+    invalidatedIdentity = rejectedIdentity;
+  });
+
+  const response = await api.request('/account');
+
+  assert.equal(response.status, 401);
+  assert.deepEqual(invalidatedIdentity, identity);
+  assert.equal(requestedUrls.length, 1);
+  assert.doesNotMatch(requestedUrls[0] ?? '', /auth\/refresh/);
+  api.dispose();
+});
+
 test('refresh response requires both rotated access and refresh credentials', () => {
   const normalized = normalizeBrokerRefreshResponse({
     access_token: 'access-2',

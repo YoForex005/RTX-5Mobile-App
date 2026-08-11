@@ -10,20 +10,21 @@ let configuredPublicDemoModule: Promise<typeof import('./publicDemo')> | null = 
 
 const loadConfiguredPublicDemo = () => {
   process.env.EXPO_PUBLIC_DEMO_API_BASE_URL = TEST_PUBLIC_DEMO_API_BASE_URL;
+  process.env.EXPO_PUBLIC_ORRNN_DEMO_BROKER_ID = 'orrnn-demo';
+  process.env.EXPO_PUBLIC_ORRNN_DEMO_INITIAL_BALANCE = '10000';
+  process.env.EXPO_PUBLIC_ORRNN_DEMO_ORIGIN_BROKER = 'orrnn-demo-mobile';
   configuredPublicDemoModule ??= import('./publicDemo');
   return configuredPublicDemoModule;
 };
 
 const demoRequest: CreateOrrnnDemoAccountRequest = {
-  group: 'orrnn/demo-std',
+  group: 'demo\\RTX5-Demo',
   email: 'trader@example.com',
   master_pass: 'Strong-Pass-123',
-  investor_pass: 'Read-Only-Pass',
   first_name: 'Jane',
   last_name: 'Doe',
-  country: 'US',
-  currency: 'USD',
-  leverage: 100,
+  initial_balance: 10000,
+  origin_broker: 'orrnn-demo-mobile',
 };
 
 function mockFetch(t: { after: (fn: () => void) => void }, implementation: typeof fetch) {
@@ -48,13 +49,8 @@ test('createOrrnnDemoAccount posts compact body to /api/v1/public/demo-account',
     return new Response(
       JSON.stringify({
         login: 900000001,
-        broker_id: 'orrnn',
-        group: 'orrnn/demo-std',
-        currency: 'USD',
-        leverage: 100,
-        balance: 10000,
-        api_key: 'rtx5_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        created_at: 0,
+        broker_id: 'orrnn-demo',
+        group: 'orrnn-demo/demo-std',
       }),
       {
         status: 200,
@@ -63,84 +59,114 @@ test('createOrrnnDemoAccount posts compact body to /api/v1/public/demo-account',
     );
   }) as typeof fetch);
 
-  const response = await createOrrnnDemoAccount({
+  const requestWithUncontractedFields = {
     ...demoRequest,
     phone: '+1-555-0100',
-    initial_balance: 10000,
-    origin_broker: 'fxtrust',
-  });
+    // Runtime-only fields must not escape the explicit public creation DTO.
+    tenant_id: 'must-not-be-sent',
+    investor_pass: 'must-not-be-sent',
+    country: 'US',
+    currency: 'USD',
+    leverage: 100,
+  } as CreateOrrnnDemoAccountRequest;
+  const response = await createOrrnnDemoAccount(requestWithUncontractedFields);
 
   assert.match(capturedUrl, /\/api\/v1\/public\/demo-account$/);
   assert.equal(capturedUrl, `${PUBLIC_DEMO_API_BASE_URL}/public/demo-account`);
-  assert.equal(capturedBody.group, 'orrnn/demo-std');
+  assert.equal(capturedBody.group, 'demo\\RTX5-Demo');
   assert.equal(capturedBody.email, 'trader@example.com');
   assert.equal(capturedBody.last_name, 'Doe');
   assert.equal(capturedBody.phone, '+1-555-0100');
-  assert.equal(capturedBody.country, 'US');
-  assert.equal(capturedBody.currency, 'USD');
-  assert.equal(capturedBody.leverage, 100);
   assert.equal(capturedBody.initial_balance, 10000);
-  assert.equal(capturedBody.origin_broker, 'fxtrust');
-  assert.equal(capturedBody.comment, undefined);
+  assert.equal(capturedBody.origin_broker, 'orrnn-demo-mobile');
+  assert.deepEqual(Object.keys(capturedBody).sort(), [
+    'email',
+    'first_name',
+    'group',
+    'initial_balance',
+    'last_name',
+    'master_pass',
+    'origin_broker',
+    'phone',
+  ]);
   assert.equal(response.login, 900000001);
-  assert.equal(response.api_key, 'rtx5_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
+  assert.equal(response.broker_id, 'orrnn-demo');
+  assert.equal(response.group, 'orrnn-demo/demo-std');
 });
 
-test('demo broker identities are explicit environment contracts with no synthesized defaults', () => {
+test('demo broker identities are explicit environment contracts with fixed creation metadata', () => {
   const source = readSource('src/api/publicDemo.ts');
   const registerSource = readSource('app/register.tsx');
+  const envCheckSource = readSource('scripts/ota/check-eas-env.js');
 
   assert.match(source, /export const ORRNN_DEMO_BROKER_ID = process\.env\.EXPO_PUBLIC_ORRNN_DEMO_BROKER_ID \|\| ''/);
-  assert.match(source, /export const ORRNN_DEMO_ORIGIN_BROKER =[\s\S]*process\.env\.EXPO_PUBLIC_ORRNN_DEMO_ORIGIN_BROKER[\s\S]*process\.env\.EXPO_PUBLIC_ORIGIN_BROKER[\s\S]*'';/);
-  assert.match(source, /export const TEST_ORRNN_DEMO_ORIGIN_BROKER =[\s\S]*process\.env\.EXPO_PUBLIC_TEST_BROKER_ID[\s\S]*'';/);
-  assert.doesNotMatch(source, /ORRNN_DEMO_BROKER_ID[\s\S]{0,120}\|\|\s*['"]orrnn['"]/);
-  assert.doesNotMatch(source, /ORRNN_DEMO_ORIGIN_BROKER[\s\S]{0,220}\|\|\s*['"]orrnn['"]/);
-  assert.doesNotMatch(source, /TEST_ORRNN_DEMO_ORIGIN_BROKER[\s\S]{0,160}\|\|\s*['"]testorrnn['"]/);
-  assert.match(registerSource, /const DEMO_ORIGIN_BROKER_OPTIONS: readonly DemoOriginBrokerOption\[] = \[/);
-  assert.match(registerSource, /const DEFAULT_DEMO_ORIGIN_BROKER = DEMO_ORIGIN_BROKER_OPTIONS\[0\]/);
-  assert.match(registerSource, /const \[selectedOriginBrokerValue, setSelectedOriginBrokerValue\]/);
-  assert.match(registerSource, /origin_broker: trimmedOriginBroker \|\| undefined/);
-  assert.match(registerSource, /latencyLabel="register\.originBroker\.open"/);
+  assert.match(source, /process\.env\.EXPO_PUBLIC_ORRNN_DEMO_ORIGIN_BROKER \|\| ''/);
+  assert.match(source, /ORRNN_DEMO_CANONICAL_GROUP = 'orrnn-demo\/demo-std'/);
+  assert.match(registerSource, /const trimmedOriginBroker = ORRNN_DEMO_ORIGIN_BROKER\.trim\(\)/);
+  assert.match(registerSource, /origin_broker: trimmedOriginBroker/);
+  assert.doesNotMatch(registerSource, /originBrokerPickerOpen|DEMO_ORIGIN_BROKER_OPTIONS/);
+  for (const expected of [
+    'https://demomanager.orrnn.com/api/v1',
+    'orrnn-demo',
+    '10000',
+    'orrnn-demo-mobile',
+  ]) {
+    assert.match(envCheckSource, new RegExp(expected.replace(/[./-]/g, '\\$&')));
+  }
 });
 
-test('resolveOrrnnDemoBrokerAuthRoute accepts only the exact approved rich endpoint set', async () => {
+test('resolveOrrnnDemoBrokerAuthRoute accepts the live-shaped orrnn-demo directory route', async () => {
   const { resolveOrrnnDemoBrokerAuthRoute } = await loadConfiguredPublicDemo();
-  const route = resolveOrrnnDemoBrokerAuthRoute('orrnn', [{
-    broker_id: 'orrnn',
-    broker_name: 'Orrnn',
+  const route = resolveOrrnnDemoBrokerAuthRoute('orrnn-demo', [{
+    directory_source: 'v2_raw',
+    broker_id: 'orrnn-demo',
+    broker_name: 'Orrnn Broker demo',
     enabled: true,
     active: true,
-    license_active: true,
-    config_version: 'orrnn-v2',
-    schema_version: 'broker-directory.rich.v1',
-    services_domain: 'trade.orrnn.example',
-    market_api_url: 'https://trade.orrnn.example/api/v2',
-    feed_wss_url: 'wss://trade.orrnn.example/ws/feed',
-    feed_status_https_url: 'https://trade.orrnn.example/ws/feed/status',
-    trade_wss_url: 'wss://trade.orrnn.example/ws/v2',
-    server: '69.197.178.27:443',
+    config_version: 'v2:80:1784199260',
+    server_url: 'https://demobackend.orrnn.com',
+    feed_wss_url: 'wss://demobackend.orrnn.com/ws/feed',
+    feed_status_https_url: 'https://demobackend.orrnn.com/ws/feed/status',
+    server: 'demobackend.orrnn.com:443',
     server_ip: '69.197.178.27',
-    logo_url: ' https://cdn.orrnn.example/logo.png ',
+    logo_url: ' https://superbackend.orrnn.com/api/v1/brokers/orrnn-demo/logo ',
   }]);
 
-  assert.equal(route.serverUrl, 'https://trade.orrnn.example/api/v2');
-  assert.equal(route.logoUrl, 'https://cdn.orrnn.example/logo.png');
+  assert.equal(route.serverUrl, 'https://demobackend.orrnn.com/api/v2');
+  assert.equal(route.logoUrl, 'https://superbackend.orrnn.com/api/v1/brokers/orrnn-demo/logo');
   assert.equal(route.source, 'broker-directory');
   assert.deepEqual(route.endpoints, {
-    brokerId: 'orrnn',
-    apiBase: 'https://trade.orrnn.example/api/v2',
-    feedWsBase: 'wss://trade.orrnn.example/ws/feed',
-    feedStatusUrl: 'https://trade.orrnn.example/ws/feed/status',
-    tradeWsBase: 'wss://trade.orrnn.example/ws/v2',
-    servicesDomain: 'trade.orrnn.example',
-    configVersion: 'orrnn-v2',
+    brokerId: 'orrnn-demo',
+    apiBase: 'https://demobackend.orrnn.com/api/v2',
+    feedWsBase: 'wss://demobackend.orrnn.com/ws/feed',
+    feedStatusUrl: 'https://demobackend.orrnn.com/ws/feed/status',
+    tradeWsBase: 'wss://demobackend.orrnn.com/ws/v2',
+    servicesDomain: 'demobackend.orrnn.com',
+    configVersion: 'v2:80:1784199260',
   });
+});
+
+test('resolveOrrnnDemoBrokerAuthRoute rejects non-exact broker identifiers', async () => {
+  const { resolveOrrnnDemoBrokerAuthRoute } = await loadConfiguredPublicDemo();
+  const route = resolveOrrnnDemoBrokerAuthRoute('orrnn-demo', [{
+    id: 9,
+    broker_id: 'ORRNN-DEMO',
+    broker_name: 'Orrnn Broker demo',
+    server_url: 'https://demobackend.orrnn.com',
+    services_domain: 'demobackend.orrnn.com',
+    server: 'demo-gateway',
+    server_ip: '203.0.113.20',
+    protocol: 'https',
+  }]);
+
+  assert.equal(route.source, 'missing');
+  assert.equal(route.serverUrl, '');
 });
 
 test('resolveOrrnnDemoBrokerAuthRoute rejects opaque unapproved broker records', async () => {
   const { resolveOrrnnDemoBrokerAuthRoute } = await loadConfiguredPublicDemo();
-  const route = resolveOrrnnDemoBrokerAuthRoute('orrnn', [{
-    broker_id: 'orrnn',
+  const route = resolveOrrnnDemoBrokerAuthRoute('orrnn-demo', [{
+    broker_id: 'orrnn-demo',
     broker_name: 'Orrnn',
     server: 'Orrnn-Demo',
     server_ip: '69.197.178.27',
@@ -152,16 +178,16 @@ test('resolveOrrnnDemoBrokerAuthRoute rejects opaque unapproved broker records',
 
 test('resolveOrrnnDemoBrokerAuthRoute requires a broker directory services domain for Orrnn login', async () => {
   const { resolveOrrnnDemoBrokerAuthRoute } = await loadConfiguredPublicDemo();
-  const route = resolveOrrnnDemoBrokerAuthRoute('orrnn', []);
+  const route = resolveOrrnnDemoBrokerAuthRoute('orrnn-demo', []);
 
   assert.equal(route.serverUrl, '');
   assert.equal(route.source, 'missing');
 });
 
-test('register fallback login commits the exact approved route through the atomic session coordinator', () => {
+test('register preflights the approved route and uses numeric demo login through the atomic session coordinator', () => {
   const source = readSource('app/register.tsx');
 
-  assert.match(source, /resolveOrrnnDemoBrokerAuthRoute\(canonicalBrokerId, brokerServers\)/);
+  assert.match(source, /resolveOrrnnDemoBrokerAuthRoute\(ORRNN_DEMO_BROKER_ID, brokerServers\)/);
   assert.match(source, /demoAuthRoute\.source !== 'broker-directory'/);
   assert.match(source, /refetchBrokerServers\(\)/);
   assert.match(source, /const commitAuthorization = authorizeBrokerSessionCommit\(\)/);
@@ -169,8 +195,9 @@ test('register fallback login commits the exact approved route through the atomi
   assert.match(source, /if \(isRegisterAttemptCancelled\(\)\) return;/);
   assert.match(
     source,
-    /loginAPI\(\{[\s\S]*broker_id: canonicalBrokerId,[\s\S]*\}, \{[\s\S]*serverUrl: demoAuthRoute\.serverUrl,[\s\S]*signal: loginAbortController\.signal,[\s\S]*\}\)/,
+    /loginAPI\(\{[\s\S]*login: response\.login,[\s\S]*broker_id: canonicalBrokerId,[\s\S]*\}, \{[\s\S]*serverUrl: demoAuthRoute\.serverUrl,[\s\S]*signal: loginAbortController\.signal,[\s\S]*\}\)/,
   );
+  assert.doesNotMatch(source, /username: createdAccountLogin|response\.api_key/);
   assert.match(
     source,
     /await commitBrokerSession\(\{[\s\S]*brokerId: demoAuthRoute\.endpoints\.brokerId,[\s\S]*apiBase: demoAuthRoute\.endpoints\.apiBase,[\s\S]*feedWsBase: demoAuthRoute\.endpoints\.feedWsBase,[\s\S]*feedStatusUrl: demoAuthRoute\.endpoints\.feedStatusUrl,[\s\S]*servicesDomain: demoAuthRoute\.endpoints\.servicesDomain,[\s\S]*configVersion: demoAuthRoute\.endpoints\.configVersion/,
@@ -190,6 +217,7 @@ test('public demo status and groups use the dedicated public demo API base URL',
     PUBLIC_DEMO_API_BASE_URL,
     getOrrnnDemoGroups,
     getOrrnnDemoStatus,
+    isOrrnnDemoHealthy,
   } = await loadConfiguredPublicDemo();
   const capturedUrls: string[] = [];
 
@@ -200,6 +228,7 @@ test('public demo status and groups use the dedicated public demo API base URL',
         service: 'orrnn-demo',
         status: 'ok',
         broker: 'active',
+        broker_id: 'orrnn-demo',
         demo_groups_available: 1,
         total_demo_accounts: 28,
         database: 'connected',
@@ -207,8 +236,8 @@ test('public demo status and groups use the dedicated public demo API base URL',
       : {
         count: 1,
         groups: [{
-          name: 'orrnn/demo-std',
-          description: 'Orrnn Standard Demo',
+          name: 'demo\\RTX5-Demo',
+          description: 'RTX5 Demo',
           currency: 'USD',
           leverage: 100,
         }],
@@ -220,13 +249,16 @@ test('public demo status and groups use the dedicated public demo API base URL',
     });
   }) as typeof fetch);
 
-  await getOrrnnDemoStatus();
-  await getOrrnnDemoGroups();
+  const status = await getOrrnnDemoStatus();
+  const groups = await getOrrnnDemoGroups();
 
   assert.deepEqual(capturedUrls, [
     `${PUBLIC_DEMO_API_BASE_URL}/public/demo-status`,
     `${PUBLIC_DEMO_API_BASE_URL}/public/demo-groups`,
   ]);
+  assert.equal(isOrrnnDemoHealthy(status), true);
+  assert.equal(groups.groups[0]?.name, 'demo\\RTX5-Demo');
+  assert.equal(isOrrnnDemoHealthy({ ...status, broker_id: 'orrnn' }), false);
 });
 
 test('public demo setup failures use user-safe temporary unavailable copy', async (t) => {
@@ -260,7 +292,7 @@ test('public demo setup failures use user-safe temporary unavailable copy', asyn
   assert.equal(requestCount, 2);
 });
 
-test('createOrrnnDemoAccount omits blank optional strings from compact body', async (t) => {
+test('createOrrnnDemoAccount omits blank optional strings from its allowlisted body', async (t) => {
   const { createOrrnnDemoAccount } = await loadConfiguredPublicDemo();
   let capturedBody: Record<string, unknown> = {};
 
@@ -270,12 +302,8 @@ test('createOrrnnDemoAccount omits blank optional strings from compact body', as
     return new Response(
       JSON.stringify({
         login: 900000002,
-        broker_id: 'orrnn',
-        group: 'orrnn/demo-std',
-        currency: 'USD',
-        leverage: 100,
-        balance: 10000,
-        created_at: 0,
+        broker_id: 'orrnn-demo',
+        group: 'orrnn-demo/demo-std',
       }),
       {
         status: 200,
@@ -288,14 +316,13 @@ test('createOrrnnDemoAccount omits blank optional strings from compact body', as
     ...demoRequest,
     last_name: '   ',
     phone: '',
-    origin_broker: ' ',
     comment: '',
-  });
+  } as CreateOrrnnDemoAccountRequest);
 
   assert.equal(capturedBody.first_name, 'Jane');
   assert.equal(Object.prototype.hasOwnProperty.call(capturedBody, 'last_name'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(capturedBody, 'phone'), false);
-  assert.equal(Object.prototype.hasOwnProperty.call(capturedBody, 'origin_broker'), false);
+  assert.equal(capturedBody.origin_broker, 'orrnn-demo-mobile');
   assert.equal(Object.prototype.hasOwnProperty.call(capturedBody, 'comment'), false);
 });
 
@@ -323,28 +350,51 @@ test('createOrrnnDemoAccount treats documented 201 ExceptionResult as an error',
   );
 });
 
-test('createOrrnnDemoAccount accepts live success responses that omit api_key', async (t) => {
-  const { createOrrnnDemoAccount } = await loadConfiguredPublicDemo();
+test('createOrrnnDemoAccount rejects missing or mismatched success identity fields', async (t) => {
+  const { createOrrnnDemoAccount, OrrnnDemoApiError } = await loadConfiguredPublicDemo();
+  let responseBody: Record<string, unknown> = {};
   mockFetch(t, (async () => new Response(
-    JSON.stringify({
-      login: 200107,
-      Name: 'Codex Smoke',
-      Group: 'orrnn/demo-std',
-      Leverage: 100,
-      Currency: 'USD',
-      balance: 10000,
-      Status: 'active',
-      Registration: 1777269350,
-    }),
+    JSON.stringify(responseBody),
     {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     },
   )) as typeof fetch);
 
-  const response = await createOrrnnDemoAccount(demoRequest);
+  const invalidResponses = [
+    { login: '200107', broker_id: 'orrnn-demo', group: 'orrnn-demo/demo-std' },
+    { login: 200107, broker_id: 'orrnn', group: 'orrnn-demo/demo-std' },
+    { login: 200107, broker_id: 'orrnn-demo', group: 'demo\\RTX5-Demo' },
+  ];
 
-  assert.equal(response.login, 200107);
-  assert.equal(response.api_key, undefined);
-  assert.equal(response.Group, 'orrnn/demo-std');
+  for (const invalidResponse of invalidResponses) {
+    responseBody = invalidResponse;
+    await assert.rejects(
+      () => createOrrnnDemoAccount(demoRequest),
+      OrrnnDemoApiError,
+    );
+  }
+});
+
+test('createOrrnnDemoAccount surfaces duplicate-email conflict without retrying', async (t) => {
+  const { createOrrnnDemoAccount, OrrnnDemoApiError } = await loadConfiguredPublicDemo();
+  let requestCount = 0;
+  mockFetch(t, (async () => {
+    requestCount += 1;
+    return new Response(
+      JSON.stringify({ code: 'EMAIL_CONFLICT', message: 'A demo account already exists for this email.' }),
+      { status: 409, headers: { 'Content-Type': 'application/json' } },
+    );
+  }) as typeof fetch);
+
+  await assert.rejects(
+    () => createOrrnnDemoAccount(demoRequest),
+    (error) => {
+      assert.ok(error instanceof OrrnnDemoApiError);
+      assert.equal(error.statusCode, 409);
+      assert.match(error.message, /EMAIL_CONFLICT/);
+      return true;
+    },
+  );
+  assert.equal(requestCount, 1);
 });

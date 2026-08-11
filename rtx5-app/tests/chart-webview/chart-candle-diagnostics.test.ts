@@ -27,7 +27,11 @@ test('WebView candle bridge keeps diagnostics while the live path is one atomic 
 
   assertSourceContains(updateDataBody, /\[WEBVIEW-CANDLE\] updateChartData/, 'WebView full reload must log candle data receipt');
   assertSourceContains(updateTickBody, /\[WEBVIEW-CANDLE\] updateTick_queued/, 'WebView incremental path must log queued ticks');
-  assertSourceContains(updateLiveTickBody, /pendingTick = \{[\s\S]*tick: update\.candle[\s\S]*livePrice: update\.livePrice/, 'WebView live diagnostics must share the same queued transaction used for painting');
+  assertSourceContains(
+    updateLiveTickBody,
+    /var acceptedCandlePrice = seriesType === 'line'[\s\S]*Number\(update\.candle\.value\)[\s\S]*Number\(update\.candle\.close\)[\s\S]*pendingTick = \{[\s\S]*tick: update\.candle[\s\S]*livePrice: acceptedCandlePrice/,
+    'WebView live diagnostics must derive the queued marker from the accepted candle close/value',
+  );
   assertSourceContains(applyTickBody, /\[WEBVIEW-CANDLE\] applyTickUpdate/, 'WebView must log applied candle ticks');
   assertSourceContains(applyTickBody, /tick\.time < lastBarTime[\s\S]*\[WEBVIEW-CANDLE\] applyTickUpdate_rejected/, 'WebView must log stale tick rejection');
 });

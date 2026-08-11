@@ -19,6 +19,7 @@ import {
   selectedBrokerHealthGate,
 } from './BrokersScreen/selectedBrokerHealthGate';
 import { warmDemoAccountForm } from './registerScreenPreload';
+import { useUserPreferences } from '../../state/userPreferences';
 
 const BROKERS_LAUNCH_HIDDEN_STYLE = {
   elevation: 0,
@@ -44,6 +45,7 @@ function writeBrokersLaunchVisibilityNow(layer: View | null, visible: boolean) {
 export function BrokersLaunchHost() {
   const router = useRouter();
   const pathname = usePathname();
+  const setBrokerConnection = useUserPreferences((state) => state.setBrokerConnection);
   const pathnameRef = useRef(pathname);
   const backInFlightRef = useRef(false);
   const pendingBackRevisionRef = useRef<number | null>(null);
@@ -139,6 +141,7 @@ export function BrokersLaunchHost() {
         if (!isSelectedPickerStillActive()) return;
         const current = brokersLaunchController.getSnapshot();
         const selection = toBrokerDetailLaunchSelection(broker);
+        setBrokerConnection(broker.brokerId, broker.serverUrl, broker.logoUrl);
         const detailRevision = showBrokerDetailLaunch(selection);
         const pushBrokerDetailRoute = () => {
           router.push({
@@ -169,7 +172,7 @@ export function BrokersLaunchHost() {
         Alert.alert(SELECTED_BROKER_UNAVAILABLE_MESSAGE);
       },
     });
-  }, [router]);
+  }, [router, setBrokerConnection]);
 
   useEffect(
     () => brokersLaunchController.registerVisualApplier(

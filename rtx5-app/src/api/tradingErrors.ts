@@ -1,4 +1,5 @@
 import { redactSensitiveString } from '../utils/securityRedaction';
+import { captureActiveBrokerSession } from '../state/activeBrokerSession';
 
 export type TradingAction =
   | 'place-order'
@@ -309,7 +310,7 @@ export const createFrontendTradingError = (
 
 export const classifyTradingError = (
   error: unknown,
-  options: { action: TradingAction },
+  options: { action: TradingAction; brokerId?: string },
 ): TradingErrorFeedback => {
   const status = getErrorStatus(error);
   const headers = getErrorHeaders(error);
@@ -318,8 +319,12 @@ export const classifyTradingError = (
   const detail = rawDetail ? redactSensitiveString(rawDetail) : null;
   const retryAfterSeconds = getRetryAfterSeconds(headers);
 
+  const activeBrokerId =
+    options.brokerId ?? captureActiveBrokerSession()?.session.brokerId ?? '';
   const mappedBrokerMessage = brokerCode
-    ? BROKER_ERROR_MESSAGES[brokerCode]
+    ? brokerCode === 'TRADE_DISABLED' && activeBrokerId === 'orrnn-demo'
+      ? 'Trading is temporarily unavailable for this demo broker.'
+      : BROKER_ERROR_MESSAGES[brokerCode]
       || (brokerCode.startsWith('INCOMPLETE_')
         ? 'Required trading calculation data is temporarily unavailable. Please try again shortly.'
         : null)

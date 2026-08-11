@@ -78,6 +78,7 @@ import {
 } from './brokerDetailLaunchController';
 import { showBrokersReturnLaunch } from './brokersLaunchController';
 import { redactSensitiveString } from '../../api/authRedaction';
+import { ORRNN_DEMO_PUBLIC_BROKER_ID } from '../../api/orrnnDemoPublicMarket';
 import {
   scheduleRegisterLaunchNavigation,
   showRegisterLaunch,
@@ -679,6 +680,20 @@ function BrokerDetailInteractiveContent({
       });
       return;
     }
+    const isOrrnnDemoLogin = effectiveBrokerId === ORRNN_DEMO_PUBLIC_BROKER_ID;
+    const numericDemoLogin = isOrrnnDemoLogin ? Number(trimmedLogin) : null;
+    if (
+      isOrrnnDemoLogin &&
+      (!Number.isSafeInteger(numericDemoLogin) || Number(numericDemoLogin) <= 0)
+    ) {
+      setModalState({
+        visible: true,
+        type: 'error',
+        title: t('Error'),
+        message: t('Please enter a valid numeric demo account login.'),
+      });
+      return;
+    }
 
     requestInFlightRef.current = true;
     setIsLoading(true);
@@ -693,11 +708,20 @@ function BrokerDetailInteractiveContent({
     };
     let didStartSuccessNavigation = false;
     try {
-      const response: any = await loginAPI({
-        username: trimmedLogin,
-        password: trimmedPassword,
-        broker_id: effectiveBrokerId,
-      }, { serverUrl: effectiveServerUrl, signal: loginAbortController.signal });
+      const response: any = await loginAPI(
+        isOrrnnDemoLogin
+          ? {
+              login: Number(numericDemoLogin),
+              password: trimmedPassword,
+              broker_id: ORRNN_DEMO_PUBLIC_BROKER_ID,
+            }
+          : {
+              username: trimmedLogin,
+              password: trimmedPassword,
+              broker_id: effectiveBrokerId,
+            },
+        { serverUrl: effectiveServerUrl, signal: loginAbortController.signal },
+      );
 
       const accessToken = response.access_token ?? response.token;
       const refreshToken = response.refresh_token ?? response.refreshToken ?? '';

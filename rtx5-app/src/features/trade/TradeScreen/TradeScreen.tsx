@@ -40,6 +40,7 @@ import { runImmediateAction } from '../../../utils/actionLatency';
 import { useDeferredActiveFlag } from '../../../hooks/useDeferredActiveFlag';
 import { useNextFrameValue } from '../../../hooks/useNextFrameValue';
 import { showTradePositionAction } from '../tradePositionActionHostController';
+import { requestOrrnnDemoTradeAuth } from '../tradeAuthPrompt';
 import {
   getActiveSltpUnavailableMessage,
   isExistingPositionModifyBackendLocked,
@@ -336,7 +337,10 @@ const TradeScreenInner = React.memo(function TradeScreenInner({
     ));
   }).current;
 
-  const navigateToBulkMode = useCallback((mode: string) => {
+  const navigateToBulkMode = useCallback((mode: 'all' | 'profitable' | 'losing' | 'buy' | 'sell') => {
+    if (requestOrrnnDemoTradeAuth({ kind: 'bulk-action', bulkMode: mode })) {
+      return;
+    }
     router.push({ pathname: '/trade/bulk', params: { mode } });
   }, []);
 
@@ -402,6 +406,13 @@ const TradeScreenInner = React.memo(function TradeScreenInner({
             textColor: positionCloseActionColor,
             textFontWeight: TRADE_POSITION_CLOSE_ACTION_FONT_WEIGHT,
             onPress: () => {
+              if (requestOrrnnDemoTradeAuth({
+                kind: 'position-action',
+                symbol: item.symbol,
+                action: 'close',
+              })) {
+                return;
+              }
               primePositionSnapshot(item);
               showTradePositionAction('close', item.id);
             },
@@ -411,6 +422,13 @@ const TradeScreenInner = React.memo(function TradeScreenInner({
             label: t('Modify position'),
             activateOnPressIn: true,
             onPress: () => {
+              if (requestOrrnnDemoTradeAuth({
+                kind: 'position-action',
+                symbol: item.symbol,
+                action: 'modify',
+              })) {
+                return;
+              }
               if (isExistingPositionModifyBackendLocked()) {
                 Alert.alert(t(SLTP_COMING_SOON_TITLE), t(getActiveSltpUnavailableMessage()));
                 return;
@@ -422,7 +440,17 @@ const TradeScreenInner = React.memo(function TradeScreenInner({
           {
             icon: <Ionicons name="swap-horizontal-outline" size={20} color={T.textMuted} />,
             label: t('Trade'),
-            onPress: () => { prefetchOrderTicketData(String(resolvedLogin ?? ''), item.symbol); router.push({ pathname: '/trade/order-ticket', params: { symbol: item.symbol } }); },
+            onPress: () => {
+              if (requestOrrnnDemoTradeAuth({
+                kind: 'order-ticket',
+                symbol: item.symbol,
+                origin: 'trade',
+              })) {
+                return;
+              }
+              prefetchOrderTicketData(String(resolvedLogin ?? ''), item.symbol);
+              router.push({ pathname: '/trade/order-ticket', params: { symbol: item.symbol } });
+            },
           },
           {
             icon: <Ionicons name="analytics-outline" size={20} color={T.textMuted} />,

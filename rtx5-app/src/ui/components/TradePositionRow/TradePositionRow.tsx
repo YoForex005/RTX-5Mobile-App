@@ -31,6 +31,7 @@ import {
 } from '../../../features/trade/livePositionMetrics';
 import { closePositionImmediately } from '../../../features/trade/closePositionFlow';
 import { showTradePositionAction } from '../../../features/trade/tradePositionActionHostController';
+import { requestOrrnnDemoTradeAuth } from '../../../features/trade/tradeAuthPrompt';
 import {
   getActiveSltpUnavailableMessage,
   isExistingPositionModifyBackendLocked,
@@ -352,6 +353,13 @@ function TradePositionRowComponent({
   const tradingLogin = resolveTradingLoginString();
 
   const openPositionAction = (destination: 'close' | 'modify') => {
+    if (requestOrrnnDemoTradeAuth({
+      kind: 'position-action',
+      symbol: item.symbol,
+      action: destination,
+    })) {
+      return;
+    }
     primePositionSnapshot(item);
     showTradePositionAction(destination, item.id);
   };
@@ -365,6 +373,13 @@ function TradePositionRowComponent({
   };
 
   const navigateToOrderTicket = () => {
+    if (requestOrrnnDemoTradeAuth({
+      kind: 'order-ticket',
+      symbol: item.symbol,
+      origin: 'trade',
+    })) {
+      return;
+    }
     prefetchOrderTicketData(tradingLogin, item.symbol);
     router.push({ pathname: '/trade/order-ticket', params: { symbol: item.symbol } });
   };

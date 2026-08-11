@@ -24,8 +24,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { useUserPreferences } from '../../state/userPreferences';
 import { useIsDarkTheme } from '../../state/themeMode';
-import { useUIState, type ActionSheetConfig } from '../../state/uiState';
+import { useUIState } from '../../state/uiState';
 import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket';
+import { orrnnDemoPublicMarketSocket } from '../../api/ws/orrnnDemoPublicMarketSocket';
+import { isOrrnnDemoPublicMarketSelection } from '../../api/orrnnDemoPublicMarket';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useMarketSymbols } from '../../query/market';
@@ -47,6 +49,7 @@ import {
   scheduleOrderTicketLaunchNavigation,
   showOrderTicketLaunch,
 } from '../trade/orderTicketLaunchController';
+import { requestOrrnnDemoTradeAuth } from '../trade/tradeAuthPrompt';
 import {
   hideQuoteInfoLaunch,
   prepareQuoteInfoLaunch,
@@ -59,9 +62,6 @@ import {
   showFastTabVisual,
 } from '../../ui/navigation/fastTabVisualController';
 import { runImmediateAction } from '../../utils/actionLatency';
-import {
-  parkRetainedActionSheetHostForConfigSwap,
-} from '../../ui/components/ActionSheet/retainedActionSheetVisualController';
 import { isCryptoSymbol, normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
 import { useNextFrameValue } from '../../hooks/useNextFrameValue';
 import { MARKET_QUOTE_STALE_AFTER_MS } from '../../market/quotePolicy';
@@ -122,8 +122,14 @@ import {
 import {
   advanceQuoteLiveProof,
   createQuoteLiveProofState,
+  hasFreshAcceptedQuoteLiveProof,
   hasFreshSustainedQuoteLiveProof,
 } from './quoteLiveProof';
+import {
+  hideQuotesSymbolActionSheet,
+  presentQuotesSymbolActionSheet,
+  type QuotesSymbolActionSheetConfig,
+} from './QuotesSymbolActionSheet';
 
 /* ───── Helpers ───── */
 
@@ -2141,6 +2147,10 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
   const isDark = useIsDarkTheme();
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const selectedBrokerId = useUserPreferences((s) => s.brokerId);
+  const isPublicDemoMarket = isOrrnnDemoPublicMarketSelection({
+    brokerId: selectedBrokerId,
+    isLoggedIn,
+  });
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const palette = useMemo(() => getQuotesPalette(T, isDark), [T, isDark]);
   const activeBrokerCapture = useSyncExternalStore(
@@ -2165,9 +2175,12 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
       : unavailableFeedStateForIdentity(activeFeedIdentity)
   ), [activeFeedIdentity, feedHealthSnapshot]);
   const scopedFeedActionsAllowed = useMemo(
-    () => feedHealthAllowsPriceActions(scopedFeedHealth),
-    [scopedFeedHealth],
+    () => isPublicDemoMarket || feedHealthAllowsPriceActions(scopedFeedHealth),
+    [isPublicDemoMarket, scopedFeedHealth],
   );
+  const quoteFeedHealthStatus: FeedHealthStatus = isPublicDemoMarket
+    ? 'connecting'
+    : scopedFeedHealth.status;
   const activeFeedBrokerName =
     activeFeedIdentity && accountDetails?.id === activeFeedIdentity.accountLogin
       ? accountDetails.server || activeFeedIdentity.brokerId
@@ -2237,7 +2250,6 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
   const removeQuoteSymbol = useUserPreferences((st) => st.removeQuoteSymbol);
   const setQuoteSymbols = useUserPreferences((st) => st.setQuoteSymbols);
 
-  const showQuotesActionSheet = useUIState((s) => s.showQuotesActionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const quoteSheetFeedPauseReleaseRef = useRef<(() => void) | null>(null);
   const quoteSheetPressGestureRef = useRef<QuoteSheetPressGesture>({
@@ -2349,6 +2361,19 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
 
   useEffect(() => {
     const currentSymbols = quoteSymbolsRef.current;
+
+    // Public quote transport does not depend on the catalog. Seed the known
+    // read-only demo watchlist immediately so symbol discovery and the WSS
+    // handshake run in parallel on every logged-out cold launch. The catalog
+    // still reconciles casing/availability when it arrives below.
+    if (isPublicDemoMarket && currentSymbols.length === 0) {
+      setQuoteSymbols([...DEFAULT_QUOTE_WATCHLIST]);
+      if (!hasSetInitialSymbols) {
+        setHasSetInitialSymbols(true);
+      }
+      return;
+    }
+
     const availableSymbolsSet = new Set(feedAwareSymbols);
     const resolveAvailableSymbols = (symbols: readonly string[]) => (
       resolveQuoteFeedSymbols(symbols, feedAwareSymbols)
@@ -2449,6 +2474,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     quoteWatchlistActive,
     catalogIsLoading,
     watchlistIsLoading,
+    isPublicDemoMarket,
   ]);
 
   const [search, setSearch] = useState('');
@@ -2471,12 +2497,13 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     ] as const);
     return new Map(entries);
   }, [quoteSymbols, quoteFeedSymbols]);
-  const quoteStickyFeedActive = quoteCatalogActive && isLoggedIn;
+  const quoteStickyFeedActive = quoteCatalogActive && (isLoggedIn || isPublicDemoMarket);
+  const authenticatedQuoteStickyFeedActive = quoteCatalogActive && isLoggedIn;
   const quoteRestFallbackActive = quoteCatalogActive && isLoggedIn;
   const quoteFeedSymbolsKey = quoteFeedSymbols.join('|');
 
   useEffect(() => {
-    if (!quoteStickyFeedActive || quoteFeedSymbols.length === 0) {
+    if (!authenticatedQuoteStickyFeedActive || quoteFeedSymbols.length === 0) {
       quotesWsService.setSubscriptions([]);
       return;
     }
@@ -2485,7 +2512,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     return () => {
       quotesWsService.setSubscriptions([]);
     };
-  }, [quoteStickyFeedActive, quoteFeedSymbols, quoteFeedSymbolsKey]);
+  }, [authenticatedQuoteStickyFeedActive, quoteFeedSymbols, quoteFeedSymbolsKey]);
 
   useWatchlistLiveQuotes(quoteFeedSymbols, quoteStickyFeedActive, {
     restFallbackActive: quoteRestFallbackActive,
@@ -2522,12 +2549,14 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
    * Opens the 'Add Symbol' modal to browse and add new instruments.
    */
   const openAddSymbolModal = useCallback(() => {
+    hideQuotesSymbolActionSheet();
     hideActionSheet();
     setShowAddModal(true);
   }, [hideActionSheet]);
 
   useEffect(() => {
     if (showAddModal) {
+      hideQuotesSymbolActionSheet();
       hideActionSheet();
     }
   }, [hideActionSheet, showAddModal]);
@@ -2562,19 +2591,10 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
 
   const quoteViewMode = useUserPreferences((st) => st.quoteViewMode);
   const setQuoteViewMode = useUserPreferences((st) => st.setQuoteViewMode);
-  const preloadQuotesActionSheet = useUIState((s) => s.preloadQuotesActionSheet);
-  const quoteSheetPreparedVisualKeyRef = useRef<string | null>(null);
-  const quoteSheetConfigPaintRevisionRef = useRef(0);
-  const quoteSheetConfigPaintCancelRef = useRef<(() => void) | null>(null);
   const quoteSheetDestinationPrepRevisionRef = useRef(0);
   const quoteSheetDestinationPrepFrameRef = useRef<number | null>(null);
   const quoteSheetDestinationPrepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const quoteSheetOptionCloseExpectedRef = useRef(false);
-  const cancelPendingQuoteSheetConfigPaint = useCallback(() => {
-    quoteSheetConfigPaintRevisionRef.current += 1;
-    quoteSheetConfigPaintCancelRef.current?.();
-    quoteSheetConfigPaintCancelRef.current = null;
-  }, []);
   const cancelPendingQuoteSheetDestinationPreparation = useCallback(() => {
     quoteSheetDestinationPrepRevisionRef.current += 1;
     if (quoteSheetDestinationPrepFrameRef.current !== null) {
@@ -2587,15 +2607,23 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
       clearTimeout(timer);
     }
   }, []);
+  const handleQuotesSymbolSheetClosed = useCallback(() => {
+    cancelPendingQuoteSheetDestinationPreparation();
+    if (quoteSheetOptionCloseExpectedRef.current) {
+      quoteSheetOptionCloseExpectedRef.current = false;
+      return;
+    }
+    releaseQuoteSheetFeedPause();
+  }, [cancelPendingQuoteSheetDestinationPreparation, releaseQuoteSheetFeedPause]);
+
   useEffect(() => {
     if (isScreenFocused) {
       releaseQuoteSheetFeedPause();
     } else {
-      cancelPendingQuoteSheetConfigPaint();
+      hideQuotesSymbolActionSheet();
       cancelPendingQuoteSheetDestinationPreparation();
     }
   }, [
-    cancelPendingQuoteSheetConfigPaint,
     cancelPendingQuoteSheetDestinationPreparation,
     isScreenFocused,
     releaseQuoteSheetFeedPause,
@@ -2603,29 +2631,14 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
 
   useEffect(() => {
     return () => {
-      cancelPendingQuoteSheetConfigPaint();
+      hideQuotesSymbolActionSheet();
       cancelPendingQuoteSheetDestinationPreparation();
       releaseQuoteSheetFeedPause();
     };
   }, [
-    cancelPendingQuoteSheetConfigPaint,
     cancelPendingQuoteSheetDestinationPreparation,
     releaseQuoteSheetFeedPause,
   ]);
-
-  useEffect(() => useUIState.subscribe((state, previousState) => {
-    if (
-      previousState.scopedActionSheets.quotes !== null
-      && state.scopedActionSheets.quotes === null
-    ) {
-      cancelPendingQuoteSheetDestinationPreparation();
-      if (quoteSheetOptionCloseExpectedRef.current) {
-        quoteSheetOptionCloseExpectedRef.current = false;
-      } else {
-        releaseQuoteSheetFeedPause();
-      }
-    }
-  }), [cancelPendingQuoteSheetDestinationPreparation, releaseQuoteSheetFeedPause]);
 
   const runQuoteSheetOption = useCallback((action: () => void, options?: QuoteSheetOptionOptions) => {
     const routeChange = options?.routeChange === true;
@@ -2713,6 +2726,13 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
   }, [router, runQuoteSheetOption]);
 
   const openOrderTicketForSymbol = useCallback((sym: string) => {
+    if (requestOrrnnDemoTradeAuth({
+      kind: 'order-ticket',
+      symbol: sym,
+      origin: 'quotes',
+    })) {
+      return;
+    }
     runQuoteSheetOption(() => {
       // Show a ready, ticket-shaped screen immediately.
       // Reassert the symbol so an unusually fast option tap cannot reveal a
@@ -2731,7 +2751,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
   }, [router, runQuoteSheetOption]);
 
   const quoteTapActionSheetConfigs = useMemo(() => {
-    const configs = new Map<string, Parameters<typeof showQuotesActionSheet>[0]>();
+    const configs = new Map<string, QuotesSymbolActionSheetConfig>();
 
     quoteSymbols.forEach((sym) => {
       const displayName = fmt.symbol(sym);
@@ -2750,13 +2770,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
           t('Simple view mode'),
           t('Advanced view mode'),
         ].join('|'),
-        presentation: 'mt5Plain',
-        detent: 'auto',
-        instantOpen: true,
-        entryMotion: 'mt5Slide',
-        // Each screen starts on touch-down, so no option waits for the sheet to
-        // finish closing before it becomes visible.
-        runActionAfterClose: false,
+        onClose: handleQuotesSymbolSheetClosed,
         actions: [
           // Opens a new trade ticket for this symbol.
           {
@@ -2812,10 +2826,10 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     });
 
     return configs;
-  }, [goDetail, openChartTabForSymbol, openMarketStatisticsForSymbol, openOrderTicketForSymbol, quoteSymbols, quoteViewMode, runQuoteSheetOption, setQuoteViewMode, showQuotesActionSheet, t]);
+  }, [goDetail, handleQuotesSymbolSheetClosed, openChartTabForSymbol, openMarketStatisticsForSymbol, openOrderTicketForSymbol, quoteSymbols, quoteViewMode, runQuoteSheetOption, setQuoteViewMode, t]);
 
   const quoteLongPressActionSheetConfigs = useMemo(() => {
-    const configs = new Map<string, Parameters<typeof showQuotesActionSheet>[0]>();
+    const configs = new Map<string, QuotesSymbolActionSheetConfig>();
 
     quoteSymbols.forEach((sym) => {
       configs.set(sym, {
@@ -2828,13 +2842,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
           t('Properties'),
           t('Hide'),
         ].join('|'),
-        presentation: 'mt5Plain',
-        detent: 'auto',
-        instantOpen: true,
-        entryMotion: 'mt5Slide',
-        // Long-press options also open on touch-down without waiting for the
-        // sheet close animation.
-        runActionAfterClose: false,
+        onClose: handleQuotesSymbolSheetClosed,
         actions: [
           // Switches to the Chart tab and loads this specific symbol's chart data.
           {
@@ -2859,126 +2867,12 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     });
 
     return configs;
-  }, [goDetail, openChartTabForSymbol, quoteSymbols, removeQuoteSymbol, runQuoteSheetOption, showQuotesActionSheet, syncServerRemove, t]);
+  }, [goDetail, handleQuotesSymbolSheetClosed, openChartTabForSymbol, quoteSymbols, removeQuoteSymbol, runQuoteSheetOption, syncServerRemove, t]);
 
-  const resolveMountedActionSheetConfig = useCallback(() => {
-    const state = useUIState.getState();
-    const scope = state.actionSheetScope;
-    const scopedConfig = scope ? state.scopedActionSheets[scope] : null;
-    const scopedPreload = scope
-      ? state.preloadedScopedActionSheets[scope]
-      : Object.values(state.preloadedScopedActionSheets).find(Boolean) ?? null;
-    return {
-      config: state.actionSheet
-        ?? scopedConfig
-        ?? scopedPreload
-        ?? state.preloadedActionSheet,
-      state,
-    };
-  }, []);
-
-  const ensureQuoteSheetConfigMounted = useCallback((config: ActionSheetConfig) => {
-    const visualKey = config.visualKey;
-    const mounted = resolveMountedActionSheetConfig();
-    const mountedVisualKey = mounted.config?.visualKey;
-    const preparedVisualKey = quoteSheetPreparedVisualKeyRef.current;
-    const quotesOwnMountedConfig =
-      Boolean(visualKey)
-      && mounted.state.actionSheet === null
-      && mounted.state.actionSheetScope === 'quotes'
-      && mountedVisualKey === visualKey
-      && (
-        mounted.state.scopedActionSheets.quotes === config
-        || mounted.state.preloadedScopedActionSheets.quotes === config
-      );
-
-    if (
-      quotesOwnMountedConfig
-      && preparedVisualKey === visualKey
-    ) {
-      return true;
-    }
-
-    // Zustand may already expose the target config while the retained native
-    // host still owns the previously painted symbol. Park the identity that
-    // actually reached a paint boundary first; only fall back to the store key
-    // when that exact host was not found. The ActionSheet parker accepts only
-    // its committed key, so stale candidates cannot hide another feature.
-    let parkedOutgoingHost = false;
-    if (preparedVisualKey && preparedVisualKey !== visualKey) {
-      parkedOutgoingHost = parkRetainedActionSheetHostForConfigSwap(preparedVisualKey);
-    }
-    if (
-      !parkedOutgoingHost
-      && mountedVisualKey
-      && mountedVisualKey !== preparedVisualKey
-    ) {
-      parkRetainedActionSheetHostForConfigSwap(mountedVisualKey);
-    }
-    quoteSheetPreparedVisualKeyRef.current = null;
-
-    if (!quotesOwnMountedConfig) {
-      // Reassert the Quotes scope as well as the config. A Chart preload may
-      // have owned the shared host since this row was last touched.
-      preloadQuotesActionSheet(config);
-    }
-
-    return false;
-  }, [preloadQuotesActionSheet, resolveMountedActionSheetConfig]);
-
-  const scheduleQuoteSheetConfigPaint = useCallback((
-    config: ActionSheetConfig,
-    onPaint?: () => void,
+  const prepareSymbolDestinationShellsAfterSheetSettle = useCallback((
+    sym: string,
+    prefetchChartHistory: boolean,
   ) => {
-    cancelPendingQuoteSheetConfigPaint();
-    const revision = quoteSheetConfigPaintRevisionRef.current;
-
-    const finishPaint = () => {
-      if (quoteSheetConfigPaintRevisionRef.current !== revision) {
-        return;
-      }
-      quoteSheetConfigPaintCancelRef.current = null;
-
-      const mounted = resolveMountedActionSheetConfig();
-      const exactQuotesConfigIsMounted =
-        config.visualKey
-        && mounted.state.actionSheet === null
-        && mounted.state.actionSheetScope === 'quotes'
-        && mounted.config?.visualKey === config.visualKey
-        && (
-          mounted.state.scopedActionSheets.quotes === config
-          || mounted.state.preloadedScopedActionSheets.quotes === config
-        );
-      if (exactQuotesConfigIsMounted && config.visualKey) {
-        quoteSheetPreparedVisualKeyRef.current = config.visualKey;
-        onPaint?.();
-      }
-    };
-
-    quoteSheetConfigPaintCancelRef.current = scheduleQuoteSheetVisualBoundary(finishPaint);
-  }, [
-    cancelPendingQuoteSheetConfigPaint,
-    resolveMountedActionSheetConfig,
-  ]);
-
-  useEffect(() => {
-    if (!quoteRouteActive) {
-      return;
-    }
-    const firstSym = quoteSymbols[0];
-    const config = firstSym ? quoteTapActionSheetConfigs.get(firstSym) : null;
-    if (config && !ensureQuoteSheetConfigMounted(config)) {
-      scheduleQuoteSheetConfigPaint(config);
-    }
-  }, [
-    ensureQuoteSheetConfigMounted,
-    quoteRouteActive,
-    quoteSymbols,
-    quoteTapActionSheetConfigs,
-    scheduleQuoteSheetConfigPaint,
-  ]);
-
-  const prepareSymbolDestinationShellsAfterSheetSettle = useCallback((sym: string) => {
     cancelPendingQuoteSheetDestinationPreparation();
     const revision = quoteSheetDestinationPrepRevisionRef.current;
 
@@ -2987,9 +2881,14 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
         return;
       }
       quoteSheetDestinationPrepTimerRef.current = null;
-      // Only prepare the two lightweight retained shells here. The accepted
-      // row tap owns its one-symbol candle warm-up separately; this delayed
-      // task never imports routes or mounts hidden destination screens.
+      // Keep query/cache work out of the sheet-open callback. On a cold bundle
+      // it can synchronously notify the retained Chart tree and steal the first
+      // Quotes animation frame. A normal row tap still warms its exact symbol,
+      // but only after the dedicated sheet has visibly settled.
+      if (prefetchChartHistory) {
+        const { chartTimeframe } = useUserPreferences.getState();
+        void prefetchChartSelectionHistory(sym, chartTimeframe);
+      }
       prepareOrderTicketLaunch(sym, 'quotes');
       prepareQuoteInfoLaunch(sym);
     };
@@ -3017,8 +2916,8 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     );
   }, [cancelPendingQuoteSheetDestinationPreparation]);
 
-  const openQuoteSheetWhenConfigIsReady = useCallback((
-    config: ActionSheetConfig,
+  const openQuotesSymbolSheet = useCallback((
+    config: QuotesSymbolActionSheetConfig,
     actionName: string,
     sym: string,
     gestureSequence?: number,
@@ -3034,40 +2933,20 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
         && !currentGesture.cancelled;
     };
 
-    const openSheet = () => {
-      if (!currentGestureIsAccepted()) {
-        releaseQuoteSheetFeedPause();
-        return;
-      }
-      runImmediateAction(actionName, () => {
-        showQuotesActionSheet(config);
-        if (actionName === 'quotes.symbolSheet.tap.open') {
-          // A normal row tap is strong intent for this symbol's primary
-          // actions. Warm only its saved Chart timeframe while the user reads
-          // the sheet, so Chart can paint authoritative OHLC immediately.
-          // Long-press menus keep their lightweight/no-network behavior.
-          const { chartTimeframe } = useUserPreferences.getState();
-          void prefetchChartSelectionHistory(sym, chartTimeframe);
-        }
-        prepareSymbolDestinationShellsAfterSheetSettle(sym);
-      });
-    };
-
-    if (ensureQuoteSheetConfigMounted(config)) {
-      openSheet();
+    if (!currentGestureIsAccepted()) {
+      releaseQuoteSheetFeedPause();
       return;
     }
-
-    // A fast release or a tap after Chart owned the global host can arrive
-    // before the hidden Quotes rows have painted. Give that local config one
-    // frame, then start the same native slide without exposing stale content.
-    scheduleQuoteSheetConfigPaint(config, openSheet);
+    runImmediateAction(actionName, () => {
+      presentQuotesSymbolActionSheet(config);
+      prepareSymbolDestinationShellsAfterSheetSettle(
+        sym,
+        actionName === 'quotes.symbolSheet.tap.open',
+      );
+    });
   }, [
-    ensureQuoteSheetConfigMounted,
     prepareSymbolDestinationShellsAfterSheetSettle,
     releaseQuoteSheetFeedPause,
-    scheduleQuoteSheetConfigPaint,
-    showQuotesActionSheet,
   ]);
 
   const clearQuoteSheetPressOutTimer = useCallback(() => {
@@ -3165,14 +3044,14 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
         clearQuoteSheetPressOutTimer();
       }
 
-      openQuoteSheetWhenConfigIsReady(
+      openQuotesSymbolSheet(
         config,
         'quotes.symbolSheet.tap.open',
         sym,
         gesture.symbol === sym ? gesture.sequence : undefined,
       );
     }
-  }, [cancelSymbolSheetPreview, clearQuoteSheetPressOutTimer, openQuoteSheetWhenConfigIsReady, quoteTapActionSheetConfigs, showAddModal]);
+  }, [cancelSymbolSheetPreview, clearQuoteSheetPressOutTimer, openQuotesSymbolSheet, quoteTapActionSheetConfigs, showAddModal]);
 
   /**
    * Callback triggered when a user long-presses on a symbol row, typically opening a context menu with options like 'Chart', 'Details', or 'Remove'.
@@ -3190,14 +3069,14 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
         gesture.start = null;
         clearQuoteSheetPressOutTimer();
       }
-      openQuoteSheetWhenConfigIsReady(
+      openQuotesSymbolSheet(
         config,
         'quotes.symbolSheet.longPress.open',
         sym,
         gesture.symbol === sym ? gesture.sequence : undefined,
       );
     }
-  }, [clearQuoteSheetPressOutTimer, openQuoteSheetWhenConfigIsReady, quoteLongPressActionSheetConfigs, showAddModal]);
+  }, [clearQuoteSheetPressOutTimer, openQuotesSymbolSheet, quoteLongPressActionSheetConfigs, showAddModal]);
 
   useEffect(() => () => {
     clearQuoteSheetPressOutTimer();
@@ -3239,7 +3118,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
         liveUpdatesActive={quoteStickyFeedActive}
         feedActionsAllowed={scopedFeedActionsAllowed}
         feedHealthReason={scopedFeedHealth.reasonCategory}
-        feedHealthStatus={scopedFeedHealth.status}
+        feedHealthStatus={quoteFeedHealthStatus}
         onPressIn={(event) => handleSymbolPressIn(sym, event)}
         onPressOut={() => handleSymbolPressOut(sym)}
         onTouchMove={handleSymbolPressMove}
@@ -3265,7 +3144,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
     quoteStickyFeedActive,
     scopedFeedActionsAllowed,
     scopedFeedHealth.reasonCategory,
-    scopedFeedHealth.status,
+    quoteFeedHealthStatus,
     removeQuoteSymbol,
     syncServerRemove,
   ]);
@@ -3338,8 +3217,9 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isScreenFocuse
                 palette={palette}
                 active={quoteStickyFeedActive}
                 symbols={quoteFeedSymbols}
-                feedHealthStatus={scopedFeedHealth.status}
+                feedHealthStatus={quoteFeedHealthStatus}
                 generationKey={quoteLiveProofGenerationKey}
+                publicDemoMarket={isPublicDemoMarket}
               />
             </View>
           </View>
@@ -4091,6 +3971,7 @@ function TickCounter({
   symbols,
   feedHealthStatus,
   generationKey,
+  publicDemoMarket,
 }: {
   T: ThemeColors;
   palette: QuotesPalette;
@@ -4098,6 +3979,7 @@ function TickCounter({
   symbols: string[];
   feedHealthStatus: FeedHealthStatus;
   generationKey: string;
+  publicDemoMarket: boolean;
 }) {
   const { t } = useTranslation();
   const [tps, setTps] = useState(0);
@@ -4139,13 +4021,16 @@ function TickCounter({
       }
     };
 
+    const socket = publicDemoMarket
+      ? orrnnDemoPublicMarketSocket
+      : quotesWsService;
     const unsubscribers = trackedSymbols.map((symbol) =>
-      quotesWsService.subscribeToSymbol(symbol, listener),
+      socket.subscribeToSymbol(symbol, listener),
     );
     return () => {
       unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
-  }, [active, generationKey, trackedSymbolSet, trackedSymbols.length]);
+  }, [active, generationKey, publicDemoMarket, trackedSymbolSet, trackedSymbols.length]);
 
   useEffect(() => {
     if (!active || trackedSymbols.length === 0) {
@@ -4155,12 +4040,19 @@ function TickCounter({
       setHasFreshFeed(false);
       return;
     }
-    const readHasFreshFeed = () =>
-      hasFreshSustainedQuoteLiveProof(
-        liveProofRef.current,
-        Date.now(),
-        LIVE_SYMBOL_STALE_MS,
-      );
+    const readHasFreshFeed = () => (
+      publicDemoMarket
+        ? hasFreshAcceptedQuoteLiveProof(
+            liveProofRef.current,
+            Date.now(),
+            LIVE_SYMBOL_STALE_MS,
+          )
+        : hasFreshSustainedQuoteLiveProof(
+            liveProofRef.current,
+            Date.now(),
+            LIVE_SYMBOL_STALE_MS,
+          )
+    );
     // Reset the counter when the symbol set or focus changes so TPS reflects
     // the current window, not a count carried over from a previous session.
     tickTimesRef.current = [];
@@ -4179,7 +4071,7 @@ function TickCounter({
       setHasFreshFeed(hasSustainedFeed);
     }, QUOTE_SPEED_SAMPLE_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [active, generationKey, trackedSymbols.length, symbolsKey]);
+  }, [active, generationKey, publicDemoMarket, trackedSymbols.length, symbolsKey]);
 
   const statusLabel = resolveCompactFeedStatusLabel(feedHealthStatus, hasFreshFeed);
   const statusColor = statusLabel === 'LIVE' ? T.trading.profit : palette.secondaryText;

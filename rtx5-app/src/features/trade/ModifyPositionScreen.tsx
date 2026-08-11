@@ -66,6 +66,7 @@ import {
   isExistingPositionModifyBackendLocked,
   SLTP_COMING_SOON_TITLE,
 } from './tradeBackendCapabilities';
+import { requestOrrnnDemoTradeAuth } from './tradeAuthPrompt';
 const SETTINGS_DARK_BACKGROUND = '#121212';
 const SETTINGS_DARK_CARD_BACKGROUND = '#1E1E1E';
 const MODIFY_POSITION_QUOTE_COMMIT_INTERVAL_MS = 50;
@@ -889,6 +890,13 @@ export function ModifyPositionScreen({
    * Submits the requested SL/TP modifications to the trade server and displays a success or error confirmation alert.
    */
   const handleModify = () => {
+    if (requestOrrnnDemoTradeAuth({
+      kind: 'position-action',
+      symbol: position?.symbol,
+      action: 'modify',
+    })) {
+      return;
+    }
     if (modifySubmittingRef.current || coordinatorBusy) {
       return;
     }

@@ -83,7 +83,7 @@ test('chart trade buttons keep buy and sell press handlers mapped to the matchin
   );
   assert.match(
     handlerSource,
-    /const chartTradeActionDisabled = resolveChartTradeActionDisabled\(\{[\s\S]*isCurrentChartSymbol,[\s\S]*oneClickAccepted,[\s\S]*quoteActionAllowed,[\s\S]*\}\);/,
+    /const isPublicDemoTradePrompt = useUserPreferences\([\s\S]*!state\.isLoggedIn[\s\S]*const chartTradeActionDisabled = isPublicDemoTradePrompt[\s\S]*\? false[\s\S]*: resolveChartTradeActionDisabled\(\{[\s\S]*isCurrentChartSymbol,[\s\S]*oneClickAccepted,[\s\S]*quoteActionAllowed,[\s\S]*\}\);/,
   );
   assert.match(
     handlerSource,
@@ -93,7 +93,14 @@ test('chart trade buttons keep buy and sell press handlers mapped to the matchin
     handlerSource,
     /releaseOpenPathLock = \(\) => \{\s*releaseTradeTapLock\(CHART_TRADE_TAP_RELEASE_DELAY_MS\);/,
   );
-  assert.match(source, /const tradeBlocked = chartTradeActionDisabled \|\| lotInvalid/);
+  assert.match(
+    handlerSource,
+    /requestOrrnnDemoTradeAuth\(\{[\s\S]*symbol,[\s\S]*side,[\s\S]*origin: 'chart',[\s\S]*\}\)[\s\S]*const action = getChartTradeAction\(side\)/,
+  );
+  assert.match(
+    source,
+    /const tradeBlocked = isPublicDemoTradePrompt[\s\S]*\? false[\s\S]*: chartTradeActionDisabled \|\| lotInvalid/,
+  );
   assert.match(source, /disabled=\{tradeBlocked\}/);
 });
 

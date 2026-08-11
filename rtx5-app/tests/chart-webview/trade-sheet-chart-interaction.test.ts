@@ -242,8 +242,8 @@ test('SL and TP drag keeps candles fixed while moving vertically', () => {
   );
   assertSourceContains(
     beginDragBody,
-    /priceScaleRangeLock: captureTradeLineDragPriceScaleLock\(\)/,
-    'active SL/TP drag state must store the captured chart price-scale range',
+    /var manualRangeBeforeDrag = isManualVerticalPanRangeLocked\(\)[\s\S]*priceScaleRangeLock: captureTradeLineDragPriceScaleLock\(\)[\s\S]*manualRangeBeforeDrag: manualRangeBeforeDrag/,
+    'active SL/TP drag state must store both the transient lock and preexisting manual ownership',
   );
   assertSourceContains(
     beginDragBody,
@@ -257,8 +257,8 @@ test('SL and TP drag keeps candles fixed while moving vertically', () => {
   );
   assertSourceContains(
     finishDragBody,
-    /keepTradeLineDragPriceScaleLocked\(drag\.priceScaleRangeLock\)[\s\S]*postChartTradeLineDrag\('end', drag\.dragKey, roundOverlayDragPrice\(drag\.lastPrice\) \|\| drag\.lastPrice\)/,
-    'SL/TP drag release must finish without allowing a final chart rescale',
+    /keepTradeLineDragPriceScaleLocked\(drag\.priceScaleRangeLock\)[\s\S]*isValidPriceRange\(drag\.manualRangeBeforeDrag\)[\s\S]*rememberManualVerticalPanRange\(drag\.manualRangeBeforeDrag\)[\s\S]*applyManualVerticalPanLockedRange\(\)[\s\S]*else \{[\s\S]*enableRightPriceAutoScale\(\)[\s\S]*postChartTradeLineDrag\('end', drag\.dragKey, roundOverlayDragPrice\(drag\.lastPrice\) \|\| drag\.lastPrice\)/,
+    'SL/TP drag release must restore preexisting manual ownership or return an auto-owned chart to autoscale',
   );
 });
 

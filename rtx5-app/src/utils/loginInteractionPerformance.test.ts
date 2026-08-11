@@ -138,7 +138,7 @@ test('login broker id can be selected from the broker directory dropdown', () =>
   assert.doesNotMatch(source, /You can still type the Broker ID manually\./);
   assert.match(source, /brokerServerUrlValueRef\.current = option\.serverUrl/);
   assert.match(source, /setBrokerServerUrl\(option\.serverUrl\)/);
-  assert.match(source, /onPress: \(\) => selectBrokerOption\(option\)/);
+  assert.match(source, /onPress: \(\) => selectBrokerOptionFromPicker\(option\)/);
   assert.doesNotMatch(source, /setBrokerConnection|persistSelectedBrokerSession|resolveBrokerServiceBaseUrl/);
   assert.doesNotMatch(source, /proxyServer: resolveBrokerProxyServerAddress\(broker\)/);
   assert.match(source, /const handleBrokerPickerPress = \(\) => \{/);
@@ -166,8 +166,48 @@ test('login broker id can be selected from the broker directory dropdown', () =>
   assert.match(source, /input:\s*\{[\s\S]*textAlignVertical: 'center',/);
 });
 
+test('logged-out demo broker is only an initial default and cannot overwrite a user selection', () => {
+  const source = readSource('app/login.tsx');
+  const defaultEffectStart = source.indexOf(
+    'hasResolvedLoggedOutBrokerDefaultRef.current ||',
+  );
+  const defaultEffectEnd = source.indexOf(
+    'const selectedBrokerServerUrl',
+    defaultEffectStart,
+  );
+  const defaultEffectSource = source.slice(defaultEffectStart, defaultEffectEnd);
+
+  assert.match(
+    source,
+    /const hasResolvedLoggedOutBrokerDefaultRef = useRef\(false\)/,
+  );
+  assert.notEqual(defaultEffectStart, -1);
+  assert.notEqual(defaultEffectEnd, -1);
+  assert.match(
+    defaultEffectSource,
+    /hasResolvedLoggedOutBrokerDefaultRef\.current = true;[\s\S]*selectBrokerOption\(publicDemoOption\)/,
+  );
+  assert.match(
+    source,
+    /const selectBrokerOptionFromPicker = useCallback\(\(option: LoginBrokerOption\) => \{\s*hasResolvedLoggedOutBrokerDefaultRef\.current = true;\s*selectBrokerOption\(option\);/,
+  );
+  assert.match(source, /onPress: \(\) => selectBrokerOptionFromPicker\(option\)/);
+  assert.match(
+    source,
+    /const updateBrokerId = \(value: string\) => \{\s*hasResolvedLoggedOutBrokerDefaultRef\.current = true;/,
+  );
+});
+
 test('login validation snapshots the latest committed native field values', () => {
   const source = readSource('app/login.tsx');
+  const normalizedAccountIdIndex = source.indexOf('const normalizedAccountId = snapshot.accountId;');
+  const demoLoginValidationIndex = source.indexOf(
+    'const isOrrnnDemoLogin = normalizedBrokerId === ORRNN_DEMO_PUBLIC_BROKER_ID;',
+    normalizedAccountIdIndex,
+  );
+  const loginRequestIndex = source.indexOf('const loginRequestPromise = loginAPI(', demoLoginValidationIndex);
+  const loadingIndex = source.indexOf('setIsLoading(true);', loginRequestIndex);
+  const awaitLoginIndex = source.indexOf('const response: any = await loginRequestPromise;', loadingIndex);
 
   assert.match(source, /type LoginCredentialsSnapshot = \{/);
   assert.match(source, /type NativeSyntheticEvent/);
@@ -176,8 +216,28 @@ test('login validation snapshots the latest committed native field values', () =
   assert.doesNotMatch(source, /globalThis\.requestAnimationFrame\(task\)/);
   assert.doesNotMatch(source, /globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(task, 0\);/);
   assert.match(source, /runImmediateAction\('login\.submit\.touch'[\s\S]*const snapshot = getLoginCredentialsSnapshot\(\);[\s\S]*void handleLogin\(snapshot\);/);
-  assert.match(source, /const loginRequestPromise = loginAPI\(\{/);
-  assert.match(source, /const loginRequestPromise = loginAPI\([\s\S]*setIsLoading\(true\);[\s\S]*const response: any = await loginRequestPromise/);
+  assert.notEqual(normalizedAccountIdIndex, -1);
+  assert.notEqual(demoLoginValidationIndex, -1);
+  assert.notEqual(loginRequestIndex, -1);
+  assert.notEqual(loadingIndex, -1);
+  assert.notEqual(awaitLoginIndex, -1);
+  assert.ok(
+    normalizedAccountIdIndex < demoLoginValidationIndex
+      && demoLoginValidationIndex < loginRequestIndex
+      && loginRequestIndex < loadingIndex
+      && loadingIndex < awaitLoginIndex,
+    'latest snapshotted account ID must be validated before the request, which starts before loading-state work',
+  );
+  const demoLoginRequestSource = source.slice(demoLoginValidationIndex, loadingIndex);
+  assert.match(demoLoginRequestSource, /const numericDemoLogin = isOrrnnDemoLogin \? Number\(normalizedAccountId\) : null/);
+  assert.match(
+    demoLoginRequestSource,
+    /if \(\s*isOrrnnDemoLogin &&\s*\(!Number\.isSafeInteger\(numericDemoLogin\) \|\| Number\(numericDemoLogin\) <= 0\)\s*\) \{[\s\S]*return;/,
+  );
+  assert.match(
+    demoLoginRequestSource,
+    /const loginRequestPromise = loginAPI\(\s*isOrrnnDemoLogin\s*\? \{[\s\S]*?login: Number\(numericDemoLogin\),[\s\S]*?password: currentPassword,[\s\S]*?broker_id: ORRNN_DEMO_PUBLIC_BROKER_ID,[\s\S]*?\}\s*: \{[\s\S]*?username: normalizedAccountId,[\s\S]*?password: currentPassword,[\s\S]*?broker_id: normalizedBrokerId,[\s\S]*?\},\s*\{ serverUrl: normalizedServerUrl, signal: loginAbortController\.signal \},\s*\);/,
+  );
   assert.match(source, /const brokerIdValueRef = useRef<string \| null>\(null\)/);
   assert.match(source, /const brokerServerUrlValueRef = useRef<string \| null>\(null\)/);
   assert.match(source, /const brokerLogoUrlValueRef = useRef<string \| null>\(null\)/);
@@ -238,16 +298,32 @@ test('login atomically commits the validated secure session before navigation', 
   const source = readSource('app/login.tsx');
   const loginRequestIndex = source.indexOf('const loginRequestPromise = loginAPI');
   const sessionCommitIndex = source.indexOf('await commitBrokerSession({', loginRequestIndex);
-  const routerReplaceIndex = source.indexOf("router.replace('/(tabs)/quotes');", loginRequestIndex);
-  const postLoginWorkIndex = source.indexOf('schedulePostLoginWork(() => {', routerReplaceIndex);
+  const pendingTradeIntentIndex = source.indexOf('const pendingTradeIntent = consumePendingTradeAuthIntent();', sessionCommitIndex);
+  const orderTicketRouterReplaceIndex = source.indexOf('router.replace({', pendingTradeIntentIndex);
+  const tradeRouterReplaceIndex = source.indexOf("router.replace('/(tabs)/trade');", pendingTradeIntentIndex);
+  const quotesRouterReplaceIndex = source.indexOf("router.replace('/(tabs)/quotes');", pendingTradeIntentIndex);
+  const successNavigationIndices = [
+    orderTicketRouterReplaceIndex,
+    tradeRouterReplaceIndex,
+    quotesRouterReplaceIndex,
+  ];
+  const firstSuccessNavigationIndex = Math.min(...successNavigationIndices);
+  const lastSuccessNavigationIndex = Math.max(...successNavigationIndices);
+  const postLoginWorkIndex = source.indexOf('schedulePostLoginWork(() => {', lastSuccessNavigationIndex);
   const brokerConfigRefreshIndex = source.indexOf('void getBrokerConfig(canonicalBrokerId)', postLoginWorkIndex);
+  const handleLoginEndIndex = source.indexOf('const releaseLoginSubmitPressGuard', postLoginWorkIndex);
 
   assert.notEqual(loginRequestIndex, -1);
   assert.notEqual(sessionCommitIndex, -1);
-  assert.notEqual(routerReplaceIndex, -1);
+  assert.notEqual(pendingTradeIntentIndex, -1);
+  for (const navigationIndex of successNavigationIndices) {
+    assert.notEqual(navigationIndex, -1);
+  }
   assert.notEqual(postLoginWorkIndex, -1);
   assert.notEqual(brokerConfigRefreshIndex, -1);
-  const loginCriticalPath = source.slice(loginRequestIndex, routerReplaceIndex);
+  assert.notEqual(handleLoginEndIndex, -1);
+  const loginCriticalPath = source.slice(loginRequestIndex, firstSuccessNavigationIndex);
+  const handleLoginSuccessSource = source.slice(loginRequestIndex, handleLoginEndIndex);
   assert.doesNotMatch(
     loginCriticalPath,
     /checkBrokerServerHealth/,
@@ -265,16 +341,23 @@ test('login atomically commits the validated secure session before navigation', 
   assert.match(source, /let didStartSuccessNavigation = false/);
   assert.match(source, /didStartSuccessNavigation = true/);
   assert.match(source, /if \(!didStartSuccessNavigation\) \{\s*if \(loginMountedRef\.current\) \{\s*setIsLoading\(false\);/);
+  assert.equal(
+    (handleLoginSuccessSource.match(/await commitBrokerSession\(\{/g) ?? []).length,
+    1,
+    'login must use one atomic broker-session commit',
+  );
   assert.ok(
     brokerConfigRefreshIndex > loginRequestIndex,
     'broker config refresh should run after auth has already completed',
   );
   assert.ok(
-    sessionCommitIndex > loginRequestIndex && routerReplaceIndex > sessionCommitIndex,
-    'login must finish its atomic secure session commit before navigation',
+    sessionCommitIndex > loginRequestIndex
+      && pendingTradeIntentIndex > sessionCommitIndex
+      && successNavigationIndices.every((navigationIndex) => navigationIndex > pendingTradeIntentIndex),
+    'login must finish its atomic secure session commit before consuming and routing a pending trade intent',
   );
   assert.ok(
-    postLoginWorkIndex > routerReplaceIndex,
+    postLoginWorkIndex > lastSuccessNavigationIndex,
     'non-critical login bookkeeping should be scheduled after navigation starts',
   );
   assert.ok(
@@ -289,7 +372,10 @@ test('login atomically commits the validated secure session before navigation', 
     /setTimeout\(\s*\(\)\s*=>\s*\{[\s\S]*router\.replace\('\/\(tabs\)\/quotes'\)[\s\S]*\},\s*1200\s*\)/,
   );
   assert.match(source, /const schedulePostLoginWork = \(task: \(\) => void\) => \{[\s\S]*requestAnimationFrame/);
-  assert.match(source, /await commitBrokerSession\(\{[\s\S]*\}, commitAuthorization\);[\s\S]*router\.replace\('\/\(tabs\)\/quotes'\);\s*didStartSuccessNavigation = true;\s*schedulePostLoginWork\(\(\) => \{/);
+  assert.match(
+    source.slice(sessionCommitIndex, postLoginWorkIndex),
+    /await commitBrokerSession\(\{[\s\S]*\}, commitAuthorization\);[\s\S]*const pendingTradeIntent = consumePendingTradeAuthIntent\(\);[\s\S]*pathname: '\/trade\/order-ticket'[\s\S]*router\.replace\('\/\(tabs\)\/trade'\);[\s\S]*router\.replace\('\/\(tabs\)\/quotes'\);[\s\S]*didStartSuccessNavigation = true;/,
+  );
   assert.match(source, /authorizeBrokerSessionCommit\(\)[\s\S]*signal: loginAbortController\.signal/);
   assert.match(source, /bootstrapApp\(\{[\s\S]*expectedProvenance: committedProvenance/);
   assert.match(

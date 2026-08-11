@@ -27,9 +27,11 @@ import {
   safeRouterBack,
   scheduleBackNavigationAfterVisualFrame,
 } from '../../src/utils/navigation';
+import { useUserPreferences } from '../../src/state/userPreferences';
 
 export default function BrokersRoute() {
   const routeMountedRef = useRef(true);
+  const setBrokerConnection = useUserPreferences((state) => state.setBrokerConnection);
   useEffect(() => {
     routeMountedRef.current = true;
     return () => {
@@ -46,6 +48,7 @@ export default function BrokersRoute() {
       onAvailable: () => {
         if (!routeMountedRef.current) return;
         const selection = toBrokerDetailLaunchSelection(broker);
+        setBrokerConnection(broker.brokerId, broker.serverUrl, broker.logoUrl);
         const launchRevision = showBrokerDetailLaunch(selection);
         if (brokersLaunchController.isVisible()) {
           hideBrokersLaunch();

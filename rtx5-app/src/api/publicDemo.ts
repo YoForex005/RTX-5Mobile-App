@@ -18,24 +18,14 @@ export const ORRNN_DEMO_INITIAL_BALANCE = configuredPositiveNumber(
   process.env.EXPO_PUBLIC_ORRNN_DEMO_INITIAL_BALANCE,
 );
 export const ORRNN_DEMO_ORIGIN_BROKER =
-  process.env.EXPO_PUBLIC_ORRNN_DEMO_ORIGIN_BROKER ||
-  process.env.EXPO_PUBLIC_ORIGIN_BROKER ||
-  '';
+  process.env.EXPO_PUBLIC_ORRNN_DEMO_ORIGIN_BROKER || '';
 export const ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME =
   process.env.EXPO_PUBLIC_ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME ||
-  'Configured demo broker';
+  'Orrnn demo mobile';
 export const ORRNN_DEMO_ORIGIN_BROKER_LABEL =
   process.env.EXPO_PUBLIC_ORRNN_DEMO_ORIGIN_BROKER_LABEL ||
-  'Demo broker';
-export const TEST_ORRNN_DEMO_ORIGIN_BROKER =
-  process.env.EXPO_PUBLIC_TEST_BROKER_ID ||
-  '';
-export const TEST_ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME =
-  process.env.EXPO_PUBLIC_TEST_BROKER_NAME ||
-  'Configured test broker';
-export const TEST_ORRNN_DEMO_ORIGIN_BROKER_LABEL =
-  process.env.EXPO_PUBLIC_TEST_BROKER_LABEL ||
-  'Test broker';
+  'Demo account source';
+export const ORRNN_DEMO_CANONICAL_GROUP = 'orrnn-demo/demo-std';
 export const PUBLIC_API_V1_BASE_URL =
   process.env.EXPO_PUBLIC_API_V1_BASE_URL || '';
 export const PUBLIC_DEMO_API_BASE_URL =
@@ -45,6 +35,7 @@ export interface OrrnnDemoStatusResponse {
   service: string;
   status: string;
   broker: string;
+  broker_id: string;
   demo_groups_available: number;
   total_demo_accounts: number;
   database: string;
@@ -70,7 +61,9 @@ function getDemoSetupUnavailableMessage(statusCode: number): string {
 
 export function isOrrnnDemoHealthy(status: OrrnnDemoStatusResponse | null | undefined): boolean {
   return (
+    Boolean(ORRNN_DEMO_BROKER_ID) &&
     status?.service === 'orrnn-demo' &&
+    status.broker_id === ORRNN_DEMO_BROKER_ID &&
     status.status === 'ok' &&
     status.broker === 'active' &&
     status.database === 'connected' &&
@@ -129,32 +122,17 @@ export interface CreateOrrnnDemoAccountRequest {
   group: string;
   email: string;
   master_pass: string;
-  investor_pass: string;
   first_name: string;
   last_name?: string;
   phone?: string;
-  country?: string;
-  currency?: string;
-  leverage?: number;
-  initial_balance?: number;
-  origin_broker?: string;
-  comment?: string;
+  initial_balance: number;
+  origin_broker: string;
 }
 
 export interface OrrnnDemoAccountResponse {
   login: number;
-  broker_id?: string;
-  group?: string;
-  Group?: string;
-  currency?: string;
-  Currency?: string;
-  leverage?: number;
-  Leverage?: number;
-  balance: number;
-  api_key?: string;
-  master_pass?: string;
-  created_at?: number;
-  Registration?: number;
+  broker_id: string;
+  group: string;
 }
 
 type OrrnnDemoBrokerDiscovery = BrokerServiceDiscovery & {
@@ -171,17 +149,13 @@ export type OrrnnDemoBrokerAuthRoute = {
   source: 'broker-directory' | 'missing';
 };
 
-const normalizeDemoBrokerId = (brokerId: string | null | undefined) =>
-  String(brokerId ?? '').trim().toLowerCase();
-
 export function resolveOrrnnDemoBrokerAuthRoute(
   brokerId: string,
   brokers: readonly OrrnnDemoBrokerDiscovery[],
 ): OrrnnDemoBrokerAuthRoute {
-  const normalizedBrokerId = normalizeDemoBrokerId(brokerId);
   const routeBrokerId = brokerId.trim();
   const broker = brokers.find(
-    (candidate) => normalizeDemoBrokerId(candidate.broker_id) === normalizedBrokerId,
+    (candidate) => candidate.broker_id?.trim() === routeBrokerId,
   );
 
   if (!broker) {
@@ -251,13 +225,19 @@ export async function getOrrnnDemoGroups(): Promise<OrrnnDemoGroupsResponse> {
 function compactDemoAccountRequest(
   data: CreateOrrnnDemoAccountRequest,
 ): CreateOrrnnDemoAccountRequest {
-  const entries = Object.entries(data).filter(([, value]) => {
-    if (value == null) return false;
-    if (typeof value === 'string') return value.trim().length > 0;
-    return true;
-  });
+  const lastName = data.last_name?.trim();
+  const phone = data.phone?.trim();
 
-  return Object.fromEntries(entries) as CreateOrrnnDemoAccountRequest;
+  return {
+    group: data.group,
+    email: data.email.trim(),
+    master_pass: data.master_pass,
+    first_name: data.first_name.trim(),
+    ...(lastName ? { last_name: lastName } : {}),
+    ...(phone ? { phone } : {}),
+    initial_balance: data.initial_balance,
+    origin_broker: data.origin_broker.trim(),
+  };
 }
 
 async function getDemoAccountErrorMessage(response: Response): Promise<string> {
@@ -286,14 +266,13 @@ async function getDemoAccountErrorMessage(response: Response): Promise<string> {
  * INTEGRATED: POST /api/v1/public/demo-account.
  *
  * Creates an unauthenticated Orrnn demo trading account for white-label
- * frontends. The server owns broker_id=orrnn, created_by_type=user, live-group
- * rejection, and default initial_balance handling, so the client only sends
- * user-entered fields plus the selected demo group/currency/leverage.
+ * frontends. The server owns the orrnn-demo identity and live-group rejection;
+ * the client sends only the exact public creation DTO.
  */
 export async function createOrrnnDemoAccount(
   data: CreateOrrnnDemoAccountRequest,
 ): Promise<OrrnnDemoAccountResponse> {
-  if (!PUBLIC_DEMO_API_BASE_URL) {
+  if (!PUBLIC_DEMO_API_BASE_URL || !ORRNN_DEMO_BROKER_ID) {
     throw new OrrnnDemoApiError(0, DEMO_SETUP_TEMPORARILY_UNAVAILABLE_MESSAGE);
   }
   let response: Response;
@@ -331,12 +310,28 @@ export async function createOrrnnDemoAccount(
   }
 
   const account = await response.json();
-  if (typeof account?.login !== 'number') {
+  if (
+    typeof account?.login !== 'number' ||
+    !Number.isInteger(account.login) ||
+    account.login <= 0
+  ) {
     throw new OrrnnDemoApiError(
       response.status,
       'Demo account creation failed: response did not include a login number.',
     );
   }
+  if (account.broker_id !== ORRNN_DEMO_BROKER_ID) {
+    throw new OrrnnDemoApiError(
+      response.status,
+      'Demo account creation failed: response broker did not match the configured demo broker.',
+    );
+  }
+  if (account.group !== ORRNN_DEMO_CANONICAL_GROUP) {
+    throw new OrrnnDemoApiError(
+      response.status,
+      'Demo account creation failed: response group did not match the canonical demo group.',
+    );
+  }
 
-  return account;
+  return account as OrrnnDemoAccountResponse;
 }

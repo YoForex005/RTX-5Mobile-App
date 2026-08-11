@@ -77,7 +77,7 @@ test('symbol and timeframe switching reuse the initialized WebView surface', () 
 
   assertSourceContains(
     source,
-    /const chartDataContextSig = useMemo\([\s\S]*`\$\{activeChartSessionCacheNamespace\}:\$\{chartSymbol\}:\$\{normalizeTimeframe\(chartTimeframe\)\}`/,
+    /const chartDataContextSig = useMemo\([\s\S]*`\$\{chartMarketDataCacheNamespace\}:\$\{chartSymbol\}:\$\{normalizeTimeframe\(chartTimeframe\)\}`/,
     'broker session, symbol, and timeframe must be tracked as a data context separate from the chart shell',
   );
   assert.doesNotMatch(
@@ -129,10 +129,17 @@ test('symbol switching dispatches selected history before the deferred heavy cha
     commitIndex > historyPreparationIndex && symbolCommitIndex > commitIndex,
     'the Zustand symbol update must happen only in the deferred commit phase',
   );
+  const authenticatedBranchStart = switchSource.indexOf('if (nextSymbol === chartSymbol)');
+  assert.ok(authenticatedBranchStart >= 0);
   assert.doesNotMatch(
-    switchSource.slice(0, commitIndex),
+    switchSource.slice(authenticatedBranchStart, commitIndex),
     /setChartSymbol\(/,
-    'symbol switching must not start the heavy Chart render in the request-dispatch turn',
+    'authenticated symbol switching must not start the heavy Chart render in the request-dispatch turn',
+  );
+  assertSourceContains(
+    switchSource,
+    /if \(isPublicDemoMarket\) \{[\s\S]*preferences\.setChartSymbol\(nextSymbol\)[\s\S]*preferences\.setChartTimeframe\(nextTimeframe\)/,
+    'public demo selections must commit directly and let the tokenless hook load the new context',
   );
   assertSourceContains(
     source,
@@ -169,8 +176,13 @@ test('symbol and timeframe switching full-reloads data and resets the first view
   );
   assertSourceContains(
     source,
-    /useEffect\(\(\) => \{[\s\S]*renderedDataContextSigRef\.current = '';[\s\S]*clearRenderedMarketPriceLines\(\);[\s\S]*\}, \[chartDataContextSig, clearRenderedMarketPriceLines\]\)/,
-    'symbol/timeframe changes must clear stale context bridge state without blanking the canvas',
+    /const clearRenderedMarketPriceLines = useCallback\(\(dataContextSig\?: string\) => \{[\s\S]*const revision = livePaintRevisionRef\.current \+ 1;[\s\S]*setLivePriceLineForContext\([\s\S]*null,[\s\S]*\$\{JSON\.stringify\(requestedContextSig\)\},[\s\S]*\$\{revision\}[\s\S]*livePaintRevisionRef\.current = revision/,
+    'symbol/timeframe changes must clear the old rendered context through a revisioned live-line command',
+  );
+  assertSourceContains(
+    source,
+    /useEffect\(\(\) => \{[\s\S]*const renderedContextToClear =[\s\S]*renderedDataContextSigRef\.current \|\| lastInitDispatchRef\.current\.dataContextSig;[\s\S]*clearRenderedMarketPriceLines\(renderedContextToClear\);[\s\S]*renderedDataContextSigRef\.current = '';[\s\S]*chartLiveTickAccumulatorRef\.current = null;[\s\S]*publishChartLiveOhlc\(null\);[\s\S]*\}, \[chartDataContextSig, clearRenderedMarketPriceLines, publishChartLiveOhlc\]\)/,
+    'symbol/timeframe changes must capture and clear the old rendered context, accumulator, and OHLC snapshot without blanking the canvas',
   );
 });
 
@@ -178,12 +190,17 @@ test('symbol and timeframe switching relies on the context reload for the auto v
   assertSourceContains(
     source,
     /useEffect\(\(\) => \{[\s\S]*if \(!hasCandles \|\| !webViewReady \|\| !chartCanvasReady\)[\s\S]*if \(activeDateRange === 'auto'\) \{[\s\S]*return;[\s\S]*applyNativeTimeRange\(activeDateRange, customDateValue\)/,
-    'automatic range sync must not call the auto recent viewport reset after a symbol/timeframe reload',
+    'automatic time-range sync must not request a price-scale reset after a symbol/timeframe reload',
   );
   assertSourceContains(
     source,
-    /const handleResetChartViewport = useCallback\([\s\S]*applyNativeTimeRange\(activeDateRange, customDateValue\)/,
-    'manual viewport reset must still be able to apply the current auto/custom range',
+    /const applyNativeTimeRange = useCallback\([\s\S]*resetPriceScale = false[\s\S]*if \(\$\{resetPriceScale\} && typeof window\.__rtx5ResetPriceScale/,
+    'ordinary date-range and context updates must default to preserving the manual vertical range',
+  );
+  assertSourceContains(
+    source,
+    /const handleResetChartViewport = useCallback\([\s\S]*applyNativeTimeRange\(activeDateRange, customDateValue, true\)/,
+    'the explicit viewport reset must still clear manual vertical ownership',
   );
 });
 

@@ -30,6 +30,11 @@ import { normalizeCandleHistoryTimeframe } from '../../domain/candles/core/candl
 import { DEFAULT_TRADE_VOLUME, normalizeTradeVolume } from '../../utils/tradeVolume';
 import { normalizeLanguageCode } from '../../i18n/translations';
 import {
+  ORRNN_DEMO_PUBLIC_BROKER_ID,
+  ORRNN_DEMO_PUBLIC_GATEWAY_BASE_URL,
+  resolveBrokerConnectionWithPublicDemoDefault,
+} from '../../config/orrnnDemoPublicMarket';
+import {
   migrateLegacyAuthSessionCredentials,
 } from '../brokerSessionStorage';
 import {
@@ -366,7 +371,19 @@ export function normalizePersistedUserPreferencesState(
   const isLoggedIn =
     asBoolean(state.isLoggedIn, false) &&
     Boolean(accountDetails?.credentials?.accessToken);
-  const brokerId = asString(state.brokerId);
+  const persistedBrokerId = asString(state.brokerId);
+  const persistedBrokerServerUrl = asString(state.brokerServerUrl);
+  // A clean install starts on the public demo broker, but an explicit saved
+  // broker selection remains available for the user's next login. Anonymous
+  // Quotes/Chart activation depends only on logged-out state, not this value.
+  const {
+    brokerId,
+    serverUrl: brokerServerUrl,
+  } = resolveBrokerConnectionWithPublicDemoDefault({
+    brokerId: persistedBrokerId,
+    serverUrl: persistedBrokerServerUrl,
+    isLoggedIn,
+  });
   const expectedAccountEnvironmentKey = isLoggedIn && accountDetails?.id && brokerId
     ? buildAccountEnvironmentKey(brokerId, accountDetails.id)
     : '';
@@ -471,7 +488,7 @@ export function normalizePersistedUserPreferencesState(
     isLoggedIn,
     hasSetInitialSymbols: asBoolean(state.hasSetInitialSymbols, false),
     brokerId,
-    brokerServerUrl: asString(state.brokerServerUrl),
+    brokerServerUrl,
     brokerLogoUrl: asString(state.brokerLogoUrl),
     accountDetails,
     chartColorScheme: nextChartColorScheme,
@@ -715,8 +732,8 @@ export const useUserPreferences = create<UserPreferencesState>()(
       isDemoAccount: false,
       isLoggedIn: false,
       hasSetInitialSymbols: false,
-      brokerId: '',
-      brokerServerUrl: '',
+      brokerId: ORRNN_DEMO_PUBLIC_BROKER_ID,
+      brokerServerUrl: ORRNN_DEMO_PUBLIC_GATEWAY_BASE_URL,
       brokerLogoUrl: '',
       accountDetails: null,
       chartColorScheme: DEFAULT_CHART_COLOR_SCHEME,
@@ -758,11 +775,8 @@ export const useUserPreferences = create<UserPreferencesState>()(
           };
         }),
       logout: () => {
-        // Clear auth state but preserve brokerId — it's not security-sensitive
-        // and preserving it allows the saved-credentials auto-login flow to
-        // work without requiring the user to re-enter the Broker ID.
-        // Reset quoteSymbols and hasSetInitialSymbols so the next login
-        // re-seeds from server watchlist or defaults (5 symbols).
+        // Preserve the broker selection for a convenient next login. Public
+        // Quotes and Chart remain active for every logged-out selection.
         set({
           isLoggedIn: false,
           accountDetails: null,

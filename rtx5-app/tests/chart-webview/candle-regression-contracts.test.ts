@@ -64,8 +64,8 @@ test('does not permanently blank chart after rapid switching', () => {
   );
   assertSourceContains(
     chartSource,
-    /msg\.type === 'CHART_READY'[\s\S]*const readyCandles = candlesRef\.current[\s\S]*readyInitSignature === readySnapshotInitSignature[\s\S]*issueChartDataPaintToken\(chartDataContextSig\)[\s\S]*updateChartData\(\$\{JSON\.stringify\(mapped\)\}, \{[\s\S]*dataContextSig:[\s\S]*paintToken:/,
-    'CHART_READY must accept the active context and request an acknowledged latest-candle replacement when its init snapshot is older',
+    /msg\.type === 'CHART_READY'[\s\S]*shouldAcceptChartReady\([\s\S]*readCurrentProjectedChartCandles\(candlesRef\.current\)[\s\S]*const readyCandles = readyProjection\.candles[\s\S]*candlesRef\.current = readyCandles[\s\S]*readyInitSignature === readySnapshotInitSignature[\s\S]*issueChartDataPaintToken\(chartDataContextSig\)[\s\S]*updateChartData\(\$\{JSON\.stringify\(mapped\)\}, \{[\s\S]*dataContextSig:[\s\S]*paintToken:[\s\S]*setLivePriceLineForContext\([\s\S]*readyVisibleLivePrice[\s\S]*chartDataContextSig[\s\S]*readyLiveRevision/,
+    'CHART_READY must accept only the active context and acknowledge the latest projected candle plus Bid revision when its init snapshot is older',
   );
   assertSourceContains(
     chartSource,
@@ -325,18 +325,27 @@ test('chart adapter never sends malformed candlestick objects to setData', () =>
   );
 });
 
-test('canonical candle and exact backend Bid update through one atomic bridge payload', () => {
+test('broker-neutral projected candle and exact backend Bid update through one revisioned atomic bridge payload', () => {
   assert.doesNotMatch(
     chartSource,
     /resolveLivePriceCoherentCandles/,
-    'ChartScreen must not fold live quotes into display candles',
+    'ChartScreen must not rebuild display candles through the retired React quote-merging helper',
   );
   assertSourceContains(
     chartSource,
-    /const readRenderableCanonicalCandles = useCallback\([\s\S]*liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\)[\s\S]*const canonicalCandles = readRenderableCanonicalCandles\(\)[\s\S]*const exactQuote = readExactChartQuoteForScope\([\s\S]*candle: buildChartTickPayload\(lastCandle, chartType\),[\s\S]*livePrice: exactBidLine,[\s\S]*updateLiveTick\([\s\S]*liveCandlesEngine\.subscribe\(\s*chartSymbol,\s*chartTimeframe,\s*paintCanonicalLiveTick,\s*\)/,
-    'ChartScreen must paint candle-owned OHLC and the separately-owned exact backend Bid through one atomic bridge call',
+    /const chartLiveTickAccumulatorRef = useRef<ChartLiveTickAccumulator \| null>\(null\)[\s\S]*const accumulateCurrentChartBid = useCallback\([\s\S]*accumulateChartBidTick\(chartLiveTickAccumulatorRef\.current,[\s\S]*contextKey: chartDataContextSig,[\s\S]*timeframe: chartTimeframe/,
+    'ChartScreen must project Bid through one broker-neutral accumulator keyed by the complete chart context',
   );
-  assert.doesNotMatch(chartSource, /livePrice: lastCandle\.close/);
+  assertSourceContains(
+    chartSource,
+    /const exactQuote = readExactChartQuoteForScope\([\s\S]*accumulateCurrentChartBid\(exactQuote, canonicalCandles\)[\s\S]*const projection = projectChartLiveTickCandles\([\s\S]*const lastCandle = renderableCandles\[renderableCandles\.length - 1\][\s\S]*const exactBidLine = exactQuote \? lastCandle\.close : null[\s\S]*candle: buildChartTickPayload\(lastCandle, chartType\),[\s\S]*livePrice: exactBidLine,[\s\S]*showLivePriceLine: shouldShowExactBidLine,[\s\S]*revision,[\s\S]*updateLiveTick\(/,
+    'ChartScreen must project exact Bid into forming OHLC before candle and line cross one revisioned bridge call',
+  );
+  assertSourceContains(
+    chartSource,
+    /const releaseQuoteDemand = isPublicDemoMarket[\s\S]*orrnnDemoPublicMarketSocket\.subscribeToSymbol\([\s\S]*retainLatestChartTradeDisplayQuote[\s\S]*quotesWsService\.subscribeToSymbol\([\s\S]*retainLatestChartTradeDisplayQuote/,
+    'public demo and authenticated brokers must feed the same direct atomic Chart callback',
+  );
   assert.doesNotMatch(
     chartSource,
     /pendingMarketPriceLinesRef|requestMarketPriceLineFlush|flushPendingMarketPriceLines/,

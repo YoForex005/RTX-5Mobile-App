@@ -277,6 +277,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
     isChartTradeActionBusy,
     isChartTradeActionVisuallyLocked,
     chartTradeActionDisabled,
+    isPublicDemoTradePrompt,
     isCurrentChartSymbol,
   } = useTradeHandler({
     symbol,
@@ -298,7 +299,9 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
   const tradeControlsDisabled = !isCurrentChartSymbol;
   // The helper includes both selected-symbol identity and executable quote
   // freshness. The press handler still rechecks to close the render-to-tap race.
-  const tradeBlocked = chartTradeActionDisabled || lotInvalid;
+  const tradeBlocked = isPublicDemoTradePrompt
+    ? false
+    : chartTradeActionDisabled || lotInvalid;
 
   const themeStyles = isDark ? darkStyles : lightStyles;
   const sellAction = getChartTradeAction('sell');

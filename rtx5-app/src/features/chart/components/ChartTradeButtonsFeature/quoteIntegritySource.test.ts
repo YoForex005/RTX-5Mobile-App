@@ -25,9 +25,17 @@ test('native chart reactively disables Buy and Sell on the executable quote poli
   assert.doesNotMatch(component, /resolveSessionQuoteActionAvailability\(latestQuote\)/);
   assert.doesNotMatch(component, /quoteActionQuote: latestQuote/);
   assert.match(component, /resolveChartTradeButtonDisplayQuote/);
-  // The availability helper hard-disables stale controls; handler still fails
-  // closed at execution time to cover a render-to-tap freshness race.
-  assert.match(component, /const tradeBlocked = chartTradeActionDisabled \|\| lotInvalid/);
+  // Authenticated controls hard-disable on stale quotes. Logged-out public
+  // controls stay pressable only so the shared auth prompt can run;
+  // the handler returns before quote validation or order execution.
+  assert.match(
+    handler,
+    /const isPublicDemoTradePrompt = useUserPreferences\([\s\S]*!state\.isLoggedIn/,
+  );
+  assert.match(
+    component,
+    /const tradeBlocked = isPublicDemoTradePrompt[\s\S]*\? false[\s\S]*: chartTradeActionDisabled \|\| lotInvalid/,
+  );
   const availability = readSource(
     'src/features/chart/components/ChartTradeButtonsFeature/tradeAvailability.ts',
   );
@@ -63,6 +71,17 @@ test('web chart quick trades never use candle close as order price availability'
   assert.match(tradeButtons, /useExecutableQuote\(symbol, active, 16\)/);
   assert.match(tradeButtons, /availability: quoteActionAvailability/);
   assert.match(tradeButtons, /const currentQuoteAvailability = getCurrentAvailability\(\)/);
-  assert.match(tradeButtons, /disabled=\{isPending \|\| !quoteActionAvailability\.allowed\}/);
+  assert.match(
+    tradeButtons,
+    /const isPublicDemoTradePrompt = useUserPreferences\([\s\S]*!state\.isLoggedIn/,
+  );
+  assert.match(
+    tradeButtons,
+    /disabled=\{isPending \|\| \(!isPublicDemoTradePrompt && !quoteActionAvailability\.allowed\)\}/,
+  );
+  assert.match(
+    tradeButtons,
+    /requestOrrnnDemoTradeAuth\(\{[\s\S]*side,[\s\S]*\}\)[\s\S]*const currentQuoteAvailability = getCurrentAvailability\(\)/,
+  );
   assert.doesNotMatch(tradeButtons, /latestTick|latestClose|\.close/);
 });

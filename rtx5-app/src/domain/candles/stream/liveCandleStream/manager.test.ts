@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { SUPPORTED_TIMEFRAMES } from '../../core/timeframeUtils';
 import { LiveCandleStreamManager } from './manager';
-import type { BufferedLiveEvent, StreamEntry } from './types';
+import { FLUSH_INTERVAL_MS, type BufferedLiveEvent, type StreamEntry } from './types';
 
 test('one quote reaches every timeframe for its exact symbol and no other symbol', () => {
   const symbolCases = [
@@ -62,5 +62,81 @@ test('one quote reaches every timeframe for its exact symbol and no other symbol
       )),
       true,
     );
+  }
+});
+
+test('lost animation frame falls back to timeout and later ticks can schedule again', async () => {
+  const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+  const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
+  const cancelledFrames: number[] = [];
+  let nextFrame = 40;
+
+  globalThis.requestAnimationFrame = (() => {
+    nextFrame += 1;
+    return nextFrame;
+  }) as typeof requestAnimationFrame;
+  globalThis.cancelAnimationFrame = ((handle: number) => {
+    cancelledFrames.push(handle);
+  }) as typeof cancelAnimationFrame;
+
+  try {
+    const manager = new LiveCandleStreamManager();
+    const entry = {
+      key: 'XAUUSD:M1',
+      symbol: 'XAUUSD',
+      timeframe: 'M1',
+      pendingEvents: [],
+      flushFrame: null,
+      flushTimer: null,
+    } as unknown as StreamEntry;
+    manager.entries.set(entry.key, entry);
+
+    let applied = 0;
+    let committed = 0;
+    manager.applyLiveEvents = ((_entry, events) => {
+      applied += events.length;
+      return true;
+    }) as typeof manager.applyLiveEvents;
+    manager.commit = (() => {
+      committed += 1;
+    }) as typeof manager.commit;
+
+    const queueAndSchedule = (order: number) => {
+      entry.pendingEvents.push({
+        type: 'quote_tick_extension',
+        price: 4400 + order,
+        high: 4400 + order,
+        low: 4400 + order,
+        time: 1_785_000_000 + order,
+        order,
+      });
+      (manager as unknown as { scheduleFlush: (target: StreamEntry) => void })
+        .scheduleFlush(entry);
+    };
+
+    queueAndSchedule(1);
+    await new Promise((resolve) => setTimeout(resolve, FLUSH_INTERVAL_MS + 25));
+    assert.equal(applied, 1);
+    assert.equal(committed, 1);
+    assert.equal(entry.flushFrame, null);
+    assert.equal(entry.flushTimer, null);
+    assert.deepEqual(cancelledFrames, [41]);
+
+    queueAndSchedule(2);
+    await new Promise((resolve) => setTimeout(resolve, FLUSH_INTERVAL_MS + 25));
+    assert.equal(applied, 2);
+    assert.equal(committed, 2);
+    assert.deepEqual(cancelledFrames, [41, 42]);
+  } finally {
+    if (originalRequestAnimationFrame === undefined) {
+      delete (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame;
+    } else {
+      globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+    }
+    if (originalCancelAnimationFrame === undefined) {
+      delete (globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame }).cancelAnimationFrame;
+    } else {
+      globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
+    }
   }
 });

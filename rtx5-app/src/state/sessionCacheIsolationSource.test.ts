@@ -73,10 +73,16 @@ test('market and instrument queries use the active epoch namespace and guarded J
   const instruments = readSource('src/query/instruments.ts');
   const instrumentApi = readSource('src/api/instruments.ts');
 
-  assert.match(market, /getSessionQueryCacheNamespace\(session\)/);
+  assert.match(market, /const authenticatedCacheNamespace = getSessionQueryCacheNamespace\(session\)/);
+  assert.match(
+    market,
+    /const cacheNamespace = isPublicDemoMarket[\s\S]*\? ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE[\s\S]*: authenticatedCacheNamespace/,
+  );
   assert.match(market, /queryKey: \['market', cacheNamespace, 'symbols', 'instrument-catalog-v3'\]/);
+  assert.match(market, /if \(isPublicDemoMarket\) \{[\s\S]*getOrrnnDemoPublicMarketCatalog\(\)[\s\S]*return catalog\.symbols/);
   assert.match(market, /apiJsonClient<unknown>\('\/instruments'\)/);
-  assert.match(market, /commitApiJson\(result, cacheNamespace/);
+  assert.match(market, /commitApiJson\(result, authenticatedCacheNamespace/);
+  assert.match(market, /primeInstrumentMetaCacheFromCatalogPayload\(data, authenticatedCacheNamespace\)/);
   assert.doesNotMatch(market, /placeholderData: \(previousData\) => previousData/);
 
   assert.match(instruments, /INSTRUMENT_META_QUERY_VERSION = 'instrument-meta-v3'/);
@@ -84,6 +90,24 @@ test('market and instrument queries use the active epoch namespace and guarded J
   assert.match(instruments, /fetchInstrumentMeta\(symbol, cacheNamespace\)/);
   assert.match(instrumentApi, /commitApiJson\(result, cacheNamespace/);
   assert.match(instrumentApi, /primeInstrumentMetaCacheFromCatalogPayload\(catalog, cacheNamespace\)/);
+});
+
+test('session teardown preserves only broker-directory and tokenless public-market queries', () => {
+  const coordinator = readSource('src/services/brokerSessionCoordinator.ts');
+
+  assert.match(coordinator, /ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE/);
+  assert.match(
+    coordinator,
+    /const isSessionIndependentQuery = \(queryKey: readonly unknown\[\]\) =>[\s\S]*queryKey\[0\] === BROKER_SERVERS_KEY[\s\S]*queryKey\.includes\(ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE\)/,
+  );
+  assert.match(
+    coordinator,
+    /appQueryClient\.cancelQueries\(\{[\s\S]*predicate: \(query\) => !isSessionIndependentQuery\(query\.queryKey\)/,
+  );
+  assert.match(
+    coordinator,
+    /appQueryClient\.removeQueries\(\{[\s\S]*predicate: \(query\) => !isSessionIndependentQuery\(query\.queryKey\)/,
+  );
 });
 
 test('candle history parse, query, memory merge, and disk persist share one provenance', () => {

@@ -38,13 +38,15 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   assert.match(quotesSource, /const quoteWatchlistActive = quoteCatalogActive && isLoggedIn/);
   assert.match(quotesSource, /useMarketSymbols\(quoteCatalogActive\)/);
   assert.match(quotesSource, /useWatchlistQuery\(quoteWatchlistActive\)/);
-  assert.match(quotesSource, /const quoteStickyFeedActive = quoteCatalogActive && isLoggedIn/);
+  assert.match(quotesSource, /const isPublicDemoMarket = isOrrnnDemoPublicMarketSelection\(\{[\s\S]*brokerId: selectedBrokerId,[\s\S]*isLoggedIn,[\s\S]*\}\)/);
+  assert.match(quotesSource, /const quoteStickyFeedActive = quoteCatalogActive && \(isLoggedIn \|\| isPublicDemoMarket\)/);
+  assert.match(quotesSource, /const authenticatedQuoteStickyFeedActive = quoteCatalogActive && isLoggedIn/);
   assert.match(quotesSource, /const quoteRestFallbackActive = quoteCatalogActive && isLoggedIn/);
   assert.match(quotesSource, /pauseLiveQuoteSnapshotNotifications/);
   assert.match(quotesSource, /const quoteSheetFeedPauseReleaseRef = useRef<\(\(\) => void\) \| null>\(null\)/);
   assert.match(quotesSource, /const pauseQuoteSheetFeed = useCallback\(\(durationMs = QUOTE_SHEET_OPEN_FEED_PAUSE_MS\) => \{/);
   assert.doesNotMatch(quotesSource, /quotesActionSheetOpen|quoteSheetTouchPending|quoteSheetInteractionBusy|quoteVisibleFeedActive/);
-  assert.match(quotesSource, /quotesWsService\.setSubscriptions\(quoteFeedSymbols\)/);
+  assert.match(quotesSource, /if \(!authenticatedQuoteStickyFeedActive \|\| quoteFeedSymbols\.length === 0\)[\s\S]*quotesWsService\.setSubscriptions\(quoteFeedSymbols\)/);
   // The socket service is the single owner of accepted-tick feed-health
   // reduction. A retained Quotes screen must not report every tick a second
   // time while another tab is active.
@@ -61,9 +63,11 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
 
   assert.match(marketDataSource, /export function useMarketData\(symbols: string\[\] = \[\], active = true\)/);
   assert.match(marketDataSource, /const isLoggedIn = useUserPreferences\(\(state\) => state\.isLoggedIn\)/);
-  assert.match(marketDataSource, /const isActive = active && isLoggedIn/);
+  assert.match(marketDataSource, /const isPublicDemoMarket = isOrrnnDemoPublicMarketSelection\(\{[\s\S]*brokerId: selectedBrokerId,[\s\S]*isLoggedIn,[\s\S]*\}\)/);
+  assert.match(marketDataSource, /const isActive = active && \(isLoggedIn \|\| isPublicDemoMarket\)/);
   assert.match(marketDataSource, /if \(!isActive \|\| normalizedSymbols\.length === 0\) return EMPTY_LIVE_QUOTES/);
   assert.match(marketDataSource, /if \(!isActive \|\| transportSymbols\.length === 0\) return/);
+  assert.match(marketDataSource, /if \(isPublicDemoMarket\) \{[\s\S]*orrnnDemoPublicMarketSocket\.subscribeToSymbol\(symbol, \(\) => \{\}\)/);
   assert.match(marketDataSource, /useMarketData\(symbols: string\[\] = \[\], active = true\)/);
   assert.match(marketDataSource, /export function useLiveSymbolQuote\([\s\S]*symbol: string,[\s\S]*active = true,[\s\S]*commitIntervalMs = LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS/);
   assert.match(marketDataSource, /const LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS = 16/);
@@ -75,12 +79,13 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   assert.match(marketDataSource, /if \(!isActive \|\| !activeSession \|\| !normalizedSymbol\)/);
   assert.doesNotMatch(marketDataSource, /skipAuth: true/);
   assert.match(marketSymbolsSource, /useActiveBrokerQuerySession/);
-  assert.match(marketSymbolsSource, /const cacheNamespace = getSessionQueryCacheNamespace\(session\)/);
-  assert.match(marketSymbolsSource, /const isEnabled = enabled && Boolean\(session\)/);
+  assert.match(marketSymbolsSource, /const cacheNamespace = isPublicDemoMarket[\s\S]*\? ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE[\s\S]*: authenticatedCacheNamespace/);
+  assert.match(marketSymbolsSource, /const isEnabled = enabled && \(isPublicDemoMarket \|\| Boolean\(session\)\)/);
   assert.match(marketSymbolsSource, /queryKey: \['market', cacheNamespace, 'symbols', 'instrument-catalog-v3'\]/);
   assert.doesNotMatch(marketSymbolsSource, /skipAuth: true/);
   assert.match(marketSymbolsSource, /enabled: isEnabled/);
-  assert.match(marketSymbolsSource, /commitApiJson\(result, cacheNamespace,/);
+  assert.match(marketSymbolsSource, /if \(isPublicDemoMarket\) \{[\s\S]*getOrrnnDemoPublicMarketCatalog\(\)/);
+  assert.match(marketSymbolsSource, /commitApiJson\(result, authenticatedCacheNamespace,/);
   assert.match(instrumentsSource, /const cacheNamespace = getSessionQueryCacheNamespace\(session\)/);
   assert.match(instrumentsSource, /const isEnabled = enabled && Boolean\(session\) && !!normalizedSymbol/);
   assert.match(instrumentsSource, /queryKey: \['instrument', cacheNamespace, INSTRUMENT_META_QUERY_VERSION, normalizedSymbol\]/);
@@ -133,9 +138,10 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   assert.match(chartSource, /const chartRuntimeActive = useDeferredActiveFlag\(isChartRouteActive, CHART_RUNTIME_ACTIVE_DELAY_MS\)/);
   // The WebView surface boots on the first real Chart focus, or earlier via
   // the idle-scheduled startup boot so a fresh app open pre-pays the document
-  // boot + initChart + first paint before the first Chart tap. The startup
-  // boot must stay gated (login + preference hydration + idle slot after a
-  // delay) — an unconditional boot-prewarm behind Quotes previously starved
+  // boot + chart-library parse before the first Chart tap. The startup
+  // boot must stay gated (preference hydration + idle slot after a delay) so
+  // public-market users receive the same safe prewarm. An immediate boot
+  // behind Quotes previously starved
   // tab navigation on low-memory devices. Once booted, the surface is
   // retained; only its selected-symbol candle+Bid bridge and an imperative
   // display-price ref stay warm without waking React in the hidden footer.
@@ -146,8 +152,13 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   assert.match(chartStartupBootSource, /export const CHART_SURFACE_STARTUP_BOOT_DELAY_MS = 2000/);
   assert.match(
     chartStartupBootSource,
-    /if \(startupBooted \|\| surfaceAlreadyActivated \|\| !isLoggedIn \|\| !preferencesHydrated\) \{[\s\S]*return undefined;/,
-    'the startup boot must wait for login and preference hydration and must yield to the focused-path boot',
+    /if \(startupBooted \|\| surfaceAlreadyActivated \|\| !preferencesHydrated\) \{[\s\S]*return undefined;/,
+    'the startup boot must wait for preference hydration and must yield to the focused path',
+  );
+  assert.doesNotMatch(
+    chartStartupBootSource,
+    /!isLoggedIn/,
+    'logged-out public-market users must receive the same idle WebView surface prewarm',
   );
   assert.match(
     chartStartupBootSource,
@@ -177,11 +188,34 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   );
   assert.match(chartSource, /useMarketSymbols\(chartRuntimeActive\)/);
   assert.match(chartSource, /useInstrumentMeta\(chartSymbol, chartRuntimeActive\)/);
+  assert.match(
+    chartSource,
+    /const chartDataActive = chartRuntimeActive/,
+    'the anonymous candle hook must remain focus-gated while the WebView surface prewarms',
+  );
+  assert.match(
+    chartSource,
+    /PUBLIC_CHART_HISTORY_STARTUP_PREFETCH_DELAY_MS = 500[\s\S]*if \(isPublicDemoMarket\) \{[\s\S]*ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE[\s\S]*return scheduleIdleWork\([\s\S]*prefetchChartSelectionHistory\(chartSymbol, normalizedTimeframe\)/,
+    'logged-out startup may warm shared REST history after first paint without enabling hidden live candle work',
+  );
   assert.match(chartSource, /useLiveCandles\(\s*chartSymbol,\s*chartTimeframe,\s*chartDataActive,\s*CHART_SCREEN_CANDLE_COMMIT_INTERVAL_MS,?\s*\)/);
   assert.match(chartSource, /const activeChartSessionCacheNamespace = activeChartSession\?\.cacheNamespace \?\? ''/);
   assert.match(
     chartSource,
-    /Fast retained live-paint path[\s\S]*if \([\s\S]*!chartSurfaceReady[\s\S]*!activeChartSessionCacheNamespace[\s\S]*const paintCanonicalLiveTick = \(allowUnchangedSnapshot = false\) => \{[\s\S]*updateLiveTick\([\s\S]*const releaseCandleConsumer = liveCandlesEngine\.subscribe\([\s\S]*chartSymbol,[\s\S]*chartTimeframe,[\s\S]*paintCanonicalLiveTick,[\s\S]*const retainLatestChartTradeDisplayQuote = \(tick: QuoteTickEvent\) => \{[\s\S]*captureExactChartQuote\(chartTradeDisplayQuoteScopeKey, tick\)[\s\S]*retainedChartTradeDisplayQuoteRef\.current = exactQuote;[\s\S]*paintCanonicalLiveTick\(true\)[\s\S]*const releaseQuoteDemand = quotesWsService\.subscribeToSymbol\([\s\S]*chartSymbol,[\s\S]*retainLatestChartTradeDisplayQuote,[\s\S]*releaseQuoteDemand\(\);[\s\S]*releaseCandleConsumer\(\);/,
+    /Fast retained live-paint path[\s\S]*!chartSurfaceReady[\s\S]*!isPublicDemoMarket[\s\S]*!activeChartSessionCacheNamespace[\s\S]*const paintCanonicalLiveTick = \(allowUnchangedSnapshot = false\) => \{[\s\S]*projectChartLiveTickCandles\([\s\S]*updateLiveTick\(/,
+  );
+  assert.match(
+    chartSource,
+    /const releaseCandleConsumer = isPublicDemoMarket[\s\S]*liveCandlesEngine\.subscribe\([\s\S]*chartSymbol,[\s\S]*chartTimeframe,[\s\S]*scheduleCanonicalLivePaint/,
+  );
+  assert.match(
+    chartSource,
+    /const retainLatestChartTradeDisplayQuote = \(tick: QuoteTickEvent\) => \{[\s\S]*if \(!isPublicDemoMarket\) \{[\s\S]*captureExactChartQuote\(chartTradeDisplayQuoteScopeKey, tick\)[\s\S]*const canonicalCandles = readRenderableCanonicalCandles\(\)[\s\S]*accumulateCurrentChartBid\(exactQuote, canonicalCandles\)[\s\S]*retainedChartTradeDisplayQuoteRef\.current = exactQuote;[\s\S]*scheduleCanonicalLivePaint\(true\)[\s\S]*const releaseQuoteDemand = isPublicDemoMarket[\s\S]*orrnnDemoPublicMarketSocket\.subscribeToSymbol\([\s\S]*chartSymbol,[\s\S]*retainLatestChartTradeDisplayQuote,[\s\S]*quotesWsService\.subscribeToSymbol\([\s\S]*chartSymbol,[\s\S]*retainLatestChartTradeDisplayQuote,[\s\S]*cancelLivePaintSchedule\(\);[\s\S]*releaseQuoteDemand\(\);[\s\S]*releaseCandleConsumer\(\);/,
+  );
+  assert.match(
+    chartSource,
+    /const scheduleCanonicalLivePaint = \(allowUnchangedSnapshot = false\) => \{[\s\S]*livePaintPending = true[\s\S]*livePaintTimer = setTimeout\([\s\S]*flushCanonicalLivePaint,[\s\S]*CHART_LIVE_PAINT_FALLBACK_MS[\s\S]*requestAnimationFrame\(flushCanonicalLivePaint\)/,
+    'the hidden retained bridge must pair its fast frame with a bounded timeout fallback',
   );
   const retainedLivePaintSource = chartSource.slice(
     chartSource.indexOf('// Fast retained live-paint path.'),
@@ -204,8 +238,8 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   );
   assert.match(
     chartSource,
-    /const chartTradeDisplayQuoteScopeKey =[\s\S]*activeChartSessionCacheNamespace[\s\S]*chartSymbol\.trim\(\)\.toUpperCase\(\)[\s\S]*const retainedChartTradeDisplayQuoteRef = useRef<ExactChartQuoteSnapshot \| null>\(null\)/,
-    'retained footer prices must be scoped to the active session and symbol',
+    /const chartMarketDataCacheNamespace = isPublicDemoMarket[\s\S]*ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE[\s\S]*const chartTradeDisplayQuoteScopeKey =[\s\S]*chartMarketDataCacheNamespace[\s\S]*chartSymbol\.trim\(\)\.toUpperCase\(\)[\s\S]*const retainedChartTradeDisplayQuoteRef = useRef<ExactChartQuoteSnapshot \| null>\(null\)/,
+    'retained footer prices must be scoped to the active market namespace and symbol',
   );
   assert.match(
     chartSource,

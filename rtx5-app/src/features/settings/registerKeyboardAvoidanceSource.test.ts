@@ -25,7 +25,6 @@ test('register demo form scrolls the focused lower fields above the keyboard', (
   for (const field of [
     'phone',
     'password',
-    'investorPassword',
     'initialBalance',
   ]) {
     assert.match(
@@ -36,24 +35,7 @@ test('register demo form scrolls the focused lower fields above the keyboard', (
     );
   }
 
-  assert.match(
-    source,
-    /const handleOpenCountryPicker = React\.useCallback\(\(\) => \{[\s\S]*handleFieldFocus\('country'\)/,
-  );
-  assert.match(
-    source,
-    /<View style=\{styles\.inputRow\} onLayout=\{handleFieldLayout\('country'\)\}>[\s\S]*<Pressable[\s\S]*onPress=\{handleOpenCountryPicker\}/,
-  );
-
-  assert.match(
-    source,
-    /<View style=\{styles\.inputRow\} onLayout=\{handleFieldLayout\('originBroker'\)\}>[\s\S]*accessibilityLabel=\{t\('Origin broker'\)\}/,
-  );
-  assert.match(
-    source,
-    /const handleOpenOriginBrokerPicker = React\.useCallback\(\(\) => \{[\s\S]*handleFieldFocus\('originBroker'\)[\s\S]*setOriginBrokerPickerOpen\(true\)/,
-  );
-  assert.match(source, /onPress=\{handleOpenOriginBrokerPicker\}/);
+  assert.doesNotMatch(source, /investorPassword|handleOpenCountryPicker|handleOpenOriginBrokerPicker/);
 });
 
 test('register demo form keeps last name optional and formats phone with selected dial code', () => {
@@ -72,46 +54,29 @@ test('register demo form keeps last name optional and formats phone with selecte
   assert.match(source, /last_name: trimmedLastName \|\| undefined/);
   assert.match(source, /\{t\('Last name'\)\} <Text style=\{styles\.inputOptionalLabel\}>\(\{t\('optional'\)\}\)<\/Text>/);
   assert.doesNotMatch(source, /!trimmedFirstName \|\| !trimmedLastName \|\| !trimmedEmail/);
-  assert.match(source, /if \(!trimmedFirstName \|\| !trimmedEmail \|\| !password \|\| !investorPassword \|\| !trimmedCountry\)/);
+  assert.match(source, /if \(!trimmedFirstName \|\| !trimmedEmail \|\| !password\)/);
   assert.match(source, /visible=\{phoneCountryPickerOpen\}/);
   assert.match(source, /actions=\{phoneCountryPickerActions\}/);
   assert.match(source, /searchPlaceholder=\{t\('Search country codes\.\.\.'\)\}/);
 });
 
-test('register demo form uses selectable origin broker, read-only currency, and searchable local leverage range', () => {
+test('register demo form preflights the broker route and keeps contract metadata read-only', () => {
   const source = readSource('app/register.tsx');
 
   assert.match(source, /import \{ useBrokerServers \} from '\.\.\/src\/query\/broker'/);
   assert.match(source, /invalidateSessionQueryRoots/);
   assert.doesNotMatch(source, /BROKER_CONFIG_KEY/);
   assert.match(source, /useBrokerServers\(registerDataActive\)/);
-  assert.match(source, /const DEMO_LEVERAGE_MIN = 100/);
-  assert.match(source, /const DEMO_LEVERAGE_MAX = 20000/);
-  assert.match(source, /const DEMO_LEVERAGE_OPTIONS: readonly DemoLeverageOption\[\] = Array\.from/);
-  assert.match(source, /DEMO_LEVERAGE_OPTIONS\.map\(\(option\) => \(\{/);
-  assert.match(source, /searchPlaceholder=\{t\('Search leverage\.\.\.'\)\}/);
-
-  assert.match(source, /const DEMO_ORIGIN_BROKER_OPTIONS: readonly DemoOriginBrokerOption\[\] = \[/);
-  assert.match(source, /ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME/);
-  assert.match(source, /ORRNN_DEMO_ORIGIN_BROKER_LABEL/);
-  assert.match(source, /TEST_ORRNN_DEMO_ORIGIN_BROKER_DISPLAY_NAME/);
-  assert.match(source, /TEST_ORRNN_DEMO_ORIGIN_BROKER_LABEL/);
-  assert.match(source, /const \[selectedOriginBrokerValue, setSelectedOriginBrokerValue\] = useState\(DEFAULT_DEMO_ORIGIN_BROKER\.value\)/);
-  assert.match(source, /const \[originBrokerPickerOpen, setOriginBrokerPickerOpen\] = useState\(false\)/);
-  assert.match(source, /const selectedOriginBroker =[\s\S]*DEMO_ORIGIN_BROKER_OPTIONS\.find\(\(option\) => option\.value === selectedOriginBrokerValue\)[\s\S]*DEFAULT_DEMO_ORIGIN_BROKER/);
-  assert.match(source, /const originBrokerDisplayValue = selectedOriginBroker\.label/);
-  assert.match(source, /styles\.originBrokerPrimaryValue/);
-  assert.match(source, /styles\.originBrokerSecondaryValue/);
-  assert.match(source, /const trimmedOriginBroker = selectedOriginBrokerValue\.trim\(\)/);
-  assert.match(source, /origin_broker: trimmedOriginBroker \|\| undefined/);
-  assert.match(source, /const originBrokerPickerActions = React\.useMemo/);
-  assert.match(source, /DEMO_ORIGIN_BROKER_OPTIONS\.map\(\(option\) => \(\{/);
-  assert.match(source, /onPress: \(\) => setSelectedOriginBrokerValue\(option\.value\)/);
-  assert.match(source, /visible=\{originBrokerPickerOpen\}/);
-  assert.doesNotMatch(source, /Search brokers\.\.\./);
+  assert.match(source, /resolveOrrnnDemoBrokerAuthRoute\(ORRNN_DEMO_BROKER_ID, brokerServers\)/);
+  assert.match(source, /refetchBrokerServers\(\)/);
+  assert.match(source, /const trimmedOriginBroker = ORRNN_DEMO_ORIGIN_BROKER\.trim\(\)/);
+  assert.match(source, /origin_broker: trimmedOriginBroker/);
+  assert.doesNotMatch(source, /originBrokerPickerOpen|DEMO_ORIGIN_BROKER_OPTIONS/);
+  assert.doesNotMatch(source, /DEMO_LEVERAGE_OPTIONS|handleOpenLeveragePicker|leveragePickerOpen/);
 
   assert.match(source, /const selectedCurrency = selectedDemoGroup\?\.currency \|\| 'USD'/);
   assert.match(source, /<Text style=\{styles\.selectValue\} numberOfLines=\{1\}>\{selectedCurrency\}<\/Text>/);
+  assert.match(source, /const selectedLeverage = selectedDemoGroup\?\.leverage/);
   assert.doesNotMatch(source, /currencyPickerOpen/);
   assert.doesNotMatch(source, /currencyPickerActions/);
   assert.doesNotMatch(source, /handleOpenCurrencyPicker/);
@@ -140,7 +105,7 @@ test('register demo searchable action sheets use Android resize keyboard avoidan
     /searchable/.test(sheet),
   );
 
-  assert.equal(searchableSheets.length, 4);
+  assert.equal(searchableSheets.length, 2);
 
   for (const sheet of searchableSheets) {
     assert.match(sheet, /detent="large"/);

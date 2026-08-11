@@ -32,6 +32,7 @@ import {
 import { useTheme } from '../../../ui/theme/useTheme';
 import type { ThemeColors } from '../../../ui/theme/glass';
 import { useIsDarkTheme } from '../../../state/themeMode';
+import { useUserPreferences } from '../../../state/userPreferences';
 import { useTranslation } from '../../../i18n/useTranslation';
 import {
   safeRouterBack,
@@ -104,6 +105,7 @@ function hasBrokerPressMovedBeyondThreshold(start: BrokerPressPoint, end: Broker
  * Screen for searching and selecting a broker from a predefined list or remote API directory.
  */
 export function BrokersScreen() {
+  const setBrokerConnection = useUserPreferences((state) => state.setBrokerConnection);
   const [search, setSearch] = useState('');
   const [logoFailed, setLogoFailed] = useState<Record<string, boolean>>({});
   const T = useTheme();
@@ -287,6 +289,10 @@ export function BrokersScreen() {
       serverUrl: broker.serverUrl,
       onAvailable: () => {
         if (!brokerPickerFocusedRef.current) return;
+        // Persist the exact directory selection for the next login. Logged-out
+        // Quotes and Chart continue using the public Orrnn market independently
+        // of this candidate broker selection.
+        setBrokerConnection(broker.brokerId, broker.serverUrl, broker.logoUrl);
         openBrokerDetail(selection);
       },
       onUnavailable: () => {

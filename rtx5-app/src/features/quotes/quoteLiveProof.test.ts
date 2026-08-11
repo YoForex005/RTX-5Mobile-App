@@ -5,6 +5,7 @@ import type { QuoteTickEvent } from '../../api/ws/quoteTickNormalizer';
 import {
   advanceQuoteLiveProof,
   createQuoteLiveProofState,
+  hasFreshAcceptedQuoteLiveProof,
   hasFreshSustainedQuoteLiveProof,
 } from './quoteLiveProof';
 
@@ -61,6 +62,19 @@ test('LIVE proof requires at least three qualifying ticks spanning three seconds
   state = advanceQuoteLiveProof(state, tick(13_000), REQUESTED, STALE_AFTER_MS).state;
   assert.equal(state.sustained, true);
   assert.equal(hasFreshSustainedQuoteLiveProof(state, 13_250, STALE_AFTER_MS), true);
+});
+
+test('one accepted tick proves a fresh display-only public feed without weakening sustained proof', () => {
+  const state = advanceQuoteLiveProof(
+    createQuoteLiveProofState(),
+    tick(10_000),
+    REQUESTED,
+    STALE_AFTER_MS,
+  ).state;
+
+  assert.equal(hasFreshAcceptedQuoteLiveProof(state, 10_250, STALE_AFTER_MS), true);
+  assert.equal(hasFreshSustainedQuoteLiveProof(state, 10_250, STALE_AFTER_MS), false);
+  assert.equal(hasFreshAcceptedQuoteLiveProof(state, 25_001, STALE_AFTER_MS), false);
 });
 
 test('a stale gap starts a new proof window instead of reviving old LIVE state', () => {

@@ -32,18 +32,20 @@ const allSourceFiles = sourceRoots.flatMap(collectFiles);
 const readAllSource = () =>
   allSourceFiles.map((file) => readSource(file)).join('\n');
 
-test('ActionSheet surfaces use the shared instant Quotes-style sheet contract', () => {
+test('shared ActionSheet surfaces use the instant host contract', () => {
   const allSource = readAllSource();
   const actionSheetMounts = [...allSource.matchAll(/<ActionSheet\b[\s\S]*?\/>/g)];
   const scopedActionSheetCalls = [
-    ...allSource.matchAll(/\bshow(?:Quotes|Chart|Trade|History|Accounts|BrokerDetail)ActionSheet\(/g),
+    ...allSource.matchAll(/\bshow(?:Chart|Trade|History|Accounts|BrokerDetail)ActionSheet\(/g),
   ];
 
   // Mailbox/News/Community screens removed — fewer mounts and no News sheet scope.
-  // 15th/16th scoped calls: the chart's selected-drawing context menu (double-tap
-  // a drawing) and the drawing quick-actions shortcut (double-tap empty chart).
-  assert.equal(actionSheetMounts.length, 21);
-  assert.equal(scopedActionSheetCalls.length, 16);
+  // Quotes now owns a dedicated implementation and is deliberately excluded
+  // from both the shared mounts and the shared scoped-call inventory.
+  // Public demo registration fixes country, leverage, and origin broker to the
+  // backend contract, so those three picker mounts no longer exist.
+  assert.equal(actionSheetMounts.length, 18);
+  assert.equal(scopedActionSheetCalls.length, 15);
 
   for (const mount of actionSheetMounts) {
     assert.match(mount[0], /instantOpen/, 'ActionSheet mount must opt into instant open path');
@@ -122,17 +124,40 @@ test('an open MT5 sheet runs its entry animation only once per visibility transi
   );
 });
 
-test('high-traffic scoped action sheets open through immediate action wrappers', () => {
+test('the Quotes symbol sheet stays outside the shared ActionSheet host', () => {
   const quotesSource = readSource('src/features/quotes/QuotesScreen.tsx');
+  const quotesSheetSource = readSource('src/features/quotes/QuotesSymbolActionSheet.tsx');
+  const tabsLayoutSource = readSource('app/(tabs)/_layout.tsx');
+
+  assert.match(
+    quotesSource,
+    /const openQuotesSymbolSheet = useCallback[\s\S]*runImmediateAction\(actionName, \(\) => \{[\s\S]*presentQuotesSymbolActionSheet\(config\)/,
+  );
+  assert.match(quotesSource, /openQuotesSymbolSheet\(\s*config,\s*'quotes\.symbolSheet\.tap\.open'/);
+  assert.match(quotesSource, /openQuotesSymbolSheet\(\s*config,\s*'quotes\.symbolSheet\.longPress\.open'/);
+  assert.doesNotMatch(
+    quotesSource,
+    /showQuotesActionSheet|preloadQuotesActionSheet|showScopedActionSheet|preloadScopedActionSheet|ensureQuoteSheetConfigMounted|scheduleQuoteSheetConfigPaint/,
+  );
+  assert.doesNotMatch(
+    quotesSheetSource,
+    /from ['"][^'"]*ui\/components\/ActionSheet(?:\/index)?['"]|from ['"][^'"]*state\/uiState['"]|<ActionSheet\b/,
+  );
+  assert.match(quotesSheetSource, /export const QuotesSymbolActionSheetHost = memo/);
+  assert.match(
+    tabsLayoutSource,
+    /<GlobalActionSheetHost \/>[\s\S]*<QuotesSymbolActionSheetHost \/>/,
+    'the dedicated Quotes host must mount independently from the shared host',
+  );
+});
+
+test('high-traffic shared action sheets open through immediate action wrappers', () => {
   const tradeSource = readSource('src/features/trade/TradeScreen/TradeScreen.tsx');
   const historySource = readSource('src/features/history/HistoryScreen.tsx');
   const chartSource = readSource('src/features/chart/ChartScreen.native.tsx');
   const accountsSource = readSource('src/features/settings/AccountsScreen.tsx');
   const brokerDetailSource = readSource('src/features/settings/BrokerDetailScreen.tsx');
 
-  assert.match(quotesSource, /const openQuoteSheetWhenConfigIsReady = useCallback[\s\S]*runImmediateAction\(actionName[\s\S]*showQuotesActionSheet\(config\)/);
-  assert.match(quotesSource, /openQuoteSheetWhenConfigIsReady\(\s*config,\s*'quotes\.symbolSheet\.tap\.open'/);
-  assert.match(quotesSource, /openQuoteSheetWhenConfigIsReady\(\s*config,\s*'quotes\.symbolSheet\.longPress\.open'/);
   assert.match(tradeSource, /runImmediateAction\('trade\.bulkSheet\.open'[\s\S]*showTradeActionSheet\(bulkActionSheetConfig\)/);
   assert.match(tradeSource, /const bulkActionSheetConfig = useMemo[\s\S]*entryMotion: 'mt5Slide'[\s\S]*runActionAfterClose: false/);
   assert.match(tradeSource, /runImmediateAction\('trade\.positionSheet\.open'[\s\S]*showTradeActionSheet\(\{/);
