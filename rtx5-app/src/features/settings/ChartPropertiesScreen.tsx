@@ -14,6 +14,7 @@ import {
   safeRouterBack,
   scheduleBackNavigationAfterVisualFrame,
 } from '../../utils/navigation';
+import { CANDLE_HISTORY_TIMEFRAMES } from '../../domain/candles/core/timeframeUtils';
 import { useLiveCandles } from '../../domain/candles/hooks/useLiveCandles';
 import { useLiveSymbolQuote } from '../../query/websocket';
 import { calculateQuoteSpreadPoints } from '../../utils/quoteSpread';
@@ -28,6 +29,11 @@ import { ThemeColors } from '../../ui/theme/glass';
 import { useTheme } from '../../ui/theme/useTheme';
 import { useIsDarkTheme } from '../../state/themeMode';
 import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
+import { ChartTimeframePickerOverlay } from '../chart/components/ChartTimeframePickerSheet';
+import {
+  createChartTimeframePickerController,
+  type ChartTimeframePickerController,
+} from '../chart/chartTimeframePickerController';
 import { LiveChartPreview } from '../chart/preview';
 
 /** Keep the chrome instant; only mount the WebView preview after this settle. */
@@ -106,6 +112,72 @@ const isTransparent = (color?: string) => typeof color === 'string' && color.toL
 const formatQuote = (value?: number, digits = 2) =>
   Number.isFinite(value) ? Number(value).toFixed(Math.min(Math.max(digits, 2), 5)) : '--';
 
+type ChartPropertiesTimeframePickerHostHandle = Readonly<{
+  open: () => void;
+}>;
+
+type ChartPropertiesTimeframePickerHostProps = Readonly<{
+  active: boolean;
+  activeTimeframe: string;
+  accentColor: string;
+  isDark: boolean;
+  textColor: string;
+  mutedColor: string;
+  onSelect: (timeframe: string) => void;
+}>;
+
+/**
+ * Prewarmed route-local picker. Its visibility state is isolated from the live
+ * preview so opening the dropdown never reconciles quotes, candles, or WebView.
+ */
+const ChartPropertiesTimeframePickerHost = React.memo(React.forwardRef<
+  ChartPropertiesTimeframePickerHostHandle,
+  ChartPropertiesTimeframePickerHostProps
+>(function ChartPropertiesTimeframePickerHost({
+  active,
+  activeTimeframe,
+  accentColor,
+  isDark,
+  textColor,
+  mutedColor,
+  onSelect,
+}, ref) {
+  const [controller] = useState<ChartTimeframePickerController>(
+    createChartTimeframePickerController,
+  );
+
+  const open = useCallback(() => {
+    if (!active) return;
+    controller.show();
+  }, [active, controller]);
+
+  React.useImperativeHandle(ref, () => ({ open }), [open]);
+
+  useEffect(() => {
+    if (!active) {
+      controller.hide();
+    }
+  }, [active, controller]);
+
+  const handleSelect = useCallback((timeframe: string) => {
+    controller.hide();
+    onSelect(timeframe);
+  }, [controller, onSelect]);
+
+  return (
+    <ChartTimeframePickerOverlay
+      controller={controller}
+      activeTimeframe={activeTimeframe}
+      supportedTimeframes={CANDLE_HISTORY_TIMEFRAMES}
+      accentColor={accentColor}
+      isDark={isDark}
+      textColor={textColor}
+      mutedColor={mutedColor}
+      onSelect={handleSelect}
+    />
+  );
+}));
+
 /**
  * Screen for configuring global chart visual properties and display preferences.
  */
@@ -137,7 +209,8 @@ export function ChartPropertiesScreen({
   const { width } = useWindowDimensions();
   const isCompact = width < 390;
   // Delay the live WebView preview so Schema & Colors chrome paints on the
-  // first frame. Live quote/candles only start after that settle.
+  // first frame. Candles and WebView work start only after that settle; the
+  // lightweight Bid quote is primed separately before the hosted reveal.
   const previewContentReady = useDeferredRouteContentReady(
     SCHEMA_COLORS_PREVIEW_DELAY_MS,
     isScreenFocused,
@@ -167,7 +240,14 @@ export function ChartPropertiesScreen({
   const livePickerFrameRef = useRef<number | null>(null);
   const pendingPickerDraftRef = useRef<string | null>(null);
   const backNavigationStartedRef = useRef(false);
+  const timeframePickerHostRef = useRef<ChartPropertiesTimeframePickerHostHandle>(null);
   const colorEditorOpen = activeColorKey !== null;
+  // A hosted destination exists only after the user selects it and mounts
+  // behind Chart Preferences for its first layout. Prime the direct quote
+  // during that hidden layout so cached/live Bid is ready on the first visible
+  // frame; routed opens use navigation focus. Keep quote renders paused while
+  // the color editor is handling gestures.
+  const quoteActive = (hosted || navigationFocused) && !colorEditorOpen;
   const previewActive = previewContentReady && isScreenFocused && !colorEditorOpen;
 
   useEffect(() => {
@@ -193,8 +273,19 @@ export function ChartPropertiesScreen({
     });
   }, [hosted, onHostedBack]);
 
-  // Direct per-symbol ticks keep the Bid and Spread preview cards live without waiting on the shared quote map.
-  const liveQuote = useLiveSymbolQuote(chartSymbol, previewActive, 0);
+  const handleOpenTimeframePicker = useCallback(() => {
+    timeframePickerHostRef.current?.open();
+  }, []);
+
+  const handleTimeframeSelect = useCallback((nextTimeframe: string) => {
+    const preferences = useUserPreferences.getState();
+    if (nextTimeframe !== preferences.chartTimeframe) {
+      preferences.setChartTimeframe(nextTimeframe);
+    }
+  }, []);
+
+  // Direct per-symbol ticks keep the Bid and Spread preview cards live without waiting on the delayed chart preview.
+  const liveQuote = useLiveSymbolQuote(chartSymbol, quoteActive, 0);
   const { candles } = useLiveCandles(chartSymbol, chartTimeframe, previewActive);
 
   useEffect(() => {
@@ -459,9 +550,30 @@ export function ChartPropertiesScreen({
           {(chartDisplay.showTicker || (chartDisplay.showOHLC && previewLastCandle)) && (
             <View style={styles.previewMetaRow}>
               {chartDisplay.showTicker && (
-                <Text style={styles.previewMetaTicker}>
-                  {chartSymbol.replace(/\//g, '')},{chartTimeframe}
-                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t('Select Timeframe')}
+                  accessibilityHint={t('Opens timeframe options')}
+                  accessibilityValue={{ text: chartTimeframe }}
+                  onPress={handleOpenTimeframePicker}
+                  activateOnPressIn
+                  unstable_pressDelay={0}
+                  latencyLabel="chartProperties.timeframePicker.open"
+                  hitSlop={{ top: 6, right: 4, bottom: 6, left: 4 }}
+                  style={({ pressed }) => [
+                    styles.previewMetaTickerButton,
+                    pressed && styles.previewMetaTickerButtonPressed,
+                  ]}
+                >
+                  <Text style={styles.previewMetaTicker}>
+                    {chartSymbol.replace(/\//g, '')},{chartTimeframe}
+                  </Text>
+                  <Ionicons
+                    name="chevron-down"
+                    size={12}
+                    color={isDark ? '#94A3B8' : '#64748B'}
+                  />
+                </Pressable>
               )}
               {chartDisplay.showOHLC && previewLastCandle && (
                 <View style={styles.previewMetaOhlc}>
@@ -603,6 +715,17 @@ export function ChartPropertiesScreen({
           </View>
         </View>
       </ScrollView>
+
+      <ChartPropertiesTimeframePickerHost
+        ref={timeframePickerHostRef}
+        active={isScreenFocused}
+        activeTimeframe={chartTimeframe}
+        accentColor={T.trading.buy.primary}
+        isDark={isDark}
+        textColor={T.text}
+        mutedColor={T.textMuted}
+        onSelect={handleTimeframeSelect}
+      />
 
       {/* Android Modal owns a separate native window. Do not allocate closed
           windows while the hosted destination is completing its first paint. */}
@@ -874,6 +997,20 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 11,
       fontWeight: '600',
       letterSpacing: 0.4,
+    },
+    previewMetaTickerButton: {
+      minHeight: 32,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 8,
+      borderRadius: 8,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: isDark ? 'rgba(148,163,184,0.14)' : 'rgba(148,163,184,0.16)',
+      backgroundColor: isDark ? 'rgba(148,163,184,0.08)' : 'rgba(148,163,184,0.10)',
+    },
+    previewMetaTickerButtonPressed: {
+      opacity: 0.72,
     },
     previewMetaOhlc: {
       flexDirection: 'row',

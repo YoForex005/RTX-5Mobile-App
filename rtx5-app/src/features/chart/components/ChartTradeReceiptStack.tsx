@@ -148,7 +148,8 @@ export const ChartTradeReceiptStack = React.memo(({
     maxListHeight,
     Math.max(CARD_HEIGHT, receipts.length * ITEM_HEIGHT - CARD_GAP),
   );
-  const listWidth = Math.min(360, Math.max(260, windowWidth - 24));
+  // Stay compact while giving the receipt a few more pixels of breathing room.
+  const listWidth = Math.min(238, Math.max(208, windowWidth * 0.54));
 
   useEffect(() => {
     const newestQueueId = receipts[0]?.queueId ?? null;
@@ -244,7 +245,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontSize: 11,
     fontWeight: '700',
-    textAlign: 'left',
+    textAlign: 'center',
   },
   volume: {
     width: 42,

@@ -113,14 +113,18 @@ test('Chart toolbar Preferences opens and closes via retained host (no stack pus
   );
 });
 
-test('Schema & Colors paints a fixed preview shell before enabling live data and WebView content', () => {
+test('Schema & Colors primes Bid immediately while deferring candles and WebView content', () => {
   const source = readSource('src/features/settings/ChartPropertiesScreen.tsx');
   const previewHostStart = source.indexOf('<View style={[styles.previewChart');
   const previewHostSource = source.slice(previewHostStart, previewHostStart + 900);
 
   assert.match(source, /SCHEMA_COLORS_PREVIEW_DELAY_MS = 120/);
   assert.match(source, /useDeferredRouteContentReady\(\s*SCHEMA_COLORS_PREVIEW_DELAY_MS,\s*isScreenFocused,\s*\)/);
+  assert.match(source, /const quoteActive = \(hosted \|\| navigationFocused\) && !colorEditorOpen/);
   assert.match(source, /const previewActive = previewContentReady && isScreenFocused && !colorEditorOpen/);
+  assert.match(source, /useLiveSymbolQuote\(chartSymbol, quoteActive, 0\)/);
+  assert.doesNotMatch(source, /useLiveSymbolQuote\(chartSymbol, previewActive, 0\)/);
+  assert.match(source, /useLiveCandles\(chartSymbol, chartTimeframe, previewActive\)/);
   // Hosted layers must not inherit useIsFocused() (always true outside a
   // navigator screen); only hostedActive may activate a hosted instance.
   assert.match(source, /const isScreenFocused = hosted \? hostedActive : navigationFocused/);
@@ -133,6 +137,54 @@ test('Schema & Colors paints a fixed preview shell before enabling live data and
   // reaches the native window.
   assert.match(source, /\{schemeModalOpen \? \(\s*<Modal/);
   assert.match(source, /\{activeColorKey !== null \? \(\s*<Modal/);
+});
+
+test('Schema & Colors reuses the retained Chart timeframe picker without reconciling the preview', () => {
+  const source = readSource('src/features/settings/ChartPropertiesScreen.tsx');
+  const metaStart = source.indexOf('{chartDisplay.showTicker && (');
+  const metaEnd = source.indexOf('{chartDisplay.showOHLC', metaStart);
+  const metaSource = source.slice(metaStart, metaEnd);
+  const hostStart = source.indexOf('const ChartPropertiesTimeframePickerHost =');
+  const screenStart = source.indexOf('export function ChartPropertiesScreen');
+  const hostSource = source.slice(hostStart, screenStart);
+  const screenSource = source.slice(screenStart);
+  const openStart = screenSource.indexOf('const handleOpenTimeframePicker');
+  const openEnd = screenSource.indexOf('const handleTimeframeSelect', openStart);
+  const openSource = screenSource.slice(openStart, openEnd);
+  const hostOpenStart = hostSource.indexOf('const open = useCallback');
+  const hostOpenEnd = hostSource.indexOf('React.useImperativeHandle', hostOpenStart);
+  const hostOpenSource = hostSource.slice(hostOpenStart, hostOpenEnd);
+
+  assert.match(source, /import \{ CANDLE_HISTORY_TIMEFRAMES \} from '\.\.\/\.\.\/domain\/candles\/core\/timeframeUtils'/);
+  assert.match(source, /import \{ ChartTimeframePickerOverlay \} from '\.\.\/chart\/components\/ChartTimeframePickerSheet'/);
+  assert.match(source, /import \{[\s\S]*createChartTimeframePickerController,[\s\S]*type ChartTimeframePickerController,[\s\S]*\} from '\.\.\/chart\/chartTimeframePickerController'/);
+  assert.notEqual(hostStart, -1);
+  assert.notEqual(screenStart, -1);
+  assert.match(hostSource, /React\.memo\(React\.forwardRef</);
+  assert.match(hostSource, /const \[controller\] = useState<ChartTimeframePickerController>\([\s\S]*createChartTimeframePickerController/);
+  assert.match(hostSource, /React\.useImperativeHandle\(ref, \(\) => \(\{ open \}\), \[open\]\)/);
+  assert.match(hostOpenSource, /if \(!active\) return;[\s\S]*controller\.show\(\)/);
+  assert.doesNotMatch(hostOpenSource, /\bset[A-Z]\w*\s*\(|requestAnimationFrame|setTimeout|useUserPreferences/);
+  assert.match(hostSource, /useEffect\(\(\) => \{\s*if \(!active\) \{\s*controller\.hide\(\)/);
+  assert.match(hostSource, /const handleSelect = useCallback\(\(timeframe: string\) => \{\s*controller\.hide\(\);\s*onSelect\(timeframe\)/);
+  assert.match(hostSource, /return \(\s*<ChartTimeframePickerOverlay/);
+  assert.match(hostSource, /<ChartTimeframePickerOverlay[\s\S]*controller=\{controller\}[\s\S]*activeTimeframe=\{activeTimeframe\}[\s\S]*supportedTimeframes=\{CANDLE_HISTORY_TIMEFRAMES\}[\s\S]*accentColor=\{accentColor\}[\s\S]*isDark=\{isDark\}[\s\S]*textColor=\{textColor\}[\s\S]*mutedColor=\{mutedColor\}[\s\S]*onSelect=\{handleSelect\}/);
+  assert.doesNotMatch(hostSource, /\bhostReady\b|\bsetHostReady\b|return null|<Modal|<ActionSheet/);
+  assert.doesNotMatch(hostSource, /\{(?:timeframePickerOpen|visible)\s*\?\s*\(/);
+  assert.doesNotMatch(screenSource, /const \[timeframePickerOpen, setTimeframePickerOpen\]|setTimeframePickerOpen\(|<ActionSheet/);
+  assert.match(source, /const timeframePickerHostRef = useRef<ChartPropertiesTimeframePickerHostHandle>\(null\)/);
+  assert.match(openSource, /timeframePickerHostRef\.current\?\.open\(\)/);
+  assert.doesNotMatch(openSource, /\bset[A-Z]\w*\s*\(|requestAnimationFrame|setTimeout|useUserPreferences/);
+  assert.match(source, /const handleTimeframeSelect = useCallback\(\(nextTimeframe: string\) => \{[\s\S]*useUserPreferences\.getState\(\)[\s\S]*preferences\.setChartTimeframe\(nextTimeframe\)/);
+  assert.notEqual(metaStart, -1);
+  assert.notEqual(metaEnd, -1);
+  assert.match(metaSource, /<Pressable[\s\S]*accessibilityRole="button"[\s\S]*accessibilityLabel=\{t\('Select Timeframe'\)\}[\s\S]*accessibilityValue=\{\{ text: chartTimeframe \}\}[\s\S]*onPress=\{handleOpenTimeframePicker\}/);
+  assert.match(metaSource, /activateOnPressIn[\s\S]*unstable_pressDelay=\{0\}[\s\S]*latencyLabel="chartProperties\.timeframePicker\.open"/);
+  assert.match(metaSource, /chartSymbol\.replace[\s\S]*chartTimeframe[\s\S]*name="chevron-down"/);
+  assert.match(screenSource, /<\/ScrollView>\s*<ChartPropertiesTimeframePickerHost[\s\S]*ref=\{timeframePickerHostRef\}[\s\S]*active=\{isScreenFocused\}[\s\S]*activeTimeframe=\{chartTimeframe\}[\s\S]*accentColor=\{T\.trading\.buy\.primary\}[\s\S]*isDark=\{isDark\}[\s\S]*textColor=\{T\.text\}[\s\S]*mutedColor=\{T\.textMuted\}[\s\S]*onSelect=\{handleTimeframeSelect\}/);
+  assert.doesNotMatch(source, /showChartTimeframePicker|hideChartTimeframePicker/);
+  assert.match(source, /useLiveCandles\(chartSymbol, chartTimeframe, previewActive\)/);
+  assert.match(source, /<LiveChartPreview[\s\S]*timeframe=\{chartTimeframe\}/);
 });
 
 test('root layout mounts ChartSettingsHost and ChartConfigDestinationHost with other retained hosts', () => {

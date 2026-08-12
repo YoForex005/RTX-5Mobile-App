@@ -7338,10 +7338,21 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     }
   }, [chartCanvasReady, chartReadyEpoch, displayDecimals]);
 
-  // Fast retained live-paint path. Every normalized quote transport (current
-  // authenticated brokers, logged-out public data, and future brokers) first
-  // projects Bid into a context-keyed forming candle. The projected candle and
-  // its one Bid line then cross the bridge in the same revision.
+  /**
+   * IMPORTANT LIVE-CANDLE / LIVE-PRICE-LINE CONTRACT — DO NOT CHANGE, REMOVE,
+   * SPLIT, OR DELAY THIS BLOCK WITHOUT RE-VERIFYING BOTH ITEMS TOGETHER.
+   *
+   * Every accepted live Bid received from the backend is first applied to the
+   * forming candle's close. That same accepted close is then sent as the ONE
+   * right-side live Bid line in the same revision. Therefore, when the backend
+   * Bid moves up or down, the forming candle and its live price line must move
+   * up or down together—neither one is allowed to update independently.
+   *
+   * This is the shared broker-neutral path for authenticated brokers, the
+   * logged-out public feed, and future brokers that use the standard quote
+   * transport. Separating the candle update from the line update can restore
+   * the old frozen or mismatched live-price-line problem.
+   */
   useEffect(() => {
     if (
       !chartSurfaceReady ||

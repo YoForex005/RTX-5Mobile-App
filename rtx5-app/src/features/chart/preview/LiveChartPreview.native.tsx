@@ -9,6 +9,7 @@ import { getDevRefreshKey, hashDevRefreshSource } from '../../../dev/devRefreshK
 import {
   buildVolumeDatum,
   getLastPreviewCandleSignature,
+  LIVE_CHART_PREVIEW_TIME_SCALE_RIGHT_OFFSET,
   mapPreviewCandles,
   PreviewChartType,
   sanitizePreviewCandles,
@@ -407,7 +408,8 @@ export default function LiveChartPreviewNative({
       borderColor: display.showGrid ? colors.grid : 'transparent',
       timeVisible: true,
       secondsVisible: false,
-      rightOffset: 0,
+      rightOffset: LIVE_CHART_PREVIEW_TIME_SCALE_RIGHT_OFFSET,
+      shiftVisibleRangeOnNewBar: true,
       barSpacing: 13,
       minBarSpacing: 3,
     },

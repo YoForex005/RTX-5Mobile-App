@@ -111,6 +111,14 @@ test('rapid chart trades use one uncapped MT5-style receipt row per accepted tap
     'the same external stack must render inline and through the elevated trade-sheet portal',
   );
   assert.match(stackSource, /useSyncExternalStore\([\s\S]*controller\.subscribe/);
+  assert.match(
+    stackSource,
+    /const listWidth = Math\.min\(238, Math\.max\(208, windowWidth \* 0\.54\)\);/,
+  );
+  assert.match(
+    stackSource,
+    /side:\s*\{[\s\S]*?width: 36,[\s\S]*?marginLeft: 8,[\s\S]*?textAlign: 'center'/,
+  );
   assert.match(stackSource, /<FlatList[\s\S]*data=\{receipts\}[\s\S]*keyExtractor=\{\(item\) => String\(item\.queueId\)\}/);
   assert.match(stackSource, /event\.status === 'pending'[\s\S]*<ActivityIndicator/);
   assert.match(stackSource, /onPress=\{\(\) => onDismiss\(event\.queueId\)\}/);

@@ -223,6 +223,7 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   const source = readSource('src/features/chart/ChartScreen.native.tsx');
   const styles = readSource('src/features/chart/ChartScreen.styles.ts');
   const timeframePickerSource = readSource('src/features/chart/components/ChartTimeframePickerSheet.tsx');
+  const timeframeControllerSource = readSource('src/features/chart/chartTimeframePickerController.ts');
   const menuSource = readSource('src/features/chart/components/ChartToolbarMenuFeature.tsx');
   const drawingSource = readSource('src/features/chart/components/ChartDrawingToolsFeature.tsx');
   const radialSource = readSource('src/features/chart/components/ChartTapRadialMenu.tsx');
@@ -263,6 +264,8 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.doesNotMatch(timeframePickerSource, /'M2'|'M3'|'M4'|'M6'|'M10'|'M12'|'M20'|'H2'|'H3'|'H6'|'H8'|'H12'/);
   assert.match(timeframePickerSource, /export function createTimeframePickerActionSheetActions/);
   assert.match(timeframePickerSource, /export const ChartTimeframePickerOverlay = memo\(function ChartTimeframePickerOverlay/);
+  assert.match(timeframePickerSource, /controller = chartTimeframePickerController/);
+  assert.match(timeframePickerSource, /useChartTimeframePickerVisible\(controller\)/);
   assert.match(timeframePickerSource, /const options = group\.options\.filter\(\(timeframe\) => supportedSet\.has\(timeframe\)\)/);
   assert.match(timeframePickerSource, /selected: active/);
   assert.match(timeframePickerSource, /disabled: !supported/);
@@ -279,13 +282,17 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(timeframePickerSource, /shadowRadius: 0/);
   assert.match(timeframePickerSource, /elevation: 0/);
   // Retained host: always mounted, native opacity flip on open (no mount lag).
-  assert.match(timeframePickerSource, /registerChartTimeframePickerApplier\(applyVisibilityNow\)/);
+  assert.match(timeframePickerSource, /controller\.registerApplier\(applyVisibilityNow\)/);
+  assert.match(timeframePickerSource, /controller\.hide\(\)/);
   assert.match(timeframePickerSource, /setNativeProps\(\{[\s\S]*pointerEvents: isVisible \? 'auto' : 'none'/);
   assert.match(timeframePickerSource, /overlayHidden: \{\s*opacity: 0,\s*\}/);
   assert.doesNotMatch(timeframePickerSource, /if \(!visible\) return null/);
   assert.doesNotMatch(timeframePickerSource, /shadowColor: '#000000'|rgba\(59,130,246,0\.25\)|shadowColor: isDark \? accentColor|rgba\(37,99,235,0\.18\)|shadowRadius: isDark \? 0 : 28|elevation: isDark \? 0 : 18/);
   assert.doesNotMatch(timeframePickerSource, /Ionicons|iconName|icon:/);
   assert.doesNotMatch(timeframePickerSource, /<Modal|bottomDock/);
+  assert.match(timeframeControllerSource, /export type ChartTimeframePickerController/);
+  assert.match(timeframeControllerSource, /export function createChartTimeframePickerController\(\)[\s\S]*const listeners = new Set[\s\S]*const appliers = new Set/);
+  assert.match(timeframeControllerSource, /export function useChartTimeframePickerVisible\([\s\S]*controller: ChartTimeframePickerController = chartTimeframePickerController[\s\S]*controller\.subscribe[\s\S]*controller\.getSnapshot\(\)\.visible/);
   assert.match(source, /import \{ ChartTimeframePickerOverlay \} from '\.\/components\/ChartTimeframePickerSheet'/);
   assert.match(source, /import \{\s*hideChartTimeframePicker,\s*showChartTimeframePicker,\s*\} from '\.\/chartTimeframePickerController'/);
   assert.doesNotMatch(source, /const \[timeframePickerVisible, setTimeframePickerVisible\] = useState\(false\)/);

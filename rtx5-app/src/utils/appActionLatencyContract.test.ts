@@ -773,6 +773,10 @@ test('bottom-sheet style dropdowns avoid native slide animations on open', () =>
 
 test('chart properties color picker keeps readouts live and commits chart colors after gestures', () => {
   const source = readSource('src/features/settings/ChartPropertiesScreen.tsx');
+  const timeframeHostStart = source.indexOf('const ChartPropertiesTimeframePickerHost =');
+  const chartPropertiesStart = source.indexOf('export function ChartPropertiesScreen');
+  const timeframeHostSource = source.slice(timeframeHostStart, chartPropertiesStart);
+  const chartPropertiesSource = source.slice(chartPropertiesStart);
   assert.match(source, /<KeyboardAvoidingView behavior="padding" style=\{styles\.modalBackdropBottom\}>/);
   assert.match(source, /<Pressable style=\{StyleSheet\.absoluteFillObject\} onPress=\{\(\) => applyDraftColor\(draftColor\)\} \/>/);
   assert.doesNotMatch(source, /<Pressable style=\{styles\.modalBackdropBottom\} onPress=\{\(\) => applyDraftColor\(draftColor\)\}>/);
@@ -799,13 +803,27 @@ test('chart properties color picker keeps readouts live and commits chart colors
   assert.doesNotMatch(colorPickerSource, /\sonChange=\{/);
   assert.doesNotMatch(colorPickerSource, /\sonComplete=\{/);
   assert.match(source, /const previewContentReady = useDeferredRouteContentReady\(\s*SCHEMA_COLORS_PREVIEW_DELAY_MS,\s*isScreenFocused,\s*\)/);
+  assert.match(source, /onPress=\{handleOpenTimeframePicker\}[\s\S]*activateOnPressIn[\s\S]*unstable_pressDelay=\{0\}[\s\S]*latencyLabel="chartProperties\.timeframePicker\.open"/);
+  assert.match(source, /const ChartPropertiesTimeframePickerHost = React\.memo\(React\.forwardRef<[\s\S]*React\.useImperativeHandle\(ref, \(\) => \(\{ open \}\), \[open\]\)/);
+  assert.match(timeframeHostSource, /const \[controller\] = useState<ChartTimeframePickerController>\([\s\S]*createChartTimeframePickerController/);
+  assert.match(timeframeHostSource, /const open = useCallback\(\(\) => \{\s*if \(!active\) return;\s*controller\.show\(\)/);
+  assert.match(timeframeHostSource, /useEffect\(\(\) => \{\s*if \(!active\) \{\s*controller\.hide\(\)/);
+  assert.match(timeframeHostSource, /const handleSelect = useCallback\(\(timeframe: string\) => \{\s*controller\.hide\(\);\s*onSelect\(timeframe\)/);
+  assert.match(timeframeHostSource, /<ChartTimeframePickerOverlay[\s\S]*controller=\{controller\}[\s\S]*supportedTimeframes=\{CANDLE_HISTORY_TIMEFRAMES\}[\s\S]*onSelect=\{handleSelect\}/);
+  assert.match(source, /const handleOpenTimeframePicker = useCallback\(\(\) => \{\s*timeframePickerHostRef\.current\?\.open\(\);/);
+  assert.doesNotMatch(timeframeHostSource, /\bhostReady\b|\bsetHostReady\b|return null/);
+  assert.doesNotMatch(timeframeHostSource, /<Modal|animationType=|<ActionSheet/);
+  assert.doesNotMatch(chartPropertiesSource, /setTimeframePickerOpen\(|<ActionSheet/);
+  assert.match(chartPropertiesSource, /<\/ScrollView>\s*<ChartPropertiesTimeframePickerHost[\s\S]*active=\{isScreenFocused\}/);
+  assert.match(source, /const quoteActive = \(hosted \|\| navigationFocused\) && !colorEditorOpen/);
   assert.match(source, /const previewActive = previewContentReady && isScreenFocused && !colorEditorOpen/);
   assert.match(source, /\{previewContentReady \? \([\s\S]*<LiveChartPreview[\s\S]*chart-live-preview-placeholder/);
   assert.match(source, /import \{ useLiveSymbolQuote \} from '\.\.\/\.\.\/query\/websocket'/);
   assert.match(source, /import \{ calculateQuoteSpreadPoints \} from '\.\.\/\.\.\/utils\/quoteSpread'/);
   assert.doesNotMatch(source, /useMarketData/);
-  assert.match(source, /Direct per-symbol ticks keep the Bid and Spread preview cards live/);
-  assert.match(source, /useLiveSymbolQuote\(chartSymbol, previewActive, 0\)/);
+  assert.match(source, /Direct per-symbol ticks keep the Bid and Spread preview cards live without waiting on the delayed chart preview/);
+  assert.match(source, /useLiveSymbolQuote\(chartSymbol, quoteActive, 0\)/);
+  assert.doesNotMatch(source, /useLiveSymbolQuote\(chartSymbol, previewActive, 0\)/);
   assert.match(source, /const liveSpreadPoints = calculateQuoteSpreadPoints\(liveQuote\?\.bid, liveQuote\?\.ask, liveQuote\?\.digits\)/);
   assert.match(source, /Number\.isFinite\(liveSpreadPoints\)[\s\S]*Number\(liveSpreadPoints\)\.toFixed\(1\)[\s\S]*Number\.isFinite\(liveQuote\?\.spread\)/);
   assert.match(source, /const livePreviewPrice = useMemo\(\(\) => \{/);

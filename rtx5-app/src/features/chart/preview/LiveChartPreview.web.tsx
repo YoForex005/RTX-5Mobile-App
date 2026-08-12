@@ -18,6 +18,7 @@ import { hasLiveQuoteFeedData, useMarketData } from '../../../query/websocket';
 import {
   buildVolumeDatum,
   getLastPreviewCandleSignature,
+  LIVE_CHART_PREVIEW_TIME_SCALE_RIGHT_OFFSET,
   mapPreviewCandles,
   PreviewChartType,
   sanitizePreviewCandles,
@@ -137,7 +138,8 @@ export default function LiveChartPreviewWeb({
       borderColor: display.showGrid ? colors.grid : 'transparent',
       timeVisible: true,
       secondsVisible: false,
-      rightOffset: 0,
+      rightOffset: LIVE_CHART_PREVIEW_TIME_SCALE_RIGHT_OFFSET,
+      shiftVisibleRangeOnNewBar: true,
       barSpacing: 13,
       minBarSpacing: 3,
     },

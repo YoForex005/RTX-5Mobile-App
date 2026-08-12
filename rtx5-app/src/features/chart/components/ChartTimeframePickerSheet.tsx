@@ -2,8 +2,8 @@ import { FastPressable as Pressable } from '../../../ui/components/FastPressable
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { BackHandler, StyleSheet, Text, View } from 'react-native';
 import {
-  hideChartTimeframePicker,
-  registerChartTimeframePickerApplier,
+  chartTimeframePickerController,
+  type ChartTimeframePickerController,
   useChartTimeframePickerVisible,
 } from '../chartTimeframePickerController';
 
@@ -28,6 +28,7 @@ type CreateTimeframePickerActionSheetActionsOptions = {
 };
 
 type ChartTimeframePickerOverlayProps = {
+  controller?: ChartTimeframePickerController;
   activeTimeframe: string;
   supportedTimeframes: readonly string[];
   accentColor: string;
@@ -91,6 +92,7 @@ export function createTimeframePickerActionSheetActions({
  * ChartScreen setState on the open path.
  */
 export const ChartTimeframePickerOverlay = memo(function ChartTimeframePickerOverlay({
+  controller = chartTimeframePickerController,
   activeTimeframe,
   supportedTimeframes,
   accentColor,
@@ -99,7 +101,7 @@ export const ChartTimeframePickerOverlay = memo(function ChartTimeframePickerOve
   mutedColor,
   onSelect,
 }: ChartTimeframePickerOverlayProps) {
-  const visible = useChartTimeframePickerVisible();
+  const visible = useChartTimeframePickerVisible(controller);
   const hostRef = useRef<View>(null);
   const supportedSet = useMemo(() => new Set(supportedTimeframes), [supportedTimeframes]);
   const styles = useMemo(
@@ -118,8 +120,8 @@ export const ChartTimeframePickerOverlay = memo(function ChartTimeframePickerOve
   }, [styles]);
 
   useLayoutEffect(
-    () => registerChartTimeframePickerApplier(applyVisibilityNow),
-    [applyVisibilityNow],
+    () => controller.registerApplier(applyVisibilityNow),
+    [applyVisibilityNow, controller],
   );
 
   useEffect(() => {
@@ -128,16 +130,16 @@ export const ChartTimeframePickerOverlay = memo(function ChartTimeframePickerOve
     }
 
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      hideChartTimeframePicker();
+      controller.hide();
       return true;
     });
 
     return () => subscription.remove();
-  }, [visible]);
+  }, [controller, visible]);
 
   const handleClose = useCallback(() => {
-    hideChartTimeframePicker();
-  }, []);
+    controller.hide();
+  }, [controller]);
 
   return (
     <View

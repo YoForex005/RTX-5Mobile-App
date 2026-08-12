@@ -15,7 +15,7 @@ type ChartTimeframePickerSnapshot = Readonly<{
   revision: number;
 }>;
 
-type ChartTimeframePickerController = {
+export type ChartTimeframePickerController = {
   version: number;
   getSnapshot: () => ChartTimeframePickerSnapshot;
   subscribe: (listener: () => void) => () => void;
@@ -110,10 +110,12 @@ export function registerChartTimeframePickerApplier(applier: ChartTimeframePicke
   return chartTimeframePickerController.registerApplier(applier);
 }
 
-export function useChartTimeframePickerVisible() {
+export function useChartTimeframePickerVisible(
+  controller: ChartTimeframePickerController = chartTimeframePickerController,
+) {
   return useSyncExternalStore(
-    chartTimeframePickerController.subscribe,
-    () => chartTimeframePickerController.getSnapshot().visible,
-    () => chartTimeframePickerController.getSnapshot().visible,
+    controller.subscribe,
+    () => controller.getSnapshot().visible,
+    () => controller.getSnapshot().visible,
   );
 }

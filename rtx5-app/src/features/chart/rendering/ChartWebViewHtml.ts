@@ -7871,9 +7871,15 @@ export const CH_HTML = `
         schedulePendingTickFlush();
       }
 
-      // Canonical live paint transaction. Native already projected exact Bid
-      // into the forming candle; derive the line from that accepted candle here
-      // as a final invariant so the bridge can never display split generations.
+      /**
+       * IMPORTANT — DO NOT SEPARATE OR BYPASS THIS ATOMIC WEBVIEW TRANSACTION.
+       * Native has already placed the latest backend Bid into the forming
+       * candle's close. This function deliberately reads the ONE live Bid line
+       * from that accepted candle, then queues the candle and line together.
+       * As the backend Bid rises or falls, both must move up or down in the same
+       * rendered revision. Updating either one through a separate path can make
+       * the line freeze or display a price that does not match the live candle.
+       */
       function updateLiveTick(update) {
         if (!update || !update.candle || typeof update.candle.time !== 'number') return;
         var updateDataContextSig =

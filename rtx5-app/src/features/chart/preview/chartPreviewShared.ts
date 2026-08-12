@@ -4,6 +4,11 @@ import { mapCandlesToRTX5CustomCandlestickData } from '../../../domain/candles/r
 
 export type PreviewChartType = 'candles' | 'bars' | 'line' | 'hollow';
 
+// Keep the forming candle clear of the right price scale in the compact
+// Schema & Colors preview. With the preview's 13px bar spacing this reserves
+// about 52px while the horizontal live-price line still reaches its axis label.
+export const LIVE_CHART_PREVIEW_TIME_SCALE_RIGHT_OFFSET = 4;
+
 export type PreviewSourceCandle = {
   time: number;
   open: number;
