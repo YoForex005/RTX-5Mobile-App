@@ -25,18 +25,23 @@ test('trade markers reposition from their real price on every visible-range chan
   );
   assertSourceContains(
     repositionBody,
-    /lineNode\.style\.top = Math\.round\(y\) \+ 'px'/,
-    'reposition pass must rewrite the anchored trade line position',
+    /if \(!isOpenPosition\) \{[\s\S]*lineNode\.style\.top = Math\.round\(y\) \+ 'px'/,
+    'non-position protection lines must remain at their raw price coordinate',
   );
   assertSourceContains(
     repositionBody,
-    /labelNode\.style\.top =[\s\S]*OVERLAY_LABEL_LINE_HEIGHT - OVERLAY_LABEL_LINE_GAP/,
-    'reposition pass must rewrite the trade label position with the same anchor offset as the full refresh',
+    /anchoredLabelRecords\.sort\(function\(left, right\) \{ return left\.y - right\.y; \}\)[\s\S]*resolveAnchoredOverlayLabelTops\(anchoredLabelRecords\)[\s\S]*record\.node\.style\.top = labelTop/,
+    'reposition pass must rewrite trade labels through the shared vertical row layout',
   );
   assertSourceContains(
     repositionBody,
-    /boxNode\.style\.top = Math\.round\(y - OVERLAY_POSITION_BOX_HEIGHT \/ 2\) \+ 'px'/,
-    'reposition pass must rewrite the right-axis price box position',
+    /resolveAnchoredOverlayLabelLane\(_overlayLabelLayer\)[\s\S]*applyAnchoredOverlayLabelLane\(labelNode, anchoredLabelLane\)/,
+    'reposition pass must keep all trade labels in one centered column',
+  );
+  assertSourceContains(
+    repositionBody,
+    /var rowY = resolveAnchoredOverlayRowY\(labelTop\)[\s\S]*record\.lineNode\.style\.top = rowY \+ 'px'[\s\S]*record\.boxNode\.style\.top = Math\.round\(rowY - OVERLAY_POSITION_BOX_HEIGHT \/ 2\) \+ 'px'/,
+    'each open-position connector and right-axis box must share the displayed row center',
   );
   assertSourceOmits(
     repositionBody,
@@ -113,6 +118,53 @@ test('off-viewport trades are clipped with visibility, never deleted from chart 
     refreshBody,
     /if \(y < 0 \|\| y > [\s\S]{0,60}\) continue;/,
     'off-viewport markers must not be skipped out of the render (that deletes their DOM via prune)',
+  );
+});
+
+test('trade overlay layer clips stacked rows at the pane/time-axis boundary', () => {
+  const paneBoundsBody = extractFunctionBody(source, 'resolveTradeOverlayPaneBounds');
+  const paneClipBody = extractFunctionBody(source, 'syncOverlayLabelLayerPaneClip');
+  const ensureLayerBody = extractFunctionBody(source, 'ensureOverlayLabelLayer');
+
+  assertSourceContains(
+    paneBoundsBody,
+    /var paneHeight = Math\.max\(0, Math\.round\(metrics\.paneHeight \|\| 0\)\)/,
+    'trade overlay bounds must use the full pane height ending above the date/time scale',
+  );
+  assertSourceContains(
+    paneBoundsBody,
+    /return \{ top: 0, bottom: paneHeight \}/,
+    'trade overlay bounds must end exactly at the pane/time-axis separator',
+  );
+  assertSourceOmits(
+    paneBoundsBody,
+    /metrics\.plotTop|metrics\.plotHeight/,
+    'price-scale margins are inside the pane and must not define its clipping boundary',
+  );
+  assertSourceContains(
+    paneClipBody,
+    /var bounds = resolveTradeOverlayPaneBounds\(\)/,
+    'overlay layer clipping must resolve the live pane boundary',
+  );
+  assertSourceContains(
+    paneClipBody,
+    /layer\.style\.bottom = 'auto'[\s\S]*layer\.style\.height = Math\.max\(0, Math\.round\(bounds\.bottom\)\) \+ 'px'[\s\S]*layer\.style\.overflow = 'hidden'/,
+    'the shared overlay layer must physically clip stacked rows before the date/time scale',
+  );
+  assertSourceContains(
+    ensureLayerBody,
+    /if \(_overlayLabelLayer && _overlayLabelLayer\.parentNode === el\) \{[\s\S]*syncOverlayLabelLayerPaneClip\(_overlayLabelLayer\)[\s\S]*return _overlayLabelLayer/,
+    'an existing overlay layer must refresh its pane clip after layout changes',
+  );
+  assertSourceContains(
+    ensureLayerBody,
+    /el\.appendChild\(_overlayLabelLayer\)[\s\S]*syncOverlayLabelLayerPaneClip\(_overlayLabelLayer\)/,
+    'a newly created overlay layer must install the pane clip immediately',
+  );
+  assertSourceOmits(
+    ensureLayerBody,
+    /_overlayLabelLayer\.style\.bottom = '0'/,
+    'the created overlay layer must not permanently span through the time axis',
   );
 });
 

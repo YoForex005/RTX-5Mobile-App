@@ -240,6 +240,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.1,
   },
+  // Center Buy/Sell in its column to create a cleaner gap after the symbol.
   side: {
     width: 36,
     marginLeft: 8,

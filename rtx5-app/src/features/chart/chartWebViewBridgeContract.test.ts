@@ -837,8 +837,8 @@ test('webview bridge: open-position labels separate trade side color from live P
   );
   assertSourceContains(
     refreshBody,
-    /label\.style\.color = item\.labelSideColor \|\| item\.color[\s\S]*label\.style\.fontWeight = hasSplitTradeLabel \? '500' : '700'/,
-    'split labels must keep the trade-side fallback color and use a reduced medium font weight',
+    /label\.style\.color = item\.labelSideColor \|\| item\.color[\s\S]*label\.style\.fontSize = hasSplitTradeLabel \? '9px' : '12px'[\s\S]*label\.style\.fontWeight = hasSplitTradeLabel \? '400' : '700'/,
+    'split labels must keep the trade-side fallback color with compact regular-weight typography',
   );
 });
 
@@ -870,8 +870,20 @@ test('webview bridge: per-tick trade label patches touch text only and retain la
   );
 });
 
-test('webview bridge: open-position trade labels stay attached to their price line while vertical panning', () => {
+test('webview bridge: open-position trade labels stay in one vertical column while price panning', () => {
   const refreshBody = extractFunctionBody(chartWebViewHtmlSource, 'refreshOverlayDomLabels');
+  const anchoredTopsBody = extractFunctionBody(
+    chartWebViewHtmlSource,
+    'resolveAnchoredOverlayLabelTops',
+  );
+  const anchoredLaneBody = extractFunctionBody(
+    chartWebViewHtmlSource,
+    'resolveAnchoredOverlayLabelLane',
+  );
+  const repositionBody = extractFunctionBody(
+    chartWebViewHtmlSource,
+    'repositionTradeOverlayDomNodes',
+  );
 
   assertSourceContains(
     chartWebViewHtmlSource,
@@ -880,12 +892,32 @@ test('webview bridge: open-position trade labels stay attached to their price li
   );
   assertSourceContains(
     refreshBody,
-    /var anchoredDesiredTop = Math\.round\(anchoredLabels\[anchoredTopIndex\]\.y - OVERLAY_LABEL_LINE_HEIGHT - OVERLAY_LABEL_LINE_GAP\)[\s\S]*anchoredTops\[anchoredTopIndex\] = anchoredDesiredTop/,
-    'anchored trade labels must use the real price coordinate so they can leave the visible chart range',
+    /anchoredLabels\.sort\(function\(left, right\) \{ return left\.y - right\.y; \}\)[\s\S]*resolveAnchoredOverlayLabelTops\(anchoredLabels\)/,
+    'anchored trade labels must be price-sorted into one vertical layout',
+  );
+  assertSourceContains(
+    anchoredTopsBody,
+    /var top = Math\.round\(item\.y - OVERLAY_LABEL_LINE_HEIGHT - OVERLAY_LABEL_LINE_GAP\)[\s\S]*previousVisibleTop \+ anchoredStep/,
+    'vertical rows must begin at the real price coordinate and stack only when they would overlap',
+  );
+  assertSourceContains(
+    repositionBody,
+    /anchoredLabelRecords\.sort\(function\(left, right\) \{ return left\.y - right\.y; \}\)[\s\S]*resolveAnchoredOverlayLabelTops\(anchoredLabelRecords\)[\s\S]*record\.node\.style\.top = labelTop[\s\S]*var rowY = resolveAnchoredOverlayRowY\(labelTop\)[\s\S]*record\.lineNode\.style\.top = rowY[\s\S]*record\.boxNode\.style\.top = Math\.round\(rowY - OVERLAY_POSITION_BOX_HEIGHT \/ 2\)/,
+    'pan and zoom frames must keep each open-position label, line, and box on one shared row',
+  );
+  assertSourceContains(
+    anchoredLaneBody,
+    /resolveMarketPriceScaleAxisMetrics\(layer\)[\s\S]*axisMetrics\.axisLeft[\s\S]*paneWidth - laneWidth\) \/ 2/,
+    'the common trade-label column must stay centered inside the candle pane',
+  );
+  assertSourceContains(
+    repositionBody,
+    /var anchoredLabelLane = resolveAnchoredOverlayLabelLane\(_overlayLabelLayer\)[\s\S]*applyAnchoredOverlayLabelLane\(labelNode, anchoredLabelLane\)/,
+    'pan and zoom frames must preserve the centered label column',
   );
   assertSourceContains(
     refreshBody,
-    /var floatingTop = tops\[labelIndex\][\s\S]*renderLabel\(floatingItem, floatingTop, null/,
+    /var floatingTop = tops\[labelIndex\][\s\S]*renderLabel\(floatingItem, floatingTop,/,
     'floating order labels must also render from the unclamped price coordinate',
   );
   assert.doesNotMatch(

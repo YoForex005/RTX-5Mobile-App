@@ -1182,6 +1182,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const [keyboardVisibleHeight, setKeyboardVisibleHeight] = useState(0);
   const [keyboardDockOffset, setKeyboardDockOffset] = useState(0);
   const [chartTradeSheetHostHeight, setChartTradeSheetHostHeight] = useState(0);
+  const [chartTradeSheetHostLeftOffset, setChartTradeSheetHostLeftOffset] = useState(0);
   const [chartTradeSheetHostTopOffset, setChartTradeSheetHostTopOffset] = useState(0);
   const [chartTradeKeyboardFreeHostHeight, setChartTradeKeyboardFreeHostHeight] = useState(0);
   const [chartTradeInlineFooterHeight, setChartTradeInlineFooterHeight] = useState(0);
@@ -1393,6 +1394,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     }
 
     chartTradeHostRef.current.measureInWindow((_x, y, _width, height) => {
+      if (Number.isFinite(_x)) {
+        const nextLeftOffset = Math.max(0, Math.round(_x));
+        setChartTradeSheetHostLeftOffset((current) => (
+          current === nextLeftOffset ? current : nextLeftOffset
+        ));
+      }
       if (Number.isFinite(y) && Number.isFinite(height) && height > 0) {
         const nextTopOffset = Math.max(0, Math.round(y));
         setChartTradeSheetHostTopOffset((current) => (
@@ -8674,6 +8681,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       }}
     />
   );
+  const chartTradeReceiptViewportReady =
+    chartTapMenuViewport.width > 0 && chartTapMenuViewport.height > 0;
+  const chartTradeReceiptViewportStyle = chartTradeReceiptViewportReady
+    ? {
+        left: Math.max(0, Math.round(chartTapMenuViewport.x - chartTradeSheetHostLeftOffset)),
+        top: Math.max(0, Math.round(chartTapMenuViewport.y - chartTradeSheetHostTopOffset)),
+        width: Math.round(chartTapMenuViewport.width),
+        height: Math.round(chartTapMenuViewport.height),
+      }
+    : null;
 
   return (
     <Screen style={styles.screen} noBottomInset>
@@ -9485,14 +9502,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                     onOpenScaleControls={handleOpenChartScaleMenu}
                   />
                 ) : null}
-                {!showChartTradeSheet ? (
-                  <ChartTradeReceiptStack
-                    controller={chartTradeReceiptStackController}
-                    isDark={isDark}
-                    buyColor={BLUE}
-                    sellColor={T.trading.sell.primary}
-                  />
-                ) : null}
                 {chartTradeReceipt && !showChartTradeSheet
                   ? renderChartTradeReceiptBar(chartTradeReceipt)
                   : null}
@@ -10187,6 +10196,19 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
             />
           ) : null}
         </ScrollView>
+        {!showChartTradeSheet && chartTradeReceiptViewportStyle ? (
+          <View
+            pointerEvents="box-none"
+            style={[styles.chartTradeReceiptViewportOverlay, chartTradeReceiptViewportStyle]}
+          >
+            <ChartTradeReceiptStack
+              controller={chartTradeReceiptStackController}
+              isDark={isDark}
+              buyColor={BLUE}
+              sellColor={T.trading.sell.primary}
+            />
+          </View>
+        ) : null}
         {chartTradeOverlayLayer}
       </View>
 

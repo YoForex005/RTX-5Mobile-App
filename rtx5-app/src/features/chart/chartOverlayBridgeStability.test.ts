@@ -662,7 +662,9 @@ test('overlay bridge: repeated overlay sync clears previous lines before recreat
 test('overlay bridge: trade labels follow their price coordinate off screen', () => {
   const refreshBody = extractFunctionBody(source, 'refreshOverlayDomLabels');
   const anchoredLineBody = extractFunctionBody(source, 'renderAnchoredTradeLine');
-  const anchoredLeftsBody = extractFunctionBody(source, 'resolveAnchoredOverlayLabelLefts');
+  const anchoredLaneBody = extractFunctionBody(source, 'resolveAnchoredOverlayLabelLane');
+  const applyAnchoredLaneBody = extractFunctionBody(source, 'applyAnchoredOverlayLabelLane');
+  const anchoredTopsBody = extractFunctionBody(source, 'resolveAnchoredOverlayLabelTops');
   const applyOverlayBody = extractFunctionBody(source, 'applyOverlayPayload');
   const shouldCreateNativeLineBody = extractFunctionBody(source, 'shouldCreateOverlayNativePriceLine');
 
@@ -682,54 +684,54 @@ test('overlay bridge: trade labels follow their price coordinate off screen', ()
     'floating order labels must use their real price coordinate instead of being clamped into the visible pane',
   );
   assertSourceContains(
-    refreshBody,
-    /var anchoredDesiredTop = Math\.round\(anchoredLabels\[anchoredTopIndex\]\.y - OVERLAY_LABEL_LINE_HEIGHT - OVERLAY_LABEL_LINE_GAP\)[\s\S]*anchoredTops\[anchoredTopIndex\] = anchoredDesiredTop/,
-    'MT5-style open-position labels must leave the chart when their price coordinate leaves the chart',
+    anchoredTopsBody,
+    /var top = Math\.round\(item\.y - OVERLAY_LABEL_LINE_HEIGHT - OVERLAY_LABEL_LINE_GAP\)[\s\S]*tops\[i\] = top/,
+    'open-position labels must start from their real price coordinate',
   );
   assertSourceContains(
-    refreshBody,
-    /anchoredLineIsVisible[\s\S]*typeof anchoredLabelMinTop === 'number'[\s\S]*anchoredDesiredTop = Math\.max\(anchoredDesiredTop, Math\.round\(anchoredLabelMinTop\)\)/,
+    anchoredTopsBody,
+    /item\.paneVisible !== false[\s\S]*typeof item\.labelMinTop === 'number'[\s\S]*top = Math\.max\(top, Math\.round\(item\.labelMinTop\)\)/,
     'visible chart-trade draft labels may reserve the native ticker header without pinning off-screen persisted labels',
   );
   assertSourceContains(
     refreshBody,
-    /var floatingTop = tops\[labelIndex\][\s\S]*renderLabel\(floatingItem, floatingTop, null/,
+    /var floatingTop = tops\[labelIndex\][\s\S]*renderLabel\(floatingItem, floatingTop,/,
     'floating labels must render from the unclamped top value',
   );
   assertSourceContains(
     refreshBody,
-    /var anchoredLefts = resolveAnchoredOverlayLabelLefts\(anchoredLabels, anchoredTops, layer\)/,
-    'close line-anchored labels must resolve sideways lanes after their fixed price tops are known',
+    /anchoredLabels\.sort\(function\(left, right\) \{ return left\.y - right\.y; \}\)[\s\S]*var anchoredTops = resolveAnchoredOverlayLabelTops\(anchoredLabels\)/,
+    'line-anchored labels must be price-sorted before vertical row spacing is resolved',
   );
   assertSourceContains(
-    anchoredLeftsBody,
-    /candidateLeft = OVERLAY_ANCHORED_LABEL_LEFT[\s\S]*candidateLeft <= maxLeft[\s\S]*candidateLeft \+= laneWidth/,
-    'line-anchored open-position label collision handling must search horizontal lanes instead of changing price-based tops',
+    anchoredTopsBody,
+    /var anchoredStep = Math\.max\([\s\S]*OVERLAY_LABEL_LINE_HEIGHT \+ OVERLAY_LABEL_LINE_GAP,[\s\S]*OVERLAY_POSITION_BOX_HEIGHT \+ resolvePositionBoxGap\(labels\.length\)[\s\S]*previousVisibleTop !== null[\s\S]*top = Math\.max\(top, previousVisibleTop \+ anchoredStep\)/,
+    'crowded open-position rows must clear both their text and right-axis price boxes',
   );
   assertSourceContains(
-    anchoredLeftsBody,
-    /doOverlayLabelBoxesOverlap\(candidateBox, placedBoxes\[boxIndex\]\)/,
-    'line-anchored open-position labels must only move sideways when their text boxes overlap',
+    anchoredTopsBody,
+    /if \(item\.paneVisible !== false\) \{[\s\S]*previousVisibleTop = top;[\s\S]*\}[\s\S]*tops\[i\] = top/,
+    'off-pane trade labels must not reserve space in the visible vertical list',
+  );
+  assert.doesNotMatch(
+    source,
+    /resolveAnchoredOverlayLabelLefts|doOverlayLabelBoxesOverlap|candidateLeft \+= laneWidth/,
+    'open-position labels must never spread into horizontal collision lanes',
   );
   assertSourceContains(
-    anchoredLeftsBody,
-    /lefts\[i\] = chosenLeft/,
-    'line-anchored open-position labels must return the resolved left lane for each fixed-top label',
+    anchoredLaneBody,
+    /var paneLeft =[\s\S]*var axisMetrics = resolveMarketPriceScaleAxisMetrics\(layer\)[\s\S]*axisMetrics\.axisLeft[\s\S]*paneWidth - laneWidth\) \/ 2/,
+    'the trade label lane must center inside the candle pane and exclude the right price scale',
+  );
+  assertSourceContains(
+    applyAnchoredLaneBody,
+    /label\.style\.left = Math\.round\(lane\.left\) \+ 'px'[\s\S]*label\.style\.width =[\s\S]*label\.style\.textAlign = 'center'/,
+    'all anchored trade text must use the same centered fixed-width column',
   );
   assertSourceContains(
     refreshBody,
-    /var renderLabel = function\(item, top, left, labelKey\)[\s\S]*var labelLeft = typeof left === 'number' && isFinite\(left\)[\s\S]*label\.style\.left = labelLeft \+ 'px'/,
-    'label rendering must use the resolved horizontal lane without changing the fixed top coordinate',
-  );
-  assertSourceContains(
-    refreshBody,
-    /if \(isAnchoredTradeLabel\) \{[\s\S]*labelMaxWidth = Math\.min\(OVERLAY_ANCHORED_LABEL_LANE_WIDTH, labelMaxWidth\)/,
-    'anchored trade labels must stay inside their horizontal lane when close entries are visible together',
-  );
-  assertSourceContains(
-    refreshBody,
-    /renderAnchoredTradeLine\(layer, anchoredItem, lineKey\)[\s\S]*renderLabel\(anchoredItem, anchoredTop, anchoredLefts\[anchoredIndex\]/,
-    'line-anchored open-position labels must draw the owned dotted line and label from the same payload',
+    /openPositionRowYById\[anchoredRowItem\.id\] = resolveAnchoredOverlayRowY[\s\S]*renderAnchoredTradeLine\([\s\S]*openPositionRowYById\[anchoredItem\.id\][\s\S]*renderLabel\(anchoredItem, anchoredTop, 'label:anchored:' /,
+    'each open-position label and connector line must use the same vertically stacked row',
   );
   assertSourceContains(
     anchoredLineBody,
@@ -763,8 +765,8 @@ test('overlay bridge: trade labels follow their price coordinate off screen', ()
   );
   assertSourceContains(
     refreshBody,
-    /renderAnchoredTradeLine\(layer, anchoredItem, lineKey\)[\s\S]*renderLabel\(anchoredItem, anchoredTop, anchoredLefts\[anchoredIndex\]/,
-    'line-anchored open-position labels must draw the full-width line and live P/L label from the same fixed price coordinate',
+    /renderAnchoredTradeLine\([\s\S]*isOpenPositionOverlayLine\(anchoredItem\)[\s\S]*openPositionRowYById\[anchoredItem\.id\]/,
+    'open-position dotted lines must move to the same display row as their vertically stacked text',
   );
   assertSourceContains(
     refreshBody,
@@ -806,13 +808,13 @@ test('overlay bridge: right-axis trade price boxes keep close entries visible', 
 
   assertSourceContains(
     refreshBody,
-    /var seenBoxLevels = Object\.create\(null\)/,
-    'right-axis trade boxes must track exact displayed price keys instead of broad tolerance levels',
+    /var seenBoxLevels = Object\.create\(null\)[\s\S]*var openPositionBoxes = \[\]/,
+    'non-position levels may dedupe while open positions retain a dedicated box collection',
   );
   assertSourceContains(
     refreshBody,
-    /var boxKey = Number\(pln\.price\)\.toFixed\(boxDecimals\)[\s\S]*if \(seenBoxLevels\[boxKey\]\) continue[\s\S]*seenBoxLevels\[boxKey\] = true/,
-    'right-axis trade boxes must dedupe only by exact displayed price text',
+    /var isOpenPositionBox = isOpenPositionOverlayLine\(pln\)[\s\S]*if \(!isOpenPositionBox && seenBoxLevels\[boxKey\]\) continue[\s\S]*if \(!isOpenPositionBox\) \{[\s\S]*seenBoxLevels\[boxKey\] = true/,
+    'same-price open positions must bypass displayed-price box deduplication',
   );
   assertSourceContains(
     refreshBody,
@@ -821,18 +823,23 @@ test('overlay bridge: right-axis trade price boxes keep close entries visible', 
   );
   assertSourceContains(
     refreshBody,
-    /var desiredBoxTop = Math\.round\(ry - POSITION_BOX_HEIGHT \/ 2\)[\s\S]*top: desiredBoxTop/,
-    'right-axis trade boxes must start from the exact price coordinate',
+    /var sharedRowY = isOpenPositionBox[\s\S]*openPositionRowYById\[pln\.id\][\s\S]*var desiredBoxTop = Math\.round\(sharedRowY - POSITION_BOX_HEIGHT \/ 2\)/,
+    'each open-position price box must use the same row center as its label and connector line',
   );
   assertSourceContains(
     refreshBody,
-    /var nextBoxTop = positionBoxes\[boxLayoutIndex\]\.desiredTop[\s\S]*positionBoxes\[boxLayoutIndex\]\.top = nextBoxTop/,
-    'right-axis trade boxes must not clamp off-screen trade prices back inside the chart',
+    /if \(isOpenPositionBox\) \{[\s\S]*openPositionBoxes\.push\(positionBox\)[\s\S]*positionBoxes = openPositionBoxes\.concat\(positionBoxes\)/,
+    'every open position must keep its own row-aligned right-axis price box',
   );
   assertSourceContains(
     refreshBody,
-    /boxEl\.style\.left = \(positionBoxMetrics \? positionBoxMetrics\.axisLeft[\s\S]*boxEl\.style\.width = \(positionBoxMetrics \? positionBoxMetrics\.axisWidth[\s\S]*boxEl\.style\.background = '#FFFFFF'[\s\S]*boxEl\.style\.color = box\.color[\s\S]*boxEl\.style\.border = '1px solid ' \+ box\.color[\s\S]*boxEl\.style\.textAlign = 'right'[\s\S]*boxEl\.style\.zIndex = '16'/,
-    'right-axis trade boxes must stay pinned to the measured scale and use MT5 white-fill colored-outline styling',
+    /boxEl\.style\.left = \(positionBoxMetrics \? positionBoxMetrics\.axisLeft[\s\S]*boxEl\.style\.width = \(positionBoxMetrics \? positionBoxMetrics\.axisWidth[\s\S]*boxEl\.style\.background = '#FFFFFF'[\s\S]*boxEl\.style\.color = box\.color[\s\S]*boxEl\.style\.border = '1px solid ' \+ box\.color[\s\S]*boxEl\.style\.padding = '0 2px'[\s\S]*boxEl\.style\.textAlign = 'right'[\s\S]*boxEl\.style\.zIndex = '16'/,
+    'right-axis trade boxes must stay pinned to the measured scale with compact MT5 white-fill colored-outline styling',
+  );
+  assertSourceContains(
+    refreshBody,
+    /var boxNodeKey = 'box:' \+ \(box\.id \|\| box\.text\)/,
+    'same-price open-position boxes must remain keyed by their unique trade IDs',
   );
   assert.doesNotMatch(refreshBody, /positionBoxMinTop|positionBoxMaxTop|Math\.max\(positionBoxMinTop/);
   assert.doesNotMatch(refreshBody, /boxEl\.style\.right = '2px'/);

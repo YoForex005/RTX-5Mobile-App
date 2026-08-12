@@ -347,7 +347,7 @@ test('SL and TP drag hides only the active label and price value while retaining
   );
   assertSourceContains(
     refreshBody,
-    /renderAnchoredTradeLine\(layer, anchoredItem, lineKey\);[\s\S]*if \(!isActiveSltpDragLine\(anchoredItem\)\) \{[\s\S]*renderLabel\(anchoredItem/,
+    /renderAnchoredTradeLine\([\s\S]*anchoredItem,[\s\S]*lineKey,[\s\S]*\);[\s\S]*if \(!isActiveSltpDragLine\(anchoredItem\)\) \{[\s\S]*renderLabel\(anchoredItem/,
     'active SL/TP drag must retain the horizontal line while omitting its label and value',
   );
   assertSourceContains(

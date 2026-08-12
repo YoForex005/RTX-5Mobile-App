@@ -108,7 +108,29 @@ test('rapid chart trades use one uncapped MT5-style receipt row per accepted tap
   assert.equal(
     chartSource.match(/<ChartTradeReceiptStack/g)?.length,
     2,
-    'the same external stack must render inline and through the elevated trade-sheet portal',
+    'the same external stack must render over the chart viewport and through the elevated trade-sheet portal',
+  );
+  const chartScrollRefIndex = chartSource.indexOf('ref={chartScrollRef}');
+  const outerScrollStart = chartSource.lastIndexOf('<ScrollView', chartScrollRefIndex);
+  const chartTradeOverlayLayerIndex = chartSource.indexOf(
+    '{chartTradeOverlayLayer}',
+    chartScrollRefIndex,
+  );
+  const outerScrollEnd = chartSource.lastIndexOf(
+    '</ScrollView>',
+    chartTradeOverlayLayerIndex,
+  );
+  assert.ok(chartScrollRefIndex > outerScrollStart);
+  assert.ok(chartTradeOverlayLayerIndex > outerScrollEnd);
+  assert.doesNotMatch(
+    chartSource.slice(outerScrollStart, outerScrollEnd),
+    /<ChartTradeReceiptStack/,
+    'a vertical FlatList receipt stack must not mount inside the chart vertical ScrollView',
+  );
+  assert.match(
+    chartSource.slice(outerScrollEnd, chartTradeOverlayLayerIndex),
+    /chartTradeReceiptViewportStyle[\s\S]*<ChartTradeReceiptStack/,
+    'the normal receipt stack must remain aligned to the chart viewport as a ScrollView sibling',
   );
   assert.match(stackSource, /useSyncExternalStore\([\s\S]*controller\.subscribe/);
   assert.match(

@@ -847,44 +847,30 @@ test('buildChartOverlayPayload keeps each stacked open position line visible', (
   const payload = buildChartOverlayPayload({
     chartSymbol: 'GBPUSD',
     candles,
-    positions: [
-      {
-        id: 'stack-a',
-        symbol: 'GBPUSD',
-        side: 'buy',
-        volume: 0.1,
-        openPrice: 1.34266,
-        currentPrice: 1.3533,
-        pnl: 10,
-        swap: 0,
-        openTime: new Date(candles[5].time * 1000).toISOString(),
-      },
-      {
-        id: 'stack-b',
-        symbol: 'GBPUSDm',
-        side: 'buy',
-        volume: 0.2,
-        openPrice: 1.34266,
-        currentPrice: 1.3533,
-        pnl: 20,
-        swap: 0,
-        openTime: new Date(candles[6].time * 1000).toISOString(),
-      },
-    ],
+    positions: Array.from({ length: 10 }, (_unused, index) => ({
+      id: `stack-${index + 1}`,
+      symbol: 'GBPUSD',
+      side: 'buy' as const,
+      volume: 0.01,
+      openPrice: 1.34266,
+      currentPrice: 1.3533,
+      pnl: index + 1,
+      swap: 0,
+      openTime: new Date(candles[(index % 2) + 5].time * 1000).toISOString(),
+    })),
     colors: TEST_CHART_COLORS,
     sellColor: '#EF5350',
     liveAccount: null,
     showOnChart: BOTH_SIDES,
   });
 
-  const stackedLines = payload.priceLines.filter((line: any) => line.price === 1.34266);
+  const stackedLines = payload.priceLines.filter(
+    (line: any) => line.id.startsWith('open-') && line.price === 1.34266,
+  );
   // MT5-parity: rapid same-price entries remain visible as concentrated
   // labels/lines instead of being hidden by de-duping.
-  assert.equal(stackedLines.length, 2);
-  assert.deepEqual(
-    stackedLines.map((line: any) => line.title).sort(),
-    ['BUY 0.10, +10.000 USD', 'BUY 0.20, +20.000 USD'].sort(),
-  );
+  assert.equal(stackedLines.length, 10);
+  assert.equal(new Set(stackedLines.map((line: any) => line.id)).size, 10);
   assert.ok(stackedLines.every((line: any) => line.axisLabelVisible === false));
   assert.ok(stackedLines.every((line: any) => line.labelPlacement === 'line'));
 });

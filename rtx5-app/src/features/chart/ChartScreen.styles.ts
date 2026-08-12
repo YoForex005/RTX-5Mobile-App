@@ -371,6 +371,10 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       position: 'relative',
       overflow: 'hidden',
     },
+    chartTradeReceiptViewportOverlay: {
+      position: 'absolute',
+      overflow: 'hidden',
+    },
     // Confirmed chart fills match the compact MT-style receipt shown over the
     // plot: one thin row, clear of the right-hand price scale.
     chartTradeReceiptHost: {
