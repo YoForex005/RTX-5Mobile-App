@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { Calendar } from 'react-native-calendars';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  BackHandler,
   Platform,
   RefreshControl,
   ScrollView,
@@ -30,6 +32,7 @@ import { useJournalTrades } from './liveJournal';
 import { makeJournalStyles } from './styles';
 import { useNextFrameValue } from '../../../hooks/useNextFrameValue';
 import { useTranslation } from '../../../i18n/useTranslation';
+import { advanceJournalSelectionForToday } from './journalRetention';
 
 // Mount the retained Journal body before it is selected so the first sidebar
 // reveal is complete. Live queries, maintenance and overlays remain focus-only.
@@ -55,8 +58,348 @@ const FILTERS: JournalFilter[] = ['All', 'Trades', 'Accounts', 'Actions', 'Error
 const JOURNAL_INITIAL_RENDER_ITEMS = 6;
 const JOURNAL_RENDER_BATCH_SIZE = 6;
 const JOURNAL_WINDOW_SIZE = 5;
+const JOURNAL_REFRESH_FEEDBACK_MS = 180;
+const JOURNAL_CALENDAR_BACKDROP_GUARD_MS = 40;
 
 const NOTE_SYMBOL = 'General';
+const CALENDAR_OVERLAY_HIDDEN_STYLE = { opacity: 0 } as const;
+const EMPTY_TERMINAL_ENTRIES: TerminalJournalEntry[] = [];
+const JOURNAL_REFRESH_VISUAL_STYLES = StyleSheet.create({
+  host: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hidden: {
+    opacity: 0,
+  },
+});
+
+// Let React Native commit immediate visual feedback before heavier query or
+// overlay cleanup work runs.
+const scheduleAfterJournalVisualFeedback = (work: () => void) => {
+  const runAfterFrame = () => setTimeout(work, 0);
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(runAfterFrame);
+    return;
+  }
+  setTimeout(work, 0);
+};
+
+type JournalStyles = ReturnType<typeof makeJournalStyles>;
+
+type JournalCalendarOverlayHandle = {
+  open: () => boolean;
+  close: () => boolean;
+};
+
+type JournalCalendarOverlayProps = {
+  actionColor: string;
+  backgroundColor: string;
+  disabledTextColor: string;
+  maxDate: string;
+  monthTextColor: string;
+  onSelectDate: (dateString: string) => void;
+  selectedDate: string;
+  selectDateLabel: string;
+  sectionTextColor: string;
+  styles: JournalStyles;
+  textColor: string;
+  todayLabel: string;
+};
+
+const JournalCalendarOverlay = React.memo(React.forwardRef<
+  JournalCalendarOverlayHandle,
+  JournalCalendarOverlayProps
+>(function JournalCalendarOverlay({
+  actionColor,
+  backgroundColor,
+  disabledTextColor,
+  maxDate,
+  monthTextColor,
+  onSelectDate,
+  selectedDate,
+  selectDateLabel,
+  sectionTextColor,
+  styles,
+  textColor,
+  todayLabel,
+}, forwardedRef) {
+  const hostRef = useRef<View>(null);
+  const visibleRef = useRef(false);
+  const openedAtMsRef = useRef(0);
+  const mountedRef = useRef(true);
+  const backHandlerSubscriptionRef = useRef<ReturnType<typeof BackHandler.addEventListener> | null>(null);
+  const visibleMonthRef = useRef(selectedDate.slice(0, 7));
+  const [calendarResetRevision, setCalendarResetRevision] = useState(0);
+  const selectedMonth = selectedDate.slice(0, 7);
+
+  const writeVisibility = useCallback((visible: boolean) => {
+    hostRef.current?.setNativeProps({
+      style: { opacity: visible ? 1 : 0 },
+      pointerEvents: visible ? 'auto' : 'none',
+      accessibilityElementsHidden: !visible,
+      importantForAccessibility: visible ? 'auto' : 'no-hide-descendants',
+      accessibilityViewIsModal: visible,
+    });
+  }, []);
+
+  const removeBackHandler = useCallback(() => {
+    backHandlerSubscriptionRef.current?.remove();
+    backHandlerSubscriptionRef.current = null;
+  }, []);
+
+  const resetBrowsedMonthAfterClose = useCallback(() => {
+    if (visibleMonthRef.current === selectedMonth) {
+      return;
+    }
+    visibleMonthRef.current = selectedMonth;
+    scheduleAfterJournalVisualFeedback(() => {
+      if (mountedRef.current) {
+        setCalendarResetRevision((revision) => revision + 1);
+      }
+    });
+  }, [selectedMonth]);
+
+  const close = useCallback(() => {
+    if (!visibleRef.current) {
+      return false;
+    }
+    visibleRef.current = false;
+    removeBackHandler();
+    writeVisibility(false);
+    resetBrowsedMonthAfterClose();
+    return true;
+  }, [removeBackHandler, resetBrowsedMonthAfterClose, writeVisibility]);
+
+  const open = useCallback(() => {
+    if (visibleRef.current) {
+      return false;
+    }
+    visibleRef.current = true;
+    openedAtMsRef.current = Date.now();
+    writeVisibility(true);
+    if (Platform.OS === 'android') {
+      removeBackHandler();
+      backHandlerSubscriptionRef.current = BackHandler.addEventListener(
+        'hardwareBackPress',
+        () => {
+          close();
+          return true;
+        },
+      );
+    }
+    return true;
+  }, [close, removeBackHandler, writeVisibility]);
+
+  React.useImperativeHandle(forwardedRef, () => ({ close, open }), [close, open]);
+  React.useLayoutEffect(() => {
+    writeVisibility(visibleRef.current);
+  });
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      visibleRef.current = false;
+      removeBackHandler();
+    };
+  }, [removeBackHandler]);
+  useEffect(() => {
+    if (!visibleRef.current) {
+      visibleMonthRef.current = selectedMonth;
+    }
+  }, [selectedMonth]);
+
+  const markedDates = useMemo(() => ({
+    [selectedDate]: {
+      selected: true,
+      selectedColor: actionColor,
+      selectedTextColor: '#FFFFFF',
+    },
+  }), [actionColor, selectedDate]);
+  const calendarTheme = useMemo(() => ({
+    backgroundColor,
+    calendarBackground: backgroundColor,
+    textSectionTitleColor: sectionTextColor,
+    selectedDayBackgroundColor: actionColor,
+    selectedDayTextColor: '#FFFFFF',
+    todayTextColor: actionColor,
+    dayTextColor: textColor,
+    textDisabledColor: disabledTextColor,
+    monthTextColor,
+    arrowColor: actionColor,
+  }), [
+    actionColor,
+    backgroundColor,
+    disabledTextColor,
+    monthTextColor,
+    sectionTextColor,
+    textColor,
+  ]);
+  const calendarThemeKey = [
+    backgroundColor,
+    textColor,
+    actionColor,
+    selectedMonth,
+    calendarResetRevision,
+  ].join('|');
+
+  const handleBackdropPress = useCallback(() => {
+    if (Date.now() - openedAtMsRef.current < JOURNAL_CALENDAR_BACKDROP_GUARD_MS) {
+      return;
+    }
+    close();
+  }, [close]);
+  const handleDayPress = useCallback((day: { dateString?: string }) => {
+    if (!day.dateString) {
+      return;
+    }
+    close();
+    const dateString = day.dateString;
+    scheduleAfterJournalVisualFeedback(() => onSelectDate(dateString));
+  }, [close, onSelectDate]);
+  const handleTodayPress = useCallback(() => {
+    close();
+    scheduleAfterJournalVisualFeedback(() => onSelectDate(maxDate));
+  }, [close, maxDate, onSelectDate]);
+  const handleMonthChange = useCallback((month: { dateString?: string }) => {
+    if (month.dateString) {
+      visibleMonthRef.current = month.dateString.slice(0, 7);
+    }
+  }, []);
+
+  return (
+    <View
+      ref={hostRef}
+      collapsable={false}
+      style={[styles.calendarOverlay, CALENDAR_OVERLAY_HIDDEN_STYLE]}
+      pointerEvents="none"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      accessibilityViewIsModal={false}
+      testID="journal-retained-calendar"
+    >
+      <Pressable
+        style={StyleSheet.absoluteFill}
+        onPress={handleBackdropPress}
+        activateOnPressIn
+        activateOnTouchStart
+        unstable_pressDelay={0}
+        latencyLabel="journal.calendarOverlay"
+      />
+      <View style={styles.calendarContainer}>
+        <View style={styles.calendarHeader}>
+          <Text style={styles.calendarTitle}>{selectDateLabel}</Text>
+          <Pressable
+            style={styles.calendarClose}
+            onPress={close}
+            activateOnPressIn
+            activateOnTouchStart
+            unstable_pressDelay={0}
+            latencyLabel="journal.calendarClose"
+            accessibilityRole="button"
+            accessibilityLabel="Close calendar"
+          >
+            <Ionicons name="close" size={20} color={textColor} />
+          </Pressable>
+        </View>
+        <Calendar
+          key={calendarThemeKey}
+          current={selectedDate}
+          maxDate={maxDate}
+          markedDates={markedDates}
+          enableSwipeMonths
+          disableMonthChange
+          onDayPress={handleDayPress}
+          onMonthChange={handleMonthChange}
+          theme={calendarTheme}
+        />
+        <Pressable
+          style={styles.calendarTodayButton}
+          onPress={handleTodayPress}
+          activateOnPressIn
+          activateOnTouchStart
+          unstable_pressDelay={0}
+          latencyLabel="journal.calendarToday"
+        >
+          <Text style={styles.calendarTodayText}>{todayLabel}</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}));
+
+const JournalRefreshButton = React.memo(function JournalRefreshButton({
+  onRefresh,
+  styles,
+  textColor,
+}: {
+  onRefresh: () => boolean;
+  styles: JournalStyles;
+  textColor: string;
+}) {
+  const [showFeedback, setShowFeedback] = useState(false);
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (feedbackTimerRef.current) {
+      clearTimeout(feedbackTimerRef.current);
+    }
+  }, []);
+
+  const handlePress = useCallback(() => {
+    if (!onRefresh()) {
+      return;
+    }
+    if (feedbackTimerRef.current) {
+      clearTimeout(feedbackTimerRef.current);
+    }
+    setShowFeedback(true);
+    feedbackTimerRef.current = setTimeout(() => {
+      feedbackTimerRef.current = null;
+      setShowFeedback(false);
+    }, JOURNAL_REFRESH_FEEDBACK_MS);
+  }, [onRefresh]);
+
+  return (
+    <Pressable
+      style={styles.headerActionButton}
+      onPress={handlePress}
+      activateOnPressIn
+      activateOnTouchStart
+      unstable_pressDelay={0}
+      hitSlop={10}
+      latencyLabel="journal.refresh"
+      accessibilityRole="button"
+      accessibilityLabel="Refresh journal"
+      accessibilityState={{ busy: showFeedback }}
+    >
+      <View style={JOURNAL_REFRESH_VISUAL_STYLES.host}>
+        <Ionicons
+          name="refresh-outline"
+          size={24}
+          color={textColor}
+          style={showFeedback ? JOURNAL_REFRESH_VISUAL_STYLES.hidden : undefined}
+        />
+        <ActivityIndicator
+          size="small"
+          color={textColor}
+          animating={showFeedback}
+          style={[
+            JOURNAL_REFRESH_VISUAL_STYLES.overlay,
+            !showFeedback && JOURNAL_REFRESH_VISUAL_STYLES.hidden,
+          ]}
+        />
+      </View>
+    </Pressable>
+  );
+});
 
 const toCalendarDateString = (date: Date) => {
   const year = date.getFullYear();
@@ -207,28 +550,53 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
   const styles = useMemo(() => makeJournalStyles(T), [T]);
   const actionColor = T.trading.buy.primary;
   const insets = useSafeAreaInsets();
-  const { accountLogin, trades, isError, refetch } = useJournalTrades(isScreenFocused);
+  const {
+    accountLogin,
+    refreshScopeKey,
+    trades,
+    isError,
+    refetch,
+  } = useJournalTrades(isScreenFocused);
   const hideActionSheet = useUIState((state) => state.hideActionSheet);
   const addEntry = useJournalState((state) => state.addEntry);
-  const terminalEntries = useTerminalJournalState((state) => state.entries);
+  const terminalEntries = useTerminalJournalState((state) => (
+    isScreenFocused ? state.entries : EMPTY_TERMINAL_ENTRIES
+  ));
   const addTerminalEntry = useTerminalJournalState((state) => state.addEntry);
   const pruneTerminalEntries = useTerminalJournalState((state) => state.pruneExpiredEntries);
   const todayDateIso = toCalendarDateString(new Date());
   const [selectedDateIso, setSelectedDateIso] = useState(() => toCalendarDateString(new Date()));
   const [filter, setFilter] = useState<JournalFilter>('All');
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
-  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isNoteOpen, setIsNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState('');
+  const refreshInFlightRef = useRef(false);
+  const refreshRevisionRef = useRef(0);
+  const calendarOverlayRef = useRef<JournalCalendarOverlayHandle>(null);
+  const previousTodayDateIsoRef = useRef(todayDateIso);
 
   useEffect(() => {
     if (isScreenFocused) {
       return;
     }
+    refreshRevisionRef.current += 1;
+    refreshInFlightRef.current = false;
+    calendarOverlayRef.current?.close();
     setIsPullRefreshing(false);
-    setIsCalendarOpen(false);
     setIsNoteOpen(false);
   }, [isScreenFocused]);
+
+  useEffect(() => () => {
+    refreshRevisionRef.current += 1;
+    refreshInFlightRef.current = false;
+    calendarOverlayRef.current?.close();
+  }, []);
+
+  useEffect(() => {
+    refreshRevisionRef.current += 1;
+    refreshInFlightRef.current = false;
+    setIsPullRefreshing(false);
+  }, [refreshScopeKey]);
 
   useEffect(() => {
     if (isScreenFocused) {
@@ -275,16 +643,6 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
     () => journalRows.filter((row) => isSameDay(parseDate(row.timestamp), selectedDate)).length,
     [journalRows, selectedDate],
   );
-  const selectedCalendarMarkedDates = useMemo(
-    () => ({
-      [selectedDateIso]: {
-        selected: true,
-        selectedColor: actionColor,
-        selectedTextColor: '#FFFFFF',
-      },
-    }),
-    [actionColor, selectedDateIso],
-  );
   const retainedDateCount = useMemo(
     () => new Set(allJournalRows.map((row) => toCalendarDateString(parseDate(row.timestamp)))).size,
     [allJournalRows],
@@ -298,10 +656,14 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
     : `${t('No real journal events recorded for')} ${selectedDateLabel}.`;
 
   useEffect(() => {
-    if (selectedDateIso > todayDateIso) {
-      setSelectedDateIso(todayDateIso);
-    }
-  }, [selectedDateIso, todayDateIso]);
+    const previousTodayDateIso = previousTodayDateIsoRef.current;
+    previousTodayDateIsoRef.current = todayDateIso;
+    setSelectedDateIso((currentDateIso) => advanceJournalSelectionForToday(
+      currentDateIso,
+      previousTodayDateIso,
+      todayDateIso,
+    ));
+  }, [todayDateIso]);
 
   /**
    * Opens the sidebar navigation drawer.
@@ -314,20 +676,61 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
   /**
    * Pulls the latest batch of journal logs from the internal database or state.
    */
-  const handleRefresh = useCallback(() => {
-    setIsPullRefreshing(true);
-    pruneTerminalEntries();
-    void Promise.resolve(refetch()).finally(() => setIsPullRefreshing(false));
-  }, [pruneTerminalEntries, refetch]);
+  const startRefresh = useCallback((showPullFeedback: boolean) => {
+    if (refreshInFlightRef.current) {
+      if (showPullFeedback) {
+        setIsPullRefreshing(false);
+      }
+      return false;
+    }
+
+    refreshInFlightRef.current = true;
+    const refreshRevision = refreshRevisionRef.current + 1;
+    refreshRevisionRef.current = refreshRevision;
+    if (showPullFeedback) {
+      setIsPullRefreshing(true);
+    }
+    scheduleAfterJournalVisualFeedback(() => {
+      if (refreshRevisionRef.current !== refreshRevision) {
+        return;
+      }
+
+      void (async () => {
+        try {
+          await refetch();
+        } catch {
+          // Query state owns the error; the refresh control must always recover immediately.
+        } finally {
+          if (refreshRevisionRef.current === refreshRevision) {
+            refreshInFlightRef.current = false;
+            if (showPullFeedback) {
+              setIsPullRefreshing(false);
+            }
+          }
+        }
+      })();
+    });
+    return true;
+  }, [refetch]);
+
+  const handleHeaderRefresh = useCallback(
+    () => startRefresh(false),
+    [startRefresh],
+  );
+
+  const handlePullRefresh = useCallback(() => {
+    startRefresh(true);
+  }, [startRefresh]);
+
+  const handleOpenCalendar = useCallback(() => {
+    calendarOverlayRef.current?.open();
+  }, []);
 
   /**
    * Filters the journal log view to show events occurring only on the selected calendar date.
    */
-  const handleCalendarDayPress = useCallback((day: { dateString?: string }) => {
-    if (day.dateString) {
-      setSelectedDateIso(day.dateString);
-      setIsCalendarOpen(false);
-    }
+  const handleCalendarDateSelected = useCallback((dateString: string) => {
+    setSelectedDateIso(dateString);
   }, []);
 
   /**
@@ -419,29 +822,22 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
         <View style={styles.headerActions}>
           <Pressable
             style={styles.headerActionButton}
-            onPress={() => setIsCalendarOpen(true)}
+            onPress={handleOpenCalendar}
+            activateOnPressIn
+            activateOnTouchStart
+            unstable_pressDelay={0}
             hitSlop={10}
             latencyLabel="journal.calendar.open"
-            journalActionLabel="opened journal calendar"
-            journalActionSource="Actions"
             accessibilityRole="button"
             accessibilityLabel="Select journal date"
           >
             <Ionicons name="calendar-outline" size={22} color={T.text} />
           </Pressable>
-          <Pressable
-            style={[styles.headerActionButton, isPullRefreshing && styles.headerActionButtonDisabled]}
-            onPress={handleRefresh}
-            disabled={isPullRefreshing}
-            hitSlop={10}
-            latencyLabel="journal.refresh"
-            journalActionLabel="refreshed journal"
-            journalActionSource="Actions"
-            accessibilityRole="button"
-            accessibilityLabel="Refresh journal"
-          >
-            <Ionicons name="refresh-outline" size={24} color={T.text} />
-          </Pressable>
+          <JournalRefreshButton
+            onRefresh={handleHeaderRefresh}
+            styles={styles}
+            textColor={T.text}
+          />
         </View>
       </View>
 
@@ -463,7 +859,7 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
         refreshControl={(
           <RefreshControl
             refreshing={isPullRefreshing}
-            onRefresh={handleRefresh}
+            onRefresh={handlePullRefresh}
             tintColor={actionColor}
             colors={[actionColor]}
           />
@@ -478,7 +874,7 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
                 </View>
                 <View style={styles.summaryStatus}>
                   <Ionicons name="reader-outline" size={14} color={actionColor} />
-                  <Text style={styles.summaryStatusText}>{t('MT5 Log')}</Text>
+                  <Text style={styles.summaryStatusText}>{t('RTX5 Log')}</Text>
                 </View>
               </View>
 
@@ -510,6 +906,8 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
               <Pressable
                 style={styles.toolbarNoteButton}
                 onPress={() => setIsNoteOpen(true)}
+                activateOnPressIn
+                unstable_pressDelay={0}
                 latencyLabel="journal.toolbarNote"
               >
                 <Ionicons name="create-outline" size={15} color={actionColor} />
@@ -553,6 +951,8 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
           <Pressable
             style={[styles.addNoteButton, styles.addNoteButtonSecondary]}
             onPress={() => setIsNoteOpen(true)}
+            activateOnPressIn
+            unstable_pressDelay={0}
             latencyLabel="journal.addNote"
           >
             <Ionicons name="add-circle-outline" size={18} color={actionColor} />
@@ -563,11 +963,27 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
 
       {isScreenFocused && isNoteOpen ? (
         <View style={styles.noteOverlay}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsNoteOpen(false)} latencyLabel="journal.noteOverlay" />
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setIsNoteOpen(false)}
+            activateOnPressIn
+            activateOnTouchStart
+            unstable_pressDelay={0}
+            latencyLabel="journal.noteOverlay"
+          />
           <View style={[styles.noteSheet, { paddingBottom: insets.bottom + 12 }]}>
             <View style={styles.noteHeader}>
               <Text style={styles.noteTitle}>{t('Add Note')}</Text>
-              <Pressable onPress={() => setIsNoteOpen(false)} style={styles.noteClose} latencyLabel="journal.noteClose">
+              <Pressable
+                onPress={() => setIsNoteOpen(false)}
+                style={styles.noteClose}
+                activateOnPressIn
+                activateOnTouchStart
+                unstable_pressDelay={0}
+                latencyLabel="journal.noteClose"
+                accessibilityRole="button"
+                accessibilityLabel="Close note"
+              >
                 <Ionicons name="close" size={20} color={T.text} />
               </Pressable>
             </View>
@@ -592,58 +1008,21 @@ export const JournalScreenInner = React.memo(function JournalScreenInner({ isScr
         </View>
       ) : null}
 
-      {isScreenFocused && isCalendarOpen ? (
-        <View style={styles.calendarOverlay}>
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={() => setIsCalendarOpen(false)}
-            latencyLabel="journal.calendarOverlay"
-          />
-          <View style={styles.calendarContainer}>
-            <View style={styles.calendarHeader}>
-              <Text style={styles.calendarTitle}>{t('Select Date')}</Text>
-              <Pressable
-                style={styles.calendarClose}
-                onPress={() => setIsCalendarOpen(false)}
-                latencyLabel="journal.calendarClose"
-                accessibilityRole="button"
-                accessibilityLabel="Close calendar"
-              >
-                <Ionicons name="close" size={20} color={T.text} />
-              </Pressable>
-            </View>
-            <Calendar
-              current={selectedDateIso}
-              maxDate={todayDateIso}
-              markedDates={selectedCalendarMarkedDates}
-              enableSwipeMonths
-              onDayPress={handleCalendarDayPress}
-              theme={{
-                backgroundColor: T.bgSecondary,
-                calendarBackground: T.bgSecondary,
-                textSectionTitleColor: T.textSub,
-                selectedDayBackgroundColor: actionColor,
-                selectedDayTextColor: '#FFFFFF',
-                todayTextColor: actionColor,
-                dayTextColor: T.text,
-                textDisabledColor: T.textMuted,
-                monthTextColor: T.text,
-                arrowColor: actionColor,
-              }}
-            />
-            <Pressable
-              style={styles.calendarTodayButton}
-              onPress={() => {
-                setSelectedDateIso(todayDateIso);
-                setIsCalendarOpen(false);
-              }}
-              latencyLabel="journal.calendarToday"
-            >
-              <Text style={styles.calendarTodayText}>{t('Today')}</Text>
-            </Pressable>
-          </View>
-        </View>
-      ) : null}
+      <JournalCalendarOverlay
+        ref={calendarOverlayRef}
+        actionColor={actionColor}
+        backgroundColor={T.bgSecondary}
+        disabledTextColor={T.textMuted}
+        maxDate={todayDateIso}
+        monthTextColor={T.text}
+        onSelectDate={handleCalendarDateSelected}
+        selectedDate={selectedDateIso}
+        selectDateLabel={t('Select Date')}
+        sectionTextColor={T.textSub}
+        styles={styles}
+        textColor={T.text}
+        todayLabel={t('Today')}
+      />
 
       {/* Own drawer instance so the hamburger works on this pushed route - the
           (tabs) drawer is below this screen and would open invisibly. Matches

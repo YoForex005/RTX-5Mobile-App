@@ -267,6 +267,18 @@ test('tab bar and retained scenes share one deterministic visible route', () => 
   assert.match(navigatorSource, /\|\| previous\.visualFocused !== next\.visualFocused/);
 });
 
+test('native-revealable tab scenes keep the settled theme before first navigation', () => {
+  const navigatorSource = readSource('src/ui/navigation/FastTabNavigator.tsx');
+  const themeModeSource = readSource('src/state/themeMode.ts');
+
+  assert.match(
+    navigatorSource,
+    /<ThemeModeRenderPriorityContext\.Provider value="retained">[\s\S]*<SceneContent/,
+  );
+  assert.doesNotMatch(navigatorSource, /value=\{visualFocused \? 'retained' : 'frozen'\}/);
+  assert.doesNotMatch(themeModeSource, /frozenThemeModeRef|renderPriority === 'frozen'/);
+});
+
 test('fast tab native scene and menu chrome always receive the same route', () => {
   const controller = createFastTabVisualController();
   const sceneRoutes: string[] = [];

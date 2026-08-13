@@ -44,18 +44,25 @@ const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 15000;
 const STABLE_CONNECTION_MS = 10_000;
 const POSITIONS_RECONCILE_COOLDOWN_MS = 5_000;
+const HISTORY_INVALIDATION_COALESCE_MS = 250;
+const HISTORY_INVALIDATION_COOLDOWN_MS = 1_000;
 const AUTH_SESSION_UNAVAILABLE_PATTERN =
   /No authenticated broker session available|Refresh token invalid or expired|No refresh token available/i;
-const ACTIVE_TRADE_CHANNELS = ['positions', 'metrics'] as const;
-const LIFECYCLE_CACHE_KEYS = [
-  'accountSummary',
+const ACTIVE_TRADE_CHANNELS = ['positions', 'metrics', 'deals'] as const;
+const HISTORY_CACHE_KEYS = [
   'positionHistory',
   'deals',
   'accountDeals',
+] as const;
+const LIFECYCLE_NON_HISTORY_CACHE_KEYS = [
+  'accountSummary',
   'ordersByLogin',
   'accountOrders',
 ] as const;
 const TERMINAL_EVENT_DEDUPE_LIMIT = 500;
+const HISTORY_EVENT_PATTERN = /(^|\.)(deal|deals|history)(\.|$)/;
+const SOCKET_CONTROL_EVENT_PATTERN =
+  /(^|\.)(ack|heartbeat|ping|pong|subscribe|subscribed|subscription|unsubscribe|unsubscribed)(\.|$)/;
 
 export const buildBrokerRealtimeSubscriptionMessages = (
   accountLogin: string | number,
@@ -82,6 +89,25 @@ const normalizeEventName = (value: unknown): string =>
   normalizeChannel(value)
     .toLowerCase()
     .replace(/[_-]+/g, '.');
+
+const isHistoryPayloadEvent = (
+  channel: string,
+  eventName: string,
+  statusName: string,
+): boolean => {
+  if (
+    SOCKET_CONTROL_EVENT_PATTERN.test(eventName) ||
+    SOCKET_CONTROL_EVENT_PATTERN.test(statusName)
+  ) {
+    return false;
+  }
+
+  return (
+    channel.startsWith('deals.') ||
+    channel.startsWith('history.') ||
+    HISTORY_EVENT_PATTERN.test(eventName)
+  );
+};
 
 const numberFrom = (...values: unknown[]): number | undefined => {
   for (const value of values) {
@@ -190,6 +216,11 @@ class BrokerRealtimeService {
   private positionsReconcileIdentity: ActiveBrokerSessionIdentity | null = null;
   private positionsReconcileOwnerStamp: ActiveBrokerSessionOwnerStamp | null = null;
   private lastPositionsReconcileAt = 0;
+  private historyInvalidationTimer: ReturnType<typeof setTimeout> | null = null;
+  private historyInvalidationInFlight = false;
+  private historyInvalidationPending = false;
+  private historyInvalidationEpoch = 0;
+  private lastHistoryInvalidationAt = 0;
   private readonly processedTerminalEvents = new Set<string>();
 
   private constructor() {
@@ -369,6 +400,7 @@ class BrokerRealtimeService {
         if (this.ws !== socket) return;
         this.stopHeartbeat();
         this.clearStableConnectionTimer();
+        this.clearHistoryQueryInvalidation();
         this.ws = null;
         this.activeIdentity = null;
         this.activeOwnerStamp = null;
@@ -435,6 +467,9 @@ class BrokerRealtimeService {
     const eventName =
       normalizeEventName(dataRecord?.type ?? dataRecord?.event ?? dataRecord?.action) ||
       normalizeEventName(record.type ?? record.event ?? record.action);
+    const statusName =
+      normalizeEventName(dataRecord?.status) ||
+      normalizeEventName(record.status);
 
     let accepted = false;
     if (channel.startsWith('positions.') || eventName.includes('position')) {
@@ -446,6 +481,14 @@ class BrokerRealtimeService {
       eventName.includes('metrics')
     ) {
       accepted = this.handleAccount(dataRecord ?? record, identity) || accepted;
+    }
+
+    // `deals.LOGIN` is the confirmed execution channel. Some broker
+    // deployments also emit compatible `history.LOGIN` envelopes, so accept
+    // those defensively without subscribing to an undocumented channel.
+    if (isHistoryPayloadEvent(channel, eventName, statusName)) {
+      this.scheduleHistoryQueryInvalidation(identity);
+      accepted = true;
     }
     return accepted;
   }
@@ -554,8 +597,10 @@ class BrokerRealtimeService {
     if (rejectedRows > 0) {
       this.schedulePositionsReconciliation(identity);
     }
-    if (acceptedRows.some(isTerminalPositionUpdate)) {
+    const hasTerminalPosition = acceptedRows.some(isTerminalPositionUpdate);
+    if (hasTerminalPosition) {
       this.schedulePositionsReconciliation(identity);
+      this.scheduleHistoryQueryInvalidation(identity);
     }
 
     // Current positions websocket messages are unversioned hints. They may
@@ -568,8 +613,10 @@ class BrokerRealtimeService {
         preserveMissingExisting: true,
       },
     );
-    void eventName;
-    void envelope;
+    this.invalidateLifecycleQueries(
+      eventName || normalizeEventName(envelope?.event ?? envelope?.type ?? envelope?.action),
+      identity,
+    );
   }
 
   private applyRealtimePositionUpdate(
@@ -593,6 +640,7 @@ class BrokerRealtimeService {
       );
       if (isTerminalPositionUpdate(acceptedRows[0])) {
         this.schedulePositionsReconciliation(identity);
+        this.scheduleHistoryQueryInvalidation(identity);
       }
       positionsState.upsertPosition(stripUnversionedPositionProtection(acceptedRows[0]));
     }
@@ -683,6 +731,131 @@ class BrokerRealtimeService {
     }
   }
 
+  private scheduleHistoryQueryInvalidation(
+    identity: ActiveBrokerSessionIdentity,
+  ): void {
+    const socket = this.ws;
+    const ownerStamp = this.activeOwnerStamp;
+    if (
+      !socket ||
+      socket.readyState !== WebSocket.OPEN ||
+      !ownerStamp ||
+      !sameIdentity(this.activeIdentity, identity) ||
+      !isActiveBrokerSessionCurrent(identity) ||
+      !isActiveBrokerSessionOwnerStampCurrent(ownerStamp)
+    ) {
+      return;
+    }
+
+    this.historyInvalidationPending = true;
+    if (this.historyInvalidationTimer || this.historyInvalidationInFlight) {
+      return;
+    }
+
+    this.armHistoryQueryInvalidation(
+      socket,
+      identity,
+      ownerStamp,
+      this.historyInvalidationEpoch,
+    );
+  }
+
+  private armHistoryQueryInvalidation(
+    socket: WebSocket,
+    identity: ActiveBrokerSessionIdentity,
+    ownerStamp: ActiveBrokerSessionOwnerStamp,
+    epoch: number,
+  ): void {
+    if (
+      epoch !== this.historyInvalidationEpoch ||
+      !this.historyInvalidationPending ||
+      this.historyInvalidationTimer ||
+      this.historyInvalidationInFlight
+    ) {
+      return;
+    }
+
+    const delayMs = Math.max(
+      HISTORY_INVALIDATION_COALESCE_MS,
+      this.lastHistoryInvalidationAt + HISTORY_INVALIDATION_COOLDOWN_MS - Date.now(),
+    );
+    const invalidationTimer = setTimeout(() => {
+      if (this.historyInvalidationTimer !== invalidationTimer) {
+        return;
+      }
+      this.historyInvalidationTimer = null;
+      void this.flushHistoryQueryInvalidation(socket, identity, ownerStamp, epoch);
+    }, delayMs);
+    this.historyInvalidationTimer = invalidationTimer;
+  }
+
+  private async flushHistoryQueryInvalidation(
+    socket: WebSocket,
+    identity: ActiveBrokerSessionIdentity,
+    ownerStamp: ActiveBrokerSessionOwnerStamp,
+    epoch: number,
+  ): Promise<void> {
+    if (
+      epoch !== this.historyInvalidationEpoch ||
+      !this.historyInvalidationPending ||
+      this.historyInvalidationInFlight
+    ) {
+      return;
+    }
+
+    const capture = captureActiveBrokerSession();
+    if (
+      !capture ||
+      this.ws !== socket ||
+      socket.readyState !== WebSocket.OPEN ||
+      !sameIdentity(this.activeIdentity, identity) ||
+      !sameIdentity(getActiveBrokerSessionIdentity(capture.session), identity) ||
+      !sameOwnerStamp(this.activeOwnerStamp, ownerStamp) ||
+      capture.session.cacheNamespace !== ownerStamp.cacheNamespace ||
+      !isActiveBrokerSessionCurrent(identity) ||
+      !isActiveBrokerSessionOwnerStampCurrent(ownerStamp)
+    ) {
+      this.historyInvalidationPending = false;
+      return;
+    }
+
+    this.historyInvalidationPending = false;
+    this.historyInvalidationInFlight = true;
+    this.lastHistoryInvalidationAt = Date.now();
+    try {
+      await Promise.all(
+        HISTORY_CACHE_KEYS.map((root) => appQueryClient.invalidateQueries(
+          { queryKey: [root, capture.session.cacheNamespace] },
+          { cancelRefetch: true },
+        )),
+      );
+    } catch (error) {
+      console.warn(
+        '[BrokerRealtime] Failed to invalidate history queries',
+        redactDiagnosticValue(error),
+      );
+    } finally {
+      if (epoch !== this.historyInvalidationEpoch) {
+        return;
+      }
+      this.historyInvalidationInFlight = false;
+      if (this.historyInvalidationPending) {
+        this.armHistoryQueryInvalidation(socket, identity, ownerStamp, epoch);
+      }
+    }
+  }
+
+  private clearHistoryQueryInvalidation(): void {
+    this.historyInvalidationEpoch += 1;
+    if (this.historyInvalidationTimer) {
+      clearTimeout(this.historyInvalidationTimer);
+      this.historyInvalidationTimer = null;
+    }
+    this.historyInvalidationInFlight = false;
+    this.historyInvalidationPending = false;
+    this.lastHistoryInvalidationAt = 0;
+  }
+
   private handleAccount(
     data: Record<string, unknown>,
     identity: ActiveBrokerSessionIdentity,
@@ -736,6 +909,7 @@ class BrokerRealtimeService {
     }
 
     const shouldInvalidate =
+      isTerminalPositionUpdate({ event: eventName }) ||
       eventName.includes('partial.closed') ||
       eventName.includes('closed') ||
       eventName.includes('filled') ||
@@ -761,10 +935,11 @@ class BrokerRealtimeService {
     ) {
       return;
     }
+    this.scheduleHistoryQueryInvalidation(identity);
     void invalidateSessionQueryRoots(
       appQueryClient,
       capture.session.cacheNamespace,
-      LIFECYCLE_CACHE_KEYS,
+      LIFECYCLE_NON_HISTORY_CACHE_KEYS,
     );
   }
 
@@ -804,6 +979,7 @@ class BrokerRealtimeService {
 
   private teardownSocket(): void {
     const socket = this.ws;
+    this.clearHistoryQueryInvalidation();
     this.ws = null;
     this.activeIdentity = null;
     this.activeOwnerStamp = null;

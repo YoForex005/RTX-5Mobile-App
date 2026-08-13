@@ -19,12 +19,12 @@ type ThemeModeState = {
 type ImmediateThemeVisualApplier = (mode: ThemeMode) => void;
 type ThemeModePostPaintTask = () => void;
 
-export type ThemeModeRenderPriority = 'immediate' | 'retained' | 'frozen';
+export type ThemeModeRenderPriority = 'immediate' | 'retained';
 
 /**
  * Retained screen trees use the settled theme clock so they cannot block the
- * drawer's first light/dark paint. Hidden pre-mounted trees use `frozen` and
- * catch up only when they become visible again.
+ * drawer's first light/dark paint. Hidden pre-mounted trees stay subscribed to
+ * that clock so native navigation can never reveal a stale palette.
  */
 export const ThemeModeRenderPriorityContext =
   createContext<ThemeModeRenderPriority>('immediate');
@@ -147,8 +147,8 @@ export function setImmediateThemeMode(
 }
 
 /**
- * When false, the hook freezes on the last mode it observed so pre-mounted
- * hosts that opt out do not rebuild on every theme tap.
+ * When false, the hook uses the post-paint retained clock. This keeps hidden
+ * visual shells current while their expensive work remains focus-gated.
  */
 export type UseThemeModeOptions = {
   active?: boolean;
@@ -158,43 +158,23 @@ export type UseThemeModeOptions = {
  * App-wide immediate theme by default. A retained-priority provider moves an
  * entire pre-mounted scene tree to the post-paint theme clock.
  *
- * Hidden retained hosts may pass `{ active: false }` to skip theme-tap
- * re-renders while off-screen. When they become active again the selector
- * identity changes and they re-read the live store immediately.
+ * Hidden retained hosts may pass `{ active: false }` to use the retained clock
+ * even outside a retained-priority provider. A visual palette is never frozen:
+ * native route handoffs can expose a pre-mounted tree before focus props update.
  */
 export function useThemeMode(options?: UseThemeModeOptions): ThemeMode {
-  // Only explicit active:false freezes. Navigation blur must NOT freeze —
-  // Retained scene providers still settle automatically after the first
-  // drawer/chrome paint.
-  const active = options?.active !== false;
   const renderPriority = useContext(ThemeModeRenderPriorityContext);
-  const initialState = useThemeModeState.getState();
-  const frozenThemeModeRef = useRef(
-    renderPriority !== 'immediate'
-      ? initialState.retainedThemeMode
-      : initialState.themeMode,
-  );
+  const useRetainedThemeClock =
+    renderPriority === 'retained' || options?.active === false;
 
-  const themeMode = useThemeModeState(
+  return useThemeModeState(
     useCallback(
-      (state) => {
-        if (!active || renderPriority === 'frozen') {
-          return frozenThemeModeRef.current;
-        }
-        return renderPriority === 'retained'
-          ? state.retainedThemeMode
-          : state.themeMode;
-      },
-      [active, renderPriority],
+      (state) => useRetainedThemeClock
+        ? state.retainedThemeMode
+        : state.themeMode,
+      [useRetainedThemeClock],
     ),
   );
-
-  if (active && renderPriority !== 'frozen') {
-    frozenThemeModeRef.current = themeMode;
-    return themeMode;
-  }
-
-  return frozenThemeModeRef.current;
 }
 
 export function useIsDarkTheme(options?: UseThemeModeOptions): boolean {

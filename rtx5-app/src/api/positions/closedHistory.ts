@@ -115,14 +115,19 @@ export async function getPositionHistory(
   login: number,
   limit = 1000,
   offset = 0,
+  maxPages = MAX_CLOSED_HISTORY_PAGES,
 ): Promise<ClosedPosition[]> {
   const pageSize = Math.max(1, Math.floor(limit));
+  const finiteMaxPages = Number.isFinite(maxPages)
+    ? Math.floor(maxPages)
+    : MAX_CLOSED_HISTORY_PAGES;
+  const pageCount = Math.max(1, Math.min(MAX_CLOSED_HISTORY_PAGES, finiteMaxPages));
   const records: ClosedPosition[] = [];
   const seenKeys = new Set<string>();
   const seenPageSignatures = new Set<string>();
   let nextOffset = Math.max(0, Math.floor(offset));
 
-  for (let page = 0; page < MAX_CLOSED_HISTORY_PAGES; page += 1) {
+  for (let page = 0; page < pageCount; page += 1) {
     const pageRows = await fetchClosedHistoryPage(login, pageSize, nextOffset);
     if (pageRows.length === 0) {
       break;

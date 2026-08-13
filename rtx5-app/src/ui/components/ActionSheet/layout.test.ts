@@ -9,10 +9,84 @@ import {
   resolveActionSheetMeasuredHeight,
   resolveActionSheetMt5EntryTranslateY,
   resolveActionSheetOpenMeasuredHeight,
+  resolveActionSheetVisibilityBarrierOpen,
 } from './layout';
 
 const readActionSheetSource = () =>
   readFileSync(resolve(process.cwd(), 'src/ui/components/ActionSheet/ActionSheet.tsx'), 'utf8');
+
+const readActionSheetStylesSource = () =>
+  readFileSync(resolve(process.cwd(), 'src/ui/components/ActionSheet/styles.ts'), 'utf8');
+
+test('a logically hidden retained host cannot expose stale backdrop pixels', () => {
+  assert.equal(resolveActionSheetVisibilityBarrierOpen({
+    visible: false,
+    hiddenImperatively: false,
+    configSwapParked: false,
+    startingClose: false,
+    retainedCommitOwnsHost: false,
+  }), false);
+  assert.equal(resolveActionSheetVisibilityBarrierOpen({
+    visible: true,
+    hiddenImperatively: false,
+    configSwapParked: false,
+    startingClose: false,
+    retainedCommitOwnsHost: false,
+  }), true);
+  assert.equal(resolveActionSheetVisibilityBarrierOpen({
+    visible: true,
+    hiddenImperatively: true,
+    configSwapParked: false,
+    startingClose: false,
+    retainedCommitOwnsHost: false,
+  }), false);
+  assert.equal(resolveActionSheetVisibilityBarrierOpen({
+    visible: false,
+    hiddenImperatively: true,
+    configSwapParked: true,
+    startingClose: false,
+    retainedCommitOwnsHost: true,
+  }), false);
+  assert.equal(resolveActionSheetVisibilityBarrierOpen({
+    visible: false,
+    hiddenImperatively: false,
+    configSwapParked: false,
+    startingClose: true,
+    retainedCommitOwnsHost: false,
+  }), true);
+  assert.equal(resolveActionSheetVisibilityBarrierOpen({
+    visible: false,
+    hiddenImperatively: true,
+    configSwapParked: false,
+    startingClose: true,
+    retainedCommitOwnsHost: false,
+  }), false);
+  assert.equal(resolveActionSheetVisibilityBarrierOpen({
+    visible: false,
+    hiddenImperatively: false,
+    configSwapParked: true,
+    startingClose: false,
+    retainedCommitOwnsHost: true,
+  }), false);
+  assert.equal(resolveActionSheetVisibilityBarrierOpen({
+    visible: false,
+    hiddenImperatively: false,
+    configSwapParked: false,
+    startingClose: false,
+    retainedCommitOwnsHost: true,
+  }), true);
+
+  const source = readActionSheetSource();
+  const stylesSource = readActionSheetStylesSource();
+  assert.match(
+    source,
+    /<View[\s\S]*ref=\{visibilityBarrierRef\}[\s\S]*opacity: visibilityBarrierOpen \? 1 : 0[\s\S]*<Animated\.View[\s\S]*ref=\{overlayLayerRef\}/,
+    'the React-owned barrier must be a plain parent of every animated sheet pixel',
+  );
+  assert.match(source, /const setVisibilityBarrierNow = useCallback[\s\S]*opacity: nextVisible \? 1 : 0/);
+  assert.match(stylesSource, /overlay:\s*\{[\s\S]*backgroundColor: 'transparent'/);
+  assert.match(stylesSource, /backdropDefault:\s*\{[\s\S]*rgba\(0,0,0,0\.12\)/);
+});
 
 test('instant action sheets start from the visible window height', () => {
   assert.equal(

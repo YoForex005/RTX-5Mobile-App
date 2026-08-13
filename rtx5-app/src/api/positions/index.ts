@@ -211,6 +211,7 @@ export const positionsApi = {
    * @param login   - The MT5 account login number
    * @param limit   - Page size used while loading closed history records (default: 1000)
    * @param offset  - Initial pagination offset (default: 0)
+   * @param maxPages - Maximum page count to load (default: all safety-capped pages)
    * @returns Array of ClosedPosition objects representing the account's trade history
    */
   getPositionHistory,

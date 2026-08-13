@@ -738,7 +738,10 @@ test('global action sheet actions avoid selecting rows while scrolling', () => {
   assert.match(source, /onScrollBeginDrag=\{cancelActionRowPressForScroll\}/);
   assert.match(source, /onMomentumScrollBegin=\{cancelActionRowPressForScroll\}/);
   assert.match(source, /latencyLabel="actionSheet\.dismissOverlay"/);
-  assert.match(source, /style=\{\[StyleSheet\.absoluteFillObject, styles\.backdrop\]\}/);
+  assert.match(
+    source,
+    /style=\{\[\s*StyleSheet\.absoluteFillObject,\s*styles\.backdrop,\s*isMt5StylePresentation \? null : styles\.backdropDefault,\s*\]\}/,
+  );
   assert.match(source, /BackHandler\.addEventListener\('hardwareBackPress'/);
   assert.match(source, /const ACTION_SHEET_KEEP_HOST_MOUNTED = true/);
   assert.match(source, /const hasIncomingConfig =[\s\S]*actions\.length > 0/);
@@ -1599,14 +1602,13 @@ test('theme toggles paint drawer chrome before retained scenes and preference pe
     'queued rapid reversals must resolve before the retained mode is captured',
   );
   assert.match(themeModeSource, /export function useDeferredThemeMode\(delayMs = 750\): ThemeMode/);
-  // Live by default — do not freeze on navigation blur. Only explicit active:false freezes.
+  // Visual palettes never freeze; hidden shells follow the retained clock.
   assert.doesNotMatch(themeModeSource, /NavigationContext|NavigationRouteContext|useNavigationFocusState/);
-  assert.match(themeModeSource, /const active = options\?\.active !== false/);
   assert.match(themeModeSource, /const renderPriority = useContext\(ThemeModeRenderPriorityContext\)/);
-  assert.match(themeModeSource, /!active \|\| renderPriority === 'frozen'/);
-  assert.match(themeModeSource, /active && renderPriority !== 'frozen'/);
-  assert.match(themeModeSource, /renderPriority === 'retained'[\s\S]*state\.retainedThemeMode[\s\S]*state\.themeMode/);
-  assert.match(themeModeSource, /\[active, renderPriority\]/);
+  assert.match(themeModeSource, /const useRetainedThemeClock =[\s\S]*renderPriority === 'retained' \|\| options\?\.active === false/);
+  assert.match(themeModeSource, /useRetainedThemeClock[\s\S]*state\.retainedThemeMode[\s\S]*state\.themeMode/);
+  assert.match(themeModeSource, /\[useRetainedThemeClock\]/);
+  assert.doesNotMatch(themeModeSource, /frozenThemeModeRef|renderPriority === 'frozen'/);
   assert.match(themeModeSource, /setTimeout\(\(\) => \{[\s\S]*setThemeMode\(state\.themeMode\);[\s\S]*\}, delayMs\)/);
   assert.match(readSource('src/ui/theme/useTheme.ts'), /const themeMode = useThemeMode\(options\)/);
   assert.match(rootSource, /function AppStatusBar\(\)[\s\S]*const isDark = useIsDarkTheme\(\)/);
@@ -1618,11 +1620,11 @@ test('theme toggles paint drawer chrome before retained scenes and preference pe
   assert.doesNotMatch(rootSource, /function InnerLayout\(\) \{\s*const T = useTheme\(\)/);
   assert.match(
     fastTabNavigatorSource,
-    /<ThemeModeRenderPriorityContext\.Provider[\s\S]*value=\{visualFocused \? 'retained' : 'frozen'\}[\s\S]*<SceneContent[\s\S]*<\/ThemeModeRenderPriorityContext\.Provider>/,
+    /<ThemeModeRenderPriorityContext\.Provider value="retained">[\s\S]*<SceneContent[\s\S]*<\/ThemeModeRenderPriorityContext\.Provider>/,
   );
   assert.match(
     sidebarDestinationHostSource,
-    /<ThemeModeRenderPriorityContext\.Provider[\s\S]*value=\{active \|\| visualActive \? 'retained' : 'frozen'\}[\s\S]*<DestinationView active=\{active\} \/>/,
+    /<ThemeModeRenderPriorityContext\.Provider value="retained">[\s\S]*<DestinationView active=\{active\} \/>/,
   );
   assert.match(tabsSource, /ThemedTabsChrome/);
   assert.match(tabsSource, /const themeMode = useThemeMode\(\)/);
@@ -1637,7 +1639,7 @@ test('theme toggles paint drawer chrome before retained scenes and preference pe
   assert.match(sidebarSource, /const themeCommitGenerationRef = useRef\(0\)/);
   assert.match(
     sidebarSource,
-    /scheduleAfterImmediateThemePaint\(\(\) => \{[\s\S]*setPreferenceThemeMode\(nextMode\)/,
+    /setImmediateThemeMode\(nextMode\);[\s\S]*scheduleAfterImmediateThemePaint\(\(\) => \{[\s\S]*setPreferenceThemeMode\(nextMode\)/,
   );
   assert.match(
     sidebarSource,

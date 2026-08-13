@@ -9,7 +9,11 @@ import {
   mapOpenPositionToJournalEntry,
   mergeJournalEntries,
 } from './liveJournalMapper';
-import { filterJournalEntriesByRetention } from './journalRetention';
+import {
+  advanceJournalSelectionForToday,
+  filterClosedHistoryByRange,
+  filterJournalEntriesByRetention,
+} from './journalRetention';
 
 function makeClosedPosition(overrides: Partial<ClosedPosition> & Record<string, unknown> = {}): ClosedPosition {
   return {
@@ -172,4 +176,32 @@ test('filterJournalEntriesByRetention keeps only the current local calendar day'
   );
 
   assert.deepEqual(visible.map((entry) => entry.id), ['retained-midnight', 'retained-end-of-day', 'fallback-retained']);
+});
+
+test('filterClosedHistoryByRange keeps authoritative closes inside the Journal day', () => {
+  const records = [
+    makeClosedPosition({ ticket: 1, time_close: 1_700_000_000 }),
+    makeClosedPosition({ ticket: 2, time_close: 1_700_000_100_000 }),
+    makeClosedPosition({ ticket: 3, time_close: 1_700_000_300 }),
+    makeClosedPosition({ ticket: 4, time_close: undefined, time_update: 1_700_000_200 }),
+  ];
+
+  const visible = filterClosedHistoryByRange(records, 1_700_000_050, 1_700_000_300);
+
+  assert.deepEqual(visible.map((record) => record.ticket), [2, 4]);
+});
+
+test('Journal follows midnight only while the user is viewing Today', () => {
+  assert.equal(
+    advanceJournalSelectionForToday('2026-08-13', '2026-08-13', '2026-08-14'),
+    '2026-08-14',
+  );
+  assert.equal(
+    advanceJournalSelectionForToday('2026-08-10', '2026-08-13', '2026-08-14'),
+    '2026-08-10',
+  );
+  assert.equal(
+    advanceJournalSelectionForToday('2026-08-15', '2026-08-13', '2026-08-14'),
+    '2026-08-14',
+  );
 });

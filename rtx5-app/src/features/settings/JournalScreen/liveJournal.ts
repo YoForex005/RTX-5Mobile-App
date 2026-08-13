@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AppState } from 'react-native';
 
 import { useDealsQuery } from '../../../query/deals';
-import { usePositionHistoryQuery, usePositionsQuery } from '../../../query/positions';
+import { useActiveBrokerQuerySession } from '../../../query/authenticatedQueryScope';
+import { usePositionHistoryQuery } from '../../../query/positions';
 import { useJournalState } from '../../../state/journalState';
 import { useResolvedTradingLogin } from '../../../state/tradingLogin';
 import {
@@ -10,15 +12,19 @@ import {
 } from '../../history/derivedClosedPositions';
 import {
   mapClosedPositionToJournalEntry,
-  mapOpenPositionToJournalEntry,
   mergeJournalEntries,
 } from './liveJournalMapper';
 import {
+  filterClosedHistoryByRange,
   filterJournalEntriesByRetention,
+  getJournalDayStartMs,
   getJournalNextDayStartMs,
 } from './journalRetention';
+import type { TradeJournalEntry } from './types';
 
 const JOURNAL_QUERY_ACTIVATION_DELAY_MS = 8000;
+const JOURNAL_QUERY_STALE_TIME_MS = 60_000;
+const EMPTY_MANUAL_ENTRIES: TradeJournalEntry[] = [];
 
 function useDeferredJournalQueries(active: boolean, cacheKey: number | undefined) {
   const [ready, setReady] = useState(false);
@@ -57,8 +63,11 @@ function useDeferredJournalQueries(active: boolean, cacheKey: number | undefined
 }
 
 export function useJournalTrades(active = true) {
+  const querySession = useActiveBrokerQuerySession();
   const accountLogin = useResolvedTradingLogin();
-  const manualEntries = useJournalState((state) => state.manualEntries);
+  const manualEntries = useJournalState((state) => (
+    active ? state.manualEntries : EMPTY_MANUAL_ENTRIES
+  ));
   const pruneExpiredEntries = useJournalState((state) => state.pruneExpiredEntries);
   const [retentionNowMs, setRetentionNowMs] = useState(() => Date.now());
   // Drawer visibility must not re-render the full Journal screen. The live
@@ -94,51 +103,66 @@ export function useJournalTrades(active = true) {
 
     updateRetentionClock();
     scheduleMidnightCleanup();
-    const timer = setInterval(updateRetentionClock, 60_000);
+    const appStateSubscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        updateRetentionClock();
+        scheduleMidnightCleanup();
+      }
+    });
     return () => {
-      clearInterval(timer);
+      appStateSubscription.remove();
       if (midnightTimer) {
         clearTimeout(midnightTimer);
       }
     };
   }, [active, pruneExpiredEntries]);
 
-  const positionsQuery = usePositionsQuery(accountLogin, {
+  const journalFrom = Math.floor(getJournalDayStartMs(retentionNowMs) / 1000);
+  const journalTo = Math.floor(getJournalNextDayStartMs(retentionNowMs) / 1000);
+  const dealsQuery = useDealsQuery(accountLogin, {
     enabled: queriesActive,
-    refetchInterval: queriesActive ? 5000 : false,
+    from: journalFrom,
+    to: journalTo,
+    refetchInterval: false,
+    refetchOnMount: false,
+    staleTime: JOURNAL_QUERY_STALE_TIME_MS,
+    subscribed: active,
   });
   const positionHistoryQuery = usePositionHistoryQuery(accountLogin, {
     enabled: queriesActive,
+    pageLimit: 1000,
+    maxPages: 1,
+    refetchInterval: false,
     refetchOnMount: false,
+    staleTime: JOURNAL_QUERY_STALE_TIME_MS,
+    subscribed: active,
   });
-  const dealsQuery = useDealsQuery(accountLogin, {
-    enabled: queriesActive,
-    refetchInterval: queriesActive ? 30_000 : false,
-  });
+  const refetchDeals = dealsQuery.refetch;
+  const refetchPositionHistory = positionHistoryQuery.refetch;
 
   const derivedClosedPositions = useMemo(
     () => deriveClosedPositionsFromDeals(dealsQuery.data),
     [dealsQuery.data],
   );
+  const rangedHistoryPositions = useMemo(
+    () => filterClosedHistoryByRange(
+      positionHistoryQuery.data ?? [],
+      journalFrom,
+      journalTo,
+    ),
+    [journalFrom, journalTo, positionHistoryQuery.data],
+  );
   const mergedClosedPositions = useMemo(
-    () => mergeClosedPositionSources(positionHistoryQuery.data ?? [], derivedClosedPositions),
-    [positionHistoryQuery.data, derivedClosedPositions],
+    () => mergeClosedPositionSources(rangedHistoryPositions, derivedClosedPositions),
+    [derivedClosedPositions, rangedHistoryPositions],
   );
   const liveEntries = useMemo(
     () => mergedClosedPositions.map(mapClosedPositionToJournalEntry),
     [mergedClosedPositions],
   );
-  const openEntries = useMemo(
-    () => (positionsQuery.data ?? []).map((position) => mapOpenPositionToJournalEntry(position)),
-    [positionsQuery.data],
-  );
-  const accountEntries = useMemo(
-    () => [...openEntries, ...liveEntries],
-    [liveEntries, openEntries],
-  );
   const retainedAccountEntries = useMemo(
-    () => filterJournalEntriesByRetention(accountEntries, retentionNowMs),
-    [accountEntries, retentionNowMs],
+    () => filterJournalEntriesByRetention(liveEntries, retentionNowMs),
+    [liveEntries, retentionNowMs],
   );
   const retainedManualEntries = useMemo(
     () => filterJournalEntriesByRetention(manualEntries, retentionNowMs),
@@ -151,25 +175,25 @@ export function useJournalTrades(active = true) {
 
   const refetch = useCallback(async () => {
     if (!enabled) {
-      return;
+      return false;
     }
 
-    await Promise.all([
-      positionsQuery.refetch(),
-      positionHistoryQuery.refetch(),
-      dealsQuery.refetch(),
+    const [historyResult, dealsResult] = await Promise.all([
+      refetchPositionHistory({ cancelRefetch: false }),
+      refetchDeals({ cancelRefetch: false }),
     ]);
-  }, [dealsQuery, enabled, positionHistoryQuery, positionsQuery]);
+    return historyResult.isSuccess || dealsResult.isSuccess;
+  }, [enabled, refetchDeals, refetchPositionHistory]);
 
   return {
     accountLogin,
+    refreshScopeKey: querySession?.cacheNamespace ?? '',
     trades,
-    openEntries,
     liveEntries,
     manualEntries: retainedManualEntries,
-    isLoading: enabled && (!queriesActive || (trades.length === 0 && (positionsQuery.isLoading || positionHistoryQuery.isLoading || dealsQuery.isLoading))),
-    isFetching: positionsQuery.isFetching || positionHistoryQuery.isFetching || dealsQuery.isFetching,
-    isError: enabled && retainedAccountEntries.length === 0 && positionsQuery.isError && positionHistoryQuery.isError && dealsQuery.isError,
+    isError: enabled && retainedAccountEntries.length === 0
+      && dealsQuery.isError
+      && positionHistoryQuery.isError,
     refetch,
   };
 }

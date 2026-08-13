@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import type { Deal } from '../api/deals';
-import { buildAccountDealsQueryKey, filterDealsByTimeRange, mergeDealHistorySources } from './dealsHistory';
+import {
+  buildAccountDealsQueryKey,
+  filterDealsByTimeRange,
+  mergeDealHistorySources,
+  shouldRetryDealsWithoutRange,
+} from './dealsHistory';
 
 function makeDeal(overrides: Partial<Deal>): Deal {
   return {
@@ -57,12 +62,27 @@ test('filterDealsByTimeRange applies the selected history window to fallback dea
   const outside = makeDeal({ ticket: 20, time: 1_699_999_999 });
   const insideSeconds = makeDeal({ ticket: 21, time: 1_700_000_100 });
   const insideMs = makeDeal({ ticket: 22, time: 1_700_000_200_000 });
+  const exactUpperBoundary = makeDeal({ ticket: 23, time: 1_700_000_300 });
 
   const filtered = filterDealsByTimeRange(
-    [outside, insideSeconds, insideMs],
+    [outside, insideSeconds, insideMs, exactUpperBoundary],
     1_700_000_000,
     1_700_000_300,
   );
 
   assert.deepEqual(filtered.map((deal) => deal.ticket), [21, 22]);
+});
+
+test('range fallback is limited to explicit unsupported-parameter responses', () => {
+  assert.equal(shouldRetryDealsWithoutRange({
+    status: 422,
+    data: { detail: 'Unexpected parameter: from' },
+  }), true);
+  assert.equal(shouldRetryDealsWithoutRange({
+    response: { status: 400, data: { message: 'Date range is not supported' } },
+  }), true);
+  assert.equal(shouldRetryDealsWithoutRange({ status: 400, message: 'Invalid account login' }), false);
+  assert.equal(shouldRetryDealsWithoutRange({ status: 401, message: 'from parameter unauthorized' }), false);
+  assert.equal(shouldRetryDealsWithoutRange({ status: 500, message: 'unsupported from parameter' }), false);
+  assert.equal(shouldRetryDealsWithoutRange(new Error('Network request timed out')), false);
 });

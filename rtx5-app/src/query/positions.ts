@@ -23,12 +23,20 @@ export const getPositionsQueryKey = (
 export const getPositionHistoryQueryKey = (
   cacheNamespace: string,
   login?: number,
-) => [POSITION_HISTORY_KEY, cacheNamespace, login] as const;
+  pageLimit?: number,
+  maxPages?: number,
+) => pageLimit === undefined && maxPages === undefined
+  ? [POSITION_HISTORY_KEY, cacheNamespace, login] as const
+  : [POSITION_HISTORY_KEY, cacheNamespace, login, pageLimit ?? null, maxPages ?? null] as const;
 
 type PollingQueryOptions = {
   enabled?: boolean;
   refetchInterval?: number | false;
   refetchOnMount?: boolean | 'always';
+  staleTime?: number;
+  subscribed?: boolean;
+  pageLimit?: number;
+  maxPages?: number;
 };
 
 const resolvePollingRefetchInterval = (
@@ -106,14 +114,26 @@ export function usePositionHistoryQuery(
   const cacheNamespace = getSessionQueryCacheNamespace(session);
   const enabled = Boolean(session) && !!login && (options.enabled ?? true);
   return useQuery({
-    queryKey: getPositionHistoryQueryKey(cacheNamespace, login),
+    queryKey: getPositionHistoryQueryKey(
+      cacheNamespace,
+      login,
+      options.pageLimit,
+      options.maxPages,
+    ),
     queryFn: () => runSessionBoundQuery(
       cacheNamespace,
-      () => positionsApi.getPositionHistory(login!),
+      () => positionsApi.getPositionHistory(
+        login!,
+        options.pageLimit,
+        0,
+        options.maxPages,
+      ),
     ),
     enabled,
     refetchInterval: resolvePollingRefetchInterval(enabled, 30000, options.refetchInterval),
     refetchOnMount: options.refetchOnMount,
+    staleTime: options.staleTime,
+    subscribed: options.subscribed,
   });
 }
 

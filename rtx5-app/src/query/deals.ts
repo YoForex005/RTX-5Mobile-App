@@ -5,7 +5,7 @@
  *  - useAccountDealsQuery  — fetches deal history via GET /api/v2/account/deals
  *                            (JWT-resolved account, supports from/to date range)
  *  - useDealsQuery         — fetches deal history via GET /api/v2/deals/{login}
- *                            (login-based, no date range — kept for other use cases)
+ *                            (login-based, supports an optional date range)
  */
 
 import { useQuery } from '@tanstack/react-query';
@@ -13,7 +13,12 @@ import { dealsApi, type Deal } from '../api/deals';
 import { resolveEffectiveHistoryDateRange } from '../features/history/historyDateRange';
 import { useResolvedTradingLogin } from '../state/tradingLogin';
 import { useUserPreferences } from '../state/userPreferences';
-import { buildAccountDealsQueryKey, filterDealsByTimeRange, mergeDealHistorySources } from './dealsHistory';
+import {
+  buildAccountDealsQueryKey,
+  filterDealsByTimeRange,
+  mergeDealHistorySources,
+  shouldRetryDealsWithoutRange,
+} from './dealsHistory';
 import {
   getSessionQueryCacheNamespace,
   runSessionBoundQuery,
@@ -23,13 +28,23 @@ import {
 export const DEALS_KEY = 'deals';
 export const ACCOUNT_DEALS_KEY = 'accountDeals';
 
-export const getDealsQueryKey = (cacheNamespace: string, login?: number) =>
-  [DEALS_KEY, cacheNamespace, login] as const;
+export const getDealsQueryKey = (
+  cacheNamespace: string,
+  login?: number,
+  from?: number,
+  to?: number,
+) => from === undefined && to === undefined
+  ? [DEALS_KEY, cacheNamespace, login] as const
+  : [DEALS_KEY, cacheNamespace, login, from ?? null, to ?? null] as const;
 
 type PollingQueryOptions = {
   enabled?: boolean;
   refetchInterval?: number | false;
   refetchOnMount?: boolean | 'always';
+  staleTime?: number;
+  subscribed?: boolean;
+  from?: number;
+  to?: number;
   login?: number;
 };
 
@@ -56,7 +71,12 @@ const getLoginDealsWithRangeFallback = async (
     return await dealsApi.getDeals(login, 1000, 0, from, to);
   } catch (error) {
     if (from == null && to == null) throw error;
-    return dealsApi.getDeals(login, 1000, 0);
+    if (!shouldRetryDealsWithoutRange(error)) throw error;
+    return filterDealsByTimeRange(
+      await dealsApi.getDeals(login, 1000, 0),
+      from,
+      to,
+    );
   }
 };
 
@@ -124,6 +144,8 @@ export function useAccountDealsQuery(options: PollingQueryOptions = {}) {
     enabled,
     refetchInterval: resolvePollingRefetchInterval(enabled, 10_000, options.refetchInterval),
     refetchOnMount: options.refetchOnMount,
+    staleTime: options.staleTime,
+    subscribed: options.subscribed,
   });
 }
 
@@ -145,13 +167,18 @@ export function useDealsQuery(
   const session = useActiveBrokerQuerySession();
   const cacheNamespace = getSessionQueryCacheNamespace(session);
   const enabled = Boolean(session) && !!login && (options.enabled ?? true);
+  const from = options.from;
+  const to = options.to;
   return useQuery({
-    queryKey: getDealsQueryKey(cacheNamespace, login),
+    queryKey: getDealsQueryKey(cacheNamespace, login, from, to),
     queryFn: () => runSessionBoundQuery(
       cacheNamespace,
-      () => dealsApi.getDeals(login!),
+      () => getLoginDealsWithRangeFallback(login!, from, to),
     ),
     enabled,
     refetchInterval: resolvePollingRefetchInterval(enabled, 5000, options.refetchInterval),
+    refetchOnMount: options.refetchOnMount,
+    staleTime: options.staleTime,
+    subscribed: options.subscribed,
   });
 }

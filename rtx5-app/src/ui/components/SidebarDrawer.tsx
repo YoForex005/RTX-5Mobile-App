@@ -15,6 +15,7 @@ import { GDark, GLight, ThemeColors } from '../theme/glass';
 import { useUserPreferences } from '../../state/userPreferences';
 import {
   scheduleAfterImmediateThemePaint,
+  setImmediateThemeMode,
   useThemeMode,
 } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
@@ -226,9 +227,10 @@ export const SidebarDrawer = memo(function SidebarDrawer() {
       return;
     }
 
-    // Let the selector's tiny local tree paint first. Updating the app-wide
-    // theme in this touch turn would batch it with the navigator and every
-    // immediate subscriber, delaying the visible acknowledgement.
+    // Advance the lightweight app-wide clock in the touch turn. Hidden visual
+    // surfaces then settle before the drawer can close and reveal them. Keep
+    // durable preference work behind the selector's first themed frame.
+    setImmediateThemeMode(nextMode);
     scheduleAfterImmediateThemePaint(() => {
       if (themeCommitGenerationRef.current === generation) {
         setPreferenceThemeMode(nextMode);

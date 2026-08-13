@@ -12,7 +12,10 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       zIndex: 9999,
       elevation: 9999,
       // Soft dim only — a heavy black veil read as a "shadow flash" on open.
-      backgroundColor: isDark ? 'rgba(0,0,0,0.28)' : 'rgba(0,0,0,0.12)',
+      // A retained outer host must not own colored pixels. Its native opacity
+      // can be driven outside React during fast handoffs, so keeping the scrim
+      // here could expose a gray cover after the logical sheet is closed.
+      backgroundColor: 'transparent',
       justifyContent: 'flex-end',
       overflow: 'hidden',
     },
@@ -25,6 +28,10 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
     backdrop: {
       zIndex: 0,
       elevation: 0,
+    },
+    backdropDefault: {
+      // Soft dim only; a heavy black veil reads as a shadow flash on open.
+      backgroundColor: isDark ? 'rgba(0,0,0,0.28)' : 'rgba(0,0,0,0.12)',
     },
     backdropMt5Plain: {
       zIndex: 0,

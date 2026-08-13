@@ -11,7 +11,8 @@ export type { ThemeColors };
 /**
  * Returns the current theme color set based on user preference.
  * Reactively updates when the user toggles between light/dark.
- * Pass `{ active: false }` from hidden retained hosts so they skip theme taps.
+ * Pass `{ active: false }` from hidden retained hosts to use the post-paint
+ * theme clock without ever freezing their visual palette.
  */
 export function useTheme(options?: { active?: boolean }): ThemeColors {
   const themeMode = useThemeMode(options);

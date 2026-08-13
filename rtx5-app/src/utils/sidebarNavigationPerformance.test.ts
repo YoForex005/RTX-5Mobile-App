@@ -5,6 +5,16 @@ import test from 'node:test';
 
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
+test('native-revealable sidebar destinations keep the settled theme while hidden', () => {
+  const hostSource = readSource('src/ui/components/SidebarDestinationHost.tsx');
+
+  assert.match(
+    hostSource,
+    /<ThemeModeRenderPriorityContext\.Provider value="retained">[\s\S]*<DestinationView active=\{active\}/,
+  );
+  assert.doesNotMatch(hostSource, /'frozen'/);
+});
+
 test('hamburger opens the sidebar on the zero-delay stable press path', () => {
   const source = readSource('src/ui/components/AppHeader.tsx');
   const controllerSource = readSource('src/ui/components/sidebarDrawerController.ts');
@@ -324,11 +334,21 @@ test('journal sidebar route defers live account queries until after first paint'
   assert.match(source, /export function useJournalTrades\(active = true\)/);
   assert.match(source, /const enabled = active && accountLogin !== undefined/);
   assert.match(source, /const queriesActive = useDeferredJournalQueries\(enabled, accountLogin\)/);
-  assert.match(source, /if \(!active\) \{\s*return undefined;\s*\}[\s\S]*setInterval\(updateRetentionClock, 60_000\)/);
+  assert.match(source, /if \(!active\) \{\s*return undefined;\s*\}[\s\S]*updateRetentionClock\(\);\s*scheduleMidnightCleanup\(\)/);
+  assert.doesNotMatch(source, /setInterval\(updateRetentionClock/);
+  assert.match(source, /AppState\.addEventListener\('change'[\s\S]*nextState === 'active'[\s\S]*updateRetentionClock\(\)[\s\S]*scheduleMidnightCleanup\(\)/);
   assert.match(source, /enabled: queriesActive/);
-  assert.match(source, /refetchInterval: queriesActive \? 5000 : false/);
-  assert.match(source, /refetchInterval: queriesActive \? 30_000 : false/);
+  assert.match(source, /refetchInterval: false/);
   assert.match(source, /refetchOnMount: false/);
+  assert.match(source, /subscribed: active/);
+  assert.match(source, /from: journalFrom/);
+  assert.match(source, /to: journalTo/);
+  assert.doesNotMatch(source, /usePositionsQuery/);
+  assert.match(source, /usePositionHistoryQuery/);
+  assert.match(source, /pageLimit: 1000/);
+  assert.match(source, /maxPages: 1/);
+  assert.match(source, /mergeClosedPositionSources\(rangedHistoryPositions, derivedClosedPositions\)/);
+  assert.match(source, /active \? state\.manualEntries : EMPTY_MANUAL_ENTRIES/);
   assert.doesNotMatch(source, /refetchOnMount: 'always'/);
 });
 
@@ -671,7 +691,11 @@ test('sidebar detail screens prewarm complete retained content before their firs
 
   const journalSource = readSource('src/features/settings/JournalScreen/JournalScreen.tsx');
   assert.match(journalSource, /\{isScreenFocused && isNoteOpen \? \(/);
-  assert.match(journalSource, /\{isScreenFocused && isCalendarOpen \? \(/);
+  assert.match(journalSource, /<JournalCalendarOverlay[\s\S]*ref=\{calendarOverlayRef\}/);
+  assert.match(journalSource, /testID="journal-retained-calendar"/);
+  assert.match(journalSource, /isScreenFocused \? state\.entries : EMPTY_TERMINAL_ENTRIES/);
+  assert.doesNotMatch(journalSource, /isCalendarPrimed|setIsCalendarPrimed|pendingCalendarOpenRef/);
+  assert.doesNotMatch(journalSource, /isCalendarOpen|setIsCalendarOpen/);
 
   const calendarDestinationSource = readSource('src/features/settings/EconomicCalendarScreen/EconomicCalendarScreen.tsx');
   assert.match(

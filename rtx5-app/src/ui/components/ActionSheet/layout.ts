@@ -26,6 +26,14 @@ type Mt5EntryTranslateInput = {
   measuredSheetBodyHeight: number;
 };
 
+type VisibilityBarrierInput = {
+  visible: boolean;
+  hiddenImperatively: boolean;
+  configSwapParked: boolean;
+  startingClose: boolean;
+  retainedCommitOwnsHost: boolean;
+};
+
 const MIN_FALLBACK_HEIGHT = 260;
 const MIN_BOTTOM_INSET = 12;
 const ANDROID_STABLE_BOTTOM_INSET = 24;
@@ -38,6 +46,23 @@ const ADAPTIVE_HEIGHT_RATIO = 0.46;
 
 const normalizeHeight = (height: number) =>
   Number.isFinite(height) && height > 0 ? height : 0;
+
+export function resolveActionSheetVisibilityBarrierOpen({
+  visible,
+  hiddenImperatively,
+  configSwapParked,
+  startingClose,
+  retainedCommitOwnsHost,
+}: VisibilityBarrierInput): boolean {
+  // An imperative hide/config park is the last native-pixel authority. React
+  // must never reopen that barrier from a stale close or retained snapshot on
+  // the following render; valid retained adoption clears these refs first.
+  if (hiddenImperatively || configSwapParked) {
+    return false;
+  }
+
+  return visible || startingClose || retainedCommitOwnsHost;
+}
 
 export function resolveActionSheetMt5EntryTranslateY({
   estimatedTranslateY,

@@ -180,9 +180,7 @@ const SceneLayer = memo(function SceneLayer({
       ]}
       pointerEvents={visualFocused ? 'auto' : 'none'}
     >
-      <ThemeModeRenderPriorityContext.Provider
-        value={visualFocused ? 'retained' : 'frozen'}
-      >
+      <ThemeModeRenderPriorityContext.Provider value="retained">
         <SceneContent
           descriptor={descriptor}
           navigationFocused={navigationFocused}

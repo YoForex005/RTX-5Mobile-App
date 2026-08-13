@@ -362,92 +362,106 @@ export const QuotesSymbolActionSheetHost = memo(function QuotesSymbolActionSheet
   }));
 
   return (
-    <Reanimated.View
+    <View
       pointerEvents={current.visible ? 'box-none' : 'none'}
       accessibilityElementsHidden={!current.visible}
       accessibilityViewIsModal={current.visible}
       importantForAccessibility={current.visible ? 'auto' : 'no-hide-descendants'}
-      style={[localStyles.host, hostStyle]}
+      style={[localStyles.host, current.visible ? null : localStyles.hiddenHost]}
       testID="quotes-symbol-action-sheet-host"
     >
-      <Reanimated.View style={[StyleSheet.absoluteFillObject, backdropStyle]}>
-        <FastPressable
-          accessibilityLabel="Close symbol actions"
-          activateOnPressIn
-          latencyLabel="quotes.symbolSheet.backdrop.close"
-          onPress={finishAnimatedClose}
-          style={[StyleSheet.absoluteFillObject, styles.backdropMt5Plain]}
-        />
-      </Reanimated.View>
-
       <Reanimated.View
-        pointerEvents={current.visible ? 'auto' : 'none'}
-        style={[
-          localStyles.sheetPosition,
-          styles.sheet,
-          styles.sheetMt5Plain,
-          { paddingBottom: Math.max(insets.bottom, 8) },
-          sheetStyle,
-        ]}
+        pointerEvents={current.visible ? 'box-none' : 'none'}
+        style={[localStyles.animatedHost, hostStyle]}
       >
-        {config ? (
-          <>
-            <View style={[styles.titleContainer, styles.titleContainerMt5Plain]}>
-              <Text
-                numberOfLines={2}
-                style={[styles.titlePrefix, styles.titlePrefixMt5Plain, styles.titleTextMt5Plain]}
-              >
-                {config.title}
-              </Text>
-            </View>
-            <View style={styles.actionsContentMt5Plain}>
-              {config.actions.map((action, index) => {
-                const disabled = action.disabled === true || action.selected === true;
-                return (
-                  <FastPressable
-                    key={`${config.visualKey}:${action.label}:${index}`}
-                    accessibilityRole="button"
-                    accessibilityState={{ disabled, selected: action.selected === true }}
-                    activateOnTouchStart={action.activateOnPressIn === true && !disabled}
-                    disabled={disabled}
-                    latencyLabel={`quotes.symbolSheet.${action.label}`}
-                    onPress={() => runAction(action)}
-                    style={({ pressed }) => [
-                      styles.action,
-                      styles.actionMt5Plain,
-                      pressed && !disabled && styles.actionPressedMt5Plain,
-                      disabled && styles.actionDisabledMt5Plain,
-                    ]}
-                  >
-                    <View style={styles.actionLeft}>
-                      <View style={styles.actionTextBlock}>
-                        <Text
-                          numberOfLines={1}
-                          style={[
-                            styles.actionText,
-                            styles.actionTextMt5Plain,
-                            action.danger
-                              ? styles.actionTextDanger
-                              : styles.actionTextNormalMt5Plain,
-                            disabled && styles.actionTextDisabledMt5Plain,
-                          ]}
-                        >
-                          {action.label}
-                        </Text>
+        <Reanimated.View style={[StyleSheet.absoluteFillObject, backdropStyle]}>
+          <FastPressable
+            accessibilityLabel="Close symbol actions"
+            activateOnPressIn
+            latencyLabel="quotes.symbolSheet.backdrop.close"
+            onPress={finishAnimatedClose}
+            style={[StyleSheet.absoluteFillObject, styles.backdropMt5Plain]}
+          />
+        </Reanimated.View>
+
+        <Reanimated.View
+          pointerEvents={current.visible ? 'auto' : 'none'}
+          style={[
+            localStyles.sheetPosition,
+            styles.sheet,
+            styles.sheetMt5Plain,
+            { paddingBottom: Math.max(insets.bottom, 8) },
+            sheetStyle,
+          ]}
+        >
+          {config ? (
+            <>
+              <View style={[styles.titleContainer, styles.titleContainerMt5Plain]}>
+                <Text
+                  numberOfLines={2}
+                  style={[styles.titlePrefix, styles.titlePrefixMt5Plain, styles.titleTextMt5Plain]}
+                >
+                  {config.title}
+                </Text>
+              </View>
+              <View style={styles.actionsContentMt5Plain}>
+                {config.actions.map((action, index) => {
+                  const disabled = action.disabled === true || action.selected === true;
+                  return (
+                    <FastPressable
+                      key={`${config.visualKey}:${action.label}:${index}`}
+                      accessibilityRole="button"
+                      accessibilityState={{ disabled, selected: action.selected === true }}
+                      activateOnTouchStart={action.activateOnPressIn === true && !disabled}
+                      disabled={disabled}
+                      latencyLabel={`quotes.symbolSheet.${action.label}`}
+                      onPress={() => runAction(action)}
+                      style={({ pressed }) => [
+                        styles.action,
+                        styles.actionMt5Plain,
+                        pressed && !disabled && styles.actionPressedMt5Plain,
+                        disabled && styles.actionDisabledMt5Plain,
+                      ]}
+                    >
+                      <View style={styles.actionLeft}>
+                        <View style={styles.actionTextBlock}>
+                          <Text
+                            numberOfLines={1}
+                            style={[
+                              styles.actionText,
+                              styles.actionTextMt5Plain,
+                              action.danger
+                                ? styles.actionTextDanger
+                                : styles.actionTextNormalMt5Plain,
+                              disabled && styles.actionTextDisabledMt5Plain,
+                            ]}
+                          >
+                            {action.label}
+                          </Text>
+                        </View>
                       </View>
-                    </View>
-                  </FastPressable>
-                );
-              })}
-            </View>
-          </>
-        ) : null}
+                    </FastPressable>
+                  );
+                })}
+              </View>
+            </>
+          ) : null}
+        </Reanimated.View>
       </Reanimated.View>
-    </Reanimated.View>
+    </View>
   );
 });
 
 const localStyles = StyleSheet.create({
+  animatedHost: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  hiddenHost: {
+    // React owns this non-animated visibility barrier. Even if an interrupted
+    // UI-thread animation restores stale child opacity after logical close,
+    // no backdrop or sheet pixel can escape this transparent parent.
+    opacity: 0,
+  },
   host: {
     ...StyleSheet.absoluteFillObject,
     elevation: 10000,

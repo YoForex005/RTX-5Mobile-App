@@ -50,6 +50,7 @@ import {
   resolveActionSheetMeasuredHeight,
   resolveActionSheetMt5EntryTranslateY,
   resolveActionSheetOpenMeasuredHeight,
+  resolveActionSheetVisibilityBarrierOpen,
 } from './layout';
 import { ACTION_SHEET_SUBTITLE_ROW_MIN_HEIGHT, makeActionSheetStyles } from './styles';
 import { filterActionSheetActions } from './search';
@@ -315,6 +316,14 @@ const hasActionSheetPressMovedBeyondThreshold = (
 // overlay above the sheet that's well clear of the system gesture region.
 const TAPPABLE_TOP_DISMISS_MARGIN = 80;
 
+const actionSheetHostStyles = StyleSheet.create({
+  visibilityBarrier: {
+    ...StyleSheet.absoluteFillObject,
+    elevation: 9999,
+    zIndex: 9999,
+  },
+});
+
 export function ActionSheet({
   visible,
   title,
@@ -495,6 +504,7 @@ export function ActionSheet({
     setQuery(nextQuery);
   }, [activeDeferOffscreenActions]);
   const overlayLayerRef = useRef<View>(null);
+  const visibilityBarrierRef = useRef<View>(null);
   const sheetBodyRef = useRef<View>(null);
   const measuredSheetBodyHeightRef = useRef(0);
   const hostHiddenImperativelyRef = useRef(false);
@@ -518,6 +528,15 @@ export function ActionSheet({
     }),
     [],
   );
+
+  const setVisibilityBarrierNow = useCallback((nextVisible: boolean) => {
+    visibilityBarrierRef.current?.setNativeProps({
+      style: { opacity: nextVisible ? 1 : 0 },
+      accessibilityElementsHidden: !nextVisible,
+      importantForAccessibility: nextVisible ? 'auto' : 'no-hide-descendants',
+      pointerEvents: nextVisible ? 'box-none' : 'none',
+    });
+  }, []);
 
   const parkRetainedHostForConfigSwap = useCallback((expectedVisualKey: string) => {
     if (!expectedVisualKey || activeVisualKeyRef.current !== expectedVisualKey) {
@@ -570,6 +589,7 @@ export function ActionSheet({
       importantForAccessibility: 'no-hide-descendants',
       pointerEvents: 'none',
     });
+    setVisibilityBarrierNow(false);
     sheetBodyRef.current?.setNativeProps({ pointerEvents: 'none' });
     hostHiddenImperativelyRef.current = true;
     return true;
@@ -579,6 +599,7 @@ export function ActionSheet({
     mt5SheetTranslateY,
     overlayOpacity,
     resolveMt5EntryTranslateY,
+    setVisibilityBarrierNow,
     sheetTranslateY,
   ]);
 
@@ -661,6 +682,7 @@ export function ActionSheet({
           importantForAccessibility: 'auto',
           pointerEvents: 'auto',
         });
+        setVisibilityBarrierNow(true);
         sheetBodyRef.current?.setNativeProps({ pointerEvents: 'auto' });
         hostHiddenImperativelyRef.current = false;
       }
@@ -685,6 +707,7 @@ export function ActionSheet({
               // React opacity diff can take most of the 210 ms animation on a
               // busy Android frame, making a smooth slide look like a pop.
               overlayLayerRef.current?.setNativeProps({ style: { opacity: 1 } });
+              setVisibilityBarrierNow(true);
               refreshMt5ConfigSwapGuard((revision) => revision + 1);
               if (
                 !retainedMt5RevealInFlight
@@ -762,6 +785,7 @@ export function ActionSheet({
         importantForAccessibility: 'no-hide-descendants',
         pointerEvents: 'none',
       });
+      setVisibilityBarrierNow(false);
       hostHiddenImperativelyRef.current = true;
       sheetBodyRef.current?.setNativeProps({ pointerEvents: 'none' });
       overlayOpacity.stopAnimation();
@@ -790,6 +814,7 @@ export function ActionSheet({
     refreshHiddenConfig,
     resolveMt5EntryTranslateY,
     retainedMt5RevealInFlight,
+    setVisibilityBarrierNow,
     sheetTranslateY,
     mt5HostOpacity,
     mt5OverlayOpacity,
@@ -847,6 +872,7 @@ export function ActionSheet({
         importantForAccessibility: 'no-hide-descendants',
         pointerEvents: 'none',
       });
+      setVisibilityBarrierNow(false);
       sheetBodyRef.current?.setNativeProps({ pointerEvents: 'none' });
       if (interruptedClose) {
         // The preview itself has already made the outgoing sheet fully hidden.
@@ -944,6 +970,7 @@ export function ActionSheet({
       importantForAccessibility: interactive ? 'auto' : 'no-hide-descendants',
       pointerEvents: interactive ? 'auto' : 'none',
     });
+    setVisibilityBarrierNow(interactive);
     sheetBodyRef.current?.setNativeProps({
       pointerEvents: interactive ? 'auto' : 'none',
     });
@@ -976,6 +1003,7 @@ export function ActionSheet({
     refreshHiddenConfig,
     refreshMt5ConfigSwapGuard,
     resolveMt5EntryTranslateY,
+    setVisibilityBarrierNow,
     sheetTranslateY,
   ]);
 
@@ -997,6 +1025,7 @@ export function ActionSheet({
           importantForAccessibility: 'auto',
           pointerEvents: 'auto',
         });
+        setVisibilityBarrierNow(true);
         sheetBodyRef.current?.setNativeProps({ pointerEvents: 'auto' });
         if (activeEntryMotion === 'mt5Slide') {
           retainedAdoptionVisualKeyRef.current = activeVisualKey;
@@ -1008,7 +1037,7 @@ export function ActionSheet({
     if (!visible) {
       syncRetainedActionSheetVisual();
     }
-  }, [activeEntryMotion, activeVisualKey, visible]);
+  }, [activeEntryMotion, activeVisualKey, setVisibilityBarrierNow, visible]);
 
   useLayoutEffect(() => {
     if (!visible) {
@@ -1265,9 +1294,10 @@ export function ActionSheet({
       importantForAccessibility: 'no-hide-descendants',
       pointerEvents: 'none',
     });
+    setVisibilityBarrierNow(false);
     hostHiddenImperativelyRef.current = true;
     return true;
-  }, [activeEntryMotion, activeImmediateHostHideOnClose]);
+  }, [activeEntryMotion, activeImmediateHostHideOnClose, setVisibilityBarrierNow]);
 
   const hideMt5ActionSheetNow = useCallback(() => {
     if (!hideMt5ActionSheetHostNow()) {
@@ -1487,6 +1517,7 @@ export function ActionSheet({
         sheetTranslateY.stopAnimation();
         overlayOpacity.setValue(0);
         sheetTranslateY.setValue(80);
+        setVisibilityBarrierNow(false);
         return;
       }
 
@@ -1499,6 +1530,7 @@ export function ActionSheet({
         onComplete: ({ finished }) => {
         if (finished && !prevVisibleRef.current) {
           closeAnimationRunningRef.current = false;
+          setVisibilityBarrierNow(false);
           setMounted(ACTION_SHEET_KEEP_HOST_MOUNTED);
           setKeyboardHeight(0);
           // Render the latest hidden preload only after the outgoing sheet is
@@ -1555,6 +1587,7 @@ export function ActionSheet({
     overlayOpacity,
     resolveMt5EntryTranslateY,
     runEntryAnimation,
+    setVisibilityBarrierNow,
     sheetTranslateY,
     visible,
   ]);
@@ -2027,90 +2060,118 @@ export function ActionSheet({
       {sheetBody}
     </Reanimated.View>
   ) : sheetBody;
+  const retainedSnapshotAtRender = getRetainedActionSheetVisualSnapshot();
+  const retainedCommitOwnsHost =
+    retainedSnapshotAtRender.mode === 'committed'
+    && retainedSnapshotAtRender.visualKey === activeVisualKey;
+  const visibilityBarrierOpen = resolveActionSheetVisibilityBarrierOpen({
+    visible,
+    hiddenImperatively: hostHiddenImperativelyRef.current,
+    configSwapParked: mt5ConfigSwapHostParkedRef.current,
+    startingClose: isStartingClose,
+    retainedCommitOwnsHost,
+  });
 
   return (
-    <Animated.View
-      ref={overlayLayerRef}
+    <View
+      ref={visibilityBarrierRef}
       collapsable={false}
-      pointerEvents={visible ? 'auto' : 'none'}
+      pointerEvents={visible ? 'box-none' : 'none'}
       accessibilityElementsHidden={!visible}
       importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'}
       style={[
-        styles.overlay,
-        isMt5StylePresentation ? styles.overlayMt5Plain : null,
-        isMt5StylePresentation
-          ? {
-            // Keep the MT5 parent composited except for explicit close/config
-            // barriers. Those barriers remain transparent until the child is
-            // parked, preventing both stale close pixels and cached-open flash.
-            opacity: activeEntryMotion === 'mt5Slide'
-              ? (
-                mt5ConfigSwapHostParkedRef.current || hostHiddenImperativelyRef.current
-                  ? 0
-                  : 1
-              )
-              : (visible ? 1 : 0),
-          }
-          : { opacity: overlayOpacity },
+        actionSheetHostStyles.visibilityBarrier,
+        { opacity: visibilityBarrierOpen ? 1 : 0 },
       ]}
-      onLayout={handleOverlayLayout}
+      testID="global-action-sheet-visibility-barrier"
     >
-      {isMt5StylePresentation ? (
-        activeEntryMotion === 'mt5Slide' ? (
-          <Reanimated.View
-            pointerEvents="none"
-            style={[
-              StyleSheet.absoluteFillObject,
-              styles.backdropMt5Plain,
-              mt5BackdropAnimatedStyle,
-            ]}
-          />
-        ) : (
-          <Animated.View
-            pointerEvents="none"
-            style={[
-              StyleSheet.absoluteFillObject,
-              styles.backdropMt5Plain,
-              { opacity: overlayOpacity },
-            ]}
-          />
-        )
-      ) : null}
-      <FastPressable
-        style={[StyleSheet.absoluteFillObject, styles.backdrop]}
-        latencyLabel="actionSheet.dismissOverlay"
-        onPress={handleBackdropPress}
-        activateOnPressIn
-      />
-
-      {iosKeyboardAvoidanceEnabled ? (
-        <KeyboardAvoidingView
-          behavior="padding"
-          // Searchable sheets only. Non-searchable menus (Quotes symbol tap)
-          // use the plain host below so iOS cannot pad/collapse the sheet.
-          enabled
-          style={styles.sheetHost}
-          pointerEvents="box-none"
-        >
-          {renderedSheetBody}
-        </KeyboardAvoidingView>
-      ) : (
-        <View
+      <Animated.View
+        ref={overlayLayerRef}
+        collapsable={false}
+        pointerEvents={visible ? 'auto' : 'none'}
+        accessibilityElementsHidden={!visible}
+        importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'}
+        style={[
+          styles.overlay,
+          isMt5StylePresentation ? styles.overlayMt5Plain : null,
+          isMt5StylePresentation
+            ? {
+              // Keep the MT5 parent composited except for explicit close/config
+              // barriers. Those barriers remain transparent until the child is
+              // parked, preventing both stale close pixels and cached-open flash.
+              opacity: activeEntryMotion === 'mt5Slide'
+                ? (
+                  mt5ConfigSwapHostParkedRef.current || hostHiddenImperativelyRef.current
+                    ? 0
+                    : 1
+                )
+                : (visible ? 1 : 0),
+            }
+            : { opacity: overlayOpacity },
+        ]}
+        onLayout={handleOverlayLayout}
+      >
+        {isMt5StylePresentation ? (
+          activeEntryMotion === 'mt5Slide' ? (
+            <Reanimated.View
+              pointerEvents="none"
+              style={[
+                StyleSheet.absoluteFillObject,
+                styles.backdropMt5Plain,
+                mt5BackdropAnimatedStyle,
+              ]}
+            />
+          ) : (
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                StyleSheet.absoluteFillObject,
+                styles.backdropMt5Plain,
+                { opacity: overlayOpacity },
+              ]}
+            />
+          )
+        ) : null}
+        <FastPressable
           style={[
-            styles.sheetHost,
-            // "Stay still" mode: pin the host to the full (stable) height, top-
-            // anchored, so it does NOT ride the overlay up as adjustResize
-            // shrinks the window for the keyboard. The bottom-anchored sheet
-            // therefore stays put and the keyboard overlays its lower part.
-            keepFullHeightSheet
-              ? { position: 'absolute' as const, top: 0, left: 0, right: 0, height: screenHeight }
-              : null,
+            StyleSheet.absoluteFillObject,
+            styles.backdrop,
+            isMt5StylePresentation ? null : styles.backdropDefault,
           ]}
-          pointerEvents="box-none"
-        >
-          {renderedSheetBody}
-        </View>
-      )}
-    </Animated.View>
+          latencyLabel="actionSheet.dismissOverlay"
+          onPress={handleBackdropPress}
+          activateOnPressIn
+        />
+
+        {iosKeyboardAvoidanceEnabled ? (
+          <KeyboardAvoidingView
+            behavior="padding"
+            // Searchable sheets only. Non-searchable menus (Quotes symbol tap)
+            // use the plain host below so iOS cannot pad/collapse the sheet.
+            enabled
+            style={styles.sheetHost}
+            pointerEvents="box-none"
+          >
+            {renderedSheetBody}
+          </KeyboardAvoidingView>
+        ) : (
+          <View
+            style={[
+              styles.sheetHost,
+              // "Stay still" mode: pin the host to the full (stable) height, top-
+              // anchored, so it does NOT ride the overlay up as adjustResize
+              // shrinks the window for the keyboard. The bottom-anchored sheet
+              // therefore stays put and the keyboard overlays its lower part.
+              keepFullHeightSheet
+                ? { position: 'absolute' as const, top: 0, left: 0, right: 0, height: screenHeight }
+                : null,
+            ]}
+            pointerEvents="box-none"
+          >
+            {renderedSheetBody}
+          </View>
+        )}
+      </Animated.View>
+    </View>
   );
 }

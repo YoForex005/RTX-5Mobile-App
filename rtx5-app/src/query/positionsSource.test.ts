@@ -12,3 +12,16 @@ test('positions query mapper preserves swap and commission separately from net p
   assert.match(positionsSource, /swap: dto\.swap \|\| 0/);
   assert.match(positionsSource, /commission: dto\.commission \|\| 0/);
 });
+
+test('position history supports an isolated bounded Journal cache', () => {
+  const positionsSource = source();
+
+  assert.match(
+    positionsSource,
+    /export const getPositionHistoryQueryKey = \([\s\S]*pageLimit\?: number[\s\S]*maxPages\?: number[\s\S]*pageLimit \?\? null, maxPages \?\? null/,
+  );
+  assert.match(
+    positionsSource,
+    /positionsApi\.getPositionHistory\([\s\S]*options\.pageLimit[\s\S]*options\.maxPages/,
+  );
+});

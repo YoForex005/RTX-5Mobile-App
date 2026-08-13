@@ -35,6 +35,16 @@ test('quote symbol action sheets stay Quotes-private and open synchronously on c
   assert.match(dedicatedSheetSource, /useSyncExternalStore\(subscribe, getSnapshot, getSnapshot\)/);
   assert.match(
     dedicatedSheetSource,
+    /<View[\s\S]*style=\{\[localStyles\.host, current\.visible \? null : localStyles\.hiddenHost\]\}[\s\S]*<Reanimated\.View[\s\S]*style=\{\[localStyles\.animatedHost, hostStyle\]\}/,
+    'a React-owned parent must block stale UI-thread sheet/backdrop pixels after logical close',
+  );
+  assert.match(
+    dedicatedSheetSource,
+    /hiddenHost:\s*\{[\s\S]*opacity: 0/,
+    'the closed host barrier must be fully transparent',
+  );
+  assert.match(
+    dedicatedSheetSource,
     /function presentQuotesSymbolActionSheet[\s\S]*publishSnapshot\(\{[\s\S]*config,[\s\S]*revision: snapshot\.revision \+ 1,[\s\S]*visible: true/,
     'the presenter must publish the requested rows synchronously',
   );
