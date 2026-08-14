@@ -35,6 +35,7 @@ import {
 import { commitQuoteSnapshotIfSessionCurrent } from './quoteCommitProvenance';
 import { MARKET_QUOTE_STALE_AFTER_MS } from '../market/quotePolicy';
 import { isOrrnnDemoPublicMarketSelection } from '../api/orrnnDemoPublicMarket';
+import { resolveContextBoundLiveSymbolQuote } from './liveSymbolQuoteContext';
 
 const LIVE_QUOTE_STALE_MS = MARKET_QUOTE_STALE_AFTER_MS;
 const LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS = 16;
@@ -642,11 +643,14 @@ function useOrrnnDemoPublicLiveSymbolQuote(
 ): Partial<QuoteItem> | undefined {
   const normalizedSymbol = React.useMemo(() => normalizeSymbol(symbol), [symbol]);
   const safeCommitIntervalMs = Math.max(0, Math.floor(commitIntervalMs));
+  const quoteContextKey = `${active ? 'active' : 'inactive'}:${normalizedSymbol}`;
   const [quote, setQuote] = React.useState<Partial<QuoteItem> | undefined>();
+  const [quoteOwnerContextKey, setQuoteOwnerContextKey] = React.useState(quoteContextKey);
   const quoteRef = React.useRef<Partial<QuoteItem> | undefined>(undefined);
   const commitTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    setQuoteOwnerContextKey(quoteContextKey);
     if (!active || !normalizedSymbol) {
       quoteRef.current = undefined;
       setQuote(undefined);
@@ -699,9 +703,11 @@ function useOrrnnDemoPublicLiveSymbolQuote(
       }
       quoteRef.current = undefined;
     };
-  }, [active, normalizedSymbol, safeCommitIntervalMs, symbol]);
+  }, [active, normalizedSymbol, quoteContextKey, safeCommitIntervalMs, symbol]);
 
-  return active ? quote : undefined;
+  return active && quoteOwnerContextKey === quoteContextKey
+    ? resolveContextBoundLiveSymbolQuote(symbol, quote)
+    : undefined;
 }
 
 export function useLiveSymbolQuote(
@@ -725,6 +731,7 @@ export function useLiveSymbolQuote(
   const isActive = active && isLoggedIn && Boolean(activeSession);
   const safeCommitIntervalMs = Math.max(0, Math.floor(commitIntervalMs));
   const normalizedSymbol = React.useMemo(() => normalizeSymbol(symbol), [symbol]);
+  const liveQuoteContextKey = `${isActive ? 'active' : 'inactive'}:${credentialScopeKey}:${normalizedSymbol}`;
   const seedQuote = React.useMemo(
     () =>
       isActive
@@ -736,6 +743,7 @@ export function useLiveSymbolQuote(
     [credentialScopeKey, isActive, normalizedSymbol, symbol],
   );
   const [liveQuote, setLiveQuote] = React.useState<Partial<QuoteItem> | undefined>(seedQuote);
+  const [liveQuoteOwnerContextKey, setLiveQuoteOwnerContextKey] = React.useState(liveQuoteContextKey);
   const liveQuoteRef = React.useRef<Partial<QuoteItem> | undefined>(seedQuote);
   const directQuoteTickAtRef = React.useRef(0);
   const quoteCommitAnimationFrameRef = React.useRef<number | null>(null);
@@ -806,6 +814,7 @@ export function useLiveSymbolQuote(
   }, [safeCommitIntervalMs]);
 
   useEffect(() => {
+    setLiveQuoteOwnerContextKey(liveQuoteContextKey);
     if (!activeSession) {
       liveQuoteRef.current = undefined;
       setLiveQuote(undefined);
@@ -823,7 +832,7 @@ export function useLiveSymbolQuote(
       });
       return guardedSnapshot;
     });
-  }, [activeSession, credentialScopeKey, seedQuote]);
+  }, [activeSession, credentialScopeKey, liveQuoteContextKey, seedQuote]);
 
   useEffect(() => {
     if (!isActive || !activeSession || !normalizedSymbol) {
@@ -882,7 +891,13 @@ export function useLiveSymbolQuote(
     symbol,
   ]);
 
-  return isPublicDemoActive ? publicDemoQuote : liveQuote;
+  if (!active) return undefined;
+  if (isPublicDemoActive) {
+    return resolveContextBoundLiveSymbolQuote(symbol, publicDemoQuote);
+  }
+  return liveQuoteOwnerContextKey === liveQuoteContextKey
+    ? resolveContextBoundLiveSymbolQuote(symbol, liveQuote)
+    : undefined;
 }
 
 /**

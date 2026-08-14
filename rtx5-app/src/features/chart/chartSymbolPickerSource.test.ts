@@ -138,7 +138,10 @@ test('native OHLC row renders below the full symbol name', () => {
   const source = readSource('src/features/chart/ChartScreen.native.tsx');
   const styles = readSource('src/features/chart/ChartScreen.styles.ts');
   const symbolNameRowIndex = source.indexOf('<View style={styles.symbolMetaRow}>');
-  const ohlcRowIndex = source.indexOf('{showChartMetaRow && (', symbolNameRowIndex);
+  const ohlcRowIndex = source.indexOf(
+    '{showChartMetaRow && !compactVerticalChartWindow && (',
+    symbolNameRowIndex,
+  );
   const symbolPressableEndIndex = source.indexOf('</Pressable>', symbolNameRowIndex);
 
   assert.notEqual(symbolNameRowIndex, -1);
@@ -165,7 +168,7 @@ test('native OHLC row renders below the full symbol name', () => {
   );
   assert.match(
     source,
-    /\{showChartMetaRow && \([\s\S]*<ChartLiveOhlcRow[\s\S]*contextKey=\{chartDataContextSig\}[\s\S]*fallbackCandle=\{chartMetaLastCandle\}[\s\S]*subscribe=\{subscribeChartLiveOhlc\}/,
+    /\{showChartMetaRow && !compactVerticalChartWindow && \([\s\S]*<ChartLiveOhlcRow[\s\S]*contextKey=\{chartDataContextSig\}[\s\S]*fallbackCandle=\{chartMetaLastCandle\}[\s\S]*subscribe=\{subscribeChartLiveOhlc\}/,
     'the OHLC row below the symbol name must use the context-scoped live component',
   );
   assert.doesNotMatch(
@@ -249,6 +252,10 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
     source.indexOf('const handleOpenSymbolPicker = useCallback'),
     source.indexOf('const handleOpenTimeframePicker = useCallback', source.indexOf('const handleOpenSymbolPicker = useCallback')),
   );
+  const symbolPickerOpenSource = source.slice(
+    source.indexOf('const openSymbolPickerForActivePane = useCallback'),
+    source.indexOf('const handleOpenSymbolPicker = useCallback'),
+  );
   const drawingToolsHandlerSource = source.slice(
     source.indexOf('const handleOpenDrawingTools = useCallback'),
     source.indexOf('const handleOpenSettingsScreen = useCallback', source.indexOf('const handleOpenDrawingTools = useCallback')),
@@ -322,7 +329,11 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(source, /setChartDisplaySetting: state\.setChartDisplaySetting/);
   assert.match(source, /const scheduleChartActionSheetContextReset = useCallback/);
   assert.match(source, /scheduleAfterFirstFrame\(resetChartActionSheetContext\)/);
-  assert.match(source, /const handleTimeframeSelect = useCallback[\s\S]*hideChartTimeframePicker\(\)[\s\S]*warmChartContextAndCommit\(chartSymbol, nextTimeframe\)/);
+  assert.match(source, /const handleTimeframeSelect = useCallback[\s\S]*hideChartTimeframePicker\(\)[\s\S]*chartWindows\.updateToolbarTargetContext\(\{ timeframe: nextTimeframe \}\)/);
+  assert.match(
+    source,
+    /const chartWindows = useChartWindowsFeature\(\{[\s\S]*onCommitContext: commitChartWindowContext[\s\S]*chartWindowCommitContextImplementationRef\.current = warmChartContextAndCommit/,
+  );
   // Open critical path: native show first, history prefetch deferred off the tap.
   assert.match(timeframeHandlerSource, /showChartTimeframePicker\(\);[\s\S]*hideActionSheet\(\);[\s\S]*closeChartTapMenu\(\);/);
   assert.match(timeframeHandlerSource, /scheduleIdleWork\(\(\) => \{\s*timeframes\.forEach[\s\S]*prefetchChartTimeframeHistory\(chartSymbol, tf\)/);
@@ -336,7 +347,8 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.doesNotMatch(smoothActionSheetHelperSource, /requestRetainedActionSheetPreview/);
   assert.match(drawingToolsHandlerSource, /runImmediateAction\('chart\.drawingTools\.open'[\s\S]*showChartActionSheet\(drawingToolsActionSheetConfig\)/);
   assert.doesNotMatch(drawingToolsHandlerSource, /openChartActionSheetSmoothly/);
-  assert.match(symbolPickerHandlerSource, /runImmediateAction\('chart\.symbolPicker\.open'[\s\S]*openChartActionSheetSmoothly\(symbolPickerActionSheetConfig\)/);
+  assert.match(symbolPickerOpenSource, /runImmediateAction\('chart\.symbolPicker\.open'[\s\S]*openChartActionSheetSmoothly\(symbolPickerActionSheetConfig\)/);
+  assert.match(symbolPickerHandlerSource, /openSymbolPickerForActivePane\(\)/);
   assert.match(drawingToolsHandlerSource, /commitRetainedActionSheetPreview\([\s\S]*if \(retainedRevealAccepted\) \{[\s\S]*scheduleAfterFirstFrame\(adoptDrawingToolsSheet\)/);
   assert.doesNotMatch(symbolPickerHandlerSource, /scheduleAfterFirstFrame/);
   // Both long chart lists can share More-menu motion once their opening
@@ -454,7 +466,7 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   );
   assert.match(
     source,
-    /const handleTimeframeSelect = useCallback[\s\S]*warmChartContextAndCommit\(chartSymbol, nextTimeframe\)/,
+    /const handleTimeframeSelect = useCallback[\s\S]*chartWindows\.updateToolbarTargetContext\(\{ timeframe: nextTimeframe \}\)/,
   );
   assert.doesNotMatch(
     source.slice(source.indexOf('const handleOpenObjectsScreen'), source.indexOf('const handleOpenSignalDetails')),
@@ -464,11 +476,15 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
     source.slice(source.indexOf('const handleOpenSettingsScreen'), source.indexOf('const handleToggleChartExpanded')),
     /requestAnimationFrame/,
   );
-  assert.match(source, /onPress=\{handleOpenTimeframePicker\}[\s\S]*activateOnPressIn/);
-  assert.match(source, /onPressIn=\{handleActivateDirectChartProtection\}/);
-  assert.match(source, /onPress=\{handleOpenDrawingTools\}[\s\S]*activateOnPressIn/);
-  assert.match(source, /accessibilityLabel="Chart settings"[\s\S]*onPress=\{handleOpenSettingsScreen\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart/);
-  assert.match(source, /onPress=\{handleOpenMoreMenu\}[\s\S]*activateOnPressIn/);
+  assert.match(source, /onPress=\{\(\) => routeChartWindowToolbarAction\('timeframe'\)\}[\s\S]*activateOnPressIn/);
+  assert.match(source, /onPressIn=\{\(\) => routeChartWindowToolbarAction\('sltp'\)\}/);
+  assert.match(source, /onPress=\{\(\) => routeChartWindowToolbarAction\('drawings'\)\}[\s\S]*activateOnPressIn/);
+  assert.match(source, /accessibilityLabel="Chart settings"[\s\S]*onPress=\{\(\) => routeChartWindowToolbarAction\('settings'\)\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart/);
+  assert.match(source, /onPress=\{\(\) => routeChartWindowToolbarAction\('more'\)\}[\s\S]*activateOnPressIn/);
+  assert.match(
+    source,
+    /useChartWindowToolbarRouter\([\s\S]*timeframe: handleOpenTimeframePicker[\s\S]*sltp: handleActivateDirectChartProtection[\s\S]*drawings: handleOpenDrawingTools[\s\S]*settings: handleOpenSettingsScreen[\s\S]*more: handleOpenMoreMenu/,
+  );
   assert.match(source, /onPress=\{handleOpenChartExpirationMenu\}[\s\S]*activateOnPressIn/);
   assert.match(timeframeTextStyle, /color:\s*TEXT_MUTED/);
   assert.doesNotMatch(timeframeTextStyle, /color:\s*BLUE/);

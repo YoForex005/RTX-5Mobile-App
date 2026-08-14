@@ -7,6 +7,7 @@ import {
   TvFx,
   TvLayers,
   TvRadialPencil,
+  TvTileWindows,
 } from './ChartToolbarIcons';
 import { useTranslation } from '../../../i18n/useTranslation';
 
@@ -30,6 +31,7 @@ type ChartTapRadialMenuProps = {
   isDark: boolean;
   onDismiss: () => void;
   onSelectTimeframe: (timeframe: string) => void;
+  onOpenChartWindows: () => void;
   onOpenObjects: () => void;
   onOpenDrawingTools: () => void;
   onOpenIndicators: () => void;
@@ -244,10 +246,10 @@ export function ChartTapRadialMenu({
   isDark,
   onDismiss,
   onSelectTimeframe,
+  onOpenChartWindows,
   onOpenObjects,
   onOpenDrawingTools,
   onOpenIndicators,
-
   onOpenSymbolPicker,
   onOpenScaleControls,
 }: ChartTapRadialMenuProps) {
@@ -431,8 +433,16 @@ export function ChartTapRadialMenu({
     onPress: () => void;
   }> = [
     {
+      key: 'windows',
+      angle: 288,
+      boxSize: 24,
+      accessibilityLabel: t('Tile windows'),
+      render: (color) => <TvTileWindows color={color} />,
+      onPress: onOpenChartWindows,
+    },
+    {
       key: 'objects',
-      angle: 282,
+      angle: 264,
       boxSize: 26,
       accessibilityLabel: t('Objects'),
       render: (color) => <TvLayers color={color} />,
@@ -440,7 +450,7 @@ export function ChartTapRadialMenu({
     },
     {
       key: 'draw',
-      angle: 252,
+      angle: 240,
       boxSize: 24,
       accessibilityLabel: t('Drawing Tools'),
       render: (color) => <TvRadialPencil color={color} />,
@@ -448,7 +458,7 @@ export function ChartTapRadialMenu({
     },
     {
       key: 'scale',
-      angle: 222,
+      angle: 216,
       boxSize: 24,
       accessibilityLabel: `${t('Chart')} ${t('Options')}`,
       onPress: onOpenScaleControls,

@@ -19,8 +19,13 @@ const rootLayoutSource = readFileSync(resolve(process.cwd(), 'app/_layout.tsx'),
 test('timeframe switch resets time range and commits only the selected timeframe', () => {
   assertSourceContains(
     source,
-    /const handleTimeframeSelect = useCallback[\s\S]*setActiveDateRange\('auto'\)[\s\S]*setCustomDateValue\(null\)[\s\S]*warmChartContextAndCommit\(chartSymbol, nextTimeframe\)/,
-    'timeframe switch must reset range and commit new timeframe',
+    /const handleTimeframeSelect = useCallback[\s\S]*setActiveDateRange\('auto'\)[\s\S]*setCustomDateValue\(null\)[\s\S]*chartWindows\.updateToolbarTargetContext\(\{ timeframe: nextTimeframe \}\)/,
+    'timeframe switch must reset range and route the new timeframe to the targeted pane',
+  );
+  assertSourceContains(
+    source,
+    /const chartWindows = useChartWindowsFeature\(\{[\s\S]*onCommitContext: commitChartWindowContext[\s\S]*chartWindowCommitContextImplementationRef\.current = warmChartContextAndCommit/,
+    'targeted timeframe switches must retain the warmed chart commit pipeline',
   );
 });
 

@@ -8,6 +8,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       var message = payload && typeof payload === 'object'
         ? Object.assign({ type: type }, payload)
         : { type: type };
+      if (typeof window.__rtx5ChartWindowPaneId === 'string' && window.__rtx5ChartWindowPaneId) {
+        message.chartWindowPaneId = window.__rtx5ChartWindowPaneId;
+      }
       window.ReactNativeWebView.postMessage(JSON.stringify(message));
     } catch (_error) {}
   }

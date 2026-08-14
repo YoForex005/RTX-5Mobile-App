@@ -10,9 +10,11 @@ import {
   type ListRenderItem,
 } from 'react-native';
 import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
-import type {
-  ChartTradeQueueEvent,
-  ChartTradeReceiptStackController,
+import {
+  selectChartTradeReceiptSnapshotForPane,
+  type ChartTradeReceiptSnapshot,
+  type ChartTradeQueueEvent,
+  type ChartTradeReceiptStackController,
 } from './chartTradeReceiptStackController';
 
 export * from './chartTradeReceiptStackController';
@@ -26,6 +28,8 @@ export type ChartTradeReceiptStackProps = {
   isDark: boolean;
   buyColor: string;
   sellColor: string;
+  chartWindowPaneId?: string;
+  paneWidth?: number;
   topOffset?: number;
   bottomOffset?: number;
 };
@@ -132,13 +136,21 @@ export const ChartTradeReceiptStack = React.memo(({
   isDark,
   buyColor,
   sellColor,
+  chartWindowPaneId,
+  paneWidth,
   topOffset = 8,
   bottomOffset = 16,
 }: ChartTradeReceiptStackProps) => {
-  const receipts = useSyncExternalStore(
+  const snapshot = useSyncExternalStore(
     controller.subscribe,
     controller.getSnapshot,
     controller.getSnapshot,
+  );
+  const receipts: ChartTradeReceiptSnapshot = useMemo(
+    () => chartWindowPaneId
+      ? selectChartTradeReceiptSnapshotForPane(snapshot, chartWindowPaneId)
+      : snapshot,
+    [chartWindowPaneId, snapshot],
   );
   const listRef = useRef<FlatList<ChartTradeQueueEvent>>(null);
   const previousQueueIdsRef = useRef<ReadonlySet<number>>(new Set());
@@ -149,7 +161,10 @@ export const ChartTradeReceiptStack = React.memo(({
     Math.max(CARD_HEIGHT, receipts.length * ITEM_HEIGHT - CARD_GAP),
   );
   // Stay compact while giving the receipt a few more pixels of breathing room.
-  const listWidth = Math.min(238, Math.max(208, windowWidth * 0.54));
+  const preferredListWidth = Math.min(238, Math.max(208, windowWidth * 0.54));
+  const listWidth = Number.isFinite(paneWidth) && Number(paneWidth) > 0
+    ? Math.min(preferredListWidth, Math.max(1, Number(paneWidth) - 12))
+    : preferredListWidth;
 
   useEffect(() => {
     const newestQueueId = receipts[0]?.queueId ?? null;

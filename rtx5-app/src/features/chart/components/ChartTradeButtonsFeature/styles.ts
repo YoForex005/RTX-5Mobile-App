@@ -46,6 +46,9 @@ export const baseStyles = StyleSheet.create({
     width: 172, minWidth: 164, maxWidth: 184, flexShrink: 0,
     alignSelf: 'stretch', height: COMPACT_TRADE_FOOTER_ROW_HEIGHT, overflow: 'hidden',
   },
+  actionLotSlotCompact: {
+    width: 82, minWidth: 82, maxWidth: 82,
+  },
   actionLotControl: {
     flexDirection: 'row', alignItems: 'center', width: '100%', height: '100%',
     borderRadius: 0, borderWidth: 1, overflow: 'hidden',
@@ -59,6 +62,9 @@ export const baseStyles = StyleSheet.create({
   actionLotAdjustButton: {
     width: 32, height: '100%', alignItems: 'center', justifyContent: 'center',
     position: 'relative', zIndex: 2, elevation: 2,
+  },
+  actionLotAdjustButtonCompact: {
+    width: 22,
   },
   actionLotAdjustButtonDisabled: { opacity: 0.35 },
   actionLotUnderlayIconHidden: { opacity: 0 },
@@ -120,6 +126,14 @@ export const baseStyles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.35)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 1.5,
+  },
+  actionLotCommittedIconBoxCompact: {
+    width: 22,
+  },
+  actionBtnPriceTextCompact: {
+    fontSize: 11,
+    lineHeight: 18,
+    paddingHorizontal: 1,
   },
   actionBtnPriceTrailingText: {
     fontSize: 23,

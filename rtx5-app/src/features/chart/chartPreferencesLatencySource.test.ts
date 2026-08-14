@@ -97,7 +97,11 @@ test('Chart toolbar Preferences opens and closes via retained host (no stack pus
   );
   assert.match(
     nativeSource,
-    /accessibilityLabel="Chart settings"[\s\S]*onPress=\{handleOpenSettingsScreen\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart/,
+    /accessibilityLabel="Chart settings"[\s\S]*onPress=\{\(\) => routeChartWindowToolbarAction\('settings'\)\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart/,
+  );
+  assert.match(
+    nativeSource,
+    /useChartWindowToolbarRouter\([\s\S]*settings: handleOpenSettingsScreen/,
   );
   assert.match(hostSource, /ChartSettingsScreen[\s\S]*hosted[\s\S]*onHostedBack=\{closeHost\}/);
   assert.match(hostSource, /setNativeProps/);

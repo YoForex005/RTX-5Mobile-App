@@ -46,8 +46,13 @@ test('radial menu timeframe switch uses stable chart pipeline', () => {
   );
   assertSourceContains(
     chartSource,
-    /const handleTimeframeSelect = useCallback[\s\S]*setActiveDateRange\('auto'\)[\s\S]*setCustomDateValue\(null\)[\s\S]*warmChartContextAndCommit\(chartSymbol, nextTimeframe\)/,
-    'timeframe handler must reset date range and commit through the warmed chart context',
+    /const handleTimeframeSelect = useCallback[\s\S]*setActiveDateRange\('auto'\)[\s\S]*setCustomDateValue\(null\)[\s\S]*chartWindows\.updateToolbarTargetContext\(\{ timeframe: nextTimeframe \}\)/,
+    'timeframe handler must reset date range and route through the pane controller',
+  );
+  assertSourceContains(
+    chartSource,
+    /const chartWindows = useChartWindowsFeature\(\{[\s\S]*onCommitContext: commitChartWindowContext[\s\S]*chartWindowCommitContextImplementationRef\.current = warmChartContextAndCommit/,
+    'pane controller must retain the warmed chart context commit pipeline',
   );
 });
 
@@ -64,8 +69,8 @@ test('does not permanently blank chart after rapid switching', () => {
   );
   assertSourceContains(
     chartSource,
-    /msg\.type === 'CHART_READY'[\s\S]*shouldAcceptChartReady\([\s\S]*readCurrentProjectedChartCandles\(candlesRef\.current\)[\s\S]*const readyCandles = readyProjection\.candles[\s\S]*candlesRef\.current = readyCandles[\s\S]*readyInitSignature === readySnapshotInitSignature[\s\S]*issueChartDataPaintToken\(chartDataContextSig\)[\s\S]*updateChartData\(\$\{JSON\.stringify\(mapped\)\}, \{[\s\S]*dataContextSig:[\s\S]*paintToken:[\s\S]*setLivePriceLineForContext\([\s\S]*readyVisibleLivePrice[\s\S]*chartDataContextSig[\s\S]*readyLiveRevision/,
-    'CHART_READY must accept only the active context and acknowledge the latest projected candle plus Bid revision when its init snapshot is older',
+    /msg\.type === 'CHART_READY'[\s\S]*shouldAcceptChartReady\([\s\S]*readCurrentProjectedChartCandles\(\)[\s\S]*const readyCandles = readyProjection\.candles[\s\S]*retainCurrentChartCandles\(readyCandles\)[\s\S]*readyInitSignature === readySnapshotInitSignature[\s\S]*issueChartDataPaintToken\(chartDataContextSig\)[\s\S]*updateChartData\(\$\{JSON\.stringify\(mapped\)\}, \{[\s\S]*dataContextSig:[\s\S]*paintToken:[\s\S]*setLivePriceLineForContext\([\s\S]*readyVisibleLivePrice[\s\S]*chartDataContextSig[\s\S]*readyLiveRevision/,
+    'CHART_READY must accept only the active context, retain its context-scoped projection, and acknowledge the latest projected candle plus Bid revision when its init snapshot is older',
   );
   assertSourceContains(
     chartSource,

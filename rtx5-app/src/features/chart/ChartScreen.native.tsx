@@ -146,10 +146,16 @@ import { useMarketSymbols } from '../../query/market';
 import { useAccountSummary } from '../../query/account';
 import { useInstrumentMeta } from '../../query/instruments';
 import { useMarketStatus } from '../../query/marketStatus';
-import { useActiveBrokerQuerySession } from '../../query/authenticatedQueryScope';
+import { useRemoveWatchlistMutation } from '../../query/watchlist';
+import {
+  getActiveBrokerCredentialScopeKey,
+  useActiveBrokerCredentialScopeKey,
+  useActiveBrokerQuerySession,
+} from '../../query/authenticatedQueryScope';
 import { WebView } from 'react-native-webview';
 import { hasLiveQuoteFeedData, useLiveSymbolQuote } from '../../query/websocket';
 import { getCurrentLiveQuoteSnapshot } from '../quotes/useLiveQuotes';
+import { normalizeSymbol } from '../../domain/symbols';
 import {
   quoteActionBlockMessage,
   recordBlockedPriceAction,
@@ -278,7 +284,43 @@ import { LiveQuotePairHeader } from "./components/ChartLiveHeaders";
 import { ChartStepperModal, ChartFooterLotPicker, ChartTradeVolumeSlider } from "./components/ChartTradeControls";
 import { resolveChartTradeButtonQuote } from "./components/ChartTradeButtonsFeature/quoteFallback";
 import { TvLayers } from "./components/ChartToolbarIcons";
-import { ChartTapMenuViewport, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_DRAWING_MAGNET_THRESHOLD_PX, CHART_GRID_LINE_STYLE, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveVisibleTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent, type ChartVisiblePriceRange } from "./ChartScreen.constants";
+import { ChartWindowManagerOverlay } from './components/ChartWindowManagerOverlay';
+import {
+  ChartWindowsLayout,
+  type ChartWindowPaneFrame,
+} from './components/ChartWindowsLayout';
+import { useChartWindowsFeature } from './useChartWindowsFeature';
+import { useChartWindowVisualPreferences } from './useChartWindowVisualPreferences';
+import {
+  useChartWindowToolbarRouter,
+  type ChartWindowToolbarTargetConfirmation,
+} from './useChartWindowToolbarRouter';
+import {
+  resolveChartWindowCommandOwnerPaneId,
+  shouldReleaseChartWindowOwnedAction,
+} from './chartWindowActionOwnership';
+import {
+  collapseChartDrawingsToSingleWindow,
+  expandChartDrawingsForSplitWindows,
+  isChartDrawingForWindowContext,
+  isChartDrawingForWindowPane,
+  replaceChartWindowPaneDrawings,
+} from './chartWindowDrawingScope';
+import {
+  getChartWindowDrawingHistoryAvailability,
+  getChartWindowDrawingHistoryKey,
+  reconcileChartWindowDrawingHistory,
+  recordChartWindowDrawingChange,
+  redoChartWindowDrawingHistory,
+  undoChartWindowDrawingHistory,
+  type ChartWindowDrawingHistory,
+} from './chartWindowDrawingHistory';
+import {
+  isChartWindowRadialMenuRequestConfirmed,
+  mapChartWindowGestureToMenuAnchor,
+  type ChartWindowRadialMenuRequest,
+} from './chartWindowRadialMenu';
+import { ChartTapMenuViewport, CHART_AXIS_DIVIDER_DARK_COLOR as MT5_DARK_AXIS_BORDER_COLOR, CHART_AXIS_DIVIDER_LIGHT_COLOR as MT5_LIGHT_AXIS_BORDER_COLOR, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_DRAWING_MAGNET_THRESHOLD_PX, CHART_GRID_LINE_STYLE, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveVisibleTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent, type ChartVisiblePriceRange } from "./ChartScreen.constants";
 import {
   DEFAULT_CHART_SYMBOLS,
   SYMBOL_FLAGS,
@@ -300,6 +342,7 @@ import {
   projectChartLiveTickCandles,
   type ChartLiveTickAccumulator,
 } from './chartLiveTickAccumulator';
+import { resolveContextScopedChartCandles } from './chartContextScopedCandles';
 import {
   buildChartProtectionPositionSignature,
   createChartProtectionDraftId,
@@ -368,6 +411,11 @@ const CHART_OHLC_NEUTRAL_DARK_COLOR = '#FFFFFF';
 const CHART_OHLC_NEUTRAL_LIGHT_COLOR = '#0F172A';
 const CHART_OHLC_HIGH_COLOR = '#089981';
 const CHART_OHLC_LOW_COLOR = '#F23645';
+// The chart document recognizes double taps for 350 ms. Leave enough bridge
+// margin for CHART_DOUBLE_TAP to cancel promotion on a busy JS thread; toolbar
+// ownership is claimed immediately, so actions do not wait for this timeout.
+const CHART_WINDOW_FULL_PANE_SINGLE_TAP_DELAY_MS = 430;
+
 const CHART_SCALE_DISPLAY_ITEMS: Array<{
   key: keyof ChartDisplaySettings;
   label: string;
@@ -524,6 +572,7 @@ const isChartDrawingRecordForCurrentChart = (
   drawing: PersistedChartDrawing,
   chartSymbol: string,
   chartTimeframe: string,
+  chartWindowPaneId?: string,
 ): boolean => {
   if (LEGACY_UNSCOPED_DRAWING_KINDS.has(drawing.kind) && (!drawing.symbol || !drawing.timeframe)) {
     return false;
@@ -534,6 +583,10 @@ const isChartDrawingRecordForCurrentChart = (
   }
 
   if (drawing.timeframe && normalizeTimeframe(drawing.timeframe) !== normalizeTimeframe(chartTimeframe)) {
+    return false;
+  }
+
+  if (chartWindowPaneId && !isChartDrawingForWindowPane(drawing, chartWindowPaneId)) {
     return false;
   }
 
@@ -580,10 +633,16 @@ const filterChartDrawingRecordsForCurrentChart = (
   chartSymbol: string,
   chartTimeframe: string,
   candles: readonly ChartDrawingPriceCandle[] = [],
+  chartWindowPaneId?: string,
 ): PersistedChartDrawing[] =>
   drawings.filter(
     (drawing) =>
-      isChartDrawingRecordForCurrentChart(drawing, chartSymbol, chartTimeframe) &&
+      isChartDrawingRecordForCurrentChart(
+        drawing,
+        chartSymbol,
+        chartTimeframe,
+        chartWindowPaneId,
+      ) &&
       isDrawingPriceCompatibleWithCandles(drawing, candles),
   );
 
@@ -599,10 +658,13 @@ const PUBLIC_CHART_HISTORY_STARTUP_PREFETCH_TIMEOUT_MS = 1500;
 const CHART_WATCHDOG_INTERVAL_MS = 3000;
 const CHART_INIT_RETRY_MIN_MS = 5000;
 const MT5_LIGHT_GRID_COLOR = 'rgba(0,0,0,0.09)';
-const MT5_DARK_AXIS_BORDER_COLOR = 'rgba(148,163,184,0.38)';
-const MT5_LIGHT_AXIS_BORDER_COLOR = '#CBD5E1';
-
-const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActive }: { isChartRouteActive: boolean }) {
+const ChartScreenInner = React.memo(function ChartScreenInner({
+  isChartRouteActive,
+  isTradeExecutionFocused,
+}: {
+  isChartRouteActive: boolean;
+  isTradeExecutionFocused: () => boolean;
+}) {
   const T = useTheme();
   const { t } = useTranslation();
   // isChartRouteActive is provided by the thin ChartScreen wrapper below, so this
@@ -688,6 +750,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     setChartLockAll,
     setChartHideAll,
     setChartDrawingRecordsForSymbol,
+    removeQuoteSymbol,
   } = useUserPreferences(
     useShallow((state) => ({
       chartSymbol: state.chartSymbol,
@@ -721,13 +784,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       setChartLockAll: state.setChartLockAll,
       setChartHideAll: state.setChartHideAll,
       setChartDrawingRecordsForSymbol: state.setChartDrawingRecordsForSymbol,
+      removeQuoteSymbol: state.removeQuoteSymbol,
     })),
   );
+  const { mutate: removeServerWatchlistSymbol } = useRemoveWatchlistMutation();
   const isPublicDemoMarket = isOrrnnDemoPublicMarketSelection({
     brokerId: selectedBrokerId,
     isLoggedIn,
   });
   const activeChartSession = useActiveBrokerQuerySession();
+  const activeChartCredentialScopeKey = useActiveBrokerCredentialScopeKey();
   const activeChartSessionCacheNamespace = activeChartSession?.cacheNamespace ?? '';
   const chartMarketDataCacheNamespace = isPublicDemoMarket
     ? ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE
@@ -800,14 +866,115 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     [isDark],
   );
   const chartColorsSignature = useMemo(() => JSON.stringify(resolvedChartColors), [resolvedChartColors]);
+  const chartWindowCommitContextImplementationRef = useRef<(
+    symbol: string,
+    timeframe: string,
+  ) => void>(() => {});
+  const chartWindowCancelContextImplementationRef = useRef<() => void>(() => {});
+  const commitChartWindowContext = useCallback((symbol: string, timeframe: string) => {
+    chartWindowCommitContextImplementationRef.current(symbol, timeframe);
+  }, []);
+  const cancelChartWindowContext = useCallback(() => {
+    chartWindowCancelContextImplementationRef.current();
+  }, []);
+  const chartWindows = useChartWindowsFeature({
+    symbol: chartSymbol,
+    timeframe: chartTimeframe,
+    active: isScreenFocused,
+    onCommitContext: commitChartWindowContext,
+    onCancelPendingContext: cancelChartWindowContext,
+  });
+  const chartWindowVisualPreferences = useChartWindowVisualPreferences(chartWindows.state);
+  const chartWindowsStateRef = useRef(chartWindows.state);
+  chartWindowsStateRef.current = chartWindows.state;
+  type ChartWindowViewportCommand = Readonly<{
+    revision: number;
+    type: 'scrollToLastBar' | 'resetVerticalScale' | 'resetViewport';
+  }>;
+  const chartWindowViewportCommandRevisionRef = useRef(0);
+  const [chartWindowViewportCommands, setChartWindowViewportCommands] = useState<
+    Readonly<Record<string, ChartWindowViewportCommand>>
+  >({});
+  const routeChartWindowViewportCommand = useCallback((
+    type: ChartWindowViewportCommand['type'],
+  ): boolean => {
+    const current = chartWindowsStateRef.current;
+    const targetPaneIds = current.toolbarTargetPaneId === null
+      ? current.panes.map((pane) => pane.id)
+      : [current.toolbarTargetPaneId];
+    const revision = chartWindowViewportCommandRevisionRef.current + 1;
+    chartWindowViewportCommandRevisionRef.current = revision;
+    setChartWindowViewportCommands((previous) => {
+      const next = { ...previous };
+      targetPaneIds.forEach((paneId) => {
+        next[paneId] = Object.freeze({ revision, type });
+      });
+      return Object.freeze(next);
+    });
+    return targetPaneIds.includes(current.activePaneId);
+  }, []);
   const chartDrawingBucketKey = useMemo(() => getChartDrawingBucketKey(chartSymbol), [chartSymbol]);
   const persistedChartDrawingRecords = useMemo(
     () => chartDrawingRecordsBySymbol[chartDrawingBucketKey] ?? [],
     [chartDrawingBucketKey, chartDrawingRecordsBySymbol],
   );
   const scopedChartDrawingRecords = useMemo(
-    () => filterChartDrawingRecordsForCurrentChart(persistedChartDrawingRecords, chartSymbol, chartTimeframe),
-    [chartSymbol, chartTimeframe, persistedChartDrawingRecords],
+    () => filterChartDrawingRecordsForCurrentChart(
+      persistedChartDrawingRecords,
+      chartSymbol,
+      chartTimeframe,
+      [],
+      chartWindows.isSplit ? chartWindows.activePane.id : undefined,
+    ),
+    [
+      chartSymbol,
+      chartTimeframe,
+      chartWindows.activePane.id,
+      chartWindows.isSplit,
+      persistedChartDrawingRecords,
+    ],
+  );
+
+  useEffect(() => {
+    Object.entries(chartDrawingRecordsBySymbol).forEach(([bucketSymbol, records]) => {
+      const next = chartWindows.isSplit
+        ? expandChartDrawingsForSplitWindows(
+          records,
+          chartWindows.state.panes,
+          bucketSymbol,
+        )
+        : collapseChartDrawingsToSingleWindow(
+          records,
+          chartWindows.activePane.id,
+        );
+      if (next !== records) {
+        setChartDrawingRecordsForSymbol(bucketSymbol, next);
+      }
+    });
+  }, [
+    chartDrawingRecordsBySymbol,
+    chartWindows.activePane.id,
+    chartWindows.isSplit,
+    chartWindows.state.panes,
+    setChartDrawingRecordsForSymbol,
+  ]);
+  const chartWindowDrawingRecordsByPane = useMemo(
+    () => Object.freeze(Object.fromEntries(
+      chartWindows.state.panes.map((pane) => {
+        const bucket = chartDrawingRecordsBySymbol[getChartDrawingBucketKey(pane.symbol)] ?? [];
+        return [
+          pane.id,
+          filterChartDrawingRecordsForCurrentChart(
+            bucket,
+            pane.symbol,
+            pane.timeframe,
+            [],
+            chartWindows.isSplit ? pane.id : undefined,
+          ),
+        ];
+      }),
+    )),
+    [chartDrawingRecordsBySymbol, chartWindows.isSplit, chartWindows.state.panes],
   );
 
   const { data: apiSymbolsData } = useMarketSymbols(chartRuntimeActive);
@@ -1165,6 +1332,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const [chartTradeTpEnabled, setChartTradeTpEnabled] = useState(false);
   const [chartTradeTpPrice, setChartTradeTpPrice] = useState(0);
   const [chartDirectProtectionActive, setChartDirectProtectionActive] = useState(false);
+  const chartDirectProtectionOwnerPaneIdRef = useRef<string | null>(null);
   const chartProtectionDraftIdRef = useRef<string | null>(null);
   const chartProtectionAwaitingTicketRef = useRef<string | null>(null);
   const chartProtectionBaselineSignaturesRef = useRef<Record<string, string>>({});
@@ -1202,6 +1370,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     chartProtectionDraftIdRef.current = null;
     chartProtectionAwaitingTicketRef.current = null;
     chartProtectionBaselineSignaturesRef.current = {};
+    chartDirectProtectionOwnerPaneIdRef.current = null;
     setChartDirectProtectionActive(false);
     setChartTradeSlEnabled(false);
     setChartTradeSlPrice(0);
@@ -1599,15 +1768,86 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const footerTradeRowAnchorBottomRef = useRef<number | null>(null);
   const [activeTool, setActiveTool] = useState<string>(CHART_NO_DRAWING_TOOL);
   const [chartDrawingInputActive, setChartDrawingInputActive] = useState(false);
+  const chartDrawingToolOwnerPaneIdRef = useRef<string | null>(null);
   const [chartTapMenuAnchor, setChartTapMenuAnchor] = useState<ChartTapMenuAnchor | null>(null);
   const chartTapMenuOpenedAtRef = useRef<number | null>(null);
   const [chartTapMenuBounds, setChartTapMenuBounds] = useState<ChartTapMenuBounds>({ width: 0, height: 0 });
   const [chartTapMenuViewport, setChartTapMenuViewport] = useState<ChartTapMenuViewport>({ x: 0, y: 0, width: 0, height: 0 });
+  const [auxiliaryChartPaneViewport, setAuxiliaryChartPaneViewport] = useState<ChartWindowPaneFrame | null>(null);
+  const [pendingChartWindowRadialMenu, setPendingChartWindowRadialMenu] = useState<Readonly<{
+    request: ChartWindowRadialMenuRequest;
+    token: number;
+  }> | null>(null);
+  const chartWindowRadialMenuTokenRef = useRef(0);
+  const chartWindowSplitModeRef = useRef(false);
+  const chartWindowToolbarTargetPaneIdRef = useRef<string | null>(null);
   const [, setChartPlotArea] = useState<FixedHorizontalGridPlotArea | null>(null);
   const chartVisiblePriceRangeRef = useRef<ChartVisiblePriceRange | null>(null);
   const chartManualPriceScaleRef = useRef<ChartManualPriceScaleSnapshot | null>(null);
   const [stickyDrawingMode, setStickyDrawingMode] = useState(false);
   const [drawingMagnetMode, setDrawingMagnetMode] = useState(false);
+  type ChartWindowDrawingControls = Readonly<{
+    sticky: boolean;
+    magnet: boolean;
+  }>;
+  const [chartWindowDrawingControls, setChartWindowDrawingControls] = useState<
+    Readonly<Record<string, ChartWindowDrawingControls>>
+  >({});
+  const chartWindowDrawingControlsRef = useRef(chartWindowDrawingControls);
+  const lastDrawingControlsActivePaneIdRef = useRef(chartWindows.activePane.id);
+  chartWindowDrawingControlsRef.current = chartWindowDrawingControls;
+  useLayoutEffect(() => {
+    const paneIds = new Set(chartWindows.state.panes.map((pane) => pane.id));
+    const next: Record<string, ChartWindowDrawingControls> = {};
+    chartWindows.state.panes.forEach((pane) => {
+      next[pane.id] = chartWindowDrawingControlsRef.current[pane.id]
+        ?? Object.freeze({ sticky: stickyDrawingMode, magnet: drawingMagnetMode });
+    });
+    const needsReconcile =
+      Object.keys(chartWindowDrawingControlsRef.current).some((paneId) => !paneIds.has(paneId))
+      || chartWindows.state.panes.some(
+        (pane) => !chartWindowDrawingControlsRef.current[pane.id],
+      );
+    if (needsReconcile) {
+      const frozen = Object.freeze(next);
+      chartWindowDrawingControlsRef.current = frozen;
+      setChartWindowDrawingControls(frozen);
+    }
+
+    if (lastDrawingControlsActivePaneIdRef.current !== chartWindows.activePane.id) {
+      lastDrawingControlsActivePaneIdRef.current = chartWindows.activePane.id;
+      const controls = next[chartWindows.activePane.id]
+        ?? Object.freeze({ sticky: false, magnet: false });
+      setStickyDrawingMode(controls.sticky);
+      setDrawingMagnetMode(controls.magnet);
+    }
+  }, [
+    chartWindows.activePane.id,
+    chartWindows.state.panes,
+    drawingMagnetMode,
+    stickyDrawingMode,
+  ]);
+  const updateChartWindowDrawingControls = useCallback((
+    patch: Partial<ChartWindowDrawingControls>,
+  ) => {
+    const currentWindowState = chartWindowsStateRef.current;
+    const targetPaneIds = currentWindowState.toolbarTargetPaneId === null
+      ? currentWindowState.panes.map((pane) => pane.id)
+      : [currentWindowState.toolbarTargetPaneId];
+    setChartWindowDrawingControls((current) => {
+      const next = { ...current };
+      targetPaneIds.forEach((paneId) => {
+        next[paneId] = Object.freeze({
+          sticky: current[paneId]?.sticky ?? stickyDrawingMode,
+          magnet: current[paneId]?.magnet ?? drawingMagnetMode,
+          ...patch,
+        });
+      });
+      const frozen = Object.freeze(next);
+      chartWindowDrawingControlsRef.current = frozen;
+      return frozen;
+    });
+  }, [drawingMagnetMode, stickyDrawingMode]);
   const [textLevelEditRequest, setTextLevelEditRequest] = useState<TextLevelEditRequest | null>(null);
   const [chartViewportTouchActive, setChartViewportTouchActive] = useState(false);
   const pendingChartDrawingTool = useUIState((s) => s.pendingChartDrawingTool);
@@ -2137,13 +2377,158 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         chartSymbol,
         chartTimeframe,
         sanitizedBackendCandles,
+        chartWindows.isSplit ? chartWindows.activePane.id : undefined,
       ),
-    [chartSymbol, chartTimeframe, sanitizedBackendCandles, scopedChartDrawingRecords],
+    [
+      chartSymbol,
+      chartTimeframe,
+      chartWindows.activePane.id,
+      chartWindows.isSplit,
+      sanitizedBackendCandles,
+      scopedChartDrawingRecords,
+    ],
   );
   const chartDrawingSignature = useMemo(() => JSON.stringify(chartDrawingRecords), [chartDrawingRecords]);
   // Selection + history state reported live by the WebView drawing engine.
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
   const [drawingHistoryState, setDrawingHistoryState] = useState({ canRedo: false, canUndo: false });
+  const chartWindowDrawingHistoriesRef = useRef<
+    Record<string, ChartWindowDrawingHistory>
+  >({});
+
+  useLayoutEffect(() => {
+    if (!chartWindows.isSplit) return;
+    const targetPanes = chartWindows.toolbarTargetPaneId === null
+      ? chartWindows.state.panes
+      : chartWindows.state.panes.filter(
+        (pane) => pane.id === chartWindows.toolbarTargetPaneId,
+      );
+    const availability = targetPanes.reduce(
+      (combined, pane) => {
+        const bucket = chartDrawingRecordsBySymbol[getChartDrawingBucketKey(pane.symbol)] ?? [];
+        const paneDrawings = pane.id === chartWindows.activePane.id
+          ? chartDrawingRecords
+          : bucket.filter(
+            (drawing) => (
+              isChartDrawingForWindowContext(drawing, pane.symbol, pane.timeframe)
+              && isChartDrawingForWindowPane(drawing, pane.id)
+            ),
+          );
+        const historyKey = getChartWindowDrawingHistoryKey(
+          pane.id,
+          pane.symbol,
+          pane.timeframe,
+        );
+        const history = reconcileChartWindowDrawingHistory(
+          chartWindowDrawingHistoriesRef.current[historyKey],
+          paneDrawings,
+        );
+        chartWindowDrawingHistoriesRef.current[historyKey] = history;
+        const paneAvailability = getChartWindowDrawingHistoryAvailability(history);
+        return {
+          canUndo: combined.canUndo || paneAvailability.canUndo,
+          canRedo: combined.canRedo || paneAvailability.canRedo,
+        };
+      },
+      { canUndo: false, canRedo: false },
+    );
+    setDrawingHistoryState((current) => (
+      current.canUndo === availability.canUndo && current.canRedo === availability.canRedo
+        ? current
+        : availability
+    ));
+  }, [
+    chartDrawingRecordsBySymbol,
+    chartDrawingRecords,
+    chartWindows.activePane,
+    chartWindows.isSplit,
+    chartWindows.state.panes,
+    chartWindows.toolbarTargetPaneId,
+  ]);
+
+  const applyChartWindowDrawingHistoryAction = useCallback((
+    action: 'clear' | 'redo' | 'undo',
+  ): boolean => {
+    const currentWindowState = chartWindowsStateRef.current;
+    if (currentWindowState.panes.length <= 1) return false;
+    const targetPaneIds = new Set(
+      currentWindowState.toolbarTargetPaneId === null
+        ? currentWindowState.panes.map((pane) => pane.id)
+        : [currentWindowState.toolbarTargetPaneId],
+    );
+    const persistedBuckets = useUserPreferences.getState().chartDrawingRecordsBySymbol;
+    const pendingBuckets = new Map<
+      string,
+      { symbol: string; drawings: PersistedChartDrawing[] }
+    >();
+    const targetAvailability = { canUndo: false, canRedo: false };
+    let changed = false;
+
+    currentWindowState.panes.forEach((pane) => {
+      if (!targetPaneIds.has(pane.id)) return;
+      const bucketKey = getChartDrawingBucketKey(pane.symbol);
+      const bucket = pendingBuckets.get(bucketKey) ?? {
+        symbol: pane.symbol,
+        drawings: [...(persistedBuckets[bucketKey] ?? [])],
+      };
+      const paneDrawings = bucket.drawings.filter(
+        (drawing) => (
+          isChartDrawingForWindowContext(drawing, pane.symbol, pane.timeframe)
+          && isChartDrawingForWindowPane(drawing, pane.id)
+        ),
+      );
+      const historyKey = getChartWindowDrawingHistoryKey(
+        pane.id,
+        pane.symbol,
+        pane.timeframe,
+      );
+      const alignedHistory = reconcileChartWindowDrawingHistory(
+        chartWindowDrawingHistoriesRef.current[historyKey],
+        paneDrawings,
+      );
+      const transition = action === 'undo'
+        ? undoChartWindowDrawingHistory(alignedHistory)
+        : action === 'redo'
+          ? redoChartWindowDrawingHistory(alignedHistory)
+          : (() => {
+            const history = recordChartWindowDrawingChange(alignedHistory, []);
+            return {
+              changed: history !== alignedHistory,
+              drawings: history.present,
+              history,
+            };
+          })();
+
+      chartWindowDrawingHistoriesRef.current[historyKey] = transition.history;
+      const paneAvailability = getChartWindowDrawingHistoryAvailability(transition.history);
+      targetAvailability.canUndo ||= paneAvailability.canUndo;
+      targetAvailability.canRedo ||= paneAvailability.canRedo;
+      if (!transition.changed) {
+        pendingBuckets.set(bucketKey, bucket);
+        return;
+      }
+
+      changed = true;
+      bucket.drawings = replaceChartWindowPaneDrawings(
+        bucket.drawings,
+        transition.drawings,
+        pane,
+      );
+      pendingBuckets.set(bucketKey, bucket);
+    });
+
+    if (!changed) {
+      setDrawingHistoryState(targetAvailability);
+      return true;
+    }
+
+    pendingBuckets.forEach(({ symbol, drawings }) => {
+      setChartDrawingRecordsForSymbol(symbol, drawings);
+    });
+    setSelectedDrawingId(null);
+    setDrawingHistoryState(targetAvailability);
+    return true;
+  }, [setChartDrawingRecordsForSymbol]);
   const hasChartDrawings = chartDrawingRecords.length > 0;
   const selectedDrawingRecord = useMemo(
     () => (selectedDrawingId
@@ -2457,6 +2842,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     chartProtectionDraftIdRef.current = null;
     chartProtectionAwaitingTicketRef.current = null;
     chartProtectionBaselineSignaturesRef.current = {};
+    chartDirectProtectionOwnerPaneIdRef.current = null;
     setChartPositionStopDragPreviews({});
   }, [activeChartSessionCacheNamespace, normalizedChartPositionSymbol]);
   useEffect(() => {
@@ -2650,6 +3036,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const handleSetTool = useCallback((tool: string) => {
     closeChartTapMenu();
     const nextDrawingInputActive = !chartLockAll && isChartDrawingInputTool(tool);
+    chartDrawingToolOwnerPaneIdRef.current = tool === CHART_NO_DRAWING_TOOL
+      ? null
+      : chartWindowToolbarTargetPaneIdRef.current;
     setActiveTool(tool);
     setChartDrawingInputActive(nextDrawingInputActive);
     injectChartScript(`setDrawingTool(${JSON.stringify(tool)}, { startDrawing: ${nextDrawingInputActive} });`);
@@ -2657,47 +3046,81 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   const handleClearDrawings = useCallback(() => {
     closeChartTapMenu();
+    chartDrawingToolOwnerPaneIdRef.current = null;
     setActiveTool(CHART_NO_DRAWING_TOOL);
     setChartDrawingInputActive(false);
     allowNextEmptyDrawingSyncRef.current = true;
     hasAcceptedNonEmptyWebViewDrawingsRef.current = false;
-    setChartDrawingRecordsForSymbol(chartSymbol, []);
     lastWebViewDrawingSignatureRef.current = '';
     lastInjectedDrawingSyncRef.current = { signature: '', epoch: -1 };
+    if (applyChartWindowDrawingHistoryAction('clear')) {
+      return;
+    }
+    setChartDrawingRecordsForSymbol(chartSymbol, []);
     injectChartScript('clearDrawings();');
-  }, [chartSymbol, closeChartTapMenu, injectChartScript, setChartDrawingInputActive]);
+  }, [
+    applyChartWindowDrawingHistoryAction,
+    chartSymbol,
+    closeChartTapMenu,
+    injectChartScript,
+    setChartDrawingInputActive,
+    setChartDrawingRecordsForSymbol,
+  ]);
 
   const handleUndoDrawing = useCallback(() => {
     closeChartTapMenu();
     allowNextEmptyDrawingSyncRef.current = true;
+    if (applyChartWindowDrawingHistoryAction('undo')) {
+      lastWebViewDrawingSignatureRef.current = '';
+      lastInjectedDrawingSyncRef.current = { signature: '', epoch: -1 };
+      return;
+    }
     injectChartScript('undoDrawingAction();');
-  }, [closeChartTapMenu, injectChartScript]);
+  }, [applyChartWindowDrawingHistoryAction, closeChartTapMenu, injectChartScript]);
 
   const handleRedoDrawing = useCallback(() => {
     closeChartTapMenu();
     allowNextEmptyDrawingSyncRef.current = true;
+    if (applyChartWindowDrawingHistoryAction('redo')) {
+      lastWebViewDrawingSignatureRef.current = '';
+      lastInjectedDrawingSyncRef.current = { signature: '', epoch: -1 };
+      return;
+    }
     injectChartScript('redoDrawingAction();');
-  }, [closeChartTapMenu, injectChartScript]);
+  }, [applyChartWindowDrawingHistoryAction, closeChartTapMenu, injectChartScript]);
 
   const handleToggleStickyMode = useCallback(() => {
     closeChartTapMenu();
     const next = !stickyDrawingMode;
+    updateChartWindowDrawingControls({ sticky: next });
     setStickyDrawingMode(next);
     injectChartScript(`setStayInDrawingMode(${next});`);
-  }, [closeChartTapMenu, injectChartScript, stickyDrawingMode]);
+  }, [
+    closeChartTapMenu,
+    injectChartScript,
+    stickyDrawingMode,
+    updateChartWindowDrawingControls,
+  ]);
 
   const handleToggleMagnetMode = useCallback(() => {
     closeChartTapMenu();
     const next = !drawingMagnetMode;
+    updateChartWindowDrawingControls({ magnet: next });
     setDrawingMagnetMode(next);
     injectChartScript(`setDrawingMagnetMode(${next});`);
-  }, [closeChartTapMenu, drawingMagnetMode, injectChartScript]);
+  }, [
+    closeChartTapMenu,
+    drawingMagnetMode,
+    injectChartScript,
+    updateChartWindowDrawingControls,
+  ]);
 
   const handleToggleLock = useCallback(() => {
     closeChartTapMenu();
     const next = !chartLockAll;
     setChartLockAll(next);
     if (next) {
+      chartDrawingToolOwnerPaneIdRef.current = null;
       setActiveTool(CHART_NO_DRAWING_TOOL);
       setChartDrawingInputActive(false);
       injectChartScript('setDrawingsLocked(true);');
@@ -2716,8 +3139,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   const handleZoomTool = useCallback(() => {
     closeChartTapMenu();
-    injectChartScript('zoomChart();');
-  }, [closeChartTapMenu, injectChartScript]);
+    if (routeChartWindowViewportCommand('resetViewport')) {
+      injectChartScript('zoomChart();');
+    }
+  }, [closeChartTapMenu, injectChartScript, routeChartWindowViewportCommand]);
 
   const handleRequestDeleteAllDrawings = useCallback(() => {
     closeChartTapMenu();
@@ -2898,7 +3323,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const handleChartTapMenuDismiss = useCallback(() => {
     const openedAt = chartTapMenuOpenedAtRef.current;
     closeChartTapMenu();
-    if (hasChartDrawings && openedAt !== null && Date.now() - openedAt <= 450) {
+    if (
+      !chartWindowSplitModeRef.current
+      && hasChartDrawings
+      && openedAt !== null
+      && Date.now() - openedAt <= 450
+    ) {
       openDrawingQuickActionsSheet();
     }
   }, [closeChartTapMenu, hasChartDrawings, openDrawingQuickActionsSheet]);
@@ -2926,7 +3356,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     runImmediateAction('chart.radial.scrollToLastBar', () => {
       hideActionSheet();
       closeChartTapMenu();
-      executeScrollToLastBar();
+      if (routeChartWindowViewportCommand('scrollToLastBar')) {
+        executeScrollToLastBar();
+      }
     });
   };
 
@@ -2945,7 +3377,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     runImmediateAction('chart.radial.resetVerticalScale', () => {
       hideActionSheet();
       closeChartTapMenu();
-      executeResetVerticalScale();
+      if (routeChartWindowViewportCommand('resetVerticalScale')) {
+        executeResetVerticalScale();
+      }
     });
   };
 
@@ -3335,7 +3769,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     snapTradeSheet,
   ]);
 
-  const handleActivateDirectChartProtection = useCallback(() => {
+  const handleActivateDirectChartProtection = useCallback((
+    confirmation: ChartWindowToolbarTargetConfirmation,
+  ) => {
+    chartDirectProtectionOwnerPaneIdRef.current =
+      resolveChartWindowCommandOwnerPaneId(confirmation);
     runImmediateAction('chart.sltp.direct', () => {
       // The toolbar creates protection for a new Market Execution order, even
       // when one or more same-symbol positions already exist.
@@ -5302,6 +5740,31 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     tradeVolume,
     tradeVolumeBounds,
   ]);
+  const chartWindowProtectionPriceLinesByPane = useMemo(() => {
+    const protectionLines = chartTradePreviewLines.filter(
+      (line) => line.id === 'chart-trade-sl-preview' || line.id === 'chart-trade-tp-preview',
+    );
+    if (!chartDirectProtectionActive || protectionLines.length === 0) {
+      return Object.freeze({});
+    }
+    const ownerPaneId = chartDirectProtectionOwnerPaneIdRef.current;
+    return Object.freeze(Object.fromEntries(
+      chartWindows.state.panes.map((pane) => [
+        pane.id,
+        (
+          (ownerPaneId === null || ownerPaneId === pane.id)
+          && getChartDrawingBucketKey(pane.symbol) === getChartDrawingBucketKey(chartSymbol)
+        )
+          ? protectionLines
+          : [],
+      ]),
+    ));
+  }, [
+    chartDirectProtectionActive,
+    chartSymbol,
+    chartTradePreviewLines,
+    chartWindows.state.panes,
+  ]);
 
   const chartType = chartVisualType;
   const chartDataContextSig = useMemo(
@@ -5487,9 +5950,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     runImmediateAction('chart.viewport.reset', () => {
       hideActionSheet();
       closeChartTapMenu();
-      applyNativeTimeRange(activeDateRange, customDateValue, true);
+      if (routeChartWindowViewportCommand('resetViewport')) {
+        applyNativeTimeRange(activeDateRange, customDateValue, true);
+      }
     });
-  }, [activeDateRange, applyNativeTimeRange, closeChartTapMenu, customDateValue, hideActionSheet]);
+  }, [
+    activeDateRange,
+    applyNativeTimeRange,
+    closeChartTapMenu,
+    customDateValue,
+    hideActionSheet,
+    routeChartWindowViewportCommand,
+  ]);
   const resetChartActionSheetContext = useCallback(() => {
     closeChartTapMenu();
     setFooterLotPickerMode(null);
@@ -5730,10 +6202,242 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     ],
   );
 
+  chartWindowCommitContextImplementationRef.current = warmChartContextAndCommit;
+  chartWindowCancelContextImplementationRef.current = chartContextCommitScheduler.cancelPending;
+  chartWindowSplitModeRef.current = chartWindows.isSplit;
+  chartWindowToolbarTargetPaneIdRef.current = chartWindows.toolbarTargetPaneId;
+  const confirmedPaneSymbolPickerRef = useRef<() => void>(() => {});
+
+  useLayoutEffect(() => {
+    const activePaneId = chartWindows.activePane.id;
+    const protectionOwnerPaneId = chartDirectProtectionOwnerPaneIdRef.current;
+    if (shouldReleaseChartWindowOwnedAction(protectionOwnerPaneId, activePaneId)) {
+      clearChartDirectProtectionDraft();
+      snapTradeSheet('hidden');
+    }
+
+    const drawingOwnerPaneId = chartDrawingToolOwnerPaneIdRef.current;
+    if (shouldReleaseChartWindowOwnedAction(drawingOwnerPaneId, activePaneId)) {
+      chartDrawingToolOwnerPaneIdRef.current = null;
+      setActiveTool(CHART_NO_DRAWING_TOOL);
+      setChartDrawingInputActive(false);
+      clearPendingChartDrawingTool();
+      injectChartScript(
+        `setDrawingTool(${JSON.stringify(CHART_NO_DRAWING_TOOL)}, { startDrawing: false });`,
+      );
+    }
+  }, [
+    chartWindows.activePane.id,
+    clearChartDirectProtectionDraft,
+    clearPendingChartDrawingTool,
+    injectChartScript,
+    setChartDrawingInputActive,
+    snapTradeSheet,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!webViewReady || !webViewRef.current) return;
+    injectChartScript(
+      `if (typeof setChartWindowSplitMode === 'function') { setChartWindowSplitMode(${chartWindows.isSplit}); }`,
+    );
+  }, [chartWindows.isSplit, injectChartScript, webViewReady]);
+
+  const handleOpenChartWindows = useCallback(() => {
+    closeChartTapMenu();
+    hideChartTimeframePicker();
+    hideActionSheet();
+    snapTradeSheet('hidden');
+    chartWindows.openManager();
+  }, [chartWindows.openManager, closeChartTapMenu, hideActionSheet, snapTradeSheet]);
+
+  const handleSelectChartWindowPane = useCallback((paneId: string) => {
+    chartWindowRadialMenuTokenRef.current += 1;
+    setPendingChartWindowRadialMenu(null);
+    closeChartTapMenu();
+    const currentState = chartWindowsStateRef.current;
+    if (
+      currentState.activePaneId === paneId
+      && currentState.toolbarTargetPaneId === paneId
+    ) {
+      return;
+    }
+    // This callback is intentionally selection-only. A toolbar press can land
+    // during the single-vs-double-tap delay; closing sheets here would dismiss
+    // the timeframe, SL/TP, Drawing Tools, or More UI that press just opened.
+    chartWindows.selectPaneFromTap(paneId);
+  }, [chartWindows.selectPaneFromTap, closeChartTapMenu]);
+
+  const cancelPendingChartWindowRadialMenu = useCallback((expectedToken?: number) => {
+    if (
+      expectedToken === undefined
+      || chartWindowRadialMenuTokenRef.current === expectedToken
+    ) {
+      chartWindowRadialMenuTokenRef.current += 1;
+    }
+    setPendingChartWindowRadialMenu((current) => (
+      expectedToken === undefined || current?.token === expectedToken ? null : current
+    ));
+  }, []);
+
+  const handleOpenChartWindowPaneRadialMenu = useCallback((
+    request: ChartWindowRadialMenuRequest,
+  ) => {
+    closeChartTapMenu();
+    hideChartTimeframePicker();
+    hideActionSheet();
+    snapTradeSheet('hidden');
+    if (request.gesture.ownerCredentialScopeKey !== getActiveBrokerCredentialScopeKey()) {
+      cancelPendingChartWindowRadialMenu();
+      return;
+    }
+    const token = chartWindowRadialMenuTokenRef.current + 1;
+    chartWindowRadialMenuTokenRef.current = token;
+    setPendingChartWindowRadialMenu(null);
+    chartWindows.selectPaneFromTap(request.paneId, (confirmedPane, confirmedContext) => {
+      if (
+        chartWindowRadialMenuTokenRef.current !== token
+        || request.gesture.ownerCredentialScopeKey !== getActiveBrokerCredentialScopeKey()
+        || !isChartWindowRadialMenuRequestConfirmed(
+          request,
+          confirmedPane,
+          confirmedContext,
+          getActiveBrokerCredentialScopeKey(),
+        )
+      ) {
+        cancelPendingChartWindowRadialMenu(token);
+        return;
+      }
+      setPendingChartWindowRadialMenu(Object.freeze({ request, token }));
+    });
+  }, [
+    chartWindows.selectPaneFromTap,
+    cancelPendingChartWindowRadialMenu,
+    closeChartTapMenu,
+    hideActionSheet,
+    snapTradeSheet,
+  ]);
+
+  useEffect(() => {
+    const pending = pendingChartWindowRadialMenu;
+    if (!pending) return;
+    if (
+      pending.token !== chartWindowRadialMenuTokenRef.current
+      || !isScreenFocused
+      || !chartWindows.isSplit
+      || pending.request.gesture.ownerCredentialScopeKey !== getActiveBrokerCredentialScopeKey()
+      || !isChartWindowRadialMenuRequestConfirmed(
+        pending.request,
+        chartWindows.activePane,
+        { symbol: chartSymbol, timeframe: chartTimeframe },
+        getActiveBrokerCredentialScopeKey(),
+      )
+    ) {
+      cancelPendingChartWindowRadialMenu(pending.token);
+      return;
+    }
+    if (shouldSuppressChartTapMenu({
+      activeTool,
+      footerLotEditorFocused,
+      footerLotEditorOpening,
+      footerLotPickerOpen: footerLotPickerMode !== null,
+      suppressUntil: chartTapMenuSuppressUntilRef.current,
+    })) {
+      cancelPendingChartWindowRadialMenu(pending.token);
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      syncChartViewportFrame((viewport) => {
+        if (
+          pending.token !== chartWindowRadialMenuTokenRef.current
+          || !isScreenFocusedRef.current
+          || pending.request.gesture.ownerCredentialScopeKey !== getActiveBrokerCredentialScopeKey()
+        ) {
+          cancelPendingChartWindowRadialMenu(pending.token);
+          return;
+        }
+        const currentState = chartWindowsStateRef.current;
+        const currentPane = currentState.panes.find(
+          (pane) => pane.id === currentState.activePaneId,
+        );
+        const currentPreferences = useUserPreferences.getState();
+        if (
+          !currentPane
+          || currentState.panes.length <= 1
+          || !isChartWindowRadialMenuRequestConfirmed(
+            pending.request,
+            currentPane,
+            {
+              symbol: currentPreferences.chartSymbol,
+              timeframe: currentPreferences.chartTimeframe,
+            },
+            getActiveBrokerCredentialScopeKey(),
+          )
+        ) {
+          cancelPendingChartWindowRadialMenu(pending.token);
+          return;
+        }
+        const nextBounds = {
+          width: viewport.width,
+          height: viewport.height,
+        };
+        const nextAnchor = mapChartWindowGestureToMenuAnchor(
+          pending.request.gesture,
+          nextBounds,
+        );
+        if (!nextAnchor) {
+          cancelPendingChartWindowRadialMenu(pending.token);
+          return;
+        }
+        chartTapMenuBoundsRef.current = nextBounds;
+        setChartTapMenuBounds((current) => (
+          current.width === nextBounds.width && current.height === nextBounds.height
+            ? current
+            : nextBounds
+        ));
+        chartTapMenuOpenedAtRef.current = Date.now();
+        setChartTapMenuAnchor(nextAnchor);
+        setPendingChartWindowRadialMenu((current) => (
+          current?.token === pending.token ? null : current
+        ));
+      });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [
+    activeTool,
+    cancelPendingChartWindowRadialMenu,
+    chartSymbol,
+    chartTimeframe,
+    chartWindows.activePane,
+    chartWindows.isSplit,
+    footerLotEditorFocused,
+    footerLotEditorOpening,
+    footerLotPickerMode,
+    isScreenFocused,
+    pendingChartWindowRadialMenu,
+    syncChartViewportFrame,
+  ]);
+
+  useEffect(() => {
+    if (isScreenFocused && chartWindows.isSplit) return;
+    cancelPendingChartWindowRadialMenu();
+  }, [cancelPendingChartWindowRadialMenu, chartWindows.isSplit, isScreenFocused]);
+
+  useEffect(() => {
+    cancelPendingChartWindowRadialMenu();
+    closeChartTapMenu();
+  }, [activeChartCredentialScopeKey, cancelPendingChartWindowRadialMenu, closeChartTapMenu]);
+
   const handleTimeframeSelect = useCallback((nextTimeframe: string) => {
     runImmediateAction(`chart.timeframe.${nextTimeframe}`, () => {
       hideChartTimeframePicker();
-      if (nextTimeframe === chartTimeframe) {
+      const targetPanes = chartWindows.toolbarTargetPaneId === null
+        ? chartWindows.state.panes
+        : chartWindows.state.panes.filter(
+          (pane) => pane.id === chartWindows.toolbarTargetPaneId,
+        );
+      if (targetPanes.every((pane) => pane.timeframe === nextTimeframe)) {
         closeChartTapMenu();
         hideActionSheet();
         return;
@@ -5743,9 +6447,15 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       hideActionSheet();
       setActiveDateRange('auto');
       setCustomDateValue(null);
-      warmChartContextAndCommit(chartSymbol, nextTimeframe);
+      chartWindows.updateToolbarTargetContext({ timeframe: nextTimeframe });
     });
-  }, [chartSymbol, chartTimeframe, closeChartTapMenu, hideActionSheet, warmChartContextAndCommit]);
+  }, [
+    chartWindows.state.panes,
+    chartWindows.toolbarTargetPaneId,
+    chartWindows.updateToolbarTargetContext,
+    closeChartTapMenu,
+    hideActionSheet,
+  ]);
 
   const handleSymbolSelect = useCallback((nextSymbol: string) => {
     runImmediateAction(`chart.symbol.${nextSymbol}`, () => {
@@ -5865,6 +6575,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     symbolPickerActionSheetConfig,
   ]);
 
+  const openSymbolPickerForActivePane = useCallback(() => {
+    runImmediateAction('chart.symbolPicker.open', () => {
+      openChartActionSheetSmoothly(symbolPickerActionSheetConfig);
+      scheduleChartActionSheetContextReset();
+    });
+  }, [
+    openChartActionSheetSmoothly,
+    scheduleChartActionSheetContextReset,
+    symbolPickerActionSheetConfig,
+  ]);
+  confirmedPaneSymbolPickerRef.current = openSymbolPickerForActivePane;
+
   const handleOpenSymbolPicker = useCallback(() => {
     // A hold-drag of the movable symbol header ends with the same tap event;
     // it must reposition the header, not open the picker.
@@ -5874,14 +6596,34 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     ) {
       return;
     }
-    runImmediateAction('chart.symbolPicker.open', () => {
-      openChartActionSheetSmoothly(symbolPickerActionSheetConfig);
-      scheduleChartActionSheetContextReset();
+    openSymbolPickerForActivePane();
+  }, [
+    openSymbolPickerForActivePane,
+  ]);
+
+  const handleOpenChartWindowPaneSymbolPicker = useCallback((paneId: string) => {
+    closeChartTapMenu();
+    hideChartTimeframePicker();
+    hideActionSheet();
+    snapTradeSheet('hidden');
+    chartWindows.selectPaneFromTap(paneId, (confirmedPane, confirmedContext) => {
+      // Read the latest picker config after the pane's context commit. A stored
+      // render-time callback could otherwise select a symbol using the previous
+      // pane's timeframe.
+      if (
+        confirmedPane.id !== paneId
+        || confirmedPane.symbol !== confirmedContext.symbol
+        || confirmedPane.timeframe !== confirmedContext.timeframe
+      ) {
+        return;
+      }
+      confirmedPaneSymbolPickerRef.current();
     });
   }, [
-    openChartActionSheetSmoothly,
-    scheduleChartActionSheetContextReset,
-    symbolPickerActionSheetConfig,
+    chartWindows.selectPaneFromTap,
+    closeChartTapMenu,
+    hideActionSheet,
+    snapTradeSheet,
   ]);
 
   const handleOpenTimeframePicker = useCallback(() => {
@@ -5952,12 +6694,19 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const handleOpenObjectsScreen = useCallback(() => {
     runImmediateAction('chart.objects.open', () => {
       const launchRevision = showChartActionLaunch('objects', chartSymbol);
+      const chartWindowPaneId = chartWindows.toolbarTargetPaneId
+        ?? chartWindows.activePane.id;
       const navigateToObjects = () => {
         scheduleChartActionLaunchNavigation(launchRevision, () => {
           try {
             router.push({
               pathname: '/chart/objects',
-              params: { launchRevision: String(launchRevision), symbol: chartSymbol },
+              params: {
+                launchRevision: String(launchRevision),
+                symbol: chartSymbol,
+                chartWindowPaneId,
+                chartWindowSplit: String(chartWindows.isSplit),
+              },
             });
           } catch {
             hideChartActionLaunch(launchRevision);
@@ -5971,7 +6720,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
       navigateToObjects();
     });
-  }, [chartSymbol, closeChartTapMenu, requestChartDrawingSyncForObjects]);
+  }, [
+    chartSymbol,
+    chartWindows.activePane.id,
+    chartWindows.isSplit,
+    chartWindows.toolbarTargetPaneId,
+    closeChartTapMenu,
+    requestChartDrawingSyncForObjects,
+  ]);
 
   const handleOpenSignalDetails = useCallback(() => {
     runImmediateAction('chart.signalDetails.open', () => {
@@ -6125,7 +6881,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     });
   }, [drawingToolsActionSheetConfig, isScreenFocused, preloadScopedActionSheet]);
 
-  const handleOpenDrawingTools = useCallback(() => {
+  const handleOpenDrawingTools = useCallback((
+    confirmation: ChartWindowToolbarTargetConfirmation,
+  ) => {
+    chartDrawingToolOwnerPaneIdRef.current =
+      resolveChartWindowCommandOwnerPaneId(confirmation);
     runImmediateAction('chart.drawingTools.open', () => {
       const adoptDrawingToolsSheet = () => {
         closeChartTapMenu();
@@ -6181,7 +6941,17 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
    */
   const handleChartMoreRemoveFromFavorites = useCallback(() => {
     hideActionSheet();
-  }, [hideActionSheet]);
+    removeQuoteSymbol(chartSymbol);
+    if (isLoggedIn) {
+      removeServerWatchlistSymbol(chartSymbol);
+    }
+  }, [
+    chartSymbol,
+    hideActionSheet,
+    isLoggedIn,
+    removeQuoteSymbol,
+    removeServerWatchlistSymbol,
+  ]);
 
   /**
    * Action handler for opening the Trading Calculator screen for the current symbol.
@@ -6454,6 +7224,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       scheduleChartActionSheetContextReset();
     });
   }, [chartMoreActions, scheduleChartActionSheetContextReset, showChartActionSheet]);
+
+  const routeChartWindowToolbarAction = useChartWindowToolbarRouter(
+    chartWindows.runOnToolbarTarget,
+    {
+      timeframe: handleOpenTimeframePicker,
+      sltp: handleActivateDirectChartProtection,
+      drawings: handleOpenDrawingTools,
+      settings: handleOpenSettingsScreen,
+      fullscreen: handleToggleChartExpanded,
+      more: handleOpenMoreMenu,
+    },
+  );
 
   const marketCloseSeparatorPayload = useMemo(() => {
     if (!isChartMarketClosed) {
@@ -6819,9 +7601,20 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   useEffect(() => {
     if (!webViewReady || !chartCanvasReady) return;
-    const bridgedTool = chartLockAll ? CHART_NO_DRAWING_TOOL : activeTool;
-    const shouldStartDrawing = !chartLockAll && chartDrawingInputActive && isChartDrawingInputTool(bridgedTool);
+    const drawingOwnerMismatch = shouldReleaseChartWindowOwnedAction(
+      chartDrawingToolOwnerPaneIdRef.current,
+      chartWindows.activePane.id,
+    );
+    const bridgedTool = chartLockAll || drawingOwnerMismatch
+      ? CHART_NO_DRAWING_TOOL
+      : activeTool;
+    const shouldStartDrawing =
+      !chartLockAll
+      && !drawingOwnerMismatch
+      && chartDrawingInputActive
+      && isChartDrawingInputTool(bridgedTool);
     injectChartScript(`
+      window.__rtx5ChartWindowPaneId = ${JSON.stringify(chartWindows.activePane.id)};
       setDrawingsLocked(${chartLockAll});
       setDrawingsHidden(${chartHideAll});
       setStayInDrawingMode(${stickyDrawingMode});
@@ -6834,6 +7627,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   }, [
     activeTool,
     chartDrawingInputActive,
+    chartWindows.activePane.id,
     webViewReady,
     chartCanvasReady,
     chartLockAll,
@@ -6864,11 +7658,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     }
 
     const nextDrawingInputActive = isChartDrawingInputTool(pendingChartDrawingTool);
+    chartDrawingToolOwnerPaneIdRef.current = chartWindows.toolbarTargetPaneId;
     setActiveTool(pendingChartDrawingTool);
     setChartDrawingInputActive(nextDrawingInputActive);
     injectChartScript(`setDrawingTool(${JSON.stringify(pendingChartDrawingTool)}, { startDrawing: ${nextDrawingInputActive} });`);
     clearPendingChartDrawingTool();
-  }, [pendingChartDrawingTool, chartCanvasReady, webViewReady, clearPendingChartDrawingTool]);
+  }, [
+    pendingChartDrawingTool,
+    chartCanvasReady,
+    chartWindows.toolbarTargetPaneId,
+    webViewReady,
+    clearPendingChartDrawingTool,
+  ]);
 
   useEffect(() => {
     if (!pendingChartCommand || !chartCanvasReady || !webViewReady) {
@@ -6876,9 +7677,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     }
 
     if (pendingChartCommand === 'scrollToLastBar') {
-      executeScrollToLastBar();
+      if (routeChartWindowViewportCommand('scrollToLastBar')) {
+        executeScrollToLastBar();
+      }
     } else if (pendingChartCommand === 'resetVerticalScale') {
-      executeResetVerticalScale();
+      if (routeChartWindowViewportCommand('resetVerticalScale')) {
+        executeResetVerticalScale();
+      }
     }
 
     clearPendingChartCommand();
@@ -6888,6 +7693,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     webViewReady,
     executeScrollToLastBar,
     executeResetVerticalScale,
+    routeChartWindowViewportCommand,
     clearPendingChartCommand,
   ]);
 
@@ -6904,6 +7710,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   //   • On WebView reload: READY resets state, next data push re-inits.
   // ─────────────────────────────────────────────────────────────────
   const candlesRef = useRef(sanitizedCandles);
+  const candlesRefContextSigRef = useRef(chartDataContextSig);
   const chartInitializedRef = useRef(false);
   const watchdogRef = useRef<NodeJS.Timeout | null>(null);
   const lastInitSigRef = useRef('');
@@ -6916,6 +7723,43 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   });
   const chartDataContextSigRef = useRef(chartDataContextSig);
   chartDataContextSigRef.current = chartDataContextSig;
+  const pendingFullPaneSelectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPendingFullPaneSelection = useCallback(() => {
+    const timeout = pendingFullPaneSelectionTimeoutRef.current;
+    if (timeout !== null) {
+      clearTimeout(timeout);
+      pendingFullPaneSelectionTimeoutRef.current = null;
+    }
+  }, []);
+  const scheduleFullPaneSelection = useCallback((expectedDataContextSig: string) => {
+    cancelPendingFullPaneSelection();
+    const expectedPaneId = chartWindowsStateRef.current.activePaneId;
+    chartWindows.claimToolbarTarget(expectedPaneId);
+    pendingFullPaneSelectionTimeoutRef.current = setTimeout(() => {
+      pendingFullPaneSelectionTimeoutRef.current = null;
+      const currentState = chartWindowsStateRef.current;
+      if (
+        !isScreenFocusedRef.current
+        || currentState.panes.length <= 1
+        || currentState.activePaneId !== expectedPaneId
+        || chartDataContextSigRef.current !== expectedDataContextSig
+      ) {
+        return;
+      }
+      handleSelectChartWindowPane(expectedPaneId);
+    }, CHART_WINDOW_FULL_PANE_SINGLE_TAP_DELAY_MS);
+  }, [
+    cancelPendingFullPaneSelection,
+    chartWindows.claimToolbarTarget,
+    handleSelectChartWindowPane,
+  ]);
+
+  useEffect(() => {
+    if (!chartWindows.isSplit) {
+      cancelPendingFullPaneSelection();
+    }
+    return cancelPendingFullPaneSelection;
+  }, [cancelPendingFullPaneSelection, chartWindows.isSplit]);
   const chartDataPaintRevisionRef = useRef(0);
   const pendingChartDataPaintRef = useRef({
     token: '',
@@ -6932,6 +7776,19 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     candle: ChartLiveOhlcCandle | null;
   }>({ contextKey: '', candle: null });
   const chartLiveOhlcListenersRef = useRef(new Map<string, Set<ChartLiveOhlcListener>>());
+  // A retained ChartScreen survives active-window symbol changes. Reset the
+  // fallback series synchronously during render so READY/init callbacks in the
+  // same commit can never seed the new Bid accumulator from the old symbol.
+  if (candlesRefContextSigRef.current !== chartDataContextSig) {
+    candlesRefContextSigRef.current = chartDataContextSig;
+    candlesRef.current = EMPTY_DISPLAY_CANDLES;
+    chartLiveTickAccumulatorRef.current = null;
+    chartLiveOhlcSnapshotRef.current = { contextKey: chartDataContextSig, candle: null };
+  }
+  const retainCurrentChartCandles = useCallback((nextCandles: typeof sanitizedCandles) => {
+    candlesRefContextSigRef.current = chartDataContextSig;
+    candlesRef.current = nextCandles;
+  }, [chartDataContextSig]);
   const publishChartLiveOhlc = useCallback((candle: ChartLiveOhlcCandle | null) => {
     chartLiveOhlcSnapshotRef.current = { contextKey: chartDataContextSig, candle };
     chartLiveOhlcListenersRef.current.get(chartDataContextSig)?.forEach((listener) => {
@@ -6968,11 +7825,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     publishChartLiveOhlc(next?.candle ?? null);
     return next;
   }, [chartDataContextSig, chartTimeframe, publishChartLiveOhlc]);
-  const readCurrentProjectedChartCandles = useCallback((
-    fallbackCandles: typeof sanitizedCandles = sanitizedCandles,
-  ) => {
+  const readCurrentProjectedChartCandles = useCallback(() => {
     const canonicalCandles = readRenderableCanonicalCandles();
-    const baseCandles = canonicalCandles.length > 0 ? canonicalCandles : fallbackCandles;
+    const baseCandles = resolveContextScopedChartCandles(
+      chartDataContextSig,
+      canonicalCandles,
+      {
+        contextKey: candlesRefContextSigRef.current,
+        candles: candlesRef.current,
+      },
+    );
     const exactQuote = readExactChartQuoteForScope(
       chartTradeDisplayQuoteScopeKey,
       retainedChartTradeDisplayQuoteRef.current,
@@ -6996,7 +7858,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     isChartMarketClosed,
     publishChartLiveOhlc,
     readRenderableCanonicalCandles,
-    sanitizedCandles,
   ]);
   const chartCandleFrontendPaintRef = useRef<{
     availableAt: number;
@@ -7116,7 +7977,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   useEffect(() => {
     const { projection } = readCurrentProjectedChartCandles();
-    candlesRef.current = projection.candles;
+    retainCurrentChartCandles(projection.candles);
     if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
       const last = sanitizedCandles[sanitizedCandles.length - 1];
       console.log('[CHART-CANDLES]', {
@@ -7131,7 +7992,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         count: sanitizedCandles.length,
       });
     }
-  }, [chartSymbol, chartTimeframe, readCurrentProjectedChartCandles, sanitizedCandles]);
+  }, [chartSymbol, chartTimeframe, readCurrentProjectedChartCandles, retainCurrentChartCandles, sanitizedCandles]);
 
   // Render backend candle timestamps directly. The shared candle engine owns
   // sorting, dedupe, and OHLC validation; the WebView receives the same
@@ -7282,9 +8143,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     // every tick just to discover init is already current.
     if (currentSig === lastInitSigRef.current && chartInitializedRef.current) return;
 
-    const { projection } = readCurrentProjectedChartCandles(candlesRef.current);
+    const { projection } = readCurrentProjectedChartCandles();
     const data = projection.candles;
-    candlesRef.current = data;
+    retainCurrentChartCandles(data);
     const initSnapshot = buildChartSeriesSnapshot(data);
     const initAttemptSig =
       `${chartDataContextSig}:${currentSig}:${getChartSnapshotSignature(initSnapshot)}`;
@@ -7321,7 +8182,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         at: now,
       };
     } catch (_e) { /* WebView may have been disposed */ }
-  }, [webViewReady, currentSig, chartDataContextSig, chartOptions, chartType, displayDecimals, buildMappedData, readCurrentProjectedChartCandles, showChartVolumePane, periodSeparatorOptions, periodSeparatorPayload]);
+  }, [webViewReady, currentSig, chartDataContextSig, chartOptions, chartType, displayDecimals, buildMappedData, readCurrentProjectedChartCandles, retainCurrentChartCandles, showChartVolumePane, periodSeparatorOptions, periodSeparatorPayload]);
 
   // Effect 1 — request initChart whenever data or config changes.
   useEffect(() => {
@@ -7424,7 +8285,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         return;
       }
 
-      candlesRef.current = renderableCandles;
+      retainCurrentChartCandles(renderableCandles);
 
       if (
         !webViewRef.current ||
@@ -7557,6 +8418,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           scheduleCanonicalLivePaint,
         );
     const retainLatestChartTradeDisplayQuote = (tick: QuoteTickEvent) => {
+      if (normalizeSymbol(tick.symbol) !== normalizeSymbol(chartSymbol)) {
+        return;
+      }
       if (!isPublicDemoMarket) {
         const capture = captureActiveBrokerSession();
         if (!capture || capture.session.cacheNamespace !== activeChartSessionCacheNamespace) {
@@ -7614,6 +8478,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     issueChartDataPaintToken,
     publishChartLiveOhlc,
     readRenderableCanonicalCandles,
+    retainCurrentChartCandles,
   ]);
 
   useEffect(() => {
@@ -7640,7 +8505,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     // This prevents history/pagination paint from overwriting a newer live tick
     // with the older React snapshot that merely triggered this effect.
     const canonicalCandles = readRenderableCanonicalCandles();
-    const baseRenderableCandles = canonicalCandles.length > 0 ? canonicalCandles : sanitizedCandles;
+    const baseRenderableCandles = resolveContextScopedChartCandles(
+      chartDataContextSig,
+      canonicalCandles,
+      {
+        contextKey: candlesRefContextSigRef.current,
+        candles: candlesRef.current,
+      },
+    );
     const replacementExactQuote = readExactChartQuoteForScope(
       chartTradeDisplayQuoteScopeKey,
       retainedChartTradeDisplayQuoteRef.current,
@@ -8108,17 +8980,47 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       return;
     }
 
+    const drawingOwnerMismatch = shouldReleaseChartWindowOwnedAction(
+      chartDrawingToolOwnerPaneIdRef.current,
+      chartWindows.activePane.id,
+    );
+    const bridgedTool = chartLockAll || drawingOwnerMismatch
+      ? CHART_NO_DRAWING_TOOL
+      : activeTool;
+    const shouldStartDrawing =
+      !chartLockAll
+      && !drawingOwnerMismatch
+      && chartDrawingInputActive
+      && isChartDrawingInputTool(bridgedTool);
+
     webViewRef.current.injectJavaScript(`
+      window.__rtx5ChartWindowPaneId = ${JSON.stringify(chartWindows.activePane.id)};
       if (typeof setShowObjectDescriptions === 'function') {
         setShowObjectDescriptions(${chartDisplay.showObjectDescriptions === true});
       }
       if (typeof setSerializedDrawings === 'function') {
         setSerializedDrawings(${JSON.stringify(chartDrawingRecords)});
       }
+      if (typeof setDrawingTool === 'function') {
+        setDrawingTool(${JSON.stringify(bridgedTool)}, { startDrawing: ${shouldStartDrawing} });
+      }
       true;
     `);
     lastInjectedDrawingSyncRef.current = { signature: chartDrawingSignature, epoch: chartReadyEpoch };
-  }, [chartCanvasReady, chartDisplay.showObjectDescriptions, chartDrawingRecords, chartDrawingSignature, chartReadyEpoch, isScreenFocused, preferencesHydrated, webViewReady]);
+  }, [
+    activeTool,
+    chartCanvasReady,
+    chartDisplay.showObjectDescriptions,
+    chartDrawingInputActive,
+    chartDrawingRecords,
+    chartDrawingSignature,
+    chartReadyEpoch,
+    chartLockAll,
+    chartWindows.activePane.id,
+    isScreenFocused,
+    preferencesHydrated,
+    webViewReady,
+  ]);
 
   // ── Chart Overlays Bridge ───────────────────────────────────────
   // Geometry inject (new/close trade, SL/TP price change) — rare.
@@ -8239,6 +9141,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const symbolCategory = resolveChartSymbolCategory(chartSymbol);
   const showChartMarketExecutionFooter =
     chartDisplay.showQuickTradingButtons || chartDirectProtectionActive;
+  const compactVerticalChartWindow =
+    chartWindows.isSplit && chartWindows.state.layout === 'vertical';
   const isDrawingToolActive = activeTool !== CHART_NO_DRAWING_TOOL || Boolean(pendingChartDrawingTool);
   const compactHeaderDrawingIconColor = isDrawingToolActive ? BLUE : TEXT_MUTED;
   const compactHeaderFullscreenIconColor = isChartExpanded ? BLUE : TEXT_MUTED;
@@ -8307,7 +9211,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           accessibilityRole="button"
           accessibilityLabel={t('Select Timeframe')}
           style={styles.toolbarTimeframeButton}
-          onPress={handleOpenTimeframePicker}
+          onPress={() => routeChartWindowToolbarAction('timeframe')}
           activateOnPressIn
           activateOnTouchStart
           hitSlop={8}
@@ -8332,7 +9236,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
             styles.toolbarTradeButton,
             chartSlTpBackendLocked && styles.toolbarTradeButtonLocked,
           ]}
-          onPressIn={handleActivateDirectChartProtection}
+          onPressIn={() => routeChartWindowToolbarAction('sltp')}
           hitSlop={8}
           unstable_pressDelay={0}
         >
@@ -8357,7 +9261,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           accessibilityRole="button"
           accessibilityLabel="Drawing tools"
           style={styles.toolbarIconButton}
-          onPress={handleOpenDrawingTools}
+          onPress={() => routeChartWindowToolbarAction('drawings')}
           activateOnPressIn
           activateOnTouchStart
           hitSlop={8}
@@ -8371,7 +9275,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           accessibilityRole="button"
           accessibilityLabel="Chart settings"
           style={styles.toolbarIconButton}
-          onPress={handleOpenSettingsScreen}
+          onPress={() => routeChartWindowToolbarAction('settings')}
           activateOnPressIn
           activateOnTouchStart
           hitSlop={8}
@@ -8386,7 +9290,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           accessibilityRole="button"
           accessibilityLabel="Toggle Fullscreen"
           style={styles.toolbarIconButton}
-          onPressIn={handleToggleChartExpanded}
+          onPressIn={() => routeChartWindowToolbarAction('fullscreen')}
           hitSlop={8}
           unstable_pressDelay={0}
         >
@@ -8398,7 +9302,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           accessibilityRole="button"
           accessibilityLabel="More chart actions"
           style={styles.toolbarIconButton}
-          onPress={handleOpenMoreMenu}
+          onPress={() => routeChartWindowToolbarAction('more')}
           activateOnPressIn
           activateOnTouchStart
           hitSlop={8}
@@ -8614,6 +9518,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         chartTradeCtaColor,
         candles: sanitizedCandles,
         chartSymbol,
+        chartWindowPaneId: chartWindows.activePane.id,
         chartBid,
         chartAsk,
         chartTradeTickTimestamp,
@@ -8689,6 +9594,29 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         top: Math.max(0, Math.round(chartTapMenuViewport.y - chartTradeSheetHostTopOffset)),
         width: Math.round(chartTapMenuViewport.width),
         height: Math.round(chartTapMenuViewport.height),
+      }
+    : null;
+  const auxiliaryTradeReceiptViewportReady =
+    chartWindows.isSplit
+    && auxiliaryChartPaneViewport !== null
+    && auxiliaryChartPaneViewport.paneId !== chartWindows.activePane.id
+    && chartWindows.state.panes.some(
+      (pane) => pane.id === auxiliaryChartPaneViewport.paneId,
+    )
+    && !(isChartExpanded && chartWindows.toolbarTargetPaneId !== null);
+  const auxiliaryTradeReceiptViewportStyle = auxiliaryTradeReceiptViewportReady
+    && auxiliaryChartPaneViewport
+    ? {
+        left: Math.max(
+          0,
+          Math.round(auxiliaryChartPaneViewport.x - chartTradeSheetHostLeftOffset),
+        ),
+        top: Math.max(
+          0,
+          Math.round(auxiliaryChartPaneViewport.y - chartTradeSheetHostTopOffset),
+        ),
+        width: Math.round(auxiliaryChartPaneViewport.width),
+        height: Math.round(auxiliaryChartPaneViewport.height),
       }
     : null;
 
@@ -8782,8 +9710,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
             isChartExpanded && { minHeight: fullscreenChartMinHeight },
           ]}
           nestedScrollEnabled
-          scrollEnabled={!shouldCaptureChartGestures && !showChartTradeSheet && !chartViewportTouchActive && !footerLotEditorFocused}
-          bounces={!shouldCaptureChartGestures && !showChartTradeSheet && !chartViewportTouchActive && !footerLotEditorFocused}
+          scrollEnabled={!chartWindows.isSplit && !shouldCaptureChartGestures && !showChartTradeSheet && !chartViewportTouchActive && !footerLotEditorFocused}
+          bounces={!chartWindows.isSplit && !shouldCaptureChartGestures && !showChartTradeSheet && !chartViewportTouchActive && !footerLotEditorFocused}
           // iOS: always-bounce let the scroll view engage its pan recognizer
           // for vertical drags even when nothing can scroll, eating the chart's
           // vertical pan. Regular scrolling (content overflow) is unaffected.
@@ -8792,7 +9720,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           scrollEventThrottle={16}
           onScroll={() => syncChartViewportFrame()}
         >
-          {!isChartExpanded && showChartMarketExecutionFooter && !chartOneClickPanelAtBottom && (
+          {!chartWindows.isSplit && !isChartExpanded && showChartMarketExecutionFooter && !chartOneClickPanelAtBottom && (
             <ChartTradeInlineFooter
               LiveTradeButtons={ChartTradeButtons}
               styles={styles}
@@ -8804,6 +9732,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
               hideInlineTradeRow={Platform.OS === 'android' && isFloatingFooterTradeRowVisible}
               showFloatingFooterTradeRow={shouldMountFloatingFooterTradeRow}
               chartSymbol={chartSymbol}
+              chartWindowPaneId={chartWindows.activePane.id}
               displayDecimals={displayDecimals}
               tradeVolume={tradeVolume}
               tradeVolumeBounds={tradeVolumeBounds}
@@ -8839,6 +9768,35 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
               }}
             />
           )}
+          <ChartWindowsLayout
+            state={chartWindows.state}
+            visualPreferencesByPane={chartWindowVisualPreferences}
+            drawingsByPane={chartWindowDrawingRecordsByPane}
+            viewportCommandsByPane={chartWindowViewportCommands}
+            overlayPriceLinesByPane={chartWindowProtectionPriceLinesByPane}
+            positions={positions}
+            isScreenFocused={isScreenFocused}
+            isDark={isDark}
+            lotSize={tradeVolume}
+            showTradeRow={!isChartExpanded && showChartMarketExecutionFooter}
+            lotInvalid={footerLotInvalid}
+            invalidLotDisplay={footerLotInvalidDisplay}
+            isTradeExecutionFocused={isTradeExecutionFocused}
+            radialMenuOpen={chartTapMenuAnchor !== null}
+            showOnlyActivePane={
+              isChartExpanded && chartWindows.toolbarTargetPaneId !== null
+            }
+            onClaimPane={chartWindows.claimToolbarTarget}
+            onSelectPane={handleSelectChartWindowPane}
+            onOpenPaneRadialMenu={handleOpenChartWindowPaneRadialMenu}
+            onOpenPaneSymbolPicker={handleOpenChartWindowPaneSymbolPicker}
+            onAuxiliaryPaneFrameChange={setAuxiliaryChartPaneViewport}
+            onTradeResult={handleChartTradeExecutionResult}
+            onTradeQueueEvent={handleChartTradeQueueEvent}
+            onOpenLotEditor={handleOpenFooterLotPicker}
+            onDecreaseLot={() => handleStepFooterLotEditor(-1)}
+            onIncreaseLot={() => handleStepFooterLotEditor(1)}
+          >
           <View
             style={[
               styles.chartContainer,
@@ -8859,7 +9817,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                 isChartExpanded={isChartExpanded}
                 isDark={isDark}
                 onClearDrawings={handleClearDrawings}
-                onOpenDrawingTools={handleOpenDrawingTools}
+                onOpenDrawingTools={() => routeChartWindowToolbarAction('drawings')}
                 onRedoDrawing={handleRedoDrawing}
                 onSelectTool={handleSetTool}
                 onToggleHide={handleToggleHide}
@@ -8873,7 +9831,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
               />
               <View
                 ref={chartViewportRef}
-                style={[styles.chartViewport, frozenFooterLotChartViewportStyle]}
+                style={[
+                  styles.chartViewport,
+                  frozenFooterLotChartViewportStyle,
+                  chartTapMenuAnchor !== null && { overflow: 'visible', zIndex: 80, elevation: 80 },
+                ]}
                 onTouchStart={handleChartViewportTouchStart}
                 onTouchEnd={handleChartViewportTouchEnd}
                 onTouchCancel={handleChartViewportTouchEnd}
@@ -9024,6 +9986,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                             if (webViewRef.current) {
                               const drawingReplaySignature = chartDrawingSignature;
                               webViewRef.current.injectJavaScript(`
+                                window.__rtx5ChartWindowPaneId = ${JSON.stringify(chartWindows.activePane.id)};
                                 if (typeof setShowObjectDescriptions === 'function') {
                                   setShowObjectDescriptions(${chartDisplay.showObjectDescriptions === true});
                                 }
@@ -9047,14 +10010,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                           const readyLiveRevision = livePaintRevisionRef.current + 1;
                           try {
                             const { exactQuote: readyExactQuote, projection: readyProjection } =
-                              readCurrentProjectedChartCandles(candlesRef.current);
+                              readCurrentProjectedChartCandles();
                             const readyCandles = readyProjection.candles;
                             const readyLastCandle = readyCandles[readyCandles.length - 1] ?? null;
                             readyVisibleLivePrice =
                               chartDisplay.showLivePriceLine && readyExactQuote && readyLastCandle
                                 ? readyLastCandle.close
                                 : null;
-                            candlesRef.current = readyCandles;
+                            retainCurrentChartCandles(readyCandles);
                             const readySnapshot = buildChartSeriesSnapshot(readyCandles);
                             if (readyCandles.length > 0 && webViewRef.current) {
                               const readySnapshotInitSignature =
@@ -9192,7 +10155,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                           if (
                             !chartInitializedRef.current ||
                             !chartCanvasReady ||
-                            lastInitSigRef.current !== currentSig
+                            lastInitSigRef.current !== currentSig ||
+                            (
+                              chartWindows.isSplit
+                              && msg.chartWindowPaneId !== chartWindows.activePane.id
+                            )
                           ) {
                             return;
                           }
@@ -9203,19 +10170,19 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                               : null;
                           setSelectedDrawingId((previous) =>
                             (previous === nextSelectedDrawingId ? previous : nextSelectedDrawingId));
-                          const nextCanUndo = msg.canUndo === true;
-                          const nextCanRedo = msg.canRedo === true;
-                          setDrawingHistoryState((previous) =>
-                            (previous.canUndo === nextCanUndo && previous.canRedo === nextCanRedo
-                              ? previous
-                              : { canRedo: nextCanRedo, canUndo: nextCanUndo }));
-
-                          const nextDrawings = filterChartDrawingRecordsForCurrentChart(
+                          const sanitizedNextDrawings = filterChartDrawingRecordsForCurrentChart(
                             sanitizePersistedChartDrawings(msg.drawings),
                             chartSymbol,
                             chartTimeframe,
                             sanitizedBackendCandles,
+                            chartWindows.isSplit ? chartWindows.activePane.id : undefined,
                           );
+                          const nextDrawings = chartWindows.isSplit
+                            ? sanitizedNextDrawings.map((drawing) => ({
+                              ...drawing,
+                              chartWindowPaneId: chartWindows.activePane.id,
+                            }))
+                            : sanitizedNextDrawings;
                           const nextSignature = JSON.stringify(nextDrawings);
                           const nativeDrawingRecords = drawingRecordsRef.current;
                           const nativeDrawingSignature = drawingSignatureRef.current;
@@ -9231,6 +10198,32 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                             return;
                           }
 
+                          if (chartWindows.isSplit) {
+                            const historyKey = getChartWindowDrawingHistoryKey(
+                              chartWindows.activePane.id,
+                              chartWindows.activePane.symbol,
+                              chartWindows.activePane.timeframe,
+                            );
+                            const alignedHistory = reconcileChartWindowDrawingHistory(
+                              chartWindowDrawingHistoriesRef.current[historyKey],
+                              nativeDrawingRecords,
+                            );
+                            const history = nextSignature === nativeDrawingSignature
+                              ? alignedHistory
+                              : recordChartWindowDrawingChange(alignedHistory, nextDrawings);
+                            chartWindowDrawingHistoriesRef.current[historyKey] = history;
+                            setDrawingHistoryState(
+                              getChartWindowDrawingHistoryAvailability(history),
+                            );
+                          } else {
+                            const nextCanUndo = msg.canUndo === true;
+                            const nextCanRedo = msg.canRedo === true;
+                            setDrawingHistoryState((previous) =>
+                              (previous.canUndo === nextCanUndo && previous.canRedo === nextCanRedo
+                                ? previous
+                                : { canRedo: nextCanRedo, canUndo: nextCanUndo }));
+                          }
+
                           lastWebViewDrawingSignatureRef.current = nextSignature;
                           if (nextDrawings.length > 0) {
                             allowNextEmptyDrawingSyncRef.current = false;
@@ -9241,7 +10234,20 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                           }
 
                           if (nextSignature !== nativeDrawingSignature) {
-                            setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
+                            if (chartWindows.isSplit) {
+                              const currentBucket = useUserPreferences.getState()
+                                .chartDrawingRecordsBySymbol[getChartDrawingBucketKey(chartSymbol)] ?? [];
+                              setChartDrawingRecordsForSymbol(
+                                chartSymbol,
+                                replaceChartWindowPaneDrawings(
+                                  currentBucket,
+                                  nextDrawings,
+                                  chartWindows.activePane,
+                                ),
+                              );
+                            } else {
+                              setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
+                            }
                           }
                         } else if (msg.type === 'DRAWINGS_SYNCED_FOR_OBJECTS') {
                           const pendingRequest = pendingObjectsDrawingSyncRef.current;
@@ -9259,7 +10265,19 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                             handleChartViewportTouchEnd();
                           }
                         } else if (msg.type === 'TOOL_ACTIVE_CHANGED') {
-                          setActiveTool(typeof msg.tool === 'string' ? msg.tool : CHART_NO_DRAWING_TOOL);
+                          if (
+                            chartWindows.isSplit
+                            && msg.chartWindowPaneId !== chartWindows.activePane.id
+                          ) {
+                            return;
+                          }
+                          const nextActiveTool = typeof msg.tool === 'string'
+                            ? msg.tool
+                            : CHART_NO_DRAWING_TOOL;
+                          if (nextActiveTool === CHART_NO_DRAWING_TOOL) {
+                            chartDrawingToolOwnerPaneIdRef.current = null;
+                          }
+                          setActiveTool(nextActiveTool);
                           setChartDrawingInputActive(msg.drawingActive === true);
                         } else if (msg.type === 'CHART_TRADE_LINE_DRAG') {
                           if (!handleChartPositionStopDragMessage(msg)) {
@@ -9268,6 +10286,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                         } else if (msg.type === 'ON_PAGINATE_HISTORY') {
                           paginate();
                         } else if (msg.type === 'CHART_TAP') {
+                          if (msg.dataContextSig !== chartDataContextSigRef.current) {
+                            return;
+                          }
+                          // Undivided charts keep their established single-tap
+                          // radial. In divided mode the full pane waits for the
+                          // explicit CHART_DOUBLE_TAP emitted by its WebView.
+                          if (chartWindows.isSplit) {
+                            scheduleFullPaneSelection(msg.dataContextSig);
+                            return;
+                          }
                           if (shouldSuppressChartTapMenu({
                             activeTool,
                             footerLotEditorFocused,
@@ -9293,6 +10321,47 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                             setChartTapMenuAnchor((currentAnchor) => (
                               currentAnchor ? null : nextAnchor
                             ));
+                          });
+                        } else if (msg.type === 'CHART_DOUBLE_TAP') {
+                          if (msg.dataContextSig !== chartDataContextSigRef.current) {
+                            return;
+                          }
+                          if (!chartWindows.isSplit) {
+                            return;
+                          }
+                          cancelPendingFullPaneSelection();
+                          // Double tap owns the pane for every radial action as
+                          // well. Previously the full engine could retain null
+                          // (broadcast) ownership while the auxiliary path was
+                          // correctly pane-scoped.
+                          chartWindows.claimToolbarTarget(
+                            chartWindowsStateRef.current.activePaneId,
+                          );
+                          if (shouldSuppressChartTapMenu({
+                            activeTool,
+                            footerLotEditorFocused,
+                            footerLotEditorOpening,
+                            footerLotPickerOpen: footerLotPickerMode !== null,
+                            suppressUntil: chartTapMenuSuppressUntilRef.current,
+                          })) {
+                            setChartTapMenuAnchor(null);
+                            return;
+                          }
+                          const x = typeof msg.x === 'number' ? msg.x : NaN;
+                          const y = typeof msg.y === 'number' ? msg.y : NaN;
+                          if (!Number.isFinite(x) || !Number.isFinite(y)) {
+                            return;
+                          }
+                          const nextAnchor = {
+                            x,
+                            y,
+                            price: typeof msg.price === 'number' && Number.isFinite(msg.price)
+                              ? msg.price
+                              : null,
+                          };
+                          chartTapMenuOpenedAtRef.current = Date.now();
+                          syncChartViewportFrame(() => {
+                            setChartTapMenuAnchor(nextAnchor);
                           });
                         } else if (msg.type === 'CHART_GEOMETRY') {
                           if (msg.dataContextSig === chartDataContextSigRef.current) {
@@ -9430,7 +10499,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
                                   <Text style={[styles.symbolText, { opacity: 0.9, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]} numberOfLines={1} adjustsFontSizeToFit>{displaySymbol}</Text>
                                   <Ionicons name="chevron-down" size={10} color={T.text} />
-                                  {symbolCategory ? (
+                                  {!compactVerticalChartWindow && symbolCategory ? (
                                     <View style={[styles.fxBadge, { marginLeft: 4 }]}>
                                       <Text style={styles.fxBadgeText} numberOfLines={1}>{symbolCategory}</Text>
                                     </View>
@@ -9438,14 +10507,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                                 </View>
                               </View>
 
-                              <View style={styles.symbolMetaRow}>
+                              {!compactVerticalChartWindow ? <View style={styles.symbolMetaRow}>
                                 <Text style={[styles.symbolSubText, { textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]} numberOfLines={1} adjustsFontSizeToFit>
                                   {symbolName}{isChartMarketClosed ? ` · ${t('Market Closed')}` : ''}
                                 </Text>
-                              </View>
+                              </View> : null}
                             </>
                           ) : null}
-                          {showChartMetaRow && (
+                          {showChartMetaRow && !compactVerticalChartWindow && (
                             <ChartLiveOhlcRow
                               key={chartDataContextSig}
                               contextKey={chartDataContextSig}
@@ -9475,6 +10544,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                     isDark={isDark}
                     onDismiss={handleChartTapMenuDismiss}
                     onSelectTimeframe={handleTimeframeSelect}
+                    onOpenChartWindows={handleOpenChartWindows}
                     onOpenObjects={() => {
                       // Always clear the radial first so the next sheet/route
                       // does not sit under a leftover touch layer (Android).
@@ -9483,7 +10553,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                     }}
                     onOpenDrawingTools={() => {
                       closeChartTapMenu();
-                      handleOpenDrawingTools();
+                      routeChartWindowToolbarAction('drawings');
                     }}
                     onOpenIndicators={() => {
                       closeChartTapMenu();
@@ -9518,7 +10588,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
             </View>
           </View>
 
-          {!isChartExpanded && showChartTradeSheet && (
+          {!chartWindows.isSplit && !isChartExpanded && showChartTradeSheet && (
             <View
               style={[
                 styles.bottomArea,
@@ -10030,6 +11100,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                       {chartTradeOrderType === 'Market Execution' ? (
                         <ChartTradeButtons
                           symbol={chartSymbol}
+                          chartWindowPaneId={chartWindows.activePane.id}
                           displayDecimals={displayDecimals}
                           lotSize={tradeVolume}
                           volumeBounds={tradeVolumeBounds}
@@ -10102,18 +11173,19 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
               </Animated.View>
             </View>
           )}
-          {!isChartExpanded && showChartMarketExecutionFooter && chartOneClickPanelAtBottom && (
+          {!isChartExpanded && showChartMarketExecutionFooter && (chartWindows.isSplit || chartOneClickPanelAtBottom) && (
             <ChartTradeInlineFooter
               LiveTradeButtons={ChartTradeButtons}
               styles={styles}
-              animatedStyle={floatingFooterTradeReserveAnimatedStyle}
+              animatedStyle={chartWindows.isSplit ? undefined : floatingFooterTradeReserveAnimatedStyle}
               containerRef={footerTradeRowAnchorRef}
               isDark={isDark}
               buyColor={BLUE}
               sellColor={T.trading.sell.primary}
-              hideInlineTradeRow={Platform.OS === 'android' && isFloatingFooterTradeRowVisible}
-              showFloatingFooterTradeRow={shouldMountFloatingFooterTradeRow}
+              hideInlineTradeRow={!chartWindows.isSplit && Platform.OS === 'android' && isFloatingFooterTradeRowVisible}
+              showFloatingFooterTradeRow={!chartWindows.isSplit && shouldMountFloatingFooterTradeRow}
               chartSymbol={chartSymbol}
+              chartWindowPaneId={chartWindows.activePane.id}
               displayDecimals={displayDecimals}
               tradeVolume={tradeVolume}
               tradeVolumeBounds={tradeVolumeBounds}
@@ -10140,6 +11212,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
               active={chartRuntimeActive}
               fallbackBid={chartTradeFooterFallbackBid}
               fallbackAsk={chartTradeFooterFallbackAsk}
+              compactPane={chartWindows.isSplit && chartWindows.state.layout === 'vertical'}
               onLayout={(event) => {
                 const nextHeight = Math.max(0, Math.round(event.nativeEvent.layout.height));
                 if (nextHeight > 0) {
@@ -10160,6 +11233,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
               sellColor={T.trading.sell.primary}
               showFloatingFooterTradeRow={false}
               chartSymbol={chartSymbol}
+              chartWindowPaneId={chartWindows.activePane.id}
               displayDecimals={displayDecimals}
               tradeVolume={tradeVolume}
               tradeVolumeBounds={tradeVolumeBounds}
@@ -10195,6 +11269,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
               }}
             />
           ) : null}
+          </ChartWindowsLayout>
         </ScrollView>
         {!showChartTradeSheet && chartTradeReceiptViewportStyle ? (
           <View
@@ -10203,6 +11278,29 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           >
             <ChartTradeReceiptStack
               controller={chartTradeReceiptStackController}
+              chartWindowPaneId={chartWindows.activePane.id}
+              paneWidth={chartTapMenuViewport.width}
+              isDark={isDark}
+              buyColor={BLUE}
+              sellColor={T.trading.sell.primary}
+            />
+          </View>
+        ) : null}
+        {!showChartTradeSheet
+        && auxiliaryTradeReceiptViewportStyle
+        && auxiliaryChartPaneViewport ? (
+          <View
+            pointerEvents="box-none"
+            testID={`chart-trade-receipt-overlay-${auxiliaryChartPaneViewport.paneId}`}
+            style={[
+              styles.chartTradeReceiptViewportOverlay,
+              auxiliaryTradeReceiptViewportStyle,
+            ]}
+          >
+            <ChartTradeReceiptStack
+              controller={chartTradeReceiptStackController}
+              chartWindowPaneId={auxiliaryChartPaneViewport.paneId}
+              paneWidth={auxiliaryChartPaneViewport.width}
               isDark={isDark}
               buyColor={BLUE}
               sellColor={T.trading.sell.primary}
@@ -10314,6 +11412,21 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
         onCommit={handleCommitTextLevelEdit}
       />
 
+      <ChartWindowManagerOverlay
+        visible={chartWindows.managerVisible}
+        panes={chartWindows.state.panes}
+        selectedRemovalIds={chartWindows.selectedRemovalIds}
+        canOpen={chartWindows.canOpenNewWindow}
+        maxReached={!chartWindows.canOpenNewWindow}
+        onClose={chartWindows.closeManager}
+        onNewWindow={chartWindows.openNewWindow}
+        onToggleRemoval={chartWindows.toggleRemoval}
+        onRemove={chartWindows.removePanes}
+        onSetHorizontal={() => chartWindows.setLayout('horizontal')}
+        onSetVertical={() => chartWindows.setLayout('vertical')}
+        onMovePane={chartWindows.movePane}
+      />
+
       {/* While the SL/TP trade sheet is open (it portals over this screen),
           route the result dialog and the compact receipt through the elevated
           feedback portal so they appear ON the sheet where Buy/Sell was
@@ -10323,6 +11436,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           {showChartTradeSheet ? (
             <ChartTradeReceiptStack
               controller={chartTradeReceiptStackController}
+              chartWindowPaneId={chartWindows.activePane.id}
+              paneWidth={chartTapMenuViewport.width}
               isDark={isDark}
               buyColor={BLUE}
               sellColor={T.trading.sell.primary}
@@ -10352,6 +11467,17 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
  */
 export function ChartScreen() {
   const isScreenFocused = useIsFocused();
+  const immediateFocusRef = useRef(isScreenFocused);
+  immediateFocusRef.current = isScreenFocused;
+  const isTradeExecutionFocused = useCallback(
+    () => immediateFocusRef.current,
+    [],
+  );
   const deferredScreenFocused = useNextFrameValue(isScreenFocused);
-  return <ChartScreenInner isChartRouteActive={deferredScreenFocused} />;
+  return (
+    <ChartScreenInner
+      isChartRouteActive={deferredScreenFocused}
+      isTradeExecutionFocused={isTradeExecutionFocused}
+    />
+  );
 }

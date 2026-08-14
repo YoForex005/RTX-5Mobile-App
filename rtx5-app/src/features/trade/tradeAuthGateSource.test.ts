@@ -89,14 +89,19 @@ test('primary trade entry points guard before navigation, prefetch, or execution
 
   const chart = readSource('src/features/chart/components/ChartTradeButtonsFeature/useTradeHandler.ts');
   const chartTrade = sourceBetween(chart, 'const executeTrade', 'const handleTrade');
-  assertGuardBefore(chartTrade, 'getChartTradeAction');
+  assert.match(
+    chartTrade,
+    /if \(!resolveSymbolExecutionOwnership\(\)\)[\s\S]*return;[\s\S]*if \(requestOrrnnDemoTradeAuth/,
+    'stale chart-window ownership must fail closed before prompting for trade authentication',
+  );
+  assertGuardBefore(chartTrade, 'resolveCurrentQuoteActionAvailability');
   assertGuardBefore(chartTrade, 'showOrderTicketLaunch');
   assertGuardBefore(chartTrade, 'processNextQueuedTrade');
-  assert.match(chart, /const chartTradeActionDisabled = isPublicDemoTradePrompt[\s\S]*\? false/);
+  assert.doesNotMatch(chart, /const chartTradeActionDisabled = isPublicDemoTradePrompt[\s\S]*\? false/);
   const chartButtons = readSource(
     'src/features/chart/components/ChartTradeButtonsFeature/ChartTradeButtonsFeature.tsx',
   );
-  assert.match(chartButtons, /const tradeBlocked = isPublicDemoTradePrompt[\s\S]*\? false/);
+  assert.match(chartButtons, /const tradeBlocked = chartTradeActionDisabled \|\| lotInvalid/);
   assert.match(details, /disabled=\{isPending \|\| \(!isPublicDemoTradePrompt/);
 
   const webChart = readSource('src/features/chart/ChartScreen.web.tsx');
@@ -105,8 +110,8 @@ test('primary trade entry points guard before navigation, prefetch, or execution
     'const handleTrade',
     '// Micro-component: isolated 4fps render cycle',
   );
-  assertGuardBefore(webTrade, 'getCurrentAvailability');
-  assert.match(webChart, /disabled=\{isPending \|\| \(!isPublicDemoTradePrompt/);
+  assertGuardBefore(webTrade, 'getCurrentExecutableQuoteState');
+  assert.match(webChart, /disabled=\{isPending \|\| !quoteActionAvailability\.allowed\}/);
 });
 
 test('order ticket and position mutations guard before validation or API calls', () => {

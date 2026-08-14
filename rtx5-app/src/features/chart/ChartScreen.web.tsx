@@ -70,6 +70,7 @@ import {
 import { TradingSignalDetailsModal } from './TradingSignalDetailsModal';
 import { hasLiveQuoteFeedData, useMarketData } from '../../query/websocket';
 import { useExecutableQuote } from '../quotes/useExecutableQuote';
+import { resolveChartTradeQuoteAvailability } from './components/ChartTradeButtonsFeature/tradeAvailability';
 import {
   quoteActionBlockMessage,
   recordBlockedPriceAction,
@@ -270,8 +271,7 @@ const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, priceSour
 const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize, active = true }: any) => {
   const {
     quote: liveQuote,
-    availability: quoteActionAvailability,
-    getCurrentAvailability,
+    getCurrentExecutableQuoteState,
   } = useExecutableQuote(symbol, active, 16);
   const latestBid = typeof liveQuote?.bid === 'number' && liveQuote.bid > 0 ? liveQuote.bid : 0;
   const latestAsk = typeof liveQuote?.ask === 'number' && liveQuote.ask > 0 ? liveQuote.ask : 0;
@@ -280,6 +280,10 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize,
   const isPublicDemoTradePrompt = useUserPreferences(
     (state) => !state.isLoggedIn,
   );
+  const quoteActionAvailability = resolveChartTradeQuoteAvailability({
+    quote: liveQuote,
+    isPublicDemoTradePrompt,
+  });
   const openOrderMode = useUserPreferences((s) => s.openOrderMode);
   const { mutate: placeOrder, isPending } = usePlaceOrderMutation();
   const tradeTapLockRef = React.useRef(false);
@@ -298,7 +302,11 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize,
       return;
     }
     const action = getChartTradeAction(side);
-    const currentQuoteAvailability = getCurrentAvailability();
+    const currentQuote = getCurrentExecutableQuoteState();
+    const currentQuoteAvailability = resolveChartTradeQuoteAvailability({
+      quote: currentQuote.quote,
+      isPublicDemoTradePrompt,
+    });
     if (!currentQuoteAvailability.allowed) {
       recordBlockedPriceAction('chart_web_market_order', currentQuoteAvailability);
       Alert.alert('Market Data Unavailable', quoteActionBlockMessage(currentQuoteAvailability));
@@ -399,8 +407,8 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize,
   return (
     <View style={styles.tradeControlsRow}>
       <Pressable
-        style={[styles.actionBtn, styles.actionBtnSell, (isPending || (!isPublicDemoTradePrompt && !quoteActionAvailability.allowed)) && { opacity: 0.5 }]}
-        disabled={isPending || (!isPublicDemoTradePrompt && !quoteActionAvailability.allowed)}
+        style={[styles.actionBtn, styles.actionBtnSell, (isPending || !quoteActionAvailability.allowed) && { opacity: 0.5 }]}
+        disabled={isPending || !quoteActionAvailability.allowed}
         onPressIn={() => runCriticalTradeAction('chart.web.trade.sell', () => handleTrade('sell'))}
         unstable_pressDelay={0}
         accessibilityRole="button"
@@ -417,8 +425,8 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize,
       <View style={styles.actionSpacer} />
 
       <Pressable
-        style={[styles.actionBtn, styles.actionBtnBuy, (isPending || (!isPublicDemoTradePrompt && !quoteActionAvailability.allowed)) && { opacity: 0.5 }]}
-        disabled={isPending || (!isPublicDemoTradePrompt && !quoteActionAvailability.allowed)}
+        style={[styles.actionBtn, styles.actionBtnBuy, (isPending || !quoteActionAvailability.allowed) && { opacity: 0.5 }]}
+        disabled={isPending || !quoteActionAvailability.allowed}
         onPressIn={() => runCriticalTradeAction('chart.web.trade.buy', () => handleTrade('buy'))}
         unstable_pressDelay={0}
         accessibilityRole="button"

@@ -15,6 +15,8 @@ export interface TradeFeedbackState extends TradeFeedbackPresentationInput {
   executedAt?: string;
   /** Exact Chart SL/TP draft that produced this execution result. */
   protectionDraftId?: string;
+  /** Immutable chart-window owner captured when the action was submitted. */
+  chartWindowPaneId?: string;
 }
 
 export const TRADE_MODAL_INITIAL: TradeFeedbackState = {

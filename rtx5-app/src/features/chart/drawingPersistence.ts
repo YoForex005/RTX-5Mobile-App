@@ -221,6 +221,8 @@ export type PersistedChartDrawing = {
   symbol?: string;
   timeframe?: string;
   paneId?: string;
+  /** Split-chart window owner. `paneId` above remains the chart-series pane. */
+  chartWindowPaneId?: string;
   label: string;
   hidden: boolean;
   points: PersistedChartDrawingPoint[];
@@ -810,6 +812,9 @@ function sanitizePersistedChartDrawing(
     symbol: typeof candidate.symbol === 'string' && candidate.symbol.trim().length > 0 ? candidate.symbol.trim() : undefined,
     timeframe: typeof candidate.timeframe === 'string' && candidate.timeframe.trim().length > 0 ? candidate.timeframe.trim() : undefined,
     paneId: typeof candidate.paneId === 'string' && candidate.paneId.trim().length > 0 ? candidate.paneId.trim() : undefined,
+    chartWindowPaneId: typeof candidate.chartWindowPaneId === 'string' && candidate.chartWindowPaneId.trim().length > 0
+      ? candidate.chartWindowPaneId.trim()
+      : undefined,
     label,
     hidden: Boolean(candidate.hidden),
     points,

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useLiveCandles } from '../../../domain/candles/hooks/useLiveCandles';
@@ -8,13 +8,44 @@ import { hasLiveQuoteFeedData, useMarketData } from '../../../query/websocket';
 import { getDevRefreshKey, hashDevRefreshSource } from '../../../dev/devRefreshKey';
 import {
   buildVolumeDatum,
-  getLastPreviewCandleSignature,
   LIVE_CHART_PREVIEW_TIME_SCALE_RIGHT_OFFSET,
   mapPreviewCandles,
-  PreviewChartType,
   sanitizePreviewCandles,
+  type PreviewChartType,
+  type PreviewSourceCandle,
 } from './chartPreviewShared';
+import { resolvePreviewLivePriceColor } from './liveChartPreviewPriceColor';
 import { resolveChartDisplayDecimals } from '../chartPricePrecision';
+import { LIGHTWEIGHT_CHARTS_JS } from '../rendering/lightweightChartsBundle';
+import type { QuoteItem } from '../../../dev/mock/tradingData';
+import { useActiveBrokerCredentialScopeKey } from '../../../query/authenticatedQueryScope';
+import { normalizeSymbol, normalizeTimeframeStrict } from '../../../domain/candles/core/candles';
+import { LIVE_CHART_PREVIEW_COUNTDOWN_SCRIPT } from './liveChartPreviewCountdownScript';
+import { LIVE_CHART_PREVIEW_AXIS_DIVIDER_SCRIPT } from './liveChartPreviewAxisDividerScript';
+import { LIVE_CHART_PREVIEW_PRICE_SCALE_SCRIPT } from './liveChartPreviewPriceScaleScript';
+import { LIVE_CHART_PREVIEW_RIGHT_PRICE_AXIS_SCRIPT } from './liveChartPreviewRightPriceAxisScript';
+import { LIVE_CHART_PREVIEW_TIME_AXIS_SCRIPT } from './liveChartPreviewTimeAxisScript';
+import { LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT } from './liveChartPreviewTradeOverlayScript';
+import { LIVE_CHART_PREVIEW_VIEWPORT_SCRIPT } from './liveChartPreviewViewportScript';
+import {
+  CHART_AXIS_DIVIDER_DARK_COLOR,
+  CHART_AXIS_DIVIDER_LIGHT_COLOR,
+  CHART_BEARISH_CANDLE_RENDER_OPACITY,
+  CHART_CANDLE_RENDER_OPACITY,
+  CHART_DEFAULT_TIME_SCALE_BAR_SPACING,
+  CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING,
+  CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET,
+  CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH,
+  CHART_TIME_SCALE_FIX_LEFT_EDGE,
+  CHART_TIME_SCALE_FIX_RIGHT_EDGE,
+} from '../ChartScreen.constants';
+import { RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS } from '../../../domain/candles/rendering/customCandlestickSeriesWebView';
+import { ENHANCED_DRAWING_TOOLS_JS } from '../plugins/enhancedDrawingToolsString';
+import type { PersistedChartDrawing } from '../drawingPersistence';
+import {
+  resolveChartWindowPaneGesture,
+  type ChartWindowPaneGesture,
+} from '../chartWindowRadialMenu';
 
 
 const CH_HTML = `
@@ -22,11 +53,13 @@ const CH_HTML = `
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <script>${LIGHTWEIGHT_CHARTS_JS}</script>
+    <script>${RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS}</script>
+    <script>${ENHANCED_DRAWING_TOOLS_JS}</script>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
-      #chart { width: 100%; height: 100%; }
+      #chart { position: relative; width: 100%; height: 100%; }
     </style>
 </head>
 <body>
@@ -37,12 +70,81 @@ const CH_HTML = `
       var chart = null;
       var series = null;
       var volumeSeries = null;
+      var previewDrawingManager = null;
       var priceLinesArr = [];
+      var chartHost = document.getElementById('chart');
       window._displaySettings = {};
       window._customColors = {};
       window._lastChartData = [];
       window._lastVolumePoint = null;
       window._chartType = 'candles';
+      window._previewDataContextKey = '';
+      window._previewDataGeneration = 0;
+
+${LIVE_CHART_PREVIEW_COUNTDOWN_SCRIPT}
+${LIVE_CHART_PREVIEW_TIME_AXIS_SCRIPT}
+${LIVE_CHART_PREVIEW_VIEWPORT_SCRIPT}
+${LIVE_CHART_PREVIEW_PRICE_SCALE_SCRIPT}
+${LIVE_CHART_PREVIEW_RIGHT_PRICE_AXIS_SCRIPT}
+${LIVE_CHART_PREVIEW_AXIS_DIVIDER_SCRIPT}
+${LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT}
+
+      function acceptPreviewDataContext(dataContextKey, dataGeneration) {
+        var key = typeof dataContextKey === 'string' ? dataContextKey : '';
+        var generation = Number(dataGeneration);
+        if (!key || !Number.isFinite(generation) || generation < 1) return false;
+        if (generation < window._previewDataGeneration) return false;
+        if (
+          generation === window._previewDataGeneration &&
+          window._previewDataContextKey &&
+          key !== window._previewDataContextKey
+        ) {
+          return false;
+        }
+        if (generation > window._previewDataGeneration || !window._previewDataContextKey) {
+          var previewContextChanged =
+            window._previewDataContextKey !== key ||
+            window._previewDataGeneration !== generation;
+          window._previewDataGeneration = generation;
+          window._previewDataContextKey = key;
+          if (previewContextChanged) resetPaneTapPairing();
+        }
+        return (
+          window._previewDataGeneration === generation &&
+          window._previewDataContextKey === key
+        );
+      }
+
+      function resizeChartToHost() {
+        if (!chart || !chartHost) return;
+        var width = Math.max(1, Math.floor(chartHost.clientWidth || 0));
+        var height = Math.max(1, Math.floor(chartHost.clientHeight || 0));
+        try { chart.resize(width, height); } catch (_error) {}
+        if (
+          window._fullChartParity &&
+          typeof notifyPreviewPriceScaleResized === 'function'
+        ) {
+          try { notifyPreviewPriceScaleResized(); } catch (_error) {}
+        }
+        if (typeof schedulePreviewRightPriceAxisRefresh === 'function') {
+          try { schedulePreviewRightPriceAxisRefresh(); } catch (_error) {}
+        }
+        if (typeof schedulePreviewAxisDividersRefresh === 'function') {
+          try { schedulePreviewAxisDividersRefresh(); } catch (_error) {}
+        }
+        if (typeof schedulePreviewTradeOverlayRefresh === 'function') {
+          try { schedulePreviewTradeOverlayRefresh(); } catch (_error) {}
+        }
+        try { renderPreviewLivePriceBadge(); } catch (_error) {}
+      }
+
+      if (typeof ResizeObserver === 'function') {
+        var chartResizeObserver = new ResizeObserver(function() {
+          resizeChartToHost();
+        });
+        chartResizeObserver.observe(chartHost);
+      }
+      window.addEventListener('resize', resizeChartToHost);
 
       function hexToRgba(color, alpha) {
         if (!color) return 'rgba(148, 163, 184, ' + alpha + ')';
@@ -81,12 +183,18 @@ const CH_HTML = `
         var customCols = window._customColors || {};
         var up = customCols.candlesUptrend || '#2962FF';
         var down = customCols.candlesDowntrend || '#EF5350';
-        return hexToRgba(item.close >= item.open ? up : down, isActive ? 0.78 : 0.32);
+        var alpha = window._fullChartParity ? 0.85 : (isActive ? 0.78 : 0.32);
+        return hexToRgba(item.close >= item.open ? up : down, alpha);
       }
 
       function buildVolumeDatum(item, isActive, minValue) {
-        var rawValue = Math.max(Number(item && item.volume ? item.volume : 0), 0);
-        var safeValue = typeof minValue === 'number' ? Math.max(minValue, rawValue) : rawValue;
+        var rawValue = window._fullChartParity
+          ? Math.abs(Number(item && item.close) - Number(item && item.open))
+          : Math.max(Number(item && item.volume ? item.volume : 0), 0);
+        if (!isFinite(rawValue)) rawValue = 0;
+        var safeValue = window._fullChartParity
+          ? rawValue
+          : (typeof minValue === 'number' ? Math.max(minValue, rawValue) : rawValue);
         return {
           time: item.time,
           value: safeValue,
@@ -138,8 +246,85 @@ const CH_HTML = `
         priceLinesArr = [];
       }
 
-      function initChart(opts, chartType, data, displayDecimals, customColors, displaySettings) {
+      function ensurePreviewDrawingManager() {
+        if (previewDrawingManager || !chart || !series || typeof window.DrawingToolsManager !== 'function') {
+          return previewDrawingManager;
+        }
         try {
+          previewDrawingManager = new window.DrawingToolsManager(chart, series);
+          previewDrawingManager.setDrawingsLocked(true);
+        } catch (_error) {
+          previewDrawingManager = null;
+        }
+        return previewDrawingManager;
+      }
+
+      function setPreviewSerializedDrawings(drawings, hidden, showDescriptions, dataContextKey, dataGeneration) {
+        if (!acceptPreviewDataContext(dataContextKey, dataGeneration)) return;
+        var manager = ensurePreviewDrawingManager();
+        if (!manager) return;
+        try {
+          manager.setShowObjectDescriptions(showDescriptions !== false);
+          manager.setDrawingsHidden(hidden === true);
+          manager.setSerializedDrawings(Array.isArray(drawings) ? drawings : []);
+          manager.setDrawingsLocked(true);
+        } catch (_error) {}
+      }
+
+      function applyPreviewWindowCommand(commandType) {
+        if (!chart) return;
+        try {
+          if (commandType === 'scrollToLastBar') {
+            if (typeof window.__rtx5ScrollToLastBar === 'function') {
+              window.__rtx5ScrollToLastBar();
+            } else {
+              chart.timeScale().scrollToRealTime();
+            }
+            return;
+          }
+          if (commandType === 'resetVerticalScale' || commandType === 'resetViewport') {
+            if (typeof resetPreviewPriceScale === 'function') {
+              resetPreviewPriceScale();
+            } else {
+              chart.priceScale('right').applyOptions({ autoScale: true });
+            }
+          }
+          if (commandType === 'resetViewport') {
+            if (window._fullChartParity && typeof applyPreviewRecentViewport === 'function') {
+              applyPreviewRecentViewport(window._lastChartData.length);
+            } else {
+              chart.timeScale().fitContent();
+            }
+          }
+          if (typeof schedulePreviewTradeOverlayRefresh === 'function') {
+            schedulePreviewTradeOverlayRefresh();
+          }
+        } catch (_error) {}
+      }
+
+      function initChart(opts, chartType, data, displayDecimals, customColors, displaySettings, dataContextKey, dataGeneration, fullChartParity, autoScaleEnabled, verticalScrollingLocked, showVolumePane, drawings, drawingsHidden, showObjectDescriptions) {
+        try {
+          if (!acceptPreviewDataContext(dataContextKey, dataGeneration)) return;
+          resetPreviewViewportBridgeState();
+          if (typeof detachPreviewPriceScaleInteractions === 'function') {
+            detachPreviewPriceScaleInteractions();
+          }
+          if (typeof clearPreviewRightPriceAxis === 'function') {
+            clearPreviewRightPriceAxis();
+          }
+          if (typeof clearPreviewAxisDividers === 'function') {
+            clearPreviewAxisDividers();
+          }
+          if (typeof clearPreviewTradeOverlayRenderer === 'function') {
+            clearPreviewTradeOverlayRenderer();
+          }
+          if (typeof resetPreviewPriceScale === 'function') {
+            resetPreviewPriceScale();
+          }
+          if (previewDrawingManager) {
+            try { previewDrawingManager.remove(); } catch (_error) {}
+            previewDrawingManager = null;
+          }
           if (chart) {
             chart.remove();
           }
@@ -153,9 +338,13 @@ const CH_HTML = `
           window._chartType = chartType;
           window._customColors = customColors || {};
           window._displaySettings = displaySettings || {};
+          window._fullChartParity = fullChartParity === true;
+          window._previewDisplayDecimals = displayDecimals;
 
           var showLastPriceLine = !!(window._displaySettings && window._displaySettings.showLastPriceLine);
-          var showVolumes = !!(window._displaySettings && (window._displaySettings.showTickVolumes || window._displaySettings.showRealVolumes));
+          var showVolumes = window._fullChartParity
+            ? showVolumePane === true && chartType !== 'line'
+            : !!(window._displaySettings && (window._displaySettings.showTickVolumes || window._displaySettings.showRealVolumes));
           var hasCustomQuoteLine = !!(window._displaySettings && (window._displaySettings.showBidPriceLine || window._displaySettings.showAskPriceLine));
           var showLastValueLabel = !hasCustomQuoteLine;
           var cUp = window._customColors.candlesUptrend || '#2962FF';
@@ -170,8 +359,27 @@ const CH_HTML = `
           opts.grid.horzLines.style = LightweightCharts.LineStyle.SparseDotted;
           opts.crosshair.vertLine.style = LightweightCharts.LineStyle.Dashed;
           opts.crosshair.horzLine.style = LightweightCharts.LineStyle.Dashed;
+          opts.timeScale = Object.assign({}, opts.timeScale || {}, {
+            tickMarkFormatter: formatPreviewChartTickMark
+          });
+          opts.localization = Object.assign({}, opts.localization || {}, {
+            timeFormatter: formatPreviewChartTime
+          });
 
-          chart = LightweightCharts.createChart(document.getElementById('chart'), opts);
+          chart = LightweightCharts.createChart(chartHost, opts);
+          resizeChartToHost();
+          bindPreviewVisibleLogicalRangeClamp();
+          if (window._fullChartParity) {
+            if (typeof setPreviewChartAutoScaleEnabled === 'function') {
+              setPreviewChartAutoScaleEnabled(autoScaleEnabled === true);
+            }
+            if (typeof setPreviewVerticalScrollingLocked === 'function') {
+              setPreviewVerticalScrollingLocked(verticalScrollingLocked === true);
+            }
+            if (typeof installPreviewPriceScaleInteractions === 'function') {
+              installPreviewPriceScaleInteractions();
+            }
+          }
 
           var priceFormatInfo = {
             type: 'price',
@@ -180,9 +388,13 @@ const CH_HTML = `
           };
 
           if (chartType === 'candles' || chartType === 'hollow') {
-            series = chart.addSeries(LightweightCharts.CandlestickSeries, {
-              upColor: chartType === 'hollow' ? hollowBody : cUp,
-              downColor: chartType === 'hollow' ? hollowBody : cDown,
+            // Split panes use the exact renderer and presentation constants as
+            // the full chart so dividing the window cannot change candle color.
+            series = window.addRTX5CustomCandlestickSeries(chart, {
+              candleOpacity: ${CHART_CANDLE_RENDER_OPACITY},
+              bearishCandleOpacity: ${CHART_BEARISH_CANDLE_RENDER_OPACITY},
+              bodyUpColor: chartType === 'hollow' ? hollowBody : cUp,
+              bodyDownColor: chartType === 'hollow' ? hollowBody : cDown,
               borderUpColor: cUp,
               borderDownColor: cDown,
               wickUpColor: cUp,
@@ -222,7 +434,9 @@ const CH_HTML = `
               lastValueVisible: false,
             });
             chart.priceScale('volume').applyOptions({
-              scaleMargins: { top: 0.84, bottom: 0.02 },
+              scaleMargins: window._fullChartParity
+                ? { top: 0.82, bottom: 0.02 }
+                : { top: 0.84, bottom: 0.02 },
               visible: false,
             });
           }
@@ -231,27 +445,79 @@ const CH_HTML = `
             window._lastChartData = data.slice();
             series.setData(data);
             setVolumeSeriesData(window._lastChartData);
+            if (window._fullChartParity) {
+              applyPreviewRecentViewport(window._lastChartData.length);
+            } else {
+              try { chart.timeScale().fitContent(); } catch (_error) {}
+            }
           }
+          setPreviewCountdownSeriesContext(dataContextKey, dataGeneration, data);
+          if (window._fullChartParity && typeof installPreviewRightPriceAxis === 'function') {
+            installPreviewRightPriceAxis();
+          }
+          if (window._fullChartParity && typeof installPreviewAxisDividers === 'function') {
+            installPreviewAxisDividers();
+          }
+          if (window._fullChartParity && typeof installPreviewTradeOverlayRenderer === 'function') {
+            installPreviewTradeOverlayRenderer();
+          }
+          setPreviewSerializedDrawings(
+            drawings,
+            drawingsHidden,
+            showObjectDescriptions,
+            dataContextKey,
+            dataGeneration
+          );
 
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CHART_READY' }));
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'CHART_READY',
+            dataContextKey: dataContextKey,
+            dataGeneration: dataGeneration
+          }));
         } catch (error) {
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', message: error.message }));
         }
       }
 
-      function updateChartData(data) {
+      function updateChartData(data, dataContextKey, dataGeneration, resetVisibleRange) {
         try {
+          if (!acceptPreviewDataContext(dataContextKey, dataGeneration)) return;
           if (!series) return;
           window._lastChartData = Array.isArray(data) ? data.slice() : [];
           series.setData(window._lastChartData);
           setVolumeSeriesData(window._lastChartData);
+          setPreviewCountdownSeriesContext(
+            dataContextKey,
+            dataGeneration,
+            window._lastChartData
+          );
+          if (resetVisibleRange && chart && window._lastChartData.length > 0) {
+            if (window._fullChartParity) {
+              applyPreviewRecentViewport(window._lastChartData.length);
+            } else {
+              try { chart.timeScale().fitContent(); } catch (_error) {}
+            }
+          }
+          if (typeof reapplyPreviewManualPriceScale === 'function') {
+            reapplyPreviewManualPriceScale();
+          }
+          if (typeof schedulePreviewRightPriceAxisRefresh === 'function') {
+            schedulePreviewRightPriceAxisRefresh();
+          }
+          if (typeof schedulePreviewAxisDividersRefresh === 'function') {
+            schedulePreviewAxisDividersRefresh();
+          }
+          if (typeof schedulePreviewTradeOverlayRefresh === 'function') {
+            schedulePreviewTradeOverlayRefresh();
+          }
         } catch (_error) {}
       }
 
       // Colors-only fast path: recolor the existing chart in place instead of
       // re-injecting the full candle history from the host (which took seconds).
-      function applyPreviewColors(opts, customColors) {
+      function applyPreviewColors(opts, customColors, dataContextKey, dataGeneration) {
         try {
+          if (!acceptPreviewDataContext(dataContextKey, dataGeneration)) return;
           if (!chart || !series) return;
           window._customColors = customColors || {};
           var chartType = window._chartType;
@@ -273,27 +539,16 @@ const CH_HTML = `
 
           if (chartType === 'candles' || chartType === 'hollow') {
             series.applyOptions({
-              upColor: chartType === 'hollow' ? hollowBody : cUp,
-              downColor: chartType === 'hollow' ? hollowBody : cDown,
+              candleOpacity: ${CHART_CANDLE_RENDER_OPACITY},
+              bearishCandleOpacity: ${CHART_BEARISH_CANDLE_RENDER_OPACITY},
+              bodyUpColor: chartType === 'hollow' ? hollowBody : cUp,
+              bodyDownColor: chartType === 'hollow' ? hollowBody : cDown,
               borderUpColor: cUp,
               borderDownColor: cDown,
               wickUpColor: cUp,
               wickDownColor: cDown,
               color: cUp
             });
-            // Data items carry baked per-candle colors that override the series
-            // options — recolor them from the copy already inside the WebView.
-            if (Array.isArray(window._lastChartData) && window._lastChartData.length > 0) {
-              var recolored = window._lastChartData.map(function(item) {
-                if (!item || typeof item.open !== 'number' || typeof item.close !== 'number') return item;
-                var nextColor = chartType === 'hollow'
-                  ? hollowBody
-                  : (item.close >= item.open ? cUp : cDown);
-                return Object.assign({}, item, { color: nextColor });
-              });
-              window._lastChartData = recolored;
-              series.setData(recolored);
-            }
           } else if (chartType === 'bars') {
             series.applyOptions({ upColor: bUp, downColor: bDown });
           } else {
@@ -301,30 +556,60 @@ const CH_HTML = `
           }
 
           setVolumeSeriesData(window._lastChartData);
+          if (typeof schedulePreviewRightPriceAxisRefresh === 'function') {
+            schedulePreviewRightPriceAxisRefresh();
+          }
+          if (typeof schedulePreviewAxisDividersRefresh === 'function') {
+            schedulePreviewAxisDividersRefresh();
+          }
+          if (typeof schedulePreviewTradeOverlayRefresh === 'function') {
+            schedulePreviewTradeOverlayRefresh();
+          }
         } catch (_error) {}
       }
 
-      function updateTick(tick) {
+      function updateTick(tick, dataContextKey, dataGeneration) {
         try {
+          if (!acceptPreviewDataContext(dataContextKey, dataGeneration)) return;
           if (!series || !tick) return;
           upsertLastChartDataPoint(tick);
           series.update(tick);
           updateVolumeSeriesTick(tick);
+          updatePreviewCountdownSeriesTick(tick, dataContextKey, dataGeneration);
+          if (typeof schedulePreviewRightPriceAxisRefresh === 'function') {
+            schedulePreviewRightPriceAxisRefresh();
+          }
+          if (typeof schedulePreviewAxisDividersRefresh === 'function') {
+            schedulePreviewAxisDividersRefresh();
+          }
+          if (typeof schedulePreviewTradeOverlayRefresh === 'function') {
+            schedulePreviewTradeOverlayRefresh();
+          }
         } catch (_error) {}
       }
 
-      function setPriceLines(lines) {
+      function setPriceLines(lines, dataContextKey, dataGeneration) {
         try {
+          if (!acceptPreviewDataContext(dataContextKey, dataGeneration)) return;
           if (!series) return;
           resetPriceLines();
+          if (typeof setPreviewTradeOverlayLines === 'function') {
+            setPreviewTradeOverlayLines(lines || []);
+          }
           (lines || []).forEach(function(line) {
             try {
+              if (
+                typeof isPreviewTradeOverlayLine === 'function' &&
+                isPreviewTradeOverlayLine(line)
+              ) return;
               var priceLine = series.createPriceLine({
                 price: line.price,
                 color: line.color,
                 lineWidth: line.lineWidth || 1,
                 lineStyle: line.lineStyle !== undefined ? line.lineStyle : LightweightCharts.LineStyle.Solid,
-                axisLabelVisible: line.axisLabelVisible !== false,
+                axisLabelVisible:
+                  line.axisLabelVisible !== false &&
+                  !(line.role === 'live' && previewCountdownActive),
                 title: line.title || '',
               });
               priceLinesArr.push(priceLine);
@@ -333,8 +618,97 @@ const CH_HTML = `
           try {
             series.applyOptions({ lastValueVisible: (lines || []).length === 0 });
           } catch (_error) {}
+          renderPreviewLivePriceBadge();
         } catch (_error) {}
       }
+
+      // Keep pane-selection gestures inside the chart document so the native
+      // wrapper never places a touch-stealing overlay above Lightweight Charts.
+      // The native host holds PANE_TAP for the double-tap window and cancels it
+      // if PANE_DOUBLE_TAP arrives, so the first tap cannot remount its target.
+      var PREVIEW_PANE_DOUBLE_TAP_MAX_DELAY_MS = 320;
+      var PREVIEW_PANE_DOUBLE_TAP_MAX_DISTANCE_PX = 24;
+      var lastPaneTap = null;
+      var paneTouchStart = null;
+      function resetPaneTapPairing() {
+        lastPaneTap = null;
+      }
+      function emitPaneTap(clientX, clientY) {
+        var now = Date.now();
+        var rect = chartHost && typeof chartHost.getBoundingClientRect === 'function'
+          ? chartHost.getBoundingClientRect()
+          : { left: 0, top: 0, width: 0, height: 0 };
+        var width = Math.max(1, Number(rect.width) || Number(chartHost.clientWidth) || 1);
+        var height = Math.max(1, Number(rect.height) || Number(chartHost.clientHeight) || 1);
+        var x = Math.min(width, Math.max(0, Number(clientX) - (Number(rect.left) || 0)));
+        var y = Math.min(height, Math.max(0, Number(clientY) - (Number(rect.top) || 0)));
+        var dataContextKey = window._previewDataContextKey || '';
+        var dataGeneration = Number(window._previewDataGeneration) || 0;
+        var previousTap = lastPaneTap;
+        var elapsed = previousTap ? now - previousTap.at : Infinity;
+        var dx = previousTap ? x - previousTap.x : Infinity;
+        var dy = previousTap ? y - previousTap.y : Infinity;
+        var maxDistanceSquared =
+          PREVIEW_PANE_DOUBLE_TAP_MAX_DISTANCE_PX * PREVIEW_PANE_DOUBLE_TAP_MAX_DISTANCE_PX;
+        var isDoubleTap =
+          !!previousTap &&
+          previousTap.dataContextKey === dataContextKey &&
+          previousTap.dataGeneration === dataGeneration &&
+          elapsed >= 0 &&
+          elapsed <= PREVIEW_PANE_DOUBLE_TAP_MAX_DELAY_MS &&
+          dx * dx + dy * dy <= maxDistanceSquared;
+        lastPaneTap = isDoubleTap
+          ? null
+          : { x: x, y: y, at: now, dataContextKey: dataContextKey, dataGeneration: dataGeneration };
+        var price = null;
+        if (series && typeof series.coordinateToPrice === 'function') {
+          var resolvedPrice = series.coordinateToPrice(y);
+          price = typeof resolvedPrice === 'number' && isFinite(resolvedPrice)
+            ? resolvedPrice
+            : null;
+        }
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: isDoubleTap ? 'PANE_DOUBLE_TAP' : 'PANE_TAP',
+          x: x,
+          y: y,
+          width: width,
+          height: height,
+          price: price,
+          dataContextKey: dataContextKey,
+          dataGeneration: dataGeneration
+        }));
+      }
+      chartHost.addEventListener('touchstart', function(event) {
+        var touch = event.touches && event.touches.length === 1 ? event.touches[0] : null;
+        if (
+          touch &&
+          typeof shouldSuppressPreviewPaneTap === 'function' &&
+          shouldSuppressPreviewPaneTap(touch.clientX, touch.clientY)
+        ) {
+          paneTouchStart = null;
+          return;
+        }
+        paneTouchStart = touch ? { x: touch.clientX, y: touch.clientY, at: Date.now() } : null;
+      }, { capture: true, passive: true });
+      chartHost.addEventListener('touchend', function(event) {
+        if (!paneTouchStart) return;
+        var touch = event.changedTouches && event.changedTouches[0];
+        var start = paneTouchStart;
+        paneTouchStart = null;
+        if (!touch) return;
+        if (
+          typeof shouldSuppressPreviewPaneTap === 'function' &&
+          shouldSuppressPreviewPaneTap(touch.clientX, touch.clientY)
+        ) {
+          return;
+        }
+        var moved = Math.hypot(touch.clientX - start.x, touch.clientY - start.y);
+        if (moved <= 14 && Date.now() - start.at <= 450) {
+          emitPaneTap(touch.clientX, touch.clientY);
+        }
+      }, { capture: true, passive: true });
+
+      window.setPreviewCandleCountdown = setPreviewCandleCountdown;
 
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'READY' }));
     </script>
@@ -346,6 +720,28 @@ const PREVIEW_DEV_SOURCE_KEY = getDevRefreshKey(
   'chart-preview-webview',
   hashDevRefreshSource(CH_HTML),
 );
+// Keep a bridge margin above the in-document 320 ms recognizer. Ownership is
+// already claimed immediately through onTapIntent, so this delay only decides
+// whether to promote the pane or open its double-tap radial menu.
+const PREVIEW_PANE_DOUBLE_TAP_WINDOW_MS = 400;
+
+export type PreviewOverlayPriceLine = Readonly<{
+  id?: string;
+  price: number;
+  color: string;
+  lineWidth?: number;
+  lineStyle?: number;
+  axisLabelVisible?: boolean;
+  title?: string;
+  role?: string;
+  labelSideText?: string;
+  labelValueText?: string;
+  labelSideColor?: string;
+  labelValueColor?: string;
+  labelPlacement?: 'floating' | 'line';
+  labelMinTop?: number;
+  dragKey?: string;
+}>;
 
 export default function LiveChartPreviewNative({
   symbol,
@@ -356,6 +752,24 @@ export default function LiveChartPreviewNative({
   isDark,
   chartType = 'candles',
   active = true,
+  commitIntervalMs = 0,
+  maxCandles,
+  onTapIntent,
+  onTap,
+  onDoubleTap,
+  liveQuoteOverride,
+  manageQuoteSubscription = true,
+  candleCountdownActive = false,
+  fullChartParity = false,
+  autoScaleEnabled = false,
+  verticalScrollingLocked = false,
+  showVolumePane,
+  drawings = [],
+  drawingsHidden = false,
+  showObjectDescriptions = true,
+  viewportCommand,
+  overlayPriceLines = [],
+  onLatestCandleChange,
 }: {
   symbol: string;
   timeframe: string;
@@ -365,20 +779,71 @@ export default function LiveChartPreviewNative({
   isDark: boolean;
   chartType?: PreviewChartType;
   active?: boolean;
+  commitIntervalMs?: number;
+  maxCandles?: number;
+  onTapIntent?: (gesture: ChartWindowPaneGesture) => void;
+  onTap?: (gesture: ChartWindowPaneGesture) => void;
+  onDoubleTap?: (gesture: ChartWindowPaneGesture) => void;
+  liveQuoteOverride?: Partial<QuoteItem>;
+  manageQuoteSubscription?: boolean;
+  candleCountdownActive?: boolean;
+  /** Enables the normal ChartScreen viewport and price-scale behavior. */
+  fullChartParity?: boolean;
+  autoScaleEnabled?: boolean;
+  verticalScrollingLocked?: boolean;
+  showVolumePane?: boolean;
+  /** Window-owned drawings rendered read-only while this pane is inactive. */
+  drawings?: readonly PersistedChartDrawing[];
+  drawingsHidden?: boolean;
+  showObjectDescriptions?: boolean;
+  viewportCommand?: Readonly<{
+    revision: number;
+    type: 'scrollToLastBar' | 'resetVerticalScale' | 'resetViewport';
+  }>;
+  overlayPriceLines?: readonly PreviewOverlayPriceLine[];
+  onLatestCandleChange?: (payload: Readonly<{
+    symbol: string;
+    timeframe: string;
+    candle: PreviewSourceCandle | null;
+  }>) => void;
 }) {
   const webViewRef = useRef<WebView>(null);
   const [webViewReady, setWebViewReady] = useState(false);
-  const { candles } = useLiveCandles(symbol, timeframe, active);
-  const liveQuotes = useMarketData([symbol], active);
-  const liveQuote = liveQuotes[symbol];
+  const brokerCredentialScopeKey = useActiveBrokerCredentialScopeKey();
+  const previewDataContextKey = useMemo(() => (
+    `${brokerCredentialScopeKey}:${normalizeSymbol(symbol)}:${normalizeTimeframeStrict(timeframe) ?? timeframe}`
+  ), [brokerCredentialScopeKey, symbol, timeframe]);
+  const { candles } = useLiveCandles(symbol, timeframe, active, commitIntervalMs);
+  const liveQuotes = useMarketData([symbol], active && manageQuoteSubscription);
+  const liveQuote = manageQuoteSubscription ? liveQuotes[symbol] : liveQuoteOverride;
   const { data: instrumentMeta } = useInstrumentMeta(symbol, active);
   const liveQuoteDigitsSource = (liveQuote as { digitsSource?: string } | undefined)?.digitsSource;
   const hasLivePreviewQuote = hasLiveQuoteFeedData(liveQuote);
+  const previewShowsVolumePane = fullChartParity
+    ? showVolumePane === true && chartType !== 'line'
+    : display.showTickVolumes || display.showRealVolumes;
+  const previewCustomColors = useMemo(() => ({
+    ...colors,
+    axisDivider: isDark
+      ? CHART_AXIS_DIVIDER_DARK_COLOR
+      : CHART_AXIS_DIVIDER_LIGHT_COLOR,
+  }), [colors, isDark]);
 
   const chartSignatureRef = useRef('');
-  const lastCandleLengthRef = useRef(0);
-  const lastRenderedCandleSignatureRef = useRef('');
-  const previewCandlesRef = useRef<ReturnType<typeof sanitizePreviewCandles>>([]);
+  const lastRenderedDataSignatureRef = useRef('');
+  const previewBridgeContextRef = useRef({
+    key: previewDataContextKey,
+    generation: 1,
+  });
+  if (previewBridgeContextRef.current.key !== previewDataContextKey) {
+    previewBridgeContextRef.current = {
+      key: previewDataContextKey,
+      generation: previewBridgeContextRef.current.generation + 1,
+    };
+    chartSignatureRef.current = '';
+    lastRenderedDataSignatureRef.current = '';
+  }
+  const previewDataGeneration = previewBridgeContextRef.current.generation;
 
   const chartOptions = useMemo(() => ({
     layout: {
@@ -392,45 +857,87 @@ export default function LiveChartPreviewNative({
       horzLines: { color: display.showGrid ? colors.grid : 'transparent' },
     },
     crosshair: {
-      mode: 0,
+      mode: fullChartParity ? 2 : 0,
       vertLine: {
+        visible: !fullChartParity,
+        labelVisible: !fullChartParity,
         color: colors.foreground,
-        width: 1,
+        width: fullChartParity ? 0 : 1,
         labelBackgroundColor: colors.foreground,
       },
       horzLine: {
+        visible: !fullChartParity,
+        labelVisible: !fullChartParity,
         color: colors.foreground,
-        width: 1,
+        width: fullChartParity ? 0 : 1,
         labelBackgroundColor: colors.foreground,
       },
     },
     timeScale: {
-      borderColor: display.showGrid ? colors.grid : 'transparent',
+      borderVisible: !fullChartParity,
+      borderColor: fullChartParity
+        ? 'transparent'
+        : (display.showGrid ? colors.grid : 'transparent'),
       timeVisible: true,
       secondsVisible: false,
-      rightOffset: LIVE_CHART_PREVIEW_TIME_SCALE_RIGHT_OFFSET,
+      rightOffset: fullChartParity
+        ? CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET
+        : LIVE_CHART_PREVIEW_TIME_SCALE_RIGHT_OFFSET,
       shiftVisibleRangeOnNewBar: true,
-      barSpacing: 13,
-      minBarSpacing: 3,
+      barSpacing: fullChartParity ? CHART_DEFAULT_TIME_SCALE_BAR_SPACING : 13,
+      minBarSpacing: CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING,
+      fixLeftEdge: fullChartParity ? CHART_TIME_SCALE_FIX_LEFT_EDGE : undefined,
+      fixRightEdge: fullChartParity ? CHART_TIME_SCALE_FIX_RIGHT_EDGE : undefined,
     },
+    handleScroll: fullChartParity ? {
+      mouseWheel: true,
+      pressedMouseMove: true,
+      horzTouchDrag: true,
+      vertTouchDrag: false,
+    } : undefined,
+    handleScale: fullChartParity ? {
+      mouseWheel: true,
+      pinch: true,
+      axisPressedMouseMove: { time: true, price: false },
+    } : undefined,
+    leftPriceScale: fullChartParity ? {
+      visible: false,
+    } : undefined,
     rightPriceScale: {
-      borderColor: display.showGrid ? colors.grid : 'transparent',
-      autoScale: true,
+      visible: true,
+      borderVisible: !fullChartParity,
+      borderColor: fullChartParity
+        ? 'transparent'
+        : (display.showGrid ? colors.grid : 'transparent'),
+      autoScale: fullChartParity ? autoScaleEnabled : true,
+      entireTextOnly: false,
+      minimumWidth: CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH,
       scaleMargins: {
-        top: 0.08,
-        bottom: display.showTickVolumes || display.showRealVolumes ? 0.25 : 0.08,
+        top: fullChartParity ? 0 : 0.08,
+        bottom: fullChartParity
+          ? (previewShowsVolumePane ? 0.34 : 0)
+          : (previewShowsVolumePane ? 0.25 : 0.08),
       },
     },
-  }), [colors, display]);
+  }), [autoScaleEnabled, colors, display, fullChartParity, previewShowsVolumePane]);
 
-  // Render the FULL candle history so the preview is byte-identical to the
-  // main ChartScreen. Previously this was sliced to the last 50 candles to save
-  // memory, but the user expects the preview and the main chart to look the
-  // same — so we feed the same dataset.
+  // Existing preview callers retain full-history parity with ChartScreen.
+  // Multi-window panes opt into a bounded tail so a second WebView cannot hold
+  // another unbounded candle array in both React and the chart document.
   const previewCandles = useMemo(
-    () => sanitizePreviewCandles(candles),
-    [candles],
+    () => {
+      const sanitized = sanitizePreviewCandles(candles);
+      const safeLimit = typeof maxCandles === 'number' && Number.isFinite(maxCandles)
+        ? Math.max(1, Math.floor(maxCandles))
+        : null;
+      return safeLimit === null ? sanitized : sanitized.slice(-safeLimit);
+    },
+    [candles, maxCandles],
   );
+  const latestPreviewCandle = previewCandles[previewCandles.length - 1] ?? null;
+  useEffect(() => {
+    onLatestCandleChange?.({ symbol, timeframe, candle: latestPreviewCandle });
+  }, [latestPreviewCandle, onLatestCandleChange, symbol, timeframe]);
   const latestPreviewPrecisionPrices = useMemo(() => {
     const latest = previewCandles[previewCandles.length - 1];
     return latest ? [latest.open, latest.high, latest.low, latest.close] : [];
@@ -467,58 +974,129 @@ export default function LiveChartPreviewNative({
     () => mapPreviewCandles(previewCandles, chartType, colors),
     [previewCandles, chartType, colors],
   );
+  const previewDataSignature = useMemo(
+    () => JSON.stringify(previewCandles),
+    [previewCandles],
+  );
   const chartSignature = useMemo(
-    () => JSON.stringify({ chartOptions, colors, display, chartType, displayDecimals }),
-    [chartOptions, colors, display, chartType, displayDecimals],
+    () => JSON.stringify({ chartOptions, previewCustomColors, display, chartType, displayDecimals }),
+    [chartOptions, previewCustomColors, display, chartType, displayDecimals],
   );
   // Colors are excluded here on purpose: a color-only change recolors the
   // existing chart in place (applyPreviewColors) instead of paying the full
   // candle-history re-injection that made Done feel seconds late.
   const structuralSignature = useMemo(
-    () => JSON.stringify({ chartType, display, displayDecimals }),
-    [chartType, display, displayDecimals],
+    () => JSON.stringify({
+      previewDataContextKey,
+      previewDataGeneration,
+      chartType,
+      display,
+      displayDecimals,
+      fullChartParity,
+      previewShowsVolumePane,
+    }),
+    [
+      chartType,
+      display,
+      displayDecimals,
+      fullChartParity,
+      previewDataContextKey,
+      previewDataGeneration,
+      previewShowsVolumePane,
+    ],
   );
   const structuralSignatureRef = useRef('');
+  const drawingSignatureRef = useRef('');
+  const lastPreviewLinePriceRef = useRef<number | null>(null);
+  const lastPreviewLineDirectionRef = useRef<'up' | 'down'>('up');
+  const paneSingleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastViewportCommandRevisionRef = useRef(0);
+
+  const clearPendingPaneSingleTap = useCallback(() => {
+    if (!paneSingleTapTimerRef.current) return;
+    clearTimeout(paneSingleTapTimerRef.current);
+    paneSingleTapTimerRef.current = null;
+  }, []);
+
+  const resetWebViewBridgeState = useCallback(() => {
+    clearPendingPaneSingleTap();
+    setWebViewReady(false);
+    chartSignatureRef.current = '';
+    structuralSignatureRef.current = '';
+    drawingSignatureRef.current = '';
+    lastRenderedDataSignatureRef.current = '';
+    lastPreviewLinePriceRef.current = null;
+    lastPreviewLineDirectionRef.current = 'up';
+  }, [clearPendingPaneSingleTap]);
+
+  const recoverWebViewProcess = useCallback(() => {
+    resetWebViewBridgeState();
+    webViewRef.current?.reload();
+  }, [resetWebViewBridgeState]);
+
+  const schedulePaneSingleTap = useCallback((gesture: ChartWindowPaneGesture) => {
+    clearPendingPaneSingleTap();
+    if (!onTap) return;
+    paneSingleTapTimerRef.current = setTimeout(() => {
+      paneSingleTapTimerRef.current = null;
+      onTap(gesture);
+    }, PREVIEW_PANE_DOUBLE_TAP_WINDOW_MS);
+  }, [clearPendingPaneSingleTap, onTap]);
+
+  const commitPaneDoubleTap = useCallback((gesture: ChartWindowPaneGesture) => {
+    clearPendingPaneSingleTap();
+    onDoubleTap?.(gesture);
+  }, [clearPendingPaneSingleTap, onDoubleTap]);
 
   useEffect(() => {
-    previewCandlesRef.current = previewCandles;
-  }, [previewCandles]);
+    clearPendingPaneSingleTap();
+    return clearPendingPaneSingleTap;
+  }, [brokerCredentialScopeKey, clearPendingPaneSingleTap, symbol, timeframe]);
+
+  useEffect(() => {
+    // The WebView intentionally survives symbol/timeframe changes, so reset
+    // direction memory explicitly. Session changes must also start neutral.
+    lastPreviewLinePriceRef.current = null;
+    lastPreviewLineDirectionRef.current = 'up';
+  }, [brokerCredentialScopeKey, symbol]);
 
   useEffect(() => {
     if (!webViewReady || !webViewRef.current) return;
 
-    const lastSignature = getLastPreviewCandleSignature(previewCandles);
     const shouldInit = structuralSignatureRef.current !== structuralSignature;
     const anythingChanged = chartSignatureRef.current !== chartSignature;
 
     if (shouldInit) {
+      const drawingSignature = JSON.stringify([
+        drawings,
+        drawingsHidden,
+        showObjectDescriptions,
+        previewDataContextKey,
+        previewDataGeneration,
+      ]);
       webViewRef.current.injectJavaScript(
-        `initChart(${JSON.stringify(chartOptions)}, ${JSON.stringify(chartType)}, ${JSON.stringify(mappedPreviewData)}, ${displayDecimals}, ${JSON.stringify(colors)}, ${JSON.stringify(display)}); true;`,
+        `initChart(${JSON.stringify(chartOptions)}, ${JSON.stringify(chartType)}, ${JSON.stringify(mappedPreviewData)}, ${displayDecimals}, ${JSON.stringify(previewCustomColors)}, ${JSON.stringify(display)}, ${JSON.stringify(previewDataContextKey)}, ${previewDataGeneration}, ${fullChartParity}, ${autoScaleEnabled}, ${verticalScrollingLocked}, ${previewShowsVolumePane}, ${JSON.stringify(drawings)}, ${drawingsHidden}, ${showObjectDescriptions}); true;`,
       );
       structuralSignatureRef.current = structuralSignature;
       chartSignatureRef.current = chartSignature;
-      lastCandleLengthRef.current = previewCandles.length;
-      lastRenderedCandleSignatureRef.current = lastSignature;
+      drawingSignatureRef.current = drawingSignature;
+      lastRenderedDataSignatureRef.current = previewDataSignature;
       return;
     }
 
     if (anythingChanged) {
       // Colors-only change — instant in-place recolor, no data payload.
       webViewRef.current.injectJavaScript(
-        `if (typeof applyPreviewColors === 'function') applyPreviewColors(${JSON.stringify(chartOptions)}, ${JSON.stringify(colors)}); true;`,
+        `if (typeof applyPreviewColors === 'function') applyPreviewColors(${JSON.stringify(chartOptions)}, ${JSON.stringify(previewCustomColors)}, ${JSON.stringify(previewDataContextKey)}, ${previewDataGeneration}); true;`,
       );
       chartSignatureRef.current = chartSignature;
     }
 
-    if (
-      lastCandleLengthRef.current !== previewCandles.length ||
-      lastRenderedCandleSignatureRef.current !== lastSignature
-    ) {
+    if (lastRenderedDataSignatureRef.current !== previewDataSignature) {
       webViewRef.current.injectJavaScript(
-        `updateChartData(${JSON.stringify(mappedPreviewData)}); true;`,
+        `updateChartData(${JSON.stringify(mappedPreviewData)}, ${JSON.stringify(previewDataContextKey)}, ${previewDataGeneration}, false); true;`,
       );
-      lastCandleLengthRef.current = previewCandles.length;
-      lastRenderedCandleSignatureRef.current = lastSignature;
+      lastRenderedDataSignatureRef.current = previewDataSignature;
     }
   }, [
     webViewReady,
@@ -527,33 +1105,101 @@ export default function LiveChartPreviewNative({
     chartOptions,
     chartSignature,
     structuralSignature,
-    colors,
+    previewDataContextKey,
+    previewDataGeneration,
+    previewDataSignature,
+    previewCustomColors,
     display,
     chartType,
     displayDecimals,
+    fullChartParity,
+    autoScaleEnabled,
+    verticalScrollingLocked,
+    previewShowsVolumePane,
+    drawings,
+    drawingsHidden,
+    showObjectDescriptions,
   ]);
-
-  // Main-chart parity: the live price line carries the direction-colored axis
-  // label ("price highlight"), coloured up/down by the latest tick move.
-  const lastPreviewLinePriceRef = useRef<number | null>(null);
-  const lastPreviewLineDirectionRef = useRef<'up' | 'down'>('up');
 
   useEffect(() => {
     if (!webViewReady || !webViewRef.current) return;
-    const lines: Array<{ price: number; color: string; lineWidth: number; lineStyle: number; axisLabelVisible: boolean; title: string }> = [];
+    const signature = JSON.stringify([
+      drawings,
+      drawingsHidden,
+      showObjectDescriptions,
+      previewDataContextKey,
+      previewDataGeneration,
+    ]);
+    if (drawingSignatureRef.current === signature) return;
+    webViewRef.current.injectJavaScript(
+      `if (typeof setPreviewSerializedDrawings === 'function') setPreviewSerializedDrawings(${JSON.stringify(drawings)}, ${drawingsHidden}, ${showObjectDescriptions}, ${JSON.stringify(previewDataContextKey)}, ${previewDataGeneration}); true;`,
+    );
+    drawingSignatureRef.current = signature;
+  }, [
+    drawings,
+    drawingsHidden,
+    previewDataContextKey,
+    previewDataGeneration,
+    showObjectDescriptions,
+    webViewReady,
+  ]);
+
+  useEffect(() => {
+    if (
+      !viewportCommand
+      || viewportCommand.revision <= lastViewportCommandRevisionRef.current
+      || !webViewReady
+      || !webViewRef.current
+    ) {
+      return;
+    }
+    lastViewportCommandRevisionRef.current = viewportCommand.revision;
+    webViewRef.current.injectJavaScript(
+      `if (typeof applyPreviewWindowCommand === 'function') applyPreviewWindowCommand(${JSON.stringify(viewportCommand.type)}); true;`,
+    );
+  }, [viewportCommand, webViewReady]);
+
+  useEffect(() => {
+    if (!fullChartParity || !webViewReady || !webViewRef.current) return;
+    webViewRef.current.injectJavaScript(
+      `
+        if (typeof setPreviewChartAutoScaleEnabled === 'function') {
+          setPreviewChartAutoScaleEnabled(${autoScaleEnabled});
+        }
+        if (typeof setPreviewVerticalScrollingLocked === 'function') {
+          setPreviewVerticalScrollingLocked(${verticalScrollingLocked});
+        }
+        true;
+      `,
+    );
+  }, [autoScaleEnabled, fullChartParity, verticalScrollingLocked, webViewReady]);
+
+  // Divided panes follow the full chart's active-candle direction. Standalone
+  // settings previews retain their historical last-tick presentation.
+
+  useEffect(() => {
+    if (!webViewReady || !webViewRef.current) return;
+    const lines: PreviewOverlayPriceLine[] = [...overlayPriceLines];
     const shouldShowSelectedPriceLine =
       display.showLivePriceLine || display.showBidPriceLine || display.showAskPriceLine;
     const selectedPrice = priceSource === 'bid' ? liveQuote?.bid : liveQuote?.ask;
+    const hasSelectedPrice = typeof selectedPrice === 'number' && selectedPrice > 0;
 
-    if (shouldShowSelectedPriceLine && typeof selectedPrice === 'number' && selectedPrice > 0) {
+    if (shouldShowSelectedPriceLine && hasSelectedPrice) {
       const previousPrice = lastPreviewLinePriceRef.current;
       if (previousPrice !== null && selectedPrice !== previousPrice) {
         lastPreviewLineDirectionRef.current = selectedPrice > previousPrice ? 'up' : 'down';
       }
       lastPreviewLinePriceRef.current = selectedPrice;
-      const liveColor = lastPreviewLineDirectionRef.current === 'up'
-        ? (colors.candlesUptrend || '#2962FF')
-        : (colors.candlesDowntrend || '#EF5350');
+    }
+    const liveColor = resolvePreviewLivePriceColor({
+      fullChartParity,
+      latestCandle: latestPreviewCandle,
+      fallbackDirection: lastPreviewLineDirectionRef.current,
+      colors,
+    });
+
+    if (shouldShowSelectedPriceLine && hasSelectedPrice) {
       lines.push({
         price: selectedPrice,
         color: liveColor,
@@ -561,43 +1207,54 @@ export default function LiveChartPreviewNative({
         lineStyle: 0,
         axisLabelVisible: true,
         title: '',
+        role: 'live',
       });
     }
 
     webViewRef.current.injectJavaScript(
-      `if (typeof setPriceLines === 'function') setPriceLines(${JSON.stringify(lines)}); true;`,
+      `
+        if (typeof setPreviewCandleCountdown === 'function') {
+          setPreviewCandleCountdown(
+            ${JSON.stringify(timeframe)},
+            ${candleCountdownActive},
+            ${JSON.stringify(
+              typeof selectedPrice === 'number' && selectedPrice > 0 ? selectedPrice : null,
+            )},
+            ${JSON.stringify(liveColor)},
+            ${displayDecimals},
+            ${JSON.stringify(previewDataContextKey)},
+            ${previewDataGeneration}
+          );
+        }
+        if (typeof setPriceLines === 'function') {
+          setPriceLines(
+            ${JSON.stringify(lines)},
+            ${JSON.stringify(previewDataContextKey)},
+            ${previewDataGeneration}
+          );
+        }
+        true;
+      `,
     );
   }, [
+    candleCountdownActive,
     colors.candlesDowntrend,
     colors.candlesUptrend,
     display.showAskPriceLine,
     display.showBidPriceLine,
     display.showLivePriceLine,
+    displayDecimals,
+    fullChartParity,
+    latestPreviewCandle,
     liveQuote?.ask,
     liveQuote?.bid,
+    overlayPriceLines,
     priceSource,
+    previewDataContextKey,
+    previewDataGeneration,
+    timeframe,
     webViewReady,
   ]);
-
-  const colorsRef = useRef(colors);
-  useEffect(() => {
-    colorsRef.current = colors;
-  }, [colors]);
-
-  // Deliberately NOT keyed on colors: color edits recolor in place via
-  // applyPreviewColors; this resync only replays data for candle/symbol moves.
-  useEffect(() => {
-    const resyncPreview = () => {
-      if (!webViewRef.current || !webViewReady) return;
-      const currentCandles = previewCandlesRef.current;
-      webViewRef.current.injectJavaScript(
-        `updateChartData(${JSON.stringify(mapPreviewCandles(currentCandles, chartType, colorsRef.current))}); true;`,
-      );
-      lastCandleLengthRef.current = currentCandles.length;
-      lastRenderedCandleSignatureRef.current = getLastPreviewCandleSignature(currentCandles);
-    };
-    resyncPreview();
-  }, [candles, symbol, timeframe, webViewReady, chartType]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -609,11 +1266,39 @@ export default function LiveChartPreviewNative({
         onMessage={(event) => {
           try {
             const data = JSON.parse(event.nativeEvent.data);
-            if (data.type === 'READY' || data.type === 'CHART_READY') {
+            if (data.type === 'READY') {
               setWebViewReady(true);
+            } else if (
+              data.type === 'CHART_READY' &&
+              data.dataContextKey === previewDataContextKey &&
+              data.dataGeneration === previewDataGeneration
+            ) {
+              setWebViewReady(true);
+            } else if (data.type === 'PANE_TAP') {
+              const gesture = resolveChartWindowPaneGesture(
+                data,
+                previewDataContextKey,
+                previewDataGeneration,
+                brokerCredentialScopeKey,
+              );
+              if (gesture) {
+                onTapIntent?.(gesture);
+                schedulePaneSingleTap(gesture);
+              }
+            } else if (data.type === 'PANE_DOUBLE_TAP') {
+              const gesture = resolveChartWindowPaneGesture(
+                data,
+                previewDataContextKey,
+                previewDataGeneration,
+                brokerCredentialScopeKey,
+              );
+              if (gesture) commitPaneDoubleTap(gesture);
             }
           } catch (_error) {}
         }}
+        onLoadStart={resetWebViewBridgeState}
+        onContentProcessDidTerminate={recoverWebViewProcess}
+        onRenderProcessGone={recoverWebViewProcess}
         scrollEnabled={false}
         bounces={false}
         showsHorizontalScrollIndicator={false}

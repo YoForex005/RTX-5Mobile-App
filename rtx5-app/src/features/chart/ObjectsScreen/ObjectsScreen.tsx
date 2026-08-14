@@ -169,7 +169,15 @@ function StyleStepper({
  * Screen displaying a list of all active drawing objects (trendlines, fibonacci, etc.) on the current chart symbol.
  */
 export function ObjectsScreen() {
-  const { launchRevision } = useLocalSearchParams<{ launchRevision?: string }>();
+  const {
+    launchRevision,
+    chartWindowPaneId,
+    chartWindowSplit,
+  } = useLocalSearchParams<{
+    launchRevision?: string;
+    chartWindowPaneId?: string;
+    chartWindowSplit?: string;
+  }>();
   const {
     chartSymbol,
     chartLockAll,
@@ -180,7 +188,7 @@ export function ObjectsScreen() {
     setChartHideAll,
     addChartDrawing,
     removeChartDrawing,
-    setChartDrawingRecordsForSymbol,
+    setChartDrawingRecordsForSymbol: setAllChartDrawingRecordsForSymbol,
     removeChartDrawingRecordForSymbol,
   } = useUserPreferences(
     useShallow((state) => ({
@@ -253,7 +261,35 @@ export function ObjectsScreen() {
   const [renameDrawingId, setRenameDrawingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
 
-  const chartDrawings = chartDrawingRecordsBySymbol[getChartDrawingBucketKey(chartSymbol)] ?? [];
+  const allChartDrawings = chartDrawingRecordsBySymbol[getChartDrawingBucketKey(chartSymbol)] ?? [];
+  const chartWindowScoped = chartWindowSplit === 'true' && Boolean(chartWindowPaneId);
+  const chartDrawings = useMemo(
+    () => (chartWindowScoped
+      ? allChartDrawings.filter(
+        (drawing) => drawing.chartWindowPaneId === chartWindowPaneId,
+      )
+      : allChartDrawings),
+    [allChartDrawings, chartWindowPaneId, chartWindowScoped],
+  );
+  const setChartDrawingRecordsForSymbol = useCallback((
+    symbol: string,
+    nextPaneDrawings: typeof chartDrawings,
+  ) => {
+    if (!chartWindowScoped || !chartWindowPaneId) {
+      setAllChartDrawingRecordsForSymbol(symbol, nextPaneDrawings);
+      return;
+    }
+    const currentBucket = useUserPreferences.getState()
+      .chartDrawingRecordsBySymbol[getChartDrawingBucketKey(symbol)] ?? [];
+    const retained = currentBucket.filter(
+      (drawing) => drawing.chartWindowPaneId !== chartWindowPaneId,
+    );
+    const scopedNext = nextPaneDrawings.map((drawing) => ({
+      ...drawing,
+      chartWindowPaneId,
+    }));
+    setAllChartDrawingRecordsForSymbol(symbol, [...retained, ...scopedNext]);
+  }, [chartWindowPaneId, chartWindowScoped, setAllChartDrawingRecordsForSymbol]);
 
   const displayDrawings = useMemo<DisplayDrawing[]>(() => {
     if (chartDrawings.length > 0) {
@@ -273,7 +309,7 @@ export function ObjectsScreen() {
       });
     }
 
-    return legacyChartDrawings.map((label) => ({
+    return (chartWindowScoped ? [] : legacyChartDrawings).map((label) => ({
       id: label,
       label,
       description: t(buildLegacyDrawingDescription(label)),
@@ -282,7 +318,7 @@ export function ObjectsScreen() {
       kind: null,
       supportsVisibility: false,
     }));
-  }, [chartDrawings, legacyChartDrawings, t]);
+  }, [chartDrawings, chartWindowScoped, legacyChartDrawings, t]);
 
   const selectedDrawing = useMemo(
     () => displayDrawings.find((drawing) => drawing.id === selectedDrawingId) ?? null,

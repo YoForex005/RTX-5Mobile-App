@@ -17,12 +17,12 @@ test('READY resets bridge state and allows candles that arrived earlier to initi
   );
   assertSourceContains(
     source,
-    /const candlesRef = useRef\(sanitizedCandles\)[\s\S]*const readCurrentProjectedChartCandles = useCallback\([\s\S]*const canonicalCandles = readRenderableCanonicalCandles\(\)[\s\S]*const baseCandles = canonicalCandles\.length > 0 \? canonicalCandles : fallbackCandles[\s\S]*projectChartLiveTickCandles\([\s\S]*const \{ projection \} = readCurrentProjectedChartCandles\(\);[\s\S]*candlesRef\.current = projection\.candles/,
-    'READY retention must prefer canonical candles, use the React snapshot only as bootstrap fallback, and retain the current Bid projection',
+    /const candlesRef = useRef\(sanitizedCandles\)[\s\S]*const candlesRefContextSigRef = useRef\(chartDataContextSig\)[\s\S]*const readCurrentProjectedChartCandles = useCallback\(\(\) => \{[\s\S]*const canonicalCandles = readRenderableCanonicalCandles\(\)[\s\S]*const baseCandles = resolveContextScopedChartCandles\([\s\S]*chartDataContextSig,[\s\S]*canonicalCandles,[\s\S]*contextKey: candlesRefContextSigRef\.current,[\s\S]*candles: candlesRef\.current,[\s\S]*projectChartLiveTickCandles\([\s\S]*const \{ projection \} = readCurrentProjectedChartCandles\(\);[\s\S]*retainCurrentChartCandles\(projection\.candles\)/,
+    'READY retention must prefer canonical candles, accept fallback candles only from the active context, and retain the current Bid projection',
   );
   assertSourceContains(
     source,
-    /const sendInit = useCallback\([\s\S]*readCurrentProjectedChartCandles\(candlesRef\.current\)[\s\S]*const data = projection\.candles[\s\S]*candlesRef\.current = data[\s\S]*initChart\(/,
+    /const sendInit = useCallback\([\s\S]*readCurrentProjectedChartCandles\(\)[\s\S]*const data = projection\.candles[\s\S]*retainCurrentChartCandles\(data\)[\s\S]*initChart\(/,
     'sendInit must re-project the retained candles before initializing the WebView',
   );
 });

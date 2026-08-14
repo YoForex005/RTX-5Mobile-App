@@ -574,7 +574,7 @@ test('SL/TP sheet is hosted above app tabs and clipped at the system-safe bounda
   );
   assertSourceContains(
     source,
-    /!isChartExpanded && showChartMarketExecutionFooter && chartOneClickPanelAtBottom && \(/,
+    /!isChartExpanded && showChartMarketExecutionFooter && \(chartWindows\.isSplit \|\| chartOneClickPanelAtBottom\) && \(/,
     'the canonical Sell/Lot/Buy row must remain mounted while compact SL/TP covers app tabs',
   );
   assertSourceContains(
@@ -845,13 +845,18 @@ test('toolbar SL/TP toggles the compact Market Execution panel without activatin
   );
   assertSourceContains(
     source,
-    /const showChartMarketExecutionFooter =\s*chartDisplay\.showQuickTradingButtons \|\| chartDirectProtectionActive[\s\S]*!isChartExpanded && showChartMarketExecutionFooter && !chartOneClickPanelAtBottom[\s\S]*!isChartExpanded && showChartMarketExecutionFooter && chartOneClickPanelAtBottom/,
+    /const showChartMarketExecutionFooter =\s*chartDisplay\.showQuickTradingButtons \|\| chartDirectProtectionActive[\s\S]*!chartWindows\.isSplit && !isChartExpanded && showChartMarketExecutionFooter && !chartOneClickPanelAtBottom[\s\S]*!isChartExpanded && showChartMarketExecutionFooter && \(chartWindows\.isSplit \|\| chartOneClickPanelAtBottom\)/,
     'direct SL/TP mode must expose Market Execution even when quick-trading display was previously hidden',
   );
   assertSourceContains(
     source,
-    /accessibilityLabel=\{chartSlTpBackendLocked \? 'SL\/TP locked' : 'SL\/TP'\}[\s\S]*disabled: chartSlTpBackendLocked[\s\S]*selected: chartDirectProtectionActive[\s\S]*disabled=\{chartSlTpBackendLocked\}[\s\S]*styles\.toolbarTradeButtonLocked[\s\S]*onPressIn=\{handleActivateDirectChartProtection\}[\s\S]*<Ionicons name="lock-closed" size=\{10\}/,
+    /accessibilityLabel=\{chartSlTpBackendLocked \? 'SL\/TP locked' : 'SL\/TP'\}[\s\S]*disabled: chartSlTpBackendLocked[\s\S]*selected: chartDirectProtectionActive[\s\S]*disabled=\{chartSlTpBackendLocked\}[\s\S]*styles\.toolbarTradeButtonLocked[\s\S]*onPressIn=\{\(\) => routeChartWindowToolbarAction\('sltp'\)\}[\s\S]*<Ionicons name="lock-closed" size=\{10\}/,
     'SL/TP toolbar must visibly lock and disable interaction while the backend is unavailable',
+  );
+  assertSourceContains(
+    source,
+    /useChartWindowToolbarRouter\([\s\S]*sltp: handleActivateDirectChartProtection/,
+    'targeted SL/TP routing must retain the guarded Market Execution handler',
   );
 
   const stylesPath = (() => {

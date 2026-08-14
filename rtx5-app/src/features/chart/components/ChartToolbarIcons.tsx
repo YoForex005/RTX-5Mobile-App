@@ -295,6 +295,20 @@ export const TvFx = ({ color }: { color: string }) => (
   </Svg>
 );
 
+/** MT5-style chart-window layout icon: two offset, overlapping panes. */
+export const TvTileWindows = ({ color }: { color: string }) => (
+  <Svg width="26" height="26" viewBox="0 0 28 28" fill="none">
+    <Path
+      d="M6 18V7h14v3M6 18h3"
+      stroke={color}
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <Rect x="9" y="10" width="13" height="11" rx="0.8" stroke={color} strokeWidth="1.6" />
+  </Svg>
+);
+
 export const TvGrid4 = ({ color }: { color: string }) => (
   <Svg width="26" height="26" viewBox="0 0 28 28" fill="none">
     <Rect x="6" y="6" width="6" height="6" rx="1" stroke={color} strokeWidth="1.5" />

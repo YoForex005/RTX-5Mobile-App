@@ -25,6 +25,8 @@ export type ChartTradeQueueFeedback = {
   executedAt?: string;
   executionConfirmed?: boolean;
   protectionDraftId?: string;
+  /** Immutable chart-window owner captured when the trade was submitted. */
+  chartWindowPaneId?: string;
 };
 
 export type ChartTradeQueueEvent = {
@@ -33,10 +35,21 @@ export type ChartTradeQueueEvent = {
   side: TradeSide;
   symbol: string;
   volume: number;
+  /** Immutable chart-window owner captured when the trade was submitted. */
+  chartWindowPaneId?: string;
   feedback?: ChartTradeQueueFeedback;
 };
 
 export type ChartTradeReceiptSnapshot = readonly ChartTradeQueueEvent[];
+
+export function selectChartTradeReceiptSnapshotForPane(
+  snapshot: ChartTradeReceiptSnapshot,
+  chartWindowPaneId: string,
+): ChartTradeReceiptSnapshot {
+  return snapshot.filter(
+    (event) => event.chartWindowPaneId === chartWindowPaneId,
+  );
+}
 
 const TERMINAL_DISMISS_MS = 5_000;
 
@@ -67,6 +80,10 @@ export function reduceChartTradeReceiptStack(
   const updated: ChartTradeQueueEvent = {
     ...current,
     ...event,
+    // Queue ownership belongs to the initiating tap. A later broker response
+    // must not migrate its receipt after pane promotion or a symbol change.
+    chartWindowPaneId:
+      current.chartWindowPaneId ?? event.chartWindowPaneId,
     feedback: event.feedback ?? current.feedback,
   };
 
@@ -75,6 +92,7 @@ export function reduceChartTradeReceiptStack(
     && current.side === updated.side
     && current.symbol === updated.symbol
     && current.volume === updated.volume
+    && current.chartWindowPaneId === updated.chartWindowPaneId
     && current.feedback === updated.feedback
   ) {
     return snapshot;

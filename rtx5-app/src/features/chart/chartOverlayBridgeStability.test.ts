@@ -480,7 +480,7 @@ test('chart market execution only submits SL and TP that target a new order', ()
   );
   assertSourceContains(
     chartTradeHandlerSource,
-    /validateChartTradeProtectionLevels\(\{[\s\S]*side: action\.side,[\s\S]*entryPrice: action\.side === 'buy' \? latestAsk : latestBid/,
+    /validateChartTradeProtectionLevels\(\{[\s\S]*side: action\.side,[\s\S]*entryPrice: action\.side === 'buy'[\s\S]*currentQuoteAvailability\.ask[\s\S]*currentQuoteAvailability\.bid/,
     'market submit must validate MT5-style SL/TP direction before sending',
   );
   assertSourceContains(
@@ -584,27 +584,32 @@ test('chart header: OHLC values use theme-aware neutral color plus fixed high lo
   );
   assertSourceContains(
     nativeSource,
-    /\{ label: 'O', value: formatChartValue\(chartMetaLastCandle\?\.open\), color: chartMetaNeutralColor \}/,
+    /\{ label: 'O', value: formatValue\(candle\?\.open\), color: neutralColor \}/,
     'O value must use the theme-aware neutral color',
   );
   assertSourceContains(
     nativeSource,
-    /\{ label: 'H', value: formatChartValue\(chartMetaLastCandle\?\.high\), color: CHART_OHLC_HIGH_COLOR \}/,
+    /\{ label: 'H', value: formatValue\(candle\?\.high\), color: CHART_OHLC_HIGH_COLOR \}/,
     'H value must stay green regardless of candle direction',
   );
   assertSourceContains(
     nativeSource,
-    /\{ label: 'L', value: formatChartValue\(chartMetaLastCandle\?\.low\), color: CHART_OHLC_LOW_COLOR \}/,
+    /\{ label: 'L', value: formatValue\(candle\?\.low\), color: CHART_OHLC_LOW_COLOR \}/,
     'L value must stay red regardless of candle direction',
   );
   assertSourceContains(
     nativeSource,
-    /\{ label: 'C', value: formatChartValue\(chartMetaLastCandle\?\.close\), color: chartMetaNeutralColor \}/,
+    /\{ label: 'C', value: formatValue\(candle\?\.close\), color: neutralColor \}/,
     'C value must use the theme-aware neutral color',
   );
   assertSourceContains(
     nativeSource,
-    /styles\.symbolOhlcValue, \{ color: item\.color,/,
+    /neutralColor=\{chartMetaNeutralColor\}/,
+    'the isolated OHLC row must receive the resolved theme-aware neutral color',
+  );
+  assertSourceContains(
+    nativeSource,
+    /\[valueStyle, textShadow, \{ color: item\.color \}\]/,
     'OHLC value rendering must use the per-item color',
   );
   assert.doesNotMatch(nativeSource, /styles\.symbolOhlcValue, \{ color: chartMetaIsUp \?/);

@@ -79,11 +79,11 @@ test('chart trade buttons keep buy and sell press handlers mapped to the matchin
   assert.match(handlerSource, /reason: 'stale-symbol'/);
   assert.match(
     handlerSource,
-    /const currentQuoteAvailability = resolveSessionQuoteActionAvailability\(quoteActionQuoteRef\.current\)[\s\S]*if \(!currentQuoteAvailability\.allowed\) \{[\s\S]*title: 'Market Data Unavailable'/,
+    /const currentQuoteAvailability = resolveCurrentQuoteActionAvailability\(\);[\s\S]*if \(!currentQuoteAvailability\.allowed\) \{[\s\S]*title: 'Market Data Unavailable'/,
   );
   assert.match(
     handlerSource,
-    /const isPublicDemoTradePrompt = useUserPreferences\([\s\S]*!state\.isLoggedIn[\s\S]*const chartTradeActionDisabled = isPublicDemoTradePrompt[\s\S]*\? false[\s\S]*: resolveChartTradeActionDisabled\(\{[\s\S]*isCurrentChartSymbol,[\s\S]*oneClickAccepted,[\s\S]*quoteActionAllowed,[\s\S]*\}\);/,
+    /const isPublicDemoTradePrompt = useUserPreferences\([\s\S]*!state\.isLoggedIn[\s\S]*const chartTradeActionDisabled = resolveChartTradeActionDisabled\(\{[\s\S]*isCurrentChartSymbol,[\s\S]*oneClickAccepted,[\s\S]*quoteActionAllowed,[\s\S]*\}\);/,
   );
   assert.match(
     handlerSource,
@@ -95,11 +95,11 @@ test('chart trade buttons keep buy and sell press handlers mapped to the matchin
   );
   assert.match(
     handlerSource,
-    /requestOrrnnDemoTradeAuth\(\{[\s\S]*symbol,[\s\S]*side,[\s\S]*origin: 'chart',[\s\S]*\}\)[\s\S]*const action = getChartTradeAction\(side\)/,
+    /const action = getChartTradeAction\(side\)[\s\S]*if \(!resolveSymbolExecutionOwnership\(\)\)[\s\S]*return;[\s\S]*requestOrrnnDemoTradeAuth\(\{[\s\S]*symbol,[\s\S]*side,[\s\S]*origin: 'chart'/,
   );
   assert.match(
     source,
-    /const tradeBlocked = isPublicDemoTradePrompt[\s\S]*\? false[\s\S]*: chartTradeActionDisabled \|\| lotInvalid/,
+    /const tradeBlocked = chartTradeActionDisabled \|\| lotInvalid/,
   );
   assert.match(source, /disabled=\{tradeBlocked\}/);
 });
@@ -226,14 +226,14 @@ test('compact footer lot chevrons open range picker without opening manual lot e
   );
   assert.match(buttonSource, /const LOT_CHEVRON_INWARD_MARGIN = 20;/);
   assert.equal(
-    buttonSource.match(/\{ marginLeft: LOT_CHEVRON_INWARD_MARGIN \}/g)?.length,
+    buttonSource.match(/\{ marginLeft: compactPane \? 0 : LOT_CHEVRON_INWARD_MARGIN \}/g)?.length,
     2,
-    'down chevron must shift inward to the right in both display and edit modes',
+    'down chevron must use the compact-aware inward offset in both display and edit modes',
   );
   assert.equal(
-    buttonSource.match(/\{ marginRight: LOT_CHEVRON_INWARD_MARGIN \}/g)?.length,
+    buttonSource.match(/\{ marginRight: compactPane \? 0 : LOT_CHEVRON_INWARD_MARGIN \}/g)?.length,
     2,
-    'up chevron must shift inward to the left in both display and edit modes',
+    'up chevron must use the compact-aware inward offset in both display and edit modes',
   );
   assert.ok(increaseButtonIndex >= 0, 'increase lot button should render in compact footer');
   assert.ok(valueButtonIndex >= 0, 'lot value/edit button should render in compact footer');
@@ -254,7 +254,7 @@ test('compact footer lot slot paints the full center area in dark theme', () => 
   );
   assert.match(
     buttonSource,
-    /<View style=\{\[baseStyles\.actionLotSlot, themeStyles\.actionLotSlot\]\}>/,
+    /<View style=\{\[baseStyles\.actionLotSlot, compactPane && baseStyles\.actionLotSlotCompact, themeStyles\.actionLotSlot\]\}>/,
   );
   assert.match(
     stylesSource,
@@ -378,11 +378,11 @@ test('compact footer keeps Sell red and Buy blue while quotes update', () => {
   assert.match(buttonSource, /resolveChartTradeButtonDisplayQuote/);
   assert.match(
     buttonSource,
-    /<ChartTradeButtonPriceText text=\{formattedBid\} testID="chart-trade-sell-price-text" \/>/,
+    /<ChartTradeButtonPriceText text=\{formattedBid\} testID="chart-trade-sell-price-text" compact=\{compactPane\} \/>/,
   );
   assert.match(
     buttonSource,
-    /<ChartTradeButtonPriceText text=\{formattedAsk\} testID="chart-trade-buy-price-text" \/>/,
+    /<ChartTradeButtonPriceText text=\{formattedAsk\} testID="chart-trade-buy-price-text" compact=\{compactPane\} \/>/,
   );
   assert.doesNotMatch(
     buttonSource,

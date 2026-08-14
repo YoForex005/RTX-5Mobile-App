@@ -18,11 +18,8 @@ test('chart buy/sell tiles never swap to a spinner and never animate price color
   assert.match(source, /borderWidth: 2,\s*borderColor: sellBusy \?/);
   assert.match(source, /borderWidth: 2,\s*borderColor: buyBusy \?/);
   assert.doesNotMatch(source, /borderWidth: (?:sellBusy|buyBusy) \?/);
-  // Positional (liveQuote, fallbackBid, fallbackAsk) crashed when liveQuote was null.
-  assert.match(
-    source,
-    /resolveChartTradeButtonQuote\(\{\s*liveBid: liveQuote\?\.bid,/,
-  );
+  // Display fallback stays object-based, while execution reads the imperative
+  // per-symbol quote state instead of constructing a price-only object.
   assert.match(
     source,
     /resolveChartTradeButtonDisplayQuote\(\{\s*liveBid: liveQuote\?\.bid,/,
@@ -31,13 +28,10 @@ test('chart buy/sell tiles never swap to a spinner and never animate price color
     source,
     /useExecutableQuote\(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS\)/,
   );
-  assert.match(source, /availability: quoteActionAvailability/);
-  assert.match(source, /quoteActionQuote: liveQuote/);
-  assert.doesNotMatch(
-    source,
-    /resolveSessionQuoteActionAvailability\(latestQuote\)/,
-  );
-  assert.doesNotMatch(source, /quoteActionQuote: latestQuote/);
+  assert.match(source, /getCurrentExecutableQuoteState/);
+  assert.match(source, /resolveChartTradeQuoteAvailability\(\{/);
+  assert.match(source, /getCurrentQuoteActionAvailability,/);
+  assert.doesNotMatch(source, /quoteActionQuote:/);
 });
 
 test('chart overlay geometry stays isolated while open-trade labels follow every quote commit', () => {

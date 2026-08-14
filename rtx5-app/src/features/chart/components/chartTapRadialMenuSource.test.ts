@@ -18,11 +18,29 @@ test('radial menu timeframe and action items use the same reliable fast-press pa
   assert.match(source, /hitSlop=\{CHART_TAP_TIMEFRAME_HIT_SLOP\}/);
   assert.match(source, /pointerEvents: 'none'/);
 
-  // Action ring (objects, draw, scale, symbol, indicators)
+  // Action ring (tile windows, objects, draw, scale, symbol, indicators)
   assert.match(
     source,
     /actionItems\.map\(\(item\) => \{[\s\S]*onPress=\{\(event\) => handleActionItemPress\(event, item\.onPress\)\}[\s\S]*activateOnPressIn[\s\S]*activateOnTouchStart/,
   );
+});
+
+test('tile windows occupies the radial slot immediately before M1', () => {
+  const source = readSource('src/features/chart/components/ChartTapRadialMenu.tsx');
+  const iconSource = readSource('src/features/chart/components/ChartToolbarIcons.tsx');
+
+  assert.match(source, /onOpenChartWindows: \(\) => void/);
+  assert.match(
+    source,
+    /key: 'windows',[\s\S]*angle: 288,[\s\S]*accessibilityLabel: t\('Tile windows'\)[\s\S]*<TvTileWindows color=\{color\} \/>[\s\S]*onPress: onOpenChartWindows/,
+  );
+  assert.match(source, /key: 'objects',[\s\S]*angle: 264/);
+  assert.match(source, /key: 'draw',[\s\S]*angle: 240/);
+  assert.match(source, /key: 'scale',[\s\S]*angle: 216/);
+  assert.match(source, /key: 'symbol',[\s\S]*angle: 192/);
+  assert.match(source, /key: 'indicators',[\s\S]*angle: 168/);
+  assert.match(source, /\{ key: 'M1', angle: 312/);
+  assert.match(iconSource, /export const TvTileWindows[\s\S]*<Path[\s\S]*<Rect/);
 });
 
 test('radial menu pan responder does not capture taps from timeframe and action pressables', () => {
@@ -49,6 +67,7 @@ test('chart screen wires every radial option to a concrete action', () => {
   const radialMount = source.slice(radialStart, radialEnd + 2);
 
   assert.match(radialMount, /onSelectTimeframe=\{handleTimeframeSelect\}/);
+  assert.match(radialMount, /onOpenChartWindows=\{/);
   assert.match(radialMount, /onOpenObjects=\{/);
   assert.match(radialMount, /onOpenDrawingTools=\{/);
   assert.match(radialMount, /onOpenIndicators=\{/);
@@ -56,13 +75,17 @@ test('chart screen wires every radial option to a concrete action', () => {
   assert.match(radialMount, /onOpenScaleControls=\{handleOpenChartScaleMenu\}/);
   assert.match(radialMount, /closeChartTapMenu\(\)/);
   assert.match(radialMount, /router\.push\('\/chart\/indicators'\)/);
-  assert.match(radialMount, /handleOpenDrawingTools\(\)/);
+  assert.match(radialMount, /routeChartWindowToolbarAction\('drawings'\)/);
   assert.match(radialMount, /handleOpenSymbolPicker\(\)/);
   assert.match(radialMount, /handleOpenObjectsScreen\(\)/);
 
   assert.match(
     source,
-    /const handleTimeframeSelect = useCallback[\s\S]*closeChartTapMenu\(\)[\s\S]*warmChartContextAndCommit\(chartSymbol, nextTimeframe\)/,
+    /const handleTimeframeSelect = useCallback[\s\S]*closeChartTapMenu\(\)[\s\S]*chartWindows\.updateToolbarTargetContext\(\{ timeframe: nextTimeframe \}\)/,
+  );
+  assert.match(
+    source,
+    /const chartWindows = useChartWindowsFeature\(\{[\s\S]*onCommitContext: commitChartWindowContext[\s\S]*chartWindowCommitContextImplementationRef\.current = warmChartContextAndCommit/,
   );
   assert.match(
     source,

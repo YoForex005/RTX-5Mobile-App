@@ -90,8 +90,13 @@ test('fullscreen enter and exit cancel stale resize frames and use the fast pres
   );
   assertSourceContains(
     source,
-    /onPressIn=\{handleToggleChartExpanded\}/,
-    'fullscreen toggle must react on touch-down instead of waiting for press release',
+    /onPressIn=\{\(\) => routeChartWindowToolbarAction\('fullscreen'\)\}/,
+    'fullscreen toggle must route the targeted pane on touch-down instead of waiting for press release',
+  );
+  assertSourceContains(
+    source,
+    /useChartWindowToolbarRouter\([\s\S]*fullscreen: handleToggleChartExpanded/,
+    'targeted fullscreen routing must retain the viewport-safe fullscreen handler',
   );
 });
 

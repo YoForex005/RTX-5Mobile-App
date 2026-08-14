@@ -10,6 +10,11 @@ import {
   MT5_PRICE_SCALE_OCTAVES_PER_PLOT,
   MT5_PRICE_SCALE_GESTURE_WEBVIEW_JS,
 } from "../mt5PriceScaleGesture";
+import {
+  CHART_PRICE_SCALE_LABEL_FONT_SIZE,
+  CHART_PRICE_SCALE_LABEL_FONT_WEIGHT,
+  CHART_PRICE_SCALE_LABEL_HEIGHT,
+} from "../chartPriceScaleTypography";
 
 export const CH_HTML = `
 <!DOCTYPE html>
@@ -50,10 +55,10 @@ export const CH_HTML = `
       .rtx5-right-price-scale-fallback-label {
         position: absolute;
         box-sizing: border-box;
-        height: 17px;
-        line-height: 17px;
-        font-size: 12px;
-        font-weight: 500;
+        height: ${CHART_PRICE_SCALE_LABEL_HEIGHT}px;
+        line-height: ${CHART_PRICE_SCALE_LABEL_HEIGHT}px;
+        font-size: ${CHART_PRICE_SCALE_LABEL_FONT_SIZE}px;
+        font-weight: ${CHART_PRICE_SCALE_LABEL_FONT_WEIGHT};
         white-space: nowrap;
         overflow: hidden;
         text-overflow: clip;
@@ -192,6 +197,8 @@ export const CH_HTML = `
       var barDownColor = '#ef5350';
       var detachChartTapListeners = null;
       var lastPostedChartTap = { x: NaN, y: NaN, at: 0 };
+      var chartWindowSplitMode = false;
+      var chartWindowSplitModeRevision = 0;
       var pendingPointerTap = null;
       var suppressChartTapUntil = 0;
       var lastPriceLineDirection = null; // 'up' | 'down' — last colour applied
@@ -310,9 +317,9 @@ export const CH_HTML = `
       var MARKET_PRICE_SCALE_BADGE_PADDING_X = 4;
       var MARKET_PRICE_SCALE_BADGE_GAP = 1;
       var MARKET_PRICE_BADGE_RECOVERY_BUFFER_RATIO = 0.035;
-      var RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT = 17;
-      var RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_SIZE = 12;
-      var RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_WEIGHT = '500';
+      var RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT = ${CHART_PRICE_SCALE_LABEL_HEIGHT};
+      var RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_SIZE = ${CHART_PRICE_SCALE_LABEL_FONT_SIZE};
+      var RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_WEIGHT = '${CHART_PRICE_SCALE_LABEL_FONT_WEIGHT}';
       var RIGHT_PRICE_SCALE_FALLBACK_LABEL_OPACITY = '1';
       var RIGHT_PRICE_SCALE_FALLBACK_DARK_LABEL_COLOR = '#E2E8F0';
       var RIGHT_PRICE_SCALE_FALLBACK_LIGHT_LABEL_COLOR = '#0F172A';
@@ -4103,11 +4110,32 @@ export const CH_HTML = `
         try {
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'CHART_TAP',
+            dataContextSig: lastInitDataContextSig || '',
             x: x,
             y: y,
             price: typeof price === 'number' && isFinite(price) ? price : null,
           }));
         } catch (_e) {}
+      }
+
+      function postChartDoubleTap(x, y, price) {
+        try {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'CHART_DOUBLE_TAP',
+            dataContextSig: lastInitDataContextSig || '',
+            x: x,
+            y: y,
+            price: typeof price === 'number' && isFinite(price) ? price : null,
+          }));
+        } catch (_e) {}
+      }
+
+      function setChartWindowSplitMode(enabled) {
+        var nextEnabled = enabled === true;
+        if (chartWindowSplitMode !== nextEnabled) {
+          chartWindowSplitMode = nextEnabled;
+          chartWindowSplitModeRevision += 1;
+        }
       }
 
       function postChartTouchState(active) {
@@ -4220,6 +4248,20 @@ export const CH_HTML = `
           }
         }
         postDistinctChartTap(x, y, price);
+      }
+
+      function emitChartDoubleTapAtPoint(x, y) {
+        if (!series || typeof x !== 'number' || typeof y !== 'number' || !isFinite(x) || !isFinite(y)) {
+          return;
+        }
+        var price = null;
+        if (typeof series.coordinateToPrice === 'function') {
+          var nextPrice = series.coordinateToPrice(y);
+          if (typeof nextPrice === 'number' && isFinite(nextPrice)) {
+            price = nextPrice;
+          }
+        }
+        postChartDoubleTap(x, y, price);
       }
 
       function cancelOverlayDomRefreshFrame() {
@@ -4579,12 +4621,22 @@ export const CH_HTML = `
             CHART_DOUBLE_TAP_MAX_DISTANCE_PX * CHART_DOUBLE_TAP_MAX_DISTANCE_PX;
           var isDoubleTap =
             !!previousTap &&
+            previousTap.splitMode === chartWindowSplitMode &&
+            previousTap.splitModeRevision === chartWindowSplitModeRevision &&
+            previousTap.dataContextSig === lastInitDataContextSig &&
             elapsed >= 0 &&
             elapsed <= CHART_DOUBLE_TAP_MAX_DELAY_MS &&
             dx * dx + dy * dy <= maxDistanceSquared;
           lastCompletedChartTap = isDoubleTap
             ? null
-            : { x: point.x, y: point.y, at: completedAt };
+            : {
+              x: point.x,
+              y: point.y,
+              at: completedAt,
+              splitMode: chartWindowSplitMode,
+              splitModeRevision: chartWindowSplitModeRevision,
+              dataContextSig: lastInitDataContextSig
+            };
           return isDoubleTap;
         };
 
@@ -5519,7 +5571,11 @@ export const CH_HTML = `
           }
           if (consumeCompletedChartTap(point, Date.now())) {
             suppressNextChartClickUntil = Date.now() + 350;
-            resetAutoScale();
+            if (chartWindowSplitMode) {
+              emitChartDoubleTapAtPoint(point.x, point.y);
+            } else {
+              resetAutoScale();
+            }
             if (activePointerCount <= 0) postChartTouchState(false);
             return;
           }
@@ -10509,6 +10565,7 @@ export const CH_HTML = `
       window.setMarketPriceLines = setMarketPriceLines;
       window.setCandleCountdownTimeframe = setCandleCountdownTimeframe;
       window.setCandleCountdownActive = setCandleCountdownActive;
+      window.setChartWindowSplitMode = setChartWindowSplitMode;
       window.setLastPriceLineVisible = setLastPriceLineVisible;
       window.setDrawingTool = setDrawingTool;
       window.clearDrawings = clearDrawings;

@@ -126,8 +126,14 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   assert.match(chartSource, /import \{ useLatchedFlag \} from '\.\.\/\.\.\/hooks\/useLatchedFlag'/);
   assert.match(chartSource, /import \{ useNextFrameValue \} from '\.\.\/\.\.\/hooks\/useNextFrameValue'/);
   assert.doesNotMatch(chartSource, /import \{[^}]*usePathname[^}]*\} from 'expo-router'/);
-  assert.match(chartSource, /const ChartScreenInner = React\.memo\(function ChartScreenInner\(\{ isChartRouteActive \}: \{ isChartRouteActive: boolean \}\)/);
-  assert.match(chartSource, /export function ChartScreen\(\) \{\s*const isScreenFocused = useIsFocused\(\);\s*const deferredScreenFocused = useNextFrameValue\(isScreenFocused\);\s*return <ChartScreenInner isChartRouteActive=\{deferredScreenFocused\} \/>;\s*\}/);
+  assert.match(
+    chartSource,
+    /const ChartScreenInner = React\.memo\(function ChartScreenInner\(\{\s*isChartRouteActive,\s*isTradeExecutionFocused,\s*\}: \{\s*isChartRouteActive: boolean;\s*isTradeExecutionFocused: \(\) => boolean;\s*\}\)/,
+  );
+  assert.match(
+    chartSource,
+    /export function ChartScreen\(\) \{\s*const isScreenFocused = useIsFocused\(\);\s*const immediateFocusRef = useRef\(isScreenFocused\);\s*immediateFocusRef\.current = isScreenFocused;\s*const isTradeExecutionFocused = useCallback\([\s\S]*?\(\) => immediateFocusRef\.current,[\s\S]*?\[\],[\s\S]*?\);\s*const deferredScreenFocused = useNextFrameValue\(isScreenFocused\);\s*return \([\s\S]*?<ChartScreenInner[\s\S]*?isChartRouteActive=\{deferredScreenFocused\}[\s\S]*?isTradeExecutionFocused=\{isTradeExecutionFocused\}[\s\S]*?\/>[\s\S]*?\);\s*\}/,
+  );
   assert.match(chartSource, /import \{ useDeferredActiveFlag \} from '\.\.\/\.\.\/hooks\/useDeferredActiveFlag'/);
   assert.match(chartSource, /import \{ scheduleAfterFirstFrame, scheduleIdleWork \} from '\.\.\/\.\.\/utils\/startupScheduler'/);
   assert.match(chartSource, /const CHART_RUNTIME_ACTIVE_DELAY_MS = 0/);
@@ -202,7 +208,7 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   assert.match(chartSource, /const activeChartSessionCacheNamespace = activeChartSession\?\.cacheNamespace \?\? ''/);
   assert.match(
     chartSource,
-    /Fast retained live-paint path[\s\S]*!chartSurfaceReady[\s\S]*!isPublicDemoMarket[\s\S]*!activeChartSessionCacheNamespace[\s\S]*const paintCanonicalLiveTick = \(allowUnchangedSnapshot = false\) => \{[\s\S]*projectChartLiveTickCandles\([\s\S]*updateLiveTick\(/,
+    /IMPORTANT LIVE-CANDLE \/ LIVE-PRICE-LINE CONTRACT[\s\S]*!chartSurfaceReady \|\|[\s\S]*\(!isPublicDemoMarket && \(!isLoggedIn \|\| !activeChartSessionCacheNamespace\)\)[\s\S]*const paintCanonicalLiveTick = \(allowUnchangedSnapshot = false\) => \{[\s\S]*projectChartLiveTickCandles\([\s\S]*updateLiveTick\(/,
   );
   assert.match(
     chartSource,
@@ -217,9 +223,15 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
     /const scheduleCanonicalLivePaint = \(allowUnchangedSnapshot = false\) => \{[\s\S]*livePaintPending = true[\s\S]*livePaintTimer = setTimeout\([\s\S]*flushCanonicalLivePaint,[\s\S]*CHART_LIVE_PAINT_FALLBACK_MS[\s\S]*requestAnimationFrame\(flushCanonicalLivePaint\)/,
     'the hidden retained bridge must pair its fast frame with a bounded timeout fallback',
   );
+  const retainedLivePaintStart = chartSource.indexOf(
+    'IMPORTANT LIVE-CANDLE / LIVE-PRICE-LINE CONTRACT',
+  );
+  const retainedLivePaintEnd = chartSource.indexOf('// Effect 2', retainedLivePaintStart);
+  assert.notEqual(retainedLivePaintStart, -1, 'retained live-paint contract start was not found');
+  assert.notEqual(retainedLivePaintEnd, -1, 'retained live-paint contract end was not found');
   const retainedLivePaintSource = chartSource.slice(
-    chartSource.indexOf('// Fast retained live-paint path.'),
-    chartSource.indexOf('// Effect 2'),
+    retainedLivePaintStart,
+    retainedLivePaintEnd,
   );
   assert.doesNotMatch(
     retainedLivePaintSource,

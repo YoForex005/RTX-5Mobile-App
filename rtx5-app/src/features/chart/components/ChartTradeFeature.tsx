@@ -917,6 +917,7 @@ function ChartTradeSheetContent({
               displayDecimals={symbolHeader.displayDecimals}
               lotSize={sheet.tradeVolume}
               volumeBounds={sheet.tradeVolumeBounds}
+              chartWindowPaneId={sheet.chartWindowPaneId}
               comment={sheet.chartTradeComment}
               stopLossPrice={
                 !stopsTargetExistingPosition &&
@@ -1380,6 +1381,7 @@ function ChartTradeSheetBody({
             displayDecimals={symbolHeader.displayDecimals}
             lotSize={sheet.tradeVolume}
             volumeBounds={sheet.tradeVolumeBounds}
+            chartWindowPaneId={sheet.chartWindowPaneId}
             comment={sheet.chartTradeComment}
             stopLossPrice={
               !stopsTargetExistingPosition &&
@@ -1780,6 +1782,7 @@ export function ChartTradeOverlayLayer({
               displayDecimals={symbolHeader.displayDecimals}
               lotSize={sheet.tradeVolume}
               volumeBounds={sheet.tradeVolumeBounds}
+              chartWindowPaneId={sheet.chartWindowPaneId}
               onTradeResult={sheet.onTradeResult}
               onTradeQueueEvent={sheet.onTradeQueueEvent}
               comment={sheet.chartTradeComment}
@@ -1840,6 +1843,7 @@ type ChartTradeInlineFooterProps = {
   hideInlineTradeRow?: boolean;
   showFloatingFooterTradeRow: boolean;
   chartSymbol: string;
+  chartWindowPaneId?: string;
   displayDecimals: number;
   tradeVolume: number;
   tradeVolumeBounds: any;
@@ -1866,6 +1870,7 @@ type ChartTradeInlineFooterProps = {
   active?: boolean;
   fallbackBid?: number | null;
   fallbackAsk?: number | null;
+  compactPane?: boolean;
   onLayout?: (event: LayoutChangeEvent) => void;
 };
 
@@ -1880,6 +1885,7 @@ export function ChartTradeInlineFooter({
   hideInlineTradeRow = false,
   showFloatingFooterTradeRow,
   chartSymbol,
+  chartWindowPaneId,
   displayDecimals,
   tradeVolume,
   tradeVolumeBounds,
@@ -1906,6 +1912,7 @@ export function ChartTradeInlineFooter({
   active = true,
   fallbackBid,
   fallbackAsk,
+  compactPane = false,
   onLayout,
 }: ChartTradeInlineFooterProps) {
   const inlineFooterReceivesTouches = !showFloatingFooterTradeRow && !hideInlineTradeRow;
@@ -1922,6 +1929,7 @@ export function ChartTradeInlineFooter({
         <LiveTradeButtons
           key={`chart-trade-inline-footer-${chartSymbol}`}
           symbol={chartSymbol}
+          chartWindowPaneId={chartWindowPaneId}
           displayDecimals={displayDecimals}
           lotSize={tradeVolume}
           volumeBounds={tradeVolumeBounds}
@@ -1951,6 +1959,7 @@ export function ChartTradeInlineFooter({
           isDark={isDark}
           buyColor={buyColor}
           sellColor={sellColor}
+          compactPane={compactPane}
         />
       ) : shouldPreserveInlineFooterSpace ? (
         <View pointerEvents="none" style={INLINE_FOOTER_TRADE_ROW_RESERVE_STYLE} />

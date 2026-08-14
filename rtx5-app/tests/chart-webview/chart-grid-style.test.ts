@@ -129,9 +129,14 @@ test('native chart grid uses dotted MT5 guides behind candles', () => {
     'native chart config signature must rebuild when derived grid or axis divider colors change',
   );
   assert.match(
+    constantsSource,
+    /export const CHART_AXIS_DIVIDER_DARK_COLOR = 'rgba\(148,163,184,0\.38\)';[\s\S]*export const CHART_AXIS_DIVIDER_LIGHT_COLOR = '#CBD5E1';/,
+    'all chart engines must share the clear theme-specific axis separator colors',
+  );
+  assert.match(
     nativeChartSource,
-    /const MT5_DARK_AXIS_BORDER_COLOR = 'rgba\(148,163,184,0\.38\)';[\s\S]*const MT5_LIGHT_AXIS_BORDER_COLOR = '#CBD5E1';/,
-    'native chart axis divider colors must use the clear theme-specific separator color',
+    /CHART_AXIS_DIVIDER_DARK_COLOR as MT5_DARK_AXIS_BORDER_COLOR[\s\S]*CHART_AXIS_DIVIDER_LIGHT_COLOR as MT5_LIGHT_AXIS_BORDER_COLOR/,
+    'the retained chart must consume the shared axis separator colors',
   );
   assert.match(
     nativeChartStylesSource,

@@ -85,8 +85,18 @@ test('native Chart isolates static markers and slow React commits without delayi
   assert.match(source, /useLiveCandles\(\s*chartSymbol,\s*chartTimeframe,\s*chartDataActive,\s*CHART_SCREEN_CANDLE_COMMIT_INTERVAL_MS/);
   assert.match(
     source,
-    /const readRenderableCanonicalCandles = useCallback\(\(\) => \{[\s\S]*liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\)[\s\S]*const paintCanonicalLiveTick = \(allowUnchangedSnapshot = false\) => \{[\s\S]*const exactQuote = readExactChartQuoteForScope\([\s\S]*updateLiveTick\([\s\S]*paintCanonicalLiveTick\(true\);[\s\S]*liveCandlesEngine\.subscribe\(\s*chartSymbol,\s*chartTimeframe,\s*paintCanonicalLiveTick/,
-    'the WebView live-paint path must repaint atomically on resume and subscribe to the canonical engine instead of waiting for React commits',
+    /const readRenderableCanonicalCandles = useCallback\(\(\) => \{[\s\S]*liveCandlesEngine\.getCandles\(chartSymbol, chartTimeframe\)/,
+    'the direct paint path must read the canonical engine rather than a delayed React snapshot',
+  );
+  assert.match(
+    source,
+    /const paintCanonicalLiveTick = \(allowUnchangedSnapshot = false\) => \{[\s\S]*const exactQuote = readExactChartQuoteForScope\([\s\S]*updateLiveTick\(/,
+    'each direct paint must atomically project the exact quote into the WebView candle and price line',
+  );
+  assert.match(
+    source,
+    /livePaintPending = true;\s*pendingAllowUnchangedSnapshot = true;\s*flushCanonicalLivePaint\(\);[\s\S]*liveCandlesEngine\.subscribe\(\s*chartSymbol,\s*chartTimeframe,\s*scheduleCanonicalLivePaint/,
+    'resume must flush immediately while engine updates use the frame-coalesced canonical paint scheduler',
   );
   assert.doesNotMatch(source, /requestMarketPriceLineFlush|pendingMarketPriceLinesRef/);
   assert.match(source, /const overlayMarkers = useMemo\([\s\S]*buildChartOverlayMarkers/);

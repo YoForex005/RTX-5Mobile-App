@@ -22,6 +22,9 @@ const readProjectSource = (relativePath: string): string => {
   return readFileSync(filePath, 'utf8');
 };
 const chartWebViewHtmlSource = readProjectSource('src/features/chart/rendering/ChartWebViewHtml.ts');
+const chartPriceScaleTypographySource = readProjectSource(
+  'src/features/chart/chartPriceScaleTypography.ts',
+);
 const chartWebSource = readProjectSource('src/features/chart/ChartScreen.web.tsx');
 const chartConstantsSource = readProjectSource('src/features/chart/ChartScreen.constants.ts');
 const customCandleOpacitySource = readProjectSource('src/domain/candles/rendering/customCandleOpacity.ts');
@@ -111,10 +114,10 @@ test('webview bridge: candles arriving before READY are retained and sent after 
   assertSourceContains(source, /const candlesRef = useRef\(sanitizedCandles\)/, 'sanitized candles must be retained outside render timing');
   assertSourceContains(
     source,
-    /useEffect\(\(\) => \{[\s\S]*const \{ projection \} = readCurrentProjectedChartCandles\(\);[\s\S]*candlesRef\.current = projection\.candles;[\s\S]*\}, \[chartSymbol, chartTimeframe, readCurrentProjectedChartCandles, sanitizedCandles\]\)/,
+    /useEffect\(\(\) => \{[\s\S]*const \{ projection \} = readCurrentProjectedChartCandles\(\);[\s\S]*retainCurrentChartCandles\(projection\.candles\);[\s\S]*\}, \[chartSymbol, chartTimeframe, readCurrentProjectedChartCandles, retainCurrentChartCandles, sanitizedCandles\]\)/,
     'the retained READY snapshot must include the newest canonical candle and exact-Bid projection',
   );
-  assertSourceContains(source, /const sendInit = useCallback[\s\S]*const \{ projection \} = readCurrentProjectedChartCandles\(candlesRef\.current\);[\s\S]*const data = projection\.candles;[\s\S]*candlesRef\.current = data;[\s\S]*const mapped = data\.length > 0 \? buildMappedData\(data\) : \[\][\s\S]*initChart\(/, 'sendInit must initialize from the same projected snapshot, including when the chart shell is still empty');
+  assertSourceContains(source, /const sendInit = useCallback[\s\S]*const \{ projection \} = readCurrentProjectedChartCandles\(\);[\s\S]*const data = projection\.candles;[\s\S]*retainCurrentChartCandles\(data\);[\s\S]*const mapped = data\.length > 0 \? buildMappedData\(data\) : \[\][\s\S]*initChart\(/, 'sendInit must initialize from the same context-scoped projected snapshot, including when the chart shell is still empty');
 });
 
 test('webview bridge: confirmed closed charts use one session-clamped canonical reader everywhere', () => {
@@ -135,7 +138,7 @@ test('webview bridge: confirmed closed charts use one session-clamped canonical 
   );
   assertSourceContains(
     source,
-    /const sendInit = useCallback[\s\S]*readCurrentProjectedChartCandles\(candlesRef\.current\)[\s\S]*const data = projection\.candles/,
+    /const sendInit = useCallback[\s\S]*readCurrentProjectedChartCandles\(\)[\s\S]*const data = projection\.candles/,
     'READY initialization must use the centralized clamped reader plus exact-Bid projection',
   );
   assertSourceContains(
@@ -288,8 +291,8 @@ test('live candle stream: startup prefetch seeds first chart render before REST 
 test('webview bridge: symbol switches reject stale drawing bridge updates', () => {
   assertSourceContains(
     source,
-    /const scopedChartDrawingRecords = useMemo\([\s\S]*filterChartDrawingRecordsForCurrentChart\(persistedChartDrawingRecords, chartSymbol, chartTimeframe\)/,
-    'drawing records must be scoped to the active symbol and timeframe before replay',
+    /const scopedChartDrawingRecords = useMemo\([\s\S]*filterChartDrawingRecordsForCurrentChart\([\s\S]*persistedChartDrawingRecords[\s\S]*chartSymbol[\s\S]*chartTimeframe[\s\S]*chartWindows\.isSplit \? chartWindows\.activePane\.id/,
+    'drawing records must be scoped to the active symbol timeframe and chart window before replay',
   );
   assertSourceContains(
     source,
@@ -300,6 +303,11 @@ test('webview bridge: symbol switches reject stale drawing bridge updates', () =
     source,
     /msg\.type === 'DRAWINGS_CHANGED'[\s\S]*!chartInitializedRef\.current[\s\S]*!chartCanvasReady[\s\S]*lastInitSigRef\.current !== currentSig[\s\S]*return/,
     'native host must ignore drawing updates until the current chart init is active',
+  );
+  assertSourceContains(
+    source,
+    /chartWindows\.isSplit[\s\S]*msg\.chartWindowPaneId !== chartWindows\.activePane\.id/,
+    'delayed drawing messages must not cross a same-context chart-window handoff',
   );
   assertSourceContains(
     source,
@@ -386,7 +394,7 @@ test('webview bridge: OHLC header follows the direct latest live candle snapshot
   );
   assertSourceContains(
     source,
-    /\{showChartMetaRow && \([\s\S]*<ChartLiveOhlcRow[\s\S]*key=\{chartDataContextSig\}[\s\S]*contextKey=\{chartDataContextSig\}[\s\S]*fallbackCandle=\{chartMetaLastCandle\}[\s\S]*subscribe=\{subscribeChartLiveOhlc\}/,
+    /\{showChartMetaRow && !compactVerticalChartWindow && \([\s\S]*<ChartLiveOhlcRow[\s\S]*key=\{chartDataContextSig\}[\s\S]*contextKey=\{chartDataContextSig\}[\s\S]*fallbackCandle=\{chartMetaLastCandle\}[\s\S]*subscribe=\{subscribeChartLiveOhlc\}/,
     'the symbol header must render the isolated live OHLC row with the scoped subscription',
   );
   assert.doesNotMatch(
@@ -608,7 +616,7 @@ test('webview bridge: quote-first and candle-first cold loads both replay the ex
   );
   assertSourceContains(
     source,
-    /const \{ exactQuote: readyExactQuote, projection: readyProjection \} =[\s\S]*readCurrentProjectedChartCandles\(candlesRef\.current\)[\s\S]*const readyLastCandle = readyCandles\[readyCandles\.length - 1\] \?\? null[\s\S]*readyVisibleLivePrice =[\s\S]*readyLastCandle\.close[\s\S]*setLivePriceLineForContext\([\s\S]*\$\{readyVisibleLivePrice \?\? 'null'\},[\s\S]*\$\{JSON\.stringify\(chartDataContextSig\)\}/,
+    /const \{ exactQuote: readyExactQuote, projection: readyProjection \} =[\s\S]*readCurrentProjectedChartCandles\(\)[\s\S]*const readyLastCandle = readyCandles\[readyCandles\.length - 1\] \?\? null[\s\S]*readyVisibleLivePrice =[\s\S]*readyLastCandle\.close[\s\S]*retainCurrentChartCandles\(readyCandles\)[\s\S]*setLivePriceLineForContext\([\s\S]*\$\{readyVisibleLivePrice \?\? 'null'\},[\s\S]*\$\{JSON\.stringify\(chartDataContextSig\)\}/,
     'WebView readiness must replay the projected candle and its accepted single Bid value through the guarded context bridge',
   );
 });
@@ -1551,13 +1559,18 @@ test('webview bridge: custom right price-scale labels are backend-data-driven an
   );
   assertSourceContains(
     chartWebViewHtmlSource,
-    /\.rtx5-right-price-scale-fallback-label \{[\s\S]*height: 17px;[\s\S]*font-size: 12px;[\s\S]*font-weight: 500;/,
+    /\.rtx5-right-price-scale-fallback-label \{[\s\S]*height: \$\{CHART_PRICE_SCALE_LABEL_HEIGHT\}px;[\s\S]*font-size: \$\{CHART_PRICE_SCALE_LABEL_FONT_SIZE\}px;[\s\S]*font-weight: \$\{CHART_PRICE_SCALE_LABEL_FONT_WEIGHT\};/,
     'custom right-axis labels must be large enough to read on phone screens',
   );
   assertSourceContains(
     chartWebViewHtmlSource,
-    /var RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT = 17[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_SIZE = 12[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_WEIGHT = '500'[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_LABEL_OPACITY = '1'[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_DARK_LABEL_COLOR = '#E2E8F0'[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_LIGHT_LABEL_COLOR = '#0F172A'/,
-    'custom right-axis label readability constants must stay explicit',
+    /var RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT = \$\{CHART_PRICE_SCALE_LABEL_HEIGHT\}[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_SIZE = \$\{CHART_PRICE_SCALE_LABEL_FONT_SIZE\}[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_WEIGHT = '\$\{CHART_PRICE_SCALE_LABEL_FONT_WEIGHT\}'[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_LABEL_OPACITY = '1'[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_DARK_LABEL_COLOR = '#E2E8F0'[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_LIGHT_LABEL_COLOR = '#0F172A'/,
+    'custom right-axis labels must consume the shared typography contract',
+  );
+  assertSourceContains(
+    chartPriceScaleTypographySource,
+    /CHART_PRICE_SCALE_LABEL_HEIGHT = 17[\s\S]*CHART_PRICE_SCALE_LABEL_FONT_SIZE = 12[\s\S]*CHART_PRICE_SCALE_LABEL_FONT_WEIGHT = '500'/,
+    'shared price-axis typography must stay explicit and phone-readable',
   );
   assertSourceContains(
     chartWebViewHtmlSource,
@@ -1715,7 +1728,7 @@ test('webview bridge: native handler accepts CHART_READY geometry drag and error
   assert.doesNotMatch(source, /readyInitSignature !== latestInitDispatch\.signature/, 'live snapshot churn must not reject a painted init for the current symbol/timeframe');
   assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*chartInitializedRef\.current = true[\s\S]*setChartCanvasReady\(true\)/, 'CHART_READY must mark canvas ready');
   assert.doesNotMatch(source, /setChartCanvasReady\(true\);\s*setHasPaintedChartOnce\(true\)/, 'empty CHART_READY must not hide the startup loader before candles arrive');
-  assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*const \{ exactQuote: readyExactQuote, projection: readyProjection \} =[\s\S]*readCurrentProjectedChartCandles\(candlesRef\.current\);[\s\S]*const readyCandles = readyProjection\.candles;[\s\S]*const readySnapshot = buildChartSeriesSnapshot\(readyCandles\)/, 'CHART_READY must rebuild the retained snapshot with the newest exact-Bid candle projection');
+  assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*const \{ exactQuote: readyExactQuote, projection: readyProjection \} =[\s\S]*readCurrentProjectedChartCandles\(\);[\s\S]*const readyCandles = readyProjection\.candles;[\s\S]*retainCurrentChartCandles\(readyCandles\);[\s\S]*const readySnapshot = buildChartSeriesSnapshot\(readyCandles\)/, 'CHART_READY must rebuild and retain the context-scoped snapshot with the newest exact-Bid candle projection');
   assertSourceContains(source, /if \(readyCandles\.length > 0 && webViewRef\.current\) \{[\s\S]*setHasPaintedChartOnce\(true\)/, 'CHART_READY may latch first paint only when retained candles are non-empty');
   assertSourceContains(chartWebViewHtmlSource, /function postChartDataPainted\(dataContextSig, paintToken\)[\s\S]*type: 'CHART_DATA_PAINTED'[\s\S]*paintToken: paintToken \|\| ''/, 'WebView data replacement must publish a tokenized paint acknowledgement');
   assertSourceContains(chartWebViewHtmlSource, /series\.setData\(mapped\);[\s\S]*mapped\.length > 0 && paintedDataContextSig && paintToken[\s\S]*postChartDataPainted\(paintedDataContextSig, paintToken\)/, 'data paint acknowledgement must happen only after non-empty setData succeeds');

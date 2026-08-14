@@ -314,7 +314,7 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(publicMarketSocketSource, /new WebSocket\(socketUrl\)/);
   assert.match(
     publicMarketSocketSource,
-    /getOrrnnDemoPublicQuotePayloads\(payload\)[\s\S]*toQuoteTick\(quotePayload, receivedAt\)/,
+    /getOrrnnDemoPublicQuotePayloads\(payload\)[\s\S]*toQuoteTick\(quotePayload, receivedAt, receiptMonotonicAt\)/,
   );
   assert.doesNotMatch(publicMarketSocketSource, /Authorization|accessToken|refreshToken|feedToken/);
   assert.match(publicMarketSocketSource, /type: 'subscribe', symbols/);

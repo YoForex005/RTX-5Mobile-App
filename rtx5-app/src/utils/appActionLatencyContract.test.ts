@@ -240,13 +240,14 @@ test('chart trade one-click and ticket paths keep heavy work out of the tap pain
   assert.match(ordersSource, /invalidateSessionQueryRoots\(queryClient, cacheNamespace, \[[\s\S]*'positions'/);
   assert.match(
     chartTradeHandlerSource,
-    /const isPublicDemoTradePrompt = useUserPreferences\([\s\S]*!state\.isLoggedIn[\s\S]*const chartTradeActionDisabled = isPublicDemoTradePrompt[\s\S]*\? false[\s\S]*: resolveChartTradeActionDisabled\(\{[\s\S]*isCurrentChartSymbol,[\s\S]*oneClickAccepted,[\s\S]*quoteActionAllowed,[\s\S]*\}\);/,
+    /const isPublicDemoTradePrompt = useUserPreferences\([\s\S]*!state\.isLoggedIn[\s\S]*const chartTradeActionDisabled = resolveChartTradeActionDisabled\(\{[\s\S]*isCurrentChartSymbol,[\s\S]*oneClickAccepted,[\s\S]*quoteActionAllowed,[\s\S]*\}\);/,
   );
   assert.doesNotMatch(openPathSource, /resolveSessionQuoteActionAvailability/);
   assert.match(
-    oneClickSource,
-    /resolveSessionQuoteActionAvailability\(\s*quoteActionQuoteRef\.current,\s*Date\.now\(\),?\s*\)[\s\S]*if \(!currentQuoteAvailability\.allowed\)/,
+    chartTradeHandlerSource,
+    /requestOrrnnDemoTradeAuth\(\{[\s\S]*\}\)[\s\S]*const currentQuoteAvailability = resolveCurrentQuoteActionAvailability\(\);[\s\S]*if \(!currentQuoteAvailability\.allowed\)/,
   );
+  assert.doesNotMatch(oneClickSource, /resolveSessionQuoteActionAvailability/);
   assert.match(chartTradeHandlerSource, /import \{ usePlaceOrderExecutor \} from '..\/..\/..\/..\/query\/orders'/);
   assert.match(chartTradeHandlerSource, /import \{ getApiLatencyNow \} from '..\/..\/..\/..\/utils\/apiLatency'/);
   assert.match(chartTradeHandlerSource, /const placeOrder = usePlaceOrderExecutor\(\);/);
@@ -1463,9 +1464,13 @@ test('chart native and web hot actions use the shared immediate action guard', (
   assert.match(nativeChartSource, /runImmediateAction\('chart\.moreMenu\.open'/);
   assert.match(nativeChartSource, /runImmediateAction\('chart\.tradeSheet\.pending\.submit'/);
   assert.match(nativeChartSource, /onPress=\{handleOpenSymbolPicker\}[\s\S]*activateOnTouchStart/);
-  assert.match(nativeChartSource, /onPress=\{handleOpenTimeframePicker\}[\s\S]*activateOnTouchStart/);
-  assert.match(nativeChartSource, /onPress=\{handleOpenDrawingTools\}[\s\S]*activateOnTouchStart/);
-  assert.match(nativeChartSource, /onPress=\{handleOpenMoreMenu\}[\s\S]*activateOnTouchStart/);
+  assert.match(nativeChartSource, /onPress=\{\(\) => routeChartWindowToolbarAction\('timeframe'\)\}[\s\S]*activateOnTouchStart/);
+  assert.match(nativeChartSource, /onPress=\{\(\) => routeChartWindowToolbarAction\('drawings'\)\}[\s\S]*activateOnTouchStart/);
+  assert.match(nativeChartSource, /onPress=\{\(\) => routeChartWindowToolbarAction\('more'\)\}[\s\S]*activateOnTouchStart/);
+  assert.match(
+    nativeChartSource,
+    /useChartWindowToolbarRouter\([\s\S]*timeframe: handleOpenTimeframePicker[\s\S]*drawings: handleOpenDrawingTools[\s\S]*more: handleOpenMoreMenu/,
+  );
   assert.doesNotMatch(nativeChartSource, /traceUiInteraction/);
   assert.match(webChartSource, /import \{ runCriticalTradeAction, runImmediateAction \} from '\.\.\/\.\.\/utils\/actionLatency'/);
   assert.match(webChartSource, /runImmediateAction\('chart\.web\.timeframePicker\.open'/);

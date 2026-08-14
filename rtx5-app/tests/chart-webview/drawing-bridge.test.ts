@@ -89,8 +89,8 @@ test('drawing tools open path is resilient to iOS chart overlay touch ordering',
   );
   assertSourceContains(
     source,
-    /onOpenDrawingTools=\{\(\) => \{[\s\S]*closeChartTapMenu\(\);[\s\S]*handleOpenDrawingTools\(\);[\s\S]*\}\}/,
-    'radial-menu drawing action must dismiss the radial overlay before opening the drawing sheet',
+    /onOpenDrawingTools=\{\(\) => \{[\s\S]*closeChartTapMenu\(\);[\s\S]*routeChartWindowToolbarAction\('drawings'\);[\s\S]*\}\}/,
+    'radial-menu drawing action must dismiss the overlay and retain the confirmed pane target',
   );
   assertSourceContains(
     drawingFeatureSource,

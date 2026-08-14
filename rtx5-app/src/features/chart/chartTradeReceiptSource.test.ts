@@ -107,8 +107,8 @@ test('rapid chart trades use one uncapped MT5-style receipt row per accepted tap
   );
   assert.equal(
     chartSource.match(/<ChartTradeReceiptStack/g)?.length,
-    2,
-    'the same external stack must render over the chart viewport and through the elevated trade-sheet portal',
+    3,
+    'filtered stacks must cover both divided panes plus the elevated trade-sheet portal',
   );
   const chartScrollRefIndex = chartSource.indexOf('ref={chartScrollRef}');
   const outerScrollStart = chartSource.lastIndexOf('<ScrollView', chartScrollRefIndex);
@@ -135,7 +135,27 @@ test('rapid chart trades use one uncapped MT5-style receipt row per accepted tap
   assert.match(stackSource, /useSyncExternalStore\([\s\S]*controller\.subscribe/);
   assert.match(
     stackSource,
-    /const listWidth = Math\.min\(238, Math\.max\(208, windowWidth \* 0\.54\)\);/,
+    /const preferredListWidth = Math\.min\(238, Math\.max\(208, windowWidth \* 0\.54\)\);[\s\S]*Number\(paneWidth\) - 12/,
+  );
+  assert.match(
+    handlerSource,
+    /const queuedTrade: QueuedChartTrade = \{[\s\S]*chartWindowPaneId \? \{ chartWindowPaneId \}/,
+  );
+  assert.match(
+    handlerSource,
+    /chartWindowPaneId: queuedTrade\.chartWindowPaneId/,
+  );
+  assert.match(
+    stackSource,
+    /selectChartTradeReceiptSnapshotForPane\(snapshot, chartWindowPaneId\)/,
+  );
+  assert.match(
+    chartSource,
+    /chartWindowPaneId=\{chartWindows\.activePane\.id\}[\s\S]*paneWidth=\{chartTapMenuViewport\.width\}/,
+  );
+  assert.match(
+    chartSource,
+    /chartWindowPaneId=\{auxiliaryChartPaneViewport\.paneId\}[\s\S]*paneWidth=\{auxiliaryChartPaneViewport\.width\}/,
   );
   assert.match(
     stackSource,

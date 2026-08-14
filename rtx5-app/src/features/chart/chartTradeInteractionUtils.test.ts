@@ -178,8 +178,8 @@ test('chart quick trade buttons keep semantic side colors and terminal prices st
     /Animated|Easing|previousTextRef|flashProgress|flashColor|setFlashColor|TRADE_BUTTON_PRICE_(?:UP|DOWN)_FLASH|TRADE_BUTTON_PRICE_FLASH_MS/,
   );
   assert.match(priceTextSource, /<Text[\s\S]*color: TRADE_BUTTON_PRICE_TEXT_COLOR,[\s\S]*opacity: 1/);
-  assert.match(tradeButtonsSource, /<ChartTradeButtonPriceText text=\{formattedBid\} testID="chart-trade-sell-price-text" \/>/);
-  assert.match(tradeButtonsSource, /<ChartTradeButtonPriceText text=\{formattedAsk\} testID="chart-trade-buy-price-text" \/>/);
+  assert.match(tradeButtonsSource, /<ChartTradeButtonPriceText text=\{formattedBid\} testID="chart-trade-sell-price-text" compact=\{compactPane\} \/>/);
+  assert.match(tradeButtonsSource, /<ChartTradeButtonPriceText text=\{formattedAsk\} testID="chart-trade-buy-price-text" compact=\{compactPane\} \/>/);
   assert.match(tradeButtonsSource, /baseStyles\.chartTradeMarketActionButton,\s*\{ backgroundColor: sellColor \}/);
   assert.match(tradeButtonsSource, /baseStyles\.chartTradeMarketActionButton,\s*\{ backgroundColor: buyColor \}/);
 });

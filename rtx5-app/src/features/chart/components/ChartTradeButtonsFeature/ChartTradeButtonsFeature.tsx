@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { useActiveBrokerQuerySession } from '../../../../query/authenticatedQueryScope';
+import { useUserPreferences } from '../../../../state/userPreferences';
 import { formatTradeVolume, type TradeVolumeBounds } from '../../../../utils/tradeVolume';
 import type { TradeSide } from '../../../../domain/tradeSide';
 import { useExecutableQuote } from '../../../quotes/useExecutableQuote';
@@ -19,11 +20,11 @@ import {
 } from '../../chartTradeInteractionUtils';
 import {
   resolveChartTradeButtonDisplayQuote,
-  resolveChartTradeButtonQuote,
 } from './quoteFallback';
 import { splitFormattedChartTradePrice } from './pricePresentation';
 import { baseStyles, darkStyles, lightStyles, textBaseStyles } from './styles';
 import { useTradeHandler, type TradeFeedback } from './useTradeHandler';
+import { resolveChartTradeQuoteAvailability } from './tradeAvailability';
 import type { ChartTradeQueueEvent } from '../ChartTradeReceiptStack';
 
 type FooterLotPickerMode = 'absolute' | 'increase' | 'decrease';
@@ -63,6 +64,9 @@ type ChartTradeButtonsProps = {
   active?: boolean;
   fallbackBid?: number | null;
   fallbackAsk?: number | null;
+  isSymbolExecutionOwner?: () => boolean;
+  /** Stable chart-window owner for asynchronous receipt placement. */
+  chartWindowPaneId?: string;
   isDark: boolean;
   buyColor: string;
   sellColor: string;
@@ -70,6 +74,7 @@ type ChartTradeButtonsProps = {
   // red and block BUY/SELL until the user enters a valid step/range.
   lotInvalid?: boolean;
   invalidLotDisplay?: string;
+  compactPane?: boolean;
 };
 
 type ChartTradeButtonsSessionScopedProps = ChartTradeButtonsProps & {
@@ -81,9 +86,11 @@ const INVALID_LOT_COLOR = '#EF4444';
 const ChartTradeButtonPriceText = React.memo(function ChartTradeButtonPriceText({
   text,
   testID,
+  compact = false,
 }: {
   text: string;
   testID: string;
+  compact?: boolean;
 }) {
   // No per-tick color animation. JS-thread color tweens on every bid/ask tick
   // made the horizontal BUY/SELL strip blink on iOS and Android.
@@ -92,6 +99,7 @@ const ChartTradeButtonPriceText = React.memo(function ChartTradeButtonPriceText(
     <Text
       style={[
         baseStyles.actionBtnPriceText,
+        compact && baseStyles.actionBtnPriceTextCompact,
         {
           color: TRADE_BUTTON_PRICE_TEXT_COLOR,
           opacity: 1,
@@ -154,11 +162,14 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
   active = true,
   fallbackBid = null,
   fallbackAsk = null,
+  isSymbolExecutionOwner,
+  chartWindowPaneId,
   isDark,
   buyColor,
   sellColor,
   lotInvalid = false,
   invalidLotDisplay = '',
+  compactPane = false,
   displayQuoteScopeKey,
 }: ChartTradeButtonsSessionScopedProps) {
   const retainedDisplayQuoteRef = React.useRef<{
@@ -171,24 +182,28 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
   // therefore repaint into a disabled state even when ticks simply stop.
   const {
     quote: liveQuote,
-    availability: quoteActionAvailability,
+    getCurrentExecutableQuoteState,
   } = useExecutableQuote(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS);
+  const isPublicDemoTradePrompt = useUserPreferences((state) => !state.isLoggedIn);
+  const quoteActionAvailability = resolveChartTradeQuoteAvailability({
+    quote: liveQuote,
+    isPublicDemoTradePrompt,
+  });
+  const getCurrentQuoteActionAvailability = React.useCallback(() => {
+    const current = getCurrentExecutableQuoteState();
+    return resolveChartTradeQuoteAvailability({
+      quote: current.quote,
+      isPublicDemoTradePrompt,
+    });
+  }, [getCurrentExecutableQuoteState, isPublicDemoTradePrompt]);
   // Must pass a single options object — positional args crash when liveQuote is
   // null/undefined (destructure of undefined) and tripped the trading ErrorBoundary after OTA.
-  const latestQuote = resolveChartTradeButtonQuote({
-    liveBid: liveQuote?.bid,
-    liveAsk: liveQuote?.ask,
-    fallbackBid,
-    fallbackAsk,
-  });
   const resolvedDisplayQuote = resolveChartTradeButtonDisplayQuote({
     liveBid: liveQuote?.bid,
     liveAsk: liveQuote?.ask,
     fallbackBid,
     fallbackAsk,
   });
-  const latestBid = Number(latestQuote?.bid);
-  const latestAsk = Number(latestQuote?.ask);
   const resolvedDisplayBid = Number(resolvedDisplayQuote?.bid);
   const resolvedDisplayAsk = Number(resolvedDisplayQuote?.ask);
   if (
@@ -209,7 +224,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
       : null;
   // Visual continuity only: route blur clears the live execution quote, but
   // the retained footer keeps its last numeric Bid/Ask instead of flashing
-  // placeholders. Trade authorization below still uses latestQuote/liveQuote.
+  // placeholders. Trade authorization still uses the current executable quote.
   const displayBid =
     Number.isFinite(resolvedDisplayBid) && resolvedDisplayBid > 0
       ? resolvedDisplayBid
@@ -277,7 +292,6 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
     isChartTradeActionBusy,
     isChartTradeActionVisuallyLocked,
     chartTradeActionDisabled,
-    isPublicDemoTradePrompt,
     isCurrentChartSymbol,
   } = useTradeHandler({
     symbol,
@@ -288,10 +302,10 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
     protectionDraftId,
     pointSize,
     lotSize,
-    latestBid,
-    latestAsk,
     quoteActionAllowed: quoteActionAvailability.allowed,
-    quoteActionQuote: liveQuote,
+    getCurrentQuoteActionAvailability,
+    isSymbolExecutionOwner,
+    chartWindowPaneId,
     onTradeResult,
     onTradeQueueEvent,
   });
@@ -299,9 +313,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
   const tradeControlsDisabled = !isCurrentChartSymbol;
   // The helper includes both selected-symbol identity and executable quote
   // freshness. The press handler still rechecks to close the render-to-tap race.
-  const tradeBlocked = isPublicDemoTradePrompt
-    ? false
-    : chartTradeActionDisabled || lotInvalid;
+  const tradeBlocked = chartTradeActionDisabled || lotInvalid;
 
   const themeStyles = isDark ? darkStyles : lightStyles;
   const sellAction = getChartTradeAction('sell');
@@ -322,6 +334,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
       <Pressable
         style={[
           baseStyles.actionLotAdjustButton,
+          compactPane && baseStyles.actionLotAdjustButtonCompact,
           (!canUseDecreaseLotControl || tradeControlsDisabled) && baseStyles.actionLotAdjustButtonDisabled,
         ]}
         onPress={handleDecreaseLotPress}
@@ -337,7 +350,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
           size={12}
           style={[
             themeStyles.actionLotAdjustIcon,
-            { marginLeft: LOT_CHEVRON_INWARD_MARGIN },
+            { marginLeft: compactPane ? 0 : LOT_CHEVRON_INWARD_MARGIN },
             (!canUseDecreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
             !isLotEditing && baseStyles.actionLotUnderlayIconHidden,
           ]}
@@ -408,6 +421,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
       <Pressable
         style={[
           baseStyles.actionLotAdjustButton,
+          compactPane && baseStyles.actionLotAdjustButtonCompact,
           (!canUseIncreaseLotControl || tradeControlsDisabled) && baseStyles.actionLotAdjustButtonDisabled,
         ]}
         onPress={handleIncreaseLotPress}
@@ -423,7 +437,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
           size={12}
           style={[
             themeStyles.actionLotAdjustIcon,
-            { marginRight: LOT_CHEVRON_INWARD_MARGIN },
+            { marginRight: compactPane ? 0 : LOT_CHEVRON_INWARD_MARGIN },
             (!canUseIncreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
             !isLotEditing && baseStyles.actionLotUnderlayIconHidden,
           ]}
@@ -524,11 +538,11 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
           <View style={baseStyles.actionBtnHeader}>
             <Text style={baseStyles.actionBtnLabelTitle}>{sellAction.displayLabel}</Text>
           </View>
-          <ChartTradeButtonPriceText text={formattedBid} testID="chart-trade-sell-price-text" />
+          <ChartTradeButtonPriceText text={formattedBid} testID="chart-trade-sell-price-text" compact={compactPane} />
         </Pressable>
       </View>
 
-      <View style={[baseStyles.actionLotSlot, themeStyles.actionLotSlot]}>
+      <View style={[baseStyles.actionLotSlot, compactPane && baseStyles.actionLotSlotCompact, themeStyles.actionLotSlot]}>
         {lotControl}
         {!isLotEditing ? (
           <View
@@ -537,13 +551,16 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
             importantForAccessibility="no-hide-descendants"
             style={baseStyles.actionLotCommittedOverlay}
           >
-            <View style={baseStyles.actionLotCommittedIconBox}>
+            <View style={[
+              baseStyles.actionLotCommittedIconBox,
+              compactPane && baseStyles.actionLotCommittedIconBoxCompact,
+            ]}>
               <Ionicons
                 name="chevron-down"
                 size={12}
                 style={[
                   themeStyles.actionLotAdjustIcon,
-                  { marginLeft: LOT_CHEVRON_INWARD_MARGIN },
+                  { marginLeft: compactPane ? 0 : LOT_CHEVRON_INWARD_MARGIN },
                   (!canUseDecreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
                 ]}
               />
@@ -554,13 +571,16 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
             >
               {lotDisplayText}
             </Text>
-            <View style={baseStyles.actionLotCommittedIconBox}>
+            <View style={[
+              baseStyles.actionLotCommittedIconBox,
+              compactPane && baseStyles.actionLotCommittedIconBoxCompact,
+            ]}>
               <Ionicons
                 name="chevron-up"
                 size={12}
                 style={[
                   themeStyles.actionLotAdjustIcon,
-                  { marginRight: LOT_CHEVRON_INWARD_MARGIN },
+                  { marginRight: compactPane ? 0 : LOT_CHEVRON_INWARD_MARGIN },
                   (!canUseIncreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
                 ]}
               />
@@ -600,7 +620,7 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
           <View style={baseStyles.actionBtnHeader}>
             <Text style={baseStyles.actionBtnLabelTitle}>{buyAction.displayLabel}</Text>
           </View>
-          <ChartTradeButtonPriceText text={formattedAsk} testID="chart-trade-buy-price-text" />
+          <ChartTradeButtonPriceText text={formattedAsk} testID="chart-trade-buy-price-text" compact={compactPane} />
         </Pressable>
       </View>
     </View>

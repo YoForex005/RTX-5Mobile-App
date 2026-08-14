@@ -120,8 +120,8 @@ test('ChartScreen reserves React series commits for full reloads and uses the di
   );
   assertSourceContains(
     source,
-    /const canonicalCandles = readRenderableCanonicalCandles\(\);[\s\S]*const baseRenderableCandles = canonicalCandles\.length > 0 \? canonicalCandles : sanitizedCandles[\s\S]*const replacementProjection = projectChartLiveTickCandles\([\s\S]*const renderableCandles = replacementProjection\.candles/,
-    'full reload mode must prefer canonical data, use React data only as a bootstrap fallback, and preserve the newer projected Bid candle',
+    /const canonicalCandles = readRenderableCanonicalCandles\(\);[\s\S]*const baseRenderableCandles = resolveContextScopedChartCandles\([\s\S]*chartDataContextSig,[\s\S]*canonicalCandles,[\s\S]*contextKey: candlesRefContextSigRef\.current,[\s\S]*candles: candlesRef\.current,[\s\S]*const replacementProjection = projectChartLiveTickCandles\([\s\S]*const renderableCandles = replacementProjection\.candles/,
+    'full reload mode must prefer canonical data, accept fallback data only from the active context, and preserve the newer projected Bid candle',
   );
   assertSourceContains(
     source,
@@ -570,6 +570,9 @@ test('double-tap reset accepts only two completed nearby taps, never pointer-dow
   const consumeCompletedChartTapBody = extractAssignedFunctionBody('consumeCompletedChartTap');
   const createRecognizer = new Function(`
     var lastCompletedChartTap = null;
+    var chartWindowSplitMode = false;
+    var chartWindowSplitModeRevision = 0;
+    var lastInitDataContextSig = 'session:BTCUSD:M1';
     var CHART_DOUBLE_TAP_MAX_DELAY_MS = 350;
     var CHART_DOUBLE_TAP_MAX_DISTANCE_PX = 24;
     var clearCompletedChartTap = function() {
