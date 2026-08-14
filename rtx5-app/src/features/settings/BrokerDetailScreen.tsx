@@ -473,7 +473,13 @@ function BrokerDetailInteractiveContent({
     requestInFlightRef.current = false;
   }, [isScreenFocused]);
 
-  const scrollLoginActionsAboveKeyboard = useCallback((delayMs = Platform.OS === 'ios' ? 260 : 220) => {
+  const scrollLoginActionsAboveKeyboard = useCallback((delayMs = 220) => {
+    // iOS ScrollView keyboard insets already move only the focused field into
+    // view. A second forced scroll sends this long form to its maximum offset.
+    if (Platform.OS === 'ios') {
+      return;
+    }
+
     if (focusScrollTimerRef.current) {
       clearTimeout(focusScrollTimerRef.current);
     }
@@ -503,13 +509,19 @@ function BrokerDetailInteractiveContent({
 
   const handleLoginScrollLayout = useCallback(() => {
     if (loginInputFocusedRef.current) {
-      // Android adjustResize and iOS keyboard padding both resize this viewport.
-      // Re-run against the final measured height instead of a phone-specific Y.
+      // Android adjustResize changes this viewport. Re-run against its final
+      // measured height instead of relying on a phone-specific Y position.
       scrollLoginActionsAboveKeyboard(0);
     }
   }, [scrollLoginActionsAboveKeyboard]);
 
   useEffect(() => {
+    // Native iOS keyboard insets own focus positioning for this ScrollView.
+    // Keep the existing manual retry only for Android's resized viewport.
+    if (Platform.OS === 'ios') {
+      return undefined;
+    }
+
     const showSubscription = Keyboard.addListener(
       'keyboardDidShow',
       () => {
@@ -964,7 +976,8 @@ function BrokerDetailInteractiveContent({
 
         <KeyboardAvoidingView
           style={styles.container}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          enabled={Platform.OS !== 'ios'}
+          behavior={Platform.OS === 'ios' ? undefined : 'height'}
           keyboardVerticalOffset={0}
         >
           <ScrollView

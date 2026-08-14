@@ -36,7 +36,7 @@
     "submit:android": "node ./scripts/run-eas-cli.js submit --platform android",
     "submit:all": "node ./scripts/run-eas-cli.js submit --platform all",
     "bundle:charts": "node scripts/bundle-lightweight-charts.js",
-    "postinstall": "node scripts/patch-react-native-dev-middleware.js && node scripts/bundle-lightweight-charts.js"
+    "postinstall": "node scripts/patch-react-native-dev-middleware.js && node scripts/patch-expo-ngrok-timeout.js && node scripts/bundle-lightweight-charts.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
