@@ -623,6 +623,9 @@ function ChartTradeSheetContent({
           <Pressable
             style={styles.chartTradeSheetSymbolBlock}
             onPress={handlers.onOpenSymbolPicker}
+            activateOnPressIn
+            activateOnTouchStart
+            latencyLabel="chart.symbolPicker.open"
             unstable_pressDelay={0}
           >
             <View style={styles.chartTradeSheetSymbolRow}>
@@ -1042,6 +1045,9 @@ function ChartTradeSheetPinnedHeader({
             compactForAppMenu && styles.chartTradeSheetSymbolBlockCompact,
           ]}
           onPress={handlers.onOpenSymbolPicker}
+          activateOnPressIn
+          activateOnTouchStart
+          latencyLabel="chart.symbolPicker.open"
           unstable_pressDelay={0}
         >
           <View style={styles.chartTradeSheetSymbolRow}>
@@ -1621,36 +1627,42 @@ export function ChartTradeOverlayLayer({
                 sheet.useMtPendingTradeSheetLayout && styles.chartTradeSheetPending,
               ]}
             >
-              <GestureDetector gesture={sheet.chartTradeSheetDragGesture}>
-                <View
-                  collapsable={false}
-                  style={!showSheetBody ? styles.chartTradeSheetCollapsedDragSurface : undefined}
-                >
-                  <ChartTradeSheetDragHeader
-                    styles={styles}
-                    colors={colors}
-                    sheet={sheet}
-                    handlers={handlers}
-                    compactForAppMenu={compactForAppMenu}
-                  />
+              <View
+                collapsable={false}
+                style={!showSheetBody ? styles.chartTradeSheetCollapsedDragSurface : undefined}
+              >
+                {/* Keep the pan recognizer on the handle only. The pinned
+                    symbol control opens on touch-start, so sharing the whole
+                    header with the pan recognizer could open the picker when
+                    the user intended to drag the trade sheet. */}
+                <GestureDetector gesture={sheet.chartTradeSheetDragGesture}>
+                  <View collapsable={false}>
+                    <ChartTradeSheetDragHeader
+                      styles={styles}
+                      colors={colors}
+                      sheet={sheet}
+                      handlers={handlers}
+                      compactForAppMenu={compactForAppMenu}
+                    />
+                  </View>
+                </GestureDetector>
 
-                  {/* Pinned symbol header - always visible, never scrolls away */}
-                  <ChartTradeSheetPinnedHeader
-                    styles={styles}
-                    colors={colors}
-                    symbolHeader={symbolHeader}
-                    sheet={sheet}
-                    handlers={handlers}
-                    compactForAppMenu={compactForAppMenu}
-                    tabs={{
-                      scrollRef: sheet.chartTradeTypeTabsOverlayScrollRef,
-                      onViewportLayout: handlers.onOverlayTabsViewportLayout,
-                      onTabLayout: handlers.onOverlayTabLayout,
-                    }}
-                    components={components}
-                  />
-                </View>
-              </GestureDetector>
+                {/* Pinned symbol header - always visible, never scrolls away */}
+                <ChartTradeSheetPinnedHeader
+                  styles={styles}
+                  colors={colors}
+                  symbolHeader={symbolHeader}
+                  sheet={sheet}
+                  handlers={handlers}
+                  compactForAppMenu={compactForAppMenu}
+                  tabs={{
+                    scrollRef: sheet.chartTradeTypeTabsOverlayScrollRef,
+                    onViewportLayout: handlers.onOverlayTabsViewportLayout,
+                    onTabLayout: handlers.onOverlayTabLayout,
+                  }}
+                  components={components}
+                />
+              </View>
 
               {showSheetBody ? (
                 <ScrollView

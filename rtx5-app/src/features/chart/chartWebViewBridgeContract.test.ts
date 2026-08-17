@@ -31,6 +31,7 @@ const customCandleOpacitySource = readProjectSource('src/domain/candles/renderin
 const customCandlestickSeriesSource = readProjectSource('src/domain/candles/rendering/customCandlestickSeries.ts');
 const customCandlestickSeriesWebViewSource = readProjectSource('src/domain/candles/rendering/customCandlestickSeriesWebView.ts');
 const chartTapRadialMenuSource = readProjectSource('src/features/chart/components/ChartTapRadialMenu.tsx');
+const chartWindowsLayoutSource = readProjectSource('src/features/chart/components/ChartWindowsLayout.tsx');
 const liveCandlesHookSource = readProjectSource('src/domain/candles/hooks/useLiveCandles.ts');
 const liveCandleStreamManagerSource = readProjectSource('src/domain/candles/stream/liveCandleStream/manager.ts');
 const liveCandleHistoryFetchingSource = readProjectSource('src/domain/candles/stream/liveCandleStream/historyFetching.ts');
@@ -671,8 +672,8 @@ test('webview bridge: live price commands and queued ticks reject stale chart co
 test('webview bridge: the market price line uses the exact Bid projected into the accepted candle', () => {
   assertSourceContains(
     source,
-    /const exactQuote = readExactChartQuoteForScope\([\s\S]*accumulateCurrentChartBid\(exactQuote, canonicalCandles\)[\s\S]*const projection = projectChartLiveTickCandles\([\s\S]*const lastCandle = renderableCandles\[renderableCandles\.length - 1\][\s\S]*const exactBidLine = exactQuote \? lastCandle\.close : null;[\s\S]*livePrice: exactBidLine/,
-    'live paint must first project the exact backend Bid into the forming candle and then use that accepted close for the one marker',
+    /const exactQuote = readExactChartQuoteForScope\([\s\S]*accumulateCurrentChartBid\(exactQuote, canonicalCandles\)[\s\S]*const projection = projectChartLiveTickCandles\([\s\S]*const canonicalLastCandle = renderableCandles\[renderableCandles\.length - 1\][\s\S]*const lastCandle = mappedRenkoData[\s\S]*canonicalLastCandle[\s\S]*const exactBidLine = exactQuote \? canonicalLastCandle\.close : null;[\s\S]*livePrice: exactBidLine/,
+    'live paint must first project the exact backend Bid into the source candle, then keep the forming Renko close and marker on that price',
   );
   assertSourceContains(
     source,
@@ -1353,31 +1354,238 @@ test('native chart status overlays do not block symbol recovery controls', () =>
 test('native chart tap radial menu toggles closed on the next chart tap', () => {
   assertSourceContains(
     source,
-    /msg\.type === 'CHART_TAP'[\s\S]*const nextAnchor = \{[\s\S]*syncChartViewportFrame\(\(\) => \{[\s\S]*setChartTapMenuAnchor\(\(currentAnchor\) => \([\s\S]*currentAnchor \? null : nextAnchor[\s\S]*\)\)/,
+    /msg\.type === 'CHART_TAP'[\s\S]*const nextAnchor = \{[\s\S]*chartTapMenuOpenedAtRef\.current = Date\.now\(\);[\s\S]*if \(chartTapMenuAnchor === null\) \{[\s\S]*settleChartViewportTouchForRadialOpen\(\);[\s\S]*\}\s*setChartTapMenuAnchor\(\(currentAnchor\) => \(\s*currentAnchor \? null : nextAnchor\s*\)\)/,
     'valid chart body taps must alternate the MT5-like radial menu open and closed instead of only re-anchoring it',
+  );
+  const chartTapBranch = source.slice(
+    source.indexOf("} else if (msg.type === 'CHART_TAP')"),
+    source.indexOf("} else if (msg.type === 'CHART_DOUBLE_TAP')"),
+  );
+  assert.doesNotMatch(
+    chartTapBranch,
+    /syncChartViewportFrame|requestAnimationFrame|measureInWindow/,
+    'an undivided chart tap must mount the radial immediately without a frame-and-measure barrier',
+  );
+
+  const settleTouchStart = source.indexOf('const settleChartViewportTouchForRadialOpen = useCallback');
+  const settleTouchEnd = source.indexOf('useEffect(() => {', settleTouchStart);
+  assert.notEqual(settleTouchStart, -1, 'radial touch-settle callback must exist');
+  assert.notEqual(settleTouchEnd, -1, 'radial touch-settle callback must be bounded');
+  const settleTouchBody = source.slice(settleTouchStart, settleTouchEnd);
+  assertSourceContains(
+    settleTouchBody,
+    /cancelAnimationFrame\(chartViewportTouchReleaseFrameRef\.current\);[\s\S]*chartViewportTouchReleaseFrameRef\.current = null;[\s\S]*clearTimeout\(chartViewportTouchFailsafeTimerRef\.current\);[\s\S]*chartViewportTouchActiveRef\.current = false;[\s\S]*setChartViewportTouchActive\(false\);/,
+    'opening must cancel the queued touch-release frame and fold touch=false into the radial-open commit',
+  );
+  assert.doesNotMatch(
+    settleTouchBody,
+    /requestAnimationFrame\(/,
+    'touch settling for an open must not queue a parent render during the native entrance',
   );
 });
 
 test('native chart tap radial menu opens with a native-driven smooth entrance', () => {
   assertSourceContains(
     chartTapRadialMenuSource,
-    /const CHART_TAP_MENU_OPEN_SCALE_FROM = 0\.58/,
+    /function ChartTapRadialMenuComponent\([\s\S]*export const ChartTapRadialMenu = React\.memo\(ChartTapRadialMenuComponent\);/,
+    'the retained radial must be memoized so unrelated parent renders cannot reconcile its native entrance',
+  );
+  assertSourceContains(
+    chartTapRadialMenuSource,
+    /const CHART_TAP_MENU_OPEN_SCALE_FROM = 0\.5/,
     'the radial menu entrance must start from a visibly smaller MT5-like ring scale',
   );
   assertSourceContains(
     chartTapRadialMenuSource,
-    /const computeAnchorPosition = React\.useCallback\(\(\) => \(\s*resolveMenuPosition\(anchor\.x, anchor\.y\)\s*\)/,
+    /const CHART_TAP_MENU_OPEN_ROTATION_FROM_DEG = -90/,
+    'the radial menu must begin one quarter-turn counterclockwise like the recorded MT5 entrance',
+  );
+  assertSourceContains(
+    chartTapRadialMenuSource,
+    /const computeAnchorPosition = React\.useCallback\(\(\) => \(\s*resolveMenuPosition\(anchorX, anchorY\)\s*\)/,
     'the radial menu must open around the actual chart tap point instead of screen-centering every open',
   );
   assertSourceContains(
     chartTapRadialMenuSource,
-    /Animated\.parallel\(\[[\s\S]*Animated\.timing\(entranceOpacity,[\s\S]*Easing\.out\(Easing\.cubic\)[\s\S]*useNativeDriver: true[\s\S]*Animated\.spring\(entranceScale,[\s\S]*useNativeDriver: true/,
-    'the MT5-like radial menu must use the native animation driver',
+    /const clampedCenterX = clampMenuCenter\(centerX, containerWidth\);[\s\S]*const clampedCenterY = clampMenuCenter\(centerY, containerHeight\);[\s\S]*left: Math\.round\(clampedCenterX - CHART_TAP_MENU_SIZE \/ 2\),[\s\S]*top: Math\.round\(clampedCenterY - CHART_TAP_MENU_SIZE \/ 2\)/,
+    'left, center, and right safe-area taps must retain their own clamped anchor instead of sharing a fixed center',
   );
   assertSourceContains(
     chartTapRadialMenuSource,
-    /<Animated\.View[\s\S]*opacity: entranceOpacity[\s\S]*transform: \[\{ scale: entranceScale \}\]/,
-    'the entrance animation must apply directly to the radial menu content',
+    /const CHART_TAP_MENU_OPEN_DURATION_MS = 165/,
+    'the radial menu entrance must settle within the short MT5-like capture window',
+  );
+  assertSourceContains(
+    chartTapRadialMenuSource,
+    /const CHART_TAP_MENU_OPEN_SCALE_TIMESTAMPS_MS = \[\s*0,\s*16,\s*33,\s*50,\s*67,\s*84,\s*100,\s*115,\s*CHART_TAP_MENU_OPEN_DURATION_MS,\s*\];[\s\S]*const CHART_TAP_MENU_OPEN_SCALE_PROGRESS_STOPS = CHART_TAP_MENU_OPEN_SCALE_TIMESTAMPS_MS\.map\(\s*\(timestampMs\) => timestampMs \/ CHART_TAP_MENU_OPEN_DURATION_MS,[\s\S]*const CHART_TAP_MENU_OPEN_SCALE_STOPS = \[\s*CHART_TAP_MENU_OPEN_SCALE_FROM,\s*0\.6,\s*0\.7,\s*0\.79,\s*0\.875,\s*0\.94,\s*0\.985,\s*1,\s*1,\s*\];/,
+    'scale must use the measured millisecond poses normalized against the shared 165ms clock',
+  );
+  assertSourceContains(
+    chartTapRadialMenuSource,
+    /const CHART_TAP_MENU_OPEN_ROTATION_TIMESTAMPS_MS = \[\s*0,\s*16,\s*33,\s*50,\s*67,\s*84,\s*100,\s*116,\s*133,\s*CHART_TAP_MENU_OPEN_DURATION_MS,\s*\];[\s\S]*const CHART_TAP_MENU_OPEN_ROTATION_PROGRESS_STOPS = CHART_TAP_MENU_OPEN_ROTATION_TIMESTAMPS_MS\.map\(\s*\(timestampMs\) => timestampMs \/ CHART_TAP_MENU_OPEN_DURATION_MS,[\s\S]*const CHART_TAP_MENU_OPEN_ROTATION_STOPS = \[\s*`\$\{CHART_TAP_MENU_OPEN_ROTATION_FROM_DEG\}deg`,\s*'-51deg',\s*'-40deg',\s*'-30deg',\s*'-23deg',\s*'-16deg',\s*'-10deg',\s*'-6deg',\s*'-2deg',\s*'0deg',\s*\];/,
+    'rotation must retain its independently measured millisecond poses on the shared clock',
+  );
+  assertSourceContains(
+    chartTapRadialMenuSource,
+    /const entranceProgress = React\.useRef\(new Animated\.Value\(0\)\)\.current;[\s\S]*Animated\.timing\(entranceProgress, \{[\s\S]*toValue: 1,[\s\S]*duration: CHART_TAP_MENU_OPEN_DURATION_MS,[\s\S]*easing: Easing\.linear,[\s\S]*useNativeDriver: true/,
+    'the measured keyframes must share one React Native Animated timeline on the native driver',
+  );
+  assertSourceContains(
+    chartTapRadialMenuSource,
+    /entranceProgress\.interpolate\(\{[\s\S]*inputRange: CHART_TAP_MENU_OPEN_SCALE_PROGRESS_STOPS,[\s\S]*outputRange: CHART_TAP_MENU_OPEN_SCALE_STOPS[\s\S]*entranceProgress\.interpolate\(\{[\s\S]*inputRange: CHART_TAP_MENU_OPEN_ROTATION_PROGRESS_STOPS,[\s\S]*outputRange: CHART_TAP_MENU_OPEN_ROTATION_STOPS/,
+    'scale and rotation must use the independently measured MT5 presentation stops',
+  );
+  assert.equal(
+    chartTapRadialMenuSource.match(/const entranceProgress = React\.useRef\(new Animated\.Value\(0\)\)\.current/g)?.length,
+    1,
+    'scale and rotation must share one entrance progress value',
+  );
+  assert.equal(
+    chartTapRadialMenuSource.match(/Animated\.timing\(entranceProgress,/g)?.length,
+    1,
+    'the shared progress value must have one immediate native timing clock',
+  );
+  const hiddenBranchStart = chartTapRadialMenuSource.indexOf(
+    'if (!visible) {',
+    chartTapRadialMenuSource.indexOf('const renderedMenuPosition'),
+  );
+  const visibleReopenStart = chartTapRadialMenuSource.indexOf(
+    'cancelHiddenResetFrame();',
+    hiddenBranchStart,
+  );
+  const hiddenResetEffectStart = chartTapRadialMenuSource.indexOf(
+    'React.useEffect(() => {',
+    visibleReopenStart,
+  );
+  const hiddenResetEffectEnd = chartTapRadialMenuSource.indexOf(
+    'const panResponder = React.useMemo',
+    hiddenResetEffectStart,
+  );
+  assert.notEqual(hiddenBranchStart, -1);
+  assert.notEqual(visibleReopenStart, -1);
+  assert.notEqual(hiddenResetEffectStart, -1);
+  assert.notEqual(hiddenResetEffectEnd, -1);
+  const hiddenLayoutBranch = chartTapRadialMenuSource.slice(hiddenBranchStart, visibleReopenStart);
+  const openingLayoutBranch = chartTapRadialMenuSource.slice(visibleReopenStart, hiddenResetEffectStart);
+  const hiddenResetEffect = chartTapRadialMenuSource.slice(hiddenResetEffectStart, hiddenResetEffectEnd);
+
+  assertSourceContains(
+    hiddenLayoutBranch,
+    /if \(!visible\) \{\s*wasVisibleRef\.current = false;\s*lastAnchorKeyRef\.current = 'hidden';\s*return;\s*\}/,
+    'the layout-critical close branch must only mark the retained radial hidden',
+  );
+  assert.doesNotMatch(
+    hiddenLayoutBranch,
+    /entranceProgress\.(?:stopAnimation|setValue)/,
+    'closing must not mutate the native animation value in the layout-critical branch',
+  );
+  assertSourceContains(
+    openingLayoutBranch,
+    /cancelHiddenResetFrame\(\);\s*const isOpening = !wasVisibleRef\.current;[\s\S]*if \(!isOpening\) \{\s*return;\s*\}[\s\S]*entranceProgress\.setValue\(0\);[\s\S]*startEntranceAnimation\(\);/,
+    'reopening must cancel a deferred reset, reset once, and immediately start the shared native clock',
+  );
+  assert.equal(openingLayoutBranch.match(/entranceProgress\.setValue\(0\)/g)?.length, 1);
+  assert.equal(openingLayoutBranch.match(/startEntranceAnimation\(\)/g)?.length, 1);
+  assert.doesNotMatch(
+    openingLayoutBranch,
+    /entranceProgress\.stopAnimation|setNativeProps/,
+    'the opening path must not redundantly stop animation or imperatively reposition the menu',
+  );
+  assertSourceContains(
+    chartTapRadialMenuSource,
+    /const cancelHiddenResetFrame = React\.useCallback\(\(\) => \{[\s\S]*cancelAnimationFrame\(hiddenResetFrameRef\.current\);[\s\S]*hiddenResetFrameRef\.current = null;[\s\S]*\}, \[\]\);[\s\S]*React\.useLayoutEffect\(\(\) => \{\s*return \(\) => \{\s*entranceProgress\.stopAnimation\(\);\s*cancelHiddenResetFrame\(\);/,
+    'the deferred hidden reset must have one cancel helper reused by unmount cleanup',
+  );
+  assertSourceContains(
+    hiddenResetEffect,
+    /if \(visible\) \{\s*cancelHiddenResetFrame\(\);\s*return;\s*\}[\s\S]*hiddenResetFrameRef\.current = requestAnimationFrame\(\(\) => \{\s*hiddenResetFrameRef\.current = null;\s*if \(!wasVisibleRef\.current\) \{\s*entranceProgress\.setValue\(0\);\s*\}[\s\S]*return cancelHiddenResetFrame;/,
+    'a passive post-close frame must reset only while lifecycle state remains hidden and expose the cancel helper as cleanup',
+  );
+  assert.doesNotMatch(
+    chartTapRadialMenuSource,
+    /entranceStartFrameRef|cancelPendingEntranceStart/,
+    'the radial entrance must not retain a requestAnimationFrame gate or its cancellation ref',
+  );
+  assertSourceContains(
+    chartTapRadialMenuSource,
+    /const renderedMenuPosition = visible && lastAnchorKeyRef\.current !== anchorKey[\s\S]*\? computeAnchorPosition\(\)[\s\S]*: menuPositionRef\.current;[\s\S]*top: renderedMenuPosition\.top,[\s\S]*left: renderedMenuPosition\.left/,
+    'the first visible render must already use the new tap anchor without waiting for a second position commit',
+  );
+  assert.equal(
+    chartTapRadialMenuSource.match(/menuViewRef\.current\?\.setNativeProps\(/g)?.length,
+    1,
+    'only the retained drag path may imperatively reposition; opening uses renderedMenuPosition',
+  );
+  assert.doesNotMatch(
+    chartTapRadialMenuSource,
+    /React\.useEffect\(\(\) => \{\s*startEntranceAnimation\(\);/,
+    'a passive mount effect would reintroduce the small-ring first-frame stall',
+  );
+  assertSourceContains(
+    source,
+    /<ChartTapRadialMenu\s+anchor=\{chartTapMenuAnchor\}\s+visible=\{chartTapMenuAnchor !== null\}/,
+    'the radial content must stay mounted between taps so its native layer is ready before animation',
+  );
+  assert.doesNotMatch(
+    source,
+    /\{chartTapMenuAnchor \? \(\s*<ChartTapRadialMenu/,
+    'opening the radial must not cold-mount all labels and icons on the tap frame',
+  );
+  assertSourceContains(
+    chartTapRadialMenuSource,
+    /<Animated\.View[\s\S]*renderToHardwareTextureAndroid[\s\S]*style=\{\[[\s\S]*styles\.menuContent,[\s\S]*transform: \[[\s\S]*\{ scale: entranceScale \},[\s\S]*\{ rotate: entranceRotation \}/,
+    'the entire radial menu must scale and rotate together on one Android hardware layer',
+  );
+  assert.doesNotMatch(
+    chartTapRadialMenuSource,
+    /Reanimated|useSharedValue|executeOnUIRuntimeSync|withDelay|withTiming|CHART_TAP_MENU_OPEN_OPACITY_FROM|needsOffscreenAlphaCompositing|Animated\.parallel/,
+    'the recorded MT5 entrance must not use a Reanimated worklet, gradual content fade, or extra alpha composition',
+  );
+});
+
+test('native chart supplies stable named callbacks for every radial destination', () => {
+  assertSourceContains(
+    source,
+    /const handleRadialOpenObjects = useCallback\(\(\) => \{\s*closeChartTapMenu\(\);\s*handleOpenObjectsScreen\(\);\s*\}, \[closeChartTapMenu, handleOpenObjectsScreen\]\);/,
+    'the Objects radial action must retain its close-then-open behavior in a stable callback',
+  );
+  assertSourceContains(
+    source,
+    /const handleRadialOpenDrawingTools = useCallback\(\(\) => \{\s*closeChartTapMenu\(\);\s*routeChartWindowToolbarAction\('drawings'\);\s*\}, \[closeChartTapMenu, routeChartWindowToolbarAction\]\);/,
+    'the Drawing Tools radial action must retain its pane-aware routing in a stable callback',
+  );
+  assertSourceContains(
+    source,
+    /const handleRadialOpenIndicators = useCallback\(\(\) => \{[\s\S]*closeChartTapMenu\(\);[\s\S]*router\.push\('\/chart\/indicators'\)[\s\S]*\}, \[closeChartTapMenu, router\]\);/,
+    'the Indicators radial action must retain its route in a stable callback',
+  );
+  assertSourceContains(
+    source,
+    /const handleRadialOpenSymbolPicker = useCallback\(\(\) => \{\s*closeChartTapMenu\(\);\s*handleOpenSymbolPicker\(\);\s*\}, \[closeChartTapMenu, handleOpenSymbolPicker\]\);/,
+    'the Symbol radial action must retain its picker launch in a stable callback',
+  );
+  assertSourceContains(
+    source,
+    /const latestHandleOpenChartScaleMenuRef = useRef\(handleOpenChartScaleMenu\);\s*latestHandleOpenChartScaleMenuRef\.current = handleOpenChartScaleMenu;\s*const handleRadialOpenChartScaleMenu = useCallback\(\(\) => \{\s*latestHandleOpenChartScaleMenuRef\.current\(\);\s*\}, \[\]\);/,
+    'the stable Scale callback must invoke the latest scale-menu action through its ref',
+  );
+  assertSourceContains(
+    source,
+    /<ChartTapRadialMenu[\s\S]*onSelectTimeframe=\{handleTimeframeSelect\}[\s\S]*onOpenChartWindows=\{handleOpenChartWindows\}[\s\S]*onOpenObjects=\{handleRadialOpenObjects\}[\s\S]*onOpenDrawingTools=\{handleRadialOpenDrawingTools\}[\s\S]*onOpenIndicators=\{handleRadialOpenIndicators\}[\s\S]*onOpenSymbolPicker=\{handleRadialOpenSymbolPicker\}[\s\S]*onOpenScaleControls=\{handleRadialOpenChartScaleMenu\}/,
+    'the retained radial must receive named handlers for all existing destinations',
+  );
+});
+
+test('undivided radial menu opening does not restack the chart WebView', () => {
+  assertSourceContains(
+    source,
+    /chartWindows\.isSplit\s*&& chartTapMenuAnchor !== null\s*&& \{ overflow: 'visible', zIndex: 80, elevation: 80 \}/,
+    'only a split chart may lift its viewport to let a radial cross pane bounds',
+  );
+  assertSourceContains(
+    chartWindowsLayoutSource,
+    /rendersAuxiliaryPane && radialMenuOpen && styles\.radialMenuPane/,
+    'the chart-window parent must retain its radial lift only while an auxiliary pane exists',
   );
 });
 
@@ -1695,6 +1903,29 @@ test('web chart: precision overlays and crosshair stay parity-safe', () => {
     'web chart crosshair must stay hidden with invisible labels',
   );
   assertSourceContains(chartWebSource, /crosshairMarkerVisible: false/, 'web line chart crosshair marker must stay hidden');
+});
+
+test('area chart uses close-value data and the themed gradient series on native and web', () => {
+  assertSourceContains(
+    source,
+    /const buildChartTickPayload = \([\s\S]*chartType === 'line' \|\| chartType === 'area'[\s\S]*value: candle\.close/,
+    'native Line and Area ticks must both use close-value points',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /seriesType === 'area'[\s\S]*LightweightCharts\.AreaSeries[\s\S]*lineColor: areaLineColor,[\s\S]*topColor: hexToRgba\(areaLineColor, 0\.32\),[\s\S]*bottomColor: hexToRgba\(areaLineColor, 0\.04\)/,
+    'native WebView Area must use the selected line color with a translucent gradient',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /acceptedCandlePrice = seriesType === 'line' \|\| seriesType === 'area'[\s\S]*Number\(update\.candle\.value\)/,
+    'native WebView Area live ticks must use their close-value payload',
+  );
+  assertSourceContains(
+    chartWebSource,
+    /chartType === 'area'[\s\S]*chart\.addSeries\(AreaSeries, \{[\s\S]*lineColor: LINE_COLOR,[\s\S]*topColor: withAlpha\(LINE_COLOR, 0\.32\),[\s\S]*bottomColor: withAlpha\(LINE_COLOR, 0\.04\)/,
+    'web Area must use the same selected line color and gradient',
+  );
 });
 
 test('webview bridge: resizeChartViewport replays pending init and updates geometry', () => {

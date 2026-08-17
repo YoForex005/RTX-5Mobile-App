@@ -74,7 +74,6 @@ import { BrokerFeedHealthBanner } from '../../market/BrokerFeedHealthBanner';
 import {
   cancelRetainedActionSheetPreview,
   commitRetainedActionSheetPreview,
-  parkRetainedActionSheetHostForConfigSwap,
   requestRetainedActionSheetPreview,
 } from '../../ui/components/ActionSheet/retainedActionSheetVisualController';
 import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../ui/components/sidebarDrawerController';
@@ -82,6 +81,7 @@ import { useTranslation } from '../../i18n/useTranslation';
 import {
   type ChartDisplaySettings,
   type ChartTradeVolumeDisplayMode,
+  type ChartVisualType,
   type ThemeMode,
   resolveChartColorsForTheme,
   useUserPreferences,
@@ -167,6 +167,11 @@ import {
   sanitizeCandlesForChart,
 } from '../../domain/candles/normalization/chartAdapter';
 import {
+  buildRenkoBricks,
+  resolveRenkoMinimumPriceIncrement,
+} from '../../domain/candles/renko';
+import { resolveStableRenkoBrickSize } from './renkoBrickSizeCache';
+import {
   getBucketGapCount,
   getExpectedNextCandleTime,
 } from '../../domain/candles/core/timeframeUtils';
@@ -219,6 +224,13 @@ import {
 } from './chartActionLaunchController';
 import { createChartContextCommitScheduler } from './chartContextCommitScheduler';
 import { scheduleAfterFirstFrame, scheduleIdleWork } from '../../utils/startupScheduler';
+import {
+  hideChartSymbolPickerSheet,
+  isChartSymbolPickerSheetActive,
+  preloadChartSymbolPickerSheet,
+  showChartSymbolPickerSheet,
+  type ChartSymbolPickerSheetConfig,
+} from './chartSymbolPickerSheetController';
 import { getDevRefreshKey, hashDevRefreshSource } from '../../dev/devRefreshKey';
 import {
   formatTradeVolume,
@@ -519,9 +531,9 @@ type ChartManualPriceScaleSnapshot = ChartVisiblePriceRange & {
 
 const buildChartTickPayload = (
   candle: { time: number; open: number; high: number; low: number; close: number; volume?: number },
-  chartType: 'candles' | 'bars' | 'line' | 'hollow',
+  chartType: ChartVisualType,
 ) => {
-  if (chartType === 'line') {
+  if (chartType === 'line' || chartType === 'area') {
     return { time: candle.time, value: candle.close };
   }
 
@@ -1850,6 +1862,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   }, [drawingMagnetMode, stickyDrawingMode]);
   const [textLevelEditRequest, setTextLevelEditRequest] = useState<TextLevelEditRequest | null>(null);
   const [chartViewportTouchActive, setChartViewportTouchActive] = useState(false);
+  const chartViewportTouchActiveRef = useRef(false);
   const pendingChartDrawingTool = useUIState((s) => s.pendingChartDrawingTool);
   const clearPendingChartDrawingTool = useUIState((s) => s.clearPendingChartDrawingTool);
   const pendingChartCommand = useUIState((s) => s.pendingChartCommand);
@@ -1968,6 +1981,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     }
     chartViewportTouchFailsafeTimerRef.current = setTimeout(() => {
       chartViewportTouchFailsafeTimerRef.current = null;
+      chartViewportTouchActiveRef.current = false;
       setChartViewportTouchActive(false);
     }, CHART_VIEWPORT_TOUCH_FAILSAFE_MS);
     if (footerLotEditorFocused || footerLotEditorOpening || footerLotPickerMode !== null) {
@@ -1983,9 +1997,15 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
         Keyboard.dismiss();
       }
     }
+    chartViewportTouchActiveRef.current = true;
     setChartViewportTouchActive((current) => (current ? current : true));
   }, [finishFooterLotEditor, footerLotEditorFocused, footerLotEditorOpening, footerLotPickerMode, showChartTradeSheet]);
   const handleChartViewportTouchEnd = useCallback(() => {
+    // Native onTouchEnd and the WebView bridge can report the same release.
+    // Leave the first release frame armed when the duplicate arrives.
+    if (!chartViewportTouchActiveRef.current) {
+      return;
+    }
     if (chartViewportTouchReleaseFrameRef.current !== null) {
       cancelAnimationFrame(chartViewportTouchReleaseFrameRef.current);
     }
@@ -1993,10 +2013,23 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       clearTimeout(chartViewportTouchFailsafeTimerRef.current);
       chartViewportTouchFailsafeTimerRef.current = null;
     }
+    chartViewportTouchActiveRef.current = false;
     chartViewportTouchReleaseFrameRef.current = requestAnimationFrame(() => {
       chartViewportTouchReleaseFrameRef.current = null;
       setChartViewportTouchActive(false);
     });
+  }, []);
+  const settleChartViewportTouchForRadialOpen = useCallback(() => {
+    if (chartViewportTouchReleaseFrameRef.current !== null) {
+      cancelAnimationFrame(chartViewportTouchReleaseFrameRef.current);
+      chartViewportTouchReleaseFrameRef.current = null;
+    }
+    if (chartViewportTouchFailsafeTimerRef.current) {
+      clearTimeout(chartViewportTouchFailsafeTimerRef.current);
+      chartViewportTouchFailsafeTimerRef.current = null;
+    }
+    chartViewportTouchActiveRef.current = false;
+    setChartViewportTouchActive(false);
   }, []);
   useEffect(() => {
     chartTapMenuBoundsRef.current = chartTapMenuBounds;
@@ -4783,6 +4816,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       // the keyboard and shove the layout under the sheet — the focus-time jump.
       const ui = useUIState.getState();
       const actionSheetOwnsKeyboard =
+        isChartSymbolPickerSheetActive() ||
         ui.actionSheet !== null ||
         (ui.actionSheetScope != null && ui.scopedActionSheets[ui.actionSheetScope] !== null);
       if (actionSheetOwnsKeyboard) {
@@ -5839,7 +5873,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   const chartMetaNeutralColor = isDark ? CHART_OHLC_NEUTRAL_DARK_COLOR : CHART_OHLC_NEUTRAL_LIGHT_COLOR;
   // Always reserve the row when enabled so it never pops in after the first
   // candle. ChartLiveOhlcRow receives direct accumulator snapshots below.
-  const showChartMetaRow = chartDisplay.showOHLC;
+  const showChartMetaRow = chartDisplay.showOHLC && chartType !== 'renko';
   const showChartVolumePane = chartViewportShowVolumePane;
   const showChartDrawingToolbar = isChartExpanded && chartViewportShowDrawingToolbar;
   const overlayCandles = sanitizedBackendCandles.length > 0 ? sanitizedBackendCandles : sanitizedCandles;
@@ -5974,47 +6008,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   const scheduleChartActionSheetContextReset = useCallback(() => {
     scheduleAfterFirstFrame(resetChartActionSheetContext);
   }, [resetChartActionSheetContext]);
-  const pendingChartActionSheetOpenCancelRef = useRef<(() => void) | null>(null);
-  useEffect(() => () => {
-    pendingChartActionSheetOpenCancelRef.current?.();
-    pendingChartActionSheetOpenCancelRef.current = null;
-  }, []);
-  const openChartActionSheetSmoothly = useCallback((
-    config: Parameters<typeof showChartActionSheet>[0],
-  ) => {
-    pendingChartActionSheetOpenCancelRef.current?.();
-    pendingChartActionSheetOpenCancelRef.current = null;
-    const currentUIState = useUIState.getState();
-    const mountedVisualKey =
-      currentUIState.scopedActionSheets.chart?.visualKey
-      ?? currentUIState.preloadedScopedActionSheets.chart?.visualKey
-      ?? config.visualKey;
-    // Park only for a real config swap. A same-key open (the preloaded symbol
-    // picker is the common case) would hide the exact rows about to be shown
-    // and push the reveal a frame later for nothing.
-    const parked = mountedVisualKey && mountedVisualKey !== config.visualKey
-      ? parkRetainedActionSheetHostForConfigSwap(mountedVisualKey)
-      : false;
-
-    // Publish the target rows while the native host is still hidden. Giving
-    // this hidden state one rendered frame prevents Android from ever painting
-    // the outgoing sheet's completed pose when the visible config changes.
-    preloadScopedActionSheet('chart', config);
-    if (parked) {
-      // Commit the incoming rows behind a native parent barrier. The shared
-      // ActionSheet releases that barrier first and only then starts its UI-
-      // thread slide. rAF plus a zero-delay task crosses the display boundary;
-      // a plain same-turn show can still beat setNativeProps on Android.
-      pendingChartActionSheetOpenCancelRef.current = scheduleAfterFirstFrame(() => {
-        pendingChartActionSheetOpenCancelRef.current = null;
-        showChartActionSheet(config);
-      });
-      return;
-    }
-
-    showChartActionSheet(config);
-  }, [preloadScopedActionSheet, showChartActionSheet]);
-
   const prefetchChartTimeframeHistory = useCallback((nextSymbol: string, nextTimeframe: string) => {
     return liveCandlesEngine.prefetchHistory(nextSymbol, nextTimeframe);
   }, []);
@@ -6520,7 +6513,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     () => `chart.symbolPicker:${t('Select Symbol')}:${availableSymbols.join('|')}`,
     [availableSymbols, t],
   );
-  const symbolPickerActionSheetConfig = useMemo<Parameters<typeof showChartActionSheet>[0]>(
+  const symbolPickerActionSheetConfig = useMemo<ChartSymbolPickerSheetConfig>(
     () => ({
       title: t('Select Symbol'),
       searchable: true,
@@ -6533,6 +6526,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       // The subtitle-aware viewport is stable before reveal, so this can share
       // the same UI-thread motion as Drawing Tools and the More menu.
       entryMotion: 'mt5Slide',
+      // The picker has its own retained host, so it can use a shorter eased
+      // slide without changing the motion of any shared ActionSheet surface.
+      mt5SlideMotionProfile: 'fast',
       immediateHostHideOnClose: true,
       runActionAfterClose: false,
       visualKey: symbolPickerVisualKey,
@@ -6541,14 +6537,15 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       keepFullHeightOnKeyboard: true,
       actions: symbolPickerActions,
     }),
-    [showChartActionSheet, symbolPickerActions, symbolPickerVisualKey, t],
+    [symbolPickerActions, symbolPickerVisualKey, t],
   );
 
   useEffect(() => {
     if (!isScreenFocused) {
+      hideChartSymbolPickerSheet();
       return;
     }
-    preloadScopedActionSheet('chart', symbolPickerActionSheetConfig);
+    preloadChartSymbolPickerSheet(symbolPickerActionSheetConfig);
     // Warm the New Order shell so one-click-off Buy/Sell paints instantly with
     // origin=chart (back returns to Chart, not Quotes/Trade).
     prepareOrderTicketLaunch(chartSymbol, 'chart');
@@ -6571,17 +6568,15 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   }, [
     chartSymbol,
     isScreenFocused,
-    preloadScopedActionSheet,
     symbolPickerActionSheetConfig,
   ]);
 
   const openSymbolPickerForActivePane = useCallback(() => {
     runImmediateAction('chart.symbolPicker.open', () => {
-      openChartActionSheetSmoothly(symbolPickerActionSheetConfig);
+      showChartSymbolPickerSheet(symbolPickerActionSheetConfig);
       scheduleChartActionSheetContextReset();
     });
   }, [
-    openChartActionSheetSmoothly,
     scheduleChartActionSheetContextReset,
     symbolPickerActionSheetConfig,
   ]);
@@ -6651,7 +6646,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     scheduleChartActionSheetContextReset,
   ]);
 
-  const handleSelectChartType = useCallback((nextType: 'candles' | 'hollow' | 'line') => {
+  const handleSelectChartType = useCallback((nextType: ChartVisualType) => {
     runImmediateAction(`chart.chartType.select.${nextType}`, () => {
       closeChartTapMenu();
       setChartVisualType(nextType);
@@ -6663,7 +6658,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     () => [
       { key: 'candles' as const, label: 'Candlestick', icon: 'stats-chart' as const },
       { key: 'hollow' as const, label: 'Hollow Candles', icon: 'stats-chart-outline' as const },
+      { key: 'renko' as const, label: 'Renko', icon: 'grid-outline' as const },
       { key: 'line' as const, label: 'Line', icon: 'trending-up-outline' as const },
+      { key: 'area' as const, label: 'Area', icon: 'analytics-outline' as const },
     ].map((option) => {
       const active = chartType === option.key;
 
@@ -6867,10 +6864,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   useEffect(() => {
     if (!isScreenFocused) return undefined;
 
-    // Chart owns one shared hidden ActionSheet slot. Symbol Picker and other
-    // menus may replace it while visible, so restore Drawing Tools as soon as
-    // they close. The next pencil tap then always has exact native pixels to
-    // reveal instead of mounting the long list on the tap path.
+    // Drawing Tools still uses Chart's shared hidden ActionSheet slot. Other
+    // shared Chart menus may replace it while visible, so restore Drawing Tools
+    // as soon as they close. The dedicated Symbol Picker host is independent.
     return useUIState.subscribe((state, previousState) => {
       if (
         previousState.scopedActionSheets.chart !== null
@@ -7011,11 +7007,15 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   }, [chartSymbol]);
 
   const chartTypeIconName =
-    chartType === 'candles' || chartType === 'hollow'
-      ? 'stats-chart'
-      : chartType === 'bars'
-        ? 'bar-chart-outline'
-        : 'trending-up-outline';
+    chartType === 'renko'
+      ? 'grid-outline'
+      : chartType === 'area'
+        ? 'analytics-outline'
+        : chartType === 'candles' || chartType === 'hollow'
+          ? 'stats-chart'
+          : chartType === 'bars'
+            ? 'bar-chart-outline'
+            : 'trending-up-outline';
 
   /**
    * Defines the list of actions available in the Chart's More (3-dot) menu.
@@ -7209,6 +7209,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     showChartActionSheet,
     t,
   ]);
+  const latestHandleOpenChartScaleMenuRef = useRef(handleOpenChartScaleMenu);
+  latestHandleOpenChartScaleMenuRef.current = handleOpenChartScaleMenu;
+  const handleRadialOpenChartScaleMenu = useCallback(() => {
+    latestHandleOpenChartScaleMenuRef.current();
+  }, []);
 
   const handleOpenMoreMenu = useCallback(() => {
     runImmediateAction('chart.moreMenu.open', () => {
@@ -7236,6 +7241,29 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       more: handleOpenMoreMenu,
     },
   );
+
+  const handleRadialOpenObjects = useCallback(() => {
+    closeChartTapMenu();
+    handleOpenObjectsScreen();
+  }, [closeChartTapMenu, handleOpenObjectsScreen]);
+  const handleRadialOpenDrawingTools = useCallback(() => {
+    closeChartTapMenu();
+    routeChartWindowToolbarAction('drawings');
+  }, [closeChartTapMenu, routeChartWindowToolbarAction]);
+  const handleRadialOpenIndicators = useCallback(() => {
+    closeChartTapMenu();
+    runImmediateAction('chart.indicators.open', () => {
+      try {
+        router.push('/chart/indicators');
+      } catch {
+        // Route may already be mid-transition; radial is closed.
+      }
+    });
+  }, [closeChartTapMenu, router]);
+  const handleRadialOpenSymbolPicker = useCallback(() => {
+    closeChartTapMenu();
+    handleOpenSymbolPicker();
+  }, [closeChartTapMenu, handleOpenSymbolPicker]);
 
   const marketCloseSeparatorPayload = useMemo(() => {
     if (!isChartMarketClosed) {
@@ -7266,14 +7294,19 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   }, [chartMarketSessionPolicy.sessionClose, chartTimeframe, isChartMarketClosed, sanitizedCandles]);
 
   const periodSeparatorOptions = useMemo(() => ({
-    enabled: chartDisplay.periodSeparators || marketCloseSeparatorPayload.length > 0,
+    enabled:
+      chartType !== 'renko'
+      && (chartDisplay.periodSeparators || marketCloseSeparatorPayload.length > 0),
     color: isDark ? 'rgba(148, 163, 184, 0.42)' : 'rgba(100, 116, 139, 0.45)',
     width: 1,
     dashPattern: '1 5',
-  }), [chartDisplay.periodSeparators, isDark, marketCloseSeparatorPayload.length]);
+  }), [chartDisplay.periodSeparators, chartType, isDark, marketCloseSeparatorPayload.length]);
 
   const periodSeparatorPayload = useMemo(
     () => {
+      if (chartType === 'renko') {
+        return [];
+      }
       const baseSeparators = getPeriodSeparators(sanitizedCandles, chartTimeframe, {
         periodSeparators: chartDisplay.periodSeparators,
       });
@@ -7292,7 +7325,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       }
       return merged.sort((left, right) => left.index - right.index || left.time - right.time);
     },
-    [chartDisplay.periodSeparators, chartTimeframe, marketCloseSeparatorPayload, sanitizedCandles],
+    [chartDisplay.periodSeparators, chartTimeframe, chartType, marketCloseSeparatorPayload, sanitizedCandles],
   );
 
   const periodSeparatorPayloadSignature = useMemo(
@@ -7357,7 +7390,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       minimumWidth: CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH,
       scaleMargins: {
         top: 0,
-        bottom: showChartVolumePane && chartType !== 'line' ? 0.32 : 0,
+        bottom:
+          showChartVolumePane
+          && chartType !== 'line'
+          && chartType !== 'area'
+          && chartType !== 'renko'
+            ? 0.32
+            : 0,
       },
     },
     customColors: {
@@ -7766,6 +7805,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     dataContextSig: '',
   });
   const renderedSeriesSnapshotRef = useRef(EMPTY_CHART_SERIES_SNAPSHOT);
+  const renderedRenkoSeriesSnapshotRef = useRef(EMPTY_CHART_SERIES_SNAPSHOT);
+  const renderedRenkoSeriesKeyRef = useRef('');
   const renderedDataContextSigRef = useRef('');
   const lastInjectedLiveQuoteSignatureRef = useRef('');
   const livePaintRevisionRef = useRef(0);
@@ -7776,6 +7817,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     candle: ChartLiveOhlcCandle | null;
   }>({ contextKey: '', candle: null });
   const chartLiveOhlcListenersRef = useRef(new Map<string, Set<ChartLiveOhlcListener>>());
+  const renderedRenkoSeriesKey = `${chartDataContextSig}:${chartType}`;
+  if (renderedRenkoSeriesKeyRef.current !== renderedRenkoSeriesKey) {
+    renderedRenkoSeriesKeyRef.current = renderedRenkoSeriesKey;
+    renderedRenkoSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
+  }
   // A retained ChartScreen survives active-window symbol changes. Reset the
   // fallback series synchronously during render so READY/init callbacks in the
   // same commit can never seed the new Bid accumulator from the old symbol.
@@ -7929,6 +7975,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     };
     pendingChartDataPaintRef.current = { token: '', dataContextSig: '' };
     renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
+    renderedRenkoSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
     renderedDataContextSigRef.current = '';
     lastInjectedLiveQuoteSignatureRef.current = '';
     livePaintRevisionRef.current = 0;
@@ -7936,6 +7983,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       clearTimeout(chartViewportTouchFailsafeTimerRef.current);
       chartViewportTouchFailsafeTimerRef.current = null;
     }
+    chartViewportTouchActiveRef.current = false;
     setChartViewportTouchActive(false);
     setChartCanvasReady(false);
     setChartPlotArea(null);
@@ -7994,20 +8042,64 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     }
   }, [chartSymbol, chartTimeframe, readCurrentProjectedChartCandles, retainCurrentChartCandles, sanitizedCandles]);
 
-  // Render backend candle timestamps directly. The shared candle engine owns
-  // sorting, dedupe, and OHLC validation; the WebView receives the same
-  // timestamped history+live series for wicks, overlays, gaps, and tooltips.
+  // Time-based modes keep canonical backend timestamps. Renko maps the same
+  // validated history onto a synthetic price-brick axis before crossing the
+  // WebView bridge.
+  const renkoExplicitInstrumentTickSize = (
+    chartInstrumentMeta as (Record<string, unknown> & { tick_size?: unknown }) | undefined
+  )?.tick_size;
+  const renkoMinimumPriceIncrement = useMemo(
+    () => resolveRenkoMinimumPriceIncrement(
+      [
+        renkoExplicitInstrumentTickSize,
+        chartLiveQuote?.tickSize,
+        chartInstrumentMeta?.tickSize,
+        chartInstrumentMeta?.point,
+        chartLiveQuote?.point,
+      ],
+      1 / Math.pow(10, displayDecimals),
+    ),
+    [
+      chartInstrumentMeta?.point,
+      chartInstrumentMeta?.tickSize,
+      chartLiveQuote?.point,
+      chartLiveQuote?.tickSize,
+      displayDecimals,
+      renkoExplicitInstrumentTickSize,
+    ],
+  );
+  const resolveCachedRenkoBrickSize = useCallback((sourceCandles: typeof sanitizedCandles) => {
+    return resolveStableRenkoBrickSize({
+      scopeKey: chartMarketDataCacheNamespace,
+      symbol: chartSymbol,
+      timeframe: chartTimeframe,
+      displayDecimals,
+      minimumPriceIncrement: renkoMinimumPriceIncrement,
+      candles: sourceCandles,
+    });
+  }, [
+    chartMarketDataCacheNamespace,
+    chartSymbol,
+    chartTimeframe,
+    displayDecimals,
+    renkoMinimumPriceIncrement,
+  ]);
   const buildMappedData = useCallback((sourceCandles: typeof sanitizedCandles) => {
     const cleaned = sourceCandles;
     if (cleaned.length === 0) {
       return [];
     }
 
+    const renderedCandles = chartType === 'renko'
+      ? buildRenkoBricks(cleaned, {
+          brickSize: resolveCachedRenkoBrickSize(cleaned),
+        })
+      : cleaned;
     const result: any[] = [];
 
-    for (let i = 0; i < cleaned.length; i++) {
-      const c = cleaned[i];
-      if (chartType === 'line') {
+    for (let i = 0; i < renderedCandles.length; i++) {
+      const c = renderedCandles[i];
+      if (chartType === 'line' || chartType === 'area') {
         result.push({ time: c.time, value: c.close });
       } else {
         result.push({
@@ -8032,7 +8124,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       console.log('CHART DATA DEBUG: Last 3 candles mapped:', JSON.stringify(lastFew));
     }
     return result;
-  }, [chartType]);
+  }, [chartType, resolveCachedRenkoBrickSize]);
 
   // Track the chart shell signature. Symbol/timeframe switches are data
   // context changes and repaint through updateChartData; only visual shell
@@ -8077,6 +8169,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       };
       pendingChartDataPaintRef.current = { token: '', dataContextSig: '' };
       renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
+      renderedRenkoSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
       renderedDataContextSigRef.current = '';
       lastInjectedLiveQuoteSignatureRef.current = '';
       clearRenderedMarketPriceLines(renderedContextToClear);
@@ -8116,7 +8209,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
           );
         }
         if (typeof setCandleCountdownActive === 'function') {
-          setCandleCountdownActive(${chartRuntimeActive && chartDisplay.showLivePriceLine && !isChartMarketClosed});
+          setCandleCountdownActive(${chartRuntimeActive && chartDisplay.showLivePriceLine && !isChartMarketClosed && chartType !== 'renko'});
         }
         true;
       `);
@@ -8128,6 +8221,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     chartDisplay.showLivePriceLine,
     chartRuntimeActive,
     chartTimeframe,
+    chartType,
     chartWebViewGeneration,
     isChartMarketClosed,
     webViewReady,
@@ -8298,6 +8392,15 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
 
       const previousSnapshot = renderedSeriesSnapshotRef.current;
       const nextSnapshot = buildChartSeriesSnapshot(renderableCandles);
+      const mappedRenkoData = chartType === 'renko'
+        ? buildMappedData(renderableCandles)
+        : null;
+      const nextRenkoSnapshot = mappedRenkoData
+        ? buildChartSeriesSnapshot(mappedRenkoData)
+        : EMPTY_CHART_SERIES_SNAPSHOT;
+      const renkoUpdateMode = mappedRenkoData
+        ? getChartSeriesUpdateMode(renderedRenkoSeriesSnapshotRef.current, nextRenkoSnapshot)
+        : 'noop';
       const resetForClosedMarketClamp = shouldResetViewportForClosedMarketClamp(
         previousSnapshot,
         nextSnapshot,
@@ -8312,15 +8415,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
         return;
       }
 
-      const lastCandle = renderableCandles[renderableCandles.length - 1];
-      if (!lastCandle) {
+      const canonicalLastCandle = renderableCandles[renderableCandles.length - 1];
+      const lastCandle = mappedRenkoData
+        ? mappedRenkoData[mappedRenkoData.length - 1]
+        : canonicalLastCandle;
+      if (!canonicalLastCandle || !lastCandle) {
         return;
       }
 
       // The accumulator made this forming close from the exact backend Bid.
       // The line must use that accepted close so a frame can never show two
       // different live generations like the pre-fix recordings did.
-      const exactBidLine = exactQuote ? lastCandle.close : null;
+      const exactBidLine = exactQuote ? canonicalLastCandle.close : null;
       const shouldShowExactBidLine =
         chartDisplay.showLivePriceLine && exactBidLine !== null;
       const revision = livePaintRevisionRef.current + 1;
@@ -8335,11 +8441,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
 
       try {
         let fullReloadScript = '';
-        if (updateMode === 'full_reload') {
+        if (updateMode === 'full_reload' || renkoUpdateMode === 'full_reload') {
           issuedPaintToken = issueChartDataPaintToken(chartDataContextSig);
           fullReloadScript = `
             if (typeof updateChartData === 'function') {
-              updateChartData(${JSON.stringify(buildMappedData(renderableCandles))}, {
+              updateChartData(${JSON.stringify(mappedRenkoData ?? buildMappedData(renderableCandles))}, {
                 preserveVisibleLogicalSpan: ${!resetForClosedMarketClamp},
                 resetVisibleRange: ${resetForClosedMarketClamp},
                 dataContextSig: ${JSON.stringify(chartDataContextSig)},
@@ -8358,6 +8464,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
         `);
         livePaintRevisionRef.current = revision;
         renderedSeriesSnapshotRef.current = nextSnapshot;
+        if (mappedRenkoData) {
+          renderedRenkoSeriesSnapshotRef.current = nextRenkoSnapshot;
+        }
         lastInjectedLiveQuoteSignatureRef.current = !chartDisplay.showLivePriceLine
           ? 'off'
           : exactBidLine === null
@@ -8552,11 +8661,21 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
         }
       }
       renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
+      renderedRenkoSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
       return;
     }
 
     const previousSnapshot = renderedSeriesSnapshotRef.current;
     const nextSnapshot = buildChartSeriesSnapshot(renderableCandles);
+    const mappedRenkoData = chartType === 'renko'
+      ? buildMappedData(renderableCandles)
+      : null;
+    const nextRenkoSnapshot = mappedRenkoData
+      ? buildChartSeriesSnapshot(mappedRenkoData)
+      : EMPTY_CHART_SERIES_SNAPSHOT;
+    const renkoUpdateMode = mappedRenkoData
+      ? getChartSeriesUpdateMode(renderedRenkoSeriesSnapshotRef.current, nextRenkoSnapshot)
+      : 'noop';
     const resetForClosedMarketClamp = shouldResetViewportForClosedMarketClamp(
       previousSnapshot,
       nextSnapshot,
@@ -8576,7 +8695,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       });
     }
 
-    if (updateMode === 'noop' || updateMode === 'incremental') {
+    if (
+      (updateMode === 'noop' || updateMode === 'incremental')
+      && renkoUpdateMode !== 'full_reload'
+    ) {
       // Incremental live candles are painted by the direct canonical listener
       // above. Keeping this effect full-reload-only prevents a delayed 400 ms
       // React snapshot from rewinding a newer Bid candle/line transaction.
@@ -8593,8 +8715,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     const replacementLiveRevision = livePaintRevisionRef.current + 1;
 
     try {
-      if (updateMode === 'full_reload') {
-        const mapped = buildMappedData(renderableCandles);
+      if (updateMode === 'full_reload' || renkoUpdateMode === 'full_reload') {
+        const mapped = mappedRenkoData ?? buildMappedData(renderableCandles);
         if (mapped.length > 0) {
           issuedPaintToken = issueChartDataPaintToken(chartDataContextSig);
           if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
@@ -8633,6 +8755,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     if (didInject) {
       livePaintRevisionRef.current = replacementLiveRevision;
       renderedSeriesSnapshotRef.current = nextSnapshot;
+      renderedRenkoSeriesSnapshotRef.current = mappedRenkoData
+        ? nextRenkoSnapshot
+        : EMPTY_CHART_SERIES_SNAPSHOT;
       renderedDataContextSigRef.current = chartDataContextSig;
       lastInjectedLiveQuoteSignatureRef.current = !chartDisplay.showLivePriceLine
         ? 'off'
@@ -8720,7 +8845,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
 
   const overlayMarkers = useMemo(
     () => {
-      if (!preferencesHydrated) {
+      if (!preferencesHydrated || chartType === 'renko') {
         return EMPTY_CHART_OVERLAY_MARKERS;
       }
       return buildChartOverlayMarkers({
@@ -8735,6 +8860,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       activeTool,
       chartShowOnChart,
       chartSymbol,
+      chartType,
       closedPositions,
       overlayMarkerCandles,
       preferencesHydrated,
@@ -9834,7 +9960,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                 style={[
                   styles.chartViewport,
                   frozenFooterLotChartViewportStyle,
-                  chartTapMenuAnchor !== null && { overflow: 'visible', zIndex: 80, elevation: 80 },
+                  chartWindows.isSplit
+                    && chartTapMenuAnchor !== null
+                    && { overflow: 'visible', zIndex: 80, elevation: 80 },
                 ]}
                 onTouchStart={handleChartViewportTouchStart}
                 onTouchEnd={handleChartViewportTouchEnd}
@@ -10020,6 +10148,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                             retainCurrentChartCandles(readyCandles);
                             const readySnapshot = buildChartSeriesSnapshot(readyCandles);
                             if (readyCandles.length > 0 && webViewRef.current) {
+                              const readyMappedRenkoData = chartType === 'renko'
+                                ? buildMappedData(readyCandles)
+                                : null;
                               const readySnapshotInitSignature =
                                 `${chartDataContextSig}:${currentSig}:${getChartSnapshotSignature(readySnapshot)}`;
                               if (readyInitSignature === readySnapshotInitSignature) {
@@ -10029,7 +10160,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                                 setLastPaintedChartDataContextSig(chartDataContextSig);
                                 chartReadyConfirmedCurrentSnapshotPaint = true;
                               } else {
-                                const mapped = buildMappedData(readyCandles);
+                                const mapped = readyMappedRenkoData ?? buildMappedData(readyCandles);
                                 readyPaintToken = issueChartDataPaintToken(chartDataContextSig);
                                 webViewRef.current.injectJavaScript(`
                                    updateChartData(${JSON.stringify(mapped)}, {
@@ -10049,6 +10180,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                                 renderedSeriesSnapshotRef.current = readySnapshot;
                                 renderedDataContextSigRef.current = chartDataContextSig;
                               }
+                              renderedRenkoSeriesSnapshotRef.current = readyMappedRenkoData
+                                ? buildChartSeriesSnapshot(readyMappedRenkoData)
+                                : EMPTY_CHART_SERIES_SNAPSHOT;
                             }
                           } catch (_) {
                             if (pendingChartDataPaintRef.current.token === readyPaintToken) {
@@ -10122,6 +10256,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                           }
                           renderedSeriesSnapshotRef.current =
                             buildChartSeriesSnapshot(paintedCandles);
+                          renderedRenkoSeriesSnapshotRef.current = chartType === 'renko'
+                            ? buildChartSeriesSnapshot(buildMappedData(paintedCandles))
+                            : EMPTY_CHART_SERIES_SNAPSHOT;
                           renderedDataContextSigRef.current = paintedDataContextSig;
                           setHasPaintedChartOnce(true);
                           setLastPaintedChartDataContextSig(paintedDataContextSig);
@@ -10317,11 +10454,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                             price: typeof msg.price === 'number' && Number.isFinite(msg.price) ? msg.price : null,
                           };
                           chartTapMenuOpenedAtRef.current = Date.now();
-                          syncChartViewportFrame(() => {
-                            setChartTapMenuAnchor((currentAnchor) => (
-                              currentAnchor ? null : nextAnchor
-                            ));
-                          });
+                          if (chartTapMenuAnchor === null) {
+                            // CHART_TOUCH_STATE(false) arrives immediately
+                            // after CHART_TAP. Fold that release into the same
+                            // commit as the open so it cannot reconcile the
+                            // radial subtree during its native entrance.
+                            settleChartViewportTouchForRadialOpen();
+                          }
+                          setChartTapMenuAnchor((currentAnchor) => (
+                            currentAnchor ? null : nextAnchor
+                          ));
                         } else if (msg.type === 'CHART_DOUBLE_TAP') {
                           if (msg.dataContextSig !== chartDataContextSigRef.current) {
                             return;
@@ -10446,6 +10588,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                             lastInitSigRef.current = '';
                             pendingChartDataPaintRef.current = { token: '', dataContextSig: '' };
                             renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
+                            renderedRenkoSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
                             setChartCanvasReady(false);
                             requestChartViewportRecovery(2);
                             sendInit(true);
@@ -10534,44 +10677,23 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                     </View>
                   </View>
                 )}
-                {chartTapMenuAnchor ? (
-                  <ChartTapRadialMenu
-                    anchor={chartTapMenuAnchor}
-                    bounds={chartTapMenuBounds}
-                    activeTimeframe={chartTimeframe}
-                    accentColor={BLUE}
-                    mutedColor="#FFFFFF"
-                    isDark={isDark}
-                    onDismiss={handleChartTapMenuDismiss}
-                    onSelectTimeframe={handleTimeframeSelect}
-                    onOpenChartWindows={handleOpenChartWindows}
-                    onOpenObjects={() => {
-                      // Always clear the radial first so the next sheet/route
-                      // does not sit under a leftover touch layer (Android).
-                      closeChartTapMenu();
-                      handleOpenObjectsScreen();
-                    }}
-                    onOpenDrawingTools={() => {
-                      closeChartTapMenu();
-                      routeChartWindowToolbarAction('drawings');
-                    }}
-                    onOpenIndicators={() => {
-                      closeChartTapMenu();
-                      runImmediateAction('chart.indicators.open', () => {
-                        try {
-                          router.push('/chart/indicators');
-                        } catch {
-                          // Route may already be mid-transition; radial is closed.
-                        }
-                      });
-                    }}
-                    onOpenSymbolPicker={() => {
-                      closeChartTapMenu();
-                      handleOpenSymbolPicker();
-                    }}
-                    onOpenScaleControls={handleOpenChartScaleMenu}
-                  />
-                ) : null}
+                <ChartTapRadialMenu
+                  anchor={chartTapMenuAnchor}
+                  visible={chartTapMenuAnchor !== null}
+                  bounds={chartTapMenuBounds}
+                  activeTimeframe={chartTimeframe}
+                  accentColor={BLUE}
+                  mutedColor="#FFFFFF"
+                  isDark={isDark}
+                  onDismiss={handleChartTapMenuDismiss}
+                  onSelectTimeframe={handleTimeframeSelect}
+                  onOpenChartWindows={handleOpenChartWindows}
+                  onOpenObjects={handleRadialOpenObjects}
+                  onOpenDrawingTools={handleRadialOpenDrawingTools}
+                  onOpenIndicators={handleRadialOpenIndicators}
+                  onOpenSymbolPicker={handleRadialOpenSymbolPicker}
+                  onOpenScaleControls={handleRadialOpenChartScaleMenu}
+                />
                 {chartTradeReceipt && !showChartTradeSheet
                   ? renderChartTradeReceiptBar(chartTradeReceipt)
                   : null}

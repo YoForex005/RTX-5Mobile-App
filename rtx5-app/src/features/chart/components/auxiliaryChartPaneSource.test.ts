@@ -49,7 +49,14 @@ test('auxiliary header matches ticker metadata and live OHLC without a second ca
   assert.match(headerSource, /CHART_OHLC_LOW_COLOR = '#F23645'/);
   assert.match(headerSource, /\{showTicker \? \(/);
   assert.match(headerSource, /\{showOHLC && !compact \? \(/);
-  assert.match(paneSource, /\(chartDisplay\.showTicker \|\| chartDisplay\.showOHLC\)/);
+  assert.match(
+    paneSource,
+    /\(chartDisplay\.showTicker \|\| \(chartDisplay\.showOHLC && chartVisualType !== 'renko'\)\)/,
+  );
+  assert.match(
+    paneSource,
+    /showOHLC=\{chartDisplay\.showOHLC && chartVisualType !== 'renko'\}/,
+  );
   assert.match(paneSource, /minHeight: density\.headerHeight/);
   assert.doesNotMatch(paneSource, /useLiveCandles/);
   assert.match(previewSource, /onLatestCandleChange\?\.\(\{ symbol, timeframe, candle: latestPreviewCandle \}\)/);

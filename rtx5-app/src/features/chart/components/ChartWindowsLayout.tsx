@@ -233,7 +233,7 @@ export const ChartWindowsLayout = memo(function ChartWindowsLayout({
         styles.pane,
         rendersAuxiliaryPane && styles.splitPane,
         rendersAuxiliaryPane && styles.transparentSplitFrame,
-        radialMenuOpen && styles.radialMenuPane,
+        rendersAuxiliaryPane && radialMenuOpen && styles.radialMenuPane,
       ]}
     >
       {children}

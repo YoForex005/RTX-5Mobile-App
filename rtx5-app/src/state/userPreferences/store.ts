@@ -180,7 +180,9 @@ const isChartTradeVolumeDisplayMode = (value: unknown): value is ChartTradeVolum
 const normalizeChartVisualType = (value: unknown): ChartVisualType => {
   // OHLC bars are retired from the chart type picker, so migrate any old saved value to candles.
   if (value === 'bars') return 'candles';
-  return value === 'candles' || value === 'line' || value === 'hollow' ? value : 'candles';
+  return value === 'candles' || value === 'line' || value === 'area' || value === 'hollow' || value === 'renko'
+    ? value
+    : 'candles';
 };
 const isPriceSource = (value: unknown): value is UserPreferencesState['priceSource'] =>
   value === 'bid' || value === 'ask';

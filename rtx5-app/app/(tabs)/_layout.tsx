@@ -32,6 +32,8 @@ import {
 import { OrderTicketLaunchHost } from '../../src/features/trade/OrderTicketLaunchHost';
 import { TradeTabFloatingPnl } from '../../src/features/trade/TradeTabFloatingPnl';
 import { QuotesSymbolActionSheetHost } from '../../src/features/quotes/QuotesSymbolActionSheet';
+import { ChartSymbolPickerSheetHost } from '../../src/features/chart/components/ChartSymbolPickerSheet';
+import { hideChartSymbolPickerSheet } from '../../src/features/chart/chartSymbolPickerSheetController';
 import { requestOrrnnDemoTradeAuth } from '../../src/features/trade/tradeAuthPrompt';
 import { useUserPreferences } from '../../src/state/userPreferences';
 import { prefetchChartSelectionHistory } from '../../src/utils/navigationPrefetch';
@@ -496,6 +498,7 @@ export default function TabsLayout() {
       // the user leaves the chart tab / navigates elsewhere so it never sticks.
       hideChartConfigDestination();
       hideChartSettingsHost();
+      hideChartSymbolPickerSheet();
       hideAboutDetailDestination();
       hideHistoryFilterHost();
       hideTradePositionActionHost();
@@ -661,6 +664,7 @@ const TabsLayoutInner = memo(function TabsLayoutInner({
         <OrderTicketLaunchHost />
         <GlobalActionSheetHost />
         <QuotesSymbolActionSheetHost />
+        <ChartSymbolPickerSheetHost />
       </ChartTradeSheetPortalProvider>
     </View>
   );

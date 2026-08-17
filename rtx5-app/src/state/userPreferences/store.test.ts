@@ -14,7 +14,7 @@ test('persisted user preferences are normalized before second-launch hydration r
   assert.match(storeSource, /quoteSymbols: asStringArray\(state\.quoteSymbols\)/);
   assert.match(storeSource, /chartSymbol = asString\(state\.chartSymbol, 'GBPUSD'\)/);
   assert.match(storeSource, /chartTimeframe: normalizeCandleHistoryTimeframe\(state\.chartTimeframe\)/);
-  assert.match(storeSource, /const normalizeChartVisualType = \(value: unknown\): ChartVisualType => \{[\s\S]*if \(value === 'bars'\) return 'candles';[\s\S]*value === 'candles' \|\| value === 'line' \|\| value === 'hollow'/);
+  assert.match(storeSource, /const normalizeChartVisualType = \(value: unknown\): ChartVisualType => \{[\s\S]*if \(value === 'bars'\) return 'candles';[\s\S]*value === 'candles' \|\| value === 'line' \|\| value === 'area' \|\| value === 'hollow' \|\| value === 'renko'/);
   assert.match(storeSource, /chartVisualType: normalizeChartVisualType\(state\.chartVisualType\)/);
   assert.match(storeSource, /chartVerticalScrollingLocked: asBoolean\(state\.chartVerticalScrollingLocked, false\)/);
   assert.match(storeSource, /chartAutoScaleEnabled: asBoolean\(state\.chartAutoScaleEnabled, false\)/);

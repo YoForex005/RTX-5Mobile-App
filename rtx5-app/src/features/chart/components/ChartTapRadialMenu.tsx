@@ -23,7 +23,8 @@ export type ChartTapMenuBounds = {
 };
 
 type ChartTapRadialMenuProps = {
-  anchor: ChartTapMenuAnchor;
+  anchor: ChartTapMenuAnchor | null;
+  visible: boolean;
   bounds: ChartTapMenuBounds;
   activeTimeframe: string;
   accentColor: string;
@@ -40,16 +41,68 @@ type ChartTapRadialMenuProps = {
   onOpenScaleControls: () => void;
 };
 
-const CHART_TAP_MENU_SIZE = 268;
-const CHART_TAP_RING_WIDTH = 42;
+const CHART_TAP_MENU_SIZE = 224;
+const CHART_TAP_RING_WIDTH = 36;
 const CHART_TAP_TIMEFRAME_HEIGHT = 30;
 const CHART_TAP_OUTER_ITEM_RADIUS = CHART_TAP_MENU_SIZE / 2 - CHART_TAP_RING_WIDTH / 2;
 const CHART_TAP_ACTION_RADIUS = CHART_TAP_OUTER_ITEM_RADIUS;
 const CHART_TAP_MENU_PADDING = 10;
 const CHART_TAP_MENU_DISMISS_GRACE_MS = 32;
-const CHART_TAP_MENU_OPEN_DURATION_MS = 140;
-const CHART_TAP_MENU_OPEN_SCALE_FROM = 0.58;
-const CHART_TAP_MENU_OPEN_OPACITY_FROM = 0.92;
+const CHART_TAP_MENU_OPEN_DURATION_MS = 165;
+const CHART_TAP_MENU_OPEN_SCALE_FROM = 0.5;
+const CHART_TAP_MENU_OPEN_ROTATION_FROM_DEG = -90;
+const CHART_TAP_MENU_OPEN_SCALE_TIMESTAMPS_MS = [
+  0,
+  16,
+  33,
+  50,
+  67,
+  84,
+  100,
+  115,
+  CHART_TAP_MENU_OPEN_DURATION_MS,
+];
+const CHART_TAP_MENU_OPEN_SCALE_PROGRESS_STOPS = CHART_TAP_MENU_OPEN_SCALE_TIMESTAMPS_MS.map(
+  (timestampMs) => timestampMs / CHART_TAP_MENU_OPEN_DURATION_MS,
+);
+const CHART_TAP_MENU_OPEN_SCALE_STOPS = [
+  CHART_TAP_MENU_OPEN_SCALE_FROM,
+  0.6,
+  0.7,
+  0.79,
+  0.875,
+  0.94,
+  0.985,
+  1,
+  1,
+];
+const CHART_TAP_MENU_OPEN_ROTATION_TIMESTAMPS_MS = [
+  0,
+  16,
+  33,
+  50,
+  67,
+  84,
+  100,
+  116,
+  133,
+  CHART_TAP_MENU_OPEN_DURATION_MS,
+];
+const CHART_TAP_MENU_OPEN_ROTATION_PROGRESS_STOPS = CHART_TAP_MENU_OPEN_ROTATION_TIMESTAMPS_MS.map(
+  (timestampMs) => timestampMs / CHART_TAP_MENU_OPEN_DURATION_MS,
+);
+const CHART_TAP_MENU_OPEN_ROTATION_STOPS = [
+  `${CHART_TAP_MENU_OPEN_ROTATION_FROM_DEG}deg`,
+  '-51deg',
+  '-40deg',
+  '-30deg',
+  '-23deg',
+  '-16deg',
+  '-10deg',
+  '-6deg',
+  '-2deg',
+  '0deg',
+];
 // Large enough for fingers on the ring, but not so large that neighbors collide.
 const CHART_TAP_ACTION_HIT_SLOP = { top: 14, bottom: 14, left: 14, right: 14 } as const;
 const CHART_TAP_TIMEFRAME_HIT_SLOP = { top: 12, bottom: 12, left: 10, right: 10 } as const;
@@ -128,6 +181,9 @@ const createStyles = (isDark: boolean) =>
       zIndex: 40,
       elevation: 120,
     },
+    layerHidden: {
+      opacity: 0,
+    },
     menu: {
       position: 'absolute',
       top: 0,
@@ -154,10 +210,6 @@ const createStyles = (isDark: boolean) =>
       borderRadius: CHART_TAP_MENU_SIZE / 2,
       borderWidth: CHART_TAP_RING_WIDTH,
       backgroundColor: 'transparent',
-      shadowOffset: { width: 0, height: 12 },
-      shadowOpacity: isDark ? 0.3 : 0.18,
-      shadowRadius: 24,
-      elevation: 10,
     },
     timeframeItem: {
       position: 'absolute',
@@ -237,8 +289,9 @@ const createStyles = (isDark: boolean) =>
  * Renders an MT5-style interactive radial menu at a specific tap location on the chart.
  * This menu allows quick access to timeframes, drawing tools, objects, and settings.
  */
-export function ChartTapRadialMenu({
+function ChartTapRadialMenuComponent({
   anchor,
+  visible,
   bounds,
   activeTimeframe,
   accentColor,
@@ -257,6 +310,8 @@ export function ChartTapRadialMenu({
   const styles = React.useMemo(() => createStyles(isDark), [isDark]);
   const containerWidth = bounds.width;
   const containerHeight = bounds.height;
+  const anchorX = anchor?.x ?? containerWidth / 2;
+  const anchorY = anchor?.y ?? containerHeight / 2;
   const timeframeMenuLabel = t('Timeframes');
 
   const resolveMenuPosition = React.useCallback(
@@ -272,40 +327,52 @@ export function ChartTapRadialMenu({
   );
 
   const computeAnchorPosition = React.useCallback(() => (
-    resolveMenuPosition(anchor.x, anchor.y)
-  ), [anchor.x, anchor.y, resolveMenuPosition]);
+    resolveMenuPosition(anchorX, anchorY)
+  ), [anchorX, anchorY, resolveMenuPosition]);
 
   const [menuPosition, setMenuPosition] = React.useState(computeAnchorPosition);
   const menuViewRef = React.useRef<View>(null);
   const menuPositionRef = React.useRef(menuPosition);
   const dragOriginRef = React.useRef(menuPosition);
   const dismissReadyAtRef = React.useRef(Date.now() + CHART_TAP_MENU_DISMISS_GRACE_MS);
-  const lastAnchorKeyRef = React.useRef(`${anchor.x}:${anchor.y}:${containerWidth}:${containerHeight}`);
+  const lastAnchorKeyRef = React.useRef('hidden');
+  const wasVisibleRef = React.useRef(false);
   const syncFrameRef = React.useRef<number | null>(null);
-  const entranceOpacity = React.useRef(new Animated.Value(CHART_TAP_MENU_OPEN_OPACITY_FROM)).current;
-  const entranceScale = React.useRef(new Animated.Value(CHART_TAP_MENU_OPEN_SCALE_FROM)).current;
-
+  const hiddenResetFrameRef = React.useRef<number | null>(null);
+  const entranceProgress = React.useRef(new Animated.Value(0)).current;
+  const entranceScale = React.useMemo(
+    () => entranceProgress.interpolate({
+      inputRange: CHART_TAP_MENU_OPEN_SCALE_PROGRESS_STOPS,
+      outputRange: CHART_TAP_MENU_OPEN_SCALE_STOPS,
+    }),
+    [entranceProgress],
+  );
+  const entranceRotation = React.useMemo(
+    () => entranceProgress.interpolate({
+      inputRange: CHART_TAP_MENU_OPEN_ROTATION_PROGRESS_STOPS,
+      outputRange: CHART_TAP_MENU_OPEN_ROTATION_STOPS,
+    }),
+    [entranceProgress],
+  );
   const startEntranceAnimation = React.useCallback(() => {
-    entranceOpacity.stopAnimation();
-    entranceScale.stopAnimation();
-    entranceOpacity.setValue(CHART_TAP_MENU_OPEN_OPACITY_FROM);
-    entranceScale.setValue(CHART_TAP_MENU_OPEN_SCALE_FROM);
-    Animated.parallel([
-      Animated.timing(entranceOpacity, {
-        toValue: 1,
-        duration: CHART_TAP_MENU_OPEN_DURATION_MS,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.spring(entranceScale, {
-        toValue: 1,
-        stiffness: 420,
-        damping: 32,
-        mass: 0.72,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [entranceOpacity, entranceScale]);
+    Animated.timing(entranceProgress, {
+      toValue: 1,
+      duration: CHART_TAP_MENU_OPEN_DURATION_MS,
+      easing: Easing.linear,
+      useNativeDriver: true,
+    }).start();
+  }, [entranceProgress]);
+  const cancelHiddenResetFrame = React.useCallback(() => {
+    if (hiddenResetFrameRef.current !== null) {
+      cancelAnimationFrame(hiddenResetFrameRef.current);
+      hiddenResetFrameRef.current = null;
+    }
+  }, []);
+
+  const anchorKey = `${anchorX}:${anchorY}:${containerWidth}:${containerHeight}`;
+  const renderedMenuPosition = visible && lastAnchorKeyRef.current !== anchorKey
+    ? computeAnchorPosition()
+    : menuPositionRef.current;
 
   const applyMenuPosition = React.useCallback(
     (left: number, top: number, commitToState = false) => {
@@ -330,41 +397,65 @@ export function ChartTapRadialMenu({
     [resolveMenuPosition],
   );
 
-  React.useEffect(() => {
-    startEntranceAnimation();
+  React.useLayoutEffect(() => {
     return () => {
-      entranceOpacity.stopAnimation();
-      entranceScale.stopAnimation();
+      entranceProgress.stopAnimation();
+      cancelHiddenResetFrame();
       if (syncFrameRef.current !== null) {
         cancelAnimationFrame(syncFrameRef.current);
         syncFrameRef.current = null;
       }
     };
-  }, [entranceOpacity, entranceScale, startEntranceAnimation]);
-
-  React.useEffect(() => {
-    menuPositionRef.current = menuPosition;
-  }, [menuPosition]);
+  }, [cancelHiddenResetFrame, entranceProgress]);
 
   React.useLayoutEffect(() => {
-    const key = `${anchor.x}:${anchor.y}:${containerWidth}:${containerHeight}`;
-    if (lastAnchorKeyRef.current === key && menuPositionRef.current) {
+    if (!visible) {
+      wasVisibleRef.current = false;
+      lastAnchorKeyRef.current = 'hidden';
       return;
     }
-    lastAnchorKeyRef.current = key;
+    cancelHiddenResetFrame();
+    const isOpening = !wasVisibleRef.current;
+    wasVisibleRef.current = true;
+    if (lastAnchorKeyRef.current !== anchorKey) {
+      lastAnchorKeyRef.current = anchorKey;
+      const nextPosition = computeAnchorPosition();
+      menuPositionRef.current = nextPosition;
+    }
+    // WebView/layout bounds can settle again after the menu becomes visible.
+    // Reposition for those updates, but animate exactly once per open.
+    if (!isOpening) {
+      return;
+    }
     dismissReadyAtRef.current = Date.now() + CHART_TAP_MENU_DISMISS_GRACE_MS;
-    const nextPosition = computeAnchorPosition();
-    menuPositionRef.current = nextPosition;
-    setMenuPosition(nextPosition);
+    entranceProgress.setValue(0);
+    // The first visible commit already contains the final anchor position and
+    // retained hardware layer. Schedule the native clock immediately so chart
+    // JS work cannot park the 0.5 / -90deg pose before motion begins.
     startEntranceAnimation();
   }, [
-    anchor.x,
-    anchor.y,
+    anchorKey,
+    cancelHiddenResetFrame,
     computeAnchorPosition,
-    containerHeight,
-    containerWidth,
+    entranceProgress,
     startEntranceAnimation,
+    visible,
   ]);
+
+  React.useEffect(() => {
+    if (visible) {
+      cancelHiddenResetFrame();
+      return;
+    }
+    cancelHiddenResetFrame();
+    hiddenResetFrameRef.current = requestAnimationFrame(() => {
+      hiddenResetFrameRef.current = null;
+      if (!wasVisibleRef.current) {
+        entranceProgress.setValue(0);
+      }
+    });
+    return cancelHiddenResetFrame;
+  }, [cancelHiddenResetFrame, entranceProgress, visible]);
 
   const panResponder = React.useMemo(
     () =>
@@ -482,7 +573,13 @@ export function ChartTapRadialMenu({
     },
   ];
   return (
-    <View style={styles.layer} pointerEvents="box-none" collapsable={false}>
+    <View
+      style={[styles.layer, !visible && styles.layerHidden]}
+      pointerEvents={visible ? 'box-none' : 'none'}
+      accessibilityElementsHidden={!visible}
+      importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'}
+      collapsable={false}
+    >
       <Pressable
         style={StyleSheet.absoluteFillObject}
         onPressIn={handleBackdropPress}
@@ -491,28 +588,29 @@ export function ChartTapRadialMenu({
       <View
         ref={menuViewRef}
         collapsable={false}
-        renderToHardwareTextureAndroid
-        needsOffscreenAlphaCompositing
         style={[
           styles.menu,
           {
-            top: menuPosition.top,
-            left: menuPosition.left,
+            top: renderedMenuPosition.top,
+            left: renderedMenuPosition.left,
           },
         ]}
         {...panResponder.panHandlers}
       >
         <Animated.View
           accessibilityLabel={timeframeMenuLabel}
+          renderToHardwareTextureAndroid
           style={[
             styles.menuContent,
             {
-              opacity: entranceOpacity,
-              transform: [{ scale: entranceScale }],
+              transform: [
+                { scale: entranceScale },
+                { rotate: entranceRotation },
+              ],
             },
           ]}
         >
-          <View style={[styles.ring, { borderColor: accentColor, shadowColor: accentColor }]} />
+          <View style={[styles.ring, { borderColor: accentColor }]} />
 
           {/* Tapping inside the empty inner circle dismisses the menu. Without
               this, the ring's containing View absorbs the touch but the
@@ -594,3 +692,6 @@ export function ChartTapRadialMenu({
     </View>
   );
 }
+
+export const ChartTapRadialMenu = React.memo(ChartTapRadialMenuComponent);
+ChartTapRadialMenu.displayName = 'ChartTapRadialMenu';

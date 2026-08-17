@@ -52,8 +52,8 @@ test('native bridge binds the exact selected timeframe and series context to the
   );
   assertSourceContains(
     nativeSource,
-    /setCandleCountdownActive\(\$\{chartRuntimeActive && chartDisplay\.showLivePriceLine && !isChartMarketClosed\}\)/,
-    'native must pause the DOM ticker while the retained chart, live-price line, or market is inactive',
+    /setCandleCountdownActive\(\$\{chartRuntimeActive && chartDisplay\.showLivePriceLine && !isChartMarketClosed && chartType !== 'renko'\}\)/,
+    'native must pause the DOM ticker while the retained chart, live-price line, or market is inactive, or Renko is selected',
   );
 });
 
@@ -205,8 +205,8 @@ test('native live price badge renders price first and countdown directly below i
 test('web chart replaces the one-row built-in label with the same two-row badge', () => {
   assertSourceContains(
     webSource,
-    /ChartCandleCountdownBadge[\s\S]*timeframe=\{chartTimeframe\}[\s\S]*visible=\{chartDisplay\.showLivePriceLine && candlesAvailable\}/,
-    'web chart must render the countdown from the selected timeframe',
+    /ChartCandleCountdownBadge[\s\S]*active=\{isScreenFocused && chartType !== 'renko'\}[\s\S]*timeframe=\{chartTimeframe\}[\s\S]*visible=\{chartDisplay\.showLivePriceLine && candlesAvailable && chartType !== 'renko'\}/,
+    'web chart must render the countdown from the selected timeframe and suppress it for price-based Renko bricks',
   );
   assert.equal((webSource.match(/lastValueVisible: false/g) ?? []).length >= 3, true);
   assertSourceContains(

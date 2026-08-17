@@ -1,0 +1,30 @@
+env: load .env
+env: export EXPO_PUBLIC_API_BASE_URL EXPO_PUBLIC_BROKER_DIRECTORY_BASE_URL EXPO_PUBLIC_DEMO_API_BASE_URL EXPO_PUBLIC_ORRNN_DEMO_BROKER_ID EXPO_PUBLIC_ORRNN_DEMO_INITIAL_BALANCE EXPO_PUBLIC_ORRNN_DEMO_ORIGIN_BROKER EXPO_PUBLIC_FEED_BROKER_TOKEN EXPO_PUBLIC_FEED_BROKER_ID EXPO_PUBLIC_CANDLE_HISTORY_PATH EXPO_PUBLIC_CANDLE_HISTORY_QUERY_STYLE EXPO_PUBLIC_BROKER_SLTP_CAPABILITIES EXPO_PUBLIC_TERMS_URL EXPO_PUBLIC_PRIVACY_POLICY_URL EXPO_PUBLIC_SENTRY_DSN
+Starting project at C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app
+
+Expo Metro config:
+- Version: 54.0.17
+- Extensions: ts, tsx, mjs, js, jsx, json, cjs, scss, sass, css
+- React Native: C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app\node_modules\react-native
+- Watch Folders: 
+- Node Module Paths: 
+- Sass: null
+- Reanimated: 4.1.6
+- Worklets: 0.5.1
+- Babel Runtime: null
+
+
+Expo Metro config:
+- Version: 54.0.17
+- Extensions: ts, tsx, mjs, js, jsx, json, cjs, scss, sass, css
+- React Native: C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app\node_modules\react-native
+- Watch Folders: 
+- Node Module Paths: 
+- Sass: null
+- Reanimated: 4.1.6
+- Worklets: 0.5.1
+- Babel Runtime: null
+
+Starting Metro Bundler
+Waiting on http://localhost:8081
+Logs for your project will appear below.

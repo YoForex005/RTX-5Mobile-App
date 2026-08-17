@@ -1,8 +1,9 @@
 import { isStructurallyValidCandle } from '../../../domain/candles/core/candles';
-import { ChartColorsConfig } from '../../../state/userPreferences';
+import { ChartColorsConfig, type ChartVisualType } from '../../../state/userPreferences';
 import { mapCandlesToRTX5CustomCandlestickData } from '../../../domain/candles/rendering/customCandlestickSeries';
+import { buildRenkoBricks } from '../../../domain/candles/renko';
 
-export type PreviewChartType = 'candles' | 'bars' | 'line' | 'hollow';
+export type PreviewChartType = ChartVisualType;
 
 // Keep the forming candle clear of the right price scale in the compact
 // Schema & Colors preview. With the preview's 13px bar spacing this reserves
@@ -84,9 +85,14 @@ export const mapPreviewCandles = (
   chartType: PreviewChartType,
   colors: Pick<ChartColorsConfig, 'candlesUptrend' | 'candlesDowntrend'>
     & Partial<Pick<ChartColorsConfig, 'hollowBody'>>,
+  renkoBrickSize?: number,
 ) => {
-  if (chartType === 'line') {
-    return candles.map((item) => ({
+  const renderedCandles = chartType === 'renko'
+    ? buildRenkoBricks(candles, { brickSize: renkoBrickSize })
+    : candles;
+
+  if (chartType === 'line' || chartType === 'area') {
+    return renderedCandles.map((item) => ({
       time: item.time,
       value: item.close,
       open: item.open,
@@ -95,19 +101,19 @@ export const mapPreviewCandles = (
     }));
   }
 
-  if (chartType === 'candles' || chartType === 'hollow') {
+  if (chartType === 'candles' || chartType === 'hollow' || chartType === 'renko') {
     // Per-item colors override series options in lightweight-charts, so hollow
     // charts must bake the hollow body fill here too — otherwise the baked
     // bull/bear colors defeat the hollow style in the native preview.
     const useHollowFill = chartType === 'hollow' && typeof colors.hollowBody === 'string';
     return mapCandlesToRTX5CustomCandlestickData({
-      candles,
+      candles: renderedCandles,
       bullishColor: useHollowFill ? (colors.hollowBody as string) : colors.candlesUptrend,
       bearishColor: useHollowFill ? (colors.hollowBody as string) : colors.candlesDowntrend,
     });
   }
 
-  return candles;
+  return renderedCandles;
 };
 
 export const getLastPreviewCandleSignature = (candles: PreviewSourceCandle[]) => {

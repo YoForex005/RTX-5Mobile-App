@@ -307,6 +307,7 @@ const AuxiliaryChartPaneSessionScoped = memo(function AuxiliaryChartPaneSessionS
   );
   const candleCountdownActive =
     isScreenFocused
+    && chartVisualType !== 'renko'
     && chartDisplay.showLivePriceLine
     && marketSessionPolicy.quotePhase !== 'closed';
   const bid = toPositivePrice(quote?.bid);
@@ -449,7 +450,7 @@ const AuxiliaryChartPaneSessionScoped = memo(function AuxiliaryChartPaneSessionS
             testID={`${testID}-hidden-surface`}
           />
         )}
-        {(chartDisplay.showTicker || chartDisplay.showOHLC) ? (
+        {(chartDisplay.showTicker || (chartDisplay.showOHLC && chartVisualType !== 'renko')) ? (
           <View
             pointerEvents="box-none"
             style={[
@@ -468,7 +469,7 @@ const AuxiliaryChartPaneSessionScoped = memo(function AuxiliaryChartPaneSessionS
                 displayDecimals={safeDisplayDecimals}
                 isDark={isDark}
                 showTicker={chartDisplay.showTicker}
-                showOHLC={chartDisplay.showOHLC}
+                showOHLC={chartDisplay.showOHLC && chartVisualType !== 'renko'}
                 compact={density.compact}
                 onSymbolPress={onSymbolPress}
                 testID={`${testID}-symbol-header`}

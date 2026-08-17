@@ -26,7 +26,7 @@ import {
 import { resolveRTX5CustomCandleOpacity } from './customCandleOpacity';
 
 /** Allowed visual rendering styles for the custom candlestick series. */
-export type RTX5CustomCandleChartType = 'candles' | 'hollow';
+export type RTX5CustomCandleChartType = 'candles' | 'hollow' | 'renko';
 
 /** Lightweight Charts custom data interface extended with core OHLCV values. */
 export type RTX5CustomCandlestickData = CustomData<any> & {
@@ -65,6 +65,8 @@ type BuildRTX5CustomCandlestickSeriesOptionsArgs = {
   priceFormat: NonNullable<CustomSeriesOptions['priceFormat']>;
   lastValueVisible?: boolean;
   priceLineVisible?: boolean;
+  borderVisible?: boolean;
+  wickVisible?: boolean;
 };
 
 type MapRTX5CustomCandlesArgs = {
@@ -403,6 +405,8 @@ export const buildRTX5CustomCandlestickSeriesOptions = ({
   priceFormat,
   lastValueVisible = true,
   priceLineVisible = true,
+  borderVisible = true,
+  wickVisible = true,
 }: BuildRTX5CustomCandlestickSeriesOptionsArgs): RTX5CustomCandlestickSeriesOptions => ({
   ...DEFAULT_CUSTOM_CANDLE_OPTIONS,
   candleOpacity: resolveRTX5CustomCandleOpacity(candleOpacity),
@@ -416,6 +420,8 @@ export const buildRTX5CustomCandlestickSeriesOptions = ({
   color: borderUpColor,
   lastValueVisible,
   priceLineVisible,
+  borderVisible,
+  wickVisible,
   priceFormat,
 });
 

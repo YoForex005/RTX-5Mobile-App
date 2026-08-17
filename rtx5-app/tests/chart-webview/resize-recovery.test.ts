@@ -19,10 +19,14 @@ const radialMenuSource = (() => {
   assert.ok(radialPath, 'ChartTapRadialMenu.tsx was not found from the test working directory');
   return readFileSync(radialPath, 'utf8');
 })();
+const chartViewportLayoutSource = source.slice(
+  source.indexOf('ref={chartViewportRef}'),
+  source.indexOf('{shouldShowChartLoadingOverlay'),
+);
 
 test('native viewport layout schedules resize and frame sync', () => {
   assertSourceContains(
-    source,
+    chartViewportLayoutSource,
     /onLayout=\{\(event\) => \{[\s\S]*setChartTapMenuBounds\(\{ width, height \}\)[\s\S]*scheduleChartViewportResize\(width, height, true\)[\s\S]*syncChartViewportFrame\(\)/,
     'chart viewport layout must force a fast WebView resize and update measured frame',
   );
@@ -30,30 +34,38 @@ test('native viewport layout schedules resize and frame sync', () => {
 
 test('inactive route layouts cannot overwrite the chart viewport size', () => {
   assertSourceContains(
-    source,
+    chartViewportLayoutSource,
     /onLayout=\{\(event\) => \{[\s\S]*const \{ width, height \} = event\.nativeEvent\.layout;[\s\S]*if \(!isScreenFocused\) \{[\s\S]*return;[\s\S]*\}[\s\S]*setChartTapMenuBounds\(\{ width, height \}\)/,
     'hidden/prewarmed chart layouts must not teach the WebView a compressed viewport before route entry',
   );
 });
 
 test('route entry retains the first focused WebView and retries viewport recovery', () => {
+  const chartSurfaceActivationSource = source.slice(
+    source.indexOf('const chartSurfaceActivated'),
+    source.indexOf('const activeChartSession'),
+  );
+  const coldStartRecoverySource = source.slice(
+    source.indexOf('const scheduleChartViewportColdStartRecovery'),
+    source.indexOf('const chartDataActive = chartRuntimeActive'),
+  );
   const routeEntryRecoverySource = source.slice(
     source.indexOf('// The chart WebView is retained only after its first real focused mount.'),
     source.indexOf('const chartDataActive = chartRuntimeActive'),
   );
 
   assertSourceContains(
-    source,
+    chartSurfaceActivationSource,
     /const chartSurfaceActivated = useDeferredActiveFlag\(isChartRouteActive, CHART_SURFACE_MOUNT_DELAY_MS\)[\s\S]*const chartSurfaceReady = useLatchedFlag\(chartSurfaceActivated \|\| chartSurfaceStartupBooted\)/,
     'the chart WebView must mount on first real focus or the idle startup boot and remain available for later route returns',
   );
   assertSourceContains(
-    source,
+    coldStartRecoverySource,
     /const scheduleChartViewportColdStartRecovery = useCallback\(\(\) => \{[\s\S]*requestChartViewportRecovery\(6\)[\s\S]*\[180, 650, 1400, 2600\]\.map\(\(delayMs\) =>[\s\S]*setTimeout\(\(\) => \{[\s\S]*requestChartViewportRecovery\(delayMs >= 1400 \? 4 : 5\)[\s\S]*recoveryTimers\.forEach\(\(timer\) => clearTimeout\(timer\)\)/,
     'cold route entry must retry viewport recovery across the slow first WebView boot window',
   );
   assertSourceContains(
-    source,
+    coldStartRecoverySource,
     /useEffect\(\(\) => \{[\s\S]*!isScreenFocused \|\| !chartRuntimeActive \|\| !chartSurfaceReady[\s\S]*const cancelColdStartRecovery = scheduleChartViewportColdStartRecovery\(\)[\s\S]*cancelColdStartRecovery\(\)[\s\S]*cancelChartViewportRecovery\(\)[\s\S]*\}, \[[\s\S]*chartRuntimeActive[\s\S]*chartSurfaceReady[\s\S]*cancelChartViewportRecovery[\s\S]*isScreenFocused[\s\S]*scheduleChartViewportColdStartRecovery[\s\S]*\]\);/,
     'focused chart route must schedule cold-start recovery and clean it up on route changes',
   );
@@ -65,13 +77,17 @@ test('route entry retains the first focused WebView and retries viewport recover
 });
 
 test('WebView ready events recover cold-start viewport size after the bridge exists', () => {
+  const readyMessageSource = source.slice(
+    source.indexOf("if (msg.type === 'READY')"),
+    source.indexOf("} else if (msg.type === 'ERROR')"),
+  );
   assertSourceContains(
-    source,
+    readyMessageSource,
     /msg\.type === 'READY'[\s\S]*setWebViewReady\(true\);[\s\S]*if \(isScreenFocused\) \{[\s\S]*requestChartViewportRecovery\(2\);[\s\S]*\}[\s\S]*msg\.type === 'CHART_READY'/,
     'WebView READY must retry viewport recovery after the resize bridge has loaded',
   );
   assertSourceContains(
-    source,
+    readyMessageSource,
     /msg\.type === 'CHART_READY'[\s\S]*setChartReadyEpoch\(\(c\) => c \+ 1\);[\s\S]*requestChartViewportRecovery\(4\);/,
     'CHART_READY must recover the viewport after the chart surface is created',
   );

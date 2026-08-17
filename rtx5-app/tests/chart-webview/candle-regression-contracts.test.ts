@@ -261,8 +261,8 @@ test('zoom/data-density path does not convert candlesticks into line data', () =
   );
   assertSourceContains(
     chartSource,
-    /const buildChartTickPayload = \([\s\S]*if \(chartType === 'line'\) \{[\s\S]*return \{ time: candle\.time, value: candle\.close \}/,
-    'only explicit line chart mode may emit line-series points',
+    /const buildChartTickPayload = \([\s\S]*if \(chartType === 'line' \|\| chartType === 'area'\) \{[\s\S]*return \{ time: candle\.time, value: candle\.close \}/,
+    'line and area chart modes must emit close-value series points',
   );
   assertSourceContains(
     chartSource,
@@ -343,7 +343,7 @@ test('broker-neutral projected candle and exact backend Bid update through one r
   );
   assertSourceContains(
     chartSource,
-    /const exactQuote = readExactChartQuoteForScope\([\s\S]*accumulateCurrentChartBid\(exactQuote, canonicalCandles\)[\s\S]*const projection = projectChartLiveTickCandles\([\s\S]*const lastCandle = renderableCandles\[renderableCandles\.length - 1\][\s\S]*const exactBidLine = exactQuote \? lastCandle\.close : null[\s\S]*candle: buildChartTickPayload\(lastCandle, chartType\),[\s\S]*livePrice: exactBidLine,[\s\S]*showLivePriceLine: shouldShowExactBidLine,[\s\S]*revision,[\s\S]*updateLiveTick\(/,
+    /const exactQuote = readExactChartQuoteForScope\([\s\S]*accumulateCurrentChartBid\(exactQuote, canonicalCandles\)[\s\S]*const projection = projectChartLiveTickCandles\([\s\S]*const canonicalLastCandle = renderableCandles\[renderableCandles\.length - 1\][\s\S]*const lastCandle = mappedRenkoData[\s\S]*canonicalLastCandle[\s\S]*const exactBidLine = exactQuote \? canonicalLastCandle\.close : null[\s\S]*candle: buildChartTickPayload\(lastCandle, chartType\),[\s\S]*livePrice: exactBidLine,[\s\S]*showLivePriceLine: shouldShowExactBidLine,[\s\S]*revision,[\s\S]*updateLiveTick\(/,
     'ChartScreen must project exact Bid into forming OHLC before candle and line cross one revisioned bridge call',
   );
   assertSourceContains(

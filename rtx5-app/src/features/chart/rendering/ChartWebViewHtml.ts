@@ -6814,6 +6814,19 @@ export const CH_HTML = `
             priceLineVisible: false,
             autoscaleInfoProvider: buildOverlayAwareAutoscaleInfo,
           });
+        } else if (seriesType === 'area') {
+          var areaLineColor = (customCols && customCols.lineBody) || colors.up;
+          series = chart.addSeries(LightweightCharts.AreaSeries, {
+            lineColor: areaLineColor,
+            topColor: hexToRgba(areaLineColor, 0.32),
+            bottomColor: hexToRgba(areaLineColor, 0.04),
+            lineWidth: 2,
+            priceFormat: priceFormat,
+            crosshairMarkerVisible: false,
+            lastValueVisible: false,
+            priceLineVisible: false,
+            autoscaleInfoProvider: buildOverlayAwareAutoscaleInfo,
+          });
         } else if (seriesType === 'bars') {
           series = chart.addSeries(LightweightCharts.BarSeries, {
             upColor: (customCols && customCols.barsUptrend) || colors.up,
@@ -6839,7 +6852,7 @@ export const CH_HTML = `
             wickUpColor: colors.up,
             wickDownColor: colors.down,
             borderVisible: true,
-            wickVisible: true,
+            wickVisible: seriesType !== 'renko',
             priceFormat: priceFormat,
             lastValueVisible: false,
             priceLineVisible: false,
@@ -6869,7 +6882,7 @@ export const CH_HTML = `
           } else {
             resetVisiblePriceScaleForFreshSeries('init_data');
           }
-          if (seriesType !== 'line') {
+          if (seriesType !== 'line' && seriesType !== 'area') {
             var lastSeed = lastRawSeriesData[lastRawSeriesData.length - 1];
             _liveBar = {
               time: lastSeed.time,
@@ -7122,7 +7135,7 @@ export const CH_HTML = `
               lastBarTime = mapped[mapped.length - 1].time;
               schedulePriceScaleHealthCheck('recover_data', false);
 
-              if (seriesType !== 'line') {
+              if (seriesType !== 'line' && seriesType !== 'area') {
                 var lastSeed = lastRawSeriesData[lastRawSeriesData.length - 1];
                 _liveBar = {
                   time: lastSeed.time,
@@ -7223,7 +7236,10 @@ export const CH_HTML = `
       }
 
       function shouldUseMoveBarsPane() {
-        return shouldShowLowerPane && seriesType !== 'line';
+        return shouldShowLowerPane
+          && seriesType !== 'line'
+          && seriesType !== 'area'
+          && seriesType !== 'renko';
       }
 
       function resolvePrimaryPriceScaleMargins(hasLowerPane) {
@@ -7296,7 +7312,7 @@ export const CH_HTML = `
       function mapForSeries(data) {
         data = sanitizeSeriesData(data);
         if (!data || data.length === 0) return [];
-        if (seriesType === 'line') {
+        if (seriesType === 'line' || seriesType === 'area') {
           var out = new Array(data.length);
           for (var i = 0; i < data.length; i++) {
             var c = data[i];
@@ -7304,7 +7320,7 @@ export const CH_HTML = `
           }
           return out;
         }
-        // candles / hollow / bars all share the same OHLC shape
+        // candles / hollow / renko / bars all share the same OHLC shape
         var arr = new Array(data.length);
         for (var j = 0; j < data.length; j++) {
           var d = data[j];
@@ -7384,7 +7400,7 @@ export const CH_HTML = `
 
         var time = item.time;
         var volume = isFiniteNumber(item.volume) && item.volume >= 0 ? item.volume : 0;
-        if (seriesType === 'line') {
+        if (seriesType === 'line' || seriesType === 'area') {
           var value = isFiniteNumber(item.value) ? item.value : item.close;
           if (!isFiniteNumber(value)) {
             return null;
@@ -7460,7 +7476,7 @@ export const CH_HTML = `
             ? incoming.volume
             : (typeof existing.volume === 'number' ? existing.volume : 0),
         };
-        if (seriesType === 'line') {
+        if (seriesType === 'line' || seriesType === 'area') {
           merged.value = close;
         }
         return normalizeRawSeriesDatum(merged);
@@ -7721,7 +7737,7 @@ export const CH_HTML = `
 
           if (mapped.length > 0) {
             lastBarTime = mapped[mapped.length - 1].time;
-            if (seriesType !== 'line') {
+            if (seriesType !== 'line' && seriesType !== 'area') {
               var lastSeed = lastRawSeriesData[lastRawSeriesData.length - 1];
               _liveBar = {
                 time: lastSeed.time,
@@ -7780,7 +7796,7 @@ export const CH_HTML = `
         var appendedNewBar = currentSeriesLength === 0 || normalizedTick.time > lastBarTime;
         var shouldFollowLiveEdge = appendedNewBar && shouldFollowLiveRightEdge(previousVisibleRange, previousSeriesLength);
         var bar;
-        if (seriesType === 'line') {
+        if (seriesType === 'line' || seriesType === 'area') {
           bar = { time: normalizedTick.time, value: typeof normalizedTick.value === 'number' ? normalizedTick.value : normalizedTick.close };
         } else {
           bar = {
@@ -7816,7 +7832,7 @@ export const CH_HTML = `
         }
         scheduleMarketPriceScaleDomOnly();
         ensureMoveBarsSeries(lastDisplayDecimals);
-        if (moveBarsSeries && seriesType !== 'line') {
+        if (moveBarsSeries && seriesType !== 'line' && seriesType !== 'area') {
           try { moveBarsSeries.update(makeMoveBarPoint(_liveBar)); } catch (_mb) {}
         }
         refreshBidPriceLineColor();
@@ -7943,7 +7959,7 @@ export const CH_HTML = `
         if (!updateDataContextSig || updateDataContextSig !== lastInitDataContextSig) return;
         var revision = Number(update.revision);
         if (!isFinite(revision) || revision <= lastAppliedLiveTickRevision) return;
-        var acceptedCandlePrice = seriesType === 'line'
+        var acceptedCandlePrice = seriesType === 'line' || seriesType === 'area'
           ? Number(update.candle.value)
           : Number(update.candle.close);
         if (!isFinite(acceptedCandlePrice) || acceptedCandlePrice <= 0) return;

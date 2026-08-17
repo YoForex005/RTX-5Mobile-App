@@ -547,7 +547,7 @@ export function ChartPropertiesScreen({
             ))}
           </View>
 
-          {(chartDisplay.showTicker || (chartDisplay.showOHLC && previewLastCandle)) && (
+          {(chartDisplay.showTicker || (chartDisplay.showOHLC && chartVisualType !== 'renko' && previewLastCandle)) && (
             <View style={styles.previewMetaRow}>
               {chartDisplay.showTicker && (
                 <Pressable
@@ -575,7 +575,7 @@ export function ChartPropertiesScreen({
                   />
                 </Pressable>
               )}
-              {chartDisplay.showOHLC && previewLastCandle && (
+              {chartDisplay.showOHLC && chartVisualType !== 'renko' && previewLastCandle && (
                 <View style={styles.previewMetaOhlc}>
                   {previewOhlcItems.map((item) => (
                     <View key={item.label} style={styles.previewMetaPair}>

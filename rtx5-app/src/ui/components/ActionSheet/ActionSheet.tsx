@@ -80,6 +80,7 @@ type ActionSheetAction = {
 };
 
 type ActionSheetEntryMotion = 'instant' | 'mt5Slide' | 'standard';
+type ActionSheetMt5SlideMotionProfile = 'default' | 'fast';
 
 type ActionSheetProps = {
   visible: boolean;
@@ -98,6 +99,7 @@ type ActionSheetProps = {
   minimumTopInset?: number;
   instantOpen?: boolean;
   entryMotion?: ActionSheetEntryMotion;
+  mt5SlideMotionProfile?: ActionSheetMt5SlideMotionProfile;
   immediateHostHideOnClose?: boolean;
   visualKey?: string;
   runActionAfterClose?: boolean;
@@ -107,7 +109,7 @@ type ActionSheetProps = {
 
 type CachedActionSheetConfig = Pick<
   ActionSheetProps,
-  'title' | 'titleAlign' | 'compactText' | 'presentation' | 'showActionIcons' | 'deferOffscreenActions' | 'maximumVisibleActionRows' | 'actions' | 'searchable' | 'searchPlaceholder' | 'detent' | 'minimumTopInset' | 'instantOpen' | 'entryMotion' | 'immediateHostHideOnClose' | 'visualKey' | 'runActionAfterClose' | 'androidKeyboardAvoidance' | 'keepFullHeightOnKeyboard'
+  'title' | 'titleAlign' | 'compactText' | 'presentation' | 'showActionIcons' | 'deferOffscreenActions' | 'maximumVisibleActionRows' | 'actions' | 'searchable' | 'searchPlaceholder' | 'detent' | 'minimumTopInset' | 'instantOpen' | 'entryMotion' | 'mt5SlideMotionProfile' | 'immediateHostHideOnClose' | 'visualKey' | 'runActionAfterClose' | 'androidKeyboardAvoidance' | 'keepFullHeightOnKeyboard'
 >;
 
 const ACTION_SHEET_ROW_MIN_HEIGHT = 48;
@@ -125,6 +127,8 @@ const ACTION_SHEET_OPEN_OVERLAY_DURATION_MS = 50;
 const ACTION_SHEET_OPEN_SHEET_DURATION_MS = 50;
 const ACTION_SHEET_MT5_OPEN_OVERLAY_DURATION_MS = 180;
 const ACTION_SHEET_MT5_OPEN_SHEET_DURATION_MS = 210;
+const ACTION_SHEET_MT5_FAST_OPEN_OVERLAY_DURATION_MS = 100;
+const ACTION_SHEET_MT5_FAST_OPEN_SHEET_DURATION_MS = 140;
 const ACTION_SHEET_MT5_OPEN_PRIME_DELAY_MS = 18;
 const ACTION_SHEET_CLOSE_OVERLAY_DURATION_MS = 50;
 const ACTION_SHEET_CLOSE_SHEET_DURATION_MS = 50;
@@ -158,6 +162,7 @@ const writeMt5ActionSheetValuesOnUI = (
 
 const startActionSheetEntryAnimation = ({
   mode,
+  mt5SlideMotionProfile = 'default',
   overlayOpacity,
   sheetTranslateY,
   mt5TranslateY,
@@ -166,6 +171,7 @@ const startActionSheetEntryAnimation = ({
   mt5SheetTranslateY,
 }: {
   mode: ActionSheetEntryMotion;
+  mt5SlideMotionProfile?: ActionSheetMt5SlideMotionProfile;
   overlayOpacity: Animated.Value;
   sheetTranslateY: Animated.Value;
   mt5TranslateY: number;
@@ -183,12 +189,22 @@ const startActionSheetEntryAnimation = ({
   }
 
   const isMt5Slide = mode === 'mt5Slide';
+  const useFastMt5Slide = isMt5Slide && mt5SlideMotionProfile === 'fast';
+  const mt5OverlayDurationMs = useFastMt5Slide
+    ? ACTION_SHEET_MT5_FAST_OPEN_OVERLAY_DURATION_MS
+    : ACTION_SHEET_MT5_OPEN_OVERLAY_DURATION_MS;
+  const mt5SheetDurationMs = useFastMt5Slide
+    ? ACTION_SHEET_MT5_FAST_OPEN_SHEET_DURATION_MS
+    : ACTION_SHEET_MT5_OPEN_SHEET_DURATION_MS;
   if (isMt5Slide && mt5HostOpacity && mt5OverlayOpacity && mt5SheetTranslateY) {
     executeOnUIRuntimeSync((
       hostValue: SharedValue<number>,
       overlayValue: SharedValue<number>,
       sheetValue: SharedValue<number>,
       entryTranslateY: number,
+      primeDelayMs: number,
+      overlayDurationMs: number,
+      sheetDurationMs: number,
     ) => {
       'worklet';
       cancelReanimatedAnimation(hostValue);
@@ -204,24 +220,32 @@ const startActionSheetEntryAnimation = ({
       // Without this compositor barrier Android can paint the new subtree once
       // at the previous sheet's completed translate before animated props flush.
       hostValue.value = withDelay(
-        ACTION_SHEET_MT5_OPEN_PRIME_DELAY_MS,
+        primeDelayMs,
         withTiming(1, { duration: 0 }),
       );
       overlayValue.value = withDelay(
-        ACTION_SHEET_MT5_OPEN_PRIME_DELAY_MS,
+        primeDelayMs,
         withTiming(1, {
-          duration: ACTION_SHEET_MT5_OPEN_OVERLAY_DURATION_MS,
+          duration: overlayDurationMs,
           easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
         }),
       );
       sheetValue.value = withDelay(
-        ACTION_SHEET_MT5_OPEN_PRIME_DELAY_MS,
+        primeDelayMs,
         withTiming(0, {
-          duration: ACTION_SHEET_MT5_OPEN_SHEET_DURATION_MS,
+          duration: sheetDurationMs,
           easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
         }),
       );
-    })(mt5HostOpacity, mt5OverlayOpacity, mt5SheetTranslateY, mt5TranslateY);
+    })(
+      mt5HostOpacity,
+      mt5OverlayOpacity,
+      mt5SheetTranslateY,
+      mt5TranslateY,
+      ACTION_SHEET_MT5_OPEN_PRIME_DELAY_MS,
+      mt5OverlayDurationMs,
+      mt5SheetDurationMs,
+    );
     return;
   }
 
@@ -231,7 +255,7 @@ const startActionSheetEntryAnimation = ({
     Animated.timing(overlayOpacity, {
       toValue: 1,
       duration: isMt5Slide
-        ? ACTION_SHEET_MT5_OPEN_OVERLAY_DURATION_MS
+        ? mt5OverlayDurationMs
         : ACTION_SHEET_OPEN_OVERLAY_DURATION_MS,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
@@ -239,7 +263,7 @@ const startActionSheetEntryAnimation = ({
     Animated.timing(sheetTranslateY, {
       toValue: 0,
       duration: isMt5Slide
-        ? ACTION_SHEET_MT5_OPEN_SHEET_DURATION_MS
+        ? mt5SheetDurationMs
         : ACTION_SHEET_OPEN_SHEET_DURATION_MS,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
@@ -341,6 +365,7 @@ export function ActionSheet({
   minimumTopInset = 100,
   instantOpen = false,
   entryMotion,
+  mt5SlideMotionProfile = 'default',
   immediateHostHideOnClose = false,
   visualKey,
   runActionAfterClose = true,
@@ -405,6 +430,7 @@ export function ActionSheet({
     minimumTopInset,
     instantOpen,
     entryMotion,
+    mt5SlideMotionProfile,
     immediateHostHideOnClose,
     visualKey,
     runActionAfterClose,
@@ -426,6 +452,7 @@ export function ActionSheet({
     minimumTopInset,
     instantOpen,
     entryMotion,
+    mt5SlideMotionProfile,
     immediateHostHideOnClose,
     visualKey,
     runActionAfterClose,
@@ -476,6 +503,7 @@ export function ActionSheet({
   const activeEntryMotion: ActionSheetEntryMotion = activeConfig.entryMotion ?? (
     activeInstantOpen ? 'instant' : 'standard'
   );
+  const activeMt5SlideMotionProfile = activeConfig.mt5SlideMotionProfile ?? 'default';
   const activeImmediateHostHideOnClose = activeConfig.immediateHostHideOnClose ?? false;
   const activeVisualKey = activeConfig.visualKey;
   const activeRunActionAfterClose = activeConfig.runActionAfterClose ?? false;
@@ -724,6 +752,7 @@ export function ActionSheet({
                   ) {
                     startActionSheetEntryAnimation({
                       mode: activeEntryMotion,
+                      mt5SlideMotionProfile: activeMt5SlideMotionProfile,
                       overlayOpacity,
                       sheetTranslateY,
                       mt5TranslateY: resolveMt5EntryTranslateY(),
@@ -750,6 +779,7 @@ export function ActionSheet({
           // waiting for a passive effect whose dependencies did not change.
           startActionSheetEntryAnimation({
             mode: activeEntryMotion,
+            mt5SlideMotionProfile: activeMt5SlideMotionProfile,
             overlayOpacity,
             sheetTranslateY,
             mt5TranslateY: resolveMt5EntryTranslateY(),
@@ -808,6 +838,7 @@ export function ActionSheet({
     prevVisibleRef.current = visible;
   }, [
     activeEntryMotion,
+    activeMt5SlideMotionProfile,
     activeImmediateHostHideOnClose,
     activeVisualKey,
     overlayOpacity,
@@ -936,6 +967,7 @@ export function ActionSheet({
       // here; the heavier React adoption happens after the first pixels paint.
       startActionSheetEntryAnimation({
         mode: activeEntryMotion,
+        mt5SlideMotionProfile: activeMt5SlideMotionProfile,
         overlayOpacity,
         sheetTranslateY,
         mt5TranslateY: resolveMt5EntryTranslateY(),
@@ -985,6 +1017,7 @@ export function ActionSheet({
       // guard and start both animations atomically on the UI runtime.
       startActionSheetEntryAnimation({
         mode: activeEntryMotion,
+        mt5SlideMotionProfile: activeMt5SlideMotionProfile,
         overlayOpacity,
         sheetTranslateY,
         mt5TranslateY: resolveMt5EntryTranslateY(),
@@ -996,6 +1029,7 @@ export function ActionSheet({
     return true;
   }, [
     activeEntryMotion,
+    activeMt5SlideMotionProfile,
     mt5HostOpacity,
     mt5OverlayOpacity,
     mt5SheetTranslateY,
@@ -1264,6 +1298,7 @@ export function ActionSheet({
   const runEntryAnimation = useCallback((mode: ActionSheetEntryMotion = 'standard') => {
     startActionSheetEntryAnimation({
       mode,
+      mt5SlideMotionProfile: activeMt5SlideMotionProfile,
       overlayOpacity,
       sheetTranslateY,
       mt5TranslateY: resolveMt5EntryTranslateY(),
@@ -1272,6 +1307,7 @@ export function ActionSheet({
       mt5SheetTranslateY,
     });
   }, [
+    activeMt5SlideMotionProfile,
     mt5HostOpacity,
     mt5OverlayOpacity,
     mt5SheetTranslateY,

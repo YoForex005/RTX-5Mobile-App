@@ -42,6 +42,51 @@ test('divided candles use the full-chart opacity and resolved color wiring', () 
   );
 });
 
+test('Renko uses transformed bricks and the wickless custom renderer in every preview', () => {
+  const sharedSource = readSource('src/features/chart/preview/chartPreviewShared.ts');
+  const nativeSource = readSource('src/features/chart/preview/LiveChartPreview.native.tsx');
+  const webSource = readSource('src/features/chart/preview/LiveChartPreview.web.tsx');
+
+  assert.match(
+    sharedSource,
+    /chartType === 'renko'[\s\S]*buildRenkoBricks\(candles, \{ brickSize: renkoBrickSize \}\)/,
+  );
+  assert.match(
+    sharedSource,
+    /chartType === 'candles' \|\| chartType === 'hollow' \|\| chartType === 'renko'/,
+  );
+  assert.match(
+    nativeSource,
+    /chartType === 'candles' \|\| chartType === 'hollow' \|\| chartType === 'renko'/,
+  );
+  assert.match(nativeSource, /wickVisible: chartType !== 'renko'/);
+  assert.match(
+    webSource,
+    /chartType === 'candles' \|\| chartType === 'hollow' \|\| chartType === 'renko'/,
+  );
+  assert.match(webSource, /wickVisible: chartType !== 'renko'/);
+});
+
+test('Area uses close-value data and a themed gradient in every preview', () => {
+  const sharedSource = readSource('src/features/chart/preview/chartPreviewShared.ts');
+  const nativeSource = readSource('src/features/chart/preview/LiveChartPreview.native.tsx');
+  const webSource = readSource('src/features/chart/preview/LiveChartPreview.web.tsx');
+
+  assert.match(sharedSource, /chartType === 'line' \|\| chartType === 'area'/);
+  assert.match(
+    nativeSource,
+    /chartType === 'area'[\s\S]*chart\.addSeries\(LightweightCharts\.AreaSeries, \{[\s\S]*lineColor: lineColor,[\s\S]*topColor: hexToRgba\(lineColor, 0\.32\),[\s\S]*bottomColor: hexToRgba\(lineColor, 0\.04\)/,
+  );
+  assert.match(
+    nativeSource,
+    /chartType === 'area'[\s\S]*series\.applyOptions\(\{[\s\S]*lineColor: lineColor,[\s\S]*topColor: hexToRgba\(lineColor, 0\.32\),[\s\S]*bottomColor: hexToRgba\(lineColor, 0\.04\)/,
+  );
+  assert.match(
+    webSource,
+    /chartType === 'area'[\s\S]*chart\.addSeries\(AreaSeries, \{[\s\S]*lineColor: colors\.lineBody,[\s\S]*topColor: withAlpha\(colors\.lineBody, 0\.32\),[\s\S]*bottomColor: withAlpha\(colors\.lineBody, 0\.04\)/,
+  );
+});
+
 test('divided panes use normal chart scale margins, controls, and recent viewport', () => {
   const previewSource = readSource('src/features/chart/preview/LiveChartPreview.native.tsx');
   const priceScaleSource = readSource(

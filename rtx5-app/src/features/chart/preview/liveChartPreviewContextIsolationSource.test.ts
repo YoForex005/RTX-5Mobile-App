@@ -21,7 +21,10 @@ test('retained preview WebView keys every data transaction by broker, symbol, an
 });
 
 test('preview replacement compares the complete candle series and keeps the WebView mounted', () => {
-  assert.match(source, /const previewDataSignature = useMemo\([\s\S]*JSON\.stringify\(previewCandles\)/);
+  assert.match(
+    source,
+    /const previewDataSignature = useMemo\([\s\S]*JSON\.stringify\(\{[\s\S]*candles: previewCandles,[\s\S]*renkoBrickSize:/,
+  );
   assert.match(source, /lastRenderedDataSignatureRef\.current !== previewDataSignature/);
   assert.match(source, /key=\{PREVIEW_DEV_SOURCE_KEY\}/);
   assert.doesNotMatch(source, /key=\{previewDataContextKey\}/);

@@ -139,7 +139,7 @@ test('direct engine full reload acknowledges the selected chart context paint', 
 
   assertSourceContains(
     directPaint,
-    /const resetForClosedMarketClamp = shouldResetViewportForClosedMarketClamp\([\s\S]*if \(updateMode === 'full_reload'\) \{[\s\S]*issuedPaintToken = issueChartDataPaintToken\(chartDataContextSig\)[\s\S]*updateChartData\([\s\S]*preserveVisibleLogicalSpan: \$\{!resetForClosedMarketClamp\},[\s\S]*resetVisibleRange: \$\{resetForClosedMarketClamp\},[\s\S]*paintToken: \$\{JSON\.stringify\(issuedPaintToken\)\}/,
+    /const resetForClosedMarketClamp = shouldResetViewportForClosedMarketClamp\([\s\S]*if \(updateMode === 'full_reload' \|\| renkoUpdateMode === 'full_reload'\) \{[\s\S]*issuedPaintToken = issueChartDataPaintToken\(chartDataContextSig\)[\s\S]*updateChartData\([\s\S]*preserveVisibleLogicalSpan: \$\{!resetForClosedMarketClamp\},[\s\S]*resetVisibleRange: \$\{resetForClosedMarketClamp\},[\s\S]*paintToken: \$\{JSON\.stringify\(issuedPaintToken\)\}/,
     'a direct closed-tail reload must acknowledge the paint and reset only when the last bar moved backward',
   );
   assertSourceContains(
@@ -265,8 +265,8 @@ test('canonical candle and exact backend Bid cross one revisioned bridge without
   assert.doesNotMatch(source, /price: liveChartPrice/, 'native chart must not pass quote prices to candle synthesis');
   assertSourceContains(
     source,
-    /const exactQuote = readExactChartQuoteForScope\([\s\S]*accumulateCurrentChartBid\(exactQuote, canonicalCandles\)[\s\S]*const projection = projectChartLiveTickCandles\([\s\S]*const lastCandle = renderableCandles\[renderableCandles\.length - 1\][\s\S]*const exactBidLine = exactQuote \? lastCandle\.close : null[\s\S]*candle: buildChartTickPayload\(lastCandle, chartType\),[\s\S]*livePrice: exactBidLine,[\s\S]*showLivePriceLine: shouldShowExactBidLine,[\s\S]*revision,[\s\S]*updateLiveTick\(/,
-    'the exact backend Bid must be projected into candle OHLC before both cross one revisioned payload',
+    /const exactQuote = readExactChartQuoteForScope\([\s\S]*accumulateCurrentChartBid\(exactQuote, canonicalCandles\)[\s\S]*const projection = projectChartLiveTickCandles\([\s\S]*const canonicalLastCandle = renderableCandles\[renderableCandles\.length - 1\][\s\S]*const lastCandle = mappedRenkoData[\s\S]*canonicalLastCandle[\s\S]*const exactBidLine = exactQuote \? canonicalLastCandle\.close : null[\s\S]*candle: buildChartTickPayload\(lastCandle, chartType\),[\s\S]*livePrice: exactBidLine,[\s\S]*showLivePriceLine: shouldShowExactBidLine,[\s\S]*revision,[\s\S]*updateLiveTick\(/,
+    'the exact backend Bid must drive either the source candle or forming Renko brick before both cross one revisioned payload',
   );
   assertSourceContains(
     source,
@@ -278,6 +278,24 @@ test('canonical candle and exact backend Bid cross one revisioned bridge without
     source,
     /pendingMarketPriceLinesRef|requestMarketPriceLineFlush|flushPendingMarketPriceLines|CHART_MARKET_PRICE_LINE_SYNC_INTERVAL_MS/,
     'live Bid painting must not retain the old independently timed line queue',
+  );
+});
+
+test('Renko maps canonical candles into wickless bricks and reloads threshold changes safely', () => {
+  assertSourceContains(
+    source,
+    /chartType === 'renko'[\s\S]*buildRenkoBricks\(cleaned,[\s\S]*resolveCachedRenkoBrickSize\(cleaned\)/,
+    'native mapping must transform canonical candles into precision-aware Renko bricks',
+  );
+  assertSourceContains(
+    source,
+    /wickVisible: seriesType !== 'renko'/,
+    'Renko must use solid custom-series bricks without candlestick wicks',
+  );
+  assertSourceContains(
+    source,
+    /const renkoUpdateMode = mappedRenkoData[\s\S]*getChartSeriesUpdateMode\(renderedRenkoSeriesSnapshotRef\.current, nextRenkoSnapshot\)[\s\S]*updateMode === 'full_reload' \|\| renkoUpdateMode === 'full_reload'/,
+    'a Renko threshold crossing must replace the transformed series when its tail shape changes',
   );
 });
 

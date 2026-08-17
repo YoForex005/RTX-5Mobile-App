@@ -31,7 +31,7 @@ export type LanguageCode =
   | 'ko'
   | 'id';
 export type ChartColorScheme = 'green_on_black' | 'black_on_white' | 'yellow_on_black' | 'custom';
-export type ChartVisualType = 'candles' | 'bars' | 'line' | 'hollow';
+export type ChartVisualType = 'candles' | 'bars' | 'line' | 'area' | 'hollow' | 'renko';
 
 export type ChartColorsConfig = {
   background: string;

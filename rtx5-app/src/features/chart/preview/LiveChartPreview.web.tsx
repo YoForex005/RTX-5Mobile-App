@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { View } from 'react-native';
 import {
   createChart,
   IChartApi,
   ISeriesApi,
+  AreaSeries,
   BarSeries,
   LineSeries,
   HistogramSeries,
@@ -22,12 +23,19 @@ import {
   mapPreviewCandles,
   PreviewChartType,
   sanitizePreviewCandles,
+  withAlpha,
 } from './chartPreviewShared';
 import {
   buildRTX5CustomCandlestickSeriesOptions,
   createRTX5CustomCandlestickPaneView,
 } from '../../../domain/candles/rendering/customCandlestickSeries';
 import { resolveChartDisplayDecimals } from '../chartPricePrecision';
+import { useActiveBrokerQuerySession } from '../../../query/authenticatedQueryScope';
+import { ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE } from '../../../config/orrnnDemoPublicMarket';
+import {
+  resolveRenkoMinimumPriceIncrement,
+} from '../../../domain/candles/renko';
+import { resolveStableRenkoBrickSize } from '../renkoBrickSizeCache';
 
 const getSafePreviewDimensions = (width: number, height: number) => ({
   width: Math.max(1, Math.floor(width)),
@@ -62,6 +70,7 @@ export default function LiveChartPreviewWeb({
   const previewCandlesRef = useRef<ReturnType<typeof sanitizePreviewCandles>>([]);
   const lastCandleLengthRef = useRef(0);
   const lastRenderedCandleSignatureRef = useRef('');
+  const activeBrokerQuerySession = useActiveBrokerQuerySession();
 
   const { candles } = useLiveCandles(symbol, timeframe, active);
   const liveQuotes = useMarketData([symbol], active);
@@ -70,10 +79,10 @@ export default function LiveChartPreviewWeb({
   const liveQuoteDigitsSource = (liveQuote as { digitsSource?: string } | undefined)?.digitsSource;
   const hasLivePreviewQuote = hasLiveQuoteFeedData(liveQuote);
 
-  const previewCandles = useMemo(
-    () => sanitizePreviewCandles(candles).slice(-50),
-    [candles],
-  );
+  const previewCandles = useMemo(() => {
+    const sanitized = sanitizePreviewCandles(candles);
+    return chartType === 'renko' ? sanitized : sanitized.slice(-50);
+  }, [candles, chartType]);
   const latestPreviewPrecisionPrices = useMemo(() => {
     const latest = previewCandles[previewCandles.length - 1];
     return latest ? [latest.open, latest.high, latest.low, latest.close] : [];
@@ -107,6 +116,53 @@ export default function LiveChartPreviewWeb({
     liveQuoteDigitsSource,
     latestPreviewPrecisionPrices,
   ]);
+  const renkoExplicitInstrumentTickSize = (
+    instrumentMeta as (Record<string, unknown> & { tick_size?: unknown }) | undefined
+  )?.tick_size;
+  const renkoMinimumPriceIncrement = useMemo(
+    () => resolveRenkoMinimumPriceIncrement(
+      [
+        renkoExplicitInstrumentTickSize,
+        liveQuote?.tickSize,
+        instrumentMeta?.tickSize,
+        instrumentMeta?.point,
+        liveQuote?.point,
+      ],
+      1 / Math.pow(10, displayDecimals),
+    ),
+    [
+      displayDecimals,
+      instrumentMeta?.point,
+      instrumentMeta?.tickSize,
+      liveQuote?.point,
+      liveQuote?.tickSize,
+      renkoExplicitInstrumentTickSize,
+    ],
+  );
+  const resolvePreviewRenkoBrickSize = useCallback((sourceCandles: typeof previewCandles) => {
+    if (chartType !== 'renko') {
+      return undefined;
+    }
+    return resolveStableRenkoBrickSize({
+      scopeKey: activeBrokerQuerySession?.cacheNamespace ?? ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE,
+      symbol,
+      timeframe,
+      displayDecimals,
+      minimumPriceIncrement: renkoMinimumPriceIncrement,
+      candles: sourceCandles,
+    });
+  }, [
+    activeBrokerQuerySession?.cacheNamespace,
+    chartType,
+    displayDecimals,
+    renkoMinimumPriceIncrement,
+    symbol,
+    timeframe,
+  ]);
+  const renkoBrickSize = useMemo(
+    () => resolvePreviewRenkoBrickSize(previewCandles),
+    [previewCandles, resolvePreviewRenkoBrickSize],
+  );
 
   const chartOptions = useMemo(() => ({
     layout: {
@@ -148,10 +204,10 @@ export default function LiveChartPreviewWeb({
       autoScale: true,
       scaleMargins: {
         top: 0.08,
-        bottom: display.showTickVolumes || display.showRealVolumes ? 0.25 : 0.08,
+        bottom: chartType !== 'renko' && (display.showTickVolumes || display.showRealVolumes) ? 0.25 : 0.08,
       },
     },
-  }), [colors, display]);
+  }), [chartType, colors, display]);
 
   useEffect(() => {
     previewCandlesRef.current = previewCandles;
@@ -174,7 +230,7 @@ export default function LiveChartPreviewWeb({
       minMove: 1 / Math.pow(10, displayDecimals),
     };
 
-    if (chartType === 'candles' || chartType === 'hollow') {
+    if (chartType === 'candles' || chartType === 'hollow' || chartType === 'renko') {
       seriesRef.current = chart.addCustomSeries(
         createRTX5CustomCandlestickPaneView(),
         buildRTX5CustomCandlestickSeriesOptions({
@@ -184,6 +240,7 @@ export default function LiveChartPreviewWeb({
           borderDownColor: colors.candlesDowntrend,
           wickUpColor: colors.candlesUptrend,
           wickDownColor: colors.candlesDowntrend,
+          wickVisible: chartType !== 'renko',
           lastValueVisible: true,
           priceLineVisible: showLastPriceLine,
           priceFormat: priceFormatInfo,
@@ -193,6 +250,17 @@ export default function LiveChartPreviewWeb({
       seriesRef.current = chart.addSeries(BarSeries, {
         upColor: colors.barsUptrend,
         downColor: colors.barsDowntrend,
+        lastValueVisible: true,
+        priceLineVisible: showLastPriceLine,
+        priceFormat: priceFormatInfo,
+      });
+    } else if (chartType === 'area') {
+      seriesRef.current = chart.addSeries(AreaSeries, {
+        lineColor: colors.lineBody,
+        topColor: withAlpha(colors.lineBody, 0.32),
+        bottomColor: withAlpha(colors.lineBody, 0.04),
+        lineWidth: 2,
+        crosshairMarkerVisible: true,
         lastValueVisible: true,
         priceLineVisible: showLastPriceLine,
         priceFormat: priceFormatInfo,
@@ -208,7 +276,7 @@ export default function LiveChartPreviewWeb({
       });
     }
 
-    if (display.showTickVolumes || display.showRealVolumes) {
+    if (chartType !== 'renko' && (display.showTickVolumes || display.showRealVolumes)) {
       volumeSeriesRef.current = chart.addSeries(HistogramSeries, {
         color: buildVolumeDatum(
           { time: 0, open: 0, close: 1, volume: 0 },
@@ -250,9 +318,9 @@ export default function LiveChartPreviewWeb({
     if (!seriesRef.current) return;
 
     const lastSignature = getLastPreviewCandleSignature(previewCandles);
-    const mappedData = mapPreviewCandles(previewCandles, chartType, colors);
+    const mappedData = mapPreviewCandles(previewCandles, chartType, colors, renkoBrickSize);
 
-    seriesRef.current.setData(mappedData as any);
+    seriesRef.current.setData((chartType === 'renko' ? mappedData.slice(-50) : mappedData) as any);
 
     if (volumeSeriesRef.current) {
       const volumeData = previewCandles.map((candle, index) =>
@@ -273,7 +341,7 @@ export default function LiveChartPreviewWeb({
     if (chartRef.current && previewCandles.length > 0) {
       chartRef.current.timeScale().fitContent();
     }
-  }, [previewCandles, chartType, colors]);
+  }, [previewCandles, chartType, colors, renkoBrickSize]);
 
   useEffect(() => {
     if (!seriesRef.current) return;
@@ -305,8 +373,13 @@ export default function LiveChartPreviewWeb({
     const syncSeriesFromCandles = (sourceCandles: ReturnType<typeof sanitizePreviewCandles>) => {
       if (!seriesRef.current) return;
 
-      const mappedData = mapPreviewCandles(sourceCandles, chartType, colors);
-      seriesRef.current.setData(mappedData as any);
+      const mappedData = mapPreviewCandles(
+        sourceCandles,
+        chartType,
+        colors,
+        resolvePreviewRenkoBrickSize(sourceCandles),
+      );
+      seriesRef.current.setData((chartType === 'renko' ? mappedData.slice(-50) : mappedData) as any);
 
       if (volumeSeriesRef.current) {
         const volumeData = sourceCandles.map((candle, index) =>
@@ -324,7 +397,7 @@ export default function LiveChartPreviewWeb({
     };
 
     syncSeriesFromCandles(previewCandlesRef.current);
-  }, [candles, symbol, timeframe, chartType, colors]);
+  }, [candles, symbol, timeframe, chartType, colors, resolvePreviewRenkoBrickSize]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>

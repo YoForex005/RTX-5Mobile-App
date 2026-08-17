@@ -34,7 +34,11 @@ import {
 import { ChartCandleCountdownBadge } from './components/ChartCandleCountdownBadge.web';
 import { DrawingToolsManager } from './plugins/drawing-tools-manager';
 import { Screen } from '../../ui/components/Screen';
-import { resolveChartColorsForTheme, useUserPreferences } from '../../state/userPreferences';
+import {
+  resolveChartColorsForTheme,
+  useUserPreferences,
+  type ChartVisualType,
+} from '../../state/userPreferences';
 import { useIsDarkTheme } from '../../state/themeMode';
 import { resolveTradingLogin, useResolvedTradingLogin } from '../../state/tradingLogin';
 import { useUIState } from '../../state/uiState';
@@ -50,6 +54,8 @@ import { useLatestDailyCandle } from '../../domain/candles/query/candles';
 import { useMarketSymbols } from '../../query/market';
 import { useAccountSummary } from '../../query/account';
 import { useInstrumentMeta } from '../../query/instruments';
+import { useActiveBrokerQuerySession } from '../../query/authenticatedQueryScope';
+import { ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE } from '../../config/orrnnDemoPublicMarket';
 import {
   createChart,
   createSeriesMarkers,
@@ -57,6 +63,7 @@ import {
   ISeriesApi,
   ColorType,
   CrosshairMode,
+  AreaSeries,
   BarSeries,
   LineSeries,
   LineStyle,
@@ -86,6 +93,11 @@ import {
   createRTX5CustomCandlestickPaneView,
   mapCandlesToRTX5CustomCandlestickData,
 } from '../../domain/candles/rendering/customCandlestickSeries';
+import {
+  buildRenkoBricks,
+  resolveRenkoMinimumPriceIncrement,
+} from '../../domain/candles/renko';
+import { resolveStableRenkoBrickSize } from './renkoBrickSizeCache';
 import {
   buildChartSeriesSnapshot,
   EMPTY_CHART_SERIES_SNAPSHOT,
@@ -609,16 +621,20 @@ const getLastCandleSignature = (candles: Array<{ time: number; open: number; hig
 
 const mapWebChartData = (
   sourceCandles: Array<{ time: number; open: number; high: number; low: number; close: number; volume?: number }>,
-  chartType: 'candles' | 'hollow' | 'bars' | 'line',
+  chartType: ChartVisualType,
   colors: ReturnType<typeof resolveChartColorsForTheme>,
+  renkoBrickSize?: number,
 ) => {
   const uniqueData = sourceCandles.map((item) => ({
     ...item,
     volume: item.volume ?? 0,
   }));
+  const renderedData = chartType === 'renko'
+    ? buildRenkoBricks(uniqueData, { brickSize: renkoBrickSize })
+    : uniqueData;
 
-  if (chartType === 'line') {
-    return uniqueData.map((item) => ({
+  if (chartType === 'line' || chartType === 'area') {
+    return renderedData.map((item) => ({
       time: item.time,
       value: item.close,
       open: item.open,
@@ -627,22 +643,23 @@ const mapWebChartData = (
     }));
   }
 
-  if (chartType === 'candles' || chartType === 'hollow') {
+  if (chartType === 'candles' || chartType === 'hollow' || chartType === 'renko') {
     return mapCandlesToRTX5CustomCandlestickData({
-      candles: uniqueData,
+      candles: renderedData,
       bullishColor: colors.candlesUptrend,
       bearishColor: colors.candlesDowntrend,
     });
   }
 
-  return uniqueData;
+  return renderedData;
 };
 
 const mapWebChartTick = (
   candle: { time: number; open: number; high: number; low: number; close: number; volume?: number },
-  chartType: 'candles' | 'hollow' | 'bars' | 'line',
+  chartType: ChartVisualType,
   colors: ReturnType<typeof resolveChartColorsForTheme>,
-) => mapWebChartData([candle], chartType, colors)[0];
+  renkoBrickSize?: number,
+) => mapWebChartData([candle], chartType, colors, renkoBrickSize)[0];
 
 const getSafeChartDimensions = (width: number, height: number) => ({
   width: Math.max(1, Math.floor(width)),
@@ -714,6 +731,7 @@ export function ChartScreen() {
   // Hydrate positions on page refresh
   const refreshPositions = usePositionsState((s) => s.refreshPositions);
   const accountLogin = useResolvedTradingLogin();
+  const activeBrokerQuerySession = useActiveBrokerQuerySession();
   useEffect(() => {
     if (!isScreenFocused || !accountLogin) return;
 
@@ -836,6 +854,45 @@ export function ChartScreen() {
     hasLiveChartQuote,
     latestChartPrecisionPrices,
   ]);
+  const renkoExplicitInstrumentTickSize = (
+    chartInstrumentMeta as (Record<string, unknown> & { tick_size?: unknown }) | undefined
+  )?.tick_size;
+  const renkoMinimumPriceIncrement = useMemo(
+    () => resolveRenkoMinimumPriceIncrement(
+      [
+        renkoExplicitInstrumentTickSize,
+        chartLiveQuote?.tickSize,
+        chartInstrumentMeta?.tickSize,
+        chartInstrumentMeta?.point,
+        chartLiveQuote?.point,
+      ],
+      1 / Math.pow(10, displayDecimals),
+    ),
+    [
+      chartInstrumentMeta?.point,
+      chartInstrumentMeta?.tickSize,
+      chartLiveQuote?.point,
+      chartLiveQuote?.tickSize,
+      displayDecimals,
+      renkoExplicitInstrumentTickSize,
+    ],
+  );
+  const resolveCachedRenkoBrickSize = useCallback((sourceCandles: typeof sanitizedCandles) => {
+    return resolveStableRenkoBrickSize({
+      scopeKey: activeBrokerQuerySession?.cacheNamespace ?? ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE,
+      symbol: chartSymbol,
+      timeframe: chartTimeframe,
+      displayDecimals,
+      minimumPriceIncrement: renkoMinimumPriceIncrement,
+      candles: sourceCandles,
+    });
+  }, [
+    activeBrokerQuerySession?.cacheNamespace,
+    chartSymbol,
+    chartTimeframe,
+    displayDecimals,
+    renkoMinimumPriceIncrement,
+  ]);
   const { data: chartDailyRangeCandle = null } = useLatestDailyCandle(chartSymbol, isScreenFocused);
   const hasCandles = sanitizedCandles.length > 0;
   const timeRangeCandlesRef = useRef(sanitizedCandles);
@@ -888,7 +945,8 @@ export function ChartScreen() {
         : [],
     [chartMetaLastCandle, chartMetaNeutralColor, formatChartValue],
   );
-  const showChartMetaRow = chartDisplay.showOHLC && chartMetaItems.length > 0;
+  const showChartMetaRow =
+    chartDisplay.showOHLC && chartType !== 'renko' && chartMetaItems.length > 0;
   const { data: closedPositions = [], refetch: refetchClosedPositions } = usePositionHistoryQuery(accountLogin, {
     enabled: isScreenFocused,
   });
@@ -1100,7 +1158,7 @@ export function ChartScreen() {
 
     let series: ISeriesApi<any>;
 
-    if (chartType === 'candles' || chartType === 'hollow') {
+    if (chartType === 'candles' || chartType === 'hollow' || chartType === 'renko') {
       series = chart.addCustomSeries(
         createRTX5CustomCandlestickPaneView(),
         buildRTX5CustomCandlestickSeriesOptions({
@@ -1112,6 +1170,7 @@ export function ChartScreen() {
           borderDownColor: DOWN_COLOR,
           wickUpColor: UP_COLOR,
           wickDownColor: DOWN_COLOR,
+          wickVisible: chartType !== 'renko',
           lastValueVisible: false,
           priceLineVisible: true,
           priceFormat: priceFormatInfo,
@@ -1121,6 +1180,17 @@ export function ChartScreen() {
       series = chart.addSeries(BarSeries, {
         upColor: BAR_UP_COLOR,
         downColor: BAR_DOWN_COLOR,
+        lastValueVisible: false,
+        priceLineVisible: true,
+        priceFormat: priceFormatInfo,
+      });
+    } else if (chartType === 'area') {
+      series = chart.addSeries(AreaSeries, {
+        lineColor: LINE_COLOR,
+        topColor: withAlpha(LINE_COLOR, 0.32),
+        bottomColor: withAlpha(LINE_COLOR, 0.04),
+        lineWidth: 2,
+        crosshairMarkerVisible: false,
         lastValueVisible: false,
         priceLineVisible: true,
         priceFormat: priceFormatInfo,
@@ -1143,16 +1213,24 @@ export function ChartScreen() {
       drawingToolsRef.current = new DrawingToolsManager(chart, series as any);
     } catch (e) { }
 
-    volumeSeriesRef.current = chart.addSeries(HistogramSeries, {
-      color: withAlpha(UP_COLOR, 0.32),
-      priceFormat: { type: 'volume' },
-      priceScaleId: 'volume',
-      priceLineVisible: false,
-      lastValueVisible: false,
-    });
-    chart.priceScale('volume').applyOptions({
-      scaleMargins: { top: 0.84, bottom: 0.02 },
-      visible: false,
+    if (chartType !== 'renko') {
+      volumeSeriesRef.current = chart.addSeries(HistogramSeries, {
+        color: withAlpha(UP_COLOR, 0.32),
+        priceFormat: { type: 'volume' },
+        priceScaleId: 'volume',
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      chart.priceScale('volume').applyOptions({
+        scaleMargins: { top: 0.84, bottom: 0.02 },
+        visible: false,
+      });
+    }
+    chart.priceScale('right').applyOptions({
+      scaleMargins: {
+        top: 0.08,
+        bottom: chartType === 'renko' ? 0.08 : 0.25,
+      },
     });
     lastVolumePointRef.current = null;
 
@@ -1296,7 +1374,15 @@ export function ChartScreen() {
 
     const sig = `${chartSymbol}-${chartTimeframe}-${isDark}-${chartType}-${chartColorsSignature}`;
     const safeCandles = sanitizedCandles;
-    const nextSnapshot = buildChartSeriesSnapshot(safeCandles);
+    const renkoBrickSize = chartType === 'renko'
+      ? resolveCachedRenkoBrickSize(safeCandles)
+      : undefined;
+    const renkoMappedData = chartType === 'renko'
+      ? mapWebChartData(safeCandles, chartType, resolvedChartColors, renkoBrickSize)
+      : null;
+    const nextSnapshot = buildChartSeriesSnapshot(
+      (renkoMappedData ?? safeCandles) as typeof safeCandles,
+    );
     const contextChanged = dataSignatureRef.current !== sig;
     const updateMode = contextChanged || (safeCandles.length === 0 && renderedSeriesSnapshotRef.current.length > 0)
       ? 'full_reload'
@@ -1308,12 +1394,14 @@ export function ChartScreen() {
 
     try {
       if (safeCandles.length === 0 || updateMode === 'full_reload') {
-        const mappedData = mapWebChartData(safeCandles, chartType, resolvedChartColors);
+        const mappedData = renkoMappedData
+          ?? mapWebChartData(safeCandles, chartType, resolvedChartColors);
         seriesRef.current.setData(mappedData as any);
 
         if (volumeSeriesRef.current) {
-          const volData = safeCandles.map((item, index) =>
-            buildVolumeDatum(item, resolvedChartColors, index === safeCandles.length - 1),
+          const volumeCandles = (renkoMappedData ?? safeCandles) as typeof safeCandles;
+          const volData = volumeCandles.map((item, index) =>
+            buildVolumeDatum(item, resolvedChartColors, index === volumeCandles.length - 1),
           );
           volumeSeriesRef.current.setData(volData as any);
           lastVolumePointRef.current = volData.length > 0
@@ -1322,11 +1410,20 @@ export function ChartScreen() {
         }
       } else {
         const lastCandle = safeCandles[safeCandles.length - 1];
-        const mappedTick = mapWebChartTick(lastCandle, chartType, resolvedChartColors);
+        const mappedTick = renkoMappedData
+          ? renkoMappedData[renkoMappedData.length - 1]
+          : mapWebChartTick(lastCandle, chartType, resolvedChartColors);
+        if (!mappedTick) {
+          return;
+        }
         seriesRef.current.update(mappedTick as any);
 
         if (volumeSeriesRef.current) {
-          const volumePoint = buildVolumeDatum(lastCandle, resolvedChartColors, true);
+          const volumePoint = buildVolumeDatum(
+            (renkoMappedData ? mappedTick : lastCandle) as typeof lastCandle,
+            resolvedChartColors,
+            true,
+          );
           volumeSeriesRef.current.update(volumePoint as any);
           lastVolumePointRef.current = { time: volumePoint.time, value: volumePoint.value };
         }
@@ -1339,7 +1436,16 @@ export function ChartScreen() {
     } catch (e) {
       // Chart might be disposed.
     }
-  }, [sanitizedCandles, isDark, chartSymbol, chartTimeframe, chartType, chartColorsSignature, resolvedChartColors]);
+  }, [
+    sanitizedCandles,
+    isDark,
+    chartSymbol,
+    chartTimeframe,
+    chartType,
+    chartColorsSignature,
+    resolvedChartColors,
+    resolveCachedRenkoBrickSize,
+  ]);
 
   const positions = usePositionsState((s) => s.positions);
   const positionLinesRef = useRef<any[]>([]);
@@ -1373,7 +1479,7 @@ export function ChartScreen() {
         return { priceLines: [], markers: [] };
       }
 
-      return buildChartOverlayPayload({
+      const nextPayload = buildChartOverlayPayload({
         chartSymbol,
         candles: sanitizedCandles,
         positions,
@@ -1389,6 +1495,9 @@ export function ChartScreen() {
         showOnChart: chartShowOnChart,
         activeTool,
       });
+      return chartType === 'renko'
+        ? { ...nextPayload, markers: [] }
+        : nextPayload;
     },
     [
       preferencesHydrated,
@@ -1406,6 +1515,7 @@ export function ChartScreen() {
       overlayLiveAsk,
       overlayAccountMetrics,
       chartShowOnChart,
+      chartType,
       activeTool,
     ],
   );
@@ -1722,7 +1832,7 @@ export function ChartScreen() {
               />
 
               <ChartCandleCountdownBadge
-                active={isScreenFocused}
+                active={isScreenFocused && chartType !== 'renko'}
                 candle={sanitizedCandles.length > 0 ? sanitizedCandles[sanitizedCandles.length - 1] : null}
                 chartContainerRef={chartContainerRef}
                 chartRef={chartRef}
@@ -1731,7 +1841,7 @@ export function ChartScreen() {
                 seriesRef={seriesRef}
                 timeframe={chartTimeframe}
                 upColor={resolvedChartColors.candlesUptrend || '#2962FF'}
-                visible={chartDisplay.showLivePriceLine && candlesAvailable}
+                visible={chartDisplay.showLivePriceLine && candlesAvailable && chartType !== 'renko'}
               />
 
               {/* Chart Overlay handled natively in lightweight charts or not needed right now */}
@@ -1886,7 +1996,9 @@ export function ChartScreen() {
         actions={[
           { label: 'Candlestick', onPress: () => setChartVisualType('candles') },
           { label: 'Hollow Candles', onPress: () => setChartVisualType('hollow') },
+          { label: 'Renko', onPress: () => setChartVisualType('renko') },
           { label: 'Line', onPress: () => setChartVisualType('line') },
+          { label: 'Area', onPress: () => setChartVisualType('area') },
         ]}
       />
 

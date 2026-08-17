@@ -44,8 +44,8 @@ test('shared ActionSheet surfaces use the instant host contract', () => {
   // from both the shared mounts and the shared scoped-call inventory.
   // Public demo registration fixes country, leverage, and origin broker to the
   // backend contract, so those three picker mounts no longer exist.
-  assert.equal(actionSheetMounts.length, 18);
-  assert.equal(scopedActionSheetCalls.length, 15);
+  assert.equal(actionSheetMounts.length, 19);
+  assert.equal(scopedActionSheetCalls.length, 13);
 
   for (const mount of actionSheetMounts) {
     assert.match(mount[0], /instantOpen/, 'ActionSheet mount must opt into instant open path');
@@ -166,7 +166,7 @@ test('high-traffic shared action sheets open through immediate action wrappers',
   assert.match(accountsSource, /const accountsOptionsSheetConfig = React\.useMemo[\s\S]*entryMotion: 'mt5Slide'[\s\S]*runActionAfterClose: false/);
   assert.match(accountsSource, /runImmediateAction\('accounts\.optionsSheet\.open'[\s\S]*showAccountsActionSheet\(accountsOptionsSheetConfig\)/);
   assert.match(brokerDetailSource, /runImmediateAction\('brokerDetail\.serverSheet\.open'[\s\S]*showBrokerDetailActionSheet\(\{/);
-  assert.match(chartSource, /runImmediateAction\('chart\.symbolPicker\.open'[\s\S]*openChartActionSheetSmoothly\(/);
+  assert.match(chartSource, /runImmediateAction\('chart\.symbolPicker\.open'[\s\S]*showChartSymbolPickerSheet\(/);
   // Timeframe uses a retained centered overlay (not the shared bottom ActionSheet).
   assert.match(chartSource, /runImmediateAction\('chart\.timeframePicker\.open'[\s\S]*showChartTimeframePicker\(\)/);
   assert.match(chartSource, /runImmediateAction\('chart\.drawingTools\.open'[\s\S]*showChartActionSheet\(drawingToolsActionSheetConfig\)/);

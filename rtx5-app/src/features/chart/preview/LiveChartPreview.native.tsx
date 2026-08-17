@@ -16,9 +16,17 @@ import {
 } from './chartPreviewShared';
 import { resolvePreviewLivePriceColor } from './liveChartPreviewPriceColor';
 import { resolveChartDisplayDecimals } from '../chartPricePrecision';
+import {
+  resolveRenkoMinimumPriceIncrement,
+} from '../../../domain/candles/renko';
+import { resolveStableRenkoBrickSize } from '../renkoBrickSizeCache';
 import { LIGHTWEIGHT_CHARTS_JS } from '../rendering/lightweightChartsBundle';
 import type { QuoteItem } from '../../../dev/mock/tradingData';
-import { useActiveBrokerCredentialScopeKey } from '../../../query/authenticatedQueryScope';
+import {
+  useActiveBrokerCredentialScopeKey,
+  useActiveBrokerQuerySession,
+} from '../../../query/authenticatedQueryScope';
+import { ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE } from '../../../config/orrnnDemoPublicMarket';
 import { normalizeSymbol, normalizeTimeframeStrict } from '../../../domain/candles/core/candles';
 import { LIVE_CHART_PREVIEW_COUNTDOWN_SCRIPT } from './liveChartPreviewCountdownScript';
 import { LIVE_CHART_PREVIEW_AXIS_DIVIDER_SCRIPT } from './liveChartPreviewAxisDividerScript';
@@ -343,8 +351,11 @@ ${LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT}
 
           var showLastPriceLine = !!(window._displaySettings && window._displaySettings.showLastPriceLine);
           var showVolumes = window._fullChartParity
-            ? showVolumePane === true && chartType !== 'line'
-            : !!(window._displaySettings && (window._displaySettings.showTickVolumes || window._displaySettings.showRealVolumes));
+            ? showVolumePane === true
+              && chartType !== 'line'
+              && chartType !== 'area'
+              && chartType !== 'renko'
+            : chartType !== 'renko' && !!(window._displaySettings && (window._displaySettings.showTickVolumes || window._displaySettings.showRealVolumes));
           var hasCustomQuoteLine = !!(window._displaySettings && (window._displaySettings.showBidPriceLine || window._displaySettings.showAskPriceLine));
           var showLastValueLabel = !hasCustomQuoteLine;
           var cUp = window._customColors.candlesUptrend || '#2962FF';
@@ -387,7 +398,7 @@ ${LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT}
             minMove: 1 / Math.pow(10, displayDecimals)
           };
 
-          if (chartType === 'candles' || chartType === 'hollow') {
+          if (chartType === 'candles' || chartType === 'hollow' || chartType === 'renko') {
             // Split panes use the exact renderer and presentation constants as
             // the full chart so dividing the window cannot change candle color.
             series = window.addRTX5CustomCandlestickSeries(chart, {
@@ -400,7 +411,7 @@ ${LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT}
               wickUpColor: cUp,
               wickDownColor: cDown,
               borderVisible: true,
-              wickVisible: true,
+              wickVisible: chartType !== 'renko',
               color: cUp,
               lastValueVisible: showLastValueLabel,
               priceLineVisible: showLastPriceLine,
@@ -410,6 +421,17 @@ ${LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT}
             series = chart.addSeries(LightweightCharts.BarSeries, {
               upColor: bUp,
               downColor: bDown,
+              lastValueVisible: showLastValueLabel,
+              priceLineVisible: showLastPriceLine,
+              priceFormat: priceFormatInfo,
+            });
+          } else if (chartType === 'area') {
+            series = chart.addSeries(LightweightCharts.AreaSeries, {
+              lineColor: lineColor,
+              topColor: hexToRgba(lineColor, 0.32),
+              bottomColor: hexToRgba(lineColor, 0.04),
+              lineWidth: 2,
+              crosshairMarkerVisible: true,
               lastValueVisible: showLastValueLabel,
               priceLineVisible: showLastPriceLine,
               priceFormat: priceFormatInfo,
@@ -537,7 +559,7 @@ ${LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT}
             chart.applyOptions(opts);
           }
 
-          if (chartType === 'candles' || chartType === 'hollow') {
+          if (chartType === 'candles' || chartType === 'hollow' || chartType === 'renko') {
             series.applyOptions({
               candleOpacity: ${CHART_CANDLE_RENDER_OPACITY},
               bearishCandleOpacity: ${CHART_BEARISH_CANDLE_RENDER_OPACITY},
@@ -547,10 +569,17 @@ ${LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT}
               borderDownColor: cDown,
               wickUpColor: cUp,
               wickDownColor: cDown,
+              wickVisible: chartType !== 'renko',
               color: cUp
             });
           } else if (chartType === 'bars') {
             series.applyOptions({ upColor: bUp, downColor: bDown });
+          } else if (chartType === 'area') {
+            series.applyOptions({
+              lineColor: lineColor,
+              topColor: hexToRgba(lineColor, 0.32),
+              bottomColor: hexToRgba(lineColor, 0.04),
+            });
           } else {
             series.applyOptions({ color: lineColor });
           }
@@ -810,6 +839,7 @@ export default function LiveChartPreviewNative({
   const webViewRef = useRef<WebView>(null);
   const [webViewReady, setWebViewReady] = useState(false);
   const brokerCredentialScopeKey = useActiveBrokerCredentialScopeKey();
+  const activeBrokerQuerySession = useActiveBrokerQuerySession();
   const previewDataContextKey = useMemo(() => (
     `${brokerCredentialScopeKey}:${normalizeSymbol(symbol)}:${normalizeTimeframeStrict(timeframe) ?? timeframe}`
   ), [brokerCredentialScopeKey, symbol, timeframe]);
@@ -820,8 +850,11 @@ export default function LiveChartPreviewNative({
   const liveQuoteDigitsSource = (liveQuote as { digitsSource?: string } | undefined)?.digitsSource;
   const hasLivePreviewQuote = hasLiveQuoteFeedData(liveQuote);
   const previewShowsVolumePane = fullChartParity
-    ? showVolumePane === true && chartType !== 'line'
-    : display.showTickVolumes || display.showRealVolumes;
+    ? showVolumePane === true
+      && chartType !== 'line'
+      && chartType !== 'area'
+      && chartType !== 'renko'
+    : chartType !== 'renko' && (display.showTickVolumes || display.showRealVolumes);
   const previewCustomColors = useMemo(() => ({
     ...colors,
     axisDivider: isDark
@@ -930,9 +963,13 @@ export default function LiveChartPreviewNative({
       const safeLimit = typeof maxCandles === 'number' && Number.isFinite(maxCandles)
         ? Math.max(1, Math.floor(maxCandles))
         : null;
-      return safeLimit === null ? sanitized : sanitized.slice(-safeLimit);
+      // Renko is path-dependent: always transform the same full canonical
+      // history as the main chart, then limit the rendered brick tail below.
+      return safeLimit === null || chartType === 'renko'
+        ? sanitized
+        : sanitized.slice(-safeLimit);
     },
-    [candles, maxCandles],
+    [candles, chartType, maxCandles],
   );
   const latestPreviewCandle = previewCandles[previewCandles.length - 1] ?? null;
   useEffect(() => {
@@ -970,13 +1007,68 @@ export default function LiveChartPreviewNative({
     liveQuoteDigitsSource,
     latestPreviewPrecisionPrices,
   ]);
+  const renkoExplicitInstrumentTickSize = (
+    instrumentMeta as (Record<string, unknown> & { tick_size?: unknown }) | undefined
+  )?.tick_size;
+  const renkoMinimumPriceIncrement = useMemo(
+    () => resolveRenkoMinimumPriceIncrement(
+      [
+        renkoExplicitInstrumentTickSize,
+        liveQuote?.tickSize,
+        instrumentMeta?.tickSize,
+        instrumentMeta?.point,
+        liveQuote?.point,
+      ],
+      1 / Math.pow(10, displayDecimals),
+    ),
+    [
+      displayDecimals,
+      instrumentMeta?.point,
+      instrumentMeta?.tickSize,
+      liveQuote?.point,
+      liveQuote?.tickSize,
+      renkoExplicitInstrumentTickSize,
+    ],
+  );
+  const renkoBrickSize = useMemo(() => {
+    if (chartType !== 'renko') {
+      return undefined;
+    }
+    return resolveStableRenkoBrickSize({
+      scopeKey: activeBrokerQuerySession?.cacheNamespace ?? ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE,
+      symbol,
+      timeframe,
+      displayDecimals,
+      minimumPriceIncrement: renkoMinimumPriceIncrement,
+      candles: previewCandles,
+    });
+  }, [
+    activeBrokerQuerySession?.cacheNamespace,
+    chartType,
+    displayDecimals,
+    previewCandles,
+    renkoMinimumPriceIncrement,
+    symbol,
+    timeframe,
+  ]);
   const mappedPreviewData = useMemo(
-    () => mapPreviewCandles(previewCandles, chartType, colors),
-    [previewCandles, chartType, colors],
+    () => {
+      const mapped = mapPreviewCandles(previewCandles, chartType, colors, renkoBrickSize);
+      const safeLimit = typeof maxCandles === 'number' && Number.isFinite(maxCandles)
+        ? Math.max(1, Math.floor(maxCandles))
+        : null;
+      return chartType === 'renko' && safeLimit !== null
+        ? mapped.slice(-safeLimit)
+        : mapped;
+    },
+    [previewCandles, chartType, colors, maxCandles, renkoBrickSize],
   );
   const previewDataSignature = useMemo(
-    () => JSON.stringify(previewCandles),
-    [previewCandles],
+    () => JSON.stringify({
+      candles: previewCandles,
+      renkoBrickSize: chartType === 'renko' ? renkoBrickSize : null,
+    }),
+    [chartType, previewCandles, renkoBrickSize],
   );
   const chartSignature = useMemo(
     () => JSON.stringify({ chartOptions, previewCustomColors, display, chartType, displayDecimals }),

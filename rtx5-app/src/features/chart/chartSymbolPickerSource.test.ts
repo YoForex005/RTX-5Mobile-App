@@ -197,11 +197,23 @@ test('chart type pickers stay compact and do not expose the retired OHLC bars ch
   [nativeActionsSource, webActionsSource].forEach((chartTypeSource) => {
     assert.match(chartTypeSource, /Candlestick/);
     assert.match(chartTypeSource, /Hollow Candles/);
+    assert.match(chartTypeSource, /Renko/);
     assert.match(chartTypeSource, /Line/);
+    assert.match(chartTypeSource, /Area/);
     assert.doesNotMatch(chartTypeSource, /OHLC Bars/);
     assert.doesNotMatch(chartTypeSource, /setChartVisualType\('bars'\)/);
     assert.doesNotMatch(chartTypeSource, /bar-chart-outline/);
   });
+  assert.match(
+    nativeActionsSource,
+    /key: 'renko' as const, label: 'Renko', icon: 'grid-outline' as const/,
+  );
+  assert.match(
+    nativeActionsSource,
+    /key: 'area' as const, label: 'Area', icon: 'analytics-outline' as const/,
+  );
+  assert.match(webActionsSource, /label: 'Renko', onPress: \(\) => setChartVisualType\('renko'\)/);
+  assert.match(webActionsSource, /label: 'Area', onPress: \(\) => setChartVisualType\('area'\)/);
   assert.match(nativeOpenSource, /title: t\('Chart Type'\)[\s\S]*detent:\s*'auto'/);
   assert.doesNotMatch(nativeOpenSource, /detent:\s*'adaptive'/);
   assert.match(webActionsSource, /detent="auto"/);
@@ -236,6 +248,9 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   const drawingToolsSource = readSource('src/features/chart/drawingTools/index.ts');
   const drawingTypesSource = readSource('src/features/chart/drawingTools/types.ts');
   const tradeFeatureSource = readSource('src/features/chart/components/ChartTradeFeature.tsx');
+  const symbolPickerSheetSource = readSource('src/features/chart/components/ChartSymbolPickerSheet.tsx');
+  const symbolPickerControllerSource = readSource('src/features/chart/chartSymbolPickerSheetController.ts');
+  const tabsLayoutSource = readSource('app/(tabs)/_layout.tsx');
   const timeframeTextStyle = styles.slice(
     styles.indexOf('compactHeaderTimeframeText:'),
     styles.indexOf('/*', styles.indexOf('compactHeaderTimeframeText:')),
@@ -259,10 +274,6 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   const drawingToolsHandlerSource = source.slice(
     source.indexOf('const handleOpenDrawingTools = useCallback'),
     source.indexOf('const handleOpenSettingsScreen = useCallback', source.indexOf('const handleOpenDrawingTools = useCallback')),
-  );
-  const smoothActionSheetHelperSource = source.slice(
-    source.indexOf('const openChartActionSheetSmoothly = useCallback'),
-    source.indexOf('const symbolPickerActions = useMemo', source.indexOf('const openChartActionSheetSmoothly = useCallback')),
   );
 
   assert.match(timeframePickerSource, /TIMEFRAME_PICKER_GROUPS[\s\S]*title: 'Minutes'[\s\S]*options: \['M1', 'M5', 'M15', 'M30'\]/);
@@ -343,14 +354,48 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(source, /<ChartTimeframePickerOverlay[\s\S]*supportedTimeframes=\{timeframes\}[\s\S]*onSelect=\{handleTimeframeSelect\}/);
   assert.doesNotMatch(source, /visible=\{timeframePickerVisible\}|onClose=\{handleCloseTimeframePicker\}/);
   assert.match(source, /drawingToolsActionSheetConfig = useMemo[\s\S]*title:\s*t\('Drawing Tools'\)[\s\S]*searchable:\s*true[\s\S]*searchPlaceholder:\s*t\('Search drawing tools\.\.\.'\)[\s\S]*compactText:\s*true[\s\S]*presentation:\s*'mt5Plain'[\s\S]*showActionIcons:\s*true[\s\S]*deferOffscreenActions:\s*true[\s\S]*maximumVisibleActionRows:\s*12[\s\S]*detent:\s*'large'[\s\S]*instantOpen:\s*true[\s\S]*entryMotion:\s*'instant'[\s\S]*immediateHostHideOnClose:\s*true[\s\S]*runActionAfterClose:\s*false[\s\S]*keepFullHeightOnKeyboard:\s*true[\s\S]*actions: drawingToolsActions/);
-  assert.match(source, /const openChartActionSheetSmoothly = useCallback[\s\S]*mountedVisualKey =[\s\S]*preloadedScopedActionSheets\.chart\?\.visualKey[\s\S]*parkRetainedActionSheetHostForConfigSwap\(mountedVisualKey\)[\s\S]*preloadScopedActionSheet\('chart', config\)[\s\S]*if \(parked\)[\s\S]*scheduleAfterFirstFrame\(\(\) => \{[\s\S]*showChartActionSheet\(config\)/);
-  assert.doesNotMatch(smoothActionSheetHelperSource, /requestRetainedActionSheetPreview/);
+  assert.doesNotMatch(source, /const openChartActionSheetSmoothly = useCallback|parkRetainedActionSheetHostForConfigSwap/);
+  assert.match(symbolPickerSheetSource, /export const ChartSymbolPickerSheetHost = memo/);
+  assert.match(symbolPickerControllerSource, /requestRetainedActionSheetPreview\(config\.visualKey\)[\s\S]*commitRetainedActionSheetPreview\([\s\S]*if \(!retainedRevealAccepted\)[\s\S]*scheduleAfterFirstFrame\(\(\) => \{/);
+  assert.match(symbolPickerSheetSource, /<ActionSheet[\s\S]*detent=\{config\.detent \?\? 'large'\}[\s\S]*instantOpen=\{config\.instantOpen \?\? true\}[\s\S]*visible=\{current\.visible\}/);
+  assert.match(tabsLayoutSource, /<GlobalActionSheetHost \/>[\s\S]*<ChartSymbolPickerSheetHost \/>/);
   assert.match(drawingToolsHandlerSource, /runImmediateAction\('chart\.drawingTools\.open'[\s\S]*showChartActionSheet\(drawingToolsActionSheetConfig\)/);
   assert.doesNotMatch(drawingToolsHandlerSource, /openChartActionSheetSmoothly/);
-  assert.match(symbolPickerOpenSource, /runImmediateAction\('chart\.symbolPicker\.open'[\s\S]*openChartActionSheetSmoothly\(symbolPickerActionSheetConfig\)/);
+  assert.match(symbolPickerOpenSource, /runImmediateAction\('chart\.symbolPicker\.open'[\s\S]*showChartSymbolPickerSheet\(symbolPickerActionSheetConfig\)/);
   assert.match(symbolPickerHandlerSource, /openSymbolPickerForActivePane\(\)/);
   assert.match(drawingToolsHandlerSource, /commitRetainedActionSheetPreview\([\s\S]*if \(retainedRevealAccepted\) \{[\s\S]*scheduleAfterFirstFrame\(adoptDrawingToolsSheet\)/);
   assert.doesNotMatch(symbolPickerHandlerSource, /scheduleAfterFirstFrame/);
+  const tradeSheetSymbolOpeners = [
+    ...tradeFeatureSource.matchAll(/<Pressable\b[^>]*onPress=\{handlers\.onOpenSymbolPicker\}[^>]*>/g),
+  ];
+  assert.equal(tradeSheetSymbolOpeners.length, 2);
+  tradeSheetSymbolOpeners.forEach((opener) => {
+    assert.match(opener[0], /activateOnPressIn/);
+    assert.match(opener[0], /activateOnTouchStart/);
+    assert.match(opener[0], /latencyLabel="chart\.symbolPicker\.open"/);
+    assert.match(opener[0], /unstable_pressDelay=\{0\}/);
+  });
+  const tradeSheetDragDetectorStart = tradeFeatureSource.indexOf(
+    '<GestureDetector gesture={sheet.chartTradeSheetDragGesture}>',
+  );
+  const tradeSheetDragDetectorEnd = tradeFeatureSource.indexOf(
+    '</GestureDetector>',
+    tradeSheetDragDetectorStart,
+  );
+  const pinnedTradeSheetHeaderAfterDetector = tradeFeatureSource.indexOf(
+    '<ChartTradeSheetPinnedHeader',
+    tradeSheetDragDetectorEnd,
+  );
+  assert.notEqual(tradeSheetDragDetectorStart, -1);
+  assert.notEqual(tradeSheetDragDetectorEnd, -1);
+  assert.notEqual(pinnedTradeSheetHeaderAfterDetector, -1);
+  const tradeSheetDragDetectorSource = tradeFeatureSource.slice(
+    tradeSheetDragDetectorStart,
+    tradeSheetDragDetectorEnd,
+  );
+  assert.match(tradeSheetDragDetectorSource, /<ChartTradeSheetDragHeader/);
+  assert.doesNotMatch(tradeSheetDragDetectorSource, /<ChartTradeSheetPinnedHeader/);
+  assert.ok(tradeSheetDragDetectorEnd < pinnedTradeSheetHeaderAfterDetector);
   // Both long chart lists can share More-menu motion once their opening
   // viewport is stable and their offscreen rows are deferred.
   const symbolPickerConfigStart = source.indexOf('const symbolPickerActionSheetConfig = useMemo');
@@ -441,7 +486,7 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   );
   assert.match(
     source,
-    /if \(!isScreenFocused\) \{[\s\S]*preloadScopedActionSheet\('chart', symbolPickerActionSheetConfig\)/,
+    /if \(!isScreenFocused\) \{[\s\S]*hideChartSymbolPickerSheet\(\)[\s\S]*preloadChartSymbolPickerSheet\(symbolPickerActionSheetConfig\)/,
   );
   assert.match(
     source,
@@ -454,7 +499,7 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   // The exact preloaded picker starts its native slide before React adoption.
   assert.match(
     source,
-    /runImmediateAction\('chart\.symbolPicker\.open'[\s\S]*openChartActionSheetSmoothly\(symbolPickerActionSheetConfig\)[\s\S]*scheduleChartActionSheetContextReset\(\);/,
+    /runImmediateAction\('chart\.symbolPicker\.open'[\s\S]*showChartSymbolPickerSheet\(symbolPickerActionSheetConfig\)[\s\S]*scheduleChartActionSheetContextReset\(\);/,
   );
   assert.match(
     source,
