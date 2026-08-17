@@ -1,5 +1,10 @@
 import { validateCandle } from './core/candleValidator';
 
+/**
+ * Converts chronological OHLC candles into price-driven Renko bricks.
+ * `time` is made strictly increasing for Lightweight Charts, while
+ * `sourceTime` preserves the candle timestamp that produced each brick.
+ */
 export const DEFAULT_RENKO_ATR_PERIOD = 14;
 export const MAX_RENKO_BRICKS = 10_000;
 
@@ -281,10 +286,10 @@ const assignSyntheticTimes = (drafts: readonly DraftRenkoBrick[]): RenkoBrick[] 
     }
 
     const count = groupEnd - groupStart;
-    // Keep the first brick on the canonical source-candle timestamp so the
-    // chart's existing time-anchored markers resolve to this price event.
-    // A fixed (count-independent) step keeps already-rendered brick identities
-    // stable when another threshold is crossed inside the same source candle.
+    // Lightweight Charts requires every brick to have a unique increasing
+    // time. Keep the first brick on the real candle timestamp so time-axis
+    // labels remain meaningful, then give same-candle bricks tiny fixed
+    // offsets so their identities do not shift when another box completes.
     const fixedStep = getStrictTimeStep(sourceTime);
 
     for (let index = 0; index < count; index += 1) {

@@ -5872,7 +5872,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   const chartMetaLastCandle = chartMetaLiveLastCandle ?? chartMetaCanonicalLastCandle;
   const chartMetaNeutralColor = isDark ? CHART_OHLC_NEUTRAL_DARK_COLOR : CHART_OHLC_NEUTRAL_LIGHT_COLOR;
   // Always reserve the row when enabled so it never pops in after the first
-  // candle. ChartLiveOhlcRow receives direct accumulator snapshots below.
+  // candle. Renko hides it because a price brick does not represent one
+  // source timeframe's open/high/low/close values.
   const showChartMetaRow = chartDisplay.showOHLC && chartType !== 'renko';
   const showChartVolumePane = chartViewportShowVolumePane;
   const showChartDrawingToolbar = isChartExpanded && chartViewportShowDrawingToolbar;
@@ -7209,6 +7210,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     showChartActionSheet,
     t,
   ]);
+  // Scale actions rebuild the real handler as chart state changes. Keep the
+  // prop passed to React.memo stable while this ref calls the latest handler.
   const latestHandleOpenChartScaleMenuRef = useRef(handleOpenChartScaleMenu);
   latestHandleOpenChartScaleMenuRef.current = handleOpenChartScaleMenu;
   const handleRadialOpenChartScaleMenu = useCallback(() => {
@@ -7242,6 +7245,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     },
   );
 
+  // Stable callbacks prevent live chart renders from invalidating the
+  // pre-mounted radial menu's props in the middle of its entrance.
   const handleRadialOpenObjects = useCallback(() => {
     closeChartTapMenu();
     handleOpenObjectsScreen();
@@ -7293,6 +7298,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     return [];
   }, [chartMarketSessionPolicy.sessionClose, chartTimeframe, isChartMarketClosed, sanitizedCandles]);
 
+  // Calendar/session separators belong to a time axis. They would be
+  // misleading on Renko's price-driven brick sequence, so omit them there.
   const periodSeparatorOptions = useMemo(() => ({
     enabled:
       chartType !== 'renko'
@@ -7805,6 +7812,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     dataContextSig: '',
   });
   const renderedSeriesSnapshotRef = useRef(EMPTY_CHART_SERIES_SNAPSHOT);
+  // One source candle can rebuild or add several Renko bricks without changing
+  // candle count. Track the transformed output separately so it reloads fully.
   const renderedRenkoSeriesSnapshotRef = useRef(EMPTY_CHART_SERIES_SNAPSHOT);
   const renderedRenkoSeriesKeyRef = useRef('');
   const renderedDataContextSigRef = useRef('');
@@ -8193,8 +8202,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   }, [chartDataContextSig, clearRenderedMarketPriceLines, publishChartLiveOhlc]);
 
   // The retained WebView intentionally survives symbol/timeframe switches.
-  // Push the selected timeframe through a dedicated strict bridge setter so
-  // the price-label countdown can never keep (or default to) an M1 interval.
+  // Push the selected timeframe through a strict bridge setter so a normal
+  // candle countdown cannot keep an old interval. Renko is price-driven, not
+  // time-driven, so it deliberately has no expiry time below the live price.
   useEffect(() => {
     if (!webViewRef.current || !webViewReady) {
       return;
@@ -8845,6 +8855,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
 
   const overlayMarkers = useMemo(
     () => {
+      // Trade markers use canonical candle times. Hide them until they can be
+      // mapped safely onto Renko's synthetic, strictly ordered brick times.
       if (!preferencesHydrated || chartType === 'renko') {
         return EMPTY_CHART_OVERLAY_MARKERS;
       }
@@ -10455,10 +10467,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                           };
                           chartTapMenuOpenedAtRef.current = Date.now();
                           if (chartTapMenuAnchor === null) {
-                            // CHART_TOUCH_STATE(false) arrives immediately
-                            // after CHART_TAP. Fold that release into the same
-                            // commit as the open so it cannot reconcile the
-                            // radial subtree during its native entrance.
+                            // WebView sends touch-release immediately after
+                            // CHART_TAP. Apply both changes together so another
+                            // render cannot interrupt the radial entrance.
                             settleChartViewportTouchForRadialOpen();
                           }
                           setChartTapMenuAnchor((currentAnchor) => (
@@ -10677,6 +10688,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                     </View>
                   </View>
                 )}
+                {/* Keep the radial mounted between taps so Android can reuse
+                    its native layer; `visible` hides input and accessibility. */}
                 <ChartTapRadialMenu
                   anchor={chartTapMenuAnchor}
                   visible={chartTapMenuAnchor !== null}

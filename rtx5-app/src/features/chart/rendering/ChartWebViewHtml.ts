@@ -6815,6 +6815,8 @@ export const CH_HTML = `
             autoscaleInfoProvider: buildOverlayAwareAutoscaleInfo,
           });
         } else if (seriesType === 'area') {
+          // Area uses Line's close-price path and adds a light gradient fill.
+          // The shared custom price overlay still owns the live axis label.
           var areaLineColor = (customCols && customCols.lineBody) || colors.up;
           series = chart.addSeries(LightweightCharts.AreaSeries, {
             lineColor: areaLineColor,

@@ -41,6 +41,8 @@ type ChartTapRadialMenuProps = {
   onOpenScaleControls: () => void;
 };
 
+// Keep the visible ring compact without shrinking its touch targets; the
+// separate hitSlop values below preserve comfortable taps on every option.
 const CHART_TAP_MENU_SIZE = 224;
 const CHART_TAP_RING_WIDTH = 36;
 const CHART_TAP_TIMEFRAME_HEIGHT = 30;
@@ -51,6 +53,8 @@ const CHART_TAP_MENU_DISMISS_GRACE_MS = 32;
 const CHART_TAP_MENU_OPEN_DURATION_MS = 165;
 const CHART_TAP_MENU_OPEN_SCALE_FROM = 0.5;
 const CHART_TAP_MENU_OPEN_ROTATION_FROM_DEG = -90;
+// These sampled stops reproduce the measured MT5 grow-and-turn entrance.
+// One native progress value keeps scale and rotation perfectly synchronized.
 const CHART_TAP_MENU_OPEN_SCALE_TIMESTAMPS_MS = [
   0,
   16,
@@ -358,6 +362,7 @@ function ChartTapRadialMenuComponent({
     Animated.timing(entranceProgress, {
       toValue: 1,
       duration: CHART_TAP_MENU_OPEN_DURATION_MS,
+      // The sampled scale/rotation stops already contain the motion curve.
       easing: Easing.linear,
       useNativeDriver: true,
     }).start();
@@ -369,6 +374,8 @@ function ChartTapRadialMenuComponent({
     }
   }, []);
 
+  // Resolve a changed anchor during render so the retained menu cannot flash
+  // at the previous tap position while the layout effect catches up.
   const anchorKey = `${anchorX}:${anchorY}:${containerWidth}:${containerHeight}`;
   const renderedMenuPosition = visible && lastAnchorKeyRef.current !== anchorKey
     ? computeAnchorPosition()
@@ -429,9 +436,8 @@ function ChartTapRadialMenuComponent({
     }
     dismissReadyAtRef.current = Date.now() + CHART_TAP_MENU_DISMISS_GRACE_MS;
     entranceProgress.setValue(0);
-    // The first visible commit already contains the final anchor position and
-    // retained hardware layer. Schedule the native clock immediately so chart
-    // JS work cannot park the 0.5 / -90deg pose before motion begins.
+    // The first visible render already has the final tap position. Start the
+    // native clock now so busy chart JS cannot freeze the starting pose.
     startEntranceAnimation();
   }, [
     anchorKey,
@@ -442,6 +448,9 @@ function ChartTapRadialMenuComponent({
     visible,
   ]);
 
+  // Hide the parent first, then reset the transform one frame later. Resetting
+  // during the hide commit caused a visible half-size flash. A quick reopen
+  // cancels this stale reset so it cannot rewind the new entrance animation.
   React.useEffect(() => {
     if (visible) {
       cancelHiddenResetFrame();
@@ -572,6 +581,8 @@ function ChartTapRadialMenuComponent({
       onPress: onOpenIndicators,
     },
   ];
+  // Keep this native subtree mounted between taps. Opacity, pointer events and
+  // accessibility hide it without paying a mount/layout cost on the next tap.
   return (
     <View
       style={[styles.layer, !visible && styles.layerHidden]}
@@ -693,5 +704,7 @@ function ChartTapRadialMenuComponent({
   );
 }
 
+// ChartScreen updates continuously with live prices. Skip unchanged radial
+// props so unrelated parent renders cannot disturb the entrance animation.
 export const ChartTapRadialMenu = React.memo(ChartTapRadialMenuComponent);
 ChartTapRadialMenu.displayName = 'ChartTapRadialMenu';

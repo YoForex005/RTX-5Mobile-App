@@ -1185,6 +1185,8 @@ export function ChartScreen() {
         priceFormat: priceFormatInfo,
       });
     } else if (chartType === 'area') {
+      // Area follows the same closing-price path as Line, then fills below it
+      // with the current line color so theme and custom palette stay in sync.
       series = chart.addSeries(AreaSeries, {
         lineColor: LINE_COLOR,
         topColor: withAlpha(LINE_COLOR, 0.32),
@@ -1377,6 +1379,8 @@ export function ChartScreen() {
     const renkoBrickSize = chartType === 'renko'
       ? resolveCachedRenkoBrickSize(safeCandles)
       : undefined;
+    // Renko is path-dependent: one source-candle update can complete several
+    // boxes. Diff the rendered bricks, not only the canonical candle list.
     const renkoMappedData = chartType === 'renko'
       ? mapWebChartData(safeCandles, chartType, resolvedChartColors, renkoBrickSize)
       : null;
@@ -1495,6 +1499,8 @@ export function ChartScreen() {
         showOnChart: chartShowOnChart,
         activeTool,
       });
+      // Canonical candle-time markers cannot be attached safely to synthetic
+      // Renko brick times, so keep price lines but omit those markers.
       return chartType === 'renko'
         ? { ...nextPayload, markers: [] }
         : nextPayload;

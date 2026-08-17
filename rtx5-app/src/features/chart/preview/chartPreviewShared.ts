@@ -91,6 +91,8 @@ export const mapPreviewCandles = (
     ? buildRenkoBricks(candles, { brickSize: renkoBrickSize })
     : candles;
 
+  // Line and Area consume the same close-only points; each renderer decides
+  // whether to draw only the stroke or add the translucent area fill.
   if (chartType === 'line' || chartType === 'area') {
     return renderedCandles.map((item) => ({
       time: item.time,
