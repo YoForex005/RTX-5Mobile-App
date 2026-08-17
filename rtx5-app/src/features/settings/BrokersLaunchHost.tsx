@@ -5,7 +5,10 @@ import {
   safeRouterBack,
   scheduleBackNavigationAfterVisualFrame,
 } from '../../utils/navigation';
-import { showSidebarDestination } from '../../ui/components/sidebarDestinationHostController';
+import {
+  hideSidebarDestination,
+  showSidebarDestination,
+} from '../../ui/components/sidebarDestinationHostController';
 import { brokersLaunchController } from './brokersLaunchController';
 import { BrokersLaunchShell } from './BrokersLaunchShell';
 import {
@@ -156,11 +159,12 @@ export function BrokersLaunchHost() {
         }
 
         // A very fast row tap can beat the scheduled Brokers push. Preserve the
-        // Brokers route in the back stack, but yield first so the already-visible
-        // Detail cover can paint before cold route construction starts.
+        // Brokers route in the back stack, dismiss the retained Accounts layer
+        // owned by the cancelled push, then let the Detail cover paint.
         if (current.visible && !current.navigationStarted) {
           scheduleBackNavigationAfterVisualFrame(() => {
             router.push('/settings/brokers');
+            hideSidebarDestination();
             scheduleBrokerDetailLaunchNavigation(detailRevision, pushBrokerDetailRoute);
           });
           return;

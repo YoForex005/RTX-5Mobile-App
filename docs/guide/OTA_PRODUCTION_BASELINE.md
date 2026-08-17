@@ -1,6 +1,6 @@
 # RTX5 Production OTA Baseline
 
-> **CURRENT STATUS: PRODUCTION OTA `1.1.39` IS LIVE FOR ANDROID AND IOS.
+> **CURRENT STATUS: PRODUCTION OTA `1.1.40` IS LIVE FOR ANDROID AND IOS.
 > DO NOT PUBLISH THE ASSESSED `main` SOURCE LINE DIRECTLY TO THE OLD RUNTIMES.**
 >
 > This tracked file is the shared production OTA baseline. It is a
@@ -8,7 +8,7 @@
 > state, the installed binary source commit, and both resolved runtimes before
 > an OTA.
 
-Last verified: `2026-08-07` (Asia/Calcutta)
+Last verified: `2026-08-14` (Asia/Calcutta)
 
 ## Authoritative Project Location
 
@@ -17,7 +17,7 @@ Last verified: `2026-08-07` (Asia/Calcutta)
 - Effective Expo config: `rtx5-app/app.config.js`
 - Base Expo config loaded by it: `rtx5-app/app.json`
 - EAS profiles: `rtx5-app/eas.json`
-- Expo owner/project: see `owner` and `slug` in `rtx5-app/app.json`
+- Expo owner/project: `yoforex-organisation/rtx5-app`
 - EAS project ID: `092a58db-dea9-469a-a383-f27300598812`
 - Update URL: `https://u.expo.dev/092a58db-dea9-469a-a383-f27300598812`
 - Runtime policy: `fingerprint`
@@ -38,13 +38,13 @@ run.
 ## Next OTA: Reused Values Versus New Values
 
 Reuse the production destination only after live verification: Expo project
-`yoforex/rtx5-app`, EAS project ID
+`yoforex-organisation/rtx5-app`, EAS project ID
 `092a58db-dea9-469a-a383-f27300598812`, channel/branch `production`, EAS
 environment `production`, and the project update URL shown above.
 
 The last verified runtime targets are conditional compatibility values:
 
-| Platform | Runtime used by production OTA `1.1.32` |
+| Platform | Runtime used by production OTA `1.1.40` |
 | --- | --- |
 | Android | `30cba83220fc6c92180eed477863c3e3e3087ce6` |
 | iOS | `ef38da275b765380037fc377f5c596de31690b7d` |
@@ -54,7 +54,7 @@ runtime and the exact release source passes all safety and compatibility checks.
 If it does not match, stop; do not force it merely to complete a publish.
 
 Update groups, update IDs, timestamps, manifests, and dashboard URLs are EAS
-generated identifiers. The `1.1.32` values below are historical records and
+generated identifiers. The `1.1.40` values below are historical records and
 cannot be reused for the next OTA. Every later Android and iOS publish receives
 new identifiers. The version, message, release source/status, safety base, and
 target binary must also be freshly determined and recorded.
@@ -63,15 +63,15 @@ target binary must also be freshly determined and recorded.
 
 | Item | Android | iOS |
 | --- | --- | --- |
-| Last verified `1.1.39` target runtime; installed/store confirmation required | `30cba83220fc6c92180eed477863c3e3e3087ce6` | `ef38da275b765380037fc377f5c596de31690b7d` |
+| Last verified `1.1.40` target runtime; installed/store confirmation required | `30cba83220fc6c92180eed477863c3e3e3087ce6` | `ef38da275b765380037fc377f5c596de31690b7d` |
 | Assessed isolated release-source natural runtime (before explicit targeting, measured for `1.1.33`) | `a932efc24840cbde7f4306bd72a5cb8a8d4c00b6` | `44b87287efd7b5495c414eea72bde8d23429baf4` |
 | Runtime match | **NO** | **NO** |
 
-Product-source commit assessed and synced into the isolated release worktree
-for the `1.1.39` OTA (main line, `ota update version 1.1.39`):
+Product-source snapshot assessed and synced into the isolated release worktree
+for the `1.1.40` OTA:
 
 ```text
-8558b912557917809226e737c1fd3b2e61a9805a
+b7417d6f9d0c3219c74fe4b412724459fa2f5f15
 ```
 
 Documentation-only commits may appear after that SHA. Always run
@@ -86,12 +86,12 @@ Latest production OTA source commit:
 
 The assessed `main` source was not published directly. Its normally resolved
 runtimes do not match the compatible installed binary runtimes. Production OTA
-`1.1.39` (like `1.1.32` through `1.1.38` before it) was instead assembled in
+`1.1.40` (like `1.1.32` through `1.1.39` before it) was instead assembled in
 the isolated release worktree based on the last OTA source commit above (the
-linked git worktree at `.codex-tmp/ota-release-basis`, detached at
-`2975156c...`, rebuilt for `1.1.38` after a repo cleanup deleted the original;
-do not delete it during cleanups). Current OTA-deliverable application changes
-from main commit `8558b912...` (`rtx5-app/app`, `rtx5-app/src`,
+linked git worktree at `.codex-tmp/ota-release-1.1.40`, detached at
+`2975156c...`; do not delete it during cleanups). Current OTA-deliverable
+application changes from the main-line snapshot at `b7417d6f...`
+(`rtx5-app/app`, `rtx5-app/src`,
 `rtx5-app/tests`, `rtx5-app/scripts`, plus non-native support files) were
 synced in, while native-sensitive configuration, dependencies
 (`package.json`/`package-lock.json`/`eas.json`), and icon assets remained on
@@ -100,10 +100,13 @@ byte-identical between main and the baseline before syncing. EAS therefore
 records source commit `2975156...` with a dirty-worktree marker.
 
 The Android and iOS updates were published separately and explicitly targeted
-the same platform runtime values used by `1.1.31` through `1.1.38`
+the same platform runtime values used by `1.1.31` through `1.1.39`
 (`RTX5_FORCE_RUNTIME_VERSION` with `RTX5_ALLOW_FORCE_RUNTIME_VERSION=true`,
-per platform). The release safety comparison against `2975156...` reported
-zero native-impacting changes (332 changed files). This exceptional, reviewed
+per platform). Before the ownership transfer, the release safety comparison
+against `2975156...` reported zero native-impacting changes (776 changed files).
+The transfer then required only the `app.json` owner metadata to change from
+`yoforex` to `yoforex-organisation`; the project ID, update URL, runtimes,
+native settings, and dependencies remained unchanged. This exceptional, reviewed
 continuation of the prior runtime lines is not permission to publish raw
 current `main` or another unreviewed source against those runtimes.
 
@@ -151,63 +154,67 @@ than assuming the highest EAS build number is the active store binary.
 
 ## Last Verified Production OTA Snapshot
 
-Production OTA `1.1.39` was published on `2026-08-07` to the same Android and
-iOS runtime lines used by `1.1.31` through `1.1.38`. Re-evaluate runtime
+Production OTA `1.1.40` was published on `2026-08-14` to the same Android and
+iOS runtime lines used by `1.1.31` through `1.1.39`. Re-evaluate runtime
 compatibility for every later change.
 
 ### Android
 
 | Field | Verified value |
 | --- | --- |
-| OTA-visible version | `1.1.39` |
+| OTA-visible version | `1.1.40` |
 | Compatible EAS build reference | `cfe3b101-ab15-4e18-854b-ef808e96d708` — installed/store confirmation required |
 | Source commit | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` |
 | EAS source status | Dirty isolated release worktree (`2975156...*`) |
-| Main-line product source synced in | `8558b912557917809226e737c1fd3b2e61a9805a` |
+| Main-line product source snapshot synced in | `b7417d6f9d0c3219c74fe4b412724459fa2f5f15` |
 | OTA safety-comparison base | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` |
 | Runtime | `30cba83220fc6c92180eed477863c3e3e3087ce6` |
-| Update group | `de91fe12-47d2-4964-bf3f-5f3d5f64e430` |
-| Update ID | `019fdb6f-194b-7756-860a-987a9c7be5c6` |
-| Created | `2026-08-07T08:55:19.115Z` |
-| Message | `Android production OTA 1.1.39 achiever broker live data fix runtime 30cba832` |
-| Manifest | `https://u.expo.dev/update/019fdb6f-194b-7756-860a-987a9c7be5c6` |
-| Dashboard | `https://expo.dev/accounts/yoforex/projects/rtx5-app/updates/de91fe12-47d2-4964-bf3f-5f3d5f64e430` |
+| Update group | `0dc68ef3-517d-499f-bcf4-5c28ca2a9bf3` |
+| Update ID | `01a0008d-f07c-71cf-94d6-efd006bcb3ad` |
+| Created | `2026-08-14T13:54:57.276Z` |
+| Message | `Android production OTA 1.1.40 validated app updates runtime 30cba832` |
+| Manifest | `https://u.expo.dev/update/01a0008d-f07c-71cf-94d6-efd006bcb3ad` |
+| Dashboard | `https://expo.dev/accounts/yoforex-organisation/projects/rtx5-app/updates/0dc68ef3-517d-499f-bcf4-5c28ca2a9bf3` |
 
 ### iOS
 
 | Field | Verified value |
 | --- | --- |
-| OTA-visible version | `1.1.39` |
+| OTA-visible version | `1.1.40` |
 | Compatible EAS build reference | `1b1bd2e3-da6c-4c8b-94c2-285b0329dce2` — installed/store confirmation required |
 | Source commit | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` |
 | EAS source status | Dirty isolated release worktree (`2975156...*`) |
-| Main-line product source synced in | `8558b912557917809226e737c1fd3b2e61a9805a` |
+| Main-line product source snapshot synced in | `b7417d6f9d0c3219c74fe4b412724459fa2f5f15` |
 | OTA safety-comparison base | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` |
 | Runtime | `ef38da275b765380037fc377f5c596de31690b7d` |
-| Update group | `f88b3268-745b-4fa9-892f-ff7d4884499c` |
-| Update ID | `019fdb71-9c0e-7bd9-a35f-9a3262b42ca5` |
-| Created | `2026-08-07T08:58:03.662Z` |
-| Message | `iOS production OTA 1.1.39 achiever broker live data fix runtime ef38da27` |
-| Manifest | `https://u.expo.dev/update/019fdb71-9c0e-7bd9-a35f-9a3262b42ca5` |
-| Dashboard | `https://expo.dev/accounts/yoforex/projects/rtx5-app/updates/f88b3268-745b-4fa9-892f-ff7d4884499c` |
+| Update group | `866b1d25-a388-4589-915e-b84e123c096e` |
+| Update ID | `01a00090-b2f1-783b-a6d7-b64380257149` |
+| Created | `2026-08-14T13:57:58.129Z` |
+| Message | `iOS production OTA 1.1.40 validated app updates runtime ef38da27` |
+| Manifest | `https://u.expo.dev/update/01a00090-b2f1-783b-a6d7-b64380257149` |
+| Dashboard | `https://expo.dev/accounts/yoforex-organisation/projects/rtx5-app/updates/866b1d25-a388-4589-915e-b84e123c096e` |
 
-### Release validation recorded for `1.1.39`
+### Release validation recorded for `1.1.40`
 
-- Full tests on main (`8558b912...`): all 296 test files passed.
-- Full tests in the isolated release worktree: all 296 test files passed.
+- Full tests on main and in the isolated release worktree: all 346 test files passed in each source.
 - TypeScript typecheck: passed on main and in the release worktree.
 - Production EAS environment validation (`check-eas-env.js production`): passed.
-- OTA safety comparison against `2975156...`: 332 changed files, zero
-  native-impacting changes.
+- OTA safety comparison against `2975156...` before transfer: 776 changed
+  files, zero native-impacting changes.
+- Required ownership metadata change after transfer: only `app.json` owner
+  changed to `yoforex-organisation`; project ID, update URL, runtimes, native
+  settings, and dependencies stayed unchanged.
 - Dependency sections of `package.json` and all native-sensitive configs
   verified identical between main and the release baseline before syncing.
-- Clean Android and iOS production exports: passed (performed by `eas update`).
+- Expo Doctor: 18/18 checks passed.
+- Clean Android and iOS local exports and production exports: passed.
 - Live `channel:view`/`update:list` and both `update:view` checks: passed.
-- Physical-device delivery confirmation: pending.
+- Physical-device delivery confirmation: pending; no Android device was
+  connected to this workstation during the release verification.
 
-The previous `1.1.38` groups were Android
-`8be28c46-a68a-486c-9650-b29dbdfb037d` and iOS
-`ca4ab778-3dd6-4790-bc3f-8b00c2eabdcc`.
+The previous `1.1.39` groups were Android
+`de91fe12-47d2-4964-bf3f-5f3d5f64e430` and iOS
+`f88b3268-745b-4fa9-892f-ff7d4884499c`.
 
 ## Start From Another Computer
 
@@ -315,10 +322,10 @@ separate reviewed, platform-scoped EAS update commands. Never try to override
 the wrapper's protected `--platform` or runtime flags.
 
 Do not set `RTX5_FORCE_RUNTIME_VERSION` on raw or unreviewed source merely to
-bypass a runtime mismatch. The `1.1.32` release used explicit per-platform
+bypass a runtime mismatch. The `1.1.40` release used explicit per-platform
 runtime targeting only after isolating the prior compatible OTA source and
-verifying zero native-impacting changes; repeat that full proof before any
-similar exception.
+verifying zero native-impacting changes before the required owner-transfer
+metadata update; repeat that full proof before any similar exception.
 
 ## Required Update After Every Production Publish
 

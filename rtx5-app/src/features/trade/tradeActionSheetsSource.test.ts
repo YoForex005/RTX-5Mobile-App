@@ -86,6 +86,24 @@ test('trade position swipe drawer stays visible on iOS', () => {
   assert.match(rowSource, /event\.velocityX < TRADE_ROW_SWIPE_OPEN_VELOCITY_X/);
 });
 
+test('trade position swipe actions have separated visual and touch targets', () => {
+  const overlaySource = readSource('src/ui/components/TradePositionRow/OverlayActions.tsx');
+  const stylesSource = readSource('src/ui/components/TradePositionRow/styles.ts');
+
+  assert.equal(
+    (overlaySource.match(/hitSlop=\{0\}/g) ?? []).length,
+    5,
+    'every position action must use the non-overlapping hit target',
+  );
+  assert.doesNotMatch(overlaySource, /hitSlop=\{12\}|activateOnPressIn|activateOnTouchStart/);
+  assert.match(
+    stylesSource,
+    /actionBtnContainer: \{[\s\S]*width: 48,[\s\S]*height: 48,[\s\S]*marginLeft: 4,[\s\S]*alignItems: 'center',[\s\S]*justifyContent: 'center'/,
+  );
+  assert.match(stylesSource, /actionBtnPressable: \{[\s\S]*borderRadius: 24/);
+  assert.match(stylesSource, /actionBtn: \{[\s\S]*width: 38,[\s\S]*height: 38/);
+});
+
 test('trade rows and summary use direct live websocket quote listeners', () => {
   const tradeScreenSource = readSource('src/features/trade/TradeScreen/TradeScreen.tsx');
   const summaryHeaderSource = readSource('src/features/trade/TradeScreen/SummaryHeader.tsx');

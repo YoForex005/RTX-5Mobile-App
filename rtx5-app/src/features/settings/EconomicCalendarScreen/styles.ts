@@ -123,8 +123,20 @@ export function makeEconomicCalendarStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: isDark ? activeBg : '#EEF2FF',
     },
     emptyResetText: { color: isDark ? T.accent : '#4F46E5', fontSize: 14, fontWeight: '600' },
-    // Full-window Modal host — transparent root; dim is a separate layer so the
-    // sheet never inherits scrim opacity (avoids washed-out / shrinking chrome).
+    // Retained in-tree host is measured before the first tap; dim remains a
+    // separate layer so the opaque sheet never inherits scrim opacity.
+    filterSheetHost: {
+      ...StyleSheet.absoluteFillObject,
+      elevation: 10000,
+      zIndex: 10000,
+    },
+    filterSheetHostHidden: {
+      // React-owned final barrier for interrupted UI-thread animations.
+      opacity: 0,
+    },
+    filterSheetAnimatedHost: {
+      ...StyleSheet.absoluteFillObject,
+    },
     modalOverlay: {
       flex: 1,
       justifyContent: 'flex-end',

@@ -483,7 +483,8 @@ test('action destination modules warm without boot-time route prefetch', () => {
   );
   assert.match(
     brokersHostSelectSource,
-    /if \(current\.visible && !current\.navigationStarted\) \{\s*scheduleBackNavigationAfterVisualFrame\(\(\) => \{\s*router\.push\('\/settings\/brokers'\);\s*scheduleBrokerDetailLaunchNavigation\(detailRevision, pushBrokerDetailRoute\);\s*\}\);\s*return;/,
+    /if \(current\.visible && !current\.navigationStarted\) \{\s*scheduleBackNavigationAfterVisualFrame\(\(\) => \{\s*router\.push\('\/settings\/brokers'\);\s*hideSidebarDestination\(\);\s*scheduleBrokerDetailLaunchNavigation\(detailRevision, pushBrokerDetailRoute\);\s*\}\);\s*return;/,
+    'a rapid broker selection must dismiss retained Accounts before opening Broker Detail',
   );
   const brokersRouteSelectStart = brokersRouteSource.indexOf('const handleSelectBroker =');
   const brokersRouteSelectEnd = brokersRouteSource.indexOf('\n\n  return (', brokersRouteSelectStart);

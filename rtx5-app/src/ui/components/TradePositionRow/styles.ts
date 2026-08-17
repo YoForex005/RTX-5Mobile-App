@@ -218,10 +218,16 @@ export const tradePositionRowStyles = StyleSheet.create({
     zIndex: 100,
   },
   actionBtnContainer: {
-    marginLeft: 6,
+    // Explicit non-overlapping 48px targets keep a 14px visual gap between the
+    // 38px circles and a 4px gap between neighboring touch regions.
+    width: 48,
+    height: 48,
+    marginLeft: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   actionBtnPressable: {
-    borderRadius: 19,
+    borderRadius: 24,
   },
   actionBtn: {
     width: 38,

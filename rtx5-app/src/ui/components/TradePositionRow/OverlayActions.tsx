@@ -48,7 +48,7 @@ export function OverlayActions({
         cancel the press, so only a genuine stationary tap submits the close.
       */}
       <Pressable
-        hitSlop={12}
+        hitSlop={0}
         disabled={overlayActionLocked}
         onPress={onClose}
         latencyLabel="tradeRow.closePosition.submit"
@@ -66,7 +66,7 @@ export function OverlayActions({
         </View>
       </Pressable>
       <Pressable
-        hitSlop={12}
+        hitSlop={0}
         disabled={overlayActionLocked}
         onPress={onModify}
         unstable_pressDelay={0}
@@ -82,7 +82,7 @@ export function OverlayActions({
         </View>
       </Pressable>
       <Pressable
-        hitSlop={12}
+        hitSlop={0}
         disabled={overlayActionLocked}
         onPress={onOrderTicket}
         unstable_pressDelay={0}
@@ -98,7 +98,7 @@ export function OverlayActions({
         </View>
       </Pressable>
       <Pressable
-        hitSlop={12}
+        hitSlop={0}
         disabled={overlayActionLocked}
         onPress={onOpenChart}
         unstable_pressDelay={0}
@@ -115,7 +115,7 @@ export function OverlayActions({
       </Pressable>
       {onBulk && (
         <Pressable
-          hitSlop={12}
+          hitSlop={0}
           disabled={overlayActionLocked}
           onPress={onBulk}
           unstable_pressDelay={0}

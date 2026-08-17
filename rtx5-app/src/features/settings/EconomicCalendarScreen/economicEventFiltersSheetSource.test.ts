@@ -31,7 +31,7 @@ test('Economic Calendar opens its retained filter sheet without rebuilding the c
   );
 });
 
-test('Economic Calendar filter sheet opens instantly without shrink animation', () => {
+test('Economic Calendar filter sheet uses a retained smooth UI-thread entrance', () => {
   const sheet = readSource(
     'src/features/settings/EconomicCalendarScreen/EconomicEventFiltersSheet.tsx',
   );
@@ -43,21 +43,41 @@ test('Economic Calendar filter sheet opens instantly without shrink animation', 
   assert.match(sheet, /const \[visible, setVisible\] = useState\(false\)/);
   assert.match(sheet, /const \[draftImpacts, setDraftImpacts\] = useState/);
   assert.match(sheet, /useImperativeHandle\(ref, \(\) => \(\{ open, close: hideNow \}\)/);
-  // Full-window Modal; sheet surface never inherits backdrop opacity.
-  assert.match(sheet, /<Modal[\s\S]*visible=\{visible\}[\s\S]*transparent[\s\S]*animationType="none"/);
-  assert.match(sheet, /OVERLAY_MODAL_PROPS/);
+  // The native Modal window was the source of the cold-first-open compositor
+  // hitch and system-bar geometry jump. Keep this host retained in-tree.
+  assert.doesNotMatch(sheet, /<Modal|OVERLAY_MODAL_PROPS|navigationBarTranslucent/);
+  assert.match(
+    sheet,
+    /pointerEvents=\{visible \? 'box-none' : 'none'\}[\s\S]*styles\.filterSheetHost[\s\S]*visible \? null : styles\.filterSheetHostHidden/,
+    'Economic Calendar filter host must remain mounted behind a React visibility barrier',
+  );
   assert.match(sheet, /backdropColor = isDark \? 'rgba\(0,0,0,0\.72\)' : 'rgba\(0,0,0,0\.3\)'/);
   assert.doesNotMatch(sheet, /rgba\(0,0,0,0\.6\)/);
-  // Instant open like chart 3-dot ActionSheet — no park/slide animation APIs.
-  assert.match(sheet, /setVisible\(true\)/);
-  assert.doesNotMatch(sheet, /from 'react-native'[\s\S]*Animated|sheetTranslateY|backdropOpacity|EVENT_FILTER_FALLBACK_TRANSLATE_Y/);
-  assert.doesNotMatch(sheet, /EVENT_FILTER_OPEN_BACKDROP_MS|EVENT_FILTER_OPEN_SHEET_MS|Animated\.parallel|Animated\.timing/);
-  assert.doesNotMatch(sheet, /useNativeDriver: true|useLayoutEffect|transform: \[\{ translateY/);
-  assert.match(sheet, /collapsable=\{false\}[\s\S]*style=\{styles\.modalCard\}/);
+  assert.match(
+    sheet,
+    /AccessibilityInfo,[\s\S]*Animated,[\s\S]*Easing,[\s\S]*from 'react-native'/,
+  );
+  assert.doesNotMatch(sheet, /react-native-reanimated|Reanimated\.View/);
+  assert.match(
+    sheet,
+    /EVENT_FILTER_OPEN_BACKDROP_MS = 170[\s\S]*EVENT_FILTER_OPEN_SHEET_MS = 195[\s\S]*EVENT_FILTER_CLOSE_MS = 150/,
+  );
+  assert.match(
+    sheet,
+    /Animated\.parallel\(\[[\s\S]*Animated\.timing\(backdropOpacity, \{[\s\S]*toValue: 1[\s\S]*Easing\.out\(Easing\.cubic\)[\s\S]*Animated\.timing\(sheetTranslateY, \{[\s\S]*toValue: 0[\s\S]*Easing\.out\(Easing\.cubic\)/,
+  );
+  assert.match(sheet, /useNativeDriver: true/);
+  assert.match(sheet, /useLayoutEffect\(\(\) => \{[\s\S]*startEventFilterOpenAnimation/);
+  assert.match(sheet, /AccessibilityInfo\.isReduceMotionEnabled\(\)[\s\S]*'reduceMotionChanged'/);
+  assert.match(sheet, /<Animated\.View[\s\S]*\{ opacity: backdropOpacity \}/);
+  assert.match(sheet, /<Animated\.View[\s\S]*styles\.modalCard[\s\S]*transform: \[\{ translateY: sheetTranslateY \}\]/);
+  assert.doesNotMatch(sheet, /scale:|scaleY:|opacity: sheetOpacity/);
   assert.match(
     sheet,
     /const handleApply = useCallback[\s\S]*const nextImpacts = new Set\(draftImpacts\);[\s\S]*hideNow\(\);[\s\S]*onApply\(nextImpacts\)/,
   );
+  assert.match(styles, /filterSheetHost: \{[\s\S]*\.\.\.StyleSheet\.absoluteFillObject[\s\S]*zIndex: 10000/);
+  assert.match(styles, /filterSheetHostHidden: \{[\s\S]*opacity: 0/);
   assert.match(styles, /modalOverlay: \{[\s\S]*flex: 1[\s\S]*alignItems: 'stretch'[\s\S]*overflow: 'hidden'/);
   assert.match(styles, /modalCard: \{[\s\S]*width: '100%'[\s\S]*alignSelf: 'stretch'/);
   assert.match(styles, /elevation: 0/);
