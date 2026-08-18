@@ -620,6 +620,8 @@ function ChartTradeSheetContent({
             useMtPendingTradeSheetLayout && styles.chartTradeSheetHeaderPending,
           ]}
         >
+          {/* Open from the first accepted touch so the already-preloaded symbol
+              picker begins moving before a normal release-based press fires. */}
           <Pressable
             style={styles.chartTradeSheetSymbolBlock}
             onPress={handlers.onOpenSymbolPicker}
@@ -1039,6 +1041,8 @@ function ChartTradeSheetPinnedHeader({
           compactForAppMenu && styles.chartTradeSheetHeaderCompact,
         ]}
       >
+        {/* The pinned header uses the same touch-start path as the inline
+            header, keeping symbol-picker response equal in both layouts. */}
         <Pressable
           style={[
             styles.chartTradeSheetSymbolBlock,

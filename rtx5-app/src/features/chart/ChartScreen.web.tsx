@@ -629,10 +629,14 @@ const mapWebChartData = (
     ...item,
     volume: item.volume ?? 0,
   }));
+  // Renko is path-dependent, so build bricks from the complete source history
+  // before choosing the Lightweight Charts data shape.
   const renderedData = chartType === 'renko'
     ? buildRenkoBricks(uniqueData, { brickSize: renkoBrickSize })
     : uniqueData;
 
+  // Line and Area share the same close-price path; Area differs only in how the
+  // series paints the gradient below that path.
   if (chartType === 'line' || chartType === 'area') {
     return renderedData.map((item) => ({
       time: item.time,
@@ -643,6 +647,8 @@ const mapWebChartData = (
     }));
   }
 
+  // Completed/projected Renko bricks already have an OHLC shape, so they reuse
+  // the custom candle body renderer with wicks disabled when the series is made.
   if (chartType === 'candles' || chartType === 'hollow' || chartType === 'renko') {
     return mapCandlesToRTX5CustomCandlestickData({
       candles: renderedData,
@@ -654,6 +660,8 @@ const mapWebChartData = (
   return renderedData;
 };
 
+// This one-candle shortcut is for time-based modes. Renko live updates select
+// the final brick from a full-history transform because its path needs context.
 const mapWebChartTick = (
   candle: { time: number; open: number; high: number; low: number; close: number; volume?: number },
   chartType: ChartVisualType,
@@ -857,6 +865,8 @@ export function ChartScreen() {
   const renkoExplicitInstrumentTickSize = (
     chartInstrumentMeta as (Record<string, unknown> & { tick_size?: unknown }) | undefined
   )?.tick_size;
+  // Prefer broker tick/point metadata for the brick grid. Decimal precision is
+  // only a fallback when the connected instrument supplies no explicit increment.
   const renkoMinimumPriceIncrement = useMemo(
     () => resolveRenkoMinimumPriceIncrement(
       [
@@ -945,6 +955,8 @@ export function ChartScreen() {
         : [],
     [chartMetaLastCandle, chartMetaNeutralColor, formatChartValue],
   );
+  // Renko bricks can span price movement across source candles, so displaying
+  // them as one timed candle's O/H/L/C row would be misleading.
   const showChartMetaRow =
     chartDisplay.showOHLC && chartType !== 'renko' && chartMetaItems.length > 0;
   const { data: closedPositions = [], refetch: refetchClosedPositions } = usePositionHistoryQuery(accountLogin, {
@@ -1158,6 +1170,8 @@ export function ChartScreen() {
 
     let series: ISeriesApi<any>;
 
+    // Candles, Hollow, and Renko share the custom OHLC body renderer. Renko is
+    // brick-shaped rather than wick-shaped, hence the type-specific wick flag.
     if (chartType === 'candles' || chartType === 'hollow' || chartType === 'renko') {
       series = chart.addCustomSeries(
         createRTX5CustomCandlestickPaneView(),
@@ -1215,6 +1229,8 @@ export function ChartScreen() {
       drawingToolsRef.current = new DrawingToolsManager(chart, series as any);
     } catch (e) { }
 
+    // Synthetic bricks do not represent source-period volume. Omit that pane
+    // and return its vertical space to the main Renko price scale.
     if (chartType !== 'renko') {
       volumeSeriesRef.current = chart.addSeries(HistogramSeries, {
         color: withAlpha(UP_COLOR, 0.32),
@@ -1837,6 +1853,8 @@ export function ChartScreen() {
                 style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}
               />
 
+              {/* A Renko brick closes at a price threshold, not a timeframe
+                  boundary, so no truthful time countdown exists below price. */}
               <ChartCandleCountdownBadge
                 active={isScreenFocused && chartType !== 'renko'}
                 candle={sanitizedCandles.length > 0 ? sanitizedCandles[sanitizedCandles.length - 1] : null}
@@ -1992,6 +2010,8 @@ export function ChartScreen() {
         ]}
       />
 
+      {/* Area and Renko use the same persisted chart-type selection flow as
+          the original visual types; only their downstream rendering differs. */}
       <ActionSheet
         visible={showChartTypeMenu}
         onClose={() => setShowChartTypeMenu(false)}

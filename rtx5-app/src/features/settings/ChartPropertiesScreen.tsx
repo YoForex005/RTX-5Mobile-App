@@ -547,6 +547,8 @@ export function ChartPropertiesScreen({
             ))}
           </View>
 
+          {/* Renko boxes are price-driven and may combine several source
+              candles, so a standard one-candle OHLC summary would be false. */}
           {(chartDisplay.showTicker || (chartDisplay.showOHLC && chartVisualType !== 'renko' && previewLastCandle)) && (
             <View style={styles.previewMetaRow}>
               {chartDisplay.showTicker && (
@@ -575,6 +577,8 @@ export function ChartPropertiesScreen({
                   />
                 </Pressable>
               )}
+              {/* Repeat the Renko guard at the value row so ticker-only mode
+                  can remain visible without accidentally restoring OHLC. */}
               {chartDisplay.showOHLC && chartVisualType !== 'renko' && previewLastCandle && (
                 <View style={styles.previewMetaOhlc}>
                   {previewOhlcItems.map((item) => (
@@ -591,6 +595,8 @@ export function ChartPropertiesScreen({
           )}
 
           <View style={[styles.previewChart, { backgroundColor: resolvedChartColors.background }]}>
+            {/* Render the saved production type itself: Area must not fall back
+                to Line, and Renko must not fall back to source candles. */}
             {previewContentReady ? (
               <LiveChartPreview
                 symbol={chartSymbol}

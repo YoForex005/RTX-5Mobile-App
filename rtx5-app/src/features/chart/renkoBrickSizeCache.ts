@@ -5,6 +5,8 @@ import {
 } from '../../domain/candles/renko';
 
 const MAX_STABLE_RENKO_SIZE_ENTRIES = 64;
+// Intentionally runtime-only: restart recomputes the derived ATR grid from
+// canonical candles instead of persisting potentially stale synthetic state.
 const stableRenkoBrickSizes = new Map<string, number>();
 
 type ResolveStableRenkoBrickSizeInput = Readonly<{
@@ -23,6 +25,8 @@ const buildStableRenkoBrickSizeKey = ({
   displayDecimals,
   minimumPriceIncrement,
 }: Omit<ResolveStableRenkoBrickSizeInput, 'candles'>): string => [
+  // Broker/session scope prevents one account's price grid from leaking into
+  // another account that happens to expose the same symbol name.
   scopeKey || 'no-session',
   symbol.trim().toUpperCase(),
   timeframe.trim().toUpperCase(),
@@ -65,4 +69,3 @@ export const resolveStableRenkoBrickSize = (
   }
   return resolution.brickSize;
 };
-

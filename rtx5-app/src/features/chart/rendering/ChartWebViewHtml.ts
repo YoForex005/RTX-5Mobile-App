@@ -2418,6 +2418,8 @@ export const CH_HTML = `
       }
 
       function setPeriodSeparators(separators, options) {
+        // Native sends Renko an empty, disabled payload: these lines mark
+        // calendar/session time, while Renko positions are price-driven.
         periodSeparatorData = sanitizePeriodSeparatorData(separators);
         applyPeriodSeparatorOptions(options);
         schedulePeriodSeparatorsUpdate();
@@ -6854,6 +6856,8 @@ export const CH_HTML = `
             wickUpColor: colors.up,
             wickDownColor: colors.down,
             borderVisible: true,
+            // Renko reuses the OHLC body renderer, but each price brick is a
+            // solid open-to-close box and must not inherit candle wicks.
             wickVisible: seriesType !== 'renko',
             priceFormat: priceFormat,
             lastValueVisible: false,
@@ -6884,6 +6888,8 @@ export const CH_HTML = `
           } else {
             resetVisiblePriceScaleForFreshSeries('init_data');
           }
+          // Only OHLC-shaped series seed the live-bar accumulator. Line/Area
+          // accept one close value and are updated through their value path.
           if (seriesType !== 'line' && seriesType !== 'area') {
             var lastSeed = lastRawSeriesData[lastRawSeriesData.length - 1];
             _liveBar = {
@@ -7137,6 +7143,8 @@ export const CH_HTML = `
               lastBarTime = mapped[mapped.length - 1].time;
               schedulePriceScaleHealthCheck('recover_data', false);
 
+              // Rebuild the OHLC live accumulator after surface recovery;
+              // close-only Line/Area intentionally have no such object.
               if (seriesType !== 'line' && seriesType !== 'area') {
                 var lastSeed = lastRawSeriesData[lastRawSeriesData.length - 1];
                 _liveBar = {
@@ -7238,6 +7246,9 @@ export const CH_HTML = `
       }
 
       function shouldUseMoveBarsPane() {
+        // The lower pane visualizes timed candle movement. Line/Area are
+        // close-only, while Renko bricks are price-driven, so all three use the
+        // full main pane instead of reserving misleading lower-pane space.
         return shouldShowLowerPane
           && seriesType !== 'line'
           && seriesType !== 'area'
@@ -7314,6 +7325,8 @@ export const CH_HTML = `
       function mapForSeries(data) {
         data = sanitizeSeriesData(data);
         if (!data || data.length === 0) return [];
+        // Line and Area share an identical close-value series shape. Area's
+        // difference is only the gradient chosen when the series is created.
         if (seriesType === 'line' || seriesType === 'area') {
           var out = new Array(data.length);
           for (var i = 0; i < data.length; i++) {
@@ -7322,7 +7335,9 @@ export const CH_HTML = `
           }
           return out;
         }
-        // candles / hollow / renko / bars all share the same OHLC shape
+        // Renko is already transformed by native. Preserve its fractional
+        // synthetic time and OHLC box here; this layer only adapts the common
+        // candle/hollow/Renko/bar series shape.
         var arr = new Array(data.length);
         for (var j = 0; j < data.length; j++) {
           var d = data[j];
@@ -7400,8 +7415,12 @@ export const CH_HTML = `
           return null;
         }
 
+        // Do not round the time. Several Renko bricks can originate from one
+        // source candle and use fractional synthetic seconds to remain ordered.
         var time = item.time;
         var volume = isFiniteNumber(item.volume) && item.volume >= 0 ? item.volume : 0;
+        // Normalize Line/Area to their rendered close value. Preserve any
+        // supplied OHLC fields and fill missing ones from that same value.
         if (seriesType === 'line' || seriesType === 'area') {
           var value = isFiniteNumber(item.value) ? item.value : item.close;
           if (!isFiniteNumber(value)) {
@@ -7478,6 +7497,8 @@ export const CH_HTML = `
             ? incoming.volume
             : (typeof existing.volume === 'number' ? existing.volume : 0),
         };
+        // Duplicate-time merges must keep the visible Line/Area value equal to
+        // the same accepted close stored in the retained raw data.
         if (seriesType === 'line' || seriesType === 'area') {
           merged.value = close;
         }
@@ -7489,6 +7510,8 @@ export const CH_HTML = `
           return [];
         }
 
+        // String keys preserve distinct fractional Renko timestamps; converting
+        // them to integer candle seconds would collapse valid sibling bricks.
         var byTime = {};
         for (var i = 0; i < data.length; i++) {
           var normalized = normalizeRawSeriesDatum(data[i]);
@@ -7739,6 +7762,8 @@ export const CH_HTML = `
 
           if (mapped.length > 0) {
             lastBarTime = mapped[mapped.length - 1].time;
+            // A full replacement resets the OHLC accumulator from its final
+            // displayed candle/brick; Line and Area remain value-only.
             if (seriesType !== 'line' && seriesType !== 'area') {
               var lastSeed = lastRawSeriesData[lastRawSeriesData.length - 1];
               _liveBar = {
@@ -7797,6 +7822,9 @@ export const CH_HTML = `
         }
         var appendedNewBar = currentSeriesLength === 0 || normalizedTick.time > lastBarTime;
         var shouldFollowLiveEdge = appendedNewBar && shouldFollowLiveRightEdge(previousVisibleRange, previousSeriesLength);
+        // The host has already transformed Renko into displayed OHLC bricks.
+        // This path updates one final brick; multi-brick path changes arrive via
+        // updateChartData/setData so the complete synthetic sequence is replaced.
         var bar;
         if (seriesType === 'line' || seriesType === 'area') {
           bar = { time: normalizedTick.time, value: typeof normalizedTick.value === 'number' ? normalizedTick.value : normalizedTick.close };
@@ -7834,6 +7862,8 @@ export const CH_HTML = `
         }
         scheduleMarketPriceScaleDomOnly();
         ensureMoveBarsSeries(lastDisplayDecimals);
+        // The auxiliary movement series accepts OHLC bars only. It is never
+        // created for Line/Area, and Renko is excluded by shouldUseMoveBarsPane.
         if (moveBarsSeries && seriesType !== 'line' && seriesType !== 'area') {
           try { moveBarsSeries.update(makeMoveBarPoint(_liveBar)); } catch (_mb) {}
         }
@@ -7961,6 +7991,8 @@ export const CH_HTML = `
         if (!updateDataContextSig || updateDataContextSig !== lastInitDataContextSig) return;
         var revision = Number(update.revision);
         if (!isFinite(revision) || revision <= lastAppliedLiveTickRevision) return;
+        // Close-only series expose their accepted live price as value; all
+        // OHLC types, including transformed Renko, expose it as close.
         var acceptedCandlePrice = seriesType === 'line' || seriesType === 'area'
           ? Number(update.candle.value)
           : Number(update.candle.close);
@@ -8381,6 +8413,8 @@ export const CH_HTML = `
       }
 
       function setCandleCountdownActive(active) {
+        // Native passes false for Renko because a price-threshold brick has no
+        // timeframe close. This removes the time row below the live price line.
         candleCountdownActive = active === true;
         stopCandleCountdownTicker();
         if (candleCountdownActive && candleCountdownTimeframe) {
@@ -10320,7 +10354,9 @@ export const CH_HTML = `
             }
           }
 
-          // Step 3: Handle markers (also nuke and recreate)
+          // Step 3: Handle markers (also nuke and recreate). The host sends an
+          // empty marker list for Renko because its fractional brick times do
+          // not match canonical candle-time trade/alert markers.
           clearOverlayMarkers();
           var markers = Array.isArray(payload.markers) ? payload.markers : [];
           if (lines.length === 0 && markers.length === 0) {

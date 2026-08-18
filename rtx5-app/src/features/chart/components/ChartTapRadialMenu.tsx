@@ -314,6 +314,8 @@ function ChartTapRadialMenuComponent({
   const styles = React.useMemo(() => createStyles(isDark), [isDark]);
   const containerWidth = bounds.width;
   const containerHeight = bounds.height;
+  // The component stays mounted while hidden. Until a real tap anchor arrives,
+  // keep that retained native layer at a harmless center fallback.
   const anchorX = anchor?.x ?? containerWidth / 2;
   const anchorY = anchor?.y ?? containerHeight / 2;
   const timeframeMenuLabel = t('Timeframes');
@@ -339,6 +341,8 @@ function ChartTapRadialMenuComponent({
   const menuPositionRef = React.useRef(menuPosition);
   const dragOriginRef = React.useRef(menuPosition);
   const dismissReadyAtRef = React.useRef(Date.now() + CHART_TAP_MENU_DISMISS_GRACE_MS);
+  // Track the retained layer's real open cycle separately from ordinary parent
+  // renders, and make delayed work cancellable when a newer tap opens it again.
   const lastAnchorKeyRef = React.useRef('hidden');
   const wasVisibleRef = React.useRef(false);
   const syncFrameRef = React.useRef<number | null>(null);
@@ -388,6 +392,8 @@ function ChartTapRadialMenuComponent({
         top + CHART_TAP_MENU_SIZE / 2,
       );
       menuPositionRef.current = nextPosition;
+      // Move the native view immediately during a drag. React state is synced
+      // at most once per frame so dragging does not queue a render per event.
       menuViewRef.current?.setNativeProps({
         style: { top: nextPosition.top, left: nextPosition.left },
       });
@@ -404,6 +410,8 @@ function ChartTapRadialMenuComponent({
     [resolveMenuPosition],
   );
 
+  // If the retained component itself unmounts, stop its native animation and
+  // cancel every queued hidden reset or drag-position state update.
   React.useLayoutEffect(() => {
     return () => {
       entranceProgress.stopAnimation();
@@ -509,16 +517,16 @@ function ChartTapRadialMenuComponent({
   );
 
   const handleBackdropPress = React.useCallback(() => {
+    // Ignore the chart tap that opened the menu if Android delivers its release
+    // to the newly visible backdrop; later taps dismiss normally.
     if (Date.now() < dismissReadyAtRef.current) {
       return;
     }
     onDismiss();
   }, [onDismiss]);
 
-  /**
-   * Wrapper for radial item press events to ensure the menu gracefully closes
-   * and touch events do not propagate through to the chart underneath.
-   */
+  // Stop the item press from reaching the chart/backdrop, then delegate to a
+  // destination handler that closes the retained layer before opening new UI.
   const handleActionItemPress = React.useCallback((event: any, onPress: () => void) => {
     event.stopPropagation?.();
     onPress();
@@ -608,6 +616,9 @@ function ChartTapRadialMenuComponent({
         ]}
         {...panResponder.panHandlers}
       >
+        {/* Animate the complete ring and its icons as one Android hardware
+            texture. Transform-only motion avoids an extra fade/compositing pass
+            and keeps every option synchronized with the measured MT5 curve. */}
         <Animated.View
           accessibilityLabel={timeframeMenuLabel}
           renderToHardwareTextureAndroid

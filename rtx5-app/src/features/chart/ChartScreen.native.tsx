@@ -533,6 +533,8 @@ const buildChartTickPayload = (
   candle: { time: number; open: number; high: number; low: number; close: number; volume?: number },
   chartType: ChartVisualType,
 ) => {
+  // Line and Area accept a single closing-price value. Every OHLC-shaped type,
+  // including already-built Renko bricks, uses the shared candle payload below.
   if (chartType === 'line' || chartType === 'area') {
     return { time: candle.time, value: candle.close };
   }
@@ -1786,6 +1788,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   const [chartTapMenuBounds, setChartTapMenuBounds] = useState<ChartTapMenuBounds>({ width: 0, height: 0 });
   const [chartTapMenuViewport, setChartTapMenuViewport] = useState<ChartTapMenuViewport>({ x: 0, y: 0, width: 0, height: 0 });
   const [auxiliaryChartPaneViewport, setAuxiliaryChartPaneViewport] = useState<ChartWindowPaneFrame | null>(null);
+  // Split-pane selection commits asynchronously. Keep the original gesture
+  // pending until its pane, symbol, timeframe, account scope, and bounds agree.
   const [pendingChartWindowRadialMenu, setPendingChartWindowRadialMenu] = useState<Readonly<{
     request: ChartWindowRadialMenuRequest;
     token: number;
@@ -1862,6 +1866,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   }, [drawingMagnetMode, stickyDrawingMode]);
   const [textLevelEditRequest, setTextLevelEditRequest] = useState<TextLevelEditRequest | null>(null);
   const [chartViewportTouchActive, setChartViewportTouchActive] = useState(false);
+  // React state drives gesture UI; this ref changes synchronously so duplicate
+  // native and WebView touch messages can be coalesced before another render.
   const chartViewportTouchActiveRef = useRef(false);
   const pendingChartDrawingTool = useUIState((s) => s.pendingChartDrawingTool);
   const clearPendingChartDrawingTool = useUIState((s) => s.clearPendingChartDrawingTool);
@@ -2019,6 +2025,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       setChartViewportTouchActive(false);
     });
   }, []);
+  // Settle touch state immediately on radial open. Otherwise a queued release
+  // frame or failsafe render can interrupt the retained menu's entrance.
   const settleChartViewportTouchForRadialOpen = useCallback(() => {
     if (chartViewportTouchReleaseFrameRef.current !== null) {
       cancelAnimationFrame(chartViewportTouchReleaseFrameRef.current);
@@ -6276,6 +6284,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   const handleOpenChartWindowPaneRadialMenu = useCallback((
     request: ChartWindowRadialMenuRequest,
   ) => {
+    // Close competing overlays first, then select the tapped auxiliary pane.
+    // The token makes any older request harmless if taps arrive back-to-back.
     closeChartTapMenu();
     hideChartTimeframePicker();
     hideActionSheet();
@@ -6340,6 +6350,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       return;
     }
 
+    // Measure the current full chart viewport after selection has committed,
+    // then translate the pane-local tap into the menu's full-screen bounds.
     const frame = requestAnimationFrame(() => {
       syncChartViewportFrame((viewport) => {
         if (
@@ -6546,6 +6558,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       hideChartSymbolPickerSheet();
       return;
     }
+    // Mount the exact searchable rows in the dedicated hidden host so radial,
+    // trade-sheet, and symbol-header taps can start the native slide instantly.
     preloadChartSymbolPickerSheet(symbolPickerActionSheetConfig);
     // Warm the New Order shell so one-click-off Buy/Sell paints instantly with
     // origin=chart (back returns to Chart, not Quotes/Trade).
@@ -6574,6 +6588,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
 
   const openSymbolPickerForActivePane = useCallback(() => {
     runImmediateAction('chart.symbolPicker.open', () => {
+      // The controller reveals retained native pixels first and adopts React
+      // visibility after that first smooth frame.
       showChartSymbolPickerSheet(symbolPickerActionSheetConfig);
       scheduleChartActionSheetContextReset();
     });
@@ -6656,6 +6672,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   }, [closeChartTapMenu, hideActionSheet, setChartVisualType]);
 
   const chartTypePickerActions = useMemo(
+    // Area and Renko are first-class persisted chart types and use the same
+    // picker/action flow as the original candle, hollow, and line choices.
     () => [
       { key: 'candles' as const, label: 'Candlestick', icon: 'stats-chart' as const },
       { key: 'hollow' as const, label: 'Hollow Candles', icon: 'stats-chart-outline' as const },
@@ -7007,6 +7025,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     });
   }, [chartSymbol]);
 
+  // Keep the More-menu icon aligned with the currently selected visual type.
   const chartTypeIconName =
     chartType === 'renko'
       ? 'grid-outline'
@@ -7047,7 +7066,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
           onPress: () => setChartViewportShowDrawingToolbar(!chartViewportShowDrawingToolbar),
         }]
         : []),
-      // Opens a picker to change the visual chart type (Candlesticks, Bars, Line, Hollow)
+      // Opens every supported visual type, including Area and price-driven Renko.
       {
         label: t('Chart Type'),
         icon: <Ionicons name={chartTypeIconName} size={20} color={TEXT_MUTED} />,
@@ -7246,7 +7265,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   );
 
   // Stable callbacks prevent live chart renders from invalidating the
-  // pre-mounted radial menu's props in the middle of its entrance.
+  // pre-mounted radial menu's props in the middle of its entrance. Every
+  // handler also closes that full-screen retained layer before opening a sheet
+  // or route, so the invisible layer cannot intercept the next UI's first tap.
   const handleRadialOpenObjects = useCallback(() => {
     closeChartTapMenu();
     handleOpenObjectsScreen();
@@ -7397,6 +7418,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       minimumWidth: CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH,
       scaleMargins: {
         top: 0,
+        // Close-only Line/Area and price-only Renko do not use the lower
+        // movement/volume pane, so their main price series receives full height.
         bottom:
           showChartVolumePane
           && chartType !== 'line'
@@ -7827,6 +7850,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   }>({ contextKey: '', candle: null });
   const chartLiveOhlcListenersRef = useRef(new Map<string, Set<ChartLiveOhlcListener>>());
   const renderedRenkoSeriesKey = `${chartDataContextSig}:${chartType}`;
+  // Never compare synthetic bricks across a symbol/account/timeframe or after
+  // leaving Renko; those outputs may have unrelated lengths and fractional times.
   if (renderedRenkoSeriesKeyRef.current !== renderedRenkoSeriesKey) {
     renderedRenkoSeriesKeyRef.current = renderedRenkoSeriesKey;
     renderedRenkoSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
@@ -8057,6 +8082,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   const renkoExplicitInstrumentTickSize = (
     chartInstrumentMeta as (Record<string, unknown> & { tick_size?: unknown }) | undefined
   )?.tick_size;
+  // Use the broker's real price grid when available; displayed decimal precision
+  // is only the final fallback for rounding the automatic ATR brick size.
   const renkoMinimumPriceIncrement = useMemo(
     () => resolveRenkoMinimumPriceIncrement(
       [
@@ -8099,6 +8126,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       return [];
     }
 
+    // Renko must transform the complete chronological path before mapping.
+    // Line/Area instead keep source times and reduce each candle to its close.
     const renderedCandles = chartType === 'renko'
       ? buildRenkoBricks(cleaned, {
           brickSize: resolveCachedRenkoBrickSize(cleaned),
@@ -8108,6 +8137,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
 
     for (let i = 0; i < renderedCandles.length; i++) {
       const c = renderedCandles[i];
+      // Lightweight Charts' LineSeries and AreaSeries require `{time, value}`;
+      // candle, hollow, bars, and transformed Renko retain the OHLC shape.
       if (chartType === 'line' || chartType === 'area') {
         result.push({ time: c.time, value: c.close });
       } else {
@@ -8402,6 +8433,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
 
       const previousSnapshot = renderedSeriesSnapshotRef.current;
       const nextSnapshot = buildChartSeriesSnapshot(renderableCandles);
+      // A single live source candle may create, replace, or remove multiple
+      // synthetic bricks. Diff that transformed sequence independently and use
+      // a full reload whenever it is not a safe one-brick incremental update.
       const mappedRenkoData = chartType === 'renko'
         ? buildMappedData(renderableCandles)
         : null;
@@ -8677,6 +8711,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
 
     const previousSnapshot = renderedSeriesSnapshotRef.current;
     const nextSnapshot = buildChartSeriesSnapshot(renderableCandles);
+    // History refreshes use the same transformed-output diff as the live path;
+    // comparing only source candles would miss Renko path rewrites.
     const mappedRenkoData = chartType === 'renko'
       ? buildMappedData(renderableCandles)
       : null;
@@ -9972,6 +10008,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                 style={[
                   styles.chartViewport,
                   frozenFooterLotChartViewportStyle,
+                  // Only a split chart needs this lift so the radial can cross
+                  // its sibling pane. Avoid restacking the undivided WebView.
                   chartWindows.isSplit
                     && chartTapMenuAnchor !== null
                     && { overflow: 'visible', zIndex: 80, elevation: 80 },
@@ -10160,6 +10198,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                             retainCurrentChartCandles(readyCandles);
                             const readySnapshot = buildChartSeriesSnapshot(readyCandles);
                             if (readyCandles.length > 0 && webViewRef.current) {
+                              // READY can race the normal data effect. Prepare the
+                              // Renko output here too so its first confirmed paint
+                              // and future transformed diff share one baseline.
                               const readyMappedRenkoData = chartType === 'renko'
                                 ? buildMappedData(readyCandles)
                                 : null;
@@ -10268,6 +10309,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                           }
                           renderedSeriesSnapshotRef.current =
                             buildChartSeriesSnapshot(paintedCandles);
+                          // The acknowledgement reports source-context paint; save
+                          // the equivalent transformed snapshot for later Renko diffs.
                           renderedRenkoSeriesSnapshotRef.current = chartType === 'renko'
                             ? buildChartSeriesSnapshot(buildMappedData(paintedCandles))
                             : EMPTY_CHART_SERIES_SNAPSHOT;
@@ -10460,12 +10503,17 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                           if (!Number.isFinite(x) || !Number.isFinite(y)) {
                             return;
                           }
+                          // CHART_TAP coordinates are already viewport-local.
+                          // Use them immediately without a measure/rAF delay, so
+                          // taps anywhere open at their own clamped position.
                           const nextAnchor = {
                             x,
                             y,
                             price: typeof msg.price === 'number' && Number.isFinite(msg.price) ? msg.price : null,
                           };
                           chartTapMenuOpenedAtRef.current = Date.now();
+                          // A valid tap opens the hidden radial here; the next
+                          // valid chart tap toggles the already-open radial off.
                           if (chartTapMenuAnchor === null) {
                             // WebView sends touch-release immediately after
                             // CHART_TAP. Apply both changes together so another

@@ -498,6 +498,8 @@ export default function TabsLayout() {
       // the user leaves the chart tab / navigates elsewhere so it never sticks.
       hideChartConfigDestination();
       hideChartSettingsHost();
+      // The symbol picker is also retained outside ChartScreen; close its host
+      // on navigation so hidden native pixels cannot reappear on another tab.
       hideChartSymbolPickerSheet();
       hideAboutDetailDestination();
       hideHistoryFilterHost();
@@ -664,6 +666,9 @@ const TabsLayoutInner = memo(function TabsLayoutInner({
         <OrderTicketLaunchHost />
         <GlobalActionSheetHost />
         <QuotesSymbolActionSheetHost />
+        {/* Keep the chart picker pre-mounted beside global hosts. Its dedicated
+            layer can reveal on the first native frame without competing with
+            a shared ActionSheet already used by another destination. */}
         <ChartSymbolPickerSheetHost />
       </ChartTradeSheetPortalProvider>
     </View>

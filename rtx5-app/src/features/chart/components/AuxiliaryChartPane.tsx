@@ -305,6 +305,8 @@ const AuxiliaryChartPaneSessionScoped = memo(function AuxiliaryChartPaneSessionS
     () => resolveChartMarketSessionPolicy(marketStatus),
     [marketStatus],
   );
+  // Renko closes on price movement rather than a clock boundary, so divided
+  // panes keep the live price but do not show a misleading candle countdown.
   const candleCountdownActive =
     isScreenFocused
     && chartVisualType !== 'renko'
@@ -415,6 +417,8 @@ const AuxiliaryChartPaneSessionScoped = memo(function AuxiliaryChartPaneSessionS
         onLayout={handleChartSurfaceLayout}
         testID={`${testID}-surface`}
       >
+        {/* Keep the pane-local type unchanged. The shared preview owns the
+            Area gradient and the Renko history transformation. */}
         {isScreenFocused ? (
           <LiveChartPreviewNative
             symbol={symbol}
@@ -450,6 +454,8 @@ const AuxiliaryChartPaneSessionScoped = memo(function AuxiliaryChartPaneSessionS
             testID={`${testID}-hidden-surface`}
           />
         )}
+        {/* The symbol can still identify a Renko pane, but OHLC belongs to one
+            timed source candle and is therefore hidden for price bricks. */}
         {(chartDisplay.showTicker || (chartDisplay.showOHLC && chartVisualType !== 'renko')) ? (
           <View
             pointerEvents="box-none"

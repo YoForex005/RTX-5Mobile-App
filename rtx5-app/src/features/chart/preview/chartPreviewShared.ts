@@ -3,6 +3,8 @@ import { ChartColorsConfig, type ChartVisualType } from '../../../state/userPref
 import { mapCandlesToRTX5CustomCandlestickData } from '../../../domain/candles/rendering/customCandlestickSeries';
 import { buildRenkoBricks } from '../../../domain/candles/renko';
 
+// Preview consumes the production union directly, so a new type such as Area
+// cannot silently disappear from settings or an auxiliary split-chart pane.
 export type PreviewChartType = ChartVisualType;
 
 // Keep the forming candle clear of the right price scale in the compact
@@ -87,6 +89,9 @@ export const mapPreviewCandles = (
     & Partial<Pick<ChartColorsConfig, 'hollowBody'>>,
   renkoBrickSize?: number,
 ) => {
+  // Preview data follows the same transformation as the main chart. This
+  // prevents a settings or divided-pane preview from showing raw candles when
+  // the selected mode is Renko.
   const renderedCandles = chartType === 'renko'
     ? buildRenkoBricks(candles, { brickSize: renkoBrickSize })
     : candles;
@@ -103,6 +108,8 @@ export const mapPreviewCandles = (
     }));
   }
 
+  // Candles, Hollow and Renko all reach the shared OHLC body renderer. Renko's
+  // caller disables wicks, while Hollow replaces only the body fill color.
   if (chartType === 'candles' || chartType === 'hollow' || chartType === 'renko') {
     // Per-item colors override series options in lightweight-charts, so hollow
     // charts must bake the hollow body fill here too — otherwise the baked

@@ -135,6 +135,8 @@ export const ChartWindowsLayout = memo(function ChartWindowsLayout({
   const renderedAuxiliaryPaneIdRef = useRef(renderedAuxiliaryPaneId);
   const lastRenderedAuxiliaryPaneIdRef = useRef<string | null | undefined>(undefined);
   renderedAuxiliaryPaneIdRef.current = renderedAuxiliaryPaneId;
+  // Read the auxiliary pane's own snapshot so its Area/Renko selection is not
+  // overwritten by whichever visual type the active full WebView is using.
   const auxiliaryVisualPreferences = auxiliaryPane
     ? visualPreferencesByPane?.[auxiliaryPane.id]
     : undefined;
@@ -196,6 +198,8 @@ export const ChartWindowsLayout = memo(function ChartWindowsLayout({
     ) {
       return;
     }
+    // Preserve the exact pane identity and tap coordinates. ChartScreen
+    // revalidates this request after the selected pane/context has committed.
     onOpenPaneRadialMenu(createChartWindowRadialMenuRequest(currentPane, gesture));
   }, [auxiliaryPane, onOpenPaneRadialMenu]);
   const handleActivePaneTouchStart = useCallback(() => {
@@ -233,6 +237,8 @@ export const ChartWindowsLayout = memo(function ChartWindowsLayout({
         styles.pane,
         rendersAuxiliaryPane && styles.splitPane,
         rendersAuxiliaryPane && styles.transparentSplitFrame,
+        // Split panes normally clip their chart. Lift only the active pane while
+        // the radial is visible so a menu near an edge can cross the divider.
         rendersAuxiliaryPane && radialMenuOpen && styles.radialMenuPane,
       ]}
     >

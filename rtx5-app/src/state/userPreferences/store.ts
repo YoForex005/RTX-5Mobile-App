@@ -180,6 +180,8 @@ const isChartTradeVolumeDisplayMode = (value: unknown): value is ChartTradeVolum
 const normalizeChartVisualType = (value: unknown): ChartVisualType => {
   // OHLC bars are retired from the chart type picker, so migrate any old saved value to candles.
   if (value === 'bars') return 'candles';
+  // Keep newly supported Area and Renko selections across relaunch, while an
+  // unknown or obsolete stored value still falls back to a safe candle chart.
   return value === 'candles' || value === 'line' || value === 'area' || value === 'hollow' || value === 'renko'
     ? value
     : 'candles';
@@ -656,6 +658,8 @@ function partializeUserPreferences(state: UserPreferencesState): PersistedUserPr
     chartTimeframe: state.chartTimeframe,
     tradeVolume: state.tradeVolume,
     chartTradeVolumeDisplayMode: state.chartTradeVolumeDisplayMode,
+    // Persist only the chosen visual type. Renko bricks and their ATR cache are
+    // regenerated from canonical candles, so synthetic chart data never goes stale.
     chartVisualType: state.chartVisualType,
     chartViewportShowVolumePane: state.chartViewportShowVolumePane,
     chartViewportShowDrawingToolbar: state.chartViewportShowDrawingToolbar,

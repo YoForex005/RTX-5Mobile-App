@@ -350,6 +350,8 @@ ${LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT}
           window._previewDisplayDecimals = displayDecimals;
 
           var showLastPriceLine = !!(window._displaySettings && window._displaySettings.showLastPriceLine);
+          // Line and Area are close-only surfaces, while Renko volume cannot be
+          // assigned truthfully when one source candle creates many bricks.
           var showVolumes = window._fullChartParity
             ? showVolumePane === true
               && chartType !== 'line'
@@ -400,7 +402,7 @@ ${LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT}
 
           if (chartType === 'candles' || chartType === 'hollow' || chartType === 'renko') {
             // Split panes use the exact renderer and presentation constants as
-            // the full chart so dividing the window cannot change candle color.
+            // the full chart. Renko reuses its bodies with wicks disabled.
             series = window.addRTX5CustomCandlestickSeries(chart, {
               candleOpacity: ${CHART_CANDLE_RENDER_OPACITY},
               bearishCandleOpacity: ${CHART_BEARISH_CANDLE_RENDER_OPACITY},
@@ -426,6 +428,8 @@ ${LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT}
               priceFormat: priceFormatInfo,
             });
           } else if (chartType === 'area') {
+            // Area uses Line's close-price path, with a theme-colored gradient
+            // added underneath so preview and main-chart styling stay equal.
             series = chart.addSeries(LightweightCharts.AreaSeries, {
               lineColor: lineColor,
               topColor: hexToRgba(lineColor, 0.32),
@@ -559,6 +563,8 @@ ${LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT}
             chart.applyOptions(opts);
           }
 
+          // Apply theme changes in place; recreating the retained preview would
+          // reset its viewport and make divided charts visibly jump.
           if (chartType === 'candles' || chartType === 'hollow' || chartType === 'renko') {
             series.applyOptions({
               candleOpacity: ${CHART_CANDLE_RENDER_OPACITY},
@@ -575,6 +581,7 @@ ${LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT}
           } else if (chartType === 'bars') {
             series.applyOptions({ upColor: bUp, downColor: bDown });
           } else if (chartType === 'area') {
+            // Update both the Area stroke and fill from the shared line color.
             series.applyOptions({
               lineColor: lineColor,
               topColor: hexToRgba(lineColor, 0.32),
@@ -849,6 +856,8 @@ export default function LiveChartPreviewNative({
   const { data: instrumentMeta } = useInstrumentMeta(symbol, active);
   const liveQuoteDigitsSource = (liveQuote as { digitsSource?: string } | undefined)?.digitsSource;
   const hasLivePreviewQuote = hasLiveQuoteFeedData(liveQuote);
+  // Match the renderer rule above when reserving vertical space: modes without
+  // a truthful lower volume pane must keep the full price plot height.
   const previewShowsVolumePane = fullChartParity
     ? showVolumePane === true
       && chartType !== 'line'
@@ -1007,6 +1016,8 @@ export default function LiveChartPreviewNative({
     liveQuoteDigitsSource,
     latestPreviewPrecisionPrices,
   ]);
+  // Resolve the broker's real price grid before ATR rounding so preview bricks
+  // use exactly the same box size as the main chart for this account/symbol.
   const renkoExplicitInstrumentTickSize = (
     instrumentMeta as (Record<string, unknown> & { tick_size?: unknown }) | undefined
   )?.tick_size;
@@ -1057,12 +1068,16 @@ export default function LiveChartPreviewNative({
       const safeLimit = typeof maxCandles === 'number' && Number.isFinite(maxCandles)
         ? Math.max(1, Math.floor(maxCandles))
         : null;
+      // Build Renko from full canonical history first, then limit bricks. Slicing
+      // source candles first would change the starting price and every box.
       return chartType === 'renko' && safeLimit !== null
         ? mapped.slice(-safeLimit)
         : mapped;
     },
     [previewCandles, chartType, colors, maxCandles, renkoBrickSize],
   );
+  // Brick size is part of render identity: a changed ATR grid must repaint even
+  // when the underlying source candle array itself has not changed.
   const previewDataSignature = useMemo(
     () => JSON.stringify({
       candles: previewCandles,

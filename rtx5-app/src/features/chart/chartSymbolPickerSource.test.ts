@@ -433,7 +433,7 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.doesNotMatch(source, /label: t\(isVerticalScrollingLocked \? 'Unlock Vertical Scrolling' : 'Lock Vertical Scrolling'\)[\s\S]*onPress: handleToggleVerticalScrollingLock/);
   assert.match(source, /const handleToggleVerticalScrollingLock = \(\) => \{[\s\S]*setChartVerticalScrollingLocked\(next\)[\s\S]*setVerticalScrollingLocked\(\$\{next\}\)/);
   assert.match(source, /setVerticalScrollingLocked\(\$\{isVerticalScrollingLocked\}\)/);
-  assert.match(source, /<ChartTapRadialMenu[\s\S]*onOpenScaleControls=\{handleOpenChartScaleMenu\}/);
+  assert.match(source, /<ChartTapRadialMenu[\s\S]*onOpenScaleControls=\{handleRadialOpenChartScaleMenu\}/);
   assert.match(radialSource, /accessibilityLabel: `\$\{t\('Chart'\)\} \$\{t\('Options'\)\}`[\s\S]*onPress: onOpenScaleControls[\s\S]*<Ionicons name="options-outline"/);
   assert.match(radialSource, /const CHART_TAP_ACTION_HIT_SLOP = \{ top: 14, bottom: 14, left: 14, right: 14 \} as const/);
   assert.match(radialSource, /const handleActionItemPress = React\.useCallback\(\(event: any, onPress: \(\) => void\) => \{[\s\S]*event\.stopPropagation\?\.\(\);[\s\S]*onPress\(\);[\s\S]*\}, \[\]\)/);

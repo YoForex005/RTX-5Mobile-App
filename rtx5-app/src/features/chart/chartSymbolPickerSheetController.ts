@@ -9,6 +9,12 @@ import {
 } from '../../ui/components/ActionSheet/retainedActionSheetVisualController';
 import { scheduleAfterFirstFrame } from '../../utils/startupScheduler';
 
+/**
+ * Owns the chart symbol picker's retained ActionSheet outside ChartScreen.
+ * Preloading mounts searchable rows while hidden; opening can then start the
+ * native slide in the tap turn and let React adopt visibility after one frame.
+ */
+
 export type ChartSymbolPickerSheetConfig = Omit<
   ComponentProps<typeof ActionSheet>,
   'visible' | 'onClose' | 'visualKey'
@@ -20,12 +26,15 @@ export type ChartSymbolPickerSheetSnapshot = Readonly<{
   visible: boolean;
 }>;
 
+// A tiny external store lets one top-level host survive continuous chart renders.
 const listeners = new Set<() => void>();
 let snapshot: ChartSymbolPickerSheetSnapshot = Object.freeze({
   config: null,
   revision: 0,
   visible: false,
 });
+// These fields separate the currently visible interaction, a newer config that
+// must wait until close, and the exact retained-preview revision we own.
 let interactionActive = false;
 let deferredConfig: ChartSymbolPickerSheetConfig | null = null;
 let pendingAdoptionCancel: (() => void) | null = null;
@@ -35,6 +44,8 @@ const publishSnapshot = (
   config: ChartSymbolPickerSheetConfig | null,
   visible: boolean,
 ) => {
+  // Freeze each published value so subscribers always observe one coherent
+  // config/visibility revision rather than partially updated controller state.
   snapshot = Object.freeze({
     config,
     revision: snapshot.revision + 1,
@@ -140,6 +151,8 @@ export function hideChartSymbolPickerSheet() {
   cancelPendingAdoptionTimer();
   releaseOwnedRetainedReveal();
 
+  // Adopt symbol-list changes deferred during the animation only after hiding;
+  // swapping retained rows mid-slide would reveal a mismatched sheet frame.
   const nextConfig = deferredConfig ?? snapshot.config;
   deferredConfig = null;
   if (snapshot.visible || snapshot.config !== nextConfig) {
@@ -153,6 +166,8 @@ export function isChartSymbolPickerSheetActive() {
 }
 
 export function disposeChartSymbolPickerSheet() {
+  // The top-level host calls this on real unmount, releasing timers and any
+  // retained ActionSheet preview so it cannot leak into another screen.
   interactionActive = false;
   deferredConfig = null;
   cancelPendingAdoptionTimer();

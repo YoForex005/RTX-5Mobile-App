@@ -25,7 +25,10 @@ import {
 } from './candleGeometry';
 import { resolveRTX5CustomCandleOpacity } from './customCandleOpacity';
 
-/** Allowed visual rendering styles for the custom candlestick series. */
+/**
+ * Visual modes that share the custom OHLC body renderer. Renko uses the same
+ * body geometry as candles but turns wicks off through the options below.
+ */
 export type RTX5CustomCandleChartType = 'candles' | 'hollow' | 'renko';
 
 /** Lightweight Charts custom data interface extended with core OHLCV values. */
@@ -65,6 +68,8 @@ type BuildRTX5CustomCandlestickSeriesOptionsArgs = {
   priceFormat: NonNullable<CustomSeriesOptions['priceFormat']>;
   lastValueVisible?: boolean;
   priceLineVisible?: boolean;
+  // These switches let the wickless Renko presentation reuse the proven
+  // candle renderer instead of maintaining a second drawing implementation.
   borderVisible?: boolean;
   wickVisible?: boolean;
 };

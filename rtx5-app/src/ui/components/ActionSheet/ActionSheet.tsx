@@ -80,6 +80,8 @@ type ActionSheetAction = {
 };
 
 type ActionSheetEntryMotion = 'instant' | 'mt5Slide' | 'standard';
+// `fast` is reserved for a dedicated, already-preloaded host; shared sheets
+// keep the default MT5 timing so this option cannot alter them accidentally.
 type ActionSheetMt5SlideMotionProfile = 'default' | 'fast';
 
 type ActionSheetProps = {
@@ -99,6 +101,7 @@ type ActionSheetProps = {
   minimumTopInset?: number;
   instantOpen?: boolean;
   entryMotion?: ActionSheetEntryMotion;
+  /** Selects MT5 slide timing only; it does not change layout or sheet content. */
   mt5SlideMotionProfile?: ActionSheetMt5SlideMotionProfile;
   immediateHostHideOnClose?: boolean;
   visualKey?: string;
@@ -127,6 +130,8 @@ const ACTION_SHEET_OPEN_OVERLAY_DURATION_MS = 50;
 const ACTION_SHEET_OPEN_SHEET_DURATION_MS = 50;
 const ACTION_SHEET_MT5_OPEN_OVERLAY_DURATION_MS = 180;
 const ACTION_SHEET_MT5_OPEN_SHEET_DURATION_MS = 210;
+// The chart symbol picker has its own retained host, so it can use a shorter
+// measured reveal without speeding up every shared ActionSheet destination.
 const ACTION_SHEET_MT5_FAST_OPEN_OVERLAY_DURATION_MS = 100;
 const ACTION_SHEET_MT5_FAST_OPEN_SHEET_DURATION_MS = 140;
 const ACTION_SHEET_MT5_OPEN_PRIME_DELAY_MS = 18;
@@ -189,6 +194,8 @@ const startActionSheetEntryAnimation = ({
   }
 
   const isMt5Slide = mode === 'mt5Slide';
+  // Resolve one duration pair here so both UI-thread Reanimated and the
+  // Animated fallback follow exactly the same selected motion profile.
   const useFastMt5Slide = isMt5Slide && mt5SlideMotionProfile === 'fast';
   const mt5OverlayDurationMs = useFastMt5Slide
     ? ACTION_SHEET_MT5_FAST_OPEN_OVERLAY_DURATION_MS
@@ -503,6 +510,8 @@ export function ActionSheet({
   const activeEntryMotion: ActionSheetEntryMotion = activeConfig.entryMotion ?? (
     activeInstantOpen ? 'instant' : 'standard'
   );
+  // Read from the retained active config—not incoming props—so content and
+  // motion cannot disagree while one sheet hands the host to another.
   const activeMt5SlideMotionProfile = activeConfig.mt5SlideMotionProfile ?? 'default';
   const activeImmediateHostHideOnClose = activeConfig.immediateHostHideOnClose ?? false;
   const activeVisualKey = activeConfig.visualKey;

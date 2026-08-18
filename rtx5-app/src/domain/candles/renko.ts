@@ -30,7 +30,9 @@ export type RenkoBrick = {
   high: number;
   low: number;
   close: number;
+  /** Kept for the shared OHLC data shape; Renko does not render a volume pane. */
   volume: number;
+  /** True only for the final forming brick that follows the newest live close. */
   isProjection: boolean;
 };
 
@@ -81,6 +83,8 @@ export const resolveRenkoMinimumPriceIncrement = (
   candidates: readonly unknown[],
   fallback: number,
 ): number => {
+  // Broker payloads expose the same price grid under several field names.
+  // Use the first valid value, then fall back to the displayed decimal step.
   for (const candidate of candidates) {
     if (
       (typeof candidate !== 'number' && typeof candidate !== 'string')
@@ -96,6 +100,8 @@ export const resolveRenkoMinimumPriceIncrement = (
   return isPositiveFiniteNumber(fallback) ? normalizePrice(fallback) : 0;
 };
 
+// Snap an ATR/manual box size to the broker's tradable price grid and never
+// let a valid result become smaller than one price increment.
 const roundBrickSizeToIncrement = (
   value: number,
   minimumPriceIncrement: number | null,
@@ -118,6 +124,8 @@ const normalizeSourceCandles = (
     return [];
   }
 
+  // Drop malformed OHLC rows and keep only the newest row for each timestamp;
+  // the brick builder must always receive one ordered canonical price path.
   const byTime = new Map<number, NormalizedRenkoSourceCandle>();
   for (const candle of candles) {
     if (!validateCandle(candle)) {
@@ -139,6 +147,8 @@ const normalizeSourceCandles = (
   return Array.from(byTime.values()).sort((left, right) => left.time - right.time);
 };
 
+// True range includes overnight/session gaps from the prior close as well as
+// the candle's own high-low span, which keeps ATR sizing market-correct.
 const calculateTrueRanges = (candles: readonly NormalizedRenkoSourceCandle[]): number[] => {
   const ranges: number[] = [];
   let previousClose: number | null = null;
@@ -161,6 +171,8 @@ const calculateTrueRanges = (candles: readonly NormalizedRenkoSourceCandle[]): n
   return ranges;
 };
 
+// Seed ATR with the initial simple average, then apply Wilder's smoothing to
+// each remaining range so recent volatility changes the grid gradually.
 const calculateWilderAtr = (trueRanges: readonly number[], period: number): number => {
   if (trueRanges.length === 0) {
     return 0;
@@ -230,6 +242,8 @@ export const resolveRenkoBrickSizeDetails = (
 ): RenkoBrickSizeResolution =>
   resolveRenkoBrickSizeFromNormalized(normalizeSourceCandles(candles), options);
 
+// Normalize the box and derive high/low from its body edges. Source candle wicks
+// are deliberately excluded because a Renko brick represents only price steps.
 const makeDraftBrick = (
   source: NormalizedRenkoSourceCandle,
   open: number,
@@ -255,6 +269,9 @@ const resolveProjectionOpen = (
   latestPrice: number,
   brickSize: number,
 ): number => {
+  // The live projection follows the current price inside the active box. On a
+  // possible reversal it starts one box away, but does not complete until the
+  // traditional two-box reversal distance is reached.
   if (direction === 1 && latestPrice < lastClose) {
     const reversalOpen = normalizePrice(lastClose - brickSize);
     return latestPrice < reversalOpen ? reversalOpen : latestPrice;
@@ -337,6 +354,8 @@ export const buildRenkoBricks = (
   const completedRuns: CompletedRenkoRun[] = [];
   let lastClose = normalizePrice(sourceCandles[0].close);
   let direction: RenkoDirection = 0;
+  // Floating-point prices can land microscopically below an exact box edge.
+  // This tolerance accepts the intended threshold without inventing a box.
   const priceTolerance = Math.max(
     brickSize * 1e-10,
     Math.abs(lastClose) * Number.EPSILON * 8,
@@ -365,6 +384,8 @@ export const buildRenkoBricks = (
       return;
     }
 
+    // Store long same-direction moves as compact runs first. Materializing
+    // individual boxes later lets us enforce the global output limit safely.
     const rawFinalClose = firstClose + nextDirection * brickSize * (count - 1);
     const finalClose = normalizePrice(
       Number.isFinite(rawFinalClose) ? rawFinalClose : terminalPrice,
@@ -382,6 +403,8 @@ export const buildRenkoBricks = (
     direction = nextDirection;
   };
 
+  // Renko reacts only to source closes: continuations need one box of movement;
+  // direction changes need two boxes so the prior body is not overlapped.
   for (let candleIndex = 1; candleIndex < sourceCandles.length; candleIndex += 1) {
     const source = sourceCandles[candleIndex];
     const price = source.close;
@@ -440,6 +463,8 @@ export const buildRenkoBricks = (
     }
   }
 
+  // Retain the newest completed boxes when an extreme history exceeds the
+  // safety cap, while reserving one slot for the live projection below.
   const drafts: DraftRenkoBrick[] = [];
   const retainedRuns: Array<Readonly<{ run: CompletedRenkoRun; startIndex: number }>> = [];
   let remainingCompletedCapacity = completedBrickLimit;
@@ -465,6 +490,8 @@ export const buildRenkoBricks = (
   }
 
   if (includeProjection) {
+    // Keep one forming box whose close equals the newest market price. This is
+    // what keeps the Renko chart and its live price line visually synchronized.
     const latestSource = sourceCandles[sourceCandles.length - 1];
     drafts.push(makeDraftBrick(
       latestSource,

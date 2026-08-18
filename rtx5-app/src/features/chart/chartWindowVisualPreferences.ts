@@ -38,6 +38,8 @@ export const cloneChartWindowVisualPreferences = (
 export const buildChartWindowVisualPreferencesSignature = (
   preferences: ChartWindowVisualPreferences,
 ): string => JSON.stringify([
+  // Visual type is pane-local. Including it forces the auxiliary renderer to
+  // repaint when that pane switches to Area or Renko.
   preferences.chartVisualType,
   preferences.chartColors,
   preferences.chartColorScheme,

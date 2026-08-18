@@ -9,6 +9,8 @@ import {
   type ChartSymbolPickerSheetConfig,
 } from '../chartSymbolPickerSheetController';
 
+// The host remains mounted before preload; this no-row config keeps that first
+// hidden render valid without inventing a real symbol-picker identity.
 const emptyConfig: ChartSymbolPickerSheetConfig = Object.freeze({
   actions: [],
   visualKey: 'chart.symbolPicker.uninitialized',
@@ -22,6 +24,8 @@ export const ChartSymbolPickerSheetHost = memo(function ChartSymbolPickerSheetHo
     getChartSymbolPickerSheetSnapshot,
   );
   const config = current.config ?? emptyConfig;
+  // Dispose only when the dedicated host truly leaves the tree, not whenever
+  // ChartScreen rerenders or hides the retained sheet.
   useEffect(() => () => disposeChartSymbolPickerSheet(), []);
 
   return (

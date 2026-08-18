@@ -81,6 +81,8 @@ export default function LiveChartPreviewWeb({
 
   const previewCandles = useMemo(() => {
     const sanitized = sanitizePreviewCandles(candles);
+    // Renko needs the full price path to build stable boxes; other compact web
+    // previews can safely keep only their most recent 50 timed candles.
     return chartType === 'renko' ? sanitized : sanitized.slice(-50);
   }, [candles, chartType]);
   const latestPreviewPrecisionPrices = useMemo(() => {
@@ -116,6 +118,8 @@ export default function LiveChartPreviewWeb({
     liveQuoteDigitsSource,
     latestPreviewPrecisionPrices,
   ]);
+  // Use the same broker/session price grid and shared ATR cache as native so a
+  // preview never disagrees with the main Renko chart's box boundaries.
   const renkoExplicitInstrumentTickSize = (
     instrumentMeta as (Record<string, unknown> & { tick_size?: unknown }) | undefined
   )?.tick_size;
@@ -204,6 +208,8 @@ export default function LiveChartPreviewWeb({
       autoScale: true,
       scaleMargins: {
         top: 0.08,
+        // Renko has no source-candle volume pane, so it keeps the price plot's
+        // normal bottom margin instead of reserving empty histogram space.
         bottom: chartType !== 'renko' && (display.showTickVolumes || display.showRealVolumes) ? 0.25 : 0.08,
       },
     },
@@ -230,6 +236,8 @@ export default function LiveChartPreviewWeb({
       minMove: 1 / Math.pow(10, displayDecimals),
     };
 
+    // Renko shares the custom OHLC body renderer but intentionally hides wicks;
+    // each box represents price movement, not a candle high/low range.
     if (chartType === 'candles' || chartType === 'hollow' || chartType === 'renko') {
       seriesRef.current = chart.addCustomSeries(
         createRTX5CustomCandlestickPaneView(),
@@ -255,6 +263,7 @@ export default function LiveChartPreviewWeb({
         priceFormat: priceFormatInfo,
       });
     } else if (chartType === 'area') {
+      // Area is the Line close path plus a light theme-colored gradient fill.
       seriesRef.current = chart.addSeries(AreaSeries, {
         lineColor: colors.lineBody,
         topColor: withAlpha(colors.lineBody, 0.32),
@@ -276,6 +285,7 @@ export default function LiveChartPreviewWeb({
       });
     }
 
+    // Do not attach source-candle volume to synthetic Renko brick timestamps.
     if (chartType !== 'renko' && (display.showTickVolumes || display.showRealVolumes)) {
       volumeSeriesRef.current = chart.addSeries(HistogramSeries, {
         color: buildVolumeDatum(
@@ -320,6 +330,8 @@ export default function LiveChartPreviewWeb({
     const lastSignature = getLastPreviewCandleSignature(previewCandles);
     const mappedData = mapPreviewCandles(previewCandles, chartType, colors, renkoBrickSize);
 
+    // Transform the full Renko path first and only then bound the visible brick
+    // tail; slicing source candles first would rebuild a different chart.
     seriesRef.current.setData((chartType === 'renko' ? mappedData.slice(-50) : mappedData) as any);
 
     if (volumeSeriesRef.current) {
@@ -379,6 +391,8 @@ export default function LiveChartPreviewWeb({
         colors,
         resolvePreviewRenkoBrickSize(sourceCandles),
       );
+      // A live source update can rebuild multiple Renko boxes, so replace the
+      // bounded transformed tail instead of updating one raw candle in place.
       seriesRef.current.setData((chartType === 'renko' ? mappedData.slice(-50) : mappedData) as any);
 
       if (volumeSeriesRef.current) {
