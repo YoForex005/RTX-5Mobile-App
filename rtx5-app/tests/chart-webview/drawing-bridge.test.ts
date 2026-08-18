@@ -89,8 +89,13 @@ test('drawing tools open path is resilient to iOS chart overlay touch ordering',
   );
   assertSourceContains(
     source,
-    /onOpenDrawingTools=\{\(\) => \{[\s\S]*closeChartTapMenu\(\);[\s\S]*routeChartWindowToolbarAction\('drawings'\);[\s\S]*\}\}/,
+    /const handleRadialOpenDrawingTools = useCallback\(\(\) => \{[\s\S]*closeChartTapMenu\(\);[\s\S]*routeChartWindowToolbarAction\('drawings'\);[\s\S]*\}, \[closeChartTapMenu, routeChartWindowToolbarAction\]\)/,
     'radial-menu drawing action must dismiss the overlay and retain the confirmed pane target',
+  );
+  assertSourceContains(
+    source,
+    /<ChartTapRadialMenu[\s\S]*onOpenDrawingTools=\{handleRadialOpenDrawingTools\}/,
+    'radial menu must retain the stable drawing-tools callback during its entrance',
   );
   assertSourceContains(
     drawingFeatureSource,

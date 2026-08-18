@@ -1,8 +1,8 @@
 # RTX5 OTA Update Information
 
-> **Current live production OTA: `1.1.40` for Android and iOS.**
+> **Current live production OTA: `1.1.41` for Android and iOS.**
 >
-> Live EAS state last verified: `2026-08-14` (Asia/Calcutta).
+> Live EAS state last verified: `2026-08-18` (Asia/Calcutta).
 >
 > **DOCUMENTATION ONLY:** this file does not authorize an OTA publish. Do not
 > publish, change the app version, or target a runtime until the user explicitly
@@ -19,7 +19,7 @@ Read and verify the production baseline before publishing from any computer. Do 
 run production EAS commands from the repository root; the production Expo app
 is under `rtx5-app`.
 
-## Current Production Answer - OTA `1.1.40`
+## Current Production Answer - OTA `1.1.41`
 
 This is the exact OTA that is currently live. These identifiers are recorded so
 the next agent can understand the existing Android and iOS release; they are not
@@ -27,35 +27,34 @@ instructions to publish it again.
 
 | Field | Android | iOS |
 | --- | --- | --- |
-| Current OTA-visible version | `1.1.40` | `1.1.40` |
+| Current OTA-visible version | `1.1.41` | `1.1.41` |
 | Publication state | **LIVE** | **LIVE** |
 | Runtime | `30cba83220fc6c92180eed477863c3e3e3087ce6` | `ef38da275b765380037fc377f5c596de31690b7d` |
-| Update group | `0dc68ef3-517d-499f-bcf4-5c28ca2a9bf3` | `866b1d25-a388-4589-915e-b84e123c096e` |
-| Update ID | `01a0008d-f07c-71cf-94d6-efd006bcb3ad` | `01a00090-b2f1-783b-a6d7-b64380257149` |
+| Update group | `ffe5adbd-82c6-4648-a2eb-a4b73bfbf486` | `629fb1e1-6550-467b-b69a-c5efa8e71867` |
+| Update ID | `01a013a5-9823-788d-998a-592791fa770d` | `01a013a8-ab1a-77ed-b205-a19b7c64011c` |
 | EAS source commit | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` |
 | Source status | Dirty isolated release worktree (`2975156...*`) | Dirty isolated release worktree (`2975156...*`) |
 | OTA safety-comparison base used | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` |
-| Main-line product source snapshot synced into the release worktree | `b7417d6f9d0c3219c74fe4b412724459fa2f5f15` | `b7417d6f9d0c3219c74fe4b412724459fa2f5f15` |
+| Main-line product source snapshot synced into the release worktree | `d7bde8b98e67eecff947eca479e571ea7d3d4e26` | `d7bde8b98e67eecff947eca479e571ea7d3d4e26` |
 | Channel / branch / environment | `production` / `production` / `production` | `production` / `production` / `production` |
-| Created | `2026-08-14T13:54:57.276Z` | `2026-08-14T13:57:58.129Z` |
+| Created | `2026-08-18T06:53:34.627Z` | `2026-08-18T06:56:56.090Z` |
 
-The isolated release worktree lives at `.codex-tmp/ota-release-1.1.40` (linked
+The isolated release worktree lives at `.codex-tmp/ota-release-1.1.41` (linked
 git worktree, detached at `2975156c...`, kept dirty with main's app code).
 Do not delete it during repo cleanups; if lost, rebuild per the baseline guide.
 
-Before the ownership transfer, the isolated source passed the OTA safety check
-against `2975156c...` with 776 changed files and zero native-impacting files.
-Transferring the unchanged EAS project to `yoforex-organisation` then required
-the single manifest metadata change `owner: yoforex-organisation`; the project
-ID, update URL, platform runtimes, native settings, and dependencies remained
-unchanged.
+The isolated source contains 488 changed files against `2975156c...`. The only
+native-sensitive path is `app.json`, and its exact diff remains the ownership
+metadata change `yoforex` to `yoforex-organisation` already used by live OTA
+`1.1.40`. The project ID, update URL, platform runtimes, native settings, and
+dependencies remain unchanged.
 
 ## Instructions for the Next OTA Agent
 
 No next OTA is authorized or published by this documentation change. When the
 user later explicitly requests another OTA, follow this decision table:
 
-| Release field | Reuse from `1.1.40`? | Required next-agent action |
+| Release field | Reuse from `1.1.41`? | Required next-agent action |
 | --- | --- | --- |
 | Expo owner/project, EAS project ID, update URL | **Normally yes** | Current owner/project is `yoforex-organisation/rtx5-app`; verify it live before publishing. |
 | Channel, branch, EAS environment | **Normally yes: `production`** | Verify the channel is active and still points to the production branch. |
@@ -69,9 +68,9 @@ user later explicitly requests another OTA, follow this decision table:
 | OTA safety-comparison base | **Re-determine** | Select and record the reviewed compatible base; do not copy `2975156...` automatically. |
 | Target binary/build record | **Re-confirm** | Verify the installed/store build and its platform runtime. |
 
-The current `1.1.40` group and update IDs are historical evidence only. Never
+The current `1.1.41` group and update IDs are historical evidence only. Never
 pass them to a future publish command and never describe them as the IDs for the
-next OTA. Keep the top of this file at `1.1.40` until both newly requested
+next OTA. Keep the top of this file at `1.1.41` until both newly requested
 platform updates have actually been published and verified through live EAS.
 
 ## Production Destination — Reuse After Live Verification
@@ -94,37 +93,37 @@ platform updates have actually been published and verified through live EAS.
 These values identify the production destination. Confirm them with live EAS
 before every publish; do not assume a saved snapshot is still current.
 
-## Current Live OTA `1.1.40` — Android
+## Current Live OTA `1.1.41` — Android
 
 | Field | Verified value |
 | --- | --- |
 | Compatible EAS build reference | `cfe3b101-ab15-4e18-854b-ef808e96d708` — installed/store confirmation still required |
 | Runtime | `30cba83220fc6c92180eed477863c3e3e3087ce6` |
-| Update group | `0dc68ef3-517d-499f-bcf4-5c28ca2a9bf3` |
-| Update ID | `01a0008d-f07c-71cf-94d6-efd006bcb3ad` |
+| Update group | `ffe5adbd-82c6-4648-a2eb-a4b73bfbf486` |
+| Update ID | `01a013a5-9823-788d-998a-592791fa770d` |
 | Source commit recorded by EAS | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` |
 | Source status | Dirty isolated release worktree (`2975156...*`) |
 | OTA safety-comparison base used | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` |
-| Created | `2026-08-14T13:54:57.276Z` |
-| Message | `Android production OTA 1.1.40 validated app updates runtime 30cba832` |
-| Manifest | `https://u.expo.dev/update/01a0008d-f07c-71cf-94d6-efd006bcb3ad` |
-| Dashboard | `https://expo.dev/accounts/yoforex-organisation/projects/rtx5-app/updates/0dc68ef3-517d-499f-bcf4-5c28ca2a9bf3` |
+| Created | `2026-08-18T06:53:34.627Z` |
+| Message | `Android production OTA 1.1.41 validated app updates runtime 30cba832` |
+| Manifest | `https://u.expo.dev/update/01a013a5-9823-788d-998a-592791fa770d` |
+| Dashboard | `https://expo.dev/accounts/yoforex-organisation/projects/rtx5-app/updates/ffe5adbd-82c6-4648-a2eb-a4b73bfbf486` |
 
-## Current Live OTA `1.1.40` — iOS
+## Current Live OTA `1.1.41` — iOS
 
 | Field | Verified value |
 | --- | --- |
 | Compatible EAS build reference | `1b1bd2e3-da6c-4c8b-94c2-285b0329dce2` — installed/store confirmation still required |
 | Runtime | `ef38da275b765380037fc377f5c596de31690b7d` |
-| Update group | `866b1d25-a388-4589-915e-b84e123c096e` |
-| Update ID | `01a00090-b2f1-783b-a6d7-b64380257149` |
+| Update group | `629fb1e1-6550-467b-b69a-c5efa8e71867` |
+| Update ID | `01a013a8-ab1a-77ed-b205-a19b7c64011c` |
 | Source commit recorded by EAS | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` |
 | Source status | Dirty isolated release worktree (`2975156...*`) |
 | OTA safety-comparison base used | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` |
-| Created | `2026-08-14T13:57:58.129Z` |
-| Message | `iOS production OTA 1.1.40 validated app updates runtime ef38da27` |
-| Manifest | `https://u.expo.dev/update/01a00090-b2f1-783b-a6d7-b64380257149` |
-| Dashboard | `https://expo.dev/accounts/yoforex-organisation/projects/rtx5-app/updates/866b1d25-a388-4589-915e-b84e123c096e` |
+| Created | `2026-08-18T06:56:56.090Z` |
+| Message | `iOS production OTA 1.1.41 validated app updates runtime ef38da27` |
+| Manifest | `https://u.expo.dev/update/01a013a8-ab1a-77ed-b205-a19b7c64011c` |
+| Dashboard | `https://expo.dev/accounts/yoforex-organisation/projects/rtx5-app/updates/629fb1e1-6550-467b-b69a-c5efa8e71867` |
 
 ## Critical Rule for the Next OTA
 
@@ -139,7 +138,7 @@ same Android or iOS runtime again only when all of the following are proven:
 If any check fails, stop and create/validate the required native build. Never
 force an old runtime merely to make an incompatible source publish.
 
-The following `1.1.40` values are **historical and must not be reused**:
+The following `1.1.41` values are **historical and must not be reused**:
 
 - Update group
 - Update ID
@@ -152,7 +151,7 @@ EAS automatically creates a new group, update ID, timestamp, manifest URL, and
 dashboard URL for every new platform publication. They cannot be selected in
 advance. If the user later explicitly authorizes another OTA, it may
 conditionally target the same compatible runtimes, but it must receive new
-Android and iOS group/update IDs. This file records `1.1.40` as published but
+Android and iOS group/update IDs. This file records `1.1.41` as published but
 does not authorize a later OTA.
 
 The release source commit/status, safety-comparison base, and target binary must

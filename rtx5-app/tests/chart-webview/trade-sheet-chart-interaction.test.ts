@@ -594,7 +594,7 @@ test('SL/TP sheet is hosted above app tabs and clipped at the system-safe bounda
   );
 });
 
-test('collapsed SL/TP sheet drag gesture covers the entire visible surface', () => {
+test('collapsed SL/TP sheet keeps its pan gesture on the drag handle', () => {
   const visibleSheetStart = chartTradeFeatureSource.indexOf('{mountTradeSheet ? (');
   const visibleSheetBodyStart = chartTradeFeatureSource.indexOf('{showSheetBody ? (', visibleSheetStart);
   assert.notEqual(visibleSheetStart, -1, 'visible chart trade sheet branch was not found');
@@ -603,13 +603,13 @@ test('collapsed SL/TP sheet drag gesture covers the entire visible surface', () 
   const visibleSheetHeaderSource = chartTradeFeatureSource.slice(visibleSheetStart, visibleSheetBodyStart);
   assertSourceContains(
     visibleSheetHeaderSource,
-    /<GestureDetector gesture=\{sheet\.chartTradeSheetDragGesture\}>\s*<View\s*collapsable=\{false\}\s*style=\{!showSheetBody \? styles\.chartTradeSheetCollapsedDragSurface : undefined\}[\s\S]*<ChartTradeSheetDragHeader[\s\S]*<ChartTradeSheetPinnedHeader/,
-    'the single SL/TP drag wrapper must fill collapsed blank space and cover the visible pinned header',
+    /<View\s*collapsable=\{false\}\s*style=\{!showSheetBody \? styles\.chartTradeSheetCollapsedDragSurface : undefined\}[\s\S]*<GestureDetector gesture=\{sheet\.chartTradeSheetDragGesture\}>\s*<View collapsable=\{false\}>[\s\S]*<ChartTradeSheetDragHeader[\s\S]*<\/View>\s*<\/GestureDetector>\s*[\s\S]*<ChartTradeSheetPinnedHeader/,
+    'the single SL/TP pan recognizer must stay on the drag handle and outside the touch-start pinned header',
   );
 
   const dragDetectorCount =
     visibleSheetHeaderSource.match(/<GestureDetector gesture=\{sheet\.chartTradeSheetDragGesture\}>/g)?.length ?? 0;
-  assert.equal(dragDetectorCount, 1, 'visible sheet header should use one gesture detector around handle and header');
+  assert.equal(dragDetectorCount, 1, 'visible sheet header should use one gesture detector around the drag handle');
   const visibleSheetEnd = chartTradeFeatureSource.indexOf('{sheet.showHiddenInlineTradeSheet ? (', visibleSheetStart);
   const visibleSheetSource = chartTradeFeatureSource.slice(visibleSheetStart, visibleSheetEnd);
   const visibleSheetDragDetectorCount =
@@ -634,7 +634,7 @@ test('collapsed SL/TP sheet drag gesture covers the entire visible surface', () 
   assertSourceContains(
     chartStylesSource,
     /chartTradeSheetCollapsedDragSurface:\s*\{\s*flex: 1,\s*minHeight: 0,\s*\}/,
-    'collapsed SL/TP drag surface must fill all space below the pinned header',
+    'collapsed SL/TP layout surface must fill all space below the pinned header',
   );
   const dragGestureStart = source.indexOf('const chartTradeSheetDragGesture = useMemo');
   const dragGestureEnd = source.indexOf('const isPendingChartOrder =', dragGestureStart);

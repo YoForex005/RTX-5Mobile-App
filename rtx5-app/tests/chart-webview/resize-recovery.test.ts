@@ -119,8 +119,13 @@ test('fullscreen enter and exit cancel stale resize frames and use the fast pres
 test('chart viewport keeps scale controls in the radial menu, not price-scale dots', () => {
   assertSourceContains(
     source,
-    /<ChartTapRadialMenu[\s\S]*onOpenScaleControls=\{handleOpenChartScaleMenu\}/,
+    /<ChartTapRadialMenu[\s\S]*onOpenScaleControls=\{handleRadialOpenChartScaleMenu\}/,
     'chart scale controls must be opened from one tap radial menu section',
+  );
+  assertSourceContains(
+    source,
+    /const handleRadialOpenChartScaleMenu = useCallback\(\(\) => \{\s*latestHandleOpenChartScaleMenuRef\.current\(\);\s*\}, \[\]\)/,
+    'the retained radial menu must call the latest scale-controls handler through a stable callback',
   );
   assertSourceContains(
     radialMenuSource,

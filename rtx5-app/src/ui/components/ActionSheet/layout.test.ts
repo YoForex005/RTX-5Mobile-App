@@ -319,15 +319,19 @@ test('MT5 entry stays on the Reanimated UI runtime with capped body geometry', (
   );
   assert.match(
     uiEntrySource,
-    /if \(isMt5Slide && mt5HostOpacity && mt5OverlayOpacity && mt5SheetTranslateY\) \{[\s\S]*executeOnUIRuntimeSync\(\([\s\S]*hostValue\.value = 0;[\s\S]*overlayValue\.value = 0;[\s\S]*sheetValue\.value = entryTranslateY;[\s\S]*hostValue\.value = withDelay\([\s\S]*ACTION_SHEET_MT5_OPEN_PRIME_DELAY_MS,[\s\S]*withTiming\(1, \{ duration: 0 \}\)/,
+    /if \(isMt5Slide && mt5HostOpacity && mt5OverlayOpacity && mt5SheetTranslateY\) \{[\s\S]*executeOnUIRuntimeSync\(\([\s\S]*hostValue\.value = 0;[\s\S]*overlayValue\.value = 0;[\s\S]*sheetValue\.value = entryTranslateY;[\s\S]*hostValue\.value = withDelay\([\s\S]*primeDelayMs,[\s\S]*withTiming\(1, \{ duration: 0 \}\)/,
   );
   assert.match(
     uiEntrySource,
-    /overlayValue\.value = withDelay\([\s\S]*ACTION_SHEET_MT5_OPEN_PRIME_DELAY_MS,[\s\S]*withTiming\(1, \{[\s\S]*duration: ACTION_SHEET_MT5_OPEN_OVERLAY_DURATION_MS,[\s\S]*easing: ReanimatedEasing\.out\(ReanimatedEasing\.cubic\)/,
+    /overlayValue\.value = withDelay\([\s\S]*primeDelayMs,[\s\S]*withTiming\(1, \{[\s\S]*duration: overlayDurationMs,[\s\S]*easing: ReanimatedEasing\.out\(ReanimatedEasing\.cubic\)/,
   );
   assert.match(
     uiEntrySource,
-    /sheetValue\.value = withDelay\([\s\S]*ACTION_SHEET_MT5_OPEN_PRIME_DELAY_MS,[\s\S]*withTiming\(0, \{[\s\S]*duration: ACTION_SHEET_MT5_OPEN_SHEET_DURATION_MS,[\s\S]*easing: ReanimatedEasing\.out\(ReanimatedEasing\.cubic\)/,
+    /sheetValue\.value = withDelay\([\s\S]*primeDelayMs,[\s\S]*withTiming\(0, \{[\s\S]*duration: sheetDurationMs,[\s\S]*easing: ReanimatedEasing\.out\(ReanimatedEasing\.cubic\)/,
+  );
+  assert.match(
+    uiEntrySource,
+    /\}\)\(\s*mt5HostOpacity,\s*mt5OverlayOpacity,\s*mt5SheetTranslateY,\s*mt5TranslateY,\s*ACTION_SHEET_MT5_OPEN_PRIME_DELAY_MS,\s*mt5OverlayDurationMs,\s*mt5SheetDurationMs,\s*\)/,
   );
   assert.ok(
     uiEntrySource.indexOf('executeOnUIRuntimeSync') <
