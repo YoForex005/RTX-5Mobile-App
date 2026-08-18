@@ -55,6 +55,19 @@ export const shouldResetViewportForClosedMarketClamp = (
   next.lastTime !== null &&
   next.lastTime < previous.lastTime;
 
+export const shouldResetViewportForHistorylessBootstrap = (
+  pendingContextKey: string,
+  currentContextKey: string,
+  historylessBootstrapSnapshot: ChartSeriesSnapshot,
+  next: ChartSeriesSnapshot,
+  nextHasHistoryCandles: boolean,
+): boolean =>
+  pendingContextKey.length > 0 &&
+  pendingContextKey === currentContextKey &&
+  historylessBootstrapSnapshot.length > 0 &&
+  next.length > 0 &&
+  nextHasHistoryCandles;
+
 const buildCandleSignature = (candle: RenderableChartCandle | undefined): string => {
   if (!candle) {
     return '';

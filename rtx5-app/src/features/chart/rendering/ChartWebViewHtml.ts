@@ -4065,6 +4065,24 @@ export const CH_HTML = `
         } catch (_e) {}
       }
 
+      function retryChartDataPaintAcknowledgement(dataContextSig, paintToken) {
+        var requestedDataContextSig =
+          typeof dataContextSig === 'string' ? dataContextSig : '';
+        var requestedPaintToken = typeof paintToken === 'string' ? paintToken : '';
+        if (
+          !series ||
+          currentSeriesLength <= 0 ||
+          !requestedDataContextSig ||
+          requestedDataContextSig !== lastInitDataContextSig ||
+          !requestedPaintToken ||
+          requestedPaintToken !== lastAppliedChartDataPaintToken
+        ) {
+          return false;
+        }
+        postChartDataPainted(requestedDataContextSig, requestedPaintToken);
+        return true;
+      }
+
       function postChartGeometry() {
         if (!chart) {
           return;

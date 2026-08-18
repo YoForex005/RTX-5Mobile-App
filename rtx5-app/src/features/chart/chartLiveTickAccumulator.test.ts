@@ -40,6 +40,7 @@ test('same-bucket Bid atomically owns candle close while retaining both wick ext
   assert.equal(second?.bid, 97);
   assert.equal(projected.activeCandle?.high, 105);
   assert.equal(projected.activeCandle?.low, 97);
+  assert.equal(projected.quoteOnlyBootstrap, false);
 });
 
 test('quote-only public traffic forms a candle without waiting for a candle frame', () => {
@@ -53,6 +54,7 @@ test('quote-only public traffic forms a candle without waiting for a candle fram
   const projected = projectChartLiveTickCandles([], state, contextKey);
 
   assert.equal(projected.candles.length, 1);
+  assert.equal(projected.quoteOnlyBootstrap, true);
   assert.deepEqual(projected.activeCandle, {
     time: getBucketStart(1_785_000_010_000, 'M1'),
     open: 4397.35,
@@ -86,6 +88,7 @@ test('a delayed canonical candle restores the real open without taking close awa
   assert.equal(projected.activeCandle?.high, state?.bid);
   assert.equal(projected.activeCandle?.low, canonicalTail.low);
   assert.equal(projected.activeCandle?.volume, canonicalTail.volume);
+  assert.equal(projected.quoteOnlyBootstrap, false);
 });
 
 test('minute rollover starts O=H=L=C at the first accepted Bid', () => {

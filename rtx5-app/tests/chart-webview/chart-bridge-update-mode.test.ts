@@ -139,18 +139,53 @@ test('direct engine full reload acknowledges the selected chart context paint', 
 
   assertSourceContains(
     directPaint,
-    /const resetForClosedMarketClamp = shouldResetViewportForClosedMarketClamp\([\s\S]*if \(updateMode === 'full_reload' \|\| renkoUpdateMode === 'full_reload'\) \{[\s\S]*issuedPaintToken = issueChartDataPaintToken\(chartDataContextSig\)[\s\S]*updateChartData\([\s\S]*preserveVisibleLogicalSpan: \$\{!resetForClosedMarketClamp\},[\s\S]*resetVisibleRange: \$\{resetForClosedMarketClamp\},[\s\S]*paintToken: \$\{JSON\.stringify\(issuedPaintToken\)\}/,
-    'a direct closed-tail reload must acknowledge the paint and reset only when the last bar moved backward',
+    /const resetForClosedMarketClamp = shouldResetViewportForClosedMarketClamp\([\s\S]*const resetForHistorylessBootstrap = shouldResetViewportForHistorylessBootstrap\([\s\S]*chartHasHistoryCandles,[\s\S]*const resetVisibleRange = resetForClosedMarketClamp \|\| resetForHistorylessBootstrap/,
+    'a direct full reload must reset closed-tail clamps and the historyless bootstrap handoff while preserving ordinary reload spans',
   );
   assertSourceContains(
     directPaint,
-    /catch \(_e\) \{[\s\S]*pendingChartDataPaintRef\.current\.token === issuedPaintToken[\s\S]*pendingChartDataPaintRef\.current = \{ token: '', dataContextSig: '' \}/,
+    /if \([\s\S]*updateMode === 'full_reload'[\s\S]*\|\| renkoUpdateMode === 'full_reload'[\s\S]*\|\| resetForHistorylessBootstrap[\s\S]*issuedPaintToken = issueChartDataPaintToken\([\s\S]*chartDataContextSig,[\s\S]*chartHasHistoryCandles,[\s\S]*\);[\s\S]*updateChartData\([\s\S]*preserveVisibleLogicalSpan: \$\{!resetVisibleRange\},[\s\S]*resetVisibleRange: \$\{resetVisibleRange\},[\s\S]*paintToken: \$\{JSON\.stringify\(issuedPaintToken\)\}/,
+    'the history-backed bootstrap reset must force updateChartData even when the expansion otherwise looks incremental',
+  );
+  assertSourceContains(
+    directPaint,
+    /const usableHistoryPaintAlreadyPending =[\s\S]*resetForHistorylessBootstrap[\s\S]*pendingChartDataPaintRef\.current\.confirmsUsableChart[\s\S]*pendingChartDataPaintRef\.current\.dataContextSig === chartDataContextSig[\s\S]*if \(usableHistoryPaintAlreadyPending\) \{[\s\S]*return;/,
+    'a reset-owning usable paint token must not be replaced before its acknowledgement arrives',
+  );
+  assertSourceContains(
+    directPaint,
+    /webViewRef\.current\.injectJavaScript\([\s\S]*if \(!chartHasHistoryCandles\) \{[\s\S]*historylessBootstrapViewportRef\.current = \{/,
+    'live-only updates must keep the historyless marker armed after injection',
+  );
+  assert.doesNotMatch(
+    directPaint,
+    /historylessBootstrapViewportRef\.current = EMPTY_HISTORYLESS_BOOTSTRAP_VIEWPORT/,
+    'the direct injection path must not consume reset ownership before a paint acknowledgement',
+  );
+  assertSourceContains(
+    source,
+    /msg\.type === 'CHART_DATA_PAINTED'[\s\S]*if \(!pendingPaint\.confirmsUsableChart\)[\s\S]*paintedCandles\.length === 0[\s\S]*historylessBootstrapViewportRef\.current\.contextKey[\s\S]*=== paintedDataContextSig[\s\S]*historylessBootstrapViewportRef\.current =[\s\S]*EMPTY_HISTORYLESS_BOOTSTRAP_VIEWPORT/,
+    'only an accepted usable paint acknowledgement may consume historyless reset ownership',
+  );
+  assertSourceContains(
+    directPaint,
+    /catch \(_e\) \{[\s\S]*pendingChartDataPaintRef\.current\.token === issuedPaintToken[\s\S]*pendingChartDataPaintRef\.current = \{[\s\S]*token: '',[\s\S]*dataContextSig: '',[\s\S]*confirmsUsableChart: false,[\s\S]*\}/,
     'a failed direct full reload injection must clear only its own pending paint token',
   );
   assertSourceContains(
     source,
     /const paintCanonicalLiveTick =[\s\S]*issueChartDataPaintToken,[\s\S]*readRenderableCanonicalCandles,[\s\S]*\]\);/,
     'the direct candle listener must refresh if the paint-token issuer changes',
+  );
+  assertSourceContains(
+    source,
+    /const emptyPaintToken = issueChartDataPaintToken\(chartDataContextSig, false\)/,
+    'clearing stale symbol data must never count as a usable chart paint',
+  );
+  assertSourceContains(
+    source,
+    /const replacementProjection = projectChartLiveTickCandles\([\s\S]*issueChartDataPaintToken\([\s\S]*chartDataContextSig,[\s\S]*chartHasHistoryCandles,[\s\S]*\)/,
+    'React history replacement must carry committed-history eligibility into its paint token',
   );
 });
 
@@ -294,7 +329,7 @@ test('Renko maps canonical candles into wickless bricks and reloads threshold ch
   );
   assertSourceContains(
     source,
-    /const renkoUpdateMode = mappedRenkoData[\s\S]*getChartSeriesUpdateMode\(renderedRenkoSeriesSnapshotRef\.current, nextRenkoSnapshot\)[\s\S]*updateMode === 'full_reload' \|\| renkoUpdateMode === 'full_reload'/,
+    /const renkoUpdateMode = mappedRenkoData[\s\S]*getChartSeriesUpdateMode\(renderedRenkoSeriesSnapshotRef\.current, nextRenkoSnapshot\)[\s\S]*updateMode === 'full_reload'[\s\S]*\|\| renkoUpdateMode === 'full_reload'/,
     'a Renko threshold crossing must replace the transformed series when its tail shape changes',
   );
 });

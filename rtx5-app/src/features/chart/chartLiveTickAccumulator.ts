@@ -25,6 +25,7 @@ export type ChartLiveTickProjection = Readonly<{
   candles: Candle[];
   activeCandle: Candle | null;
   usedAccumulator: boolean;
+  quoteOnlyBootstrap: boolean;
 }>;
 
 const getQuoteOrderMs = (quote: ExactChartQuoteSnapshot): number | null =>
@@ -173,23 +174,29 @@ export const projectChartLiveTickCandles = (
       candles,
       activeCandle: candles[candles.length - 1] ?? null,
       usedAccumulator: false,
+      quoteOnlyBootstrap: false,
     };
   }
 
   const accumulated = accumulator.candle;
   if (canonicalCandles.length === 0) {
-    return { candles: [accumulated], activeCandle: accumulated, usedAccumulator: true };
+    return {
+      candles: [accumulated],
+      activeCandle: accumulated,
+      usedAccumulator: true,
+      quoteOnlyBootstrap: true,
+    };
   }
 
   const tail = canonicalCandles[canonicalCandles.length - 1];
   if (tail.time > accumulated.time) {
     const candles = canonicalCandles as Candle[];
-    return { candles, activeCandle: tail, usedAccumulator: false };
+    return { candles, activeCandle: tail, usedAccumulator: false, quoteOnlyBootstrap: false };
   }
 
   if (tail.time < accumulated.time) {
     const candles = [...canonicalCandles, accumulated];
-    return { candles, activeCandle: accumulated, usedAccumulator: true };
+    return { candles, activeCandle: accumulated, usedAccumulator: true, quoteOnlyBootstrap: false };
   }
 
   const merged: Candle = {
@@ -201,5 +208,5 @@ export const projectChartLiveTickCandles = (
     volume: Math.max(accumulated.volume ?? 0, tail.volume ?? 0),
   };
   const candles = [...canonicalCandles.slice(0, -1), merged];
-  return { candles, activeCandle: merged, usedAccumulator: true };
+  return { candles, activeCandle: merged, usedAccumulator: true, quoteOnlyBootstrap: false };
 };

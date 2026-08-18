@@ -16,7 +16,7 @@ const emptyConfig: ChartSymbolPickerSheetConfig = Object.freeze({
   visualKey: 'chart.symbolPicker.uninitialized',
 });
 
-/** Dedicated top-level host: Symbol Picker never competes with Drawing Tools for retained pixels. */
+/** Dedicated top-level host: Symbol Picker stays pre-mounted outside ChartScreen renders. */
 export const ChartSymbolPickerSheetHost = memo(function ChartSymbolPickerSheetHost() {
   const current = useSyncExternalStore(
     subscribeChartSymbolPickerSheet,
@@ -30,6 +30,7 @@ export const ChartSymbolPickerSheetHost = memo(function ChartSymbolPickerSheetHo
 
   return (
     <ActionSheet
+      key={`chart-symbol-picker-host:${current.hostEpoch}`}
       {...config}
       detent={config.detent ?? 'large'}
       instantOpen={config.instantOpen ?? true}

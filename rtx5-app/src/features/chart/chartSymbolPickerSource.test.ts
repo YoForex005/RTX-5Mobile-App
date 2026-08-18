@@ -356,8 +356,16 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(source, /drawingToolsActionSheetConfig = useMemo[\s\S]*title:\s*t\('Drawing Tools'\)[\s\S]*searchable:\s*true[\s\S]*searchPlaceholder:\s*t\('Search drawing tools\.\.\.'\)[\s\S]*compactText:\s*true[\s\S]*presentation:\s*'mt5Plain'[\s\S]*showActionIcons:\s*true[\s\S]*deferOffscreenActions:\s*true[\s\S]*maximumVisibleActionRows:\s*12[\s\S]*detent:\s*'large'[\s\S]*instantOpen:\s*true[\s\S]*entryMotion:\s*'instant'[\s\S]*immediateHostHideOnClose:\s*true[\s\S]*runActionAfterClose:\s*false[\s\S]*keepFullHeightOnKeyboard:\s*true[\s\S]*actions: drawingToolsActions/);
   assert.doesNotMatch(source, /const openChartActionSheetSmoothly = useCallback|parkRetainedActionSheetHostForConfigSwap/);
   assert.match(symbolPickerSheetSource, /export const ChartSymbolPickerSheetHost = memo/);
-  assert.match(symbolPickerControllerSource, /requestRetainedActionSheetPreview\(config\.visualKey\)[\s\S]*commitRetainedActionSheetPreview\([\s\S]*if \(!retainedRevealAccepted\)[\s\S]*scheduleAfterFirstFrame\(\(\) => \{/);
-  assert.match(symbolPickerSheetSource, /<ActionSheet[\s\S]*detent=\{config\.detent \?\? 'large'\}[\s\S]*instantOpen=\{config\.instantOpen \?\? true\}[\s\S]*visible=\{current\.visible\}/);
+  assert.match(
+    symbolPickerControllerSource,
+    /export function showChartSymbolPickerSheet\(config:[\s\S]*if \(interactionActive \|\| snapshot\.visible\)[\s\S]*publishSnapshot\(config, true\);[\s\S]*return true;/,
+  );
+  assert.doesNotMatch(
+    symbolPickerControllerSource,
+    /requestRetainedActionSheetPreview|commitRetainedActionSheetPreview|parkRetainedActionSheetHostForConfigSwap|scheduleAfterFirstFrame|pendingAdoptionCancel|ownedRetainedRevision/,
+  );
+  assert.match(symbolPickerControllerSource, /publishSnapshot\(nextConfig, false, wasVisible\);/);
+  assert.match(symbolPickerSheetSource, /<ActionSheet[\s\S]*key=\{`chart-symbol-picker-host:\$\{current\.hostEpoch\}`\}[\s\S]*detent=\{config\.detent \?\? 'large'\}[\s\S]*instantOpen=\{config\.instantOpen \?\? true\}[\s\S]*visible=\{current\.visible\}/);
   assert.match(tabsLayoutSource, /<GlobalActionSheetHost \/>[\s\S]*<ChartSymbolPickerSheetHost \/>/);
   assert.match(drawingToolsHandlerSource, /runImmediateAction\('chart\.drawingTools\.open'[\s\S]*showChartActionSheet\(drawingToolsActionSheetConfig\)/);
   assert.doesNotMatch(drawingToolsHandlerSource, /openChartActionSheetSmoothly/);
@@ -496,7 +504,7 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
     source,
     /prefetchSymbolPickerHistory|CHART_SYMBOL_PICKER_PREFETCH_LIMIT|CHART_SYMBOL_PICKER_PREFETCH_DELAY_MS/,
   );
-  // The exact preloaded picker starts its native slide before React adoption.
+  // The preloaded picker replaces the hidden native host after each completed open.
   assert.match(
     source,
     /runImmediateAction\('chart\.symbolPicker\.open'[\s\S]*showChartSymbolPickerSheet\(symbolPickerActionSheetConfig\)[\s\S]*scheduleChartActionSheetContextReset\(\);/,

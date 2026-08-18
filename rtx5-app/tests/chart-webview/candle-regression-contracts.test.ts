@@ -69,12 +69,12 @@ test('does not permanently blank chart after rapid switching', () => {
   );
   assertSourceContains(
     chartSource,
-    /msg\.type === 'CHART_READY'[\s\S]*shouldAcceptChartReady\([\s\S]*readCurrentProjectedChartCandles\(\)[\s\S]*const readyCandles = readyProjection\.candles[\s\S]*retainCurrentChartCandles\(readyCandles\)[\s\S]*readyInitSignature === readySnapshotInitSignature[\s\S]*issueChartDataPaintToken\(chartDataContextSig\)[\s\S]*updateChartData\(\$\{JSON\.stringify\(mapped\)\}, \{[\s\S]*dataContextSig:[\s\S]*paintToken:[\s\S]*setLivePriceLineForContext\([\s\S]*readyVisibleLivePrice[\s\S]*chartDataContextSig[\s\S]*readyLiveRevision/,
+    /msg\.type === 'CHART_READY'[\s\S]*shouldAcceptChartReady\([\s\S]*hasHistoryCandles: readyHasHistoryCandles,[\s\S]*readCurrentProjectedChartCandles\(\)[\s\S]*const readyCandles = readyProjection\.candles[\s\S]*retainCurrentChartCandles\(readyCandles\)[\s\S]*readyInitSignature === readySnapshotInitSignature[\s\S]*issueChartDataPaintToken\([\s\S]*chartDataContextSig,[\s\S]*readyHasHistoryCandles,[\s\S]*\)[\s\S]*updateChartData\(\$\{JSON\.stringify\(mapped\)\}, \{[\s\S]*dataContextSig:[\s\S]*paintToken:[\s\S]*setLivePriceLineForContext\([\s\S]*readyVisibleLivePrice[\s\S]*chartDataContextSig[\s\S]*readyLiveRevision/,
     'CHART_READY must accept only the active context, retain its context-scoped projection, and acknowledge the latest projected candle plus Bid revision when its init snapshot is older',
   );
   assertSourceContains(
     chartSource,
-    /msg\.type === 'CHART_DATA_PAINTED'[\s\S]*shouldAcceptChartDataPaint\([\s\S]*setLastPaintedChartDataContextSig\(paintedDataContextSig\)/,
+    /msg\.type === 'CHART_DATA_PAINTED'[\s\S]*shouldAcceptChartDataPaint\([\s\S]*if \(!pendingPaint\.confirmsUsableChart\) \{[\s\S]*return;[\s\S]*setLastPaintedChartDataContextSig\(paintedDataContextSig\)/,
     'out-of-order symbol paint messages must not leave or clear loading for the wrong chart context',
   );
 });
@@ -87,8 +87,8 @@ test('empty history and empty live data surfaces a no-market-data state', () => 
   );
   assertSourceContains(
     chartSource,
-    /const isNoMarketData = sanitizedCandles\.length === 0 && !isLoading && !isError && loadingFallback/,
-    'native chart must stop showing only a blank shell after history/live both remain empty',
+    /const isNoMarketData = !candlesAvailable && !isLoading && !isError && loadingFallback/,
+    'native chart must stop showing only a blank shell when committed history remains unavailable',
   );
   assertSourceContains(
     chartSource,

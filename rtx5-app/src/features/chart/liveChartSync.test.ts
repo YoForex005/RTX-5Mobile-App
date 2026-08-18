@@ -9,6 +9,7 @@ import {
   RenderableChartCandle,
   resolveLatestCandleGap,
   shouldResetViewportForClosedMarketClamp,
+  shouldResetViewportForHistorylessBootstrap,
 } from './liveChartSync';
 
 const makeCandle = (
@@ -114,6 +115,133 @@ test('closed-market tail removal requests one recent-viewport reset', () => {
   assert.equal(shouldResetViewportForClosedMarketClamp(previous, appended, true), false);
   assert.equal(
     shouldResetViewportForClosedMarketClamp(EMPTY_CHART_SERIES_SNAPSHOT, clamped, true),
+    false,
+  );
+});
+
+test('history-backed data resets any historyless bootstrap viewport for the same context', () => {
+  const quoteOnly = buildChartSeriesSnapshot([makeCandle(220)]);
+  const twoLiveCandles = buildChartSeriesSnapshot([makeCandle(220), makeCandle(280)]);
+  const firstHistoryExpansion = buildChartSeriesSnapshot([
+    makeCandle(160),
+    makeCandle(220),
+  ]);
+  const appendedCanonicalCandle = buildChartSeriesSnapshot([
+    makeCandle(220),
+    makeCandle(280),
+  ]);
+  const history = buildChartSeriesSnapshot([
+    makeCandle(100),
+    makeCandle(160),
+    makeCandle(220),
+  ]);
+
+  assert.equal(
+    shouldResetViewportForHistorylessBootstrap(
+      'account:XAUUSD:M1',
+      'account:XAUUSD:M1',
+      quoteOnly,
+      history,
+      true,
+    ),
+    true,
+  );
+  assert.equal(
+    shouldResetViewportForHistorylessBootstrap(
+      'account:XAUUSD:M1',
+      'account:XAUUSD:M1',
+      quoteOnly,
+      firstHistoryExpansion,
+      true,
+    ),
+    true,
+  );
+  assert.equal(getChartSeriesUpdateMode(quoteOnly, appendedCanonicalCandle), 'incremental');
+  assert.equal(
+    shouldResetViewportForHistorylessBootstrap(
+      'account:XAUUSD:M1',
+      'account:XAUUSD:M1',
+      quoteOnly,
+      appendedCanonicalCandle,
+      true,
+    ),
+    true,
+  );
+  assert.equal(
+    shouldResetViewportForHistorylessBootstrap(
+      'account:XAUUSD:M1',
+      'account:XAUUSD:M1',
+      twoLiveCandles,
+      history,
+      true,
+    ),
+    true,
+    'two manager-created live candles must remain armed until committed history arrives',
+  );
+  assert.equal(
+    shouldResetViewportForHistorylessBootstrap(
+      'account:XAUUSD:M1',
+      'account:XAUUSD:M1',
+      quoteOnly,
+      twoLiveCandles,
+      false,
+    ),
+    false,
+    'a second live-only candle must not consume the pending history reset',
+  );
+});
+
+test('historyless bootstrap reset is scoped to the armed context and committed history', () => {
+  const quoteOnly = buildChartSeriesSnapshot([makeCandle(220)]);
+  const regularHistory = buildChartSeriesSnapshot([makeCandle(160), makeCandle(220)]);
+  const expandedHistory = buildChartSeriesSnapshot([
+    makeCandle(100),
+    makeCandle(160),
+    makeCandle(220),
+  ]);
+
+  assert.equal(
+    shouldResetViewportForHistorylessBootstrap('', 'account:XAUUSD:M1', quoteOnly, expandedHistory, true),
+    false,
+  );
+  assert.equal(
+    shouldResetViewportForHistorylessBootstrap(
+      'account:XAUUSD:M1',
+      'account:GBPUSD:M1',
+      quoteOnly,
+      expandedHistory,
+      true,
+    ),
+    false,
+  );
+  assert.equal(
+    shouldResetViewportForHistorylessBootstrap(
+      'account:XAUUSD:M1',
+      'account:XAUUSD:M1',
+      regularHistory,
+      expandedHistory,
+      false,
+    ),
+    false,
+  );
+  assert.equal(
+    shouldResetViewportForHistorylessBootstrap(
+      'account:XAUUSD:M1',
+      'account:XAUUSD:M1',
+      quoteOnly,
+      quoteOnly,
+      false,
+    ),
+    false,
+  );
+  assert.equal(
+    shouldResetViewportForHistorylessBootstrap(
+      'account:XAUUSD:M1',
+      'account:XAUUSD:M1',
+      EMPTY_CHART_SERIES_SNAPSHOT,
+      expandedHistory,
+      true,
+    ),
     false,
   );
 });

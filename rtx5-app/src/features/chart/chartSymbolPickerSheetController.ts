@@ -1,18 +1,11 @@
 import type { ComponentProps } from 'react';
 
 import type { ActionSheet } from '../../ui/components/ActionSheet/ActionSheet';
-import {
-  cancelRetainedActionSheetPreview,
-  commitRetainedActionSheetPreview,
-  getRetainedActionSheetVisualSnapshot,
-  requestRetainedActionSheetPreview,
-} from '../../ui/components/ActionSheet/retainedActionSheetVisualController';
-import { scheduleAfterFirstFrame } from '../../utils/startupScheduler';
 
 /**
- * Owns the chart symbol picker's retained ActionSheet outside ChartScreen.
- * Preloading mounts searchable rows while hidden; opening can then start the
- * native slide in the tap turn and let React adopt visibility after one frame.
+ * Owns the chart symbol picker's preloaded ActionSheet outside ChartScreen.
+ * Each close replaces the hidden native host while preserving its exact rows,
+ * so a repeat open cannot reuse Android's cached final pose from the prior one.
  */
 
 export type ChartSymbolPickerSheetConfig = Omit<
@@ -22,6 +15,7 @@ export type ChartSymbolPickerSheetConfig = Omit<
 
 export type ChartSymbolPickerSheetSnapshot = Readonly<{
   config: ChartSymbolPickerSheetConfig | null;
+  hostEpoch: number;
   revision: number;
   visible: boolean;
 }>;
@@ -30,24 +24,25 @@ export type ChartSymbolPickerSheetSnapshot = Readonly<{
 const listeners = new Set<() => void>();
 let snapshot: ChartSymbolPickerSheetSnapshot = Object.freeze({
   config: null,
+  hostEpoch: 0,
   revision: 0,
   visible: false,
 });
-// These fields separate the currently visible interaction, a newer config that
-// must wait until close, and the exact retained-preview revision we own.
+// These fields separate the currently visible interaction from a newer config
+// that must wait until close.
 let interactionActive = false;
 let deferredConfig: ChartSymbolPickerSheetConfig | null = null;
-let pendingAdoptionCancel: (() => void) | null = null;
-let ownedRetainedRevision: number | null = null;
 
 const publishSnapshot = (
   config: ChartSymbolPickerSheetConfig | null,
   visible: boolean,
+  replaceNativeHost = false,
 ) => {
   // Freeze each published value so subscribers always observe one coherent
   // config/visibility revision rather than partially updated controller state.
   snapshot = Object.freeze({
     config,
+    hostEpoch: snapshot.hostEpoch + (replaceNativeHost ? 1 : 0),
     revision: snapshot.revision + 1,
     visible,
   });
@@ -61,26 +56,11 @@ export const subscribeChartSymbolPickerSheet = (listener: () => void) => {
 
 export const getChartSymbolPickerSheetSnapshot = () => snapshot;
 
-const cancelPendingAdoptionTimer = () => {
-  pendingAdoptionCancel?.();
-  pendingAdoptionCancel = null;
-};
-
-const releaseOwnedRetainedReveal = () => {
-  if (ownedRetainedRevision === null) {
-    return;
-  }
-  // Revision-scoped cancellation cannot erase a newer preview owned by a
-  // different ActionSheet host.
-  cancelRetainedActionSheetPreview(ownedRetainedRevision);
-  ownedRetainedRevision = null;
-};
-
 /** Keeps the exact searchable symbol rows mounted before either chart launcher is touched. */
 export function preloadChartSymbolPickerSheet(config: ChartSymbolPickerSheetConfig) {
-  if (interactionActive || snapshot.visible || pendingAdoptionCancel !== null) {
-    // Keep a native reveal internally consistent. Fresh market-symbol rows are
-    // adopted as soon as the current sheet closes.
+  if (interactionActive || snapshot.visible) {
+    // Keep a visible interaction internally consistent. Fresh market-symbol
+    // rows are adopted as soon as the current sheet closes.
     deferredConfig = config;
     return false;
   }
@@ -92,71 +72,40 @@ export function preloadChartSymbolPickerSheet(config: ChartSymbolPickerSheetConf
 }
 
 /**
- * Starts the exact mounted native slide in the touch turn. React adopts the
- * same visible state only after those first pixels reach the compositor.
+ * Opens the already-mounted hidden host through one React visibility edge.
+ * The preceding close has already replaced any host that reached a visible
+ * final pose, keeping first and repeat opens on the same clean path.
  */
 export function showChartSymbolPickerSheet(config: ChartSymbolPickerSheetConfig) {
-  cancelPendingAdoptionTimer();
-  releaseOwnedRetainedReveal();
+  if (interactionActive || snapshot.visible) {
+    if (snapshot.config !== config) {
+      deferredConfig = config;
+    }
+    return false;
+  }
+
   deferredConfig = null;
   interactionActive = true;
-
-  if (snapshot.config !== config) {
-    // A first-frame tap can beat the preload effect. It still opens correctly;
-    // subsequent taps take the retained path below.
-    publishSnapshot(config, true);
-    return false;
-  }
-
-  const retainedRevision = requestRetainedActionSheetPreview(config.visualKey);
-  ownedRetainedRevision = retainedRevision;
-  const retainedRevealAccepted = commitRetainedActionSheetPreview(
-    retainedRevision,
-    config.visualKey,
-  );
-  if (!retainedRevealAccepted) {
-    releaseOwnedRetainedReveal();
-    publishSnapshot(config, true);
-    return false;
-  }
-
-  pendingAdoptionCancel = scheduleAfterFirstFrame(() => {
-    pendingAdoptionCancel = null;
-    if (!interactionActive || ownedRetainedRevision !== retainedRevision) {
-      return;
-    }
-    const retainedSnapshot = getRetainedActionSheetVisualSnapshot();
-    if (
-      retainedSnapshot.mode !== 'committed'
-      || retainedSnapshot.revision !== retainedRevision
-      || retainedSnapshot.visualKey !== config.visualKey
-    ) {
-      // A newer host won before adoption. Do not revive this stale picker over it.
-      ownedRetainedRevision = null;
-      interactionActive = false;
-      return;
-    }
-    publishSnapshot(config, true);
-  });
+  publishSnapshot(config, true);
   return true;
 }
 
 export function hideChartSymbolPickerSheet() {
+  const wasVisible = snapshot.visible;
   const wasActive =
     interactionActive
-    || snapshot.visible
-    || pendingAdoptionCancel !== null
-    || ownedRetainedRevision !== null;
+    || snapshot.visible;
   interactionActive = false;
-  cancelPendingAdoptionTimer();
-  releaseOwnedRetainedReveal();
 
-  // Adopt symbol-list changes deferred during the animation only after hiding;
-  // swapping retained rows mid-slide would reveal a mismatched sheet frame.
+  // Adopt symbol-list changes deferred during the interaction only after
+  // hiding; swapping rows while visible would reveal a mismatched sheet.
   const nextConfig = deferredConfig ?? snapshot.config;
   deferredConfig = null;
   if (snapshot.visible || snapshot.config !== nextConfig) {
-    publishSnapshot(nextConfig, false);
+    // Recreate only after a real visible interaction. The replacement mounts
+    // hidden with the same preloaded rows, removing the previous compositor
+    // surface before another symbol tap can reveal it.
+    publishSnapshot(nextConfig, false, wasVisible);
   }
   return wasActive;
 }
@@ -166,12 +115,9 @@ export function isChartSymbolPickerSheetActive() {
 }
 
 export function disposeChartSymbolPickerSheet() {
-  // The top-level host calls this on real unmount, releasing timers and any
-  // retained ActionSheet preview so it cannot leak into another screen.
+  // The top-level host calls this only on a real unmount.
   interactionActive = false;
   deferredConfig = null;
-  cancelPendingAdoptionTimer();
-  releaseOwnedRetainedReveal();
   if (snapshot.config !== null || snapshot.visible) {
     publishSnapshot(null, false);
   }
@@ -180,8 +126,11 @@ export function disposeChartSymbolPickerSheet() {
 export function resetChartSymbolPickerSheetControllerForTests() {
   interactionActive = false;
   deferredConfig = null;
-  cancelPendingAdoptionTimer();
-  releaseOwnedRetainedReveal();
-  snapshot = Object.freeze({ config: null, revision: 0, visible: false });
+  snapshot = Object.freeze({
+    config: null,
+    hostEpoch: 0,
+    revision: 0,
+    visible: false,
+  });
   listeners.forEach((listener) => listener());
 }

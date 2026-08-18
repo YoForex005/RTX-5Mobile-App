@@ -176,8 +176,13 @@ test('symbol and timeframe switching full-reloads data and resets the first view
   );
   assertSourceContains(
     source,
-    /updateChartData\(\$\{JSON\.stringify\(mapped\)\}, \{[\s\S]*resetVisibleRange: \$\{contextChanged \|\| resetForClosedMarketClamp\},[\s\S]*dataContextSig: \$\{JSON\.stringify\(chartDataContextSig\)\},[\s\S]*paintToken: \$\{JSON\.stringify\(issuedPaintToken\)\}/,
+    /updateChartData\(\$\{JSON\.stringify\(mapped\)\}, \{[\s\S]*resetVisibleRange: \$\{contextChanged \|\| resetForClosedMarketClamp \|\| resetForHistorylessBootstrap\},[\s\S]*dataContextSig: \$\{JSON\.stringify\(chartDataContextSig\)\},[\s\S]*paintToken: \$\{JSON\.stringify\(issuedPaintToken\)\}/,
     'symbol/timeframe full reloads must reset the visible range for the newly selected context',
+  );
+  assertSourceContains(
+    source,
+    /!hasHistoryCandles && initSnapshot\.length > 0[\s\S]*historylessBootstrapViewportRef\.current = \{[\s\S]*contextKey: chartDataContextSig,[\s\S]*snapshot: initSnapshot[\s\S]*shouldResetViewportForHistorylessBootstrap\(/,
+    'every historyless first paint must arm a context-scoped viewport reset for the later history handoff',
   );
   assertSourceContains(
     source,
@@ -186,8 +191,13 @@ test('symbol and timeframe switching full-reloads data and resets the first view
   );
   assertSourceContains(
     source,
-    /useEffect\(\(\) => \{[\s\S]*const renderedContextToClear =[\s\S]*renderedDataContextSigRef\.current \|\| lastInitDispatchRef\.current\.dataContextSig;[\s\S]*clearRenderedMarketPriceLines\(renderedContextToClear\);[\s\S]*renderedDataContextSigRef\.current = '';[\s\S]*chartLiveTickAccumulatorRef\.current = null;[\s\S]*publishChartLiveOhlc\(null\);[\s\S]*\}, \[chartDataContextSig, clearRenderedMarketPriceLines, publishChartLiveOhlc\]\)/,
-    'symbol/timeframe changes must capture and clear the old rendered context, accumulator, and OHLC snapshot without blanking the canvas',
+    /if \(candlesRefContextSigRef\.current !== chartDataContextSig\) \{[\s\S]*chartLiveTickAccumulatorRef\.current = null;[\s\S]*historylessBootstrapViewportRef\.current = EMPTY_HISTORYLESS_BOOTSTRAP_VIEWPORT;[\s\S]*useEffect\(\(\) => \{[\s\S]*const renderedContextToClear =[\s\S]*clearRenderedMarketPriceLines\(renderedContextToClear\);[\s\S]*renderedDataContextSigRef\.current = '';[\s\S]*chartLiveTickAccumulatorRef\.current = null;[\s\S]*publishChartLiveOhlc\(null\);[\s\S]*\}, \[chartDataContextSig, clearRenderedMarketPriceLines, publishChartLiveOhlc\]\)/,
+    'symbol/timeframe changes must synchronously clear stale historyless viewport state with the old accumulator and rendered context',
+  );
+  assertSourceContains(
+    source,
+    /chartDataContextEpochRef\.current\.contextKey !== chartDataContextSig[\s\S]*epoch: chartDataContextEpochRef\.current\.epoch \+ 1[\s\S]*lastPaintedChartDataContextEpoch === chartDataContextEpoch/,
+    'rapid A-B-A selections must not reuse an older paint acknowledgement for the same context string',
   );
 });
 
