@@ -1,6 +1,7 @@
 /**
- * Module-scoped shared lock so multiple ChartTradeButtons mounted on the same
- * screen (e.g. compact + sheet variants) cannot fire simultaneous trades.
+ * Module-scoped shared lock for the one-click-OFF Order Ticket handoff when
+ * multiple ChartTradeButtons variants are mounted on the same screen.
+ * One-click market-order dispatch deliberately does not use this lock.
  */
 import type { TradeSide } from '../../../../domain/tradeSide';
 

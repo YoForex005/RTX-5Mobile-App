@@ -198,11 +198,11 @@ export const buildChartOpenPositionLabelPatches = ({
 
   const resolvedLiveQuote = liveQuote ?? (
     (typeof liveBid === 'number' && Number.isFinite(liveBid) && liveBid > 0) ||
-    (typeof liveAsk === 'number' && Number.isFinite(liveAsk) && liveAsk > 0)
+      (typeof liveAsk === 'number' && Number.isFinite(liveAsk) && liveAsk > 0)
       ? {
-          bid: typeof liveBid === 'number' ? liveBid : undefined,
-          ask: typeof liveAsk === 'number' ? liveAsk : undefined,
-        }
+        bid: typeof liveBid === 'number' ? liveBid : undefined,
+        ask: typeof liveAsk === 'number' ? liveAsk : undefined,
+      }
       : undefined
   );
   const normalizedChartSymbol = normalizeChartOverlaySymbol(chartSymbol);
@@ -282,21 +282,21 @@ export const buildChartOverlayPayload = ({
   const normalizedChartSymbol = normalizeChartOverlaySymbol(chartSymbol);
   const resolvedLiveQuote = liveQuote ?? (
     (typeof liveBid === 'number' && Number.isFinite(liveBid) && liveBid > 0) ||
-    (typeof liveAsk === 'number' && Number.isFinite(liveAsk) && liveAsk > 0)
+      (typeof liveAsk === 'number' && Number.isFinite(liveAsk) && liveAsk > 0)
       ? {
-          bid: typeof liveBid === 'number' ? liveBid : undefined,
-          ask: typeof liveAsk === 'number' ? liveAsk : undefined,
-        }
+        bid: typeof liveBid === 'number' ? liveBid : undefined,
+        ask: typeof liveAsk === 'number' ? liveAsk : undefined,
+      }
       : undefined
   );
   // Show the trader's open positions for this symbol, filtered to the sides the
   // "Show buy trade" / "Show sell trade" preferences enable.
   const symbolPositions = showTradeSides
     ? positions.filter(
-        (position) =>
-          normalizeChartOverlaySymbol(position.symbol) === normalizedChartSymbol &&
-          isTradeSideEnabled(position.side, showOnChart),
-      )
+      (position) =>
+        normalizeChartOverlaySymbol(position.symbol) === normalizedChartSymbol &&
+        isTradeSideEnabled(position.side, showOnChart),
+    )
     : [];
 
   if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_OVERLAY_DEBUG) {
@@ -337,7 +337,7 @@ export const buildChartOverlayPayload = ({
       id: `open-${position.id}`,
       price: parsedPrice,
       color: sideColor,
-      lineWidth: 1,
+      lineWidth: 2,
       lineStyle: CHART_LINE_STYLE.Dotted,
       axisLabelVisible: true,
       title: labelPatch.title,
@@ -356,7 +356,7 @@ export const buildChartOverlayPayload = ({
           id: `tp-${position.id}`,
           price: tpValue,
           color: tpColor,
-          lineWidth: 1,
+          lineWidth: 2,
           lineStyle: CHART_LINE_STYLE.Dashed,
           axisLabelVisible: false,
           title: formatTpSlOverlayLabel(
@@ -391,7 +391,7 @@ export const buildChartOverlayPayload = ({
           id: `sl-${position.id}`,
           price: slValue,
           color: slColor,
-          lineWidth: 1,
+          lineWidth: 2,
           lineStyle: CHART_LINE_STYLE.Dashed,
           axisLabelVisible: false,
           title: formatTpSlOverlayLabel(

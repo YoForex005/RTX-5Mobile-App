@@ -3,6 +3,7 @@ import test from 'node:test';
 import type { Position } from '../positions/index.ts';
 import type { PlaceOrderResponse } from './types.ts';
 import {
+  hasMarketPositionReconciliationBatchConverged,
   hasMarketPositionReconciliationConverged,
   reconcileMarketOrderPositions,
 } from './marketPositionReconciliation.ts';
@@ -99,4 +100,97 @@ test('owner change stops reconciliation without committing', async () => {
 
   assert.equal(result, 'stale');
   assert.deepEqual(commits, []);
+});
+
+test('a 50-order batch cannot commit until every distinct opened ticket is present', async () => {
+  const evidence = Array.from({ length: 50 }, (_, index) => response('opened', index + 1));
+  const completeLedger = Array.from({ length: 50 }, (_, index) => position(index + 1));
+  const candidates: Position[][] = [[position(50)], completeLedger];
+  const commits: Position[][] = [];
+
+  assert.equal(
+    hasMarketPositionReconciliationBatchConverged(evidence, [position(50)], 1),
+    false,
+  );
+  const result = await reconcileMarketOrderPositions(evidence, {
+    readPositions: async () => candidates.shift() ?? [],
+    commitPositions: (positions) => commits.push(positions),
+    isOwnerCurrent: () => true,
+    wait: async () => undefined,
+  });
+
+  assert.equal(result, 'committed');
+  assert.equal(commits.length, 1);
+  assert.equal(commits[0].length, 50);
+});
+
+test('conflicting same-ticket presence falls back to the conservative second-read backstop', () => {
+  assert.equal(
+    hasMarketPositionReconciliationBatchConverged(
+      [response('opened', 55), response('closed', 55)],
+      [],
+      0,
+    ),
+    false,
+  );
+  assert.equal(
+    hasMarketPositionReconciliationBatchConverged(
+      [response('opened', 55), response('closed', 55)],
+      [],
+      1,
+    ),
+    true,
+  );
+});
+
+test('a same-ticket netting burst waits for two identical ledger-shape reads', async () => {
+  const evidence = Array.from({ length: 50 }, () => response('increased', 55));
+  const candidates = [
+    [position(55, 0.2)],
+    [position(55, 0.8)],
+    [position(55, 1.5)],
+    [position(55, 1.5)],
+  ];
+  const commits: Position[][] = [];
+  let reads = 0;
+
+  const result = await reconcileMarketOrderPositions(evidence, {
+    readPositions: async () => {
+      const candidate = candidates[Math.min(reads, candidates.length - 1)];
+      reads += 1;
+      return candidate;
+    },
+    commitPositions: (positions) => commits.push(positions),
+    isOwnerCurrent: () => true,
+    wait: async () => undefined,
+  });
+
+  assert.equal(result, 'committed');
+  assert.equal(reads, 4);
+  assert.equal(commits.length, 1);
+  assert.equal(commits[0][0].volume, 1.5);
+});
+
+test('conflicting same-ticket actions do not commit a changing second snapshot', async () => {
+  const candidates = [[position(55)], [], []];
+  const commits: Position[][] = [];
+  let reads = 0;
+
+  const result = await reconcileMarketOrderPositions(
+    [response('opened', 55), response('closed', 55)],
+    {
+      readPositions: async () => {
+        const candidate = candidates[Math.min(reads, candidates.length - 1)];
+        reads += 1;
+        return candidate;
+      },
+      commitPositions: (positions) => commits.push(positions),
+      isOwnerCurrent: () => true,
+      wait: async () => undefined,
+    },
+  );
+
+  assert.equal(result, 'committed');
+  assert.equal(reads, 3);
+  assert.deepEqual(commits, [[]]);
 });

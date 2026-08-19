@@ -100,8 +100,36 @@ const scheduleInitialHistoryRetry = (
 };
 
 /**
+ * Releases the in-flight flags of a history request whose broker session was
+ * superseded while it was on the wire.
+ *
+ * The payload itself must be discarded — it belongs to a session we are no
+ * longer allowed to render — but the flags this request raised still have to
+ * come down. Returning with `historyLoading` left true wedges the entry
+ * permanently: `enqueueLiveEvent` diverts every subsequent quote tick into
+ * `bufferedEvents` while that flag is set, and those buffers are only drained by
+ * this request's own settle handlers. No `commit()` can then run, so `loading`
+ * is never recomputed, React is never notified, and the chart spins until the
+ * app is restarted.
+ */
+const releaseSupersededHistoryRequest = (
+  manager: HistoryFetchManagerBridge,
+  live: StreamEntry,
+): void => {
+  live.loading = false;
+  live.historyLoading = false;
+  live.historyPageLoading = false;
+  const replayEvents = live.bufferedEvents
+    .splice(0)
+    .sort((left, right) => getEventTime(left) - getEventTime(right) || left.order - right.order);
+  manager.applyLiveEvents(live, replayEvents);
+  manager.commit(live);
+  manager.notify(live);
+};
+
+/**
  * Executes an async fetch of authoritative historical candles from the REST API.
- * 
+ *
  * - Handles race conditions via `abortController` and `requestId`.
  * - Replays any live websocket ticks that buffered while history was downloading.
  * - Safely stitches the trusted history underneath the live mutating candles.
@@ -179,9 +207,12 @@ export const runLoadHistory = (
     cacheNamespace: sessionProvenance.cacheNamespace,
   })
     .then((history) => {
-      if (!isActiveBrokerSessionProvenanceCurrent(history.provenance)) return;
       const live = manager.entries.get(entry.key);
       if (!live || live.requestId !== requestId || controller.signal.aborted) {
+        return;
+      }
+      if (!isActiveBrokerSessionProvenanceCurrent(history.provenance)) {
+        releaseSupersededHistoryRequest(manager, live);
         return;
       }
 
@@ -271,9 +302,12 @@ export const runLoadHistory = (
       }
     })
     .catch((error) => {
-      if (!isActiveBrokerSessionProvenanceCurrent(sessionProvenance)) return;
       const live = manager.entries.get(entry.key);
       if (!live || live.requestId !== requestId || controller.signal.aborted) {
+        return;
+      }
+      if (!isActiveBrokerSessionProvenanceCurrent(sessionProvenance)) {
+        releaseSupersededHistoryRequest(manager, live);
         return;
       }
 

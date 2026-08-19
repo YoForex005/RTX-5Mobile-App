@@ -332,11 +332,25 @@ test('overlay bridge: draggable trade labels keep touch ownership through the fu
 
 test('overlay bridge: chart movement keeps DOM overlay rebuilds off the hot path', () => {
   const touchBody = extractFunctionBody(source, 'bindChartTapListeners');
+  const verticalOverlayBody = extractFunctionBody(
+    source,
+    'refreshVerticalGestureOverlayPositions',
+  );
 
   assertSourceContains(
     touchBody,
     /var renderVerticalPanRange = function\(nextRange\)[\s\S]*priceScaleApi\.setVisibleRange\(nextRange\)[\s\S]*refreshVerticalGestureOverlayPositions\(\)[\s\S]*var applyVerticalPanAt = function\(clientY\)[\s\S]*vertPanState\.latestRange = nextRange[\s\S]*renderVerticalPanRange\(nextRange\)/,
     'vertical chart movement must set the target price range during the active move while keeping trade labels and right-axis boxes attached',
+  );
+  assertSourceContains(
+    verticalOverlayBody,
+    /verticalGestureDomWorkPending = true[\s\S]*cancelOverlayDomRefreshFrame\(\)[\s\S]*scheduleGestureRightPriceScaleFallbackRefresh\(\)[\s\S]*scheduleTradeOverlayReposition\(\)/,
+    'dense vertical gestures must coalesce existing axis labels and trade nodes into lightweight frame passes',
+  );
+  assert.doesNotMatch(
+    verticalOverlayBody,
+    /refreshOverlayDomLabels|applyOverlayPayload|createPriceLine/,
+    'vertical pointermove must never rebuild all trade overlay DOM nodes',
   );
   assertSourceContains(
     touchBody,
@@ -485,8 +499,8 @@ test('chart market execution only submits SL and TP that target a new order', ()
   );
   assertSourceContains(
     chartTradeHandlerSource,
-    /buildChartMarketOrderPayload\(\{[\s\S]*stopLossPrice: queuedTrade\.stopLossPrice,[\s\S]*takeProfitPrice: queuedTrade\.takeProfitPrice/,
-    'queued one-click market submit must include selected SL/TP prices',
+    /buildChartMarketOrderPayload\(\{[\s\S]*stopLossPrice: acceptedTrade\.stopLossPrice,[\s\S]*takeProfitPrice: acceptedTrade\.takeProfitPrice/,
+    'immediate one-click market submit must include selected SL/TP prices',
   );
   assertSourceContains(
     chartTradeActionsSource,
@@ -500,13 +514,18 @@ test('chart market execution only submits SL and TP that target a new order', ()
   );
   assertSourceContains(
     chartTradeResultSource,
-    /if \(feedback\.type !== 'success'\) \{[\s\S]*setTradeFeedback\(feedback\);[\s\S]*return;[\s\S]*\}[\s\S]*if \(!suppressConfirmedReceipt\) \{[\s\S]*setTradeFeedback\(feedback\);[\s\S]*refetchOrders\(\)[\s\S]*refetchAccountSummary\(\)/,
-    'chart success must suppress duplicate single receipts only for stacked fills and still refresh query-backed trade data',
+    /if \(feedback\.type !== 'success'\) \{[\s\S]*setTradeFeedback\(feedback\);[\s\S]*return;[\s\S]*\}[\s\S]*if \(!suppressConfirmedReceipt\) \{[\s\S]*setTradeFeedback\(feedback\);[\s\S]*chartTradeResultRefreshScheduler\.schedule\([\s\S]*Promise\.allSettled\(\[[\s\S]*refetchClosedPositions\(\)[\s\S]*refetchOrders\(\)/,
+    'chart success must suppress duplicate single receipts only for stacked fills and coalesce dependent query refreshes',
   );
   assert.doesNotMatch(
     chartTradeResultSource,
     /refreshPositions\(/,
     'chart success must not race the API-owned position reconciliation with an immediate full-ledger read',
+  );
+  assert.doesNotMatch(
+    chartTradeResultSource,
+    /refetchAccountSummary\(\)/,
+    'chart success must not duplicate the orders-layer coalesced account-summary refresh',
   );
   assertSourceContains(
     chartTradeExecutionResultSource,
@@ -523,19 +542,19 @@ test('chart market execution only submits SL and TP that target a new order', ()
     /pathname: '\/trade\/order-ticket'[\s\S]*params: \{[\s\S]*\.\.\.\(protectionDraftId \? \{ protectionDraftId \} : \{\}\)/,
     'one-click-off navigation must carry the exact chart protection draft token into Order Ticket',
   );
-  assertSourceContains(
+  assert.doesNotMatch(
     chartTradeHandlerSource,
-    /queuedTrade\.protectionDraftId &&\s*!tryBeginChartProtectionDraftSubmission\(queuedTrade\.protectionDraftId\)[\s\S]*tradeQueueRef\.current\.push\(queuedTrade\)/,
-    'one-click execution must admit only one submission for an exact protection draft',
+    /tryBeginChartProtectionDraftSubmission|Order Already Submitted/,
+    'one-click execution must not serialize rapid taps behind an in-flight protection draft',
   );
   assertSourceContains(
     chartTradeHandlerSource,
-    /publishChartProtectionDraftSubmission\(queuedTrade\.protectionDraftId\);[\s\S]*placeOrder\(payload/,
+    /publishChartProtectionDraftSubmission\(acceptedTrade\.protectionDraftId\);[\s\S]*placeOrder\(payload/,
     'one-click execution must snapshot ticket structure at the actual POST start',
   );
   assertSourceContains(
     chartTradeHandlerSource,
-    /\['rejected', 'failed', 'error'\]\.includes\(responseStatus\)[\s\S]*releaseChartProtectionDraftSubmission\(queuedTrade\.protectionDraftId\)[\s\S]*return;/,
+    /\['rejected', 'failed', 'error'\]\.includes\(responseStatus\)[\s\S]*releaseChartProtectionDraftSubmission\(acceptedTrade\.protectionDraftId\)[\s\S]*return;/,
     'resolved broker rejections must release the protected draft instead of becoming confirmation-pending success',
   );
   assertSourceContains(
@@ -711,12 +730,17 @@ test('overlay bridge: trade labels follow their price coordinate off screen', ()
   assertSourceContains(
     anchoredTopsBody,
     /var anchoredStep = Math\.max\([\s\S]*OVERLAY_LABEL_LINE_HEIGHT \+ OVERLAY_LABEL_LINE_GAP,[\s\S]*OVERLAY_POSITION_BOX_HEIGHT \+ resolvePositionBoxGap\(labels\.length\)[\s\S]*previousVisibleTop !== null[\s\S]*top = Math\.max\(top, previousVisibleTop \+ anchoredStep\)/,
-    'crowded open-position rows must clear both their text and right-axis price boxes',
+    'crowded order and SL/TP rows must still clear both their text and right-axis price boxes',
   );
   assertSourceContains(
     anchoredTopsBody,
-    /if \(item\.paneVisible !== false\) \{[\s\S]*previousVisibleTop = top;[\s\S]*\}[\s\S]*tops\[i\] = top/,
-    'off-pane trade labels must not reserve space in the visible vertical list',
+    /if \(!isOpenPositionOverlayLine\(item\) && item\.paneVisible !== false\) \{[\s\S]*previousVisibleTop = top;[\s\S]*\}[\s\S]*tops\[i\] = top/,
+    'open-position rows must stay on their real price coordinate, and off-pane labels must not reserve space in the visible vertical list',
+  );
+  assertSourceContains(
+    refreshBody,
+    /if \(isOpenPositionBox\) \{[\s\S]*openPositionBoxes\.push\(positionBox\);[\s\S]*positionBoxes\.push\(positionBox\);[\s\S]*for \(var boxLayoutIndex[\s\S]*positionBoxes = openPositionBoxes\.concat\(positionBoxes\)/,
+    'open-position right-axis boxes must bypass the stacked box layout and keep their real price row',
   );
   assert.doesNotMatch(
     source,
@@ -725,18 +749,23 @@ test('overlay bridge: trade labels follow their price coordinate off screen', ()
   );
   assertSourceContains(
     anchoredLaneBody,
-    /var paneLeft =[\s\S]*var axisMetrics = resolveMarketPriceScaleAxisMetrics\(layer\)[\s\S]*axisMetrics\.axisLeft[\s\S]*paneWidth - laneWidth\) \/ 2/,
-    'the trade label lane must center inside the candle pane and exclude the right price scale',
+    /var paneLeft =[\s\S]*var axisMetrics = resolveMarketPriceScaleAxisMetrics\(layer\)[\s\S]*axisMetrics\.axisLeft[\s\S]*var remainingWidth = Math\.max\(0, paneWidth - laneWidth\)[\s\S]*var desiredLeftInset = Math\.min\([\s\S]*OVERLAY_OPEN_POSITION_LABEL_MAX_LEFT[\s\S]*Math\.round\(paneWidth \* OVERLAY_OPEN_POSITION_LABEL_LEFT_RATIO\)[\s\S]*var maxLeftInset = Math\.max\(0, remainingWidth - OVERLAY_ANCHORED_LABEL_LEFT\)[\s\S]*leftBiased === true[\s\S]*Math\.min\(desiredLeftInset, maxLeftInset\)[\s\S]*remainingWidth \/ 2[\s\S]*left: Math\.round\(paneLeft \+ laneInset\)/,
+    'open-position text must use an adaptive, bounded left lane while other anchored labels retain the centered pane lane',
   );
   assertSourceContains(
     applyAnchoredLaneBody,
     /label\.style\.left = Math\.round\(lane\.left\) \+ 'px'[\s\S]*label\.style\.width =[\s\S]*label\.style\.textAlign = 'center'/,
-    'all anchored trade text must use the same centered fixed-width column',
+    'moving the fixed-width lane must preserve the centered Buy/Sell, lot, and P/L group layout',
+  );
+  assertSourceContains(
+    refreshBody,
+    /var openPositionLabelLane = resolveAnchoredOverlayLabelLane\(layer, true\)[\s\S]*isOpenPositionTradeLabel = isOpenPositionOverlayLine\(item\)[\s\S]*activeAnchoredLabelLane = isOpenPositionTradeLabel[\s\S]*applyAnchoredOverlayLabelLane\([\s\S]*activeAnchoredLabelLane/,
+    'only open-position Buy/Sell, lot, and P/L rows must move into the left lane during full overlay rendering',
   );
   assertSourceContains(
     refreshBody,
     /openPositionRowYById\[anchoredRowItem\.id\] = resolveAnchoredOverlayRowY[\s\S]*renderAnchoredTradeLine\([\s\S]*openPositionRowYById\[anchoredItem\.id\][\s\S]*renderLabel\(anchoredItem, anchoredTop, 'label:anchored:' /,
-    'each open-position label and connector line must use the same vertically stacked row',
+    'each open-position label and connector line must use the same real-price row',
   );
   assertSourceContains(
     anchoredLineBody,
@@ -771,7 +800,7 @@ test('overlay bridge: trade labels follow their price coordinate off screen', ()
   assertSourceContains(
     refreshBody,
     /renderAnchoredTradeLine\([\s\S]*isOpenPositionOverlayLine\(anchoredItem\)[\s\S]*openPositionRowYById\[anchoredItem\.id\]/,
-    'open-position dotted lines must move to the same display row as their vertically stacked text',
+    'open-position dotted lines must move to the same display row as their text',
   );
   assertSourceContains(
     refreshBody,

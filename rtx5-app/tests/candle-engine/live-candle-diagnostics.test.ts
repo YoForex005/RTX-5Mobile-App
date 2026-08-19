@@ -59,8 +59,20 @@ test('canonical live stream exposes safe REST history prefetch for fast timefram
   assert.match(source, /existing && existing\.limit >= requestedLimit[\s\S]*return existing\.promise/);
   assert.doesNotMatch(source, /this\.historyPrefetches\.has\(entry\.key\)/);
   assert.match(source, /const pendingPrefetch = this\.historyPrefetches\.get\(entry\.key\)\?\.promise/);
-  assert.match(source, /void pendingPrefetch\.then\(\(\) => \{/);
+  // Both settle paths run the same handler: a rejected warm-up must not leave
+  // the chain dangling with the spinner raised.
+  assert.match(source, /const settlePendingPrefetch = \(\) => \{/);
+  assert.match(source, /void pendingPrefetch\.then\(settlePendingPrefetch, settlePendingPrefetch\)/);
   assert.match(source, /live\.historyCandles\.length > 0[\s\S]*const fallbackLoadLimit = Math\.min\([\s\S]*live\.renderHistoryLimit[\s\S]*runLoadHistory\(this, live, fallbackLoadLimit\)/);
+  // A warm revisit is cache-seeded, so the chained prefetch always takes the
+  // "already has history" branch and issues no load of its own. Nothing else
+  // would recompute `loading`, so that branch must settle it explicitly or the
+  // chart spins forever on a symbol whose next tick never arrives.
+  assert.match(source, /this\.settleIdleLoading\(live\)/);
+  assert.match(
+    source,
+    /private settleIdleLoading\(entry: StreamEntry\): void \{[\s\S]*entry\.loading = entry\.historyLoading \|\| entry\.historyPageLoading;[\s\S]*this\.notify\(entry\)/,
+  );
   assert.match(source, /candleMemoryCache\.set\(normalizedSymbol, normalizedTimeframe, candles\)/);
   assert.match(source, /syncMergedCandleCache\(normalizedSymbol, normalizedTimeframe, history\.closedCandles, \{[\s\S]*provenance: history\.provenance/);
 });
@@ -139,7 +151,7 @@ test('live candle hook keeps quote socket demand active for fast forming candles
   assert.match(hookSource, /quote[\s\S]*ticks are the only active-candle body source/);
   assert.match(hookSource, /candlesWsService\.subscribe\(normalizedSymbol, normalizedTimeframe\)/);
   assert.match(hookSource, /candlesWsService\.unsubscribe\(normalizedSymbol, normalizedTimeframe\)/);
-  assert.match(hookSource, /const unsubscribeQuoteDemand = quotesWsService\.subscribeToSymbol\(symbol, \(\) => \{\}\)/);
+  assert.match(hookSource, /const unsubscribeQuoteDemand = quotesWsService\.subscribeToSymbol\(symbol, \(\) => \{\s*\}\)/);
   assert.match(hookSource, /unsubscribeQuoteDemand\(\);[\s\S]*unsubscribeEngine\(\);[\s\S]*unsubscribeCandleDemand\?\.\(\)/);
 });
 

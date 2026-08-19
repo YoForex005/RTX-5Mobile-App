@@ -16,7 +16,7 @@ export const LIVE_CHART_PREVIEW_RIGHT_PRICE_AXIS_SCRIPT = String.raw`
       var PREVIEW_RIGHT_PRICE_AXIS_LABEL_HEIGHT = ${CHART_PRICE_SCALE_LABEL_HEIGHT};
       var PREVIEW_RIGHT_PRICE_AXIS_LABEL_FONT_SIZE = ${CHART_PRICE_SCALE_LABEL_FONT_SIZE};
       var PREVIEW_RIGHT_PRICE_AXIS_LABEL_FONT_WEIGHT = '${CHART_PRICE_SCALE_LABEL_FONT_WEIGHT}';
-      var PREVIEW_RIGHT_PRICE_AXIS_TARGET_LABEL_GAP_PX = 60;
+      var PREVIEW_RIGHT_PRICE_AXIS_TARGET_LABEL_GAP_PX = 30;
       var PREVIEW_RIGHT_PRICE_AXIS_MIN_LABELS = 7;
       var PREVIEW_RIGHT_PRICE_AXIS_MAX_LABELS = 30;
       var previewRightPriceAxisLayer = null;
@@ -268,4 +268,3 @@ export const LIVE_CHART_PREVIEW_RIGHT_PRICE_AXIS_SCRIPT = String.raw`
       window.renderPreviewRightPriceAxis = renderPreviewRightPriceAxis;
       window.schedulePreviewRightPriceAxisRefresh = schedulePreviewRightPriceAxisRefresh;
 `;
-

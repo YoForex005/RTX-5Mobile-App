@@ -25,9 +25,11 @@ import {
   runSessionBoundQuery,
   useActiveBrokerQuerySession,
 } from './authenticatedQueryScope';
+import { createCoalescedSessionRefreshScheduler } from './coalescedSessionRefresh';
 
 export const ORDERS_BY_LOGIN_KEY = 'ordersByLogin';
 export const ACCOUNT_ORDERS_KEY = 'accountOrders';
+const placeOrderCacheRefreshScheduler = createCoalescedSessionRefreshScheduler();
 
 export const getOrdersByLoginQueryKey = (
   cacheNamespace: string,
@@ -145,19 +147,24 @@ const handlePlaceOrderSuccess = (
     backendSide: data?.side ?? null,
     rawResponse: data,
   });
-  // The API layer owns one captured-owner reconciliation from before POST
-  // until broker convergence. This success path only refreshes query-backed
-  // summaries; it must not start a competing positions read.
-  void invalidateSessionQueryRoots(queryClient, cacheNamespace, [
-    'positions',
-    'accountSummary',
-    'transactions',
-  ]);
+  // The API layer owns captured-owner coalesced reconciliation from before
+  // POST until broker convergence. This success path only refreshes
+  // query-backed summaries; it must not start a competing positions read.
+  placeOrderCacheRefreshScheduler.schedule(
+    queryClient,
+    cacheNamespace,
+    () => invalidateSessionQueryRoots(queryClient, cacheNamespace, [
+      'accountSummary',
+      'transactions',
+    ]),
+  );
 };
 
 type PlaceOrderExecutorOptions = {
   onSuccess?: (data: PlaceOrderResponse) => void;
   onError?: (error: unknown) => void;
+  /** Always fires after transport settles, even when a broker epoch changed. */
+  onSettled?: () => void;
 };
 
 const submitPlaceOrderWithCacheUpdate = async (
@@ -173,29 +180,37 @@ const submitPlaceOrderWithCacheUpdate = async (
     throw new StaleBrokerSessionError();
   }
   logPlaceOrderPayload(payload);
-  const data = await runSessionBoundQuery(
-    cacheNamespace,
-    () => ordersApi.placeMarketOrder(payload),
-  );
+  // Market transport can causally refresh credentials before sending. The API
+  // owns that strong response fence; adopt only the still-current owner for
+  // the same immutable account/session after it returns.
+  const data = await ordersApi.placeMarketOrder(payload);
+  const settledOwner = captureActiveBrokerSessionOwnerStamp();
+  if (
+    !settledOwner ||
+    settledOwner.cacheNamespace !== cacheNamespace ||
+    !isActiveBrokerSessionOwnerStampCurrent(settledOwner)
+  ) {
+    throw new StaleBrokerSessionError();
+  }
   handlePlaceOrderSuccess(
     queryClient,
     data,
     payload,
-    owner,
+    settledOwner,
   );
-  return data;
+  return Object.freeze({ data, owner: settledOwner });
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TanStack Query mutation hook for placing market orders.
-// On success, invalidates positions and account caches so the UI reflects
-// the newly opened position immediately.
+// On success, refreshes summary caches while the API-owned reconciliation
+// publishes the authoritative positions ledger.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Mutation to place a market order via POST /api/v2/orders.
- * Invalidates positions and account summary caches on success so the
- * Trade screen updates without a manual refresh.
+ * Refreshes account summary caches on success. Positions are committed by the
+ * API-owned, captured-session reconciliation worker.
  */
 export const usePlaceOrderMutation = () => {
   const queryClient = useQueryClient();
@@ -205,10 +220,9 @@ export const usePlaceOrderMutation = () => {
   return useMutation({
     mutationFn: (payload: PlaceOrderPayload) => {
       logPlaceOrderPayload(payload);
-      return runSessionBoundQuery(
-        cacheNamespace,
-        () => ordersApi.placeMarketOrder(payload),
-      );
+      // placeMarketOrder owns the mutation-specific strong response fence and
+      // can adopt a causal preflight credential refresh for this same session.
+      return ordersApi.placeMarketOrder(payload);
     },
     onMutate: () => {
       const owner = captureActiveBrokerSessionOwnerStamp();
@@ -220,12 +234,16 @@ export const usePlaceOrderMutation = () => {
     onSuccess: (data, variables, owner) => {
       // Shared success handling invalidates query-backed summaries. The API
       // call itself already owns captured-session position reconciliation.
+      const settledOwner = captureActiveBrokerSessionOwnerStamp();
+      if (!settledOwner || settledOwner.cacheNamespace !== owner.cacheNamespace) {
+        return;
+      }
       try {
         handlePlaceOrderSuccess(
           queryClient,
           data,
           variables,
-          owner,
+          settledOwner,
         );
       } catch {
         // Stale session is ignored here; the mutation already completed on the broker.
@@ -240,9 +258,24 @@ export const usePlaceOrderExecutor = () => {
   const cacheNamespace = getSessionQueryCacheNamespace(session);
 
   return useCallback((payload: PlaceOrderPayload, options: PlaceOrderExecutorOptions = {}) => {
+    const callOnError = (error: unknown) => {
+      try {
+        options.onError?.(error);
+      } catch {
+        // Presentation callbacks must never alter mutation settlement.
+      }
+    };
+    const callOnSettled = () => {
+      try {
+        options.onSettled?.();
+      } catch {
+        // Presentation callbacks must never create an unhandled rejection.
+      }
+    };
     const owner = captureActiveBrokerSessionOwnerStamp();
     if (!owner || owner.cacheNamespace !== cacheNamespace) {
-      options.onError?.(new StaleBrokerSessionError());
+      callOnError(new StaleBrokerSessionError());
+      callOnSettled();
       return;
     }
     void submitPlaceOrderWithCacheUpdate(
@@ -251,13 +284,24 @@ export const usePlaceOrderExecutor = () => {
       cacheNamespace,
       owner,
     )
-      .then((data) => {
-        if (!isActiveBrokerSessionOwnerStampCurrent(owner)) return;
-        options.onSuccess?.(data);
+      .then(({ data, owner: settledOwner }) => {
+        const currentOwner = captureActiveBrokerSessionOwnerStamp();
+        if (
+          !currentOwner ||
+          currentOwner.cacheNamespace !== settledOwner.cacheNamespace
+        ) return;
+        try {
+          options.onSuccess?.(data);
+        } catch {
+          // A UI callback failure must not be reclassified as a broker error.
+        }
+      }, (error) => {
+        const currentOwner = captureActiveBrokerSessionOwnerStamp();
+        if (!currentOwner || currentOwner.cacheNamespace !== cacheNamespace) return;
+        callOnError(error);
       })
-      .catch((error) => {
-        if (!isActiveBrokerSessionOwnerStampCurrent(owner)) return;
-        options.onError?.(error);
+      .finally(() => {
+        callOnSettled();
       });
   }, [cacheNamespace, queryClient]);
 };

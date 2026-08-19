@@ -446,9 +446,9 @@ const ChartTradeButtonsSessionScoped = React.memo(function ChartTradeButtonsSess
     </View>
   );
 
-  // Busy state must NOT swap children (spinner) or change layout height —
-  // that blinks/shrinks the BUY/SELL tiles on iOS and Android while the order
-  // is in flight. Keep labels/prices mounted; use a thin border pulse only.
+  // Busy state must NOT swap children (spinner) or change layout height.
+  // Order Ticket launch feedback keeps labels/prices mounted with a thin pulse.
+  // Immediate one-click market orders deliberately bypass this busy state.
   const sellBusy = isChartTradeActionBusy('sell') || isChartTradeActionVisuallyLocked('sell');
   const buyBusy = isChartTradeActionBusy('buy') || isChartTradeActionVisuallyLocked('buy');
 

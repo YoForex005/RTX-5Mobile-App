@@ -96,7 +96,7 @@ test('primary trade entry points guard before navigation, prefetch, or execution
   );
   assertGuardBefore(chartTrade, 'resolveCurrentQuoteActionAvailability');
   assertGuardBefore(chartTrade, 'showOrderTicketLaunch');
-  assertGuardBefore(chartTrade, 'processNextQueuedTrade');
+  assertGuardBefore(chartTrade, 'dispatchChartTradeImmediately');
   assert.doesNotMatch(chart, /const chartTradeActionDisabled = isPublicDemoTradePrompt[\s\S]*\? false/);
   const chartButtons = readSource(
     'src/features/chart/components/ChartTradeButtonsFeature/ChartTradeButtonsFeature.tsx',

@@ -38,27 +38,27 @@ export type BufferedLiveEvent =
   // Backend live_candle snapshots are applied only when the server-candle
   // source mode is explicitly enabled after runtime compatibility proof.
   | {
-      type: 'quote_tick_extension';
-      price: number;
-      high?: number;
-      low?: number;
-      time: number;
-      volume?: number;
-      allowFlatNewBucket?: boolean;
-      order: number;
-    };
+    type: 'quote_tick_extension';
+    price: number;
+    high?: number;
+    low?: number;
+    time: number;
+    volume?: number;
+    allowFlatNewBucket?: boolean;
+    order: number;
+  };
 
 export type UnorderedLiveEvent =
   | { type: 'live_candle'; candle: LiveCandle }
   | {
-      type: 'quote_tick_extension';
-      price: number;
-      high?: number;
-      low?: number;
-      time: number;
-      volume?: number;
-      allowFlatNewBucket?: boolean;
-    };
+    type: 'quote_tick_extension';
+    price: number;
+    high?: number;
+    low?: number;
+    time: number;
+    volume?: number;
+    allowFlatNewBucket?: boolean;
+  };
 
 /**
  * The core state container for a single managed candle stream (e.g. "EURUSD:M1").
@@ -127,6 +127,12 @@ export type StreamEntry = {
   historyRetryTimer: ReturnType<typeof setTimeout> | null;
   /** Auto-retries already attempted for the current failed initial history load. */
   historyRetryAttempt: number;
+  /**
+   * True when this entry's history was restored from a local cache (memory or
+   * persisted) instead of a fresh REST load. Warm revisits use it to skip the
+   * loading overlay while the retained WebView repaints.
+   */
+  seededFromCache: boolean;
 };
 
 export type CandleHistorySnapshot = Awaited<ReturnType<typeof getCandleHistory>>;

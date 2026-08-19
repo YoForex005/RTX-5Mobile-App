@@ -72,7 +72,25 @@ class FakeElement {
   }
 }
 
-const evaluateTradeOverlayRuntime = () => {
+type PreviewTradeOverlayMetrics = {
+  axisLeft: number;
+  axisWidth: number;
+  chartWidth: number;
+  plotTop: number;
+  plotHeight: number;
+};
+
+const DEFAULT_PREVIEW_TRADE_OVERLAY_METRICS: PreviewTradeOverlayMetrics = {
+  axisLeft: 338,
+  axisWidth: 62,
+  chartWidth: 400,
+  plotTop: 0,
+  plotHeight: 280,
+};
+
+const evaluateTradeOverlayRuntime = (
+  metrics: PreviewTradeOverlayMetrics = DEFAULT_PREVIEW_TRADE_OVERLAY_METRICS,
+) => {
   const chartHost = new FakeElement();
   const callbacks: Array<() => void> = [];
   const logicalRangeListeners: Listener[] = [];
@@ -109,13 +127,7 @@ const evaluateTradeOverlayRuntime = () => {
       background: '#FFFFFF',
       text: '#0F172A',
     }),
-    resolvePreviewRightPriceAxisPlotMetrics: () => ({
-      axisLeft: 338,
-      axisWidth: 62,
-      chartWidth: 400,
-      plotTop: 0,
-      plotHeight: 280,
-    }),
+    resolvePreviewRightPriceAxisPlotMetrics: () => metrics,
     series,
     window: windowObject,
   };
@@ -166,12 +178,56 @@ test('preview runtime renders a keyed split trade label, DOM line, and price box
   assert.ok(label);
   assert.equal(label.children[0].textContent, 'BUY 0.03');
   assert.equal(label.children[2].textContent, '-0.31 USD');
+  assert.equal(label.style.left, '41px');
+  assert.equal(label.style.width, '164px');
+  assert.equal(label.style.textAlign, 'center');
   const box = layer.children.find(
     (child) => child.className === 'rtx5-preview-position-price-box',
   );
   assert.ok(box);
   assert.equal(box.textContent, '150.00');
+  assert.equal(box.style.left, '338px');
   assert.equal(harness.logicalRangeListeners.length, 1);
+});
+
+test('preview open-position label lane stays inside an ultra-narrow divided pane', () => {
+  const harness = evaluateTradeOverlayRuntime({
+    axisLeft: 72,
+    axisWidth: 48,
+    chartWidth: 120,
+    plotTop: 0,
+    plotHeight: 280,
+  });
+  harness.window.setPreviewTradeOverlayLines([openPositionLine('+0.25 USD')]);
+  harness.flush();
+
+  const layer = harness.chartHost.children[0];
+  const label = layer.children.find(
+    (child) => child.className === 'rtx5-preview-trade-label',
+  );
+  const box = layer.children.find(
+    (child) => child.className === 'rtx5-preview-position-price-box',
+  );
+
+  assert.equal(label?.style.left, '0px');
+  assert.equal(label?.style.width, '72px');
+  assert.equal(box?.style.left, '72px');
+});
+
+test('preview keeps non-position order labels in their existing lane', () => {
+  const harness = evaluateTradeOverlayRuntime();
+  harness.window.setPreviewTradeOverlayLines([{
+    ...openPositionLine('pending'),
+    id: 'order-entry-7',
+  }]);
+  harness.flush();
+
+  const label = harness.chartHost.children[0].children.find(
+    (child) => child.className === 'rtx5-preview-trade-label',
+  );
+
+  assert.equal(label?.style.left, '98px');
+  assert.equal(label?.style.textAlign, 'initial');
 });
 
 test('preview runtime patches the same keyed label and prunes a closed trade', () => {

@@ -14,6 +14,10 @@ export const LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT = String.raw`
       var PREVIEW_TRADE_LABEL_HEIGHT = 13;
       var PREVIEW_TRADE_LABEL_GAP = 2;
       var PREVIEW_TRADE_PRICE_BOX_HEIGHT = 20;
+      var PREVIEW_OPEN_POSITION_LABEL_LANE_WIDTH = 164;
+      var PREVIEW_OPEN_POSITION_LABEL_LEFT = 8;
+      var PREVIEW_OPEN_POSITION_LABEL_MAX_LEFT = 56;
+      var PREVIEW_OPEN_POSITION_LABEL_LEFT_RATIO = 0.12;
 
       function isPreviewTradeOverlayLine(line) {
         if (!line || typeof line.price !== 'number' || !isFinite(line.price) || line.price <= 0) {
@@ -25,11 +29,41 @@ export const LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT = String.raw`
         );
       }
 
+      function isPreviewOpenPositionLine(line) {
+        return !!(line && typeof line.id === 'string' && line.id.indexOf('open-') === 0);
+      }
+
       function shouldRenderPreviewTradePriceBox(line) {
         if (!line || typeof line.id !== 'string') return false;
         return /^(open-|order-entry-|order-stop-limit-|order-sl-|order-tp-|sl-|tp-)/.test(line.id) ||
           line.id === 'chart-trade-sl-preview' ||
           line.id === 'chart-trade-tp-preview';
+      }
+
+      function resolvePreviewOpenPositionLabelLane(axisLeft) {
+        var paneWidth = Math.max(0, Math.round(Number(axisLeft) || 0));
+        var laneWidth = Math.min(
+          PREVIEW_OPEN_POSITION_LABEL_LANE_WIDTH,
+          Math.max(0, paneWidth - PREVIEW_OPEN_POSITION_LABEL_LEFT * 2)
+        );
+        if (laneWidth < 80) {
+          laneWidth = Math.min(80, paneWidth);
+        }
+        var remainingWidth = Math.max(0, paneWidth - laneWidth);
+        var desiredLeftInset = Math.min(
+          PREVIEW_OPEN_POSITION_LABEL_MAX_LEFT,
+          Math.max(
+            PREVIEW_OPEN_POSITION_LABEL_LEFT,
+            Math.round(paneWidth * PREVIEW_OPEN_POSITION_LABEL_LEFT_RATIO)
+          )
+        );
+        return {
+          left: Math.min(
+            desiredLeftInset,
+            Math.max(0, remainingWidth - PREVIEW_OPEN_POSITION_LABEL_LEFT)
+          ),
+          width: laneWidth,
+        };
       }
 
       function ensurePreviewTradeOverlayLayer() {
@@ -141,25 +175,37 @@ export const LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT = String.raw`
           var y = series.priceToCoordinate(line.price);
           if (typeof y !== 'number' || !isFinite(y)) continue;
           if (y < plotTop || y > plotBottom) continue;
-          rows.push({ line: line, rawY: y, top: Math.round(y - PREVIEW_TRADE_LABEL_HEIGHT / 2) });
+          rows.push({
+            isOpenPosition: isPreviewOpenPositionLine(line),
+            line: line,
+            rawY: y,
+            top: Math.round(y - PREVIEW_TRADE_LABEL_HEIGHT / 2),
+          });
         }
         rows.sort(function(left, right) { return left.rawY - right.rawY; });
         var step = PREVIEW_TRADE_LABEL_HEIGHT + PREVIEW_TRADE_LABEL_GAP;
+        var stackedRows = [];
+        var previousStackedTop = null;
         for (var rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+          if (rows[rowIndex].isOpenPosition) {
+            continue;
+          }
           var minTop = typeof rows[rowIndex].line.labelMinTop === 'number'
             ? rows[rowIndex].line.labelMinTop
             : plotTop;
           rows[rowIndex].top = Math.max(minTop, rows[rowIndex].top);
-          if (rowIndex > 0) {
-            rows[rowIndex].top = Math.max(rows[rowIndex].top, rows[rowIndex - 1].top + step);
+          if (previousStackedTop !== null) {
+            rows[rowIndex].top = Math.max(rows[rowIndex].top, previousStackedTop + step);
           }
+          previousStackedTop = rows[rowIndex].top;
+          stackedRows.push(rows[rowIndex]);
         }
-        if (rows.length > 0) {
+        if (stackedRows.length > 0) {
           var maxTop = Math.max(plotTop, plotBottom - PREVIEW_TRADE_PRICE_BOX_HEIGHT);
-          var overflow = rows[rows.length - 1].top - maxTop;
+          var overflow = stackedRows[stackedRows.length - 1].top - maxTop;
           if (overflow > 0) {
-            for (var shiftIndex = rows.length - 1; shiftIndex >= 0; shiftIndex -= 1) {
-              rows[shiftIndex].top = Math.max(plotTop, rows[shiftIndex].top - overflow);
+            for (var shiftIndex = stackedRows.length - 1; shiftIndex >= 0; shiftIndex -= 1) {
+              stackedRows[shiftIndex].top = Math.max(plotTop, stackedRows[shiftIndex].top - overflow);
             }
           }
         }
@@ -167,6 +213,7 @@ export const LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT = String.raw`
         var liveKeys = [];
         var labelLeft = Math.max(8, Math.min(280, Math.round(metrics.axisLeft * 0.29)));
         var labelWidth = Math.max(70, Math.round(metrics.axisLeft - labelLeft - 6));
+        var openPositionLabelLane = resolvePreviewOpenPositionLabelLane(metrics.axisLeft);
         var colors = typeof resolvePreviewRightPriceAxisColors === 'function'
           ? resolvePreviewRightPriceAxisColors()
           : { background: '#FFFFFF', text: '#0F172A' };
@@ -196,19 +243,21 @@ export const LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT = String.raw`
           if (item.title || item.labelSideText || item.labelValueText) {
             liveKeys.push(labelKey);
             var label = upsertPreviewTradeOverlayNode(layer, labelKey, 'rtx5-preview-trade-label');
+            var isOpenPositionLabel = isPreviewOpenPositionLine(item);
             applyPreviewTradeLabelText(label, item);
             label.style.position = 'absolute';
-            label.style.left = labelLeft + 'px';
+            label.style.left = (isOpenPositionLabel ? openPositionLabelLane.left : labelLeft) + 'px';
             label.style.top = Math.round(rows[renderIndex].top) + 'px';
-            label.style.width = labelWidth + 'px';
+            label.style.width = (isOpenPositionLabel ? openPositionLabelLane.width : labelWidth) + 'px';
             label.style.height = PREVIEW_TRADE_LABEL_HEIGHT + 'px';
             label.style.lineHeight = PREVIEW_TRADE_LABEL_HEIGHT + 'px';
             label.style.fontFamily = "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif";
             label.style.fontSize = item.labelSideText && item.labelValueText ? '9px' : '11px';
-            label.style.fontWeight = item.labelSideText && item.labelValueText ? '400' : '700';
+            label.style.fontWeight = '700';
             label.style.whiteSpace = 'nowrap';
             label.style.overflow = 'hidden';
             label.style.textOverflow = 'ellipsis';
+            label.style.textAlign = isOpenPositionLabel ? 'center' : 'initial';
             label.style.pointerEvents = 'none';
           }
 

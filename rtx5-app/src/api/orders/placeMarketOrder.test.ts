@@ -138,33 +138,39 @@ test('every market wire candidate is trim-uppercase, 20-byte bounded, and indepe
   assert.ok(serializedIndex < keyIndex);
 });
 
-test('every dispatched market outcome starts captured-owner reconciliation without replacing it', () => {
+test('every dispatched market outcome joins captured-owner coalesced reconciliation', () => {
   const outcomeSource = marketOrderSource.slice(
     marketOrderSource.indexOf('let createRequestStarted = false'),
     marketOrderSource.indexOf('export function resetAcceptedMarketOrderSymbolCache'),
   );
-  assert.match(outcomeSource, /createRequestStarted = true;[\s\S]*await apiClient\('\/orders'/);
+  assert.match(
+    outcomeSource,
+    /reconciliationHandle\?\.markTransportStarted\(\);[\s\S]*createRequestStarted = true;[\s\S]*await apiClient\('\/orders'/,
+  );
   assert.match(outcomeSource, /try \{[\s\S]*\} finally \{/);
-  const barrierIndex = outcomeSource.indexOf('beginProtectedPositionsMutation()');
+  const coordinatorIndex = outcomeSource.indexOf('beginCoalescedMarketOrderReconciliation({');
   const firstDispatchIndex = outcomeSource.indexOf('const attempt = await sendOrder(candidate)');
-  assert.ok(barrierIndex >= 0 && barrierIndex < firstDispatchIndex);
-  assert.match(outcomeSource, /if \(createRequestStarted\) \{[\s\S]*reconcileMarketOrderPositions\(reconciliationResponse/);
+  assert.ok(coordinatorIndex >= 0 && coordinatorIndex < firstDispatchIndex);
+  assert.match(outcomeSource, /releaseBarrier: beginProtectedPositionsMutation\(\)/);
+  assert.match(outcomeSource, /ownerKey: owner\.cacheNamespace/);
+  assert.doesNotMatch(outcomeSource, /ownerKey:[\s\S]{0,120}credentialGeneration|ownerKey:[\s\S]{0,120}credentialIdentity/);
   assert.match(
     outcomeSource,
-    /positionsApi\.getPositionsForReconciliation\(owner\.accountLogin\)/,
+    /reconcile: async \(reconciliationEvidence, isBatchCurrent\) => \{[\s\S]*reconcileMarketOrderPositions\(reconciliationEvidence/,
   );
   assert.match(
     outcomeSource,
-    /isActiveBrokerSessionOwnerStampCurrent\(owner\)[\s\S]*applyPositionsSnapshot\([\s\S]*owner\.accountLogin/,
+    /positionsApi\.getPositionsForReconciliation\(reconciliationAccountLogin\)/,
   );
-  assert.match(outcomeSource, /\.finally\(releasePositionsMutation\)/);
   assert.match(
     outcomeSource,
-    /reconciliationGeneration !== marketOrderReconciliationGeneration[\s\S]*preserveMissingExisting \? \{ preserveMissingExisting: true \} : undefined/,
+    /!isBatchCurrent\(\)[\s\S]*!isReconciliationSessionCurrent\(\)[\s\S]*applyPositionsSnapshot\([\s\S]*reconciliationAccountLogin/,
   );
+  assert.match(outcomeSource, /finally \{[\s\S]*reconciliationHandle\?\.finish\(reconciliationResponse\);/);
+  assert.doesNotMatch(outcomeSource, /marketOrderReconciliationGeneration|preserveMissingExisting/);
   assert.doesNotMatch(
     outcomeSource,
-    /getPositionsForReconciliation\(owner\.accountLogin\)[\s\S]{0,250}\.then\([\s\S]{0,250}applyPositionsSnapshot/,
+    /getPositionsForReconciliation\(reconciliationAccountLogin\)[\s\S]{0,250}\.then\([\s\S]{0,250}applyPositionsSnapshot/,
   );
   assert.doesNotMatch(outcomeSource, /resolveTradingLoginString/);
 });
@@ -177,4 +183,16 @@ test('legacy ticket normalization never promotes a ticket into order_ticket', ()
 
   assert.match(normalizationSource, /finalData\.position_ticket = finalData\.ticket/);
   assert.doesNotMatch(normalizationSource, /finalData\.order_ticket = finalData\.ticket/);
+});
+
+test('market response safely adopts only a causal same-session credential refresh', () => {
+  assert.match(
+    marketOrderSource,
+    /const adoptCurrentCredentialOwner = \(\) => \{[\s\S]*currentOwner\.brokerId !== owner\.brokerId[\s\S]*currentOwner\.accountLogin !== owner\.accountLogin[\s\S]*currentOwner\.cacheNamespace !== owner\.cacheNamespace[\s\S]*owner = currentOwner;/,
+  );
+  assert.match(
+    marketOrderSource,
+    /raw = await response\.json\(\);[\s\S]*if \(error instanceof StaleBrokerSessionError\) throw error;[\s\S]*adoptCurrentCredentialOwner\(\);[\s\S]*assertOrderSessionCurrent\(\);/,
+  );
+  assert.doesNotMatch(marketOrderSource, /response\.json\(\)\.catch\(\(\) => \(\{\}\)\)/);
 });

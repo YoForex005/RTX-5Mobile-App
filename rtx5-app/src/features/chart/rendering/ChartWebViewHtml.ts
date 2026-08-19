@@ -299,14 +299,16 @@ export const CH_HTML = `
       var MANUAL_VERTICAL_PAN_PRESERVE_MS = 900;
       var chartTouchInteractionSuspendDepth = 0;
       var lastPostedChartTouchActive = false;
-      var OVERLAY_LABEL_LINE_HEIGHT = 14;
+      var OVERLAY_LABEL_LINE_HEIGHT = 12;
       var OVERLAY_LABEL_HEIGHT = 18;
       var OVERLAY_LABEL_GAP = 4;
-      var OVERLAY_LABEL_LINE_GAP = 1;
+      var OVERLAY_LABEL_LINE_GAP = 0;
       var OVERLAY_POSITION_BOX_HEIGHT = 18;
       var OVERLAY_ANCHORED_LABEL_LEFT = 8;
       var OVERLAY_ANCHORED_LABEL_LANE_WIDTH = 164;
       var OVERLAY_ANCHORED_LABEL_RIGHT_PADDING = 16;
+      var OVERLAY_OPEN_POSITION_LABEL_MAX_LEFT = 56;
+      var OVERLAY_OPEN_POSITION_LABEL_LEFT_RATIO = 0.12;
       var MARKET_PRICE_SCALE_EXTENSION_HEIGHT = 1;
       var MARKET_PRICE_SCALE_BADGE_HEIGHT = 22;
       var MARKET_LIVE_PRICE_BADGE_PRICE_ROW_HEIGHT = 18;
@@ -331,11 +333,10 @@ export const CH_HTML = `
       var MT5_PRICE_SCALE_MAX_DRAG_OCTAVES = ${MT5_PRICE_SCALE_MAX_DRAG_OCTAVES};
       var MT5_PRICE_SCALE_MIN_VISIBLE_TICK_INTERVALS = ${MT5_PRICE_SCALE_MIN_VISIBLE_TICK_INTERVALS};
       ${MT5_PRICE_SCALE_GESTURE_WEBVIEW_JS}
-      // Target vertical gap between price labels. The scale now spans the full
-      // pane height, so the old 32px target packed labels ~37px apart (cramped).
-      // 60px lands the spacing on the next coarser "nice" step (~60-74px),
-      // which reads as a clean, professional axis — neither crowded nor sparse.
-      var RIGHT_PRICE_SCALE_FALLBACK_TARGET_LABEL_GAP_PX = 60;
+      // Keep the normal price scale at the requested dense 30px cadence.
+      // Dragging the right axis still zooms down to one configured symbol
+      // precision unit between adjacent rows (for example 4000.01, 4000.02).
+      var RIGHT_PRICE_SCALE_FALLBACK_TARGET_LABEL_GAP_PX = 30;
       var RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS = [1, 2, 2.5, 5, 10];
       var RIGHT_PRICE_SCALE_CANVAS_LABEL_MIN_CLUSTERS = 2;
       var RIGHT_PRICE_SCALE_CANVAS_LABEL_MIN_FOREGROUND_PIXELS = 24;
@@ -4315,10 +4316,19 @@ export const CH_HTML = `
       }
 
       function refreshVerticalGestureOverlayPositions() {
+        // Every rendered vertical-pan frame is real gesture activity, including
+        // the post-release kinetic glide. Stamping it here keeps the 3s
+        // stranded-gesture watchdog from firing a full overlay rebuild in the
+        // middle of a long drag or a long glide.
+        lastOverlayGestureDeferralActivityAt = Date.now();
         verticalGestureDomWorkPending = true;
         cancelOverlayDomRefreshFrame();
-        cancelGestureRightPriceScaleFallbackRefresh();
-        refreshOverlayDomLabels(_appliedOverlayPayload || _overlayPayload);
+        scheduleGestureRightPriceScaleFallbackRefresh();
+        // A dense position set can contain hundreds of keyed DOM nodes once
+        // SL/TP levels are included. Rebuild none of them on pointermove:
+        // coalesce the existing nodes into one position-only animation frame,
+        // then let the gesture-settle path perform one complete refresh.
+        scheduleTradeOverlayReposition();
       }
 
       function refreshOverlayDomLabelsWhenIdle(payload) {
@@ -8947,7 +8957,8 @@ export const CH_HTML = `
           if (lines.length === 0) return;
           var bounds = resolveTradeOverlayPaneBounds();
           var anchoredLabelRecords = [];
-          var anchoredLabelLane = resolveAnchoredOverlayLabelLane(_overlayLabelLayer);
+          var anchoredLabelLane = resolveAnchoredOverlayLabelLane(_overlayLabelLayer, false);
+          var openPositionLabelLane = resolveAnchoredOverlayLabelLane(_overlayLabelLayer, true);
           for (var i = 0; i < lines.length; i++) {
             var ln = lines[i];
             if (!ln || !ln.id || typeof ln.price !== 'number' || !isFinite(ln.price)) continue;
@@ -8966,7 +8977,10 @@ export const CH_HTML = `
               lineNode.style.visibility = visibility;
             }
             if (labelNode) {
-              applyAnchoredOverlayLabelLane(labelNode, anchoredLabelLane);
+              applyAnchoredOverlayLabelLane(
+                labelNode,
+                isOpenPosition ? openPositionLabelLane : anchoredLabelLane
+              );
               labelNode.style.visibility = visibility;
             }
             if (labelNode || isOpenPosition) {
@@ -9574,7 +9588,7 @@ export const CH_HTML = `
         return !!(line && typeof line.id === 'string' && line.id.indexOf('open-') === 0);
       }
 
-      function resolveAnchoredOverlayLabelLane(layer) {
+      function resolveAnchoredOverlayLabelLane(layer, leftBiased) {
         var metrics = resolvePrimaryPaneMetrics();
         var layerWidth = Math.max(0, Math.round((layer && layer.clientWidth) || metrics.chartWidth || 0));
         var paneLeft = Math.max(0, Math.min(layerWidth, Math.round(metrics.leftAxisWidth || 0)));
@@ -9591,8 +9605,20 @@ export const CH_HTML = `
         if (laneWidth < 80) {
           laneWidth = Math.min(80, paneWidth);
         }
+        var remainingWidth = Math.max(0, paneWidth - laneWidth);
+        var desiredLeftInset = Math.min(
+          OVERLAY_OPEN_POSITION_LABEL_MAX_LEFT,
+          Math.max(
+            OVERLAY_ANCHORED_LABEL_LEFT,
+            Math.round(paneWidth * OVERLAY_OPEN_POSITION_LABEL_LEFT_RATIO)
+          )
+        );
+        var maxLeftInset = Math.max(0, remainingWidth - OVERLAY_ANCHORED_LABEL_LEFT);
+        var laneInset = leftBiased === true
+          ? Math.min(desiredLeftInset, maxLeftInset)
+          : remainingWidth / 2;
         return {
-          left: Math.round(paneLeft + Math.max(0, paneWidth - laneWidth) / 2),
+          left: Math.round(paneLeft + laneInset),
           width: laneWidth,
         };
       }
@@ -9615,7 +9641,11 @@ export const CH_HTML = `
         for (var i = 0; i < labels.length; i++) {
           var item = labels[i];
           var top = Math.round(item.y - OVERLAY_LABEL_LINE_HEIGHT - OVERLAY_LABEL_LINE_GAP);
-          if (item.paneVisible !== false) {
+          // Open positions always stay on their real price coordinate. Close
+          // entries may overlap at the default scale; zooming the price scale
+          // naturally separates them as its numeric interval becomes finer.
+          // Draft/order/SL/TP labels retain their existing collision layout.
+          if (!isOpenPositionOverlayLine(item) && item.paneVisible !== false) {
             if (typeof item.labelMinTop === 'number' && isFinite(item.labelMinTop)) {
               top = Math.max(top, Math.round(item.labelMinTop));
             }
@@ -10052,7 +10082,8 @@ export const CH_HTML = `
           }
           anchoredLabels.sort(function(left, right) { return left.y - right.y; });
           var anchoredTops = resolveAnchoredOverlayLabelTops(anchoredLabels);
-          var anchoredLabelLane = resolveAnchoredOverlayLabelLane(layer);
+          var anchoredLabelLane = resolveAnchoredOverlayLabelLane(layer, false);
+          var openPositionLabelLane = resolveAnchoredOverlayLabelLane(layer, true);
           var openPositionRowYById = Object.create(null);
           for (var anchoredRowIndex = 0; anchoredRowIndex < anchoredLabels.length; anchoredRowIndex++) {
             var anchoredRowItem = anchoredLabels[anchoredRowIndex];
@@ -10070,15 +10101,19 @@ export const CH_HTML = `
             if (!label) return;
             var hasSplitTradeLabel = !!(item.labelSideText && item.labelValueText);
             var isAnchoredTradeLabel = item.drawAnchoredTradeLine === true;
+            var isOpenPositionTradeLabel = isOpenPositionOverlayLine(item);
+            var activeAnchoredLabelLane = isOpenPositionTradeLabel
+              ? openPositionLabelLane
+              : anchoredLabelLane;
             var labelLeft = isAnchoredTradeLabel
-              ? anchoredLabelLane.left
+              ? activeAnchoredLabelLane.left
               : OVERLAY_ANCHORED_LABEL_LEFT;
             var labelMaxWidth = Math.max(
               80,
               (layer.clientWidth || 0) - labelLeft - OVERLAY_ANCHORED_LABEL_RIGHT_PADDING
             );
             if (isAnchoredTradeLabel) {
-              labelMaxWidth = anchoredLabelLane.width;
+              labelMaxWidth = activeAnchoredLabelLane.width;
             }
             if (hasSplitTradeLabel) {
               var sideSpan = label.childNodes[0];
@@ -10115,7 +10150,10 @@ export const CH_HTML = `
             }
             label.style.position = 'absolute';
             if (isAnchoredTradeLabel) {
-              applyAnchoredOverlayLabelLane(label, anchoredLabelLane);
+              applyAnchoredOverlayLabelLane(
+                label,
+                activeAnchoredLabelLane
+              );
             } else {
               label.style.left = labelLeft + 'px';
               label.style.width = 'auto';
@@ -10124,10 +10162,8 @@ export const CH_HTML = `
             }
             label.style.top = top + 'px';
             label.style.color = item.labelSideColor || item.color;
-            // Split trade labels (side, lots, live value) stay compact and
-            // light so dense open-position rows do not dominate the chart.
             label.style.fontSize = hasSplitTradeLabel ? '9px' : '12px';
-            label.style.fontWeight = hasSplitTradeLabel ? '400' : '700';
+            label.style.fontWeight = '700';
             label.style.height = OVERLAY_LABEL_LINE_HEIGHT + 'px';
             label.style.lineHeight = OVERLAY_LABEL_LINE_HEIGHT + 'px';
             label.style.whiteSpace = 'nowrap';
@@ -10172,8 +10208,9 @@ export const CH_HTML = `
           // direct Market Execution SL/TP drafts. Native
           // axis labels stay hidden; these DOM boxes carry the entry price on
           // the right scale. Every open position keeps its own box, including
-          // ten trades at the same displayed price, and shares the exact row Y
-          // used by its label and horizontal connector line.
+          // ten trades at the same displayed price, and shares the exact raw
+          // price row used by its label and horizontal connector line. Close
+          // prices intentionally overlap until the user zooms the scale.
           var boxDecimals = (typeof lastDisplayDecimals === 'number' && isFinite(lastDisplayDecimals) && lastDisplayDecimals >= 0)
             ? Math.min(8, Math.max(0, Math.floor(lastDisplayDecimals)))
             : 2;
@@ -10491,8 +10528,10 @@ export const CH_HTML = `
           _overlayPayload = patchOverlayTradeLabelPayload(_overlayPayload, patchById);
           _appliedOverlayPayload = patchOverlayTradeLabelPayload(_appliedOverlayPayload, patchById);
 
-          if (isHorizontalScrollMotionActive()) {
-            visibleRangeIdlePendingAfterGesture = true;
+          if (isHorizontalScrollMotionActive() || verticalPricePanGestureActive) {
+            if (isHorizontalScrollMotionActive()) {
+              visibleRangeIdlePendingAfterGesture = true;
+            }
             return;
           }
 

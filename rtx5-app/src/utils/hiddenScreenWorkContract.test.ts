@@ -240,7 +240,7 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   );
   assert.match(
     retainedLivePaintSource,
-    /updateMode !== 'full_reload'[\s\S]*updateChartData\([\s\S]*preserveVisibleLogicalSpan: \$\{!resetForClosedMarketClamp\}[\s\S]*resetVisibleRange: \$\{resetForClosedMarketClamp\}[\s\S]*updateLiveTick\(/,
+    /updateMode !== 'full_reload'[\s\S]*updateChartData\([\s\S]*preserveVisibleLogicalSpan: \$\{!resetVisibleRange\}[\s\S]*resetVisibleRange: \$\{resetVisibleRange\}[\s\S]*updateLiveTick\(/,
     'a rare hidden full-series replacement must catch up before the retained Chart can be revealed',
   );
   assert.doesNotMatch(
@@ -267,7 +267,7 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   assert.match(chartSource, /scheduleIdleWork\([\s\S]*refreshShowOnChartSources\(\);[\s\S]*requestChartViewportRecovery\(3\);[\s\S]*delayMs: CHART_FOCUS_WORK_DELAY_MS/);
   assert.match(chartSource, /const hasPaintedCurrentChartContext =[\s\S]*lastPaintedChartDataContextSig === chartDataContextSig/);
   assert.match(chartSource, /const hasUsableRetainedChart =[\s\S]*hasPaintedCurrentChartContext && webViewReady && chartCanvasReady/);
-  assert.match(chartSource, /const shouldShowChartLoadingOverlay =[\s\S]*!hasUsableRetainedChart &&[\s\S]*!hasChartDataError &&[\s\S]*\(!chartSurfaceReady \|\| isLoading \|\| candlesAvailable\)/);
+  assert.match(chartSource, /const shouldShowChartLoadingOverlay =[\s\S]*!hasUsableRetainedChart &&[\s\S]*!hasChartDataError &&[\s\S]*\(!chartSurfaceReady \|\| isLoading \|\| \(candlesAvailable && !chartHistorySeededFromCache\)\)/);
   assert.match(chartSource, /\{shouldShowChartLoadingOverlay && \(/);
   assert.match(chartSource, /\{chartSurfaceReady \? \(\s*<WebView/);
   assert.match(chartSource, /<LiveQuotePairHeader[\s\S]*bid=\{chartBid\}[\s\S]*ask=\{chartAsk\}/);

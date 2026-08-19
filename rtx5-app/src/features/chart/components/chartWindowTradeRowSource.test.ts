@@ -43,10 +43,8 @@ test('secondary trade execution has a fail-closed tap-time pane ownership gate',
     tradeHandlerSource,
     /const executeTrade = \(side: TradeSide\) => \{[\s\S]*if \(!resolveSymbolExecutionOwnership\(\)\)/,
   );
-  assert.match(
-    tradeHandlerSource,
-    /function processNextQueuedTrade[\s\S]*if \(!resolveSymbolExecutionOwnership\(\)\) \{[\s\S]*clearQueuedTrades\('cancelled'\)/,
-  );
+  assert.match(tradeHandlerSource, /resolveSymbolExecutionOwnership\(\)[\s\S]*dispatchChartTradeImmediately\(\{/);
+  assert.doesNotMatch(tradeHandlerSource, /tradeQueueRef|processNextQueuedTrade|clearQueuedTrades/);
   assert.match(tradeHandlerSource, /reason: isSymbolExecutionOwner \? 'stale-chart-window' : 'stale-symbol'/);
 });
 

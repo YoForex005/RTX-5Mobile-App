@@ -846,8 +846,8 @@ test('webview bridge: open-position labels separate trade side color from live P
   );
   assertSourceContains(
     refreshBody,
-    /label\.style\.color = item\.labelSideColor \|\| item\.color[\s\S]*label\.style\.fontSize = hasSplitTradeLabel \? '9px' : '12px'[\s\S]*label\.style\.fontWeight = hasSplitTradeLabel \? '400' : '700'/,
-    'split labels must keep the trade-side fallback color with compact regular-weight typography',
+    /label\.style\.color = item\.labelSideColor \|\| item\.color[\s\S]*label\.style\.fontSize = hasSplitTradeLabel \? '9px' : '12px'[\s\S]*label\.style\.fontWeight = '700'/,
+    'split labels must keep the trade-side fallback color with compact bold typography',
   );
 });
 
@@ -916,13 +916,13 @@ test('webview bridge: open-position trade labels stay in one vertical column whi
   );
   assertSourceContains(
     anchoredLaneBody,
-    /resolveMarketPriceScaleAxisMetrics\(layer\)[\s\S]*axisMetrics\.axisLeft[\s\S]*paneWidth - laneWidth\) \/ 2/,
-    'the common trade-label column must stay centered inside the candle pane',
+    /resolveMarketPriceScaleAxisMetrics\(layer\)[\s\S]*axisMetrics\.axisLeft[\s\S]*Math\.min\([\s\S]*OVERLAY_OPEN_POSITION_LABEL_MAX_LEFT[\s\S]*Math\.round\(paneWidth \* OVERLAY_OPEN_POSITION_LABEL_LEFT_RATIO\)[\s\S]*Math\.max\(0, remainingWidth - OVERLAY_ANCHORED_LABEL_LEFT\)[\s\S]*leftBiased === true[\s\S]*Math\.min\(desiredLeftInset, maxLeftInset\)[\s\S]*remainingWidth \/ 2/,
+    'the resolver must provide a responsive left lane for open positions while preserving the centered lane for other labels',
   );
   assertSourceContains(
     repositionBody,
-    /var anchoredLabelLane = resolveAnchoredOverlayLabelLane\(_overlayLabelLayer\)[\s\S]*applyAnchoredOverlayLabelLane\(labelNode, anchoredLabelLane\)/,
-    'pan and zoom frames must preserve the centered label column',
+    /var anchoredLabelLane = resolveAnchoredOverlayLabelLane\(_overlayLabelLayer, false\)[\s\S]*var openPositionLabelLane = resolveAnchoredOverlayLabelLane\(_overlayLabelLayer, true\)[\s\S]*applyAnchoredOverlayLabelLane\([\s\S]*isOpenPosition \? openPositionLabelLane : anchoredLabelLane/,
+    'pan and zoom frames must preserve the left open-position lane without moving other anchored labels',
   );
   assertSourceContains(
     refreshBody,
@@ -1033,8 +1033,13 @@ test('webview bridge: vertical chart panning defers price-line rebuilds while mo
   );
   assertSourceContains(
     refreshVerticalOverlayBody,
-    /verticalGestureDomWorkPending = true[\s\S]*cancelOverlayDomRefreshFrame\(\)[\s\S]*cancelGestureRightPriceScaleFallbackRefresh\(\)[\s\S]*refreshOverlayDomLabels\(_appliedOverlayPayload \|\| _overlayPayload\)/,
-    'vertical pan frames must refresh the already-applied trade labels and right-axis boxes without applying a new overlay payload',
+    /lastOverlayGestureDeferralActivityAt = Date\.now\(\)[\s\S]*verticalGestureDomWorkPending = true[\s\S]*cancelOverlayDomRefreshFrame\(\)[\s\S]*scheduleGestureRightPriceScaleFallbackRefresh\(\)[\s\S]*scheduleTradeOverlayReposition\(\)/,
+    'vertical pan frames must move the already-applied trade labels and right-axis boxes through coalesced position-only passes, and must stamp gesture activity so the stranded-gesture watchdog cannot rebuild mid-drag',
+  );
+  assert.doesNotMatch(
+    refreshVerticalOverlayBody,
+    /refreshOverlayDomLabels|applyOverlayPayload/,
+    'vertical pan frames must never rebuild the whole trade overlay DOM on pointermove',
   );
   assertSourceContains(
     gestureRightScaleRefreshBody,
@@ -1727,8 +1732,8 @@ test('webview bridge: custom right price-scale labels are backend-data-driven an
 
   assertSourceContains(
     chartWebViewHtmlSource,
-    /var RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS = 7[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS = 30[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_TARGET_LABEL_GAP_PX = 60/,
-    'custom right-axis label density must stay bounded for phone/tablet chart heights',
+    /var RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS = 7[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS = 30[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_TARGET_LABEL_GAP_PX = 30/,
+    'custom right-axis label density must stay bounded for phone/tablet chart heights at the dense 30px cadence',
   );
   assertSourceContains(
     rangeBody,

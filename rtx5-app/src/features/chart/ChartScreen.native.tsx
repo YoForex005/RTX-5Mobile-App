@@ -152,6 +152,7 @@ import {
   useActiveBrokerCredentialScopeKey,
   useActiveBrokerQuerySession,
 } from '../../query/authenticatedQueryScope';
+import { createCoalescedSessionRefreshScheduler } from '../../query/coalescedSessionRefresh';
 import { WebView } from 'react-native-webview';
 import { hasLiveQuoteFeedData, useLiveSymbolQuote } from '../../query/websocket';
 import { getCurrentLiveQuoteSnapshot } from '../quotes/useLiveQuotes';
@@ -409,6 +410,7 @@ const getSentimentForSymbol = (symbol: string) => {
 };
 
 const CHART_SOURCE = { html: CH_HTML };
+const chartTradeResultRefreshScheduler = createCoalescedSessionRefreshScheduler();
 const CHART_DEV_SOURCE_KEY = getDevRefreshKey(
   'chart-native-webview',
   hashDevRefreshSource(CH_HTML),
@@ -436,16 +438,16 @@ const CHART_SCALE_DISPLAY_ITEMS: Array<{
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
 }> = [
-  { key: 'showTicker', label: 'Show ticker', icon: 'pricetag-outline' },
-  { key: 'showOHLC', label: 'Show OHLC', icon: 'stats-chart-outline' },
-  { key: 'showQuickTradingButtons', label: 'Show quick trading buttons', icon: 'flash-outline' },
-  { key: 'showLivePriceLine', label: 'Show live price line', icon: 'pulse-outline' },
-  { key: 'showLastPriceLine', label: 'Show last price line', icon: 'ellipse-outline' },
-  { key: 'showGrid', label: 'Show grid', icon: 'grid-outline' },
-  { key: 'periodSeparators', label: 'Period separators', icon: 'reorder-three-outline' },
-  { key: 'showObjectDescriptions', label: 'Show object descriptions', icon: 'text-outline' },
-  { key: 'showTradeLevels', label: 'Show trade levels', icon: 'shield-checkmark-outline' },
-];
+    { key: 'showTicker', label: 'Show ticker', icon: 'pricetag-outline' },
+    { key: 'showOHLC', label: 'Show OHLC', icon: 'stats-chart-outline' },
+    { key: 'showQuickTradingButtons', label: 'Show quick trading buttons', icon: 'flash-outline' },
+    { key: 'showLivePriceLine', label: 'Show live price line', icon: 'pulse-outline' },
+    { key: 'showLastPriceLine', label: 'Show last price line', icon: 'ellipse-outline' },
+    { key: 'showGrid', label: 'Show grid', icon: 'grid-outline' },
+    { key: 'periodSeparators', label: 'Period separators', icon: 'reorder-three-outline' },
+    { key: 'showObjectDescriptions', label: 'Show object descriptions', icon: 'text-outline' },
+    { key: 'showTradeLevels', label: 'Show trade levels', icon: 'shield-checkmark-outline' },
+  ];
 
 const CHART_DISPLAY_TO_SHOW_ON_CHART_KEY: Partial<Record<keyof ChartDisplaySettings, ChartShowOnChartKey>> = {
   showTradeLevels: 'slTpLevels',
@@ -897,8 +899,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   const chartWindowCommitContextImplementationRef = useRef<(
     symbol: string,
     timeframe: string,
-  ) => void>(() => {});
-  const chartWindowCancelContextImplementationRef = useRef<() => void>(() => {});
+  ) => void>(() => { });
+  const chartWindowCancelContextImplementationRef = useRef<() => void>(() => { });
   const commitChartWindowContext = useCallback((symbol: string, timeframe: string) => {
     chartWindowCommitContextImplementationRef.current(symbol, timeframe);
   }, []);
@@ -1316,6 +1318,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   useEffect(() => () => {
     // The external controller keeps 50-100+ receipt updates out of this heavy
     // chart component's render cycle. Clear its timers when the chart unmounts.
+    chartTradeResultRefreshScheduler.cancel(chartTradeReceiptStackController);
     chartTradeReceiptStackController.clear();
   }, [chartTradeReceiptStackController]);
   const [tradeFeedback, setTradeFeedback] = useState<TradeFeedbackState>(TRADE_MODAL_INITIAL);
@@ -1334,15 +1337,22 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     }
     if (chartRuntimeActive) {
       // Market-order reconciliation is already owner-bound from before POST.
-      // An immediate second positions read can beat the broker commit and
-      // briefly erase the chart overlays with a stale empty ledger.
-      void refetchClosedPositions();
-      void refetchOrders();
-      void refetchAccountSummary();
+      // Coalesce only the dependent history/summary refreshes. Trade POSTs and
+      // their independent receipt results remain fully concurrent.
+      chartTradeResultRefreshScheduler.schedule(
+        chartTradeReceiptStackController,
+        activeChartSessionCacheNamespace ?? String(accountLogin ?? ''),
+        () => Promise.allSettled([
+          refetchClosedPositions(),
+          refetchOrders(),
+        ]),
+      );
     }
   }, [
+    accountLogin,
+    activeChartSessionCacheNamespace,
+    chartTradeReceiptStackController,
     chartRuntimeActive,
-    refetchAccountSummary,
     refetchClosedPositions,
     refetchOrders,
   ]);
@@ -2230,6 +2240,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     refresh: refreshChartHistory,
     loading: chartDataLoading,
     error: chartDataError,
+    seededFromCache: chartHistorySeededFromCache,
   } = useLiveCandles(
     chartSymbol,
     chartTimeframe,
@@ -2261,7 +2272,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   const closedCandlePolicySessionClose = isChartMarketClosed
     ? chartMarketSessionPolicy.sessionClose
     : isChartMarketReopening &&
-        previousChartMarketLifecycle.contextKey === chartMarketLifecycleContextKey
+      previousChartMarketLifecycle.contextKey === chartMarketLifecycleContextKey
       ? previousChartMarketLifecycle.sessionClose
       : null;
 
@@ -2335,11 +2346,10 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     chartReopenHistoryRepair,
   ]);
   const closedMarketFlatBackfillRef = useRef({ contextKey: '', requested: false });
-  const closedMarketFlatBackfillContextKey = `${chartMarketDataCacheNamespace}:${chartSymbol}:${chartTimeframe}:${
-    typeof chartMarketSessionPolicy.sessionClose === 'number' && Number.isFinite(chartMarketSessionPolicy.sessionClose)
-      ? chartMarketSessionPolicy.sessionClose
-      : 'missing-session-close'
-  }`;
+  const closedMarketFlatBackfillContextKey = `${chartMarketDataCacheNamespace}:${chartSymbol}:${chartTimeframe}:${typeof chartMarketSessionPolicy.sessionClose === 'number' && Number.isFinite(chartMarketSessionPolicy.sessionClose)
+    ? chartMarketSessionPolicy.sessionClose
+    : 'missing-session-close'
+    }`;
   useEffect(() => {
     if (!isChartMarketClosed) {
       if (closedMarketFlatBackfillRef.current.contextKey) {
@@ -2716,9 +2726,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     () => {
       const liveBid =
         hasLiveChartQuote &&
-        typeof chartLiveQuote?.bid === 'number' &&
-        Number.isFinite(chartLiveQuote.bid) &&
-        chartLiveQuote.bid > 0
+          typeof chartLiveQuote?.bid === 'number' &&
+          Number.isFinite(chartLiveQuote.bid) &&
+          chartLiveQuote.bid > 0
           ? chartLiveQuote.bid
           : null;
       if (liveBid !== null) {
@@ -2733,9 +2743,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     () => {
       const liveAsk =
         hasLiveChartQuote &&
-        typeof chartLiveQuote?.ask === 'number' &&
-        Number.isFinite(chartLiveQuote.ask) &&
-        chartLiveQuote.ask > 0
+          typeof chartLiveQuote?.ask === 'number' &&
+          Number.isFinite(chartLiveQuote.ask) &&
+          chartLiveQuote.ask > 0
           ? chartLiveQuote.ask
           : null;
       if (liveAsk !== null) {
@@ -2852,8 +2862,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   }, [clearChartDirectProtectionDraft, closedPositions, positions]);
   const selectedChartPosition = selectedChartPositionTicket
     ? chartMatchingPositionCandidates.find(
-        (position) => String(position.id) === selectedChartPositionTicket,
-      ) ?? null
+      (position) => String(position.id) === selectedChartPositionTicket,
+    ) ?? null
     : null;
   useEffect(() => {
     if (!selectedChartPositionTicket) return;
@@ -5170,14 +5180,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     : isChartTradeProtectionBackendLocked(chartTradeOrderType);
   const directMarketStopLossPrice =
     chartDirectProtectionActive &&
-    !newMarketOrderProtectionBackendLocked &&
-    chartTradeSlEnabled
+      !newMarketOrderProtectionBackendLocked &&
+      chartTradeSlEnabled
       ? chartTradeSlPrice
       : undefined;
   const directMarketTakeProfitPrice =
     chartDirectProtectionActive &&
-    !newMarketOrderProtectionBackendLocked &&
-    chartTradeTpEnabled
+      !newMarketOrderProtectionBackendLocked &&
+      chartTradeTpEnabled
       ? chartTradeTpPrice
       : undefined;
   const directMarketProtectionDraftId = chartDirectProtectionActive
@@ -5251,9 +5261,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
 
   const disablePendingTradePlaceButton = isPendingChartOrder
     ? chartPendingOrderSubmitting
-      || !chartPendingQuoteAvailability.allowed
-      || !stablePendingTradePlaceButtonEnabled
-      || !chartTradeProtectionValidation.valid
+    || !chartPendingQuoteAvailability.allowed
+    || !stablePendingTradePlaceButtonEnabled
+    || !chartTradeProtectionValidation.valid
     : false;
   const chartTradeCtaColor = chartTradeSheetSide === 'buy' ? BLUE : T.trading.sell.primary;
   const chartTradeMarginPerLot = useMemo(() => {
@@ -5703,18 +5713,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
         id: 'chart-trade-tp-preview',
         price: chartTradeTpPrice,
         color: tpColor,
-        lineWidth: 1,
+        lineWidth: 2,
         lineStyle: CHART_LINE_STYLE.Solid,
         axisLabelVisible: false,
         title: showChartTradeStopLabelsOnChart
           ? formatTpSlOverlayLabel(
-              'tp',
-              chartSymbol,
-              previewSide,
-              entryPrice,
-              chartTradeTpPrice,
-              tradeVolume,
-            ).replace(' USD', ` ${accountCurrency}`)
+            'tp',
+            chartSymbol,
+            previewSide,
+            entryPrice,
+            chartTradeTpPrice,
+            tradeVolume,
+          ).replace(' USD', ` ${accountCurrency}`)
           : '',
         labelSideText: showChartTradeStopLabelsOnChart ? 'TP' : undefined,
         labelValueText: showChartTradeStopLabelsOnChart
@@ -5744,18 +5754,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
         id: 'chart-trade-sl-preview',
         price: chartTradeSlPrice,
         color: slColor,
-        lineWidth: 1,
+        lineWidth: 2,
         lineStyle: CHART_LINE_STYLE.Solid,
         axisLabelVisible: false,
         title: showChartTradeStopLabelsOnChart
           ? formatTpSlOverlayLabel(
-              'sl',
-              chartSymbol,
-              previewSide,
-              entryPrice,
-              chartTradeSlPrice,
-              tradeVolume,
-            ).replace(' USD', ` ${accountCurrency}`)
+            'sl',
+            chartSymbol,
+            previewSide,
+            entryPrice,
+            chartTradeSlPrice,
+            tradeVolume,
+          ).replace(' USD', ` ${accountCurrency}`)
           : '',
         labelSideText: showChartTradeStopLabelsOnChart ? 'SL' : undefined,
         labelValueText: showChartTradeStopLabelsOnChart
@@ -6232,7 +6242,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   chartWindowCancelContextImplementationRef.current = chartContextCommitScheduler.cancelPending;
   chartWindowSplitModeRef.current = chartWindows.isSplit;
   chartWindowToolbarTargetPaneIdRef.current = chartWindows.toolbarTargetPaneId;
-  const confirmedPaneSymbolPickerRef = useRef<() => void>(() => {});
+  const confirmedPaneSymbolPickerRef = useRef<() => void>(() => { });
 
   useLayoutEffect(() => {
     const activePaneId = chartWindows.activePane.id;
@@ -6290,8 +6300,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     // This callback is intentionally selection-only. A toolbar press can land
     // during the single-vs-double-tap delay; closing sheets here would dismiss
     // the timeframe, SL/TP, Drawing Tools, or More UI that press just opened.
-    chartWindows.selectPaneFromTap(paneId);
-  }, [chartWindows.selectPaneFromTap, closeChartTapMenu]);
+    chartWindows.selectPaneFromTap(paneId, (confirmedPane) => {
+      if (confirmedPane.symbol !== chartSymbol || confirmedPane.timeframe !== chartTimeframe) {
+        warmChartContextAndCommit(confirmedPane.symbol, confirmedPane.timeframe);
+      }
+    });
+  }, [chartSymbol, chartTimeframe, chartWindows.selectPaneFromTap, closeChartTapMenu, warmChartContextAndCommit]);
 
   const cancelPendingChartWindowRadialMenu = useCallback((expectedToken?: number) => {
     if (
@@ -6642,24 +6656,26 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     hideChartTimeframePicker();
     hideActionSheet();
     snapTradeSheet('hidden');
-    chartWindows.selectPaneFromTap(paneId, (confirmedPane, confirmedContext) => {
-      // Read the latest picker config after the pane's context commit. A stored
-      // render-time callback could otherwise select a symbol using the previous
-      // pane's timeframe.
+    chartWindows.selectPaneFromTap(paneId, (confirmedPane) => {
+      // Opening the picker automatically brings the unconfirmed tapped pane to the
+      // front. If they never select a new symbol, the pane stays active.
       if (
         confirmedPane.id !== paneId
-        || confirmedPane.symbol !== confirmedContext.symbol
-        || confirmedPane.timeframe !== confirmedContext.timeframe
+        || confirmedPane.symbol !== chartSymbol
+        || confirmedPane.timeframe !== chartTimeframe
       ) {
-        return;
+        warmChartContextAndCommit(confirmedPane.symbol, confirmedPane.timeframe);
       }
       confirmedPaneSymbolPickerRef.current();
     });
   }, [
+    chartSymbol,
+    chartTimeframe,
     chartWindows.selectPaneFromTap,
     closeChartTapMenu,
     hideActionSheet,
     snapTradeSheet,
+    warmChartContextAndCommit,
   ]);
 
   const handleOpenTimeframePicker = useCallback(() => {
@@ -7446,9 +7462,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
         // movement/volume pane, so their main price series receives full height.
         bottom:
           showChartVolumePane
-          && chartType !== 'line'
-          && chartType !== 'area'
-          && chartType !== 'renko'
+            && chartType !== 'line'
+            && chartType !== 'area'
+            && chartType !== 'renko'
             ? 0.32
             : 0,
       },
@@ -7686,11 +7702,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     (shouldShowImmediateHistoryLoading || loadingDelayPassed) &&
     !loadingFallback;
   // Keep the loader until this exact symbol and timeframe has drawn candles.
+  // A context restored from the session cache already owns committed history,
+  // so its repaint must not be covered by the first-load spinner.
   const shouldShowChartLoadingOverlay =
     !hasUsableRetainedChart &&
     (!loadingFallback || candlesAvailable) &&
     !hasChartDataError &&
-    (!chartSurfaceReady || isLoading || candlesAvailable);
+    (!chartSurfaceReady || isLoading || (candlesAvailable && !chartHistorySeededFromCache));
   const isError = hasChartDataError;
   const isNoMarketData = !candlesAvailable && !isLoading && !isError && loadingFallback;
 
@@ -7873,7 +7891,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   const renderedDataContextSigRef = useRef('');
   const lastInjectedLiveQuoteSignatureRef = useRef('');
   const livePaintRevisionRef = useRef(0);
-  const paintCanonicalLiveTickRef = useRef<(allowUnchangedSnapshot?: boolean) => void>(() => {});
+  const paintCanonicalLiveTickRef = useRef<(allowUnchangedSnapshot?: boolean) => void>(() => { });
   const chartLiveTickAccumulatorRef = useRef<ChartLiveTickAccumulator | null>(null);
   const historylessBootstrapViewportRef = useRef<HistorylessBootstrapViewport>(
     EMPTY_HISTORYLESS_BOOTSTRAP_VIEWPORT,
@@ -7989,9 +8007,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     const pendingPaint = pendingChartDataPaintRef.current;
     const startedAt =
       confirmsUsableChart
-      && pendingPaint.confirmsUsableChart
-      && pendingPaint.dataContextSig === dataContextSig
-      && pendingPaint.startedAt > 0
+        && pendingPaint.confirmsUsableChart
+        && pendingPaint.dataContextSig === dataContextSig
+        && pendingPaint.startedAt > 0
         ? pendingPaint.startedAt
         : Date.now();
     const continuesPendingUsablePaint =
@@ -8196,8 +8214,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     // Line/Area instead keep source times and reduce each candle to its close.
     const renderedCandles = chartType === 'renko'
       ? buildRenkoBricks(cleaned, {
-          brickSize: resolveCachedRenkoBrickSize(cleaned),
-        })
+        brickSize: resolveCachedRenkoBrickSize(cleaned),
+      })
       : cleaned;
     const result: any[] = [];
 
@@ -8695,12 +8713,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     pendingAllowUnchangedSnapshot = true;
     flushCanonicalLivePaint();
     const releaseCandleConsumer = isPublicDemoMarket
-      ? () => {}
+      ? () => { }
       : liveCandlesEngine.subscribe(
-          chartSymbol,
-          chartTimeframe,
-          scheduleCanonicalLivePaint,
-        );
+        chartSymbol,
+        chartTimeframe,
+        scheduleCanonicalLivePaint,
+      );
     const retainLatestChartTradeDisplayQuote = (tick: QuoteTickEvent) => {
       if (normalizeSymbol(tick.symbol) !== normalizeSymbol(chartSymbol)) {
         return;
@@ -8726,20 +8744,20 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     };
     const releaseQuoteDemand = isPublicDemoMarket
       ? orrnnDemoPublicMarketSocket.subscribeToSymbol(
-          chartSymbol,
-          retainLatestChartTradeDisplayQuote,
-        )
+        chartSymbol,
+        retainLatestChartTradeDisplayQuote,
+      )
       : quotesWsService.subscribeToSymbol(
-          chartSymbol,
-          retainLatestChartTradeDisplayQuote,
-        );
+        chartSymbol,
+        retainLatestChartTradeDisplayQuote,
+      );
     return () => {
       disposed = true;
       cancelLivePaintSchedule();
       releaseQuoteDemand();
       releaseCandleConsumer();
       if (paintCanonicalLiveTickRef.current === scheduleCanonicalLivePaint) {
-        paintCanonicalLiveTickRef.current = () => {};
+        paintCanonicalLiveTickRef.current = () => { };
       }
     };
   }, [
@@ -9173,49 +9191,49 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       const basePriceLines = Object.keys(chartPositionStopDragPreviews).length === 0
         ? basePayload.priceLines
         : basePayload.priceLines.map((line) => {
-            if (!line.dragKey) {
-              return line;
-            }
-            const previewPrice = chartPositionStopDragPreviews[line.dragKey];
-            const target = parseChartPositionStopDragKey(line.dragKey);
-            if (
-              !target ||
-              !Number.isFinite(previewPrice) ||
-              previewPrice <= 0
-            ) {
-              return line;
-            }
-            const position = positions.find(
-              (item) => String(item.id) === target.positionId,
-            );
-            const entryPrice = Number(position?.openPrice);
-            if (!position || !Number.isFinite(entryPrice) || entryPrice <= 0) {
-              return line;
-            }
+          if (!line.dragKey) {
+            return line;
+          }
+          const previewPrice = chartPositionStopDragPreviews[line.dragKey];
+          const target = parseChartPositionStopDragKey(line.dragKey);
+          if (
+            !target ||
+            !Number.isFinite(previewPrice) ||
+            previewPrice <= 0
+          ) {
+            return line;
+          }
+          const position = positions.find(
+            (item) => String(item.id) === target.positionId,
+          );
+          const entryPrice = Number(position?.openPrice);
+          if (!position || !Number.isFinite(entryPrice) || entryPrice <= 0) {
+            return line;
+          }
 
-            const valueLabel = formatTpSlOverlayValueLabel(
+          const valueLabel = formatTpSlOverlayValueLabel(
+            position.symbol,
+            position.side,
+            entryPrice,
+            previewPrice,
+            Number(position.volume),
+          );
+          return {
+            ...line,
+            price: previewPrice,
+            title: formatTpSlOverlayLabel(
+              target.kind,
               position.symbol,
               position.side,
               entryPrice,
               previewPrice,
               Number(position.volume),
-            );
-            return {
-              ...line,
-              price: previewPrice,
-              title: formatTpSlOverlayLabel(
-                target.kind,
-                position.symbol,
-                position.side,
-                entryPrice,
-                previewPrice,
-                Number(position.volume),
-              ),
-              labelSideText: target.kind.toUpperCase(),
-              labelValueText: valueLabel,
-              labelValueColor: line.color,
-            };
-          });
+            ),
+            labelSideText: target.kind.toUpperCase(),
+            labelValueText: valueLabel,
+            labelValueColor: line.color,
+          };
+        });
 
       if (chartTradePreviewLines.length === 0) {
         return basePriceLines;
@@ -9250,18 +9268,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     () => JSON.stringify(overlayPriceLines.map((line) => (
       line.id.startsWith('open-')
         ? {
-            id: line.id,
-            labelSideText: line.labelSideText,
-            labelSideColor: line.labelSideColor,
-          }
+          id: line.id,
+          labelSideText: line.labelSideText,
+          labelSideColor: line.labelSideColor,
+        }
         : {
-            id: line.id,
-            title: line.title,
-            labelSideText: line.labelSideText,
-            labelValueText: line.labelValueText,
-            labelSideColor: line.labelSideColor,
-            labelValueColor: line.labelValueColor,
-          }
+          id: line.id,
+          title: line.title,
+          labelSideText: line.labelSideText,
+          labelValueText: line.labelValueText,
+          labelSideColor: line.labelSideColor,
+          labelValueColor: line.labelValueColor,
+        }
     ))),
     [overlayPriceLines],
   );
@@ -9996,11 +10014,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     chartTapMenuViewport.width > 0 && chartTapMenuViewport.height > 0;
   const chartTradeReceiptViewportStyle = chartTradeReceiptViewportReady
     ? {
-        left: Math.max(0, Math.round(chartTapMenuViewport.x - chartTradeSheetHostLeftOffset)),
-        top: Math.max(0, Math.round(chartTapMenuViewport.y - chartTradeSheetHostTopOffset)),
-        width: Math.round(chartTapMenuViewport.width),
-        height: Math.round(chartTapMenuViewport.height),
-      }
+      left: Math.max(0, Math.round(chartTapMenuViewport.x - chartTradeSheetHostLeftOffset)),
+      top: Math.max(0, Math.round(chartTapMenuViewport.y - chartTradeSheetHostTopOffset)),
+      width: Math.round(chartTapMenuViewport.width),
+      height: Math.round(chartTapMenuViewport.height),
+    }
     : null;
   const auxiliaryTradeReceiptViewportReady =
     chartWindows.isSplit
@@ -10013,17 +10031,17 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   const auxiliaryTradeReceiptViewportStyle = auxiliaryTradeReceiptViewportReady
     && auxiliaryChartPaneViewport
     ? {
-        left: Math.max(
-          0,
-          Math.round(auxiliaryChartPaneViewport.x - chartTradeSheetHostLeftOffset),
-        ),
-        top: Math.max(
-          0,
-          Math.round(auxiliaryChartPaneViewport.y - chartTradeSheetHostTopOffset),
-        ),
-        width: Math.round(auxiliaryChartPaneViewport.width),
-        height: Math.round(auxiliaryChartPaneViewport.height),
-      }
+      left: Math.max(
+        0,
+        Math.round(auxiliaryChartPaneViewport.x - chartTradeSheetHostLeftOffset),
+      ),
+      top: Math.max(
+        0,
+        Math.round(auxiliaryChartPaneViewport.y - chartTradeSheetHostTopOffset),
+      ),
+      width: Math.round(auxiliaryChartPaneViewport.width),
+      height: Math.round(auxiliaryChartPaneViewport.height),
+    }
     : null;
 
   return (
@@ -10203,214 +10221,214 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
             onDecreaseLot={() => handleStepFooterLotEditor(-1)}
             onIncreaseLot={() => handleStepFooterLotEditor(1)}
           >
-          <View
-            style={[
-              styles.chartContainer,
-              isChartExpanded && { minHeight: fullscreenChartMinHeight },
-              focusedLotChartViewportHeight > 0 && {
-                flex: 0,
-                height: focusedLotChartViewportHeight,
-              },
-            ]}
-          >
-            <View style={{ flex: 1, flexDirection: 'row' }}>
-              <ChartDrawingToolsSidebar
-                activeTool={activeTool}
-                chartHideAll={chartHideAll}
-                chartLockAll={chartLockAll}
-                colors={{ blue: BLUE, textMuted: TEXT_MUTED }}
-                drawingMagnetMode={drawingMagnetMode}
-                isChartExpanded={isChartExpanded}
-                isDark={isDark}
-                onClearDrawings={handleClearDrawings}
-                onOpenDrawingTools={() => routeChartWindowToolbarAction('drawings')}
-                onRedoDrawing={handleRedoDrawing}
-                onSelectTool={handleSetTool}
-                onToggleHide={handleToggleHide}
-                onToggleLock={handleToggleLock}
-                onToggleMagnetMode={handleToggleMagnetMode}
-                onToggleStickyMode={handleToggleStickyMode}
-                onUndoDrawing={handleUndoDrawing}
-                onZoomTool={handleZoomTool}
-                showDrawingToolbar={showChartDrawingToolbar}
-                stickyDrawingMode={stickyDrawingMode}
-              />
-              <View
-                ref={chartViewportRef}
-                style={[
-                  styles.chartViewport,
-                  frozenFooterLotChartViewportStyle,
-                  // Only a split chart needs this lift so the radial can cross
-                  // its sibling pane. Avoid restacking the undivided WebView.
-                  chartWindows.isSplit
+            <View
+              style={[
+                styles.chartContainer,
+                isChartExpanded && { minHeight: fullscreenChartMinHeight },
+                focusedLotChartViewportHeight > 0 && {
+                  flex: 0,
+                  height: focusedLotChartViewportHeight,
+                },
+              ]}
+            >
+              <View style={{ flex: 1, flexDirection: 'row' }}>
+                <ChartDrawingToolsSidebar
+                  activeTool={activeTool}
+                  chartHideAll={chartHideAll}
+                  chartLockAll={chartLockAll}
+                  colors={{ blue: BLUE, textMuted: TEXT_MUTED }}
+                  drawingMagnetMode={drawingMagnetMode}
+                  isChartExpanded={isChartExpanded}
+                  isDark={isDark}
+                  onClearDrawings={handleClearDrawings}
+                  onOpenDrawingTools={() => routeChartWindowToolbarAction('drawings')}
+                  onRedoDrawing={handleRedoDrawing}
+                  onSelectTool={handleSetTool}
+                  onToggleHide={handleToggleHide}
+                  onToggleLock={handleToggleLock}
+                  onToggleMagnetMode={handleToggleMagnetMode}
+                  onToggleStickyMode={handleToggleStickyMode}
+                  onUndoDrawing={handleUndoDrawing}
+                  onZoomTool={handleZoomTool}
+                  showDrawingToolbar={showChartDrawingToolbar}
+                  stickyDrawingMode={stickyDrawingMode}
+                />
+                <View
+                  ref={chartViewportRef}
+                  style={[
+                    styles.chartViewport,
+                    frozenFooterLotChartViewportStyle,
+                    // Only a split chart needs this lift so the radial can cross
+                    // its sibling pane. Avoid restacking the undivided WebView.
+                    chartWindows.isSplit
                     && chartTapMenuAnchor !== null
                     && { overflow: 'visible', zIndex: 80, elevation: 80 },
-                ]}
-                onTouchStart={handleChartViewportTouchStart}
-                onTouchEnd={handleChartViewportTouchEnd}
-                onTouchCancel={handleChartViewportTouchEnd}
-                onLayout={(event) => {
-                  const { width, height } = event.nativeEvent.layout;
-                  if (width <= 0 || height <= 0) {
-                    return;
-                  }
-                  if (!isScreenFocused) {
-                    return;
-                  }
-                  const freezeViewportResize =
-                    (shouldFreezeChartViewportResize || footerLotEditorActiveRef.current) &&
-                    lastChartViewportSizeRef.current.height > 0 &&
-                    height < lastChartViewportSizeRef.current.height;
-                  if (freezeViewportResize) {
-                    return;
-                  }
-                  setChartTapMenuBounds({ width, height });
-                  scheduleChartViewportResize(width, height, true);
-                  syncChartViewportFrame();
-                }}
-              >
-                {shouldShowChartLoadingOverlay && (
-                  <View pointerEvents="none" style={styles.chartOverlay}>
-                    <ActivityIndicator size="large" color={BLUE} />
-                    <Text style={styles.overlayText}>{t('Loading chart data...')}</Text>
-                  </View>
-                )}
+                  ]}
+                  onTouchStart={handleChartViewportTouchStart}
+                  onTouchEnd={handleChartViewportTouchEnd}
+                  onTouchCancel={handleChartViewportTouchEnd}
+                  onLayout={(event) => {
+                    const { width, height } = event.nativeEvent.layout;
+                    if (width <= 0 || height <= 0) {
+                      return;
+                    }
+                    if (!isScreenFocused) {
+                      return;
+                    }
+                    const freezeViewportResize =
+                      (shouldFreezeChartViewportResize || footerLotEditorActiveRef.current) &&
+                      lastChartViewportSizeRef.current.height > 0 &&
+                      height < lastChartViewportSizeRef.current.height;
+                    if (freezeViewportResize) {
+                      return;
+                    }
+                    setChartTapMenuBounds({ width, height });
+                    scheduleChartViewportResize(width, height, true);
+                    syncChartViewportFrame();
+                  }}
+                >
+                  {shouldShowChartLoadingOverlay && (
+                    <View pointerEvents="none" style={styles.chartOverlay}>
+                      <ActivityIndicator size="large" color={BLUE} />
+                      <Text style={styles.overlayText}>{t('Loading chart data...')}</Text>
+                    </View>
+                  )}
 
-                {chartSurfaceReady && isError && !isLoading && (
-                  <View pointerEvents="none" style={styles.chartOverlay}>
-                    <Ionicons name="cloud-offline-outline" size={36} color={TEXT_MUTED} />
-                    <Text style={styles.overlayText}>{t('Unable to load chart')}</Text>
-                    <Text style={styles.overlaySubText}>{chartDataError ?? t('Waiting for market data connection...')}</Text>
-                  </View>
-                )}
+                  {chartSurfaceReady && isError && !isLoading && (
+                    <View pointerEvents="none" style={styles.chartOverlay}>
+                      <Ionicons name="cloud-offline-outline" size={36} color={TEXT_MUTED} />
+                      <Text style={styles.overlayText}>{t('Unable to load chart')}</Text>
+                      <Text style={styles.overlaySubText}>{chartDataError ?? t('Waiting for market data connection...')}</Text>
+                    </View>
+                  )}
 
-                {chartSurfaceReady && isNoMarketData && !isError && (
-                  <View pointerEvents="none" style={styles.chartOverlay}>
-                    <Ionicons name="analytics-outline" size={36} color={TEXT_MUTED} />
-                    <Text style={styles.overlayText}>{t('No market data available')}</Text>
-                    <Text style={styles.overlaySubText}>{t('Waiting for backend candle data...')}</Text>
-                  </View>
-                )}
+                  {chartSurfaceReady && isNoMarketData && !isError && (
+                    <View pointerEvents="none" style={styles.chartOverlay}>
+                      <Ionicons name="analytics-outline" size={36} color={TEXT_MUTED} />
+                      <Text style={styles.overlayText}>{t('No market data available')}</Text>
+                      <Text style={styles.overlaySubText}>{t('Waiting for backend candle data...')}</Text>
+                    </View>
+                  )}
 
-                {chartSurfaceReady ? (
-                  <WebView
-                    key={`${CHART_DEV_SOURCE_KEY}:${chartWebViewGeneration}`}
-                    ref={webViewRef}
-                    source={CHART_SOURCE}
-                    style={{
-                      flex: 1,
-                      backgroundColor: resolvedChartColors.background,
-                      // Never expose the provisional quote-only chart beneath
-                      // the loading overlay. Reveal the WebView only after this
-                      // exact context has confirmed a usable history paint.
-                      // Error/no-data fallbacks keep the unconfirmed WebView
-                      // hidden behind their native overlays as well.
-                      opacity: hasUsableRetainedChart ? 1 : 0,
-                    }}
-                    androidLayerType="hardware"
-                    scrollEnabled={false}
-                    // Keep Android's parent ScrollView from cancelling an
-                    // axis drag after the WebView has claimed the gesture.
-                    nestedScrollEnabled
-                    // iOS: the WKWebView's own scroll view must not rubber-band
-                    // vertical drags either — the chart page owns its gestures.
-                    bounces={false}
-                    showsVerticalScrollIndicator={false}
-                    showsHorizontalScrollIndicator={false}
-                    originWhitelist={['*']}
-                    javaScriptEnabled={true}
-                    cacheEnabled={!__DEV__}
-                    forceDarkOn={false}
-                    onLoadStart={() => {
-                      pendingChartWebViewRecoveryRef.current = false;
-                      // A real document load must always create a fresh
-                      // false -> true readiness transition. Without this, a
-                      // remounted WebView can inherit ready=true and wait for
-                      // the three-second watchdog before initChart is retried.
-                      resetChartBridgeState();
-                      setWebViewReady(false);
-                    }}
-                    onContentProcessDidTerminate={() => {
-                      handleChartWebViewProcessLoss('iOS', chartWebViewGeneration);
-                    }}
-                    onRenderProcessGone={() => {
-                      handleChartWebViewProcessLoss('Android', chartWebViewGeneration);
-                    }}
-                    onMessage={(event) => {
-                      try {
-                        const msg = JSON.parse(event.nativeEvent.data);
-                        if (msg.type === 'READY') {
-                          if (typeof __DEV__ !== 'undefined' && __DEV__) {
-                            if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
-                              console.log('[CHART] webview READY (surface boot complete)');
+                  {chartSurfaceReady ? (
+                    <WebView
+                      key={`${CHART_DEV_SOURCE_KEY}:${chartWebViewGeneration}`}
+                      ref={webViewRef}
+                      source={CHART_SOURCE}
+                      style={{
+                        flex: 1,
+                        backgroundColor: resolvedChartColors.background,
+                        // Never expose the provisional quote-only chart beneath
+                        // the loading overlay. Reveal the WebView only after this
+                        // exact context has confirmed a usable history paint.
+                        // Error/no-data fallbacks keep the unconfirmed WebView
+                        // hidden behind their native overlays as well.
+                        opacity: hasUsableRetainedChart ? 1 : 0,
+                      }}
+                      androidLayerType="hardware"
+                      scrollEnabled={false}
+                      // Keep Android's parent ScrollView from cancelling an
+                      // axis drag after the WebView has claimed the gesture.
+                      nestedScrollEnabled
+                      // iOS: the WKWebView's own scroll view must not rubber-band
+                      // vertical drags either — the chart page owns its gestures.
+                      bounces={false}
+                      showsVerticalScrollIndicator={false}
+                      showsHorizontalScrollIndicator={false}
+                      originWhitelist={['*']}
+                      javaScriptEnabled={true}
+                      cacheEnabled={!__DEV__}
+                      forceDarkOn={false}
+                      onLoadStart={() => {
+                        pendingChartWebViewRecoveryRef.current = false;
+                        // A real document load must always create a fresh
+                        // false -> true readiness transition. Without this, a
+                        // remounted WebView can inherit ready=true and wait for
+                        // the three-second watchdog before initChart is retried.
+                        resetChartBridgeState();
+                        setWebViewReady(false);
+                      }}
+                      onContentProcessDidTerminate={() => {
+                        handleChartWebViewProcessLoss('iOS', chartWebViewGeneration);
+                      }}
+                      onRenderProcessGone={() => {
+                        handleChartWebViewProcessLoss('Android', chartWebViewGeneration);
+                      }}
+                      onMessage={(event) => {
+                        try {
+                          const msg = JSON.parse(event.nativeEvent.data);
+                          if (msg.type === 'READY') {
+                            if (typeof __DEV__ !== 'undefined' && __DEV__) {
+                              if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
+                                console.log('[CHART] webview READY (surface boot complete)');
+                              }
                             }
-                          }
-                          // WebView loaded — reset state and mark ready.
-                          // The watchdog + Effect 1 will push initChart as soon as data exists.
-                          resetChartBridgeState();
-                          lastWebViewDrawingSignatureRef.current = '';
-                          lastInjectedDrawingSyncRef.current = { signature: '', epoch: -1 };
-                          allowNextEmptyDrawingSyncRef.current = false;
-                          hasAcceptedNonEmptyWebViewDrawingsRef.current = drawingRecordsRef.current.length > 0;
-                          setTextLevelEditRequest(null);
-                          setWebViewReady(true);
-                          if (isScreenFocused) {
-                            requestChartViewportRecovery(2);
-                          }
-                        } else if (msg.type === 'CHART_READY') {
-                          const readyInitSignature = typeof msg.initSignature === 'string' ? msg.initSignature : '';
-                          const readyConfigSig = typeof msg.configSig === 'string' ? msg.configSig : '';
-                          const readyDataContextSig =
-                            typeof msg.dataContextSig === 'string' ? msg.dataContextSig : '';
-                          const readyDataContextEpoch = readChartInitContextEpoch(readyInitSignature);
-                          const latestInitDispatch = lastInitDispatchRef.current;
-                          if (!shouldAcceptChartReady(
-                            {
-                              initSignature: readyInitSignature,
-                              configSig: readyConfigSig,
-                              dataContextSig: readyDataContextSig,
-                            },
-                            {
-                              configSig: currentSig,
-                              dataContextSig: chartDataContextSigRef.current,
-                              dataContextEpoch: chartDataContextEpochRef.current.epoch,
-                            },
-                            {
-                              configSig: latestInitDispatch.configSig,
-                              dataContextSig: latestInitDispatch.dataContextSig,
-                              dataContextEpoch: latestInitDispatch.dataContextEpoch,
-                            },
-                          )) {
-                            if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
-                              console.log('[CHART-BRIDGE] ignore_stale_chart_ready', {
-                                readyInitSignature,
-                                readyConfigSig,
-                                readyDataContextSig,
-                                readyDataContextEpoch,
-                                latestInitSignature: latestInitDispatch.signature,
-                                latestConfigSig: latestInitDispatch.configSig,
-                                latestDataContextSig: latestInitDispatch.dataContextSig,
-                                latestDataContextEpoch: latestInitDispatch.dataContextEpoch,
-                                currentSig,
-                                chartDataContextSig,
-                                currentDataContextEpoch: chartDataContextEpochRef.current.epoch,
-                              });
+                            // WebView loaded — reset state and mark ready.
+                            // The watchdog + Effect 1 will push initChart as soon as data exists.
+                            resetChartBridgeState();
+                            lastWebViewDrawingSignatureRef.current = '';
+                            lastInjectedDrawingSyncRef.current = { signature: '', epoch: -1 };
+                            allowNextEmptyDrawingSyncRef.current = false;
+                            hasAcceptedNonEmptyWebViewDrawingsRef.current = drawingRecordsRef.current.length > 0;
+                            setTextLevelEditRequest(null);
+                            setWebViewReady(true);
+                            if (isScreenFocused) {
+                              requestChartViewportRecovery(2);
                             }
-                            return;
-                          }
-                          // WebView shell is ready.  Keep the startup loader
-                          // until a non-empty candle series is actually
-                          // painted, otherwise slow REST history briefly shows
-                          // a false "No market data" screen.
-                          chartInitializedRef.current = true;
-                          lastInitSigRef.current = currentSig;
-                          setChartCanvasReady(true);
-                          lastInjectedLiveQuoteSignatureRef.current = '';
-                          try {
-                            const drawingsToReplay = chartDrawingRecords;
-                            if (webViewRef.current) {
-                              const drawingReplaySignature = chartDrawingSignature;
-                              webViewRef.current.injectJavaScript(`
+                          } else if (msg.type === 'CHART_READY') {
+                            const readyInitSignature = typeof msg.initSignature === 'string' ? msg.initSignature : '';
+                            const readyConfigSig = typeof msg.configSig === 'string' ? msg.configSig : '';
+                            const readyDataContextSig =
+                              typeof msg.dataContextSig === 'string' ? msg.dataContextSig : '';
+                            const readyDataContextEpoch = readChartInitContextEpoch(readyInitSignature);
+                            const latestInitDispatch = lastInitDispatchRef.current;
+                            if (!shouldAcceptChartReady(
+                              {
+                                initSignature: readyInitSignature,
+                                configSig: readyConfigSig,
+                                dataContextSig: readyDataContextSig,
+                              },
+                              {
+                                configSig: currentSig,
+                                dataContextSig: chartDataContextSigRef.current,
+                                dataContextEpoch: chartDataContextEpochRef.current.epoch,
+                              },
+                              {
+                                configSig: latestInitDispatch.configSig,
+                                dataContextSig: latestInitDispatch.dataContextSig,
+                                dataContextEpoch: latestInitDispatch.dataContextEpoch,
+                              },
+                            )) {
+                              if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
+                                console.log('[CHART-BRIDGE] ignore_stale_chart_ready', {
+                                  readyInitSignature,
+                                  readyConfigSig,
+                                  readyDataContextSig,
+                                  readyDataContextEpoch,
+                                  latestInitSignature: latestInitDispatch.signature,
+                                  latestConfigSig: latestInitDispatch.configSig,
+                                  latestDataContextSig: latestInitDispatch.dataContextSig,
+                                  latestDataContextEpoch: latestInitDispatch.dataContextEpoch,
+                                  currentSig,
+                                  chartDataContextSig,
+                                  currentDataContextEpoch: chartDataContextEpochRef.current.epoch,
+                                });
+                              }
+                              return;
+                            }
+                            // WebView shell is ready.  Keep the startup loader
+                            // until a non-empty candle series is actually
+                            // painted, otherwise slow REST history briefly shows
+                            // a false "No market data" screen.
+                            chartInitializedRef.current = true;
+                            lastInitSigRef.current = currentSig;
+                            setChartCanvasReady(true);
+                            lastInjectedLiveQuoteSignatureRef.current = '';
+                            try {
+                              const drawingsToReplay = chartDrawingRecords;
+                              if (webViewRef.current) {
+                                const drawingReplaySignature = chartDrawingSignature;
+                                webViewRef.current.injectJavaScript(`
                                 window.__rtx5ChartWindowPaneId = ${JSON.stringify(chartWindows.activePane.id)};
                                 if (typeof setShowObjectDescriptions === 'function') {
                                   setShowObjectDescriptions(${chartDisplay.showObjectDescriptions === true});
@@ -10420,83 +10438,83 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                                 }
                                 true;
                               `);
-                              lastInjectedDrawingSyncRef.current = {
-                                signature: drawingReplaySignature,
-                                epoch: chartReadyEpoch,
-                              };
-                            }
-                          } catch (_) { }
-                          // Fast path: if initChart already seeded this exact
-                          // sanitized series, skip the duplicate full reload.
-                          // Otherwise paint retained candles for the READY race.
-                          let readyPaintToken = '';
-                          let chartReadyConfirmedCurrentSnapshotPaint = false;
-                          let readyVisibleLivePrice: number | null = null;
-                          const readyLiveRevision = livePaintRevisionRef.current + 1;
-                          try {
-                            const {
-                              exactQuote: readyExactQuote,
-                              projection: readyProjection,
-                              hasHistoryCandles: readyHasHistoryCandles,
-                            } = readCurrentProjectedChartCandles();
-                            const readyCandles = readyProjection.candles;
-                            const readyLastCandle = readyCandles[readyCandles.length - 1] ?? null;
-                            readyVisibleLivePrice =
-                              chartDisplay.showLivePriceLine && readyExactQuote && readyLastCandle
-                                ? readyLastCandle.close
-                                : null;
-                            retainCurrentChartCandles(readyCandles);
-                            const readySnapshot = buildChartSeriesSnapshot(readyCandles);
-                            const pendingHistorylessBootstrap = historylessBootstrapViewportRef.current;
-                            const resetForHistorylessBootstrap = shouldResetViewportForHistorylessBootstrap(
-                              pendingHistorylessBootstrap.contextKey,
-                              chartDataContextSig,
-                              pendingHistorylessBootstrap.snapshot,
-                              readySnapshot,
-                              readyHasHistoryCandles,
-                            );
-                            const usableHistoryPaintAlreadyPending =
-                              resetForHistorylessBootstrap
-                              && pendingChartDataPaintRef.current.confirmsUsableChart
-                              && pendingChartDataPaintRef.current.dataContextSig === chartDataContextSig
-                              && pendingChartDataPaintRef.current.token.length > 0;
-                            if (readyCandles.length > 0 && webViewRef.current) {
-                              // READY can race the normal data effect. Prepare the
-                              // Renko output here too so its first confirmed paint
-                              // and future transformed diff share one baseline.
-                              const readyMappedRenkoData = chartType === 'renko'
-                                ? buildMappedData(readyCandles)
-                                : null;
-                              const readySnapshotInitSignature = buildChartInitSignature(
-                                chartDataContextEpochRef.current.epoch,
-                                `${chartDataContextSig}:${currentSig}:${getChartSnapshotSignature(readySnapshot)}`,
+                                lastInjectedDrawingSyncRef.current = {
+                                  signature: drawingReplaySignature,
+                                  epoch: chartReadyEpoch,
+                                };
+                              }
+                            } catch (_) { }
+                            // Fast path: if initChart already seeded this exact
+                            // sanitized series, skip the duplicate full reload.
+                            // Otherwise paint retained candles for the READY race.
+                            let readyPaintToken = '';
+                            let chartReadyConfirmedCurrentSnapshotPaint = false;
+                            let readyVisibleLivePrice: number | null = null;
+                            const readyLiveRevision = livePaintRevisionRef.current + 1;
+                            try {
+                              const {
+                                exactQuote: readyExactQuote,
+                                projection: readyProjection,
+                                hasHistoryCandles: readyHasHistoryCandles,
+                              } = readCurrentProjectedChartCandles();
+                              const readyCandles = readyProjection.candles;
+                              const readyLastCandle = readyCandles[readyCandles.length - 1] ?? null;
+                              readyVisibleLivePrice =
+                                chartDisplay.showLivePriceLine && readyExactQuote && readyLastCandle
+                                  ? readyLastCandle.close
+                                  : null;
+                              retainCurrentChartCandles(readyCandles);
+                              const readySnapshot = buildChartSeriesSnapshot(readyCandles);
+                              const pendingHistorylessBootstrap = historylessBootstrapViewportRef.current;
+                              const resetForHistorylessBootstrap = shouldResetViewportForHistorylessBootstrap(
+                                pendingHistorylessBootstrap.contextKey,
+                                chartDataContextSig,
+                                pendingHistorylessBootstrap.snapshot,
+                                readySnapshot,
+                                readyHasHistoryCandles,
                               );
-                              if (readyInitSignature === readySnapshotInitSignature) {
-                                if (!readyHasHistoryCandles) {
-                                  historylessBootstrapViewportRef.current = {
-                                    contextKey: chartDataContextSig,
-                                    snapshot: readySnapshot,
-                                  };
-                                } else {
-                                  historylessBootstrapViewportRef.current = EMPTY_HISTORYLESS_BOOTSTRAP_VIEWPORT;
-                                }
-                                renderedSeriesSnapshotRef.current = readySnapshot;
-                                renderedDataContextSigRef.current = chartDataContextSig;
-                                if (readyHasHistoryCandles) {
-                                  setHasPaintedChartOnce(true);
-                                  setLastPaintedChartDataContextSig(chartDataContextSig);
-                                  setLastPaintedChartDataContextEpoch(
-                                    chartDataContextEpochRef.current.epoch,
-                                  );
-                                  chartReadyConfirmedCurrentSnapshotPaint = true;
-                                }
-                              } else if (!usableHistoryPaintAlreadyPending) {
-                                const mapped = readyMappedRenkoData ?? buildMappedData(readyCandles);
-                                readyPaintToken = issueChartDataPaintToken(
-                                  chartDataContextSig,
-                                  readyHasHistoryCandles,
+                              const usableHistoryPaintAlreadyPending =
+                                resetForHistorylessBootstrap
+                                && pendingChartDataPaintRef.current.confirmsUsableChart
+                                && pendingChartDataPaintRef.current.dataContextSig === chartDataContextSig
+                                && pendingChartDataPaintRef.current.token.length > 0;
+                              if (readyCandles.length > 0 && webViewRef.current) {
+                                // READY can race the normal data effect. Prepare the
+                                // Renko output here too so its first confirmed paint
+                                // and future transformed diff share one baseline.
+                                const readyMappedRenkoData = chartType === 'renko'
+                                  ? buildMappedData(readyCandles)
+                                  : null;
+                                const readySnapshotInitSignature = buildChartInitSignature(
+                                  chartDataContextEpochRef.current.epoch,
+                                  `${chartDataContextSig}:${currentSig}:${getChartSnapshotSignature(readySnapshot)}`,
                                 );
-                                webViewRef.current.injectJavaScript(`
+                                if (readyInitSignature === readySnapshotInitSignature) {
+                                  if (!readyHasHistoryCandles) {
+                                    historylessBootstrapViewportRef.current = {
+                                      contextKey: chartDataContextSig,
+                                      snapshot: readySnapshot,
+                                    };
+                                  } else {
+                                    historylessBootstrapViewportRef.current = EMPTY_HISTORYLESS_BOOTSTRAP_VIEWPORT;
+                                  }
+                                  renderedSeriesSnapshotRef.current = readySnapshot;
+                                  renderedDataContextSigRef.current = chartDataContextSig;
+                                  if (readyHasHistoryCandles) {
+                                    setHasPaintedChartOnce(true);
+                                    setLastPaintedChartDataContextSig(chartDataContextSig);
+                                    setLastPaintedChartDataContextEpoch(
+                                      chartDataContextEpochRef.current.epoch,
+                                    );
+                                    chartReadyConfirmedCurrentSnapshotPaint = true;
+                                  }
+                                } else if (!usableHistoryPaintAlreadyPending) {
+                                  const mapped = readyMappedRenkoData ?? buildMappedData(readyCandles);
+                                  readyPaintToken = issueChartDataPaintToken(
+                                    chartDataContextSig,
+                                    readyHasHistoryCandles,
+                                  );
+                                  webViewRef.current.injectJavaScript(`
                                    updateChartData(${JSON.stringify(mapped)}, {
                                      preserveVisibleLogicalSpan: ${!resetForHistorylessBootstrap},
                                      resetVisibleRange: ${resetForHistorylessBootstrap},
@@ -10512,48 +10530,48 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                                    }
                                    true;
                                  `);
-                                if (!readyHasHistoryCandles) {
-                                  historylessBootstrapViewportRef.current = {
-                                    contextKey: chartDataContextSig,
-                                    snapshot: readySnapshot,
-                                  };
+                                  if (!readyHasHistoryCandles) {
+                                    historylessBootstrapViewportRef.current = {
+                                      contextKey: chartDataContextSig,
+                                      snapshot: readySnapshot,
+                                    };
+                                  }
+                                  livePaintRevisionRef.current = readyLiveRevision;
+                                  renderedSeriesSnapshotRef.current = readySnapshot;
+                                  renderedDataContextSigRef.current = chartDataContextSig;
                                 }
-                                livePaintRevisionRef.current = readyLiveRevision;
-                                renderedSeriesSnapshotRef.current = readySnapshot;
-                                renderedDataContextSigRef.current = chartDataContextSig;
+                                renderedRenkoSeriesSnapshotRef.current = readyMappedRenkoData
+                                  ? buildChartSeriesSnapshot(readyMappedRenkoData)
+                                  : EMPTY_CHART_SERIES_SNAPSHOT;
                               }
-                              renderedRenkoSeriesSnapshotRef.current = readyMappedRenkoData
-                                ? buildChartSeriesSnapshot(readyMappedRenkoData)
-                                : EMPTY_CHART_SERIES_SNAPSHOT;
+                            } catch (_) {
+                              if (pendingChartDataPaintRef.current.token === readyPaintToken) {
+                                pendingChartDataPaintRef.current = {
+                                  token: '',
+                                  dataContextSig: '',
+                                  confirmsUsableChart: false,
+                                  startedAt: 0,
+                                  ackRetryCount: 0,
+                                  lastAckRetryAt: 0,
+                                };
+                              }
                             }
-                          } catch (_) {
-                            if (pendingChartDataPaintRef.current.token === readyPaintToken) {
-                              pendingChartDataPaintRef.current = {
-                                token: '',
-                                dataContextSig: '',
-                                confirmsUsableChart: false,
-                                startedAt: 0,
-                                ackRetryCount: 0,
-                                lastAckRetryAt: 0,
-                              };
+                            if (chartReadyConfirmedCurrentSnapshotPaint) {
+                              recordConfirmedChartFrontendPaint();
                             }
-                          }
-                          if (chartReadyConfirmedCurrentSnapshotPaint) {
-                            recordConfirmedChartFrontendPaint();
-                          }
-                          // Bump epoch so the overlay effect always re-fires
-                          // after every (re-)initialization, even when the
-                          // payload itself hasn't changed.
-                          setChartReadyEpoch((c) => c + 1);
-                          requestChartViewportRecovery(4);
-                          // Immediately push the latest overlay so lines appear
-                          // without waiting for the next React effect cycle.
-                          try {
-                            const latestOverlay = overlayPayloadRef.current ?? { priceLines: [], markers: [] };
-                            const nextMarketLineSignature =
-                              readyVisibleLivePrice !== null ? readyVisibleLivePrice.toFixed(displayDecimals) : chartDisplay.showLivePriceLine ? 'na' : 'off';
-                            if (webViewRef.current) {
-                              webViewRef.current.injectJavaScript(`
+                            // Bump epoch so the overlay effect always re-fires
+                            // after every (re-)initialization, even when the
+                            // payload itself hasn't changed.
+                            setChartReadyEpoch((c) => c + 1);
+                            requestChartViewportRecovery(4);
+                            // Immediately push the latest overlay so lines appear
+                            // without waiting for the next React effect cycle.
+                            try {
+                              const latestOverlay = overlayPayloadRef.current ?? { priceLines: [], markers: [] };
+                              const nextMarketLineSignature =
+                                readyVisibleLivePrice !== null ? readyVisibleLivePrice.toFixed(displayDecimals) : chartDisplay.showLivePriceLine ? 'na' : 'off';
+                              if (webViewRef.current) {
+                                webViewRef.current.injectJavaScript(`
                             if (typeof setChartOverlays === 'function') {
                               setChartOverlays(${JSON.stringify(latestOverlay)});
                             }
@@ -10566,404 +10584,38 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                             }
                             true;
                           `);
-                              livePaintRevisionRef.current = readyLiveRevision;
-                              lastInjectedLiveQuoteSignatureRef.current = nextMarketLineSignature;
-                            }
-                          } catch (_) { }
-                        } else if (msg.type === 'CHART_DATA_PAINTED') {
-                          const paintedDataContextSig =
-                            typeof msg.dataContextSig === 'string' ? msg.dataContextSig : '';
-                          const paintToken = typeof msg.paintToken === 'string' ? msg.paintToken : '';
-                          const pendingPaint = pendingChartDataPaintRef.current;
-                          if (!shouldAcceptChartDataPaint(
-                            {
-                              paintToken,
-                              dataContextSig: paintedDataContextSig,
-                            },
-                            {
-                              paintToken: pendingPaint.token,
-                              dataContextSig: pendingPaint.dataContextSig,
-                            },
-                            chartDataContextSigRef.current,
-                          )) {
-                            if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
-                              console.log('[CHART-BRIDGE] ignore_stale_data_paint', {
-                                paintToken,
-                                paintedDataContextSig,
-                                pendingPaintToken: pendingPaint.token,
-                                pendingDataContextSig: pendingPaint.dataContextSig,
-                                currentDataContextSig: chartDataContextSigRef.current,
-                              });
-                            }
-                            return;
-                          }
-
-                          pendingChartDataPaintRef.current = {
-                            token: '',
-                            dataContextSig: '',
-                            confirmsUsableChart: false,
-                            startedAt: 0,
-                            ackRetryCount: 0,
-                            lastAckRetryAt: 0,
-                          };
-                          if (!pendingPaint.confirmsUsableChart) {
-                            // Empty-series clears and quote-only bootstrap paints
-                            // are valid bridge acknowledgements, but neither may
-                            // dismiss the loader and reveal a one-candle viewport.
-                            return;
-                          }
-                          const paintedCandles = candlesRef.current;
-                          if (paintedCandles.length === 0) {
-                            return;
-                          }
-                          if (
-                            historylessBootstrapViewportRef.current.contextKey
-                            === paintedDataContextSig
-                          ) {
-                            historylessBootstrapViewportRef.current =
-                              EMPTY_HISTORYLESS_BOOTSTRAP_VIEWPORT;
-                          }
-                          renderedSeriesSnapshotRef.current =
-                            buildChartSeriesSnapshot(paintedCandles);
-                          // The acknowledgement reports source-context paint; save
-                          // the equivalent transformed snapshot for later Renko diffs.
-                          renderedRenkoSeriesSnapshotRef.current = chartType === 'renko'
-                            ? buildChartSeriesSnapshot(buildMappedData(paintedCandles))
-                            : EMPTY_CHART_SERIES_SNAPSHOT;
-                          renderedDataContextSigRef.current = paintedDataContextSig;
-                          setHasPaintedChartOnce(true);
-                          setLastPaintedChartDataContextSig(paintedDataContextSig);
-                          setLastPaintedChartDataContextEpoch(
-                            chartDataContextEpochRef.current.epoch,
-                          );
-                          recordConfirmedChartFrontendPaint();
-                          // The quote can win the cold-load race before candles.
-                          // Replay it after the WebView confirms this exact
-                          // context, even if a closed market sends no next tick.
-                          paintCanonicalLiveTickRef.current(true);
-                        } else if (msg.type === 'DRAWING_TEXT_EDIT_REQUEST') {
-                          const recordId = typeof msg.recordId === 'string' ? msg.recordId : '';
-                          if (!recordId) {
-                            return;
-                          }
-                          setTextLevelEditRequest({
-                            recordId,
-                            text: typeof msg.text === 'string' ? msg.text : 'Level',
-                          });
-                        } else if (msg.type === 'DRAWING_QUICK_ACTIONS_REQUEST') {
-                          closeChartTapMenu();
-                          openDrawingQuickActionsSheet();
-                        } else if (msg.type === 'DRAWING_ACTION_MENU_REQUEST') {
-                          closeChartTapMenu();
-                          openSelectedDrawingActionSheet({
-                            label:
-                              typeof msg.label === 'string' && msg.label
-                                ? msg.label
-                                : t('Drawing'),
-                            locked: msg.locked === true,
-                          });
-                        } else if (msg.type === 'DRAWINGS_CHANGED') {
-                          if (
-                            !chartInitializedRef.current ||
-                            !chartCanvasReady ||
-                            lastInitSigRef.current !== currentSig ||
-                            (
-                              chartWindows.isSplit
-                              && msg.chartWindowPaneId !== chartWindows.activePane.id
-                            )
-                          ) {
-                            return;
-                          }
-
-                          const nextSelectedDrawingId =
-                            typeof msg.selectedDrawingId === 'string' && msg.selectedDrawingId
-                              ? msg.selectedDrawingId
-                              : null;
-                          setSelectedDrawingId((previous) =>
-                            (previous === nextSelectedDrawingId ? previous : nextSelectedDrawingId));
-                          const sanitizedNextDrawings = filterChartDrawingRecordsForCurrentChart(
-                            sanitizePersistedChartDrawings(msg.drawings),
-                            chartSymbol,
-                            chartTimeframe,
-                            sanitizedBackendCandles,
-                            chartWindows.isSplit ? chartWindows.activePane.id : undefined,
-                          );
-                          const nextDrawings = chartWindows.isSplit
-                            ? sanitizedNextDrawings.map((drawing) => ({
-                              ...drawing,
-                              chartWindowPaneId: chartWindows.activePane.id,
-                            }))
-                            : sanitizedNextDrawings;
-                          const nextSignature = JSON.stringify(nextDrawings);
-                          const nativeDrawingRecords = drawingRecordsRef.current;
-                          const nativeDrawingSignature = drawingSignatureRef.current;
-                          const hasNativeOrAcceptedDrawings =
-                            nativeDrawingRecords.length > 0 ||
-                            hasAcceptedNonEmptyWebViewDrawingsRef.current;
-                          const unexpectedEmptyWebViewPayload =
-                            nextDrawings.length === 0 &&
-                            hasNativeOrAcceptedDrawings &&
-                            !allowNextEmptyDrawingSyncRef.current;
-
-                          if (unexpectedEmptyWebViewPayload) {
-                            return;
-                          }
-
-                          if (chartWindows.isSplit) {
-                            const historyKey = getChartWindowDrawingHistoryKey(
-                              chartWindows.activePane.id,
-                              chartWindows.activePane.symbol,
-                              chartWindows.activePane.timeframe,
-                            );
-                            const alignedHistory = reconcileChartWindowDrawingHistory(
-                              chartWindowDrawingHistoriesRef.current[historyKey],
-                              nativeDrawingRecords,
-                            );
-                            const history = nextSignature === nativeDrawingSignature
-                              ? alignedHistory
-                              : recordChartWindowDrawingChange(alignedHistory, nextDrawings);
-                            chartWindowDrawingHistoriesRef.current[historyKey] = history;
-                            setDrawingHistoryState(
-                              getChartWindowDrawingHistoryAvailability(history),
-                            );
-                          } else {
-                            const nextCanUndo = msg.canUndo === true;
-                            const nextCanRedo = msg.canRedo === true;
-                            setDrawingHistoryState((previous) =>
-                              (previous.canUndo === nextCanUndo && previous.canRedo === nextCanRedo
-                                ? previous
-                                : { canRedo: nextCanRedo, canUndo: nextCanUndo }));
-                          }
-
-                          lastWebViewDrawingSignatureRef.current = nextSignature;
-                          if (nextDrawings.length > 0) {
-                            allowNextEmptyDrawingSyncRef.current = false;
-                            hasAcceptedNonEmptyWebViewDrawingsRef.current = true;
-                          } else {
-                            allowNextEmptyDrawingSyncRef.current = false;
-                            hasAcceptedNonEmptyWebViewDrawingsRef.current = false;
-                          }
-
-                          if (nextSignature !== nativeDrawingSignature) {
-                            if (chartWindows.isSplit) {
-                              const currentBucket = useUserPreferences.getState()
-                                .chartDrawingRecordsBySymbol[getChartDrawingBucketKey(chartSymbol)] ?? [];
-                              setChartDrawingRecordsForSymbol(
-                                chartSymbol,
-                                replaceChartWindowPaneDrawings(
-                                  currentBucket,
-                                  nextDrawings,
-                                  chartWindows.activePane,
-                                ),
-                              );
-                            } else {
-                              setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
-                            }
-                          }
-                        } else if (msg.type === 'DRAWINGS_SYNCED_FOR_OBJECTS') {
-                          const pendingRequest = pendingObjectsDrawingSyncRef.current;
-                          if (
-                            pendingRequest
-                            && Number(msg.requestId) === pendingRequest.requestId
-                          ) {
-                            pendingObjectsDrawingSyncRef.current = null;
-                            pendingRequest.onReady();
-                          }
-                        } else if (msg.type === 'CHART_TOUCH_STATE') {
-                          if (msg.active) {
-                            handleChartViewportTouchStart();
-                          } else {
-                            handleChartViewportTouchEnd();
-                          }
-                        } else if (msg.type === 'TOOL_ACTIVE_CHANGED') {
-                          if (
-                            chartWindows.isSplit
-                            && msg.chartWindowPaneId !== chartWindows.activePane.id
-                          ) {
-                            return;
-                          }
-                          const nextActiveTool = typeof msg.tool === 'string'
-                            ? msg.tool
-                            : CHART_NO_DRAWING_TOOL;
-                          if (nextActiveTool === CHART_NO_DRAWING_TOOL) {
-                            chartDrawingToolOwnerPaneIdRef.current = null;
-                          }
-                          setActiveTool(nextActiveTool);
-                          setChartDrawingInputActive(msg.drawingActive === true);
-                        } else if (msg.type === 'CHART_TRADE_LINE_DRAG') {
-                          if (!handleChartPositionStopDragMessage(msg)) {
-                            handleChartTradePreviewDragMessage(msg);
-                          }
-                        } else if (msg.type === 'ON_PAGINATE_HISTORY') {
-                          paginate();
-                        } else if (msg.type === 'CHART_TAP') {
-                          if (msg.dataContextSig !== chartDataContextSigRef.current) {
-                            return;
-                          }
-                          // Undivided charts keep their established single-tap
-                          // radial. In divided mode the full pane waits for the
-                          // explicit CHART_DOUBLE_TAP emitted by its WebView.
-                          if (chartWindows.isSplit) {
-                            scheduleFullPaneSelection(msg.dataContextSig);
-                            return;
-                          }
-                          if (shouldSuppressChartTapMenu({
-                            activeTool,
-                            footerLotEditorFocused,
-                            footerLotEditorOpening,
-                            footerLotPickerOpen: footerLotPickerMode !== null,
-                            suppressUntil: chartTapMenuSuppressUntilRef.current,
-                          })) {
-                            setChartTapMenuAnchor(null);
-                            return;
-                          }
-                          const x = typeof msg.x === 'number' ? msg.x : NaN;
-                          const y = typeof msg.y === 'number' ? msg.y : NaN;
-                          if (!Number.isFinite(x) || !Number.isFinite(y)) {
-                            return;
-                          }
-                          // CHART_TAP coordinates are already viewport-local.
-                          // Use them immediately without a measure/rAF delay, so
-                          // taps anywhere open at their own clamped position.
-                          const nextAnchor = {
-                            x,
-                            y,
-                            price: typeof msg.price === 'number' && Number.isFinite(msg.price) ? msg.price : null,
-                          };
-                          chartTapMenuOpenedAtRef.current = Date.now();
-                          // A valid tap opens the hidden radial here; the next
-                          // valid chart tap toggles the already-open radial off.
-                          if (chartTapMenuAnchor === null) {
-                            // WebView sends touch-release immediately after
-                            // CHART_TAP. Apply both changes together so another
-                            // render cannot interrupt the radial entrance.
-                            settleChartViewportTouchForRadialOpen();
-                          }
-                          setChartTapMenuAnchor((currentAnchor) => (
-                            currentAnchor ? null : nextAnchor
-                          ));
-                        } else if (msg.type === 'CHART_DOUBLE_TAP') {
-                          if (msg.dataContextSig !== chartDataContextSigRef.current) {
-                            return;
-                          }
-                          if (!chartWindows.isSplit) {
-                            return;
-                          }
-                          cancelPendingFullPaneSelection();
-                          // Double tap owns the pane for every radial action as
-                          // well. Previously the full engine could retain null
-                          // (broadcast) ownership while the auxiliary path was
-                          // correctly pane-scoped.
-                          chartWindows.claimToolbarTarget(
-                            chartWindowsStateRef.current.activePaneId,
-                          );
-                          if (shouldSuppressChartTapMenu({
-                            activeTool,
-                            footerLotEditorFocused,
-                            footerLotEditorOpening,
-                            footerLotPickerOpen: footerLotPickerMode !== null,
-                            suppressUntil: chartTapMenuSuppressUntilRef.current,
-                          })) {
-                            setChartTapMenuAnchor(null);
-                            return;
-                          }
-                          const x = typeof msg.x === 'number' ? msg.x : NaN;
-                          const y = typeof msg.y === 'number' ? msg.y : NaN;
-                          if (!Number.isFinite(x) || !Number.isFinite(y)) {
-                            return;
-                          }
-                          const nextAnchor = {
-                            x,
-                            y,
-                            price: typeof msg.price === 'number' && Number.isFinite(msg.price)
-                              ? msg.price
-                              : null,
-                          };
-                          chartTapMenuOpenedAtRef.current = Date.now();
-                          syncChartViewportFrame(() => {
-                            setChartTapMenuAnchor(nextAnchor);
-                          });
-                        } else if (msg.type === 'CHART_GEOMETRY') {
-                          if (msg.dataContextSig === chartDataContextSigRef.current) {
-                            const rangeFrom = msg.priceRange?.from;
-                            const rangeTo = msg.priceRange?.to;
-                            chartVisiblePriceRangeRef.current =
-                              typeof rangeFrom === 'number'
-                              && Number.isFinite(rangeFrom)
-                              && typeof rangeTo === 'number'
-                              && Number.isFinite(rangeTo)
-                              && rangeFrom !== rangeTo
-                                ? {
-                                  from: Math.min(rangeFrom, rangeTo),
-                                  to: Math.max(rangeFrom, rangeTo),
-                                }
-                                : null;
-                            const manualRangeFrom = msg.manualPriceScale?.from;
-                            const manualRangeTo = msg.manualPriceScale?.to;
-                            const manualReferenceSpan = msg.manualPriceScale?.referenceSpan;
-                            if (
-                              typeof manualRangeFrom === 'number'
-                              && Number.isFinite(manualRangeFrom)
-                              && typeof manualRangeTo === 'number'
-                              && Number.isFinite(manualRangeTo)
-                              && manualRangeFrom !== manualRangeTo
-                            ) {
-                              const from = Math.min(manualRangeFrom, manualRangeTo);
-                              const to = Math.max(manualRangeFrom, manualRangeTo);
-                              chartManualPriceScaleRef.current = {
-                                from,
-                                to,
-                                referenceSpan:
-                                  typeof manualReferenceSpan === 'number'
-                                  && Number.isFinite(manualReferenceSpan)
-                                  && manualReferenceSpan > 0
-                                    ? manualReferenceSpan
-                                    : to - from,
-                              };
-                            } else {
-                              chartManualPriceScaleRef.current = null;
-                            }
-                          }
-                          const nextPlotArea =
-                            msg.plotArea
-                              && typeof msg.plotArea.left === 'number'
-                              && Number.isFinite(msg.plotArea.left)
-                              && typeof msg.plotArea.top === 'number'
-                              && Number.isFinite(msg.plotArea.top)
-                              && typeof msg.plotArea.width === 'number'
-                              && Number.isFinite(msg.plotArea.width)
-                              && msg.plotArea.width > 0
-                              && typeof msg.plotArea.height === 'number'
-                              && Number.isFinite(msg.plotArea.height)
-                              && msg.plotArea.height > 0
-                              ? {
-                                left: msg.plotArea.left,
-                                top: msg.plotArea.top,
-                                width: msg.plotArea.width,
-                                height: msg.plotArea.height,
+                                livePaintRevisionRef.current = readyLiveRevision;
+                                lastInjectedLiveQuoteSignatureRef.current = nextMarketLineSignature;
                               }
-                              : null;
-
-                          setChartPlotArea((current) => {
-                            if (
-                              current
-                              && nextPlotArea
-                              && current.left === nextPlotArea.left
-                              && current.top === nextPlotArea.top
-                              && current.width === nextPlotArea.width
-                              && current.height === nextPlotArea.height
-                            ) {
-                              return current;
+                            } catch (_) { }
+                          } else if (msg.type === 'CHART_DATA_PAINTED') {
+                            const paintedDataContextSig =
+                              typeof msg.dataContextSig === 'string' ? msg.dataContextSig : '';
+                            const paintToken = typeof msg.paintToken === 'string' ? msg.paintToken : '';
+                            const pendingPaint = pendingChartDataPaintRef.current;
+                            if (!shouldAcceptChartDataPaint(
+                              {
+                                paintToken,
+                                dataContextSig: paintedDataContextSig,
+                              },
+                              {
+                                paintToken: pendingPaint.token,
+                                dataContextSig: pendingPaint.dataContextSig,
+                              },
+                              chartDataContextSigRef.current,
+                            )) {
+                              if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
+                                console.log('[CHART-BRIDGE] ignore_stale_data_paint', {
+                                  paintToken,
+                                  paintedDataContextSig,
+                                  pendingPaintToken: pendingPaint.token,
+                                  pendingDataContextSig: pendingPaint.dataContextSig,
+                                  currentDataContextSig: chartDataContextSigRef.current,
+                                });
+                              }
+                              return;
                             }
-                            return nextPlotArea;
-                          });
-                        } else if (msg.type === 'ERROR') {
-                          // Log but don't alert — the watchdog will auto-retry.
-                          console.warn('[CHART WEBVIEW ERROR]', msg.message);
-                          const bridgeErrorMessage = typeof msg.message === 'string' ? msg.message : '';
-                          if (/initChart|updateChartData|flushPendingTick|series not initialized|recoverChartSurface/.test(bridgeErrorMessage)) {
-                            chartInitializedRef.current = false;
-                            lastInitSigRef.current = '';
+
                             pendingChartDataPaintRef.current = {
                               token: '',
                               dataContextSig: '',
@@ -10972,812 +10624,1178 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
                               ackRetryCount: 0,
                               lastAckRetryAt: 0,
                             };
-                            renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
-                            renderedRenkoSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
-                            setChartCanvasReady(false);
-                            requestChartViewportRecovery(2);
-                            sendInit(true);
-                          }
-                        }
-                      } catch (_e) { }
-                    }}
-                  />
-                ) : null}
-                {(chartDisplay.showTicker || showChartMetaRow) && (
-                  <View
-                    style={[
-                      styles.chartOverlaySymbolSection,
-                      isSymbolHeaderMovable && {
-                        transform: [
-                          { translateX: chartSymbolHeaderOffset.x },
-                          { translateY: chartSymbolHeaderOffset.y },
-                        ],
-                      },
-                      isChartSymbolHeaderDragArmed && {
-                        opacity: 0.75,
-                        transform: [
-                          { translateX: chartSymbolHeaderOffset.x },
-                          { translateY: chartSymbolHeaderOffset.y },
-                          { scale: 1.04 },
-                        ],
-                      },
-                    ]}
-                    onLayout={(event) => {
-                      const { width, height } = event.nativeEvent.layout;
-                      chartSymbolHeaderSizeRef.current = { width, height };
-                    }}
-                    {...chartSymbolHeaderPanHandlers}
-                  >
-                    <View style={[styles.symbolSection, { minHeight: 'auto' }]}>
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={t('Select Symbol')}
-                        style={styles.symbolSectionTapTarget}
-                        onPress={handleOpenSymbolPicker}
-                        onPressOut={handleChartSymbolHeaderPressOut}
-                        activateOnPressIn={!isSymbolHeaderMovable}
-                        activateOnTouchStart={!isSymbolHeaderMovable}
-                        hitSlop={8}
-                        unstable_pressDelay={0}
-                      >
-                        <View style={styles.symbolSectionContent}>
-                          {chartDisplay.showTicker ? (
-                            <>
-                              <View style={styles.symbolNameRow}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                                  <Text style={[styles.symbolText, { opacity: 0.9, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]} numberOfLines={1} adjustsFontSizeToFit>{displaySymbol}</Text>
-                                  <Ionicons name="chevron-down" size={10} color={T.text} />
-                                  {!compactVerticalChartWindow && symbolCategory ? (
-                                    <View style={[styles.fxBadge, { marginLeft: 4 }]}>
-                                      <Text style={styles.fxBadgeText} numberOfLines={1}>{symbolCategory}</Text>
-                                    </View>
-                                  ) : null}
-                                </View>
-                              </View>
+                            if (!pendingPaint.confirmsUsableChart) {
+                              // Empty-series clears and quote-only bootstrap paints
+                              // are valid bridge acknowledgements, but neither may
+                              // dismiss the loader and reveal a one-candle viewport.
+                              return;
+                            }
+                            const paintedCandles = candlesRef.current;
+                            if (paintedCandles.length === 0) {
+                              return;
+                            }
+                            if (
+                              historylessBootstrapViewportRef.current.contextKey
+                              === paintedDataContextSig
+                            ) {
+                              historylessBootstrapViewportRef.current =
+                                EMPTY_HISTORYLESS_BOOTSTRAP_VIEWPORT;
+                            }
+                            renderedSeriesSnapshotRef.current =
+                              buildChartSeriesSnapshot(paintedCandles);
+                            // The acknowledgement reports source-context paint; save
+                            // the equivalent transformed snapshot for later Renko diffs.
+                            renderedRenkoSeriesSnapshotRef.current = chartType === 'renko'
+                              ? buildChartSeriesSnapshot(buildMappedData(paintedCandles))
+                              : EMPTY_CHART_SERIES_SNAPSHOT;
+                            renderedDataContextSigRef.current = paintedDataContextSig;
+                            setHasPaintedChartOnce(true);
+                            setLastPaintedChartDataContextSig(paintedDataContextSig);
+                            setLastPaintedChartDataContextEpoch(
+                              chartDataContextEpochRef.current.epoch,
+                            );
+                            recordConfirmedChartFrontendPaint();
+                            // The quote can win the cold-load race before candles.
+                            // Replay it after the WebView confirms this exact
+                            // context, even if a closed market sends no next tick.
+                            paintCanonicalLiveTickRef.current(true);
+                          } else if (msg.type === 'DRAWING_TEXT_EDIT_REQUEST') {
+                            const recordId = typeof msg.recordId === 'string' ? msg.recordId : '';
+                            if (!recordId) {
+                              return;
+                            }
+                            setTextLevelEditRequest({
+                              recordId,
+                              text: typeof msg.text === 'string' ? msg.text : 'Level',
+                            });
+                          } else if (msg.type === 'DRAWING_QUICK_ACTIONS_REQUEST') {
+                            closeChartTapMenu();
+                            openDrawingQuickActionsSheet();
+                          } else if (msg.type === 'DRAWING_ACTION_MENU_REQUEST') {
+                            closeChartTapMenu();
+                            openSelectedDrawingActionSheet({
+                              label:
+                                typeof msg.label === 'string' && msg.label
+                                  ? msg.label
+                                  : t('Drawing'),
+                              locked: msg.locked === true,
+                            });
+                          } else if (msg.type === 'DRAWINGS_CHANGED') {
+                            if (
+                              !chartInitializedRef.current ||
+                              !chartCanvasReady ||
+                              lastInitSigRef.current !== currentSig ||
+                              (
+                                chartWindows.isSplit
+                                && msg.chartWindowPaneId !== chartWindows.activePane.id
+                              )
+                            ) {
+                              return;
+                            }
 
-                              {!compactVerticalChartWindow ? <View style={styles.symbolMetaRow}>
-                                <Text style={[styles.symbolSubText, { textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]} numberOfLines={1} adjustsFontSizeToFit>
-                                  {symbolName}{isChartMarketClosed ? ` · ${t('Market Closed')}` : ''}
-                                </Text>
-                              </View> : null}
-                            </>
-                          ) : null}
-                          {showChartMetaRow && !compactVerticalChartWindow && (
-                            <ChartLiveOhlcRow
-                              key={chartDataContextSig}
-                              contextKey={chartDataContextSig}
-                              fallbackCandle={chartMetaLastCandle}
-                              subscribe={subscribeChartLiveOhlc}
-                              displayDecimals={displayDecimals}
-                              neutralColor={chartMetaNeutralColor}
-                              isDark={isDark}
-                              rowStyle={styles.symbolOhlcRow}
-                              pairStyle={styles.symbolOhlcPair}
-                              labelStyle={styles.symbolOhlcLabel}
-                              valueStyle={styles.symbolOhlcValue}
-                            />
-                          )}
-                        </View>
-                      </Pressable>
-                    </View>
-                  </View>
-                )}
-                {/* Keep the radial mounted between taps so Android can reuse
-                    its native layer; `visible` hides input and accessibility. */}
-                <ChartTapRadialMenu
-                  anchor={chartTapMenuAnchor}
-                  visible={chartTapMenuAnchor !== null}
-                  bounds={chartTapMenuBounds}
-                  activeTimeframe={chartTimeframe}
-                  accentColor={BLUE}
-                  mutedColor="#FFFFFF"
-                  isDark={isDark}
-                  onDismiss={handleChartTapMenuDismiss}
-                  onSelectTimeframe={handleTimeframeSelect}
-                  onOpenChartWindows={handleOpenChartWindows}
-                  onOpenObjects={handleRadialOpenObjects}
-                  onOpenDrawingTools={handleRadialOpenDrawingTools}
-                  onOpenIndicators={handleRadialOpenIndicators}
-                  onOpenSymbolPicker={handleRadialOpenSymbolPicker}
-                  onOpenScaleControls={handleRadialOpenChartScaleMenu}
-                />
-                {chartTradeReceipt && !showChartTradeSheet
-                  ? renderChartTradeReceiptBar(chartTradeReceipt)
-                  : null}
-                <ChartTimeframePickerOverlay
-                  activeTimeframe={chartTimeframe}
-                  supportedTimeframes={timeframes}
-                  accentColor={BLUE}
-                  isDark={isDark}
-                  textColor={T.text}
-                  mutedColor={TEXT_MUTED}
-                  onSelect={handleTimeframeSelect}
-                />
-              </View>
-            </View>
-          </View>
+                            const nextSelectedDrawingId =
+                              typeof msg.selectedDrawingId === 'string' && msg.selectedDrawingId
+                                ? msg.selectedDrawingId
+                                : null;
+                            setSelectedDrawingId((previous) =>
+                              (previous === nextSelectedDrawingId ? previous : nextSelectedDrawingId));
+                            const sanitizedNextDrawings = filterChartDrawingRecordsForCurrentChart(
+                              sanitizePersistedChartDrawings(msg.drawings),
+                              chartSymbol,
+                              chartTimeframe,
+                              sanitizedBackendCandles,
+                              chartWindows.isSplit ? chartWindows.activePane.id : undefined,
+                            );
+                            const nextDrawings = chartWindows.isSplit
+                              ? sanitizedNextDrawings.map((drawing) => ({
+                                ...drawing,
+                                chartWindowPaneId: chartWindows.activePane.id,
+                              }))
+                              : sanitizedNextDrawings;
+                            const nextSignature = JSON.stringify(nextDrawings);
+                            const nativeDrawingRecords = drawingRecordsRef.current;
+                            const nativeDrawingSignature = drawingSignatureRef.current;
+                            const hasNativeOrAcceptedDrawings =
+                              nativeDrawingRecords.length > 0 ||
+                              hasAcceptedNonEmptyWebViewDrawingsRef.current;
+                            const unexpectedEmptyWebViewPayload =
+                              nextDrawings.length === 0 &&
+                              hasNativeOrAcceptedDrawings &&
+                              !allowNextEmptyDrawingSyncRef.current;
 
-          {!chartWindows.isSplit && !isChartExpanded && showChartTradeSheet && (
-            <View
-              style={[
-                styles.bottomArea,
-                { display: 'none', paddingBottom: 0 },
-              ]}
-            >
-              <Animated.View
-                style={[
-                  { display: 'none' },
-                  styles.chartTradeSheetFrame,
-                  { height: chartTradeSheetMaxHeight },
-                  chartTradeSheetAnimatedStyle,
-                ]}
-              >
-                <View
-                  style={[
-                    styles.chartTradeSheet,
-                    styles.chartTradeSheetInline,
-                    styles.chartTradeSheetInlineFloating,
-                    useMtPendingTradeSheetLayout && styles.chartTradeSheetPending,
-                  ]}
-                >
-                  {renderChartTradeSheetDragHeader()}
-                  {renderChartTradeSheetTopHeader()}
-                  <ScrollView
-                    ref={chartTradeTypeTabsInlineScrollRef}
-                    horizontal
-                    nestedScrollEnabled
-                    directionalLockEnabled
-                    keyboardShouldPersistTaps="always"
-                    showsHorizontalScrollIndicator={false}
-                    style={[
-                      styles.chartTradeTypeTabsScroll,
-                      useMtPendingTradeSheetLayout && styles.chartTradeTypeTabsScrollPending,
-                    ]}
-                    onLayout={(event) => {
-                      chartTradeTypeTabsInlineViewportWidthRef.current = event.nativeEvent.layout.width;
-                      scrollChartTradeTypeTabsToOrderType(chartTradeOrderType, false);
-                    }}
-                    contentContainerStyle={[
-                      styles.chartTradeTypeTabs,
-                      useMtPendingTradeSheetLayout && styles.chartTradeTypeTabsPending,
-                    ]}
-                  >
-                    {CHART_ORDER_TYPES.map((option) => {
-                      const active = option === chartTradeOrderType;
-                      return (
-                        <Pressable
-                          key={option}
-                          onLayout={(event) => {
-                            chartTradeTypeTabsInlineLayoutsRef.current[option] = {
-                              x: event.nativeEvent.layout.x,
-                              width: event.nativeEvent.layout.width,
+                            if (unexpectedEmptyWebViewPayload) {
+                              return;
+                            }
+
+                            if (chartWindows.isSplit) {
+                              const historyKey = getChartWindowDrawingHistoryKey(
+                                chartWindows.activePane.id,
+                                chartWindows.activePane.symbol,
+                                chartWindows.activePane.timeframe,
+                              );
+                              const alignedHistory = reconcileChartWindowDrawingHistory(
+                                chartWindowDrawingHistoriesRef.current[historyKey],
+                                nativeDrawingRecords,
+                              );
+                              const history = nextSignature === nativeDrawingSignature
+                                ? alignedHistory
+                                : recordChartWindowDrawingChange(alignedHistory, nextDrawings);
+                              chartWindowDrawingHistoriesRef.current[historyKey] = history;
+                              setDrawingHistoryState(
+                                getChartWindowDrawingHistoryAvailability(history),
+                              );
+                            } else {
+                              const nextCanUndo = msg.canUndo === true;
+                              const nextCanRedo = msg.canRedo === true;
+                              setDrawingHistoryState((previous) =>
+                              (previous.canUndo === nextCanUndo && previous.canRedo === nextCanRedo
+                                ? previous
+                                : { canRedo: nextCanRedo, canUndo: nextCanUndo }));
+                            }
+
+                            lastWebViewDrawingSignatureRef.current = nextSignature;
+                            if (nextDrawings.length > 0) {
+                              allowNextEmptyDrawingSyncRef.current = false;
+                              hasAcceptedNonEmptyWebViewDrawingsRef.current = true;
+                            } else {
+                              allowNextEmptyDrawingSyncRef.current = false;
+                              hasAcceptedNonEmptyWebViewDrawingsRef.current = false;
+                            }
+
+                            if (nextSignature !== nativeDrawingSignature) {
+                              if (chartWindows.isSplit) {
+                                const currentBucket = useUserPreferences.getState()
+                                  .chartDrawingRecordsBySymbol[getChartDrawingBucketKey(chartSymbol)] ?? [];
+                                setChartDrawingRecordsForSymbol(
+                                  chartSymbol,
+                                  replaceChartWindowPaneDrawings(
+                                    currentBucket,
+                                    nextDrawings,
+                                    chartWindows.activePane,
+                                  ),
+                                );
+                              } else {
+                                setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
+                              }
+                            }
+                          } else if (msg.type === 'DRAWINGS_SYNCED_FOR_OBJECTS') {
+                            const pendingRequest = pendingObjectsDrawingSyncRef.current;
+                            if (
+                              pendingRequest
+                              && Number(msg.requestId) === pendingRequest.requestId
+                            ) {
+                              pendingObjectsDrawingSyncRef.current = null;
+                              pendingRequest.onReady();
+                            }
+                          } else if (msg.type === 'CHART_TOUCH_STATE') {
+                            if (msg.active) {
+                              handleChartViewportTouchStart();
+                            } else {
+                              handleChartViewportTouchEnd();
+                            }
+                          } else if (msg.type === 'TOOL_ACTIVE_CHANGED') {
+                            if (
+                              chartWindows.isSplit
+                              && msg.chartWindowPaneId !== chartWindows.activePane.id
+                            ) {
+                              return;
+                            }
+                            const nextActiveTool = typeof msg.tool === 'string'
+                              ? msg.tool
+                              : CHART_NO_DRAWING_TOOL;
+                            if (nextActiveTool === CHART_NO_DRAWING_TOOL) {
+                              chartDrawingToolOwnerPaneIdRef.current = null;
+                            }
+                            setActiveTool(nextActiveTool);
+                            setChartDrawingInputActive(msg.drawingActive === true);
+                          } else if (msg.type === 'CHART_TRADE_LINE_DRAG') {
+                            if (!handleChartPositionStopDragMessage(msg)) {
+                              handleChartTradePreviewDragMessage(msg);
+                            }
+                          } else if (msg.type === 'ON_PAGINATE_HISTORY') {
+                            paginate();
+                          } else if (msg.type === 'CHART_TAP') {
+                            if (msg.dataContextSig !== chartDataContextSigRef.current) {
+                              return;
+                            }
+                            // Undivided charts keep their established single-tap
+                            // radial. In divided mode the full pane waits for the
+                            // explicit CHART_DOUBLE_TAP emitted by its WebView.
+                            if (chartWindows.isSplit) {
+                              scheduleFullPaneSelection(msg.dataContextSig);
+                              return;
+                            }
+                            if (shouldSuppressChartTapMenu({
+                              activeTool,
+                              footerLotEditorFocused,
+                              footerLotEditorOpening,
+                              footerLotPickerOpen: footerLotPickerMode !== null,
+                              suppressUntil: chartTapMenuSuppressUntilRef.current,
+                            })) {
+                              setChartTapMenuAnchor(null);
+                              return;
+                            }
+                            const x = typeof msg.x === 'number' ? msg.x : NaN;
+                            const y = typeof msg.y === 'number' ? msg.y : NaN;
+                            if (!Number.isFinite(x) || !Number.isFinite(y)) {
+                              return;
+                            }
+                            // CHART_TAP coordinates are already viewport-local.
+                            // Use them immediately without a measure/rAF delay, so
+                            // taps anywhere open at their own clamped position.
+                            const nextAnchor = {
+                              x,
+                              y,
+                              price: typeof msg.price === 'number' && Number.isFinite(msg.price) ? msg.price : null,
                             };
-                          }}
-                          style={[
-                            styles.chartTradeTypeTab,
-                            useMtPendingTradeSheetLayout && styles.chartTradeTypeTabPending,
-                            active && styles.chartTradeTypeTabActive,
-                            useMtPendingTradeSheetLayout && active && styles.chartTradeTypeTabPendingActive,
-                          ]}
-                          onPress={() => handleChartTradeOrderTypeSelect(option)}
-                          unstable_pressDelay={0}
-                        >
-                          <Text
-                            style={[
-                              styles.chartTradeTypeTabText,
-                              useMtPendingTradeSheetLayout && styles.chartTradeTypeTabTextPending,
-                              active && styles.chartTradeTypeTabTextActive,
-                              useMtPendingTradeSheetLayout && active && styles.chartTradeTypeTabTextPendingActive,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {option}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </ScrollView>
-                  <ScrollView
-                    canCancelContentTouches={Platform.OS === 'ios'}
-                    ref={undefined}
-                    style={styles.chartTradeSheetContentScroll}
-                    contentContainerStyle={[
-                      styles.chartTradeSheetContent,
-                      { paddingBottom: chartTradeSheetContentBottomPadding },
-                    ]}
-                    nestedScrollEnabled
-                    bounces={false}
-                    keyboardShouldPersistTaps="always"
-                    keyboardDismissMode={chartTradeCommentFocused ? 'none' : Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-                    scrollEventThrottle={16}
-                    onScroll={(event) => {
-                      chartTradeSheetScrollOffsetRef.current = event.nativeEvent.contentOffset.y;
-                    }}
-                  >
-                    <View style={[styles.chartTradeSheetBody, useMtPendingTradeSheetLayout && styles.chartTradeSheetBodyPending]}>
-                      <View
-                        style={[styles.chartTradeVolumeCard, useMtPendingTradeSheetLayout && styles.chartTradeVolumeCardPending]}
-                      >
-                        <View style={[styles.chartTradeVolumeSide, useMtPendingTradeSheetLayout && styles.chartTradeVolumeSidePending]}>
-                          <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>{t('Volume')}</Text>
-                          <View style={styles.chartTradeVolumeValueGroup}>
-                            <TextInput
-                              style={[
-                                styles.chartTradeVolumeInput,
-                                useMtPendingTradeSheetLayout && styles.chartTradeVolumeInputPending,
-                              ]}
-                              value={chartTradeVolumeInputFocused ? chartTradeVolumeDraft : chartTradeVolumePrimaryDisplay}
-                              onFocus={handleFocusChartTradeVolumeInput}
-                              onChangeText={handleChartTradeVolumeDraftChange}
-                              onBlur={handleBlurChartTradeVolumeDraft}
-                              onEndEditing={handleEndChartTradeVolumeDraft}
-                              keyboardType="decimal-pad"
-                              returnKeyType="done"
-                              selectTextOnFocus
-                              showSoftInputOnFocus
-                              onSubmitEditing={handleSubmitChartTradeVolumeDraft}
-                              placeholder={passiveLotDisplay}
-                              placeholderTextColor="#94A3B8"
-                            />
-                            <Pressable
-                              style={[
-                                styles.chartTradeStepperLaunchButton,
-                                useMtPendingTradeSheetLayout && styles.chartTradeStepperLaunchButtonPending,
-                              ]}
-                              onPress={(event) => {
-                                event.stopPropagation?.();
-                                runImmediateAction('chart.tradeSheet.stepper.volume', () => setChartStepperEditor({ kind: 'volume' }));
-                              }}
-                              hitSlop={8}
-                              unstable_pressDelay={0}
-                              activateOnPressIn
-                            >
-                              <View style={styles.chartTradeStepperLaunchIconStack}>
-                                <Ionicons name="chevron-up" size={12} color={TEXT_MUTED} />
-                                <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
-                              </View>
-                            </Pressable>
-                          </View>
-                        </View>
-                        <View style={styles.chartTradeVolumeDivider} />
+                            chartTapMenuOpenedAtRef.current = Date.now();
+                            // A valid tap opens the hidden radial here; the next
+                            // valid chart tap toggles the already-open radial off.
+                            if (chartTapMenuAnchor === null) {
+                              // WebView sends touch-release immediately after
+                              // CHART_TAP. Apply both changes together so another
+                              // render cannot interrupt the radial entrance.
+                              settleChartViewportTouchForRadialOpen();
+                            }
+                            setChartTapMenuAnchor((currentAnchor) => (
+                              currentAnchor ? null : nextAnchor
+                            ));
+                          } else if (msg.type === 'CHART_DOUBLE_TAP') {
+                            if (msg.dataContextSig !== chartDataContextSigRef.current) {
+                              return;
+                            }
+                            if (!chartWindows.isSplit) {
+                              return;
+                            }
+                            cancelPendingFullPaneSelection();
+                            // Double tap owns the pane for every radial action as
+                            // well. Previously the full engine could retain null
+                            // (broadcast) ownership while the auxiliary path was
+                            // correctly pane-scoped.
+                            chartWindows.claimToolbarTarget(
+                              chartWindowsStateRef.current.activePaneId,
+                            );
+                            if (shouldSuppressChartTapMenu({
+                              activeTool,
+                              footerLotEditorFocused,
+                              footerLotEditorOpening,
+                              footerLotPickerOpen: footerLotPickerMode !== null,
+                              suppressUntil: chartTapMenuSuppressUntilRef.current,
+                            })) {
+                              setChartTapMenuAnchor(null);
+                              return;
+                            }
+                            const x = typeof msg.x === 'number' ? msg.x : NaN;
+                            const y = typeof msg.y === 'number' ? msg.y : NaN;
+                            if (!Number.isFinite(x) || !Number.isFinite(y)) {
+                              return;
+                            }
+                            const nextAnchor = {
+                              x,
+                              y,
+                              price: typeof msg.price === 'number' && Number.isFinite(msg.price)
+                                ? msg.price
+                                : null,
+                            };
+                            chartTapMenuOpenedAtRef.current = Date.now();
+                            syncChartViewportFrame(() => {
+                              setChartTapMenuAnchor(nextAnchor);
+                            });
+                          } else if (msg.type === 'CHART_GEOMETRY') {
+                            if (msg.dataContextSig === chartDataContextSigRef.current) {
+                              const rangeFrom = msg.priceRange?.from;
+                              const rangeTo = msg.priceRange?.to;
+                              chartVisiblePriceRangeRef.current =
+                                typeof rangeFrom === 'number'
+                                  && Number.isFinite(rangeFrom)
+                                  && typeof rangeTo === 'number'
+                                  && Number.isFinite(rangeTo)
+                                  && rangeFrom !== rangeTo
+                                  ? {
+                                    from: Math.min(rangeFrom, rangeTo),
+                                    to: Math.max(rangeFrom, rangeTo),
+                                  }
+                                  : null;
+                              const manualRangeFrom = msg.manualPriceScale?.from;
+                              const manualRangeTo = msg.manualPriceScale?.to;
+                              const manualReferenceSpan = msg.manualPriceScale?.referenceSpan;
+                              if (
+                                typeof manualRangeFrom === 'number'
+                                && Number.isFinite(manualRangeFrom)
+                                && typeof manualRangeTo === 'number'
+                                && Number.isFinite(manualRangeTo)
+                                && manualRangeFrom !== manualRangeTo
+                              ) {
+                                const from = Math.min(manualRangeFrom, manualRangeTo);
+                                const to = Math.max(manualRangeFrom, manualRangeTo);
+                                chartManualPriceScaleRef.current = {
+                                  from,
+                                  to,
+                                  referenceSpan:
+                                    typeof manualReferenceSpan === 'number'
+                                      && Number.isFinite(manualReferenceSpan)
+                                      && manualReferenceSpan > 0
+                                      ? manualReferenceSpan
+                                      : to - from,
+                                };
+                              } else {
+                                chartManualPriceScaleRef.current = null;
+                              }
+                            }
+                            const nextPlotArea =
+                              msg.plotArea
+                                && typeof msg.plotArea.left === 'number'
+                                && Number.isFinite(msg.plotArea.left)
+                                && typeof msg.plotArea.top === 'number'
+                                && Number.isFinite(msg.plotArea.top)
+                                && typeof msg.plotArea.width === 'number'
+                                && Number.isFinite(msg.plotArea.width)
+                                && msg.plotArea.width > 0
+                                && typeof msg.plotArea.height === 'number'
+                                && Number.isFinite(msg.plotArea.height)
+                                && msg.plotArea.height > 0
+                                ? {
+                                  left: msg.plotArea.left,
+                                  top: msg.plotArea.top,
+                                  width: msg.plotArea.width,
+                                  height: msg.plotArea.height,
+                                }
+                                : null;
+
+                            setChartPlotArea((current) => {
+                              if (
+                                current
+                                && nextPlotArea
+                                && current.left === nextPlotArea.left
+                                && current.top === nextPlotArea.top
+                                && current.width === nextPlotArea.width
+                                && current.height === nextPlotArea.height
+                              ) {
+                                return current;
+                              }
+                              return nextPlotArea;
+                            });
+                          } else if (msg.type === 'ERROR') {
+                            // Log but don't alert — the watchdog will auto-retry.
+                            console.warn('[CHART WEBVIEW ERROR]', msg.message);
+                            const bridgeErrorMessage = typeof msg.message === 'string' ? msg.message : '';
+                            if (/initChart|updateChartData|flushPendingTick|series not initialized|recoverChartSurface/.test(bridgeErrorMessage)) {
+                              chartInitializedRef.current = false;
+                              lastInitSigRef.current = '';
+                              pendingChartDataPaintRef.current = {
+                                token: '',
+                                dataContextSig: '',
+                                confirmsUsableChart: false,
+                                startedAt: 0,
+                                ackRetryCount: 0,
+                                lastAckRetryAt: 0,
+                              };
+                              renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
+                              renderedRenkoSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
+                              setChartCanvasReady(false);
+                              requestChartViewportRecovery(2);
+                              sendInit(true);
+                            }
+                          }
+                        } catch (_e) { }
+                      }}
+                    />
+                  ) : null}
+                  {(chartDisplay.showTicker || showChartMetaRow) && (
+                    <View
+                      style={[
+                        styles.chartOverlaySymbolSection,
+                        isSymbolHeaderMovable && {
+                          transform: [
+                            { translateX: chartSymbolHeaderOffset.x },
+                            { translateY: chartSymbolHeaderOffset.y },
+                          ],
+                        },
+                        isChartSymbolHeaderDragArmed && {
+                          opacity: 0.75,
+                          transform: [
+                            { translateX: chartSymbolHeaderOffset.x },
+                            { translateY: chartSymbolHeaderOffset.y },
+                            { scale: 1.04 },
+                          ],
+                        },
+                      ]}
+                      onLayout={(event) => {
+                        const { width, height } = event.nativeEvent.layout;
+                        chartSymbolHeaderSizeRef.current = { width, height };
+                      }}
+                      {...chartSymbolHeaderPanHandlers}
+                    >
+                      <View style={[styles.symbolSection, { minHeight: 'auto' }]}>
                         <Pressable
-                          style={[styles.chartTradeVolumeUnitSide, useMtPendingTradeSheetLayout && styles.chartTradeVolumeUnitSidePending]}
-                          onPress={(event) => {
-                            event.stopPropagation?.();
-                            handleToggleChartTradeVolumeDisplayMode();
-                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={t('Select Symbol')}
+                          style={styles.symbolSectionTapTarget}
+                          onPress={handleOpenSymbolPicker}
+                          onPressOut={handleChartSymbolHeaderPressOut}
+                          activateOnPressIn={!isSymbolHeaderMovable}
+                          activateOnTouchStart={!isSymbolHeaderMovable}
                           hitSlop={8}
                           unstable_pressDelay={0}
                         >
-                          <Text
-                            style={[styles.chartTradeCardValue, useMtPendingTradeSheetLayout && styles.chartTradeCardValuePending]}
-                            numberOfLines={1}
-                            adjustsFontSizeToFit
-                          >
-                            {t(chartTradeVolumeModeLabel)}
-                          </Text>
-                          <View
-                            style={[
-                              styles.chartTradeStepperLaunchButton,
-                              useMtPendingTradeSheetLayout && styles.chartTradeStepperLaunchButtonPending,
-                            ]}
-                          >
-                            <View style={styles.chartTradeStepperLaunchIconStack}>
-                              <Ionicons name="chevron-up" size={12} color={TEXT_MUTED} />
-                              <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
-                            </View>
+                          <View style={styles.symbolSectionContent}>
+                            {chartDisplay.showTicker ? (
+                              <>
+                                <View style={styles.symbolNameRow}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                                    <Text style={[styles.symbolText, { opacity: 0.9, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]} numberOfLines={1} adjustsFontSizeToFit>{displaySymbol}</Text>
+                                    <Ionicons name="chevron-down" size={10} color={T.text} />
+                                    {!compactVerticalChartWindow && symbolCategory ? (
+                                      <View style={[styles.fxBadge, { marginLeft: 4 }]}>
+                                        <Text style={styles.fxBadgeText} numberOfLines={1}>{symbolCategory}</Text>
+                                      </View>
+                                    ) : null}
+                                  </View>
+                                </View>
+
+                                {!compactVerticalChartWindow ? <View style={styles.symbolMetaRow}>
+                                  <Text style={[styles.symbolSubText, { textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]} numberOfLines={1} adjustsFontSizeToFit>
+                                    {symbolName}{isChartMarketClosed ? ` · ${t('Market Closed')}` : ''}
+                                  </Text>
+                                </View> : null}
+                              </>
+                            ) : null}
+                            {showChartMetaRow && !compactVerticalChartWindow && (
+                              <ChartLiveOhlcRow
+                                key={chartDataContextSig}
+                                contextKey={chartDataContextSig}
+                                fallbackCandle={chartMetaLastCandle}
+                                subscribe={subscribeChartLiveOhlc}
+                                displayDecimals={displayDecimals}
+                                neutralColor={chartMetaNeutralColor}
+                                isDark={isDark}
+                                rowStyle={styles.symbolOhlcRow}
+                                pairStyle={styles.symbolOhlcPair}
+                                labelStyle={styles.symbolOhlcLabel}
+                                valueStyle={styles.symbolOhlcValue}
+                              />
+                            )}
                           </View>
                         </Pressable>
                       </View>
+                    </View>
+                  )}
+                  {/* Keep the radial mounted between taps so Android can reuse
+                    its native layer; `visible` hides input and accessibility. */}
+                  <ChartTapRadialMenu
+                    anchor={chartTapMenuAnchor}
+                    visible={chartTapMenuAnchor !== null}
+                    bounds={chartTapMenuBounds}
+                    activeTimeframe={chartTimeframe}
+                    accentColor={BLUE}
+                    mutedColor="#FFFFFF"
+                    isDark={isDark}
+                    onDismiss={handleChartTapMenuDismiss}
+                    onSelectTimeframe={handleTimeframeSelect}
+                    onOpenChartWindows={handleOpenChartWindows}
+                    onOpenObjects={handleRadialOpenObjects}
+                    onOpenDrawingTools={handleRadialOpenDrawingTools}
+                    onOpenIndicators={handleRadialOpenIndicators}
+                    onOpenSymbolPicker={handleRadialOpenSymbolPicker}
+                    onOpenScaleControls={handleRadialOpenChartScaleMenu}
+                  />
+                  {chartTradeReceipt && !showChartTradeSheet
+                    ? renderChartTradeReceiptBar(chartTradeReceipt)
+                    : null}
+                  <ChartTimeframePickerOverlay
+                    activeTimeframe={chartTimeframe}
+                    supportedTimeframes={timeframes}
+                    accentColor={BLUE}
+                    isDark={isDark}
+                    textColor={T.text}
+                    mutedColor={TEXT_MUTED}
+                    onSelect={handleTimeframeSelect}
+                  />
+                </View>
+              </View>
+            </View>
 
-                      <ChartTradeVolumeSlider
-                        styles={styles}
-                        value={tradeVolume}
-                        bounds={tradeVolumeBounds}
-                        onChange={updateTradeVolume}
-                      />
-
-                      <View style={[styles.chartTradeMetaRow, useMtPendingTradeSheetLayout && styles.chartTradeMetaRowPending]}>
-                        {isChartTradeMarginMode ? (
-                          <Text
-                            style={[styles.chartTradeMetaText, styles.chartTradeMetaSummary, useMtPendingTradeSheetLayout && styles.chartTradeMetaTextPending]}
-                            numberOfLines={1}
-                          >
-                            {t('Lots')}: <Text style={styles.chartTradeMetaSummaryValue}>{passiveLotDisplay}</Text>{'  '}
-                            {t('Max')}: <Text style={styles.chartTradeMetaSummaryValue}>{chartTradeMaxVolumeDisplay}</Text>
-                          </Text>
-                        ) : (
-                          <Text style={[styles.chartTradeMetaLink, useMtPendingTradeSheetLayout && styles.chartTradeMetaLinkPending]}>
-                            {t('Margin')} <Text style={styles.chartTradeMetaText}>≈ {fmt.price(chartTradeMarginEstimate)} {accountCurrency}</Text>
-                          </Text>
-                        )}
-                        <Text style={[styles.chartTradeMetaText, useMtPendingTradeSheetLayout && styles.chartTradeMetaTextPending]}>
-                          {t('Balance')}: {fmt.price(accountBalance)} {accountCurrency}
-                        </Text>
-                        <Text style={[styles.chartTradeMetaText, useMtPendingTradeSheetLayout && styles.chartTradeMetaTextPending]}>
-                          {t('Free')}: {fmt.price(accountFreeMargin)} {accountCurrency}
-                        </Text>
-                      </View>
-
-                      {isPendingChartOrderType(chartTradeOrderType) && (
-                        <Pressable
-                          style={[
-                            styles.chartTradePriceCard,
-                            styles.chartTradePriceCardPending,
-                            useMtPendingTradeSheetLayout && styles.chartTradePriceCardPendingMt,
-                          ]}
-                          onPress={() => runImmediateAction('chart.tradeSheet.stepper.price', () => setChartStepperEditor({ kind: 'price' }))}
-                          unstable_pressDelay={0}
-                        >
-                          <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>{t('Price')}</Text>
-                          <View style={styles.chartTradeVolumeValueGroup}>
-                            <Text
-                              style={[
-                                styles.chartTradePriceInput,
-                                styles.chartTradePriceInputPending,
-                                useMtPendingTradeSheetLayout && styles.chartTradePriceInputPendingMt,
-                              ]}
-                            >
-                              {chartTradePrice > 0 ? chartTradePrice.toFixed(displayDecimals) : '--'}
-                            </Text>
-                            <Pressable
-                              style={[
-                                styles.chartTradeStepperLaunchButton,
-                                useMtPendingTradeSheetLayout && styles.chartTradeStepperLaunchButtonPending,
-                              ]}
-                              onPress={(event) => {
-                                event.stopPropagation?.();
-                                runImmediateAction('chart.tradeSheet.stepper.price', () => setChartStepperEditor({ kind: 'price' }));
-                              }}
-                              hitSlop={8}
-                              unstable_pressDelay={0}
-                            >
-                              <View style={styles.chartTradeStepperLaunchIconStack}>
-                                <Ionicons name="chevron-up" size={12} color={TEXT_MUTED} />
-                                <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
-                              </View>
-                            </Pressable>
-                          </View>
-                        </Pressable>
-                      )}
-
-                      {isStopLimitChartOrder && (
-                        <Pressable
-                          style={[
-                            styles.chartTradePriceCard,
-                            styles.chartTradePriceCardPending,
-                            useMtPendingTradeSheetLayout && styles.chartTradePriceCardPendingMt,
-                          ]}
-                          onPress={() =>
-                            runImmediateAction('chart.tradeSheet.stepper.stopLimitPrice', () =>
-                              setChartStepperEditor({ kind: 'stopLimitPrice' }))
-                          }
-                          unstable_pressDelay={0}
-                        >
-                          <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>
-                            {t('Stop Limit Price')}
-                          </Text>
-                          <View style={styles.chartTradeVolumeValueGroup}>
-                            <Text
-                              style={[
-                                styles.chartTradePriceInput,
-                                styles.chartTradePriceInputPending,
-                                useMtPendingTradeSheetLayout && styles.chartTradePriceInputPendingMt,
-                              ]}
-                            >
-                              {chartTradeStopLimitPrice > 0 ? chartTradeStopLimitPrice.toFixed(displayDecimals) : '--'}
-                            </Text>
-                            <Pressable
-                              style={[
-                                styles.chartTradeStepperLaunchButton,
-                                useMtPendingTradeSheetLayout && styles.chartTradeStepperLaunchButtonPending,
-                              ]}
-                              onPress={(event) => {
-                                event.stopPropagation?.();
-                                runImmediateAction('chart.tradeSheet.stepper.stopLimitPrice', () =>
-                                  setChartStepperEditor({ kind: 'stopLimitPrice' }));
-                              }}
-                              hitSlop={8}
-                              unstable_pressDelay={0}
-                            >
-                              <View style={styles.chartTradeStepperLaunchIconStack}>
-                                <Ionicons name="chevron-up" size={12} color={TEXT_MUTED} />
-                                <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
-                              </View>
-                            </Pressable>
-                          </View>
-                        </Pressable>
-                      )}
-
-                      <Pressable
-                        style={[styles.chartTradeStopButton, useMtPendingTradeSheetLayout && styles.chartTradeStopButtonPending]}
-                        onPress={handleEnableChartTradeStops}
-                        unstable_pressDelay={0}
-                        accessibilityRole="button"
-                        accessibilityLabel={chartTradeSlEnabled || chartTradeTpEnabled ? t('Edit Stop Levels') : t('Add Stop Levels')}
-                      >
-                        <View style={styles.chartTradeStopButtonContent}>
-                          <View style={styles.chartTradeStopButtonIcon}>
-                            <Ionicons name="shield-checkmark-outline" size={17} color={BLUE} />
-                          </View>
-                          <Text style={[styles.chartTradeStopButtonText, useMtPendingTradeSheetLayout && styles.chartTradeStopButtonTextPending]}>
-                            {chartTradeSlEnabled || chartTradeTpEnabled ? t('Edit Stop Levels') : t('Add Stop Levels')}
-                          </Text>
-                          <Ionicons name="chevron-forward" size={16} color={BLUE} />
-                        </View>
-                      </Pressable>
-
-                      {(chartTradeSlEnabled || chartTradeTpEnabled) && (
-                        <View style={styles.chartTradeStopsBlock}>
-                          <View style={styles.chartTradeStopUnitRow}>
-                            {chartTradeStopUnitOptions.map((unit) => {
-                              const active = chartTradeStopUnit === unit.key;
-                              return (
-                                <Pressable
-                                  key={unit.key}
-                                  style={[styles.chartTradeStopUnitTab, active && styles.chartTradeStopUnitTabActive]}
-                                  onPress={() => runImmediateAction(`chart.tradeSheet.stopUnit.${unit.key}`, () => setChartTradeStopUnit(unit.key))}
-                                  unstable_pressDelay={0}
-                                >
-                                  <Text style={[styles.chartTradeStopUnitTabText, active && styles.chartTradeStopUnitTabTextActive]}>{t(unit.label)}</Text>
-                                </Pressable>
-                              );
-                            })}
-                          </View>
-                          <View style={styles.chartTradeStopPairRow}>
-                            <Pressable
-                              style={[
-                                styles.chartTradeStopPairCard,
-                                styles.chartTradeStopPairCardSl,
-                                !chartTradeSlEnabled && styles.chartTradeStopPairCardInactive,
-                              ]}
-                              onPress={handleOpenChartTradeSlStepper}
-                              unstable_pressDelay={0}
-                              accessibilityRole="button"
-                              accessibilityLabel={t('Stop Loss')}
-                            >
-                              <View style={styles.chartTradeStopPairHeader}>
-                                <View style={[styles.chartTradeStopPairBadge, styles.chartTradeStopPairBadgeSl]}>
-                                  <Ionicons name="trending-down-outline" size={16} color="#EF4444" />
-                                </View>
-                                {chartTradeStopUnit === 'Pips' && (
-                                  <Pressable
-                                    hitSlop={8}
-                                    onPress={(e) => {
-                                      e.stopPropagation?.();
-                                      runImmediateAction('chart.tradeSheet.sl.lockToggle', () => setChartTradeSlLocked((v) => !v));
-                                    }}
-                                    style={[styles.chartTradeStopPairLock, chartTradeSlLocked && styles.chartTradeStopPairLockActive]}
-                                    accessibilityRole="button"
-                                    accessibilityLabel={t('Stop Loss')}
-                                  >
-                                    <Ionicons
-                                      name={chartTradeSlLocked ? 'lock-closed' : 'lock-open-outline'}
-                                      size={15}
-                                      color={chartTradeSlLocked ? BLUE : TEXT_MUTED}
-                                    />
-                                  </Pressable>
-                                )}
-                              </View>
-                              <Text style={styles.chartTradeStopPairLabel} numberOfLines={1}>{t('Stop Loss')}</Text>
-                              <Text
-                                style={[
-                                  styles.chartTradeStopPairValue,
-                                  !chartTradeSlEnabled && styles.chartTradeStopPairValueMuted,
-                                ]}
-                                numberOfLines={1}
-                                adjustsFontSizeToFit
-                              >
-                                {chartTradeSlEnabled ? chartTradeSlPrice.toFixed(displayDecimals) : '--'}
-                              </Text>
-                            </Pressable>
-                            <Pressable
-                              style={[
-                                styles.chartTradeStopPairCard,
-                                styles.chartTradeStopPairCardTp,
-                                !chartTradeTpEnabled && styles.chartTradeStopPairCardInactive,
-                              ]}
-                              onPress={handleOpenChartTradeTpStepper}
-                              unstable_pressDelay={0}
-                              accessibilityRole="button"
-                              accessibilityLabel={t('Take Profit')}
-                            >
-                              <View style={styles.chartTradeStopPairHeader}>
-                                <View style={[styles.chartTradeStopPairBadge, styles.chartTradeStopPairBadgeTp]}>
-                                  <Ionicons name="trending-up-outline" size={16} color="#16A34A" />
-                                </View>
-                                {chartTradeStopUnit === 'Pips' && (
-                                  <Pressable
-                                    hitSlop={8}
-                                    onPress={(e) => {
-                                      e.stopPropagation?.();
-                                      runImmediateAction('chart.tradeSheet.tp.lockToggle', () => setChartTradeTpLocked((v) => !v));
-                                    }}
-                                    style={[styles.chartTradeStopPairLock, chartTradeTpLocked && styles.chartTradeStopPairLockActive]}
-                                    accessibilityRole="button"
-                                    accessibilityLabel={t('Take Profit')}
-                                  >
-                                    <Ionicons
-                                      name={chartTradeTpLocked ? 'lock-closed' : 'lock-open-outline'}
-                                      size={15}
-                                      color={chartTradeTpLocked ? BLUE : TEXT_MUTED}
-                                    />
-                                  </Pressable>
-                                )}
-                              </View>
-                              <Text style={styles.chartTradeStopPairLabel} numberOfLines={1}>{t('Take Profit')}</Text>
-                              <Text
-                                style={[
-                                  styles.chartTradeStopPairValue,
-                                  !chartTradeTpEnabled && styles.chartTradeStopPairValueMuted,
-                                ]}
-                                numberOfLines={1}
-                                adjustsFontSizeToFit
-                              >
-                                {chartTradeTpEnabled ? chartTradeTpPrice.toFixed(displayDecimals) : '--'}
-                              </Text>
-                            </Pressable>
-                          </View>
-                        </View>
-                      )}
-
-                      {showChartTradeExpiration ? (
-                        <Pressable
-                          style={[styles.chartTradeInfoRow, useMtPendingTradeSheetLayout && styles.chartTradeInfoRowPending]}
-                          onPress={handleOpenChartExpirationMenu}
-                          activateOnPressIn
-                          unstable_pressDelay={0}
-                        >
-                          <Text style={[styles.chartTradeInfoLabel, useMtPendingTradeSheetLayout && styles.chartTradeInfoLabelPending]}>{t('Expiration')}:</Text>
-                          <Text style={[styles.chartTradeInfoValue, useMtPendingTradeSheetLayout && styles.chartTradeInfoValuePending]}>{t(chartTradeExpiration)}</Text>
-                          <Ionicons name="swap-vertical" size={12} color={BLUE} />
-                        </Pressable>
-                      ) : null}
-                      {showChartTradeComment ? (
-                        <View style={[styles.chartTradeCommentBlock, useMtPendingTradeSheetLayout && styles.chartTradeCommentBlockPending]}>
-                          {chartTradeCommentFocused && !showFloatingChartTradeCommentEditor ? (
-                            <View style={styles.chartTradeCommentEditorInlineRow}>
-                              <View style={styles.chartTradeCommentEditorInlineInputWrap}>
-                                <TextInput
-                                  ref={chartTradeCommentInputRef}
-                                  autoFocus
-                                  showSoftInputOnFocus
-                                  style={styles.chartTradeCommentEditorInlineInput}
-                                  value={chartTradeComment}
-                                  onChangeText={(text) => setChartTradeComment(text.slice(0, 50))}
-                                  onBlur={handleBlurChartTradeComment}
-                                  placeholder={t('Comment')}
-                                  placeholderTextColor='#94A3B8'
-                                  maxLength={31}
-                                  multiline={false}
-                                  returnKeyType='done'
-                                  onSubmitEditing={handleSubmitChartTradeComment}
-                                />
-                              </View>
-                              <Pressable
-                                onPressIn={() => {
-                                  chartTradeCommentSubmitIntentRef.current = true;
-                                }}
-                                style={[
-                                  styles.chartTradeCommentEditorInlineSubmit,
-                                  !chartTradeComment.trim() && styles.chartTradeCommentEditorSubmitDisabled,
-                                ]}
-                                disabled={!chartTradeComment.trim()}
-                                onPress={handleSubmitChartTradeComment}
-                              >
-                                <Ionicons
-                                  name='checkmark'
-                                  size={16}
-                                  color={chartTradeComment.trim() ? BLUE : '#94A3B8'}
-                                />
-                              </Pressable>
-                            </View>
-                          ) : (
-                            <Pressable
-                              style={[
-                                styles.chartTradeInfoRow,
-                                useMtPendingTradeSheetLayout && styles.chartTradeInfoRowPending,
-                                chartTradeCommentFocused && styles.chartTradeCommentInfoRowActive,
-                              ]}
-                              onPress={handleFocusChartTradeComment}
-                            >
-                              <Text
-                                style={[
-                                  styles.chartTradeInfoLabel,
-                                  useMtPendingTradeSheetLayout && styles.chartTradeInfoLabelPending,
-                                  styles.chartTradeCommentInlineLabel,
-                                ]}
-                              >
-                                {t('Comment')}:
-                              </Text>
-                              <Text
-                                style={[
-                                  styles.chartTradeCommentInlineValue,
-                                  !chartTradeComment.trim() && styles.chartTradeCommentInlinePlaceholder,
-                                  useMtPendingTradeSheetLayout && styles.chartTradeInfoValuePending,
-                                  chartTradeCommentFocused && styles.chartTradeCommentInlineValueActive,
-                                ]}
-                                numberOfLines={1}
-                              >
-                                {chartTradeComment.trim() || t('Add comment')}
-                              </Text>
-                            </Pressable>
-                          )}
-                        </View>
-                      ) : null}
-
-                      {chartTradeOrderType === 'Market Execution' ? (
-                        <ChartTradeButtons
-                          symbol={chartSymbol}
-                          chartWindowPaneId={chartWindows.activePane.id}
-                          displayDecimals={displayDecimals}
-                          lotSize={tradeVolume}
-                          volumeBounds={tradeVolumeBounds}
-                          comment={chartTradeComment}
-                          stopLossPrice={
-                            !chartStopsTargetExistingPosition &&
-                            !newMarketOrderProtectionBackendLocked &&
-                            chartTradeSlEnabled
-                              ? chartTradeSlPrice
-                              : undefined
-                          }
-                          takeProfitPrice={
-                            !chartStopsTargetExistingPosition &&
-                            !newMarketOrderProtectionBackendLocked &&
-                            chartTradeTpEnabled
-                              ? chartTradeTpPrice
-                              : undefined
-                          }
-                          protectionDraftId={directMarketProtectionDraftId}
-                          pointSize={chartProtectionTickSize ?? 0}
-                          variant='mt5-market'
-                          active={chartRuntimeActive}
-                          fallbackBid={chartTradeFooterFallbackBid}
-                          fallbackAsk={chartTradeFooterFallbackAsk}
-                          onTradeResult={handleChartTradeExecutionResult}
-                          onTradeQueueEvent={handleChartTradeQueueEvent}
-                          isDark={isDark}
-                          buyColor={BLUE}
-                          sellColor={T.trading.sell.primary}
-                        />
-                      ) : (
-                        <>
+            {!chartWindows.isSplit && !isChartExpanded && showChartTradeSheet && (
+              <View
+                style={[
+                  styles.bottomArea,
+                  { display: 'none', paddingBottom: 0 },
+                ]}
+              >
+                <Animated.View
+                  style={[
+                    { display: 'none' },
+                    styles.chartTradeSheetFrame,
+                    { height: chartTradeSheetMaxHeight },
+                    chartTradeSheetAnimatedStyle,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.chartTradeSheet,
+                      styles.chartTradeSheetInline,
+                      styles.chartTradeSheetInlineFloating,
+                      useMtPendingTradeSheetLayout && styles.chartTradeSheetPending,
+                    ]}
+                  >
+                    {renderChartTradeSheetDragHeader()}
+                    {renderChartTradeSheetTopHeader()}
+                    <ScrollView
+                      ref={chartTradeTypeTabsInlineScrollRef}
+                      horizontal
+                      nestedScrollEnabled
+                      directionalLockEnabled
+                      keyboardShouldPersistTaps="always"
+                      showsHorizontalScrollIndicator={false}
+                      style={[
+                        styles.chartTradeTypeTabsScroll,
+                        useMtPendingTradeSheetLayout && styles.chartTradeTypeTabsScrollPending,
+                      ]}
+                      onLayout={(event) => {
+                        chartTradeTypeTabsInlineViewportWidthRef.current = event.nativeEvent.layout.width;
+                        scrollChartTradeTypeTabsToOrderType(chartTradeOrderType, false);
+                      }}
+                      contentContainerStyle={[
+                        styles.chartTradeTypeTabs,
+                        useMtPendingTradeSheetLayout && styles.chartTradeTypeTabsPending,
+                      ]}
+                    >
+                      {CHART_ORDER_TYPES.map((option) => {
+                        const active = option === chartTradeOrderType;
+                        return (
                           <Pressable
+                            key={option}
+                            onLayout={(event) => {
+                              chartTradeTypeTabsInlineLayoutsRef.current[option] = {
+                                x: event.nativeEvent.layout.x,
+                                width: event.nativeEvent.layout.width,
+                              };
+                            }}
                             style={[
-                              styles.chartTradePlaceButton,
-                              disablePendingTradePlaceButton
-                                ? styles.chartTradePlaceButtonDisabled
-                                : { backgroundColor: chartTradeCtaColor },
+                              styles.chartTradeTypeTab,
+                              useMtPendingTradeSheetLayout && styles.chartTradeTypeTabPending,
+                              active && styles.chartTradeTypeTabActive,
+                              useMtPendingTradeSheetLayout && active && styles.chartTradeTypeTabPendingActive,
                             ]}
-                            onPress={disablePendingTradePlaceButton ? undefined : handleSubmitPendingTradeFromSheet}
-                            disabled={disablePendingTradePlaceButton}
+                            onPress={() => handleChartTradeOrderTypeSelect(option)}
+                            unstable_pressDelay={0}
                           >
                             <Text
                               style={[
-                                styles.chartTradePlaceButtonText,
-                                disablePendingTradePlaceButton && styles.chartTradePlaceButtonTextDisabled,
+                                styles.chartTradeTypeTabText,
+                                useMtPendingTradeSheetLayout && styles.chartTradeTypeTabTextPending,
+                                active && styles.chartTradeTypeTabTextActive,
+                                useMtPendingTradeSheetLayout && active && styles.chartTradeTypeTabTextPendingActive,
                               ]}
                               numberOfLines={1}
                             >
-                              {`${t('Place')} ${t(chartTradeOrderType)}`}
+                              {option}
                             </Text>
                           </Pressable>
-                        </>
-                      )}
-                      <LiveOrderTickExecutionGraph
-                        symbol={chartSymbol}
-                        bid={chartBid}
-                        ask={chartAsk}
-                        timestamp={chartTradeTickTimestamp}
-                        enabled={showChartTradeSheet}
-                        priceDecimals={displayDecimals}
-                        bidColor="#2563EB"
-                        askColor="#EF4444"
-                        height={286}
-                        isDark={isDark}
-                      />
-                    </View>
-                  </ScrollView>
-                </View>
-              </Animated.View>
-            </View>
-          )}
-          {!isChartExpanded && showChartMarketExecutionFooter && (chartWindows.isSplit || chartOneClickPanelAtBottom) && (
-            <ChartTradeInlineFooter
-              LiveTradeButtons={ChartTradeButtons}
-              styles={styles}
-              animatedStyle={chartWindows.isSplit ? undefined : floatingFooterTradeReserveAnimatedStyle}
-              containerRef={footerTradeRowAnchorRef}
-              isDark={isDark}
-              buyColor={BLUE}
-              sellColor={T.trading.sell.primary}
-              hideInlineTradeRow={!chartWindows.isSplit && Platform.OS === 'android' && isFloatingFooterTradeRowVisible}
-              showFloatingFooterTradeRow={!chartWindows.isSplit && shouldMountFloatingFooterTradeRow}
-              chartSymbol={chartSymbol}
-              chartWindowPaneId={chartWindows.activePane.id}
-              displayDecimals={displayDecimals}
-              tradeVolume={tradeVolume}
-              tradeVolumeBounds={tradeVolumeBounds}
-              comment={chartTradeComment}
-              stopLossPrice={directMarketStopLossPrice}
-              takeProfitPrice={directMarketTakeProfitPrice}
-              protectionDraftId={directMarketProtectionDraftId}
-              pointSize={chartProtectionTickSize ?? 0}
-              onTradeResult={handleChartTradeExecutionResult}
-              onTradeQueueEvent={handleChartTradeQueueEvent}
-              onEditLot={handleFocusFooterLotEditor}
-              onOpenLotEditor={handleOpenFooterLotPicker}
-              isLotEditing={footerLotEditorFocused}
-              lotDraft={lotInput}
-              lotInputRef={footerLotEditorInputRef}
-              onLotDraftChange={handleFooterLotDraftChange}
-              onLotDraftBlur={handleBlurFooterLotEditor}
-              onLotDraftEndEditing={handleEndFooterLotEditor}
-              onLotDraftSubmit={handleSubmitFooterLotEditor}
-              onDecreaseLot={() => handleStepFooterLotEditor(-1)}
-              onIncreaseLot={() => handleStepFooterLotEditor(1)}
-              lotInvalid={footerLotInvalid}
-              invalidLotDisplay={footerLotInvalidDisplay}
-              active={chartRuntimeActive}
-              fallbackBid={chartTradeFooterFallbackBid}
-              fallbackAsk={chartTradeFooterFallbackAsk}
-              compactPane={chartWindows.isSplit && chartWindows.state.layout === 'vertical'}
-              onLayout={(event) => {
-                const nextHeight = Math.max(0, Math.round(event.nativeEvent.layout.height));
-                if (nextHeight > 0) {
-                  setChartTradeInlineFooterHeight((current) => (current === nextHeight ? current : nextHeight));
-                }
-                measureFooterTradeRowAnchorFrame();
-              }}
-            />
-          )}
-          {!isChartExpanded && chartDisplay.showQuickTradingButtons && chartOneClickPanelAtBottom && showChartTradeSheet && showInlineFooterWhileChartTradeSheetOpen ? (
-            <ChartTradeInlineFooter
-              LiveTradeButtons={ChartTradeButtons}
-              styles={styles}
-              animatedStyle={undefined}
-              containerRef={footerTradeRowAnchorRef}
-              isDark={isDark}
-              buyColor={BLUE}
-              sellColor={T.trading.sell.primary}
-              showFloatingFooterTradeRow={false}
-              chartSymbol={chartSymbol}
-              chartWindowPaneId={chartWindows.activePane.id}
-              displayDecimals={displayDecimals}
-              tradeVolume={tradeVolume}
-              tradeVolumeBounds={tradeVolumeBounds}
-              comment={chartTradeComment}
-              stopLossPrice={directMarketStopLossPrice}
-              takeProfitPrice={directMarketTakeProfitPrice}
-              protectionDraftId={directMarketProtectionDraftId}
-              pointSize={chartProtectionTickSize ?? 0}
-              onTradeResult={handleChartTradeExecutionResult}
-              onTradeQueueEvent={handleChartTradeQueueEvent}
-              onEditLot={handleFocusFooterLotEditor}
-              onOpenLotEditor={handleOpenFooterLotPicker}
-              isLotEditing={footerLotEditorFocused}
-              lotDraft={lotInput}
-              lotInputRef={footerLotEditorInputRef}
-              onLotDraftChange={handleFooterLotDraftChange}
-              onLotDraftBlur={handleBlurFooterLotEditor}
-              onLotDraftEndEditing={handleEndFooterLotEditor}
-              onLotDraftSubmit={handleSubmitFooterLotEditor}
-              onDecreaseLot={() => handleStepFooterLotEditor(-1)}
-              onIncreaseLot={() => handleStepFooterLotEditor(1)}
-              lotInvalid={footerLotInvalid}
-              invalidLotDisplay={footerLotInvalidDisplay}
-              active={chartRuntimeActive}
-              fallbackBid={chartTradeFooterFallbackBid}
-              fallbackAsk={chartTradeFooterFallbackAsk}
-              onLayout={(event) => {
-                const nextHeight = Math.max(0, Math.round(event.nativeEvent.layout.height));
-                if (nextHeight > 0) {
-                  setChartTradeInlineFooterHeight((current) => (current === nextHeight ? current : nextHeight));
-                }
-                measureFooterTradeRowAnchorFrame();
-              }}
-            />
-          ) : null}
+                        );
+                      })}
+                    </ScrollView>
+                    <ScrollView
+                      canCancelContentTouches={Platform.OS === 'ios'}
+                      ref={undefined}
+                      style={styles.chartTradeSheetContentScroll}
+                      contentContainerStyle={[
+                        styles.chartTradeSheetContent,
+                        { paddingBottom: chartTradeSheetContentBottomPadding },
+                      ]}
+                      nestedScrollEnabled
+                      bounces={false}
+                      keyboardShouldPersistTaps="always"
+                      keyboardDismissMode={chartTradeCommentFocused ? 'none' : Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                      scrollEventThrottle={16}
+                      onScroll={(event) => {
+                        chartTradeSheetScrollOffsetRef.current = event.nativeEvent.contentOffset.y;
+                      }}
+                    >
+                      <View style={[styles.chartTradeSheetBody, useMtPendingTradeSheetLayout && styles.chartTradeSheetBodyPending]}>
+                        <View
+                          style={[styles.chartTradeVolumeCard, useMtPendingTradeSheetLayout && styles.chartTradeVolumeCardPending]}
+                        >
+                          <View style={[styles.chartTradeVolumeSide, useMtPendingTradeSheetLayout && styles.chartTradeVolumeSidePending]}>
+                            <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>{t('Volume')}</Text>
+                            <View style={styles.chartTradeVolumeValueGroup}>
+                              <TextInput
+                                style={[
+                                  styles.chartTradeVolumeInput,
+                                  useMtPendingTradeSheetLayout && styles.chartTradeVolumeInputPending,
+                                ]}
+                                value={chartTradeVolumeInputFocused ? chartTradeVolumeDraft : chartTradeVolumePrimaryDisplay}
+                                onFocus={handleFocusChartTradeVolumeInput}
+                                onChangeText={handleChartTradeVolumeDraftChange}
+                                onBlur={handleBlurChartTradeVolumeDraft}
+                                onEndEditing={handleEndChartTradeVolumeDraft}
+                                keyboardType="decimal-pad"
+                                returnKeyType="done"
+                                selectTextOnFocus
+                                showSoftInputOnFocus
+                                onSubmitEditing={handleSubmitChartTradeVolumeDraft}
+                                placeholder={passiveLotDisplay}
+                                placeholderTextColor="#94A3B8"
+                              />
+                              <Pressable
+                                style={[
+                                  styles.chartTradeStepperLaunchButton,
+                                  useMtPendingTradeSheetLayout && styles.chartTradeStepperLaunchButtonPending,
+                                ]}
+                                onPress={(event) => {
+                                  event.stopPropagation?.();
+                                  runImmediateAction('chart.tradeSheet.stepper.volume', () => setChartStepperEditor({ kind: 'volume' }));
+                                }}
+                                hitSlop={8}
+                                unstable_pressDelay={0}
+                                activateOnPressIn
+                              >
+                                <View style={styles.chartTradeStepperLaunchIconStack}>
+                                  <Ionicons name="chevron-up" size={12} color={TEXT_MUTED} />
+                                  <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
+                                </View>
+                              </Pressable>
+                            </View>
+                          </View>
+                          <View style={styles.chartTradeVolumeDivider} />
+                          <Pressable
+                            style={[styles.chartTradeVolumeUnitSide, useMtPendingTradeSheetLayout && styles.chartTradeVolumeUnitSidePending]}
+                            onPress={(event) => {
+                              event.stopPropagation?.();
+                              handleToggleChartTradeVolumeDisplayMode();
+                            }}
+                            hitSlop={8}
+                            unstable_pressDelay={0}
+                          >
+                            <Text
+                              style={[styles.chartTradeCardValue, useMtPendingTradeSheetLayout && styles.chartTradeCardValuePending]}
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                            >
+                              {t(chartTradeVolumeModeLabel)}
+                            </Text>
+                            <View
+                              style={[
+                                styles.chartTradeStepperLaunchButton,
+                                useMtPendingTradeSheetLayout && styles.chartTradeStepperLaunchButtonPending,
+                              ]}
+                            >
+                              <View style={styles.chartTradeStepperLaunchIconStack}>
+                                <Ionicons name="chevron-up" size={12} color={TEXT_MUTED} />
+                                <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
+                              </View>
+                            </View>
+                          </Pressable>
+                        </View>
+
+                        <ChartTradeVolumeSlider
+                          styles={styles}
+                          value={tradeVolume}
+                          bounds={tradeVolumeBounds}
+                          onChange={updateTradeVolume}
+                        />
+
+                        <View style={[styles.chartTradeMetaRow, useMtPendingTradeSheetLayout && styles.chartTradeMetaRowPending]}>
+                          {isChartTradeMarginMode ? (
+                            <Text
+                              style={[styles.chartTradeMetaText, styles.chartTradeMetaSummary, useMtPendingTradeSheetLayout && styles.chartTradeMetaTextPending]}
+                              numberOfLines={1}
+                            >
+                              {t('Lots')}: <Text style={styles.chartTradeMetaSummaryValue}>{passiveLotDisplay}</Text>{'  '}
+                              {t('Max')}: <Text style={styles.chartTradeMetaSummaryValue}>{chartTradeMaxVolumeDisplay}</Text>
+                            </Text>
+                          ) : (
+                            <Text style={[styles.chartTradeMetaLink, useMtPendingTradeSheetLayout && styles.chartTradeMetaLinkPending]}>
+                              {t('Margin')} <Text style={styles.chartTradeMetaText}>≈ {fmt.price(chartTradeMarginEstimate)} {accountCurrency}</Text>
+                            </Text>
+                          )}
+                          <Text style={[styles.chartTradeMetaText, useMtPendingTradeSheetLayout && styles.chartTradeMetaTextPending]}>
+                            {t('Balance')}: {fmt.price(accountBalance)} {accountCurrency}
+                          </Text>
+                          <Text style={[styles.chartTradeMetaText, useMtPendingTradeSheetLayout && styles.chartTradeMetaTextPending]}>
+                            {t('Free')}: {fmt.price(accountFreeMargin)} {accountCurrency}
+                          </Text>
+                        </View>
+
+                        {isPendingChartOrderType(chartTradeOrderType) && (
+                          <Pressable
+                            style={[
+                              styles.chartTradePriceCard,
+                              styles.chartTradePriceCardPending,
+                              useMtPendingTradeSheetLayout && styles.chartTradePriceCardPendingMt,
+                            ]}
+                            onPress={() => runImmediateAction('chart.tradeSheet.stepper.price', () => setChartStepperEditor({ kind: 'price' }))}
+                            unstable_pressDelay={0}
+                          >
+                            <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>{t('Price')}</Text>
+                            <View style={styles.chartTradeVolumeValueGroup}>
+                              <Text
+                                style={[
+                                  styles.chartTradePriceInput,
+                                  styles.chartTradePriceInputPending,
+                                  useMtPendingTradeSheetLayout && styles.chartTradePriceInputPendingMt,
+                                ]}
+                              >
+                                {chartTradePrice > 0 ? chartTradePrice.toFixed(displayDecimals) : '--'}
+                              </Text>
+                              <Pressable
+                                style={[
+                                  styles.chartTradeStepperLaunchButton,
+                                  useMtPendingTradeSheetLayout && styles.chartTradeStepperLaunchButtonPending,
+                                ]}
+                                onPress={(event) => {
+                                  event.stopPropagation?.();
+                                  runImmediateAction('chart.tradeSheet.stepper.price', () => setChartStepperEditor({ kind: 'price' }));
+                                }}
+                                hitSlop={8}
+                                unstable_pressDelay={0}
+                              >
+                                <View style={styles.chartTradeStepperLaunchIconStack}>
+                                  <Ionicons name="chevron-up" size={12} color={TEXT_MUTED} />
+                                  <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
+                                </View>
+                              </Pressable>
+                            </View>
+                          </Pressable>
+                        )}
+
+                        {isStopLimitChartOrder && (
+                          <Pressable
+                            style={[
+                              styles.chartTradePriceCard,
+                              styles.chartTradePriceCardPending,
+                              useMtPendingTradeSheetLayout && styles.chartTradePriceCardPendingMt,
+                            ]}
+                            onPress={() =>
+                              runImmediateAction('chart.tradeSheet.stepper.stopLimitPrice', () =>
+                                setChartStepperEditor({ kind: 'stopLimitPrice' }))
+                            }
+                            unstable_pressDelay={0}
+                          >
+                            <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>
+                              {t('Stop Limit Price')}
+                            </Text>
+                            <View style={styles.chartTradeVolumeValueGroup}>
+                              <Text
+                                style={[
+                                  styles.chartTradePriceInput,
+                                  styles.chartTradePriceInputPending,
+                                  useMtPendingTradeSheetLayout && styles.chartTradePriceInputPendingMt,
+                                ]}
+                              >
+                                {chartTradeStopLimitPrice > 0 ? chartTradeStopLimitPrice.toFixed(displayDecimals) : '--'}
+                              </Text>
+                              <Pressable
+                                style={[
+                                  styles.chartTradeStepperLaunchButton,
+                                  useMtPendingTradeSheetLayout && styles.chartTradeStepperLaunchButtonPending,
+                                ]}
+                                onPress={(event) => {
+                                  event.stopPropagation?.();
+                                  runImmediateAction('chart.tradeSheet.stepper.stopLimitPrice', () =>
+                                    setChartStepperEditor({ kind: 'stopLimitPrice' }));
+                                }}
+                                hitSlop={8}
+                                unstable_pressDelay={0}
+                              >
+                                <View style={styles.chartTradeStepperLaunchIconStack}>
+                                  <Ionicons name="chevron-up" size={12} color={TEXT_MUTED} />
+                                  <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
+                                </View>
+                              </Pressable>
+                            </View>
+                          </Pressable>
+                        )}
+
+                        <Pressable
+                          style={[styles.chartTradeStopButton, useMtPendingTradeSheetLayout && styles.chartTradeStopButtonPending]}
+                          onPress={handleEnableChartTradeStops}
+                          unstable_pressDelay={0}
+                          accessibilityRole="button"
+                          accessibilityLabel={chartTradeSlEnabled || chartTradeTpEnabled ? t('Edit Stop Levels') : t('Add Stop Levels')}
+                        >
+                          <View style={styles.chartTradeStopButtonContent}>
+                            <View style={styles.chartTradeStopButtonIcon}>
+                              <Ionicons name="shield-checkmark-outline" size={17} color={BLUE} />
+                            </View>
+                            <Text style={[styles.chartTradeStopButtonText, useMtPendingTradeSheetLayout && styles.chartTradeStopButtonTextPending]}>
+                              {chartTradeSlEnabled || chartTradeTpEnabled ? t('Edit Stop Levels') : t('Add Stop Levels')}
+                            </Text>
+                            <Ionicons name="chevron-forward" size={16} color={BLUE} />
+                          </View>
+                        </Pressable>
+
+                        {(chartTradeSlEnabled || chartTradeTpEnabled) && (
+                          <View style={styles.chartTradeStopsBlock}>
+                            <View style={styles.chartTradeStopUnitRow}>
+                              {chartTradeStopUnitOptions.map((unit) => {
+                                const active = chartTradeStopUnit === unit.key;
+                                return (
+                                  <Pressable
+                                    key={unit.key}
+                                    style={[styles.chartTradeStopUnitTab, active && styles.chartTradeStopUnitTabActive]}
+                                    onPress={() => runImmediateAction(`chart.tradeSheet.stopUnit.${unit.key}`, () => setChartTradeStopUnit(unit.key))}
+                                    unstable_pressDelay={0}
+                                  >
+                                    <Text style={[styles.chartTradeStopUnitTabText, active && styles.chartTradeStopUnitTabTextActive]}>{t(unit.label)}</Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+                            <View style={styles.chartTradeStopPairRow}>
+                              <Pressable
+                                style={[
+                                  styles.chartTradeStopPairCard,
+                                  styles.chartTradeStopPairCardSl,
+                                  !chartTradeSlEnabled && styles.chartTradeStopPairCardInactive,
+                                ]}
+                                onPress={handleOpenChartTradeSlStepper}
+                                unstable_pressDelay={0}
+                                accessibilityRole="button"
+                                accessibilityLabel={t('Stop Loss')}
+                              >
+                                <View style={styles.chartTradeStopPairHeader}>
+                                  <View style={[styles.chartTradeStopPairBadge, styles.chartTradeStopPairBadgeSl]}>
+                                    <Ionicons name="trending-down-outline" size={16} color="#EF4444" />
+                                  </View>
+                                  {chartTradeStopUnit === 'Pips' && (
+                                    <Pressable
+                                      hitSlop={8}
+                                      onPress={(e) => {
+                                        e.stopPropagation?.();
+                                        runImmediateAction('chart.tradeSheet.sl.lockToggle', () => setChartTradeSlLocked((v) => !v));
+                                      }}
+                                      style={[styles.chartTradeStopPairLock, chartTradeSlLocked && styles.chartTradeStopPairLockActive]}
+                                      accessibilityRole="button"
+                                      accessibilityLabel={t('Stop Loss')}
+                                    >
+                                      <Ionicons
+                                        name={chartTradeSlLocked ? 'lock-closed' : 'lock-open-outline'}
+                                        size={15}
+                                        color={chartTradeSlLocked ? BLUE : TEXT_MUTED}
+                                      />
+                                    </Pressable>
+                                  )}
+                                </View>
+                                <Text style={styles.chartTradeStopPairLabel} numberOfLines={1}>{t('Stop Loss')}</Text>
+                                <Text
+                                  style={[
+                                    styles.chartTradeStopPairValue,
+                                    !chartTradeSlEnabled && styles.chartTradeStopPairValueMuted,
+                                  ]}
+                                  numberOfLines={1}
+                                  adjustsFontSizeToFit
+                                >
+                                  {chartTradeSlEnabled ? chartTradeSlPrice.toFixed(displayDecimals) : '--'}
+                                </Text>
+                              </Pressable>
+                              <Pressable
+                                style={[
+                                  styles.chartTradeStopPairCard,
+                                  styles.chartTradeStopPairCardTp,
+                                  !chartTradeTpEnabled && styles.chartTradeStopPairCardInactive,
+                                ]}
+                                onPress={handleOpenChartTradeTpStepper}
+                                unstable_pressDelay={0}
+                                accessibilityRole="button"
+                                accessibilityLabel={t('Take Profit')}
+                              >
+                                <View style={styles.chartTradeStopPairHeader}>
+                                  <View style={[styles.chartTradeStopPairBadge, styles.chartTradeStopPairBadgeTp]}>
+                                    <Ionicons name="trending-up-outline" size={16} color="#16A34A" />
+                                  </View>
+                                  {chartTradeStopUnit === 'Pips' && (
+                                    <Pressable
+                                      hitSlop={8}
+                                      onPress={(e) => {
+                                        e.stopPropagation?.();
+                                        runImmediateAction('chart.tradeSheet.tp.lockToggle', () => setChartTradeTpLocked((v) => !v));
+                                      }}
+                                      style={[styles.chartTradeStopPairLock, chartTradeTpLocked && styles.chartTradeStopPairLockActive]}
+                                      accessibilityRole="button"
+                                      accessibilityLabel={t('Take Profit')}
+                                    >
+                                      <Ionicons
+                                        name={chartTradeTpLocked ? 'lock-closed' : 'lock-open-outline'}
+                                        size={15}
+                                        color={chartTradeTpLocked ? BLUE : TEXT_MUTED}
+                                      />
+                                    </Pressable>
+                                  )}
+                                </View>
+                                <Text style={styles.chartTradeStopPairLabel} numberOfLines={1}>{t('Take Profit')}</Text>
+                                <Text
+                                  style={[
+                                    styles.chartTradeStopPairValue,
+                                    !chartTradeTpEnabled && styles.chartTradeStopPairValueMuted,
+                                  ]}
+                                  numberOfLines={1}
+                                  adjustsFontSizeToFit
+                                >
+                                  {chartTradeTpEnabled ? chartTradeTpPrice.toFixed(displayDecimals) : '--'}
+                                </Text>
+                              </Pressable>
+                            </View>
+                          </View>
+                        )}
+
+                        {showChartTradeExpiration ? (
+                          <Pressable
+                            style={[styles.chartTradeInfoRow, useMtPendingTradeSheetLayout && styles.chartTradeInfoRowPending]}
+                            onPress={handleOpenChartExpirationMenu}
+                            activateOnPressIn
+                            unstable_pressDelay={0}
+                          >
+                            <Text style={[styles.chartTradeInfoLabel, useMtPendingTradeSheetLayout && styles.chartTradeInfoLabelPending]}>{t('Expiration')}:</Text>
+                            <Text style={[styles.chartTradeInfoValue, useMtPendingTradeSheetLayout && styles.chartTradeInfoValuePending]}>{t(chartTradeExpiration)}</Text>
+                            <Ionicons name="swap-vertical" size={12} color={BLUE} />
+                          </Pressable>
+                        ) : null}
+                        {showChartTradeComment ? (
+                          <View style={[styles.chartTradeCommentBlock, useMtPendingTradeSheetLayout && styles.chartTradeCommentBlockPending]}>
+                            {chartTradeCommentFocused && !showFloatingChartTradeCommentEditor ? (
+                              <View style={styles.chartTradeCommentEditorInlineRow}>
+                                <View style={styles.chartTradeCommentEditorInlineInputWrap}>
+                                  <TextInput
+                                    ref={chartTradeCommentInputRef}
+                                    autoFocus
+                                    showSoftInputOnFocus
+                                    style={styles.chartTradeCommentEditorInlineInput}
+                                    value={chartTradeComment}
+                                    onChangeText={(text) => setChartTradeComment(text.slice(0, 50))}
+                                    onBlur={handleBlurChartTradeComment}
+                                    placeholder={t('Comment')}
+                                    placeholderTextColor='#94A3B8'
+                                    maxLength={31}
+                                    multiline={false}
+                                    returnKeyType='done'
+                                    onSubmitEditing={handleSubmitChartTradeComment}
+                                  />
+                                </View>
+                                <Pressable
+                                  onPressIn={() => {
+                                    chartTradeCommentSubmitIntentRef.current = true;
+                                  }}
+                                  style={[
+                                    styles.chartTradeCommentEditorInlineSubmit,
+                                    !chartTradeComment.trim() && styles.chartTradeCommentEditorSubmitDisabled,
+                                  ]}
+                                  disabled={!chartTradeComment.trim()}
+                                  onPress={handleSubmitChartTradeComment}
+                                >
+                                  <Ionicons
+                                    name='checkmark'
+                                    size={16}
+                                    color={chartTradeComment.trim() ? BLUE : '#94A3B8'}
+                                  />
+                                </Pressable>
+                              </View>
+                            ) : (
+                              <Pressable
+                                style={[
+                                  styles.chartTradeInfoRow,
+                                  useMtPendingTradeSheetLayout && styles.chartTradeInfoRowPending,
+                                  chartTradeCommentFocused && styles.chartTradeCommentInfoRowActive,
+                                ]}
+                                onPress={handleFocusChartTradeComment}
+                              >
+                                <Text
+                                  style={[
+                                    styles.chartTradeInfoLabel,
+                                    useMtPendingTradeSheetLayout && styles.chartTradeInfoLabelPending,
+                                    styles.chartTradeCommentInlineLabel,
+                                  ]}
+                                >
+                                  {t('Comment')}:
+                                </Text>
+                                <Text
+                                  style={[
+                                    styles.chartTradeCommentInlineValue,
+                                    !chartTradeComment.trim() && styles.chartTradeCommentInlinePlaceholder,
+                                    useMtPendingTradeSheetLayout && styles.chartTradeInfoValuePending,
+                                    chartTradeCommentFocused && styles.chartTradeCommentInlineValueActive,
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {chartTradeComment.trim() || t('Add comment')}
+                                </Text>
+                              </Pressable>
+                            )}
+                          </View>
+                        ) : null}
+
+                        {chartTradeOrderType === 'Market Execution' ? (
+                          <ChartTradeButtons
+                            symbol={chartSymbol}
+                            chartWindowPaneId={chartWindows.activePane.id}
+                            displayDecimals={displayDecimals}
+                            lotSize={tradeVolume}
+                            volumeBounds={tradeVolumeBounds}
+                            comment={chartTradeComment}
+                            stopLossPrice={
+                              !chartStopsTargetExistingPosition &&
+                                !newMarketOrderProtectionBackendLocked &&
+                                chartTradeSlEnabled
+                                ? chartTradeSlPrice
+                                : undefined
+                            }
+                            takeProfitPrice={
+                              !chartStopsTargetExistingPosition &&
+                                !newMarketOrderProtectionBackendLocked &&
+                                chartTradeTpEnabled
+                                ? chartTradeTpPrice
+                                : undefined
+                            }
+                            protectionDraftId={directMarketProtectionDraftId}
+                            pointSize={chartProtectionTickSize ?? 0}
+                            variant='mt5-market'
+                            active={chartRuntimeActive}
+                            fallbackBid={chartTradeFooterFallbackBid}
+                            fallbackAsk={chartTradeFooterFallbackAsk}
+                            onTradeResult={handleChartTradeExecutionResult}
+                            onTradeQueueEvent={handleChartTradeQueueEvent}
+                            isDark={isDark}
+                            buyColor={BLUE}
+                            sellColor={T.trading.sell.primary}
+                          />
+                        ) : (
+                          <>
+                            <Pressable
+                              style={[
+                                styles.chartTradePlaceButton,
+                                disablePendingTradePlaceButton
+                                  ? styles.chartTradePlaceButtonDisabled
+                                  : { backgroundColor: chartTradeCtaColor },
+                              ]}
+                              onPress={disablePendingTradePlaceButton ? undefined : handleSubmitPendingTradeFromSheet}
+                              disabled={disablePendingTradePlaceButton}
+                            >
+                              <Text
+                                style={[
+                                  styles.chartTradePlaceButtonText,
+                                  disablePendingTradePlaceButton && styles.chartTradePlaceButtonTextDisabled,
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {`${t('Place')} ${t(chartTradeOrderType)}`}
+                              </Text>
+                            </Pressable>
+                          </>
+                        )}
+                        <LiveOrderTickExecutionGraph
+                          symbol={chartSymbol}
+                          bid={chartBid}
+                          ask={chartAsk}
+                          timestamp={chartTradeTickTimestamp}
+                          enabled={showChartTradeSheet}
+                          priceDecimals={displayDecimals}
+                          bidColor="#2563EB"
+                          askColor="#EF4444"
+                          height={286}
+                          isDark={isDark}
+                        />
+                      </View>
+                    </ScrollView>
+                  </View>
+                </Animated.View>
+              </View>
+            )}
+            {!isChartExpanded && showChartMarketExecutionFooter && (chartWindows.isSplit || chartOneClickPanelAtBottom) && (
+              <ChartTradeInlineFooter
+                LiveTradeButtons={ChartTradeButtons}
+                styles={styles}
+                animatedStyle={chartWindows.isSplit ? undefined : floatingFooterTradeReserveAnimatedStyle}
+                containerRef={footerTradeRowAnchorRef}
+                isDark={isDark}
+                buyColor={BLUE}
+                sellColor={T.trading.sell.primary}
+                hideInlineTradeRow={!chartWindows.isSplit && Platform.OS === 'android' && isFloatingFooterTradeRowVisible}
+                showFloatingFooterTradeRow={!chartWindows.isSplit && shouldMountFloatingFooterTradeRow}
+                chartSymbol={chartSymbol}
+                chartWindowPaneId={chartWindows.activePane.id}
+                displayDecimals={displayDecimals}
+                tradeVolume={tradeVolume}
+                tradeVolumeBounds={tradeVolumeBounds}
+                comment={chartTradeComment}
+                stopLossPrice={directMarketStopLossPrice}
+                takeProfitPrice={directMarketTakeProfitPrice}
+                protectionDraftId={directMarketProtectionDraftId}
+                pointSize={chartProtectionTickSize ?? 0}
+                onTradeResult={handleChartTradeExecutionResult}
+                onTradeQueueEvent={handleChartTradeQueueEvent}
+                onEditLot={handleFocusFooterLotEditor}
+                onOpenLotEditor={handleOpenFooterLotPicker}
+                isLotEditing={footerLotEditorFocused}
+                lotDraft={lotInput}
+                lotInputRef={footerLotEditorInputRef}
+                onLotDraftChange={handleFooterLotDraftChange}
+                onLotDraftBlur={handleBlurFooterLotEditor}
+                onLotDraftEndEditing={handleEndFooterLotEditor}
+                onLotDraftSubmit={handleSubmitFooterLotEditor}
+                onDecreaseLot={() => handleStepFooterLotEditor(-1)}
+                onIncreaseLot={() => handleStepFooterLotEditor(1)}
+                lotInvalid={footerLotInvalid}
+                invalidLotDisplay={footerLotInvalidDisplay}
+                active={chartRuntimeActive}
+                fallbackBid={chartTradeFooterFallbackBid}
+                fallbackAsk={chartTradeFooterFallbackAsk}
+                compactPane={chartWindows.isSplit && chartWindows.state.layout === 'vertical'}
+                onLayout={(event) => {
+                  const nextHeight = Math.max(0, Math.round(event.nativeEvent.layout.height));
+                  if (nextHeight > 0) {
+                    setChartTradeInlineFooterHeight((current) => (current === nextHeight ? current : nextHeight));
+                  }
+                  measureFooterTradeRowAnchorFrame();
+                }}
+              />
+            )}
+            {!isChartExpanded && chartDisplay.showQuickTradingButtons && chartOneClickPanelAtBottom && showChartTradeSheet && showInlineFooterWhileChartTradeSheetOpen ? (
+              <ChartTradeInlineFooter
+                LiveTradeButtons={ChartTradeButtons}
+                styles={styles}
+                animatedStyle={undefined}
+                containerRef={footerTradeRowAnchorRef}
+                isDark={isDark}
+                buyColor={BLUE}
+                sellColor={T.trading.sell.primary}
+                showFloatingFooterTradeRow={false}
+                chartSymbol={chartSymbol}
+                chartWindowPaneId={chartWindows.activePane.id}
+                displayDecimals={displayDecimals}
+                tradeVolume={tradeVolume}
+                tradeVolumeBounds={tradeVolumeBounds}
+                comment={chartTradeComment}
+                stopLossPrice={directMarketStopLossPrice}
+                takeProfitPrice={directMarketTakeProfitPrice}
+                protectionDraftId={directMarketProtectionDraftId}
+                pointSize={chartProtectionTickSize ?? 0}
+                onTradeResult={handleChartTradeExecutionResult}
+                onTradeQueueEvent={handleChartTradeQueueEvent}
+                onEditLot={handleFocusFooterLotEditor}
+                onOpenLotEditor={handleOpenFooterLotPicker}
+                isLotEditing={footerLotEditorFocused}
+                lotDraft={lotInput}
+                lotInputRef={footerLotEditorInputRef}
+                onLotDraftChange={handleFooterLotDraftChange}
+                onLotDraftBlur={handleBlurFooterLotEditor}
+                onLotDraftEndEditing={handleEndFooterLotEditor}
+                onLotDraftSubmit={handleSubmitFooterLotEditor}
+                onDecreaseLot={() => handleStepFooterLotEditor(-1)}
+                onIncreaseLot={() => handleStepFooterLotEditor(1)}
+                lotInvalid={footerLotInvalid}
+                invalidLotDisplay={footerLotInvalidDisplay}
+                active={chartRuntimeActive}
+                fallbackBid={chartTradeFooterFallbackBid}
+                fallbackAsk={chartTradeFooterFallbackAsk}
+                onLayout={(event) => {
+                  const nextHeight = Math.max(0, Math.round(event.nativeEvent.layout.height));
+                  if (nextHeight > 0) {
+                    setChartTradeInlineFooterHeight((current) => (current === nextHeight ? current : nextHeight));
+                  }
+                  measureFooterTradeRowAnchorFrame();
+                }}
+              />
+            ) : null}
           </ChartWindowsLayout>
         </ScrollView>
         {!showChartTradeSheet && chartTradeReceiptViewportStyle ? (
@@ -11796,8 +11814,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
           </View>
         ) : null}
         {!showChartTradeSheet
-        && auxiliaryTradeReceiptViewportStyle
-        && auxiliaryChartPaneViewport ? (
+          && auxiliaryTradeReceiptViewportStyle
+          && auxiliaryChartPaneViewport ? (
           <View
             pointerEvents="box-none"
             testID={`chart-trade-receipt-overlay-${auxiliaryChartPaneViewport.paneId}`}

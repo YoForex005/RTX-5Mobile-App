@@ -47,7 +47,7 @@ export const buildPendingOrderLines = (
         id: `order-stop-limit-${order.ticket}`,
         price: stopLimitValue,
         color: entryColor,
-        lineWidth: 1,
+        lineWidth: 2,
         lineStyle: CHART_LINE_STYLE.Dashed,
         axisLabelVisible: false,
         title: `${order.side === 'buy' ? 'BUY' : 'SELL'} STOP LIMIT ${Number(order.volume).toFixed(2)}`,
@@ -60,7 +60,7 @@ export const buildPendingOrderLines = (
         id: `order-tp-${order.ticket}`,
         price: tpValue,
         color: colors.tradeTpSl || '#089981',
-        lineWidth: 1,
+        lineWidth: 2,
         lineStyle: CHART_LINE_STYLE.Solid,
         axisLabelVisible: false,
         title: formatTpSlOverlayLabel(
@@ -80,7 +80,7 @@ export const buildPendingOrderLines = (
         id: `order-sl-${order.ticket}`,
         price: slValue,
         color: colors.tradeStopOut || '#F23645',
-        lineWidth: 1,
+        lineWidth: 2,
         lineStyle: CHART_LINE_STYLE.Solid,
         axisLabelVisible: false,
         title: formatTpSlOverlayLabel(

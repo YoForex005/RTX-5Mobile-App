@@ -72,8 +72,8 @@ export function useOrrnnDemoPublicCandles(
   const resolvedHistoryCandles = historyQuery.data ?? (
     selection
       ? queryClient.getQueryData<CandleParams[]>(
-          getOrrnnDemoPublicCandleQueryKey(selection.symbol, selection.timeframe),
-        )
+        getOrrnnDemoPublicCandleQueryKey(selection.symbol, selection.timeframe),
+      )
       : undefined
   );
   const contextKey = selection
@@ -191,6 +191,7 @@ export function useOrrnnDemoPublicCandles(
     error,
     refresh,
     paginate,
+    seededFromCache: cachedRestCandles.length > 0,
   };
 }
 

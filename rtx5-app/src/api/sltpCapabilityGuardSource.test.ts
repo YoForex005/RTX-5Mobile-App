@@ -51,19 +51,21 @@ test('every direct SL/TP mutation helper fails before transport', () => {
   );
 });
 
-test('one-click queued trades re-check protection at enqueue and dispatch time', () => {
+test('one-click immediate trades check protection before dispatch', () => {
   const source = readSource(
     'src/features/chart/components/ChartTradeButtonsFeature/useTradeHandler.ts',
   );
   const occurrences = source.match(/isNewMarketOrderProtectionBackendLocked\(\)/g) ?? [];
-  assert.ok(occurrences.length >= 2);
-  assert.match(
-    source,
-    /queuedTrade\.stopLossPrice !== undefined[\s\S]*isNewMarketOrderProtectionBackendLocked\(\)[\s\S]*releaseChartProtectionDraftSubmission/,
-  );
+  assert.ok(occurrences.length >= 1);
   assert.match(
     source,
     /\(hasStopLossPrice \|\| hasTakeProfitPrice\) &&[\s\S]*isNewMarketOrderProtectionBackendLocked\(\)[\s\S]*getActiveSltpUnavailableMessage\(\)[\s\S]*return;/,
+  );
+  assertBefore(
+    source.slice(source.indexOf('// ── One-click ON:')),
+    'isNewMarketOrderProtectionBackendLocked()',
+    'dispatchChartTradeImmediately({',
+    'chart one-click order',
   );
 });
 

@@ -49,6 +49,10 @@ const getCandleStreamSnapshotKey = (symbol: string, timeframe: string): string =
     state.loading ? 1 : 0,
     state.error ?? '',
     state.isLiveConnected ? 1 : 0,
+    // Consumers gate the chart's loading overlay on this, so a change must be
+    // able to move the key on its own — otherwise the flag can flip inside the
+    // engine and never reach React.
+    state.seededFromCache ? 1 : 0,
     state.lastUpdateTime ?? 0,
     state.candles.length,
     last?.time ?? '',
@@ -149,19 +153,19 @@ export function useLiveCandles(
   const subscribe = useCallback(
     (listener: () => void) => {
       if (!isLiveActive || !normalizedSymbol || !normalizedTimeframe) {
-        return () => {};
+        return () => { };
       }
 
       const unsubscribeCandleDemand = useServerCandleStream
         ? (() => {
-            candlesWsService.subscribe(normalizedSymbol, normalizedTimeframe);
-            return () => candlesWsService.unsubscribe(normalizedSymbol, normalizedTimeframe);
-          })()
+          candlesWsService.subscribe(normalizedSymbol, normalizedTimeframe);
+          return () => candlesWsService.unsubscribe(normalizedSymbol, normalizedTimeframe);
+        })()
         : null;
       // Keep the quote socket on for this chart. In the default mode, quote
       // ticks are the only active-candle body source; server candles are opt-in
       // only after runtime compatibility has been proven.
-      const unsubscribeQuoteDemand = quotesWsService.subscribeToSymbol(symbol, () => {});
+      const unsubscribeQuoteDemand = quotesWsService.subscribeToSymbol(symbol, () => { });
       let lastNotificationAt = 0;
       let notificationTimer: ReturnType<typeof setTimeout> | null = null;
       const notifyReact = () => {
@@ -299,6 +303,7 @@ export function useLiveCandles(
     error: streamState?.error ?? null,
     refresh,
     paginate,
+    seededFromCache: streamState?.seededFromCache ?? false,
   };
 
   // Logged-out history may pre-render the retained WebView while inactive;

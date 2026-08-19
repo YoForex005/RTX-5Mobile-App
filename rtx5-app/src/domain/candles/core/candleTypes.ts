@@ -55,4 +55,5 @@ export type CandleStreamState = {
   error: string | null;
   isLiveConnected: boolean;
   lastUpdateTime: number | null;
+  seededFromCache: boolean;
 };

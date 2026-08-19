@@ -91,15 +91,27 @@ test('rapid chart trades use one uncapped MT5-style receipt row per accepted tap
 
   assert.doesNotMatch(
     handlerSource,
-    /CHART_TRADE_QUEUE_LIMIT|pendingTradeCount|TRADE-QUEUE-FULL|Trade Queue Full/,
+    /CHART_TRADE_QUEUE_LIMIT|pendingTradeCount|TRADE-QUEUE-FULL|Trade Queue Full|tradeQueueRef|processNextQueuedTrade/,
   );
   assert.match(
     handlerSource,
-    /tradeQueueRef\.current\.push\(queuedTrade\);[\s\S]*emitTradeQueueEvent\(queuedTrade, 'pending'\);[\s\S]*processNextQueuedTrade\(\{ skipQuoteRecheck: true \}\);/,
+    /dispatchChartTradeImmediately\(\{[\s\S]*emitTradeQueueEvent\(trade, 'pending'\);[\s\S]*dispatch: dispatchAcceptedChartTrade/,
   );
   assert.match(
     handlerSource,
-    /reportQueuedTradeResult\([\s\S]*executionEvidence\.confirmed \? 'confirmed' : 'unconfirmed'/,
+    /reportAcceptedTradeResult\([\s\S]*executionEvidence\.confirmed \? 'confirmed' : 'unconfirmed'/,
+  );
+  assert.match(
+    handlerSource,
+    /const mountedRef = React\.useRef\(true\)[\s\S]*mountedRef\.current = false/,
+  );
+  assert.match(
+    handlerSource,
+    /onSuccess: \(data: any\) => \{[\s\S]*if \(!mountedRef\.current\) \{[\s\S]*releaseChartProtectionDraftSubmission\(acceptedTrade\.protectionDraftId\)/,
+  );
+  assert.match(
+    handlerSource,
+    /const emitTradeQueueEvent = React\.useCallback\([\s\S]*if \(!mountedRef\.current\) return;/,
   );
   assert.match(
     chartSource,
@@ -139,11 +151,11 @@ test('rapid chart trades use one uncapped MT5-style receipt row per accepted tap
   );
   assert.match(
     handlerSource,
-    /const queuedTrade: QueuedChartTrade = \{[\s\S]*chartWindowPaneId \? \{ chartWindowPaneId \}/,
+    /const acceptedTrade: AcceptedChartTrade = \{[\s\S]*chartWindowPaneId \? \{ chartWindowPaneId \}/,
   );
   assert.match(
     handlerSource,
-    /chartWindowPaneId: queuedTrade\.chartWindowPaneId/,
+    /chartWindowPaneId: acceptedTrade\.chartWindowPaneId/,
   );
   assert.match(
     stackSource,

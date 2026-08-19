@@ -45,12 +45,9 @@ test('native chart reactively disables Buy and Sell on the strict per-symbol quo
   assert.match(availability, /quote\.degraded === true/);
   assert.match(component, /tradeBlocked && baseStyles\.chartTradeActionButtonDisabled/);
 
-  // Queue and direct-tap checks both use the current per-symbol cache.
+  // Every immediate dispatch is authorized from the current per-symbol cache.
   assert.match(handler, /currentQuoteActionAvailabilityRef\.current\(\)/);
-  assert.match(
-    handler,
-    /function processNextQueuedTrade\(options\?: \{ skipQuoteRecheck\?: boolean \}\)[\s\S]*if \(!options\?\.skipQuoteRecheck\)[\s\S]*resolveCurrentQuoteActionAvailability\(\)[\s\S]*if \(!currentQuoteAvailability\.allowed\)/,
-  );
+  assert.doesNotMatch(handler, /tradeQueueRef|processNextQueuedTrade/);
   assert.match(
     handler,
     /const currentQuoteAvailability = resolveCurrentQuoteActionAvailability\(\);[\s\S]*if \(!currentQuoteAvailability\.allowed\)[\s\S]*if \(!oneClickAccepted && variant !== 'mt5-market'\)/,

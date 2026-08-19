@@ -7,6 +7,9 @@ const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 
 const querySource = readSource('src/query/orders.ts');
 const orderSource = readSource('src/api/orders/placeMarketOrder.ts');
 const reconciliationSource = readSource('src/api/orders/marketPositionReconciliation.ts');
+const coordinatorSource = readSource(
+  'src/api/orders/marketOrderReconciliationCoordinator.ts',
+);
 
 test('market success delegates position ownership to the API reconciliation coordinator', () => {
   const successSource = querySource.slice(
@@ -14,7 +17,10 @@ test('market success delegates position ownership to the API reconciliation coor
     querySource.indexOf('type PlaceOrderExecutorOptions'),
   );
 
-  assert.match(orderSource, /reconcileMarketOrderPositions\(reconciliationResponse/);
+  assert.match(orderSource, /beginCoalescedMarketOrderReconciliation\(\{/);
+  assert.match(orderSource, /reconcileMarketOrderPositions\(reconciliationEvidence/);
+  assert.match(coordinatorSource, /batch\.version === targetVersion/);
+  assert.match(querySource, /placeOrderCacheRefreshScheduler\.schedule\([\s\S]*invalidateSessionQueryRoots/);
   assert.doesNotMatch(successSource, /position_ticket|order_ticket|getPositionsForReconciliation|refreshPositions/);
   assert.doesNotMatch(successSource, /applyPositionsSnapshot|upsertPosition/);
 });
@@ -39,14 +45,23 @@ test('opened, closed, and netting actions require matching broker-ledger evidenc
 });
 
 test('requested SL and TP are never painted as backend-confirmed after market execution', () => {
-  assert.doesNotMatch(reconciliationSource, /price_sl|price_tp|\bsl:|\btp:/);
+  assert.doesNotMatch(
+    reconciliationSource,
+    /response\?*\.price_(?:sl|tp)|\b(?:sl|tp):\s*response/,
+  );
+  assert.match(
+    reconciliationSource,
+    /position\.price_sl \?\? null[\s\S]*position\.price_tp \?\? null/,
+  );
   assert.doesNotMatch(orderSource, /commitPositions:[\s\S]{0,300}price_sl|commitPositions:[\s\S]{0,300}price_tp/);
 });
 
-test('market reconciliation remains bound to the immutable dispatch owner', () => {
-  assert.match(orderSource, /getPositionsForReconciliation\(owner\.accountLogin\)/);
-  assert.match(orderSource, /isOwnerCurrent: \(\) => isActiveBrokerSessionOwnerStampCurrent\(owner\)/);
-  assert.match(orderSource, /applyPositionsSnapshot\([\s\S]*owner\.accountLogin/);
+test('market reconciliation remains bound to the immutable dispatch session', () => {
+  assert.match(orderSource, /getPositionsForReconciliation\(reconciliationAccountLogin\)/);
+  assert.match(orderSource, /ownerKey: owner\.cacheNamespace/);
+  assert.match(orderSource, /isOwnerCurrent: isReconciliationSessionCurrent/);
+  assert.match(orderSource, /isBatchCurrent\(\) && isReconciliationSessionCurrent\(\)/);
+  assert.match(orderSource, /applyPositionsSnapshot\([\s\S]*reconciliationAccountLogin/);
   assert.doesNotMatch(orderSource, /resolveTradingLoginString/);
   assert.doesNotMatch(querySource, /refreshPositions\(/);
 });

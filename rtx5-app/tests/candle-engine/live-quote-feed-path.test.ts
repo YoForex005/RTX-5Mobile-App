@@ -207,7 +207,7 @@ test('useLiveCandles defaults to quote-driven candles and gates backend candle s
   assert.match(source, /const useServerCandleStream = shouldUseServerCandleStream\(\)/);
   assert.match(source, /const unsubscribeCandleDemand = useServerCandleStream[\s\S]*candlesWsService\.subscribe\(normalizedSymbol, normalizedTimeframe\)[\s\S]*candlesWsService\.unsubscribe\(normalizedSymbol, normalizedTimeframe\)/);
   assert.match(source, /unsubscribeCandleDemand\?\.\(\)/);
-  assert.match(source, /quotesWsService\.subscribeToSymbol\(symbol, \(\) => \{\}\)/);
+  assert.match(source, /quotesWsService\.subscribeToSymbol\(symbol, \(\) => \{\s*\}\)/);
   assert.doesNotMatch(source, /quote_store_fallback_tick/);
   assert.doesNotMatch(source, /liveCandlesEngine\.ingestQuoteTick/);
   assert.doesNotMatch(source, /normalizeLiveTick/);

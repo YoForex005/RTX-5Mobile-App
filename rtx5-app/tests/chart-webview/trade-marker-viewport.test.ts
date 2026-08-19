@@ -35,8 +35,8 @@ test('trade markers reposition from their real price on every visible-range chan
   );
   assertSourceContains(
     repositionBody,
-    /resolveAnchoredOverlayLabelLane\(_overlayLabelLayer\)[\s\S]*applyAnchoredOverlayLabelLane\(labelNode, anchoredLabelLane\)/,
-    'reposition pass must keep all trade labels in one centered column',
+    /resolveAnchoredOverlayLabelLane\(_overlayLabelLayer, false\)[\s\S]*resolveAnchoredOverlayLabelLane\(_overlayLabelLayer, true\)[\s\S]*applyAnchoredOverlayLabelLane\([\s\S]*isOpenPosition \? openPositionLabelLane : anchoredLabelLane/,
+    'reposition pass must keep open-position labels in the left lane and other trade labels in their existing lane',
   );
   assertSourceContains(
     repositionBody,

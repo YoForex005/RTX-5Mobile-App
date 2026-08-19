@@ -11,10 +11,13 @@ test('order executor never delivers a completion callback to a later broker epoc
 
   assert.match(
     executor,
-    /\.then\(\(data\) => \{\s*if \(!isActiveBrokerSessionOwnerStampCurrent\(owner\)\) return;\s*options\.onSuccess\?\.\(data\);/,
+    /\.then\(\(\{ data, owner: settledOwner \}\) => \{\s*const currentOwner = captureActiveBrokerSessionOwnerStamp\(\);\s*if \([\s\S]*currentOwner\.cacheNamespace !== settledOwner\.cacheNamespace[\s\S]*return;[\s\S]*options\.onSuccess\?\.\(data\);/,
   );
   assert.match(
     executor,
-    /\.catch\(\(error\) => \{\s*if \(!isActiveBrokerSessionOwnerStampCurrent\(owner\)\) return;\s*options\.onError\?\.\(error\);/,
+    /\}, \(error\) => \{\s*const currentOwner = captureActiveBrokerSessionOwnerStamp\(\);\s*if \(!currentOwner \|\| currentOwner\.cacheNamespace !== cacheNamespace\) return;\s*callOnError\(error\);/,
   );
+  assert.match(executor, /callOnError\(new StaleBrokerSessionError\(\)\);\s*callOnSettled\(\);/);
+  assert.match(executor, /\.finally\(\(\) => \{\s*callOnSettled\(\);/);
+  assert.doesNotMatch(executor, /\.catch\(/);
 });

@@ -87,8 +87,9 @@ test('chart trade buttons keep buy and sell press handlers mapped to the matchin
   );
   assert.match(
     handlerSource,
-    /placeOrder\(payload,[\s\S]*?onSuccess:[\s\S]*releaseTradeTapLock\(\);/,
+    /const dispatchAcceptedChartTrade = \(acceptedTrade: AcceptedChartTrade\) => \{[\s\S]*placeOrder\(payload,/,
   );
+  assert.doesNotMatch(handlerSource, /tradeQueueRef|processNextQueuedTrade|scheduleProcessNextQueuedTrade/);
   assert.match(
     handlerSource,
     /releaseOpenPathLock = \(\) => \{\s*releaseTradeTapLock\(CHART_TRADE_TAP_RELEASE_DELAY_MS\);/,
@@ -173,7 +174,7 @@ test('chart trade button rows use ltr layout so buy and sell touch targets canno
   assert.match(source, /tradeControlsRow:\s*\{[\s\S]*?direction:\s*'ltr'/);
   assert.match(
     handlerSource,
-    /setActiveSide\(null\);[\s\S]*?\}, \[clearQueuedTrades, symbol\]\);/,
+    /setActiveSide\(null\);[\s\S]*?\}, \[symbol\]\);/,
   );
   assert.doesNotMatch(
     source.slice(source.indexOf('actionButtonSlot:'), source.indexOf('actionLotSlot:')),
@@ -490,6 +491,6 @@ test('chart trade rows are remounted by symbol so first trade after symbol switc
   assert.match(handlerSource, /reason: 'shared-tap-lock'/);
   assert.match(sharedLockSource, /CHART_TRADE_TAP_RELEASE_DELAY_MS = 180/);
   assert.match(sharedLockSource, /CHART_TRADE_SHARED_LOCK_STALE_MS = 2_500/);
-  assert.match(handlerSource, /releaseChartTradeButtonSharedLock\(tradeTapLockSideRef\.current\);[\s\S]*?\}, \[clearQueuedTrades, symbol\]\);/);
+  assert.match(handlerSource, /releaseChartTradeButtonSharedLock\(tradeTapLockSideRef\.current\);[\s\S]*?\}, \[symbol\]\);/);
   assert.match(handlerSource, /currentChartSymbol: stateChartSymbol/);
 });

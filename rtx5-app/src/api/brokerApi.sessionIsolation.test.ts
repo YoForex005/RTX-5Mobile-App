@@ -363,6 +363,54 @@ test('trade mutations receive scoped idempotency keys while non-trade calls do n
   api.dispose();
 });
 
+test('50 parallel order mutations enter transport before any settles and use distinct keys', { timeout: 2_000 }, async () => {
+  activate();
+  const api = new BrokerAPI();
+  const rapidOrderCount = 50;
+  const requestHeaders: Headers[] = [];
+  const resolveResponses: Array<(response: Response) => void> = [];
+  let notifyAllStarted: (() => void) | null = null;
+  const allStarted = new Promise<void>((resolve) => {
+    notifyAllStarted = resolve;
+  });
+  globalThis.fetch = (async (_input, init) => {
+    requestHeaders.push(new Headers(init?.headers));
+    return new Promise<Response>((resolve) => {
+      resolveResponses.push(resolve);
+      if (requestHeaders.length === rapidOrderCount) notifyAllStarted?.();
+    });
+  }) as typeof globalThis.fetch;
+
+  const body = JSON.stringify({
+    account_login: 10001,
+    symbol: 'XAUUSD',
+    side: 'buy',
+    volume: '0.03',
+    type: 'market',
+  });
+  const requests = Array.from(
+    { length: rapidOrderCount },
+    () => api.request('/orders', { method: 'POST', body }),
+  );
+
+  await allStarted;
+  assert.equal(requestHeaders.length, rapidOrderCount, 'all 50 requests must start before request 1 settles');
+  const keys = requestHeaders.map((headers) => headers.get('Idempotency-Key'));
+  assert.ok(keys.every(Boolean));
+  assert.equal(new Set(keys).size, rapidOrderCount, 'separate intended trades need separate keys');
+  requestHeaders.forEach((headers) => {
+    assert.equal(headers.get('Authorization'), 'Bearer access-broker-a');
+  });
+
+  resolveResponses.forEach((resolve) => resolve(new Response('{}', { status: 200 })));
+  const responses = await Promise.all(requests);
+  assert.deepEqual(
+    responses.map((response) => response.status),
+    Array.from({ length: rapidOrderCount }, () => 200),
+  );
+  api.dispose();
+});
+
 test('trade idempotency preserves a caller-provided retry key', async () => {
   activate();
   const api = new BrokerAPI();

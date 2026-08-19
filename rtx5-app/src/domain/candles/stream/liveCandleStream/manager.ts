@@ -87,7 +87,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     const normalizedSymbol = normalizeSymbol(symbol);
     const normalizedTimeframe = normalizeTimeframeStrict(timeframe);
     if (!normalizedSymbol || !normalizedTimeframe) {
-      return () => {};
+      return () => { };
     }
 
     const entry = this.ensureEntry(normalizedSymbol, normalizedTimeframe);
@@ -124,6 +124,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       error: entry.error,
       isLiveConnected: entry.isLiveConnected,
       lastUpdateTime: entry.lastUpdateTime,
+      seededFromCache: entry.seededFromCache,
     };
   }
 
@@ -300,6 +301,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     // Preserve any live ticks that arrived while saved candles were loading.
     entry.renderHistoryLimit = safeRenderLimit;
     entry.historyPaginationCursorTime = null;
+    entry.seededFromCache = true;
 
     const { closedHistory } = splitRestHistoryCandles(
       safeCandles,
@@ -502,6 +504,8 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       },
     );
     const nextParams = toCandleParams(safeNextCandles);
+    const previousLoading = entry.loading;
+    const previousLiveConnected = entry.isLiveConnected;
     entry.loading = entry.historyLoading || entry.historyPageLoading;
     entry.isLiveConnected = true;
     entry.lastUpdateTime = Date.now();
@@ -509,6 +513,23 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     candleMemoryCache.set(entry.symbol, entry.timeframe, safeNextCandles);
 
     if (isSameSeries(entry.candles, nextParams)) {
+      // Revisiting a symbol re-seeds this entry from candleMemoryCache, so the
+      // REST refresh that follows can return history identical to the seed. The
+      // series then never changes — but the loading and connectivity flags just
+      // did, and both are part of the store snapshot key. Returning without a
+      // notification strands `loading: false` inside the engine while React keeps
+      // rendering the spinner, which is why a revisited symbol could load forever
+      // until the app was restarted. On a busy symbol the next live tick changed
+      // the series and masked it; on a quiet one nothing ever did.
+      // Notify only on an observable change, so redundant commits from live
+      // flushes still cost nothing. (`error` is owned by the history callers, not
+      // by commit(), and that failure path already notifies explicitly.)
+      if (
+        entry.loading !== previousLoading
+        || entry.isLiveConnected !== previousLiveConnected
+      ) {
+        this.notify(entry);
+      }
       return;
     }
 
@@ -554,6 +575,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       eventOrder: 0,
       historyRetryTimer: null,
       historyRetryAttempt: 0,
+      seededFromCache: false,
     };
 
     this.entries.set(key, entry);
@@ -610,15 +632,25 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       // Start another request only if it produced no usable candles.
       entry.loading = true;
       this.notify(entry);
-      void pendingPrefetch.then(() => {
+      const settlePendingPrefetch = () => {
         const live = this.entries.get(entry.key);
+        if (!live) {
+          return;
+        }
         if (
-          !live ||
           live.historyCandles.length > 0 ||
           live.historyLoading ||
           live.historyPageLoading ||
           live.abortController
         ) {
+          // Either the warm-up already supplied renderable history, or a real
+          // load is in flight and owns the flag (settleIdleLoading leaves it
+          // raised in that case). The first branch is taken by construction on a
+          // revisit, because ensureEntry seeds historyCandles from
+          // candleMemoryCache before we get here — and since no load was issued,
+          // nothing else would ever recompute `loading`. Settle it here instead
+          // of leaving the spinner up until some unrelated live tick commits.
+          this.settleIdleLoading(live);
           return;
         }
 
@@ -627,11 +659,28 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
           Math.max(INITIAL_HISTORY_LIMIT, live.renderHistoryLimit || initialLoadLimit),
         );
         runLoadHistory(this, live, fallbackLoadLimit);
-      });
+      };
+      // A rejected warm-up must settle the entry too: without the second handler
+      // the chain dangles and the spinner never comes down.
+      void pendingPrefetch.then(settlePendingPrefetch, settlePendingPrefetch);
       return;
     }
 
     runLoadHistory(this, entry, initialLoadLimit);
+  }
+
+  /**
+   * Recomputes `loading` from the two flags that actually own it and publishes
+   * the result. Used on paths that finish without issuing a history request of
+   * their own, where no `commit()` is guaranteed to follow and would otherwise
+   * leave `loading` stranded true for the lifetime of the entry.
+   */
+  private settleIdleLoading(entry: StreamEntry): void {
+    const previousLoading = entry.loading;
+    entry.loading = entry.historyLoading || entry.historyPageLoading;
+    if (entry.loading !== previousLoading) {
+      this.notify(entry);
+    }
   }
 
   private reloadEmptyIdleHistory(entry: StreamEntry): void {

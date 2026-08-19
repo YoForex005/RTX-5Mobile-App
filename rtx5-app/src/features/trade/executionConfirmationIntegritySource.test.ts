@@ -44,7 +44,7 @@ test('chart trade confirmations never invent tickets or execution prices', () =>
   assert.match(evidence, /ticket !== undefined && executionPrice !== undefined/);
   assert.match(handler, /resolveBrokerExecutionEvidence\(data\)/);
   assert.match(handler, /executionEvidence\.confirmed/);
-  assert.doesNotMatch(handler, /['"]Confirmed['"]|queuedTrade\.latest(?:Bid|Ask)/);
+  assert.doesNotMatch(handler, /['"]Confirmed['"]|acceptedTrade\.latest(?:Bid|Ask)/);
 
   assert.match(nativePendingSubmit, /resolveBrokerExecutionEvidence\(data\)/);
   assert.match(nativePendingSubmit, /executionConfirmed:\s*false/);
@@ -62,7 +62,7 @@ test('shared order mutation never inserts an execution response into the positio
   assert.match(source, /handlePlaceOrderSuccess\([\s\S]*queryClient,[\s\S]*data,[\s\S]*variables,[\s\S]*owner/);
   assert.match(reconciliationSource, /response\?\.position_ticket \?\? response\?\.ticket/);
   assert.doesNotMatch(reconciliationSource, /order_ticket/);
-  assert.match(orderSource, /getPositionsForReconciliation\(owner\.accountLogin/);
+  assert.match(orderSource, /getPositionsForReconciliation\(reconciliationAccountLogin\)/);
   assert.match(orderSource, /applyPositionsSnapshot\(/);
   assert.doesNotMatch(orderSource, /\.upsertPosition\(/);
   assert.doesNotMatch(source, /openPrice:\s*data\.price\s*\|\|\s*0/);
