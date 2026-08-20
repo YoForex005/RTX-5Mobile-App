@@ -1693,6 +1693,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       tooltipMuted: '#94A3B8',
       upColor: '#2962FF',
       downColor: '#EF5350',
+      areaSeriesInspector: false,
       snapEnabled: false,
       snapType: 'ohlc-nearest',
       snapThresholdPx: 18
@@ -1700,6 +1701,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._lastCrosshairParam = null;
     this._lastCrosshairState = null;
     this._pendingCrosshairState = null;
+    this._areaInspectorSeedPending = false;
     this._lastNotifiedCrosshairSignature = '';
     this._ignoreCrosshairClickUntil = 0;
     this._drawingCounter = {};
@@ -2261,7 +2263,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     return rawPrice;
   };
 
-  AdvancedDrawingToolsManager.prototype._resolveCrosshairState = function (param) {
+  AdvancedDrawingToolsManager.prototype._resolveCrosshairState = function (param, options) {
     if (!param || !param.point || !this._series) {
       return null;
     }
@@ -2295,8 +2297,28 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     var candle = nearest.candle;
     var dataIndex = nearest.index;
     var x = rawX;
+    var areaSeriesInspector = !!(
+      !(options && options.areaSeriesInspector === false) &&
+      this._activeTool === 'crosshair' &&
+      this._crosshairConfig.areaSeriesInspector === true &&
+      candle &&
+      isFiniteNumber(candle.value)
+    );
 
-    price = this._resolveCrosshairPrice(price, candle, rawY);
+    // Area points own both axes. The pointer only chooses the nearest point;
+    // the inspector then sits exactly on that point instead of reporting an
+    // invented price from the finger's vertical position.
+    if (areaSeriesInspector) {
+      time = candle.time;
+      price = candle.value;
+      var areaX = resolveCoordinateFromTime(this._chart, this._series, time);
+      if (isFiniteNumber(areaX)) {
+        x = Math.max(0, Math.min(metrics.paneWidth, areaX));
+      }
+    } else {
+      price = this._resolveCrosshairPrice(price, candle, rawY);
+    }
+
     var y = rawY;
     if (typeof this._series.priceToCoordinate === 'function') {
       var priceY = this._series.priceToCoordinate(price);
@@ -2320,7 +2342,8 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       priceLabel: formatCrosshairPrice(this._series, price),
       timeLabel: formatCrosshairTime(time, this._crosshairConfig.timeframe),
       candle: candle,
-      dataIndex: dataIndex
+      dataIndex: dataIndex,
+      areaSeriesInspector: areaSeriesInspector
     };
   };
 
@@ -2329,6 +2352,11 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       return '';
     }
     var candle = state.candle;
+    if (state.areaSeriesInspector && isFiniteNumber(candle.value)) {
+      return ''
+        + '<div style="font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;">' + state.priceLabel + '</div>'
+        + '<div style="color:' + this._crosshairConfig.tooltipMuted + ';font-size:10px;font-weight:600;white-space:nowrap;">' + state.timeLabel + '</div>';
+    }
     var open = isFiniteNumber(candle.open) ? candle.open : (isFiniteNumber(candle.value) ? candle.value : state.price);
     var high = isFiniteNumber(candle.high) ? candle.high : open;
     var low = isFiniteNumber(candle.low) ? candle.low : open;
@@ -2414,8 +2442,11 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
     var metrics = state.metrics;
     var lineColor = this._crosshairConfig.lineColor;
+    var areaSeriesInspector = state.areaSeriesInspector === true;
     overlay.root.style.display = 'block';
-    overlay.vertical.style.borderLeft = '1px dashed ' + lineColor;
+    overlay.vertical.style.display = 'block';
+    overlay.vertical.style.borderLeft = (areaSeriesInspector ? '1px solid ' : '1px dashed ') + lineColor;
+    overlay.horizontal.style.display = areaSeriesInspector ? 'none' : 'block';
     overlay.horizontal.style.borderTop = '1px dashed ' + lineColor;
     overlay.vertical.style.left = Math.round(state.x) + 'px';
     overlay.vertical.style.top = '0px';
@@ -2425,13 +2456,18 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     overlay.horizontal.style.width = Math.round(metrics.paneWidth) + 'px';
     overlay.center.style.left = Math.round(state.x) + 'px';
     overlay.center.style.top = Math.round(state.y) + 'px';
+    overlay.center.style.display = 'block';
+    overlay.center.style.borderColor = areaSeriesInspector ? lineColor : 'rgba(148, 163, 184, 0.9)';
+    overlay.center.style.background = areaSeriesInspector ? lineColor : 'rgba(255, 255, 255, 0.92)';
 
     overlay.priceLabel.textContent = state.priceLabel;
+    overlay.priceLabel.style.display = areaSeriesInspector ? 'none' : 'block';
     overlay.priceLabel.style.background = this._crosshairConfig.labelBackground;
     overlay.priceLabel.style.color = this._crosshairConfig.labelText;
     overlay.priceLabel.style.top = Math.round(Math.max(10, Math.min(metrics.paneHeight - 10, state.y))) + 'px';
 
     overlay.timeLabel.textContent = state.timeLabel;
+    overlay.timeLabel.style.display = areaSeriesInspector ? 'none' : 'block';
     overlay.timeLabel.style.background = this._crosshairConfig.labelBackground;
     overlay.timeLabel.style.color = this._crosshairConfig.labelText;
     overlay.timeLabel.style.top = Math.round(metrics.paneHeight) + 'px';
@@ -2443,8 +2479,10 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     overlay.tooltip.style.background = this._crosshairConfig.tooltipBackground;
     overlay.tooltip.style.borderColor = this._crosshairConfig.tooltipBorder;
     overlay.tooltip.style.color = this._crosshairConfig.tooltipText;
-    var tooltipWidth = overlay.tooltip.offsetWidth || 164;
-    var tooltipHeight = overlay.tooltip.offsetHeight || 112;
+    overlay.tooltip.style.minWidth = areaSeriesInspector ? '104px' : '148px';
+    overlay.tooltip.style.maxWidth = areaSeriesInspector ? '156px' : '190px';
+    var tooltipWidth = overlay.tooltip.offsetWidth || (areaSeriesInspector ? 124 : 164);
+    var tooltipHeight = overlay.tooltip.offsetHeight || (areaSeriesInspector ? 48 : 112);
     var tooltipLeft = state.x + 14;
     if (tooltipLeft + tooltipWidth > metrics.paneWidth - 6) {
       tooltipLeft = state.x - tooltipWidth - 14;
@@ -2635,10 +2673,60 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   AdvancedDrawingToolsManager.prototype.refreshCrosshairData = function () {
     // Live data changed → autoscale may have shifted price coordinates.
     this._refreshDrawingBadges();
+    if (
+      this._areaInspectorSeedPending === true &&
+      this._activeTool === 'crosshair' &&
+      this._crosshairConfig.areaSeriesInspector === true &&
+      this._showLatestAreaSeriesPoint()
+    ) {
+      return;
+    }
     if (!this._lastCrosshairParam || (!this._crosshairVisible && !this._crosshairLocked)) {
       return;
     }
     this._updateCrosshairOverlay(this._lastCrosshairParam, true);
+  };
+
+  AdvancedDrawingToolsManager.prototype._showLatestAreaSeriesPoint = function () {
+    if (this._activeTool !== 'crosshair' || this._crosshairConfig.areaSeriesInspector !== true) {
+      this._areaInspectorSeedPending = false;
+      return false;
+    }
+    var data = getSeriesData(this._series);
+    if (!Array.isArray(data) || data.length === 0) {
+      this._areaInspectorSeedPending = true;
+      return false;
+    }
+    var latest = null;
+    for (var i = data.length - 1; i >= 0; i -= 1) {
+      if (data[i] && data[i].time !== null && data[i].time !== undefined && isFiniteNumber(data[i].value)) {
+        latest = data[i];
+        break;
+      }
+    }
+    if (!latest) {
+      this._areaInspectorSeedPending = true;
+      return false;
+    }
+    var x = resolveCoordinateFromTime(this._chart, this._series, latest.time);
+    var y = null;
+    try {
+      y = typeof this._series.priceToCoordinate === 'function'
+        ? this._series.priceToCoordinate(latest.value)
+        : null;
+    } catch (_priceCoordinateError) {
+      y = null;
+    }
+    if (!isFiniteNumber(x) || !isFiniteNumber(y)) {
+      this._areaInspectorSeedPending = true;
+      return false;
+    }
+    this._areaInspectorSeedPending = false;
+    this._updateCrosshairOverlay({
+      point: { x: x, y: y },
+      time: latest.time
+    }, true);
+    return true;
   };
 
   AdvancedDrawingToolsManager.prototype.setCrosshairConfig = function (config) {
@@ -2670,10 +2758,21 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       tooltipMuted: typeof config.tooltipMuted === 'string' ? config.tooltipMuted : this._crosshairConfig.tooltipMuted,
       upColor: typeof config.upColor === 'string' ? config.upColor : this._crosshairConfig.upColor,
       downColor: typeof config.downColor === 'string' ? config.downColor : this._crosshairConfig.downColor,
+      areaSeriesInspector: typeof config.areaSeriesInspector === 'boolean' ? config.areaSeriesInspector : this._crosshairConfig.areaSeriesInspector,
       snapEnabled: snapEnabled === true,
       snapType: snapType,
       snapThresholdPx: snap && isFiniteNumber(snap.thresholdPx) ? snap.thresholdPx : (isFiniteNumber(config.snapThresholdPx) ? config.snapThresholdPx : this._crosshairConfig.snapThresholdPx)
     });
+    if (this._crosshairConfig.areaSeriesInspector !== true) {
+      this._areaInspectorSeedPending = false;
+    }
+    if (
+      this._activeTool === 'crosshair' &&
+      this._crosshairConfig.areaSeriesInspector === true &&
+      this._showLatestAreaSeriesPoint()
+    ) {
+      return;
+    }
     this.refreshCrosshairData();
   };
 
@@ -3875,7 +3974,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
 
   AdvancedDrawingToolsManager.prototype._resolveLineEditPoint = function (param) {
-    var state = this._resolveCrosshairState(param);
+    // Editing an existing drawing remains free-form even on an Area chart; the
+    // series-point snap belongs only to the Area inspection cursor.
+    var state = this._resolveCrosshairState(param, { areaSeriesInspector: false });
     if (state && state.time !== null && state.time !== undefined && isFiniteNumber(state.price)) {
       var point = { time: state.time, price: state.price };
       if (state.timestamp !== undefined) point.timestamp = state.timestamp;
@@ -4603,6 +4704,11 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     }
     this._refreshRecordPresentationVisibility();
     this._applyChartInteractionMode();
+    if (this._activeTool === 'crosshair' && this._crosshairConfig.areaSeriesInspector === true) {
+      this._showLatestAreaSeriesPoint();
+    } else {
+      this._areaInspectorSeedPending = false;
+    }
     if (!silent) {
       safeNotify('TOOL_ACTIVE_CHANGED', { tool: this._activeTool, drawingActive: this._isDrawingToolActive() });
     }

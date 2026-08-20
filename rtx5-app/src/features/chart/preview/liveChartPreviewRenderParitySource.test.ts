@@ -75,7 +75,11 @@ test('Area uses close-value data and a themed gradient in every preview', () => 
   assert.match(sharedSource, /chartType === 'line' \|\| chartType === 'area'/);
   assert.match(
     nativeSource,
-    /chartType === 'area'[\s\S]*chart\.addSeries\(LightweightCharts\.AreaSeries, \{[\s\S]*lineColor: lineColor,[\s\S]*topColor: hexToRgba\(lineColor, 0\.32\),[\s\S]*bottomColor: hexToRgba\(lineColor, 0\.04\)/,
+    /resolveAreaChartDirection\(previewCandles\)[\s\S]*lineBody: chartType === 'area' \? areaChartColor : colors\.lineBody/,
+  );
+  assert.match(
+    nativeSource,
+    /chartType === 'area'[\s\S]*chart\.addSeries\(LightweightCharts\.AreaSeries, \{[\s\S]*lineColor: lineColor,[\s\S]*topColor: hexToRgba\(lineColor, 0\.32\),[\s\S]*bottomColor: hexToRgba\(lineColor, 0\.04\),[\s\S]*lineWidth: \$\{CHART_AREA_LINE_WIDTH\},[\s\S]*lineType: LightweightCharts\.LineType\.Simple/,
   );
   assert.match(
     nativeSource,
@@ -83,7 +87,11 @@ test('Area uses close-value data and a themed gradient in every preview', () => 
   );
   assert.match(
     webSource,
-    /chartType === 'area'[\s\S]*chart\.addSeries\(AreaSeries, \{[\s\S]*lineColor: colors\.lineBody,[\s\S]*topColor: withAlpha\(colors\.lineBody, 0\.32\),[\s\S]*bottomColor: withAlpha\(colors\.lineBody, 0\.04\)/,
+    /resolveAreaChartDirection\(previewCandles\)[\s\S]*chartType === 'area'[\s\S]*const areaLineColor = areaChartColorRef\.current;[\s\S]*chart\.addSeries\(AreaSeries, \{[\s\S]*lineColor: areaLineColor,[\s\S]*topColor: withAlpha\(areaLineColor, 0\.32\),[\s\S]*bottomColor: withAlpha\(areaLineColor, 0\.04\),[\s\S]*lineWidth: CHART_AREA_LINE_WIDTH,[\s\S]*lineType: LineType\.Simple/,
+  );
+  assert.match(
+    webSource,
+    /chartType !== 'area' \|\| !seriesRef\.current[\s\S]*seriesRef\.current\.applyOptions\(\{[\s\S]*lineColor: areaChartColor,[\s\S]*topColor: withAlpha\(areaChartColor, 0\.32\),[\s\S]*bottomColor: withAlpha\(areaChartColor, 0\.04\)/,
   );
 });
 

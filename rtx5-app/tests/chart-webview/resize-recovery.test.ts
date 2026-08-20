@@ -215,13 +215,13 @@ test('recoverChartSurface restores data, overlays, market price lines, direction
   assertSourceContains(body, /postChartGeometry\(\)/, 'recovery must report geometry');
 });
 
-test('full chart rebuild retains the exact manual price window', () => {
+test('same-context full chart rebuild retains the exact manual price window', () => {
   const body = extractFunctionBody(source, '_doInitChart');
 
   assertSourceContains(
     body,
-    /var retainedManualPriceScaleRange = isManualVerticalPanRangeLocked\(\)[\s\S]*var retainedManualPriceScaleReferenceSpan =[\s\S]*clearManualPriceScaleState\(\)/,
-    'rebuild must snapshot manual range and zoom envelope before disposing instance state',
+    /var retainedManualPriceScaleRange = !isNewDataContext && isManualVerticalPanRangeLocked\(\)[\s\S]*var retainedManualPriceScaleReferenceSpan =[\s\S]*!isNewDataContext &&[\s\S]*clearManualPriceScaleState\(\)/,
+    'same-context rebuild must snapshot its manual range while rejecting another symbol price window',
   );
   assertSourceContains(
     body,

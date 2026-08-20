@@ -155,7 +155,11 @@ import {
 import { createCoalescedSessionRefreshScheduler } from '../../query/coalescedSessionRefresh';
 import { WebView } from 'react-native-webview';
 import { hasLiveQuoteFeedData, useLiveSymbolQuote } from '../../query/websocket';
-import { getCurrentLiveQuoteSnapshot } from '../quotes/useLiveQuotes';
+import {
+  getCurrentLiveQuoteSnapshot,
+  useLiveQuoteSnapshot,
+  useWatchlistLiveQuotes,
+} from '../quotes/useLiveQuotes';
 import { normalizeSymbol } from '../../domain/symbols';
 import {
   quoteActionBlockMessage,
@@ -197,6 +201,8 @@ import {
   buildChartPositionStructuralSignature,
 } from './chartRenderIsolation';
 import { resolveChartDisplayDecimals } from './chartPricePrecision';
+import { resolveAreaChartDirectionForRange } from './areaChartDirection';
+import { useAreaChartHistoryExpansion } from './useAreaChartHistoryExpansion';
 import { isPriceCoherentWithCandle } from '../../domain/candles/series/priceCoherence';
 import {
   getChartDrawingBucketKey,
@@ -336,7 +342,7 @@ import {
   mapChartWindowGestureToMenuAnchor,
   type ChartWindowRadialMenuRequest,
 } from './chartWindowRadialMenu';
-import { ChartTapMenuViewport, CHART_AXIS_DIVIDER_DARK_COLOR as MT5_DARK_AXIS_BORDER_COLOR, CHART_AXIS_DIVIDER_LIGHT_COLOR as MT5_LIGHT_AXIS_BORDER_COLOR, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_DRAWING_MAGNET_THRESHOLD_PX, CHART_GRID_LINE_STYLE, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveVisibleTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent, type ChartVisiblePriceRange } from "./ChartScreen.constants";
+import { ChartTapMenuViewport, CHART_AREA_TIME_SCALE_MIN_BAR_SPACING, CHART_AXIS_DIVIDER_DARK_COLOR as MT5_DARK_AXIS_BORDER_COLOR, CHART_AXIS_DIVIDER_LIGHT_COLOR as MT5_LIGHT_AXIS_BORDER_COLOR, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_DRAWING_MAGNET_THRESHOLD_PX, CHART_GRID_LINE_STYLE, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveVisibleTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent, type ChartVisiblePriceRange } from "./ChartScreen.constants";
 import {
   DEFAULT_CHART_SYMBOLS,
   SYMBOL_FLAGS,
@@ -1091,6 +1097,21 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   // honored. Unknown status never destructively truncates the chart.
   const isChartMarketClosed = chartMarketSessionPolicy.quotePhase === 'closed';
   const chartLiveQuote = useLiveSymbolQuote(chartSymbol, chartRuntimeActive, CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS);
+  // Area's Auto / 1 Day tone must use the same daily percentage snapshot as
+  // Quotes. Keep the existing low-latency chart quote above for execution and
+  // live-price painting; this shared subscription adds only the Quotes-owned
+  // daily reference fields that a price-only tick is allowed to omit.
+  const areaQuoteDirectionActive = chartRuntimeActive && chartVisualType === 'area';
+  useWatchlistLiveQuotes(
+    [chartSymbol],
+    areaQuoteDirectionActive,
+    { restFallbackActive: areaQuoteDirectionActive },
+  );
+  const chartDailyDirectionQuote = useLiveQuoteSnapshot(
+    chartSymbol,
+    areaQuoteDirectionActive,
+    CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS,
+  );
   const observedExactChartQuote = useMemo(
     () => captureExactChartQuote(
       chartTradeDisplayQuoteScopeKey,
@@ -1804,7 +1825,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   const keyboardFrameRef = useRef<{ height: number; screenY: number | null }>({ height: 0, screenY: null });
   const chartTradeHostBottomRef = useRef<number | null>(null);
   const footerTradeRowAnchorBottomRef = useRef<number | null>(null);
-  const [activeTool, setActiveTool] = useState<string>(CHART_NO_DRAWING_TOOL);
+  // Area is an inspection-first chart: arm the existing mobile crosshair on
+  // restore as well as on picker selection, so its price probe is immediately
+  // available without making the user discover a separate drawing-tool step.
+  const [activeTool, setActiveTool] = useState<string>(() => (
+    chartVisualType === 'area' ? CHART_CROSSHAIR_TOOL : CHART_NO_DRAWING_TOOL
+  ));
+  // Only the crosshair armed automatically by Area belongs to this lifecycle.
+  // A crosshair the trader explicitly selects stays manual and therefore must
+  // survive a later switch back to candles/line.
+  const areaAutoInspectorOwnerPaneIdRef = useRef<string | null>(
+    chartVisualType === 'area' ? chartWindows.activePane.id : null,
+  );
   const [chartDrawingInputActive, setChartDrawingInputActive] = useState(false);
   const chartDrawingToolOwnerPaneIdRef = useRef<string | null>(null);
   const [chartTapMenuAnchor, setChartTapMenuAnchor] = useState<ChartTapMenuAnchor | null>(null);
@@ -2240,13 +2272,23 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     refresh: refreshChartHistory,
     loading: chartDataLoading,
     error: chartDataError,
-    seededFromCache: chartHistorySeededFromCache,
   } = useLiveCandles(
     chartSymbol,
     chartTimeframe,
     chartDataActive,
     CHART_SCREEN_CANDLE_COMMIT_INTERVAL_MS,
   );
+  const areaVisibleBarTarget = useAreaChartHistoryExpansion({
+    active: chartDataActive,
+    chartType: chartVisualType,
+    symbol: chartSymbol,
+    timeframe: chartTimeframe,
+    cacheScopeKey: chartMarketDataCacheNamespace,
+    candleCount: candles.length,
+    hasHistoryCandles: chartHasHistoryCandles,
+    historyLoading: chartDataLoading,
+    paginate,
+  });
   const chartMarketLifecycleContextKey =
     `${chartMarketDataCacheNamespace}:${chartSymbol}:${chartTimeframe}`;
   const chartMarketLifecycleRef = useRef<{
@@ -3099,19 +3141,123 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     closeChartTapMenu();
   }, [chartSymbol, chartTimeframe, chartVisualType, isChartExpanded, closeChartTapMenu]);
 
-  const handleSetTool = useCallback((tool: string) => {
+  const handleSetTool = useCallback((
+    tool: string,
+    options?: Readonly<{ areaAutoInspector?: boolean }>,
+  ) => {
     closeChartTapMenu();
     const nextDrawingInputActive = !chartLockAll && isChartDrawingInputTool(tool);
+    const areaAutoInspector = options?.areaAutoInspector === true && tool === CHART_CROSSHAIR_TOOL;
+    areaAutoInspectorOwnerPaneIdRef.current = areaAutoInspector
+      ? chartWindows.activePane.id
+      : null;
     chartDrawingToolOwnerPaneIdRef.current = tool === CHART_NO_DRAWING_TOOL
       ? null
-      : chartWindowToolbarTargetPaneIdRef.current;
+      : areaAutoInspector
+        ? chartWindows.activePane.id
+        : chartWindowToolbarTargetPaneIdRef.current;
     setActiveTool(tool);
     setChartDrawingInputActive(nextDrawingInputActive);
     injectChartScript(`setDrawingTool(${JSON.stringify(tool)}, { startDrawing: ${nextDrawingInputActive} });`);
-  }, [chartLockAll, closeChartTapMenu, injectChartScript, setChartDrawingInputActive]);
+  }, [chartLockAll, chartWindows.activePane.id, closeChartTapMenu, injectChartScript, setChartDrawingInputActive]);
+
+  const areaInspectorLifecycleRef = useRef({
+    hydrated: preferencesHydrated,
+    paneId: chartWindows.activePane.id,
+    visualType: chartVisualType,
+  });
+  const pendingAreaAutoInspectorPaneIdRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const previous = areaInspectorLifecycleRef.current;
+    const activePaneId = chartWindows.activePane.id;
+    const paneChanged = previous.paneId !== activePaneId;
+    const hydrationCompleted = !previous.hydrated && preferencesHydrated;
+    const pendingForActivePane = pendingAreaAutoInspectorPaneIdRef.current === activePaneId;
+    if (
+      pendingAreaAutoInspectorPaneIdRef.current !== null
+      && !pendingForActivePane
+    ) {
+      pendingAreaAutoInspectorPaneIdRef.current = null;
+    }
+
+    // During pane promotion, the pane-local snapshot is authoritative for the
+    // render in which useChartWindowVisualPreferences is still committing it
+    // back to the persisted global store.
+    const activePaneVisualType = paneChanged
+      ? chartWindowVisualPreferences[activePaneId]?.chartVisualType ?? chartVisualType
+      : chartVisualType;
+    const visualTypeChanged = previous.visualType !== activePaneVisualType;
+    areaInspectorLifecycleRef.current = {
+      hydrated: preferencesHydrated,
+      paneId: activePaneId,
+      visualType: activePaneVisualType,
+    };
+
+    if (
+      !preferencesHydrated
+      || (!paneChanged && !hydrationCompleted && !visualTypeChanged && !pendingForActivePane)
+    ) {
+      return;
+    }
+
+    if (activePaneVisualType === 'area') {
+      const manualCrosshairAlreadyActive =
+        activeTool === CHART_CROSSHAIR_TOOL
+        && areaAutoInspectorOwnerPaneIdRef.current === null;
+      if (manualCrosshairAlreadyActive) {
+        if (
+          paneChanged
+          && shouldReleaseChartWindowOwnedAction(
+            chartDrawingToolOwnerPaneIdRef.current,
+            activePaneId,
+          )
+        ) {
+          // The later pane-ownership layout effect releases this old pane's
+          // manual tool. Re-arm Area only after that release has committed.
+          pendingAreaAutoInspectorPaneIdRef.current = activePaneId;
+        } else {
+          pendingAreaAutoInspectorPaneIdRef.current = null;
+        }
+        return;
+      }
+      if (
+        activeTool === CHART_CROSSHAIR_TOOL
+        && areaAutoInspectorOwnerPaneIdRef.current === activePaneId
+      ) {
+        pendingAreaAutoInspectorPaneIdRef.current = null;
+        return;
+      }
+      pendingAreaAutoInspectorPaneIdRef.current = null;
+      handleSetTool(CHART_CROSSHAIR_TOOL, { areaAutoInspector: true });
+      return;
+    }
+
+    pendingAreaAutoInspectorPaneIdRef.current = null;
+    const autoInspectorOwnerPaneId = areaAutoInspectorOwnerPaneIdRef.current;
+    const autoInspectorOwnerIsAffected =
+      autoInspectorOwnerPaneId === activePaneId
+      || (paneChanged && autoInspectorOwnerPaneId === previous.paneId);
+    if (!autoInspectorOwnerIsAffected) {
+      return;
+    }
+    if (activeTool === CHART_CROSSHAIR_TOOL) {
+      handleSetTool(CHART_NO_DRAWING_TOOL);
+    } else {
+      areaAutoInspectorOwnerPaneIdRef.current = null;
+    }
+  }, [
+    activeTool,
+    chartVisualType,
+    chartWindowVisualPreferences,
+    chartWindows.activePane.id,
+    handleSetTool,
+    preferencesHydrated,
+  ]);
 
   const handleClearDrawings = useCallback(() => {
     closeChartTapMenu();
+    areaAutoInspectorOwnerPaneIdRef.current = null;
+    pendingAreaAutoInspectorPaneIdRef.current = null;
     chartDrawingToolOwnerPaneIdRef.current = null;
     setActiveTool(CHART_NO_DRAWING_TOOL);
     setChartDrawingInputActive(false);
@@ -3186,6 +3332,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     const next = !chartLockAll;
     setChartLockAll(next);
     if (next) {
+      areaAutoInspectorOwnerPaneIdRef.current = null;
+      pendingAreaAutoInspectorPaneIdRef.current = null;
       chartDrawingToolOwnerPaneIdRef.current = null;
       setActiveTool(CHART_NO_DRAWING_TOOL);
       setChartDrawingInputActive(false);
@@ -5838,6 +5986,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     () => `${chartMarketDataCacheNamespace}:${chartSymbol}:${normalizeTimeframe(chartTimeframe)}`,
     [chartMarketDataCacheNamespace, chartSymbol, chartTimeframe],
   );
+  const chartManualPriceScaleContextSigRef = useRef(chartDataContextSig);
+  if (chartManualPriceScaleContextSigRef.current !== chartDataContextSig) {
+    // A numeric price window belongs to one exact market-data context. Keeping
+    // a 185.xx range while switching to a 1.96xx symbol makes valid candles
+    // render completely off-screen and looks like a missing chart.
+    chartManualPriceScaleContextSigRef.current = chartDataContextSig;
+    chartManualPriceScaleRef.current = null;
+  }
   const chartDataContextEpochRef = useRef({ contextKey: chartDataContextSig, epoch: 0 });
   if (chartDataContextEpochRef.current.contextKey !== chartDataContextSig) {
     chartDataContextEpochRef.current = {
@@ -5849,6 +6005,24 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [activeDateRange, setActiveDateRange] = useState<ChartTimeRange>('auto');
   const [customDateValue, setCustomDateValue] = useState<Date | null>(null);
+  const areaChartDirection = useMemo(
+    () => resolveAreaChartDirectionForRange({
+      range: activeDateRange,
+      points: sanitizedCandles,
+      customDateValue,
+      dailyChangePct: chartDailyDirectionQuote?.changePct ?? chartLiveQuote?.changePct,
+    }),
+    [
+      activeDateRange,
+      chartDailyDirectionQuote?.changePct,
+      chartLiveQuote?.changePct,
+      customDateValue,
+      sanitizedCandles,
+    ],
+  );
+  const areaDirectionRangeKey = activeDateRange === 'custom'
+    ? `custom:${customDateValue?.getTime() ?? 'unset'}`
+    : activeDateRange;
   const [webViewReady, setWebViewReady] = useState(false);
   const [chartWebViewGeneration, setChartWebViewGeneration] = useState(0);
   const pendingChartWebViewRecoveryRef = useRef(false);
@@ -6706,10 +6880,33 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   const handleSelectChartType = useCallback((nextType: ChartVisualType) => {
     runImmediateAction(`chart.chartType.select.${nextType}`, () => {
       closeChartTapMenu();
+      if (nextType === 'area') {
+        // Preserve an explicitly selected crosshair. Only mark the tool as
+        // auto-owned when this picker actually had to arm Area inspection.
+        if (activeTool !== CHART_CROSSHAIR_TOOL) {
+          handleSetTool(CHART_CROSSHAIR_TOOL, { areaAutoInspector: true });
+        }
+      } else if (
+        chartType === 'area'
+        && activeTool === CHART_CROSSHAIR_TOOL
+        && areaAutoInspectorOwnerPaneIdRef.current === chartWindows.activePane.id
+      ) {
+        // The picker may release only the Area inspector it armed for this
+        // pane. A manually selected crosshair remains active on other types.
+        handleSetTool(CHART_NO_DRAWING_TOOL);
+      }
       setChartVisualType(nextType);
       hideActionSheet();
     });
-  }, [closeChartTapMenu, hideActionSheet, setChartVisualType]);
+  }, [
+    activeTool,
+    chartType,
+    chartWindows.activePane.id,
+    closeChartTapMenu,
+    handleSetTool,
+    hideActionSheet,
+    setChartVisualType,
+  ]);
 
   const chartTypePickerActions = useMemo(
     // Area and Renko are first-class persisted chart types and use the same
@@ -7430,7 +7627,9 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
       secondsVisible: false,
       rightOffset: CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET,
       barSpacing: CHART_DEFAULT_TIME_SCALE_BAR_SPACING,
-      minBarSpacing: CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING,
+      minBarSpacing: chartType === 'area'
+        ? CHART_AREA_TIME_SCALE_MIN_BAR_SPACING
+        : CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING,
       shiftVisibleRangeOnNewBar: true,
       fixLeftEdge: CHART_TIME_SCALE_FIX_LEFT_EDGE,
       fixRightEdge: CHART_TIME_SCALE_FIX_RIGHT_EDGE,
@@ -7482,6 +7681,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     customCrosshair: {
       symbol: chartSymbol,
       timeframe: chartTimeframe,
+      areaSeriesInspector: chartType === 'area',
       lineColor: isDark ? 'rgba(148, 163, 184, 0.64)' : 'rgba(71, 85, 105, 0.58)',
       labelBackground: isDark ? 'rgba(15, 23, 42, 0.96)' : 'rgba(15, 23, 42, 0.94)',
       labelText: '#FFFFFF',
@@ -7497,9 +7697,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
         thresholdPx: CHART_DRAWING_MAGNET_THRESHOLD_PX,
       },
     },
+    areaViewport: {
+      visibleBars: areaVisibleBarTarget,
+    },
     periodSeparators: periodSeparatorOptions,
   }), [
     chartAxisBorderColor,
+    areaVisibleBarTarget,
     chartDisplay.showGrid,
     chartGridColor,
     chartSymbol,
@@ -7512,6 +7716,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     resolvedChartColors,
     showChartVolumePane,
   ]);
+  const chartCustomCrosshairConfig = chartOptions.customCrosshair;
 
   const applyImmediateChartVisualTheme = useCallback((mode: ThemeMode) => {
     const nextIsDark = mode === 'dark';
@@ -7574,6 +7779,30 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   // always re-fires after a chart (re-)initialization, even when the
   // overlay payload itself hasn't changed.
   const [chartReadyEpoch, setChartReadyEpoch] = useState(0);
+  useEffect(() => {
+    if (!webViewReady || !chartCanvasReady || !webViewRef.current) {
+      return;
+    }
+
+    // Symbol/timeframe switches intentionally retain the WebView and do not
+    // participate in currentSig. Push the complete inspector contract through
+    // its own bridge so Area date formatting and pane/type ownership can never
+    // retain the previous context while the chart data has already switched.
+    injectChartScript(`
+      if (
+        window._drawingManager
+        && typeof window._drawingManager.setCrosshairConfig === 'function'
+      ) {
+        window._drawingManager.setCrosshairConfig(${JSON.stringify(chartCustomCrosshairConfig)});
+      }
+    `);
+  }, [
+    chartCanvasReady,
+    chartCustomCrosshairConfig,
+    chartReadyEpoch,
+    injectChartScript,
+    webViewReady,
+  ]);
   // Keep the latest overlay payload in a ref so the onMessage handler
   // can push it immediately on CHART_READY without waiting for the
   // React effect cycle — this eliminates the "flash of missing lines"
@@ -7702,13 +7931,14 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     (shouldShowImmediateHistoryLoading || loadingDelayPassed) &&
     !loadingFallback;
   // Keep the loader until this exact symbol and timeframe has drawn candles.
-  // A context restored from the session cache already owns committed history,
-  // so its repaint must not be covered by the first-load spinner.
+  // Cached history still needs a matching WebView paint acknowledgement; the
+  // chart itself remains transparent until then, so removing this cover would
+  // expose a blank surface when a cached symbol repaint is delayed or retried.
   const shouldShowChartLoadingOverlay =
     !hasUsableRetainedChart &&
     (!loadingFallback || candlesAvailable) &&
     !hasChartDataError &&
-    (!chartSurfaceReady || isLoading || (candlesAvailable && !chartHistorySeededFromCache));
+    (!chartSurfaceReady || isLoading || candlesAvailable);
   const isError = hasChartDataError;
   const isNoMarketData = !candlesAvailable && !isLoading && !isError && loadingFallback;
 
@@ -7766,11 +7996,35 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
   }, [activeDateRange, applyNativeTimeRange, chartCanvasReady, chartReadyEpoch, chartTimeframe, customDateValue, hasCandles, webViewReady]);
 
   useEffect(() => {
+    if (!webViewReady || chartType !== 'area') {
+      return;
+    }
+    injectChartScript(`
+      if (typeof window.__rtx5SetAreaDirectionOverride === 'function') {
+        window.__rtx5SetAreaDirectionOverride(
+          ${JSON.stringify(chartDataContextSig)},
+          ${JSON.stringify(areaDirectionRangeKey)},
+          ${JSON.stringify(areaChartDirection)}
+        );
+      }
+    `);
+  }, [
+    areaChartDirection,
+    areaDirectionRangeKey,
+    chartDataContextSig,
+    chartType,
+    injectChartScript,
+    webViewReady,
+  ]);
+
+  useEffect(() => {
     if (!pendingChartDrawingTool || !chartCanvasReady || !webViewReady) {
       return;
     }
 
     const nextDrawingInputActive = isChartDrawingInputTool(pendingChartDrawingTool);
+    areaAutoInspectorOwnerPaneIdRef.current = null;
+    pendingAreaAutoInspectorPaneIdRef.current = null;
     chartDrawingToolOwnerPaneIdRef.current = chartWindows.toolbarTargetPaneId;
     setActiveTool(pendingChartDrawingTool);
     setChartDrawingInputActive(nextDrawingInputActive);
@@ -8841,6 +9095,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
           // cannot flash under the loader.
           webViewRef.current.injectJavaScript(`
             updateChartData([], {
+              resetVisibleRange: true,
               dataContextSig: ${JSON.stringify(chartDataContextSig)},
               paintToken: ${JSON.stringify(emptyPaintToken)}
             });

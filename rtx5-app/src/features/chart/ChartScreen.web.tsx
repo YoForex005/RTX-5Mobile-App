@@ -67,6 +67,7 @@ import {
   BarSeries,
   LineSeries,
   LineStyle,
+  LineType,
   HistogramSeries,
 } from 'lightweight-charts';
 import { usePositionsState } from '../../state/positionsState';
@@ -106,6 +107,10 @@ import {
 import { buildChartOverlayPayload } from './chartOverlays';
 import { resolveChartDisplayDecimals } from './chartPricePrecision';
 import {
+  resolveAreaChartColor,
+  resolveAreaChartDirectionForRange,
+} from './areaChartDirection';
+import {
   filterCandlesForChartTimeRange,
   getChartTimeRangeLabel,
   resolveChartVisibleRange,
@@ -133,6 +138,8 @@ import {
   resolveChartSymbolKey,
 } from './chartSymbolMetadata';
 import {
+  CHART_AREA_TIME_SCALE_MIN_BAR_SPACING,
+  CHART_AREA_LINE_WIDTH,
   CHART_BEARISH_CANDLE_RENDER_OPACITY,
   CHART_CANDLE_RENDER_OPACITY,
   CHART_SYMBOL_PICKER_PREFETCH_DELAY_MS,
@@ -143,11 +150,59 @@ import {
   CHART_TIME_SCALE_FIX_LEFT_EDGE,
   CHART_TIME_SCALE_FIX_RIGHT_EDGE,
 } from './ChartScreen.constants';
+import { useAreaChartHistoryExpansion } from './useAreaChartHistoryExpansion';
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 const CHART_OHLC_NEUTRAL_DARK_COLOR = '#FFFFFF';
 const CHART_OHLC_NEUTRAL_LIGHT_COLOR = '#0F172A';
 const CHART_OHLC_HIGH_COLOR = '#089981';
 const CHART_OHLC_LOW_COLOR = '#F23645';
+
+const applyWebAreaRecentViewport = (
+  chart: IChartApi,
+  dataLength: number,
+  visibleBarTarget: number,
+): void => {
+  if (!(dataLength > 0)) return;
+  const visibleBars = Math.min(dataLength, Math.max(1, Math.round(visibleBarTarget)));
+  const rightEdge = Math.max(0.5, dataLength - 0.5);
+  chart.timeScale().applyOptions({
+    minBarSpacing: CHART_AREA_TIME_SCALE_MIN_BAR_SPACING,
+  });
+  chart.timeScale().setVisibleLogicalRange({
+    from: Math.max(-0.5, rightEdge - visibleBars),
+    to: rightEdge,
+  });
+};
+
+const shouldExpandUntouchedWebAreaViewport = (input: Readonly<{
+  previousLength: number;
+  nextLength: number;
+  previousFirstTime: number | null;
+  nextFirstTime: number | null;
+  previousRange: { from: number; to: number } | null;
+  visibleBarTarget: number;
+}>): boolean => {
+  if (
+    !input.previousRange
+    || input.previousLength <= 0
+    || input.nextLength <= input.previousLength
+    || input.previousFirstTime === null
+    || input.nextFirstTime === null
+    || input.nextFirstTime >= input.previousFirstTime
+  ) {
+    return false;
+  }
+
+  const priorRightEdge = Math.max(0.5, input.previousLength - 0.5);
+  if (input.previousRange.to < priorRightEdge - 1.25) {
+    return false;
+  }
+  const priorDefaultBars = Math.min(input.previousLength, input.visibleBarTarget);
+  const nextDefaultBars = Math.min(input.nextLength, input.visibleBarTarget);
+  const span = input.previousRange.to - input.previousRange.from;
+  const tolerance = Math.max(2, priorDefaultBars * 0.03);
+  return nextDefaultBars > priorDefaultBars && Math.abs(span - priorDefaultBars) <= tolerance;
+};
 
 const buildAvailableChartSymbols = (chartSymbol: string, apiSymbols: readonly string[]): string[] => {
   const ordered: string[] = [];
@@ -823,9 +878,22 @@ export function ChartScreen() {
   const chartDataActive = isScreenFocused;
   const {
     candles,
+    hasHistoryCandles: chartHasHistoryCandles,
     loading: chartDataLoading,
     error: chartDataError,
+    paginate,
   } = useLiveCandles(chartSymbol, chartTimeframe, chartDataActive);
+  const areaVisibleBarTarget = useAreaChartHistoryExpansion({
+    active: chartDataActive,
+    chartType,
+    symbol: chartSymbol,
+    timeframe: chartTimeframe,
+    cacheScopeKey: activeBrokerQuerySession?.cacheNamespace ?? ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE,
+    candleCount: candles.length,
+    hasHistoryCandles: chartHasHistoryCandles,
+    historyLoading: chartDataLoading,
+    paginate,
+  });
   const sanitizedCandles = useMemo(
     () => sanitizeCandlesForChart(candles, { timeframe: chartTimeframe }),
     [candles, chartTimeframe],
@@ -915,6 +983,21 @@ export function ChartScreen() {
       ),
     [activeDateRange, customDateValue, sanitizedCandles],
   );
+  const areaChartDirection = useMemo(
+    () => resolveAreaChartDirectionForRange({
+      range: activeDateRange,
+      points: sanitizedCandles,
+      customDateValue,
+      dailyChangePct: chartLiveQuote?.changePct,
+    }),
+    [activeDateRange, chartLiveQuote?.changePct, customDateValue, sanitizedCandles],
+  );
+  const areaChartColor = useMemo(
+    () => resolveAreaChartColor(areaChartDirection, resolvedChartColors),
+    [areaChartDirection, resolvedChartColors],
+  );
+  const areaChartColorRef = useRef(areaChartColor);
+  areaChartColorRef.current = areaChartColor;
   useEffect(() => {
     timeRangeCandlesRef.current = sanitizedCandles;
   }, [sanitizedCandles]);
@@ -1143,12 +1226,20 @@ export function ChartScreen() {
     if (!chartRef.current) return;
     const chart = chartRef.current;
 
+    chart.timeScale().applyOptions({
+      minBarSpacing: chartType === 'area'
+        ? CHART_AREA_TIME_SCALE_MIN_BAR_SPACING
+        : CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING,
+    });
+
     const UP_COLOR = resolvedChartColors.candlesUptrend;
     const DOWN_COLOR = resolvedChartColors.candlesDowntrend;
     const HOLLOW_BODY = resolvedChartColors.hollowBody;
     const BAR_UP_COLOR = resolvedChartColors.barsUptrend;
     const BAR_DOWN_COLOR = resolvedChartColors.barsDowntrend;
-    const LINE_COLOR = resolvedChartColors.lineBody || BLUE;
+    const LINE_COLOR = chartType === 'area'
+      ? areaChartColorRef.current
+      : resolvedChartColors.lineBody || BLUE;
 
     const priceFormatInfo = {
       type: 'price' as const,
@@ -1205,7 +1296,8 @@ export function ChartScreen() {
         lineColor: LINE_COLOR,
         topColor: withAlpha(LINE_COLOR, 0.32),
         bottomColor: withAlpha(LINE_COLOR, 0.04),
-        lineWidth: 2,
+        lineWidth: CHART_AREA_LINE_WIDTH,
+        lineType: LineType.Simple,
         crosshairMarkerVisible: false,
         lastValueVisible: false,
         priceLineVisible: true,
@@ -1262,6 +1354,24 @@ export function ChartScreen() {
     setOverlayRevision((prev) => prev + 1);
 
   }, [chartType, isDark, BLUE, RED, displayDecimals, resolvedChartColors]);
+
+  useEffect(() => {
+    if (chartType !== 'area' || !seriesRef.current) {
+      return;
+    }
+
+    // Live candles only change the period terminal. Recolor the retained Area
+    // series in place so crossing the fixed baseline never resets its viewport.
+    try {
+      seriesRef.current.applyOptions({
+        lineColor: areaChartColor,
+        topColor: withAlpha(areaChartColor, 0.32),
+        bottomColor: withAlpha(areaChartColor, 0.04),
+      });
+    } catch (_error) {
+      // The chart may have been disposed during a route or chart-type change.
+    }
+  }, [areaChartColor, chartType]);
 
   const dataSignatureRef = useRef('');
 
@@ -1400,6 +1510,10 @@ export function ChartScreen() {
     const renkoMappedData = chartType === 'renko'
       ? mapWebChartData(safeCandles, chartType, resolvedChartColors, renkoBrickSize)
       : null;
+    const previousSnapshot = renderedSeriesSnapshotRef.current;
+    const previousVisibleLogicalRange = chartRef.current
+      ?.timeScale()
+      .getVisibleLogicalRange() ?? null;
     const nextSnapshot = buildChartSeriesSnapshot(
       (renkoMappedData ?? safeCandles) as typeof safeCandles,
     );
@@ -1449,6 +1563,30 @@ export function ChartScreen() {
         }
       }
 
+      if (
+        chartType === 'area'
+        && safeCandles.length > 0
+        && chartRef.current
+        && (
+          contextChanged
+          || previousSnapshot.length === 0
+          || shouldExpandUntouchedWebAreaViewport({
+            previousLength: previousSnapshot.length,
+            nextLength: nextSnapshot.length,
+            previousFirstTime: previousSnapshot.firstTime,
+            nextFirstTime: nextSnapshot.firstTime,
+            previousRange: previousVisibleLogicalRange,
+            visibleBarTarget: areaVisibleBarTarget,
+          })
+        )
+      ) {
+        applyWebAreaRecentViewport(
+          chartRef.current,
+          safeCandles.length,
+          areaVisibleBarTarget,
+        );
+      }
+
       dataSignatureRef.current = sig;
       renderedSeriesSnapshotRef.current = nextSnapshot;
       lastCandleLengthRef.current = safeCandles.length;
@@ -1463,6 +1601,7 @@ export function ChartScreen() {
     chartTimeframe,
     chartType,
     chartColorsSignature,
+    areaVisibleBarTarget,
     resolvedChartColors,
     resolveCachedRenkoBrickSize,
   ]);

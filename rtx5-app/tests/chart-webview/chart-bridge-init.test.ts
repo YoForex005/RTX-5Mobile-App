@@ -36,6 +36,55 @@ test('initChart defers zero-size WebView initialization and retries after layout
   assertSourceContains(source, /new ResizeObserver\(function\(entries\)[\s\S]*if \(_pendingInit\)[\s\S]*_doInitChart\(/, 'ResizeObserver must replay pending init');
 });
 
+test('chart rebuild keeps the latest init and replays a replacement that arrived before series creation', () => {
+  const initBody = extractFunctionBody(source, 'initChart');
+  const doInitBody = extractFunctionBody(source, '_doInitChart');
+  const updateBody = extractFunctionBody(source, 'updateChartData');
+  const replayBody = extractFunctionBody(source, 'replayPendingChartDataReplacement');
+
+  assertSourceContains(
+    initBody,
+    /chartInitRequestGeneration \+= 1;[\s\S]*requestInitGeneration = chartInitRequestGeneration[\s\S]*requestInitGeneration !== chartInitRequestGeneration[\s\S]*return;[\s\S]*_doInitChart\([\s\S]*requestInitGeneration/,
+    'a delayed animation frame from an older symbol must not rebuild over the latest init request',
+  );
+  assertSourceContains(
+    doInitBody,
+    /resolvedInitRequestGeneration !== chartInitRequestGeneration[\s\S]*return false;[\s\S]*initRequestGeneration: resolvedInitRequestGeneration[\s\S]*replayPendingChartDataReplacement\(resolvedDataContextSig\)/,
+    'zero-size retries must retain their init generation and replay data only after the current series exists',
+  );
+  assertSourceContains(
+    updateBody,
+    /!series \|\| _pendingInit[\s\S]*queuePendingChartDataReplacement\(data, options\)/,
+    'history arriving during a chart rebuild must be queued instead of dropped with series not initialized',
+  );
+  assertSourceContains(
+    replayBody,
+    /pending\.dataContextSig !== expectedContextSig[\s\S]*pendingChartDataReplacement = null;[\s\S]*updateChartData\(pending\.data, pending\.options\)/,
+    'pending replacement replay must reject stale symbol data and apply the latest matching payload',
+  );
+});
+
+test('new-context detection compares against the last chart that actually rendered', () => {
+  const doInitBody = extractFunctionBody(source, '_doInitChart');
+  const updateBody = extractFunctionBody(source, 'updateChartData');
+
+  assertSourceContains(
+    source,
+    /var appliedChartDataContextSig = '';/,
+    'the WebView must track an applied context independently from the latest init request',
+  );
+  assertSourceContains(
+    doInitBody,
+    /var isNewDataContext =[\s\S]*appliedChartDataContextSig !== resolvedDataContextSig[\s\S]*var retainedManualPriceScaleRange = !isNewDataContext[\s\S]*appliedChartDataContextSig = resolvedDataContextSig/,
+    'a symbol rebuild must reject the previous rendered context price window before advancing the applied identity',
+  );
+  assertSourceContains(
+    updateBody,
+    /series\.setData\(mapped\)[\s\S]*lastInitDataContextSig = paintedDataContextSig;[\s\S]*appliedChartDataContextSig = paintedDataContextSig;/,
+    'a context switched through setData must become the applied identity for a later same-context rebuild',
+  );
+});
+
 test('CHART_READY marks canvas ready and bumps chartReadyEpoch for bridge effects', () => {
   assertSourceContains(
     source,

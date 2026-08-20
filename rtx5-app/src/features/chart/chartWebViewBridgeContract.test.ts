@@ -27,6 +27,8 @@ const chartPriceScaleTypographySource = readProjectSource(
 );
 const chartWebSource = readProjectSource('src/features/chart/ChartScreen.web.tsx');
 const chartConstantsSource = readProjectSource('src/features/chart/ChartScreen.constants.ts');
+const areaChartHistoryPolicySource = readProjectSource('src/features/chart/areaChartHistoryPolicy.ts');
+const areaChartHistoryExpansionSource = readProjectSource('src/features/chart/useAreaChartHistoryExpansion.ts');
 const customCandleOpacitySource = readProjectSource('src/domain/candles/rendering/customCandleOpacity.ts');
 const customCandlestickSeriesSource = readProjectSource('src/domain/candles/rendering/customCandlestickSeries.ts');
 const customCandlestickSeriesWebViewSource = readProjectSource('src/domain/candles/rendering/customCandlestickSeriesWebView.ts');
@@ -515,8 +517,8 @@ test('webview bridge: updateChartData preserves manual price scale while fresh a
   );
   assertSourceContains(
     doInitBody,
-    /var retainedManualPriceScaleRange = isManualVerticalPanRangeLocked\(\)[\s\S]*var retainedManualPriceScaleReferenceSpan =[\s\S]*clearManualPriceScaleState\(\)[\s\S]*chart = LightweightCharts\.createChart/,
-    'chart rebuild must snapshot a user-owned numeric range before clearing transient chart-instance state',
+    /var retainedManualPriceScaleRange = !isNewDataContext && isManualVerticalPanRangeLocked\(\)[\s\S]*var retainedManualPriceScaleReferenceSpan =[\s\S]*!isNewDataContext &&[\s\S]*clearManualPriceScaleState\(\)[\s\S]*chart = LightweightCharts\.createChart/,
+    'chart rebuild must snapshot a same-context user-owned range but reject a numeric window from another market context',
   );
   assertSourceContains(
     doInitBody,
@@ -527,8 +529,8 @@ test('webview bridge: updateChartData preserves manual price scale while fresh a
   assertSourceContains(chartWebViewHtmlSource, /function updateChartData\(data, options\)/, 'full reload must accept bridge options for stable symbol/timeframe switches');
   assertSourceContains(body, /var resetVisibleRange = updateOptions\.resetVisibleRange === true/, 'context switches must be able to request a fresh first viewport');
   assertSourceContains(chartWebViewHtmlSource, /function resetVisiblePriceScaleForStableReplacement\(reason\)[\s\S]*clearFreshSeriesVerticalCenterState\(\)[\s\S]*enableRightPriceAutoScale\(\)/, 'stable replacement reset must avoid delayed fresh-series recenter work');
-  assertSourceContains(body, /var manualRangeBeforeUpdate = isManualVerticalPanRangeLocked\(\)[\s\S]*var shouldPreserveManualPriceScale = isValidPriceRange\(manualRangeBeforeUpdate\)/, 'full reload must capture manual price-scale ownership before setData');
-  assertSourceContains(body, /!shouldPreserveManualPriceScale &&[\s\S]*previousRawSeriesData\.length === 0 \|\| didReplaceVisibleSeries[\s\S]*if \(restoredStableReplacementViewport\) \{[\s\S]*resetVisiblePriceScaleForStableReplacement\(priceScaleReason\)[\s\S]*\} else \{[\s\S]*resetVisiblePriceScaleForFreshSeries\(priceScaleReason\)/, 'stable and fresh auto resets must run only when no user-owned vertical window exists');
+  assertSourceContains(body, /var manualRangeBeforeUpdate = isManualVerticalPanRangeLocked\(\)[\s\S]*!resetVisibleRange && isValidPriceRange\(manualRangeBeforeUpdate\)/, 'same-context full reloads must capture manual price-scale ownership before setData');
+  assertSourceContains(body, /if \(resetVisibleRange\) \{[\s\S]*clearManualPriceScaleState\(\);[\s\S]*!shouldPreserveManualPriceScale &&[\s\S]*previousRawSeriesData\.length === 0 \|\| didReplaceVisibleSeries[\s\S]*if \(restoredStableReplacementViewport\) \{[\s\S]*resetVisiblePriceScaleForStableReplacement\(priceScaleReason\)[\s\S]*\} else \{[\s\S]*resetVisiblePriceScaleForFreshSeries\(priceScaleReason\)/, 'explicit context resets must discard an unrelated manual window before stable or fresh autoscale recovery');
   assertSourceContains(body, /preserveVisibleLogicalSpan[\s\S]*didReplaceVisibleSeries[\s\S]*followLiveRightEdge\(previousVisibleLogicalRange, mapped\.length\)/, 'stable replacement reloads can still keep the same visible logical span when explicitly requested');
   assertSourceContains(body, /if \(restoredStableReplacementViewport && !shouldPreserveManualPriceScale\) \{[\s\S]*healCollapsedPriceScaleRange\(priceScaleReason, true\)/, 'stable replacement may heal synchronously only while auto-scale owns the vertical range');
   assertSourceContains(body, /if \(!restoredStableReplacementViewport && !shouldPreserveManualPriceScale\) \{[\s\S]*schedulePriceScaleHealthCheck\(/, 'manual ownership must suppress delayed price-scale health passes');
@@ -654,13 +656,18 @@ test('webview bridge: live price commands and queued ticks reject stale chart co
   );
   assertSourceContains(
     initBody,
-    /var isNewDataContext =[\s\S]*lastInitDataContextSig !== resolvedDataContextSig[\s\S]*if \(isNewDataContext\) \{[\s\S]*lastLivePrice = null;[\s\S]*lastBidPrice = null;[\s\S]*lastAskPrice = null;/,
+    /var isNewDataContext =[\s\S]*appliedChartDataContextSig !== resolvedDataContextSig[\s\S]*if \(isNewDataContext\) \{[\s\S]*lastLivePrice = null;[\s\S]*lastBidPrice = null;[\s\S]*lastAskPrice = null;[\s\S]*appliedChartDataContextSig = resolvedDataContextSig;/,
     'chart initialization must clear the previous context marker before the new projected candle is ready',
   );
   assertSourceContains(
     updateDataBody,
     /paintToken\.lastIndexOf\(':'\)[\s\S]*paintRevision < lastAppliedChartDataPaintRevision[\s\S]*return false[\s\S]*paintedDataContextSig !== lastInitDataContextSig &&[\s\S]*paintRevision === null[\s\S]*return false[\s\S]*series\.setData\(mapped\)[\s\S]*lastAppliedChartDataPaintRevision = paintRevision/,
     'an old or unversioned cross-context history replacement must not roll the WebView back',
+  );
+  assertSourceContains(
+    updateDataBody,
+    /series\.setData\(mapped\)[\s\S]*if \(paintedDataContextSig\) \{[\s\S]*lastInitDataContextSig = paintedDataContextSig;[\s\S]*appliedChartDataContextSig = paintedDataContextSig;/,
+    'a retained-surface symbol paint must become the applied context before any later same-context rebuild',
   );
   assertSourceContains(
     chartWebViewHtmlSource,
@@ -1209,15 +1216,17 @@ test('webview bridge: setLivePriceLine hides native market badges and paints one
   const refreshLivePriceLineColorBody = extractFunctionBody(chartWebViewHtmlSource, 'refreshBidPriceLineColor');
 
   assertSourceContains(body, /var normalizedPrice = normalizeMarketPriceLinePrice\(price\)/, 'live price line updates must normalize the Bid price before repainting');
-  assertSourceContains(body, /var liveColor = pickLivePriceColor\(\)[\s\S]*marketLiveColor = liveColor/, 'live price line must use the current candle direction color');
+  assertSourceContains(body, /var liveColor = pickLivePriceColor\(\)[\s\S]*marketLiveColor = liveColor/, 'live price line must use the chart-type direction color');
   assertSourceContains(body, /lastLivePrice = normalizedPrice[\s\S]*lastBidPrice = normalizedPrice[\s\S]*lastAskPrice = null/, 'live price state must cache Bid only and clear legacy Ask state');
   assertSourceContains(body, /askPriceLine = removeMarketPriceLine\(askPriceLine\)/, 'live price updates must remove any stale legacy Ask line');
-  assertSourceContains(body, /bidPriceLine\.applyOptions\(makeMarketPriceLineOptions\(normalizedPrice, liveColor\)\)/, 'existing live guide line must repaint with the current candle direction color');
-  assertSourceContains(body, /createMarketPriceLine\(normalizedPrice, liveColor\)/, 'new live guide line must render with the current candle direction color');
+  assertSourceContains(body, /bidPriceLine\.applyOptions\(makeMarketPriceLineOptions\(normalizedPrice, liveColor\)\)/, 'existing live guide line must repaint with the current chart-type direction color');
+  assertSourceContains(body, /createMarketPriceLine\(normalizedPrice, liveColor\)/, 'new live guide line must render with the current chart-type direction color');
   assertSourceContains(body, /ensureMarketPriceBadgesVisible\(\)/, 'live price line updates must keep the guide line inside the visible price scale');
-  assertSourceContains(pickLivePriceColorBody, /return barUpColor[\s\S]*_liveBar\.close >= _liveBar\.open \? barUpColor : barDownColor/, 'live price color must follow the active candle bull/bear colors');
+  assertSourceContains(pickLivePriceColorBody, /seriesType === 'area'[\s\S]*lastAreaDirection[\s\S]*resolveAreaSeriesDirection\(lastRawSeriesData\)[\s\S]*return pickAreaSeriesColor\(areaDirection\)/, 'Area live price visuals must follow the selected performance direction');
+  assertSourceContains(pickLivePriceColorBody, /return barUpColor[\s\S]*_liveBar\.close >= _liveBar\.open \? barUpColor : barDownColor/, 'non-Area live price color must continue to follow the active candle bull/bear colors');
   assertSourceContains(chartWebViewHtmlSource, /barUpColor = colors\.up[\s\S]*barDownColor = colors\.down/, 'live price colors must come from resolved candle up/down colors, including custom schema colors');
   assertSourceContains(refreshLivePriceLineColorBody, /var liveColor = pickLivePriceColor\(\)[\s\S]*marketLiveColor = liveColor[\s\S]*color: liveColor[\s\S]*axisLabelColor: liveColor/, 'tick repaint must retint the live line and right-axis badge color when the candle direction changes');
+  assertSourceContains(chartWebViewHtmlSource, /lastAreaDirection = direction;[\s\S]*refreshBidPriceLineColor\(\);[\s\S]*scheduleMarketPriceScaleDomOnly\(\)/, 'an Area direction flip must retint both the live guide and custom price badge without waiting for another tick');
   assertSourceContains(legacyMarketLinesBody, /setLivePriceLine\(bid\)/, 'legacy two-price bridge must use Bid only');
   assert.doesNotMatch(legacyMarketLinesBody, /normalizedAsk|setAskPriceLine/, 'legacy bridge must not fall back to Ask');
   assertSourceContains(marketPriceNormalizerBody, /return price/, 'live price line coordinates must retain the exact backend Bid');
@@ -1915,7 +1924,47 @@ test('web chart: precision overlays and crosshair stay parity-safe', () => {
   assertSourceContains(chartWebSource, /crosshairMarkerVisible: false/, 'web line chart crosshair marker must stay hidden');
 });
 
-test('area chart uses close-value data and the themed gradient series on native and web', () => {
+test('area chart uses close-value data with period direction colors on native and web', () => {
+  assertSourceContains(
+    chartConstantsSource,
+    /CHART_AREA_VISIBLE_BAR_MAX = 500[\s\S]*CHART_AREA_VISIBLE_BAR_TARGET_PX = 0\.65[\s\S]*CHART_AREA_VISIBLE_BAR_MIN = 120[\s\S]*CHART_AREA_TIME_SCALE_MIN_BAR_SPACING = 0\.5[\s\S]*CHART_AREA_LINE_WIDTH = 1/,
+    'Area must use a denser real-close viewport and a restrained shared outline width',
+  );
+  assertSourceContains(
+    areaChartHistoryPolicySource,
+    /M1: PAGINATED_HISTORY_LIMIT,[\s\S]*M5: 420,[\s\S]*M15: 360,[\s\S]*M30: 320,[\s\S]*H1: 280,[\s\S]*H4: 240,[\s\S]*D1: 220,[\s\S]*W1: 180,[\s\S]*MN: 144/,
+    'Area must request a bounded real-candle overview at the selected timeframe instead of adding date-range controls',
+  );
+  assertSourceContains(
+    areaChartHistoryExpansionSource,
+    /input\.chartType !== 'area'[\s\S]*input\.historyLoading[\s\S]*!input\.hasHistoryCandles[\s\S]*input\.candleCount >= visibleBarTarget[\s\S]*MAX_AREA_HISTORY_EXPANSION_ATTEMPTS[\s\S]*input\.candleCount <= nextAttempt\.candleCount[\s\S]*expansionAttemptRef\.current = \{[\s\S]*input\.paginate\(\)/,
+    'Area history expansion must wait for first paint and remain bounded while allowing one retained-cache reveal',
+  );
+  assertSourceContains(
+    source,
+    /areaVisibleBarTarget = useAreaChartHistoryExpansion\(\{[\s\S]*chartType: chartVisualType,[\s\S]*cacheScopeKey: chartMarketDataCacheNamespace,[\s\S]*hasHistoryCandles: chartHasHistoryCandles,[\s\S]*historyLoading: chartDataLoading,[\s\S]*paginate/,
+    'the active native Area chart must use the shared authenticated/public pagination path',
+  );
+  const recentVisibleBarsBody = extractFunctionBody(chartWebViewHtmlSource, 'getRecentVisibleBars');
+  assertSourceContains(
+    recentVisibleBarsBody,
+    /seriesType === 'area'[\s\S]*CHART_AREA_VISIBLE_BAR_MAX[\s\S]*CHART_AREA_VISIBLE_BAR_TARGET_PX[\s\S]*CHART_AREA_VISIBLE_BAR_MIN/,
+    'native Area must choose its denser viewport without changing other series defaults',
+  );
+  const areaPrependExpansionBody = extractFunctionBody(
+    chartWebViewHtmlSource,
+    'shouldExpandAreaRecentViewportAfterPrepend',
+  );
+  assertSourceContains(
+    areaPrependExpansionBody,
+    /seriesType !== 'area'[\s\S]*shouldFollowLiveRightEdge\(previousRange, previousData\.length\)[\s\S]*nextDefaultVisibleBars > previousDefaultVisibleBars[\s\S]*Math\.abs\(previousVisibleSpan - previousDefaultVisibleBars\) <= spanTolerance/,
+    'only an untouched live-edge Area viewport may expand when genuine history prepends',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /expandedAreaRecentViewport[\s\S]*applyRecentViewport\(mapped\.length\)[\s\S]*!expandedAreaRecentViewport[\s\S]*restorePrependedHistoryViewport/,
+    'a panned or zoomed Area viewport must retain the ordinary prepend restoration path',
+  );
   assertSourceContains(
     source,
     /const buildChartTickPayload = \([\s\S]*chartType === 'line' \|\| chartType === 'area'[\s\S]*value: candle\.close/,
@@ -1923,8 +1972,41 @@ test('area chart uses close-value data and the themed gradient series on native 
   );
   assertSourceContains(
     chartWebViewHtmlSource,
-    /seriesType === 'area'[\s\S]*LightweightCharts\.AreaSeries[\s\S]*lineColor: areaLineColor,[\s\S]*topColor: hexToRgba\(areaLineColor, 0\.32\),[\s\S]*bottomColor: hexToRgba\(areaLineColor, 0\.04\)/,
-    'native WebView Area must use the selected line color with a translucent gradient',
+    /seriesType === 'area'[\s\S]*initialAreaDirection = resolveAreaSeriesDirection\(lastRawSeriesData\)[\s\S]*areaLineColor = pickAreaSeriesColor\(initialAreaDirection\)[\s\S]*LightweightCharts\.AreaSeries[\s\S]*lineColor: areaLineColor,[\s\S]*topColor: hexToRgba\(areaLineColor, 0\.32\),[\s\S]*bottomColor: hexToRgba\(areaLineColor, 0\.04\),[\s\S]*lineWidth: \$\{CHART_AREA_LINE_WIDTH\},[\s\S]*lineType: LightweightCharts\.LineType\.Simple/,
+    'native WebView Area must derive its initial translucent gradient from selected-period direction',
+  );
+  const areaDirectionBody = extractFunctionBody(chartWebViewHtmlSource, 'resolveAreaSeriesDirection');
+  assertSourceContains(
+    areaDirectionBody,
+    /areaDirectionOverride === 'up' \|\| areaDirectionOverride === 'down'[\s\S]*getRecentVisibleBars\(data\.length\)[\s\S]*terminal >= baseline \? 'up' : 'down'/,
+    'native Area must retain the selected-range override and limit an Auto candle fallback to the recent viewport',
+  );
+  const areaOverrideBody = extractFunctionBody(chartWebViewHtmlSource, 'setAreaDirectionOverride');
+  assertSourceContains(
+    areaOverrideBody,
+    /areaDirectionOverrideDataContextSig = nextContextSig;[\s\S]*areaDirectionOverrideRangeKey = nextRangeKey;[\s\S]*areaDirectionOverride = nextDirection;[\s\S]*refreshAreaSeriesDirection\(true\)/,
+    'native Area range/sign changes must update the retained WebView series through an explicit override',
+  );
+  assert.doesNotMatch(
+    areaOverrideBody,
+    /\b(?:initChart|setData)\s*\(/,
+    'changing the Area direction override must not rebuild data or reset the viewport',
+  );
+  const areaRefreshBody = extractFunctionBody(chartWebViewHtmlSource, 'refreshAreaSeriesDirection');
+  assertSourceContains(
+    areaRefreshBody,
+    /series\.applyOptions\(\{[\s\S]*lineColor: color,[\s\S]*topColor: hexToRgba\(color, 0\.32\),[\s\S]*bottomColor: hexToRgba\(color, 0\.04\)/,
+    'live Area sign changes must recolor the retained series in place',
+  );
+  assert.doesNotMatch(
+    areaRefreshBody,
+    /\b(?:initChart|setData)\s*\(/,
+    'Area recoloring must not rebuild data or reset the viewport',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /series\.update\(bar\);[\s\S]*refreshAreaSeriesDirection\(false\)/,
+    'every accepted live Area terminal must re-evaluate the fixed period direction',
   );
   assertSourceContains(
     chartWebViewHtmlSource,
@@ -1933,8 +2015,38 @@ test('area chart uses close-value data and the themed gradient series on native 
   );
   assertSourceContains(
     chartWebSource,
-    /chartType === 'area'[\s\S]*chart\.addSeries\(AreaSeries, \{[\s\S]*lineColor: LINE_COLOR,[\s\S]*topColor: withAlpha\(LINE_COLOR, 0\.32\),[\s\S]*bottomColor: withAlpha\(LINE_COLOR, 0\.04\)/,
-    'web Area must use the same selected line color and gradient',
+    /resolveAreaChartDirectionForRange\(\{[\s\S]*range: activeDateRange,[\s\S]*dailyChangePct: chartLiveQuote\?\.changePct[\s\S]*chartType === 'area'[\s\S]*areaChartColorRef\.current[\s\S]*chart\.addSeries\(AreaSeries, \{[\s\S]*lineColor: LINE_COLOR,[\s\S]*topColor: withAlpha\(LINE_COLOR, 0\.32\),[\s\S]*bottomColor: withAlpha\(LINE_COLOR, 0\.04\),[\s\S]*lineWidth: CHART_AREA_LINE_WIDTH,[\s\S]*lineType: LineType\.Simple/,
+    'web Area must use the same selected-period direction color and gradient',
+  );
+  assertSourceContains(
+    source,
+    /areaQuoteDirectionActive = chartRuntimeActive && chartVisualType === 'area'[\s\S]*useWatchlistLiveQuotes\([\s\S]*\[chartSymbol\],[\s\S]*areaQuoteDirectionActive,[\s\S]*restFallbackActive: areaQuoteDirectionActive[\s\S]*useLiveQuoteSnapshot\([\s\S]*chartSymbol,[\s\S]*areaQuoteDirectionActive,[\s\S]*dailyChangePct: chartDailyDirectionQuote\?\.changePct \?\? chartLiveQuote\?\.changePct[\s\S]*__rtx5SetAreaDirectionOverride[\s\S]*JSON\.stringify\(areaDirectionRangeKey\)[\s\S]*JSON\.stringify\(areaChartDirection\)/,
+    'native Area must bridge the same Quotes daily snapshot or the explicit candle-range direction without chart reinitialization',
+  );
+  assertSourceContains(
+    source,
+    /chartVisualType === 'area' \? CHART_CROSSHAIR_TOOL : CHART_NO_DRAWING_TOOL[\s\S]*areaAutoInspectorOwnerPaneIdRef[\s\S]*nextType === 'area'[\s\S]*activeTool !== CHART_CROSSHAIR_TOOL[\s\S]*handleSetTool\(CHART_CROSSHAIR_TOOL, \{ areaAutoInspector: true \}\)/,
+    'native Area restore and picker selection must automatically arm the existing crosshair inspector',
+  );
+  assertSourceContains(
+    source,
+    /areaInspectorLifecycleRef[\s\S]*hydrationCompleted[\s\S]*chartWindowVisualPreferences\[activePaneId\]\?\.chartVisualType[\s\S]*activePaneVisualType === 'area'[\s\S]*manualCrosshairAlreadyActive[\s\S]*handleSetTool\(CHART_CROSSHAIR_TOOL, \{ areaAutoInspector: true \}\)/,
+    'native Area inspector lifecycle must follow hydration and promoted pane-local visual types without claiming a manual crosshair',
+  );
+  assertSourceContains(
+    source,
+    /chartType === 'area'[\s\S]*areaAutoInspectorOwnerPaneIdRef\.current === chartWindows\.activePane\.id[\s\S]*handleSetTool\(CHART_NO_DRAWING_TOOL\)/,
+    'leaving Area may disarm only the inspector automatically owned by the active pane',
+  );
+  assertSourceContains(
+    source,
+    /customCrosshair: \{[\s\S]*areaSeriesInspector: chartType === 'area'/,
+    'native Area must configure the shared crosshair manager for value-snapped inspection',
+  );
+  assertSourceContains(
+    source,
+    /const chartCustomCrosshairConfig = chartOptions\.customCrosshair[\s\S]*window\._drawingManager[\s\S]*window\._drawingManager\.setCrosshairConfig\(\$\{JSON\.stringify\(chartCustomCrosshairConfig\)\}\)/,
+    'retained native charts must push current symbol timeframe theme and Area inspector config without requiring reinitialization',
   );
 });
 

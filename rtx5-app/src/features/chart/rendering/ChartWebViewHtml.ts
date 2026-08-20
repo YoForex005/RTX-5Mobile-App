@@ -1,7 +1,7 @@
 import { LIGHTWEIGHT_CHARTS_JS } from "./lightweightChartsBundle";
 import { RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS } from "../../../domain/candles/rendering/customCandlestickSeriesWebView";
 import { ENHANCED_DRAWING_TOOLS_JS } from "../plugins/enhancedDrawingToolsString";
-import { CHART_AXIS_DIVIDER_STROKE_WIDTH, CHART_BEARISH_CANDLE_RENDER_OPACITY, CHART_CANDLE_RENDER_OPACITY, CHART_DEFAULT_VISIBLE_BAR_MAX, CHART_DEFAULT_VISIBLE_BAR_TARGET_PX, CHART_DEFAULT_VISIBLE_BAR_MIN, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_RESET_BAR_SPACING_MAX, CHART_DEFAULT_RESET_BAR_SPACING_MIN, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_DRAWING_MAGNET_THRESHOLD_PX, CHART_GRID_DASH_PATTERN, CHART_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET, CHART_GRID_HORIZONTAL_LINE_COUNT, CHART_GRID_HORIZONTAL_SPACING, CHART_GRID_STROKE_WIDTH, CHART_GRID_VERTICAL_SPACING, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE } from "../ChartScreen.constants";
+import { CHART_AREA_LINE_WIDTH, CHART_AREA_TIME_SCALE_MIN_BAR_SPACING, CHART_AREA_VISIBLE_BAR_MAX, CHART_AREA_VISIBLE_BAR_MIN, CHART_AREA_VISIBLE_BAR_TARGET_PX, CHART_AXIS_DIVIDER_STROKE_WIDTH, CHART_BEARISH_CANDLE_RENDER_OPACITY, CHART_CANDLE_RENDER_OPACITY, CHART_DEFAULT_VISIBLE_BAR_MAX, CHART_DEFAULT_VISIBLE_BAR_TARGET_PX, CHART_DEFAULT_VISIBLE_BAR_MIN, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_RESET_BAR_SPACING_MAX, CHART_DEFAULT_RESET_BAR_SPACING_MIN, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_DRAWING_MAGNET_THRESHOLD_PX, CHART_GRID_DASH_PATTERN, CHART_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET, CHART_GRID_HORIZONTAL_LINE_COUNT, CHART_GRID_HORIZONTAL_SPACING, CHART_GRID_STROKE_WIDTH, CHART_GRID_VERTICAL_SPACING, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE } from "../ChartScreen.constants";
 import { CHART_CANDLE_COUNTDOWN_FIXED_SECONDS } from "../chartCandleCountdown";
 import {
   MT5_PRICE_SCALE_BOUND_OCTAVES,
@@ -163,7 +163,13 @@ export const CH_HTML = `
       var lastAppliedLiveTickRevision = 0;
       var lastAppliedChartDataPaintRevision = 0;
       var lastAppliedChartDataPaintToken = '';
+      // Full-series replacements can arrive while a visual-shell rebuild has
+      // temporarily removed the Lightweight Charts series. Keep only the
+      // newest replacement and replay it after the current init completes.
+      var pendingChartDataReplacement = null;
+      var chartInitRequestGeneration = 0;
       var currentSeriesLength = 0;
+      var areaRecentVisibleBarTarget = ${CHART_AREA_VISIBLE_BAR_MAX};
       var lastDisplayDecimals = 2;
       var lastRawSeriesData = [];
       var shouldShowLowerPane = true;
@@ -173,6 +179,11 @@ export const CH_HTML = `
       var lastInitSignature = '';
       var lastInitConfigSig = '';
       var lastInitDataContextSig = '';
+      // Unlike lastInitDataContextSig (the latest requested bridge identity),
+      // this advances only after a chart instance has actually been rebuilt.
+      // Comparing against the applied identity keeps an old symbol's numeric
+      // price window from leaking into a newer init request.
+      var appliedChartDataContextSig = '';
       var lastRequestedDisplayDecimals = 2;
       var lastLivePrice = null;
       var lastBidPrice = null;
@@ -195,6 +206,17 @@ export const CH_HTML = `
       // line can tint themselves to match the live candle's direction.
       var barUpColor = '#2962FF';
       var barDownColor = '#ef5350';
+      // Area colour represents the performance of the selected chart period,
+      // not the direction of only the forming candle. Native owns the selected
+      // range (including the Quotes daily move for Auto/1 Day) and sends only a
+      // direction override, so recolouring never rebuilds the retained chart.
+      var areaNeutralColor = '#10B981';
+      var areaDirectionBaselinePrice = null;
+      var areaDirectionDataContextSig = '';
+      var areaDirectionOverride = null;
+      var areaDirectionOverrideRangeKey = 'auto';
+      var areaDirectionOverrideDataContextSig = '';
+      var lastAreaDirection = 'unknown';
       var detachChartTapListeners = null;
       var lastPostedChartTap = { x: NaN, y: NaN, at: 0 };
       var chartWindowSplitMode = false;
@@ -5840,23 +5862,39 @@ export const CH_HTML = `
 
       function getRecentVisibleBars(length) {
         if (typeof length !== 'number' || !isFinite(length) || length <= 0) return 0;
+        var isAreaSeries = seriesType === 'area';
+        var visibleBarMax = isAreaSeries
+          ? Math.min(
+              ${CHART_AREA_VISIBLE_BAR_MAX},
+              Math.max(
+                ${CHART_AREA_VISIBLE_BAR_MIN},
+                Math.round(areaRecentVisibleBarTarget)
+              )
+            )
+          : ${CHART_DEFAULT_VISIBLE_BAR_MAX};
+        var visibleBarTargetPx = isAreaSeries
+          ? ${CHART_AREA_VISIBLE_BAR_TARGET_PX}
+          : ${CHART_DEFAULT_VISIBLE_BAR_TARGET_PX};
+        var visibleBarMin = isAreaSeries
+          ? ${CHART_AREA_VISIBLE_BAR_MIN}
+          : ${CHART_DEFAULT_VISIBLE_BAR_MIN};
         var viewportWidth = getChartViewportWidth();
         if (!(viewportWidth > 0)) {
           return Math.min(
             Math.round(length),
-            ${CHART_DEFAULT_VISIBLE_BAR_MAX},
+            visibleBarMax,
           );
         }
         var usableWidth = Math.max(
           viewportWidth - 28,
-          ${CHART_DEFAULT_VISIBLE_BAR_TARGET_PX},
+          visibleBarTargetPx,
         );
-        var targetVisibleBars = Math.round(usableWidth / ${CHART_DEFAULT_VISIBLE_BAR_TARGET_PX});
+        var targetVisibleBars = Math.round(usableWidth / visibleBarTargetPx);
         return Math.min(
           Math.round(length),
           Math.max(
-            ${CHART_DEFAULT_VISIBLE_BAR_MIN},
-            Math.min(${CHART_DEFAULT_VISIBLE_BAR_MAX}, targetVisibleBars),
+            visibleBarMin,
+            Math.min(visibleBarMax, targetVisibleBars),
           ),
         );
       }
@@ -5867,11 +5905,17 @@ export const CH_HTML = `
         if (!(viewportWidth > 0) || !(visibleBars > 0)) {
           return ${CHART_DEFAULT_TIME_SCALE_BAR_SPACING};
         }
-        var usableWidth = Math.max(viewportWidth - 28, visibleBars);
+        var usableWidth = Math.max(
+          viewportWidth - 28,
+          seriesType === 'area' ? ${CHART_AREA_VISIBLE_BAR_TARGET_PX} : visibleBars
+        );
+        var minimumBarSpacing = seriesType === 'area'
+          ? ${CHART_AREA_TIME_SCALE_MIN_BAR_SPACING}
+          : ${CHART_DEFAULT_RESET_BAR_SPACING_MIN};
         return Math.min(
           ${CHART_DEFAULT_RESET_BAR_SPACING_MAX},
           Math.max(
-            ${CHART_DEFAULT_RESET_BAR_SPACING_MIN},
+            minimumBarSpacing,
             usableWidth / visibleBars,
           ),
         );
@@ -5883,7 +5927,9 @@ export const CH_HTML = `
           chart.timeScale().applyOptions({
             rightOffset: ${CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET},
             barSpacing: resolveDefaultBarSpacing(lengthOverride),
-            minBarSpacing: ${CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING},
+            minBarSpacing: seriesType === 'area'
+              ? ${CHART_AREA_TIME_SCALE_MIN_BAR_SPACING}
+              : ${CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING},
             fixLeftEdge: ${CHART_TIME_SCALE_FIX_LEFT_EDGE},
             fixRightEdge: ${CHART_TIME_SCALE_FIX_RIGHT_EDGE},
           });
@@ -6081,6 +6127,41 @@ export const CH_HTML = `
       function clampSeriesIndex(index, length) {
         if (!(length > 0)) return 0;
         return Math.max(0, Math.min(length - 1, index));
+      }
+
+      function shouldExpandAreaRecentViewportAfterPrepend(previousData, nextData, previousRange) {
+        try {
+          if (
+            seriesType !== 'area' ||
+            !previousRange ||
+            !previousData ||
+            !nextData ||
+            previousData.length === 0 ||
+            nextData.length <= previousData.length
+          ) {
+            return false;
+          }
+          var previousFirst = previousData[0] && previousData[0].time;
+          var nextFirst = nextData[0] && nextData[0].time;
+          if (
+            typeof previousFirst !== 'number' ||
+            typeof nextFirst !== 'number' ||
+            !(nextFirst < previousFirst) ||
+            !shouldFollowLiveRightEdge(previousRange, previousData.length)
+          ) {
+            return false;
+          }
+
+          var previousDefaultVisibleBars = getRecentVisibleBars(previousData.length);
+          var nextDefaultVisibleBars = getRecentVisibleBars(nextData.length);
+          var previousVisibleSpan = previousRange.to - previousRange.from;
+          var spanTolerance = Math.max(2, previousDefaultVisibleBars * 0.03);
+          return (
+            nextDefaultVisibleBars > previousDefaultVisibleBars &&
+            Math.abs(previousVisibleSpan - previousDefaultVisibleBars) <= spanTolerance
+          );
+        } catch (_e) {}
+        return false;
       }
 
       function restorePrependedHistoryViewport(previousData, nextData, previousRange) {
@@ -6511,6 +6592,118 @@ export const CH_HTML = `
         return { up: up, down: down, bodyUp: up, bodyDown: down };
       }
 
+      function readAreaDirectionValue(point) {
+        if (!point || typeof point !== 'object') return null;
+        if (typeof point.value === 'number' && isFinite(point.value)) return point.value;
+        if (typeof point.close === 'number' && isFinite(point.close)) return point.close;
+        return null;
+      }
+
+      function resetAreaDirectionForContext(dataContextSig) {
+        var nextContextSig = typeof dataContextSig === 'string' ? dataContextSig : '';
+        if (areaDirectionDataContextSig === nextContextSig) return;
+        areaDirectionDataContextSig = nextContextSig;
+        areaDirectionBaselinePrice = null;
+        lastAreaDirection = 'unknown';
+        if (areaDirectionOverrideDataContextSig !== nextContextSig) {
+          areaDirectionOverride = null;
+          areaDirectionOverrideRangeKey = 'auto';
+          areaDirectionOverrideDataContextSig = '';
+        }
+      }
+
+      function resolveAreaSeriesDirection(data) {
+        if (areaDirectionOverride === 'up' || areaDirectionOverride === 'down') {
+          return areaDirectionOverride;
+        }
+        if (!Array.isArray(data) || data.length < 2) return 'unknown';
+
+        // A missing daily percentage may fall back to candles for Auto. Match
+        // the default recent viewport instead of arbitrary prepended history.
+        if (areaDirectionOverrideRangeKey !== 'auto') return 'unknown';
+        var visibleBars = getRecentVisibleBars(data.length);
+        var scopedData = visibleBars > 0
+          ? data.slice(Math.max(0, data.length - visibleBars))
+          : data;
+        var baseline = null;
+        var terminal = null;
+        var usableCount = 0;
+        for (var i = 0; i < scopedData.length; i += 1) {
+          var value = readAreaDirectionValue(scopedData[i]);
+          if (value === null) continue;
+          if (baseline === null) baseline = value;
+          terminal = value;
+          usableCount += 1;
+        }
+        areaDirectionBaselinePrice = baseline;
+        if (usableCount < 2 || baseline === null || terminal === null) {
+          return 'unknown';
+        }
+        return terminal >= baseline ? 'up' : 'down';
+      }
+
+      function setAreaDirectionOverride(dataContextSig, rangeKey, direction) {
+        var nextContextSig = typeof dataContextSig === 'string' ? dataContextSig : '';
+        var nextRangeKey = typeof rangeKey === 'string' && rangeKey ? rangeKey : 'auto';
+        var nextDirection = direction === 'up' || direction === 'down' ? direction : null;
+        var didChange =
+          areaDirectionOverrideDataContextSig !== nextContextSig ||
+          areaDirectionOverrideRangeKey !== nextRangeKey ||
+          areaDirectionOverride !== nextDirection;
+        areaDirectionOverrideDataContextSig = nextContextSig;
+        areaDirectionOverrideRangeKey = nextRangeKey;
+        areaDirectionOverride = nextDirection;
+        if (!didChange) return lastAreaDirection;
+        areaDirectionBaselinePrice = null;
+        lastAreaDirection = 'unknown';
+        if (
+          areaDirectionDataContextSig &&
+          nextContextSig &&
+          areaDirectionDataContextSig !== nextContextSig
+        ) {
+          // Keep the retained old-context chart visually stable while native
+          // warms the new symbol/timeframe. initChart consumes this override
+          // after the matching data context is installed.
+          return lastAreaDirection;
+        }
+        return refreshAreaSeriesDirection(true);
+      }
+
+      function pickAreaSeriesColor(direction) {
+        if (direction === 'down') return barDownColor;
+        if (direction === 'up') return barUpColor;
+        return areaNeutralColor;
+      }
+
+      function refreshAreaSeriesDirection(force) {
+        if (
+          seriesType !== 'area' ||
+          !series ||
+          typeof series.applyOptions !== 'function'
+        ) {
+          return 'unknown';
+        }
+        var direction = resolveAreaSeriesDirection(lastRawSeriesData);
+        if (!force && direction === lastAreaDirection) return direction;
+        var color = pickAreaSeriesColor(direction);
+        try {
+          // Repaint only the Area style. setData/initChart would reset the
+          // viewport and briefly flash the loading surface on a live sign flip.
+          series.applyOptions({
+            lineColor: color,
+            topColor: hexToRgba(color, 0.32),
+            bottomColor: hexToRgba(color, 0.04),
+          });
+          lastAreaDirection = direction;
+          // TradingView treats the Area stroke, live guide, and price badge as
+          // one performance-colored series. Keep our custom Bid overlay in
+          // that same color whenever history or a range override flips Area.
+          refreshBidPriceLineColor();
+          scheduleMarketPriceScaleDomOnly();
+        } catch (_areaDirectionApplyError) {}
+        return direction;
+      }
+
       // Pending init args — stored so the ResizeObserver or rAF retry
       // can re-run chart creation if the container had zero dimensions
       // on the first attempt (common on Android light theme first load).
@@ -6567,15 +6760,23 @@ export const CH_HTML = `
         showLowerPane,
         initSignature,
         configSig,
-        dataContextSig
+        dataContextSig,
+        initRequestGeneration
       ) {
         var resolvedInitSignature = typeof initSignature === 'string' ? initSignature : '';
         var resolvedConfigSig = typeof configSig === 'string' ? configSig : '';
         var resolvedDataContextSig = typeof dataContextSig === 'string' ? dataContextSig : '';
+        var resolvedInitRequestGeneration = Number(initRequestGeneration);
+        if (
+          !isFinite(resolvedInitRequestGeneration) ||
+          resolvedInitRequestGeneration !== chartInitRequestGeneration
+        ) {
+          return false;
+        }
         var isNewDataContext =
-          !!lastInitDataContextSig &&
+          !!appliedChartDataContextSig &&
           !!resolvedDataContextSig &&
-          lastInitDataContextSig !== resolvedDataContextSig;
+          appliedChartDataContextSig !== resolvedDataContextSig;
         var el = document.getElementById('chart');
         var viewportSize = resolveChartViewportSize();
         var w = viewportSize.width;
@@ -6597,6 +6798,7 @@ export const CH_HTML = `
             initSignature: resolvedInitSignature,
             configSig: resolvedConfigSig,
             dataContextSig: resolvedDataContextSig,
+            initRequestGeneration: resolvedInitRequestGeneration,
           };
           // Keep this single-flight and bounded. A hidden/zero-sized Android
           // WebView previously created an endless animation-frame recursion
@@ -6615,7 +6817,8 @@ export const CH_HTML = `
                   pending.showLowerPane,
                   pending.initSignature,
                   pending.configSig,
-                  pending.dataContextSig
+                  pending.dataContextSig,
+                  pending.initRequestGeneration
                 );
               }
             });
@@ -6636,10 +6839,11 @@ export const CH_HTML = `
         // A rebuild replaces the Lightweight Charts instance, but it is not a
         // user request to reset the vertical axis. Retain the exact numeric
         // MT5-style window (and its original zoom envelope) across that swap.
-        var retainedManualPriceScaleRange = isManualVerticalPanRangeLocked()
+        var retainedManualPriceScaleRange = !isNewDataContext && isManualVerticalPanRangeLocked()
           ? normalizePriceRange(manualVerticalPanLockedRange)
           : null;
         var retainedManualPriceScaleReferenceSpan =
+          !isNewDataContext &&
           typeof manualPriceScaleReferenceSpan === 'number' &&
           isFinite(manualPriceScaleReferenceSpan) &&
           manualPriceScaleReferenceSpan > 0
@@ -6724,6 +6928,7 @@ export const CH_HTML = `
           typeof displayDecimals === 'number' && isFinite(displayDecimals) && displayDecimals >= 0
             ? displayDecimals
             : 2;
+        resetAreaDirectionForContext(resolvedDataContextSig);
         lastRawSeriesData = sanitizeSeriesData(data);
         chartReadyPostGeneration += 1;
         var readyGeneration = chartReadyPostGeneration;
@@ -6732,6 +6937,15 @@ export const CH_HTML = `
         var readyDataContextSig = lastInitDataContextSig;
 
         var safeOpts = applyChartLayout(cloneSerializableValue(opts || {}, {}));
+        var customAreaViewportConfig = safeOpts.areaViewport || {};
+        var requestedAreaVisibleBars = Number(customAreaViewportConfig.visibleBars);
+        areaRecentVisibleBarTarget =
+          isFinite(requestedAreaVisibleBars) && requestedAreaVisibleBars > 0
+            ? Math.min(
+                ${CHART_AREA_VISIBLE_BAR_MAX},
+                Math.max(${CHART_AREA_VISIBLE_BAR_MIN}, Math.round(requestedAreaVisibleBars))
+              )
+            : ${CHART_AREA_VISIBLE_BAR_MAX};
         var chartBackgroundColor = resolveChartBackgroundColor(safeOpts);
         lastChartBackgroundColor = chartBackgroundColor;
         lastChartAxisBackgroundColor = chartBackgroundColor;
@@ -6749,12 +6963,16 @@ export const CH_HTML = `
         applyPeriodSeparatorOptions(customPeriodSeparatorConfig);
         if (safeOpts.customColors) { delete safeOpts.customColors; }
         if (safeOpts.customCrosshair) { delete safeOpts.customCrosshair; }
+        if (safeOpts.areaViewport) { delete safeOpts.areaViewport; }
         if (safeOpts.periodSeparators) { delete safeOpts.periodSeparators; }
         if (!safeOpts.timeScale) {
           safeOpts.timeScale = {};
         }
         safeOpts.timeScale.fixLeftEdge = ${CHART_TIME_SCALE_FIX_LEFT_EDGE};
         safeOpts.timeScale.fixRightEdge = ${CHART_TIME_SCALE_FIX_RIGHT_EDGE};
+        safeOpts.timeScale.minBarSpacing = seriesType === 'area'
+          ? ${CHART_AREA_TIME_SCALE_MIN_BAR_SPACING}
+          : ${CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING};
         safeOpts.timeScale.tickMarkFormatter = formatChartTickMark;
         // Crosshair / tooltip formatter uses the backend candle timestamp
         // that the host sends to the series.
@@ -6825,6 +7043,7 @@ export const CH_HTML = `
         barDownColor = colors.down;
         moveUpColor = hexToRgba(colors.up, 0.85);
         moveDownColor = hexToRgba(colors.down, 0.85);
+        areaNeutralColor = (customCols && customCols.lineBody) || colors.up;
         lastPriceLineDirection = null;
         setPrimaryPriceScaleMargins(shouldUseMoveBarsPane());
         updateChartPaneBackgroundLayer();
@@ -6845,14 +7064,18 @@ export const CH_HTML = `
             autoscaleInfoProvider: buildOverlayAwareAutoscaleInfo,
           });
         } else if (seriesType === 'area') {
-          // Area uses Line's close-price path and adds a light gradient fill.
-          // The shared custom price overlay still owns the live axis label.
-          var areaLineColor = (customCols && customCols.lineBody) || colors.up;
+          // Area uses Line's close-price path, but its tone belongs to the
+          // selected performance range supplied by native. The shared custom
+          // price overlay still owns the live axis label.
+          var initialAreaDirection = resolveAreaSeriesDirection(lastRawSeriesData);
+          var areaLineColor = pickAreaSeriesColor(initialAreaDirection);
+          lastAreaDirection = initialAreaDirection;
           series = chart.addSeries(LightweightCharts.AreaSeries, {
             lineColor: areaLineColor,
             topColor: hexToRgba(areaLineColor, 0.32),
             bottomColor: hexToRgba(areaLineColor, 0.04),
-            lineWidth: 2,
+            lineWidth: ${CHART_AREA_LINE_WIDTH},
+            lineType: LightweightCharts.LineType.Simple,
             priceFormat: priceFormat,
             crosshairMarkerVisible: false,
             lastValueVisible: false,
@@ -6977,6 +7200,7 @@ export const CH_HTML = `
           }
         } catch (_chartTapErr) {}
 
+        appliedChartDataContextSig = resolvedDataContextSig;
         applyOverlayPayload(_overlayPayload);
         setLivePriceLine(lastLivePrice);
         if (isValidPriceRange(retainedManualPriceScaleRange)) {
@@ -6986,6 +7210,7 @@ export const CH_HTML = `
           applyManualVerticalPanLockedRange();
         }
         schedulePeriodSeparatorsUpdate();
+        replayPendingChartDataReplacement(resolvedDataContextSig);
         postChartGeometry();
         postChartReadyWhenPriceScaleHealthy(
           'init_ready',
@@ -7015,6 +7240,9 @@ export const CH_HTML = `
           var requestInitSignature = typeof initSignature === 'string' ? initSignature : '';
           var requestConfigSig = typeof configSig === 'string' ? configSig : '';
           var requestDataContextSig = typeof dataContextSig === 'string' ? dataContextSig : '';
+          chartInitRequestGeneration += 1;
+          var requestInitGeneration = chartInitRequestGeneration;
+          discardPendingChartDataReplacementOutsideContext(requestDataContextSig);
           lastInitHostOptions = requestHostOptions;
           lastInitChartType = requestChartType;
           lastInitShowLowerPane = requestShowLowerPane;
@@ -7040,6 +7268,9 @@ export const CH_HTML = `
           // has 0x0 dimensions until the first paint cycle completes.
           requestAnimationFrame(function() {
             try {
+              if (requestInitGeneration !== chartInitRequestGeneration) {
+                return;
+              }
               _doInitChart(
                 requestHostOptions,
                 requestChartType,
@@ -7048,7 +7279,8 @@ export const CH_HTML = `
                 requestShowLowerPane,
                 requestInitSignature,
                 requestConfigSig,
-                requestDataContextSig
+                requestDataContextSig,
+                requestInitGeneration
               );
             } catch(e) {
               postError('initChart', e);
@@ -7087,7 +7319,8 @@ export const CH_HTML = `
               _pendingInit.showLowerPane,
               _pendingInit.initSignature,
               _pendingInit.configSig,
-              _pendingInit.dataContextSig
+              _pendingInit.dataContextSig,
+              _pendingInit.initRequestGeneration
             );
             return;
           }
@@ -7130,7 +7363,8 @@ export const CH_HTML = `
               _pendingInit.showLowerPane,
               _pendingInit.initSignature,
               _pendingInit.configSig,
-              _pendingInit.dataContextSig
+              _pendingInit.dataContextSig,
+              _pendingInit.initRequestGeneration
             );
             return;
           }
@@ -7145,7 +7379,8 @@ export const CH_HTML = `
                 lastInitShowLowerPane,
                 lastInitSignature,
                 lastInitConfigSig,
-                lastInitDataContextSig
+                lastInitDataContextSig,
+                chartInitRequestGeneration
               );
             }
             return;
@@ -7236,7 +7471,8 @@ export const CH_HTML = `
                 _pendingInit.showLowerPane,
                 _pendingInit.initSignature,
                 _pendingInit.configSig,
-                _pendingInit.dataContextSig
+                _pendingInit.dataContextSig,
+                _pendingInit.initRequestGeneration
               );
             } else if (chart) {
               // Chart exists — just resize it to match.
@@ -7607,11 +7843,74 @@ export const CH_HTML = `
         };
       }
 
+      function readChartDataReplacementContext(options) {
+        return options && typeof options.dataContextSig === 'string'
+          ? options.dataContextSig
+          : '';
+      }
+
+      function discardPendingChartDataReplacementOutsideContext(dataContextSig) {
+        if (!pendingChartDataReplacement) return;
+        var requestedContextSig = typeof dataContextSig === 'string' ? dataContextSig : '';
+        var pendingContextSig = pendingChartDataReplacement.dataContextSig || '';
+        if (
+          requestedContextSig &&
+          pendingContextSig &&
+          pendingContextSig !== requestedContextSig
+        ) {
+          pendingChartDataReplacement = null;
+        }
+      }
+
+      function queuePendingChartDataReplacement(data, options) {
+        var replacementOptions = options && typeof options === 'object'
+          ? Object.assign({}, options)
+          : {};
+        var replacementContextSig = readChartDataReplacementContext(replacementOptions);
+        if (
+          replacementContextSig &&
+          lastInitDataContextSig &&
+          replacementContextSig !== lastInitDataContextSig
+        ) {
+          return false;
+        }
+        pendingChartDataReplacement = {
+          data: Array.isArray(data) ? data.slice() : [],
+          options: replacementOptions,
+          dataContextSig: replacementContextSig,
+        };
+        return true;
+      }
+
+      function replayPendingChartDataReplacement(dataContextSig) {
+        if (!pendingChartDataReplacement || !series || _pendingInit) {
+          return false;
+        }
+        var expectedContextSig = typeof dataContextSig === 'string' ? dataContextSig : '';
+        var pending = pendingChartDataReplacement;
+        if (
+          pending.dataContextSig &&
+          expectedContextSig &&
+          pending.dataContextSig !== expectedContextSig
+        ) {
+          pendingChartDataReplacement = null;
+          return false;
+        }
+        pendingChartDataReplacement = null;
+        updateChartData(pending.data, pending.options);
+        return true;
+      }
+
       function updateChartData(data, options) {
         try {
-          if (!series) {
-            postError('updateChartData', new Error('series not initialized'));
-            return;
+          if (!series || _pendingInit) {
+            var queuedReplacement = queuePendingChartDataReplacement(data, options);
+            if (!series && !_pendingInit) {
+              // Keep the payload for the recovery init, but also wake the
+              // native bridge immediately instead of waiting for its watchdog.
+              postError('updateChartData', new Error('series not initialized; replacement queued'));
+            }
+            return queuedReplacement;
           }
           var updateOptions = options && typeof options === 'object' ? options : {};
           var preserveVisibleLogicalSpan = updateOptions.preserveVisibleLogicalSpan === true;
@@ -7663,9 +7962,20 @@ export const CH_HTML = `
           var manualRangeBeforeUpdate = isManualVerticalPanRangeLocked()
             ? normalizePriceRange(manualVerticalPanLockedRange)
             : null;
-          var shouldPreserveManualPriceScale = isValidPriceRange(manualRangeBeforeUpdate);
+          // Manual vertical ownership is scoped to the current symbol and
+          // timeframe. An explicit reset (used for context replacement) must
+          // win over an old numeric window or the new series can be painted
+          // entirely outside the visible axis.
+          var shouldPreserveManualPriceScale =
+            !resetVisibleRange && isValidPriceRange(manualRangeBeforeUpdate);
+          if (resetVisibleRange) {
+            clearManualPriceScaleState();
+          }
           // Capture the user-owned numeric window before setData; chart data
           // replacement is allowed to change candles, never this manual range.
+          if (paintedDataContextSig) {
+            resetAreaDirectionForContext(paintedDataContextSig);
+          }
           lastRawSeriesData = sanitizeSeriesData(data);
           try {
             chartDebugLog('[WEBVIEW-CANDLE] updateChartData', {
@@ -7678,6 +7988,7 @@ export const CH_HTML = `
           currentSeriesLength = mapped.length;
           clearMarketPriceLineRefs();
           series.setData(mapped);
+          refreshAreaSeriesDirection(true);
           if (paintRevision !== null) {
             lastAppliedChartDataPaintRevision = paintRevision;
             lastAppliedChartDataPaintToken = paintToken;
@@ -7685,6 +7996,11 @@ export const CH_HTML = `
           candleCountdownSeriesContextSig = paintedDataContextSig;
           if (paintedDataContextSig) {
             lastInitDataContextSig = paintedDataContextSig;
+            // Symbol/timeframe switches normally replace data on the retained
+            // chart instead of rebuilding it. Record that successful paint as
+            // the applied context so a later same-context shell rebuild keeps
+            // this context's legitimate manual price window.
+            appliedChartDataContextSig = paintedDataContextSig;
           }
           if (mapped.length > 0 && paintedDataContextSig && paintToken) {
             requestAnimationFrame(function() {
@@ -7706,17 +8022,35 @@ export const CH_HTML = `
           var didReplaceVisibleSeries =
             !didPrependHistory &&
             (resetVisibleRange || shouldResetViewportForSeriesReplacement(previousRawSeriesData, lastRawSeriesData));
-          // This ownership also crosses symbol/timeframe contexts. A newly
-          // selected symbol can intentionally render outside the current
-          // window until the trader moves or explicitly resets the scale.
+          // Manual price-window ownership survives same-context history
+          // replacements. Symbol/timeframe changes arrive with an explicit
+          // reset so unrelated price regimes can never remain off-screen.
           var priceScaleReason = didPrependHistory
             ? 'update_data_prepend_history'
             : (didReplaceVisibleSeries ? 'update_data_replace_series' : 'update_data');
-          var restoredPrependedViewport = !resetVisibleRange && restorePrependedHistoryViewport(
-            previousRawSeriesData,
-            lastRawSeriesData,
-            previousVisibleLogicalRange
-          );
+          // The first Area paint is intentionally lightweight. When its one
+          // bounded history page arrives, expand only an untouched live-edge
+          // viewport; a trader-owned pan or zoom keeps the normal prepend
+          // restoration path below.
+          var expandedAreaRecentViewport =
+            !resetVisibleRange &&
+            didPrependHistory &&
+            shouldExpandAreaRecentViewportAfterPrepend(
+              previousRawSeriesData,
+              lastRawSeriesData,
+              previousVisibleLogicalRange
+            );
+          if (expandedAreaRecentViewport) {
+            applyRecentViewport(mapped.length);
+          }
+          var restoredPrependedViewport =
+            !expandedAreaRecentViewport &&
+            !resetVisibleRange &&
+            restorePrependedHistoryViewport(
+              previousRawSeriesData,
+              lastRawSeriesData,
+              previousVisibleLogicalRange
+            );
           var restoredStableReplacementViewport = false;
           if (
             !restoredPrependedViewport &&
@@ -7876,6 +8210,7 @@ export const CH_HTML = `
           });
         } catch (_logErr) {}
         series.update(bar);
+        refreshAreaSeriesDirection(false);
         if (window._drawingManager && typeof window._drawingManager.refreshCrosshairData === 'function') {
           try { window._drawingManager.refreshCrosshairData(); } catch (_crosshairRefreshErr) {}
         }
@@ -8044,9 +8379,15 @@ export const CH_HTML = `
         schedulePendingTickFlush();
       }
 
-      // Pick the candle-direction colour for the live bid / last-price line.
-      // Up candle (close ≥ open) → barUpColor. Down candle → barDownColor.
+      // Area owns one performance color across its stroke, live guide, and
+      // right-axis badge. Other chart types retain the forming-candle color.
       function pickLivePriceColor() {
+        if (seriesType === 'area') {
+          var areaDirection = lastAreaDirection === 'up' || lastAreaDirection === 'down'
+            ? lastAreaDirection
+            : resolveAreaSeriesDirection(lastRawSeriesData);
+          return pickAreaSeriesColor(areaDirection);
+        }
         if (!_liveBar || typeof _liveBar.close !== 'number' || typeof _liveBar.open !== 'number') {
           return barUpColor;
         }
@@ -10664,6 +11005,8 @@ export const CH_HTML = `
 
       window.initChart = initChart;
       window.applyChartVisualTheme = applyChartVisualTheme;
+      window.__rtx5SetAreaDirectionOverride = setAreaDirectionOverride;
+      window.refreshAreaSeriesDirection = refreshAreaSeriesDirection;
       window.updateChartData = updateChartData;
       window.updateTick = updateTick;
       window.updateLiveTick = updateLiveTick;

@@ -20,6 +20,10 @@ import {
   resolveRenkoMinimumPriceIncrement,
 } from '../../../domain/candles/renko';
 import { resolveStableRenkoBrickSize } from '../renkoBrickSizeCache';
+import {
+  resolveAreaChartColor,
+  resolveAreaChartDirection,
+} from '../areaChartDirection';
 import { LIGHTWEIGHT_CHARTS_JS } from '../rendering/lightweightChartsBundle';
 import type { QuoteItem } from '../../../dev/mock/tradingData';
 import {
@@ -36,6 +40,10 @@ import { LIVE_CHART_PREVIEW_TIME_AXIS_SCRIPT } from './liveChartPreviewTimeAxisS
 import { LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT } from './liveChartPreviewTradeOverlayScript';
 import { LIVE_CHART_PREVIEW_VIEWPORT_SCRIPT } from './liveChartPreviewViewportScript';
 import {
+  CHART_AREA_TIME_SCALE_MIN_BAR_SPACING,
+  CHART_AREA_LINE_WIDTH,
+  CHART_AREA_VISIBLE_BAR_MAX,
+  CHART_AREA_VISIBLE_BAR_MIN,
   CHART_AXIS_DIVIDER_DARK_COLOR,
   CHART_AXIS_DIVIDER_LIGHT_COLOR,
   CHART_BEARISH_CANDLE_RENDER_OPACITY,
@@ -47,6 +55,7 @@ import {
   CHART_TIME_SCALE_FIX_LEFT_EDGE,
   CHART_TIME_SCALE_FIX_RIGHT_EDGE,
 } from '../ChartScreen.constants';
+import { useAreaChartHistoryExpansion } from '../useAreaChartHistoryExpansion';
 import { RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS } from '../../../domain/candles/rendering/customCandlestickSeriesWebView';
 import { ENHANCED_DRAWING_TOOLS_JS } from '../plugins/enhancedDrawingToolsString';
 import type { PersistedChartDrawing } from '../drawingPersistence';
@@ -348,6 +357,16 @@ ${LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT}
           window._displaySettings = displaySettings || {};
           window._fullChartParity = fullChartParity === true;
           window._previewDisplayDecimals = displayDecimals;
+          var areaViewportConfig = opts && opts.areaViewport ? opts.areaViewport : {};
+          var requestedAreaVisibleBars = Number(areaViewportConfig.visibleBars);
+          window._areaVisibleBarTarget =
+            isFinite(requestedAreaVisibleBars) && requestedAreaVisibleBars > 0
+              ? Math.min(
+                  ${CHART_AREA_VISIBLE_BAR_MAX},
+                  Math.max(${CHART_AREA_VISIBLE_BAR_MIN}, Math.round(requestedAreaVisibleBars))
+                )
+              : ${CHART_AREA_VISIBLE_BAR_MAX};
+          if (opts && opts.areaViewport) delete opts.areaViewport;
 
           var showLastPriceLine = !!(window._displaySettings && window._displaySettings.showLastPriceLine);
           // Line and Area are close-only surfaces, while Renko volume cannot be
@@ -434,7 +453,8 @@ ${LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT}
               lineColor: lineColor,
               topColor: hexToRgba(lineColor, 0.32),
               bottomColor: hexToRgba(lineColor, 0.04),
-              lineWidth: 2,
+              lineWidth: ${CHART_AREA_LINE_WIDTH},
+              lineType: LightweightCharts.LineType.Simple,
               crosshairMarkerVisible: true,
               lastValueVisible: showLastValueLabel,
               priceLineVisible: showLastPriceLine,
@@ -509,7 +529,17 @@ ${LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT}
         try {
           if (!acceptPreviewDataContext(dataContextKey, dataGeneration)) return;
           if (!series) return;
-          window._lastChartData = Array.isArray(data) ? data.slice() : [];
+          var previousData = Array.isArray(window._lastChartData)
+            ? window._lastChartData.slice()
+            : [];
+          var previousVisibleRange = getPreviewVisibleLogicalRangeSnapshot();
+          var nextData = Array.isArray(data) ? data.slice() : [];
+          var expandAreaRecentViewport = shouldExpandPreviewAreaAfterPrepend(
+            previousData,
+            nextData,
+            previousVisibleRange
+          );
+          window._lastChartData = nextData;
           series.setData(window._lastChartData);
           setVolumeSeriesData(window._lastChartData);
           setPreviewCountdownSeriesContext(
@@ -517,11 +547,17 @@ ${LIVE_CHART_PREVIEW_TRADE_OVERLAY_SCRIPT}
             dataGeneration,
             window._lastChartData
           );
-          if (resetVisibleRange && chart && window._lastChartData.length > 0) {
-            if (window._fullChartParity) {
+          if (chart && window._lastChartData.length > 0) {
+            if (window._fullChartParity && (resetVisibleRange || expandAreaRecentViewport)) {
               applyPreviewRecentViewport(window._lastChartData.length);
-            } else {
+            } else if (resetVisibleRange) {
               try { chart.timeScale().fitContent(); } catch (_error) {}
+            } else if (!expandAreaRecentViewport) {
+              restorePreviewPrependedHistoryViewport(
+                previousData,
+                window._lastChartData,
+                previousVisibleRange
+              );
             }
           }
           if (typeof reapplyPreviewManualPriceScale === 'function') {
@@ -850,7 +886,24 @@ export default function LiveChartPreviewNative({
   const previewDataContextKey = useMemo(() => (
     `${brokerCredentialScopeKey}:${normalizeSymbol(symbol)}:${normalizeTimeframeStrict(timeframe) ?? timeframe}`
   ), [brokerCredentialScopeKey, symbol, timeframe]);
-  const { candles } = useLiveCandles(symbol, timeframe, active, commitIntervalMs);
+  const {
+    candles,
+    hasHistoryCandles,
+    loading: historyLoading,
+    paginate,
+  } = useLiveCandles(symbol, timeframe, active, commitIntervalMs);
+  const areaVisibleBarTarget = useAreaChartHistoryExpansion({
+    active,
+    chartType,
+    symbol,
+    timeframe,
+    cacheScopeKey: brokerCredentialScopeKey,
+    candleCount: candles.length,
+    hasHistoryCandles,
+    historyLoading,
+    paginate,
+    renderLimit: maxCandles,
+  });
   const liveQuotes = useMarketData([symbol], active && manageQuoteSubscription);
   const liveQuote = manageQuoteSubscription ? liveQuotes[symbol] : liveQuoteOverride;
   const { data: instrumentMeta } = useInstrumentMeta(symbol, active);
@@ -864,13 +917,6 @@ export default function LiveChartPreviewNative({
       && chartType !== 'area'
       && chartType !== 'renko'
     : chartType !== 'renko' && (display.showTickVolumes || display.showRealVolumes);
-  const previewCustomColors = useMemo(() => ({
-    ...colors,
-    axisDivider: isDark
-      ? CHART_AXIS_DIVIDER_DARK_COLOR
-      : CHART_AXIS_DIVIDER_LIGHT_COLOR,
-  }), [colors, isDark]);
-
   const chartSignatureRef = useRef('');
   const lastRenderedDataSignatureRef = useRef('');
   const previewBridgeContextRef = useRef({
@@ -927,7 +973,9 @@ export default function LiveChartPreviewNative({
         : LIVE_CHART_PREVIEW_TIME_SCALE_RIGHT_OFFSET,
       shiftVisibleRangeOnNewBar: true,
       barSpacing: fullChartParity ? CHART_DEFAULT_TIME_SCALE_BAR_SPACING : 13,
-      minBarSpacing: CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING,
+      minBarSpacing: chartType === 'area'
+        ? CHART_AREA_TIME_SCALE_MIN_BAR_SPACING
+        : CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING,
       fixLeftEdge: fullChartParity ? CHART_TIME_SCALE_FIX_LEFT_EDGE : undefined,
       fixRightEdge: fullChartParity ? CHART_TIME_SCALE_FIX_RIGHT_EDGE : undefined,
     },
@@ -961,7 +1009,18 @@ export default function LiveChartPreviewNative({
           : (previewShowsVolumePane ? 0.25 : 0.08),
       },
     },
-  }), [autoScaleEnabled, colors, display, fullChartParity, previewShowsVolumePane]);
+    areaViewport: {
+      visibleBars: areaVisibleBarTarget,
+    },
+  }), [
+    areaVisibleBarTarget,
+    autoScaleEnabled,
+    chartType,
+    colors,
+    display,
+    fullChartParity,
+    previewShowsVolumePane,
+  ]);
 
   // Existing preview callers retain full-history parity with ChartScreen.
   // Multi-window panes opt into a bounded tail so a second WebView cannot hold
@@ -980,6 +1039,23 @@ export default function LiveChartPreviewNative({
     },
     [candles, chartType, maxCandles],
   );
+  const areaChartDirection = useMemo(
+    () => resolveAreaChartDirection(previewCandles),
+    [previewCandles],
+  );
+  const areaChartColor = useMemo(
+    () => resolveAreaChartColor(areaChartDirection, colors),
+    [areaChartDirection, colors],
+  );
+  const previewCustomColors = useMemo(() => ({
+    ...colors,
+    // The retained preview already has an in-place colors bridge. Overriding
+    // only Area's line token lets live terminal crossings recolor without init.
+    lineBody: chartType === 'area' ? areaChartColor : colors.lineBody,
+    axisDivider: isDark
+      ? CHART_AXIS_DIVIDER_DARK_COLOR
+      : CHART_AXIS_DIVIDER_LIGHT_COLOR,
+  }), [areaChartColor, chartType, colors, isDark]);
   const latestPreviewCandle = previewCandles[previewCandles.length - 1] ?? null;
   useEffect(() => {
     onLatestCandleChange?.({ symbol, timeframe, candle: latestPreviewCandle });

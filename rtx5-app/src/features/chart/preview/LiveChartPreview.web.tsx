@@ -9,6 +9,7 @@ import {
   LineSeries,
   HistogramSeries,
   LineStyle,
+  LineType,
   ColorType,
   CrosshairMode,
 } from 'lightweight-charts';
@@ -36,6 +37,16 @@ import {
   resolveRenkoMinimumPriceIncrement,
 } from '../../../domain/candles/renko';
 import { resolveStableRenkoBrickSize } from '../renkoBrickSizeCache';
+import {
+  resolveAreaChartColor,
+  resolveAreaChartDirection,
+} from '../areaChartDirection';
+import {
+  CHART_AREA_LINE_WIDTH,
+  CHART_AREA_TIME_SCALE_MIN_BAR_SPACING,
+  CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING,
+} from '../ChartScreen.constants';
+import { useAreaChartHistoryExpansion } from '../useAreaChartHistoryExpansion';
 
 const getSafePreviewDimensions = (width: number, height: number) => ({
   width: Math.max(1, Math.floor(width)),
@@ -69,10 +80,28 @@ export default function LiveChartPreviewWeb({
   const lastVolumePointRef = useRef<{ time: number; value: number } | null>(null);
   const previewCandlesRef = useRef<ReturnType<typeof sanitizePreviewCandles>>([]);
   const lastCandleLengthRef = useRef(0);
+  const lastAreaViewportFirstTimeRef = useRef<number | null>(null);
+  const lastAreaViewportContextRef = useRef('');
   const lastRenderedCandleSignatureRef = useRef('');
   const activeBrokerQuerySession = useActiveBrokerQuerySession();
 
-  const { candles } = useLiveCandles(symbol, timeframe, active);
+  const {
+    candles,
+    hasHistoryCandles,
+    loading: historyLoading,
+    paginate,
+  } = useLiveCandles(symbol, timeframe, active);
+  const areaVisibleBarTarget = useAreaChartHistoryExpansion({
+    active,
+    chartType,
+    symbol,
+    timeframe,
+    cacheScopeKey: activeBrokerQuerySession?.cacheNamespace ?? ORRNN_DEMO_PUBLIC_CACHE_NAMESPACE,
+    candleCount: candles.length,
+    hasHistoryCandles,
+    historyLoading,
+    paginate,
+  });
   const liveQuotes = useMarketData([symbol], active);
   const liveQuote = liveQuotes[symbol];
   const { data: instrumentMeta } = useInstrumentMeta(symbol, active);
@@ -81,10 +110,24 @@ export default function LiveChartPreviewWeb({
 
   const previewCandles = useMemo(() => {
     const sanitized = sanitizePreviewCandles(candles);
-    // Renko needs the full price path to build stable boxes; other compact web
-    // previews can safely keep only their most recent 50 timed candles.
-    return chartType === 'renko' ? sanitized : sanitized.slice(-50);
-  }, [candles, chartType]);
+    // Renko needs the full source path. Area keeps its bounded genuine-close
+    // overview; compact OHLC/Line previews retain the established 50-bar tail.
+    return chartType === 'renko'
+      ? sanitized
+      : chartType === 'area'
+        ? sanitized.slice(-areaVisibleBarTarget)
+        : sanitized.slice(-50);
+  }, [areaVisibleBarTarget, candles, chartType]);
+  const areaChartDirection = useMemo(
+    () => resolveAreaChartDirection(previewCandles),
+    [previewCandles],
+  );
+  const areaChartColor = useMemo(
+    () => resolveAreaChartColor(areaChartDirection, colors),
+    [areaChartDirection, colors],
+  );
+  const areaChartColorRef = useRef(areaChartColor);
+  areaChartColorRef.current = areaChartColor;
   const latestPreviewPrecisionPrices = useMemo(() => {
     const latest = previewCandles[previewCandles.length - 1];
     return latest ? [latest.open, latest.high, latest.low, latest.close] : [];
@@ -201,7 +244,9 @@ export default function LiveChartPreviewWeb({
       rightOffset: LIVE_CHART_PREVIEW_TIME_SCALE_RIGHT_OFFSET,
       shiftVisibleRangeOnNewBar: true,
       barSpacing: 13,
-      minBarSpacing: 3,
+      minBarSpacing: chartType === 'area'
+        ? CHART_AREA_TIME_SCALE_MIN_BAR_SPACING
+        : CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING,
     },
     rightPriceScale: {
       borderColor: display.showGrid ? colors.grid : 'transparent',
@@ -264,11 +309,13 @@ export default function LiveChartPreviewWeb({
       });
     } else if (chartType === 'area') {
       // Area is the Line close path plus a light theme-colored gradient fill.
+      const areaLineColor = areaChartColorRef.current;
       seriesRef.current = chart.addSeries(AreaSeries, {
-        lineColor: colors.lineBody,
-        topColor: withAlpha(colors.lineBody, 0.32),
-        bottomColor: withAlpha(colors.lineBody, 0.04),
-        lineWidth: 2,
+        lineColor: areaLineColor,
+        topColor: withAlpha(areaLineColor, 0.32),
+        bottomColor: withAlpha(areaLineColor, 0.04),
+        lineWidth: CHART_AREA_LINE_WIDTH,
+        lineType: LineType.Simple,
         crosshairMarkerVisible: true,
         lastValueVisible: true,
         priceLineVisible: showLastPriceLine,
@@ -325,8 +372,27 @@ export default function LiveChartPreviewWeb({
   }, [chartType, chartOptions, colors, display, displayDecimals]);
 
   useEffect(() => {
+    if (chartType !== 'area' || !seriesRef.current) {
+      return;
+    }
+
+    try {
+      seriesRef.current.applyOptions({
+        lineColor: areaChartColor,
+        topColor: withAlpha(areaChartColor, 0.32),
+        bottomColor: withAlpha(areaChartColor, 0.04),
+      });
+    } catch (_error) {
+      // A concurrent chart-type or route change may already own disposal.
+    }
+  }, [areaChartColor, chartType]);
+
+  useEffect(() => {
     if (!seriesRef.current) return;
 
+    const previousLength = lastCandleLengthRef.current;
+    const previousFirstTime = lastAreaViewportFirstTimeRef.current;
+    const previousVisibleRange = chartRef.current?.timeScale().getVisibleLogicalRange() ?? null;
     const lastSignature = getLastPreviewCandleSignature(previewCandles);
     const mappedData = mapPreviewCandles(previewCandles, chartType, colors, renkoBrickSize);
 
@@ -347,13 +413,62 @@ export default function LiveChartPreviewWeb({
       lastVolumePointRef.current = null;
     }
 
+    if (chartRef.current && previewCandles.length > 0) {
+      if (chartType === 'area') {
+        const viewportContext = `${symbol}:${timeframe}:area`;
+        const nextFirstTime = previewCandles[0]?.time ?? null;
+        const previousDefaultBars = Math.min(previousLength, areaVisibleBarTarget);
+        const nextDefaultBars = Math.min(previewCandles.length, areaVisibleBarTarget);
+        const previousRightEdge = Math.max(0.5, previousLength - 0.5)
+          + LIVE_CHART_PREVIEW_TIME_SCALE_RIGHT_OFFSET;
+        const previousSpan = previousVisibleRange
+          ? previousVisibleRange.to - previousVisibleRange.from
+          : 0;
+        const untouchedPrepend = Boolean(
+          previousVisibleRange
+          && previousLength > 0
+          && nextFirstTime !== null
+          && previousFirstTime !== null
+          && nextFirstTime < previousFirstTime
+          && previousVisibleRange.to >= previousRightEdge - 1.25
+          && nextDefaultBars > previousDefaultBars
+          && Math.abs(previousSpan - previousDefaultBars)
+            <= Math.max(2, previousDefaultBars * 0.03),
+        );
+        if (
+          lastAreaViewportContextRef.current !== viewportContext
+          || previousLength === 0
+          || untouchedPrepend
+        ) {
+          const rightEdge = Math.max(0.5, previewCandles.length - 0.5)
+            + LIVE_CHART_PREVIEW_TIME_SCALE_RIGHT_OFFSET;
+          chartRef.current.timeScale().applyOptions({
+            minBarSpacing: CHART_AREA_TIME_SCALE_MIN_BAR_SPACING,
+          });
+          chartRef.current.timeScale().setVisibleLogicalRange({
+            from: Math.max(-0.5, rightEdge - nextDefaultBars),
+            to: rightEdge,
+          });
+        }
+        lastAreaViewportContextRef.current = viewportContext;
+        lastAreaViewportFirstTimeRef.current = nextFirstTime;
+      } else {
+        chartRef.current.timeScale().fitContent();
+        lastAreaViewportContextRef.current = '';
+        lastAreaViewportFirstTimeRef.current = null;
+      }
+    }
     lastCandleLengthRef.current = previewCandles.length;
     lastRenderedCandleSignatureRef.current = lastSignature;
-
-    if (chartRef.current && previewCandles.length > 0) {
-      chartRef.current.timeScale().fitContent();
-    }
-  }, [previewCandles, chartType, colors, renkoBrickSize]);
+  }, [
+    areaVisibleBarTarget,
+    chartType,
+    colors,
+    previewCandles,
+    renkoBrickSize,
+    symbol,
+    timeframe,
+  ]);
 
   useEffect(() => {
     if (!seriesRef.current) return;

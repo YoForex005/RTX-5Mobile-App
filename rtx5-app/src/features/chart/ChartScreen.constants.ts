@@ -20,6 +20,15 @@ export const CHART_DRAWING_MAGNET_THRESHOLD_PX = 18;
 export const CHART_DEFAULT_VISIBLE_BAR_MAX = 88;
 export const CHART_DEFAULT_VISIBLE_BAR_TARGET_PX = 8;
 export const CHART_DEFAULT_VISIBLE_BAR_MIN = 42;
+// Area charts stay faithful to every candle close, but compress a bounded
+// history page much more tightly than candle-based charts. Subpixel logical
+// spacing is intentional: Lightweight Charts still draws the genuine ordered
+// closes as one crisp line without smoothing or inventing intermediate prices.
+export const CHART_AREA_VISIBLE_BAR_MAX = 500;
+export const CHART_AREA_VISIBLE_BAR_TARGET_PX = 0.65;
+export const CHART_AREA_VISIBLE_BAR_MIN = 120;
+export const CHART_AREA_TIME_SCALE_MIN_BAR_SPACING = 0.5;
+export const CHART_AREA_LINE_WIDTH = 1;
 export const CHART_DEFAULT_TIME_SCALE_BAR_SPACING = 9;
 export const CHART_DEFAULT_RESET_BAR_SPACING_MAX = 11;
 export const CHART_DEFAULT_RESET_BAR_SPACING_MIN = 5;

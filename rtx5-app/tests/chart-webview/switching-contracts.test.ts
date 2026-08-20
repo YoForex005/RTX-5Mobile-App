@@ -196,6 +196,16 @@ test('symbol and timeframe switching full-reloads data and resets the first view
   );
   assertSourceContains(
     source,
+    /chartManualPriceScaleContextSigRef\.current !== chartDataContextSig[\s\S]*chartManualPriceScaleContextSigRef\.current = chartDataContextSig;[\s\S]*chartManualPriceScaleRef\.current = null/,
+    'manual price-scale snapshots must be discarded when the selected market-data context changes',
+  );
+  assertSourceContains(
+    source,
+    /if \(renderableCandles\.length === 0\) \{[\s\S]*if \(contextChanged\) \{[\s\S]*updateChartData\(\[\], \{[\s\S]*resetVisibleRange: true,[\s\S]*dataContextSig:/,
+    'an empty context handoff must reset the old symbol price window before new history arrives',
+  );
+  assertSourceContains(
+    source,
     /chartDataContextEpochRef\.current\.contextKey !== chartDataContextSig[\s\S]*epoch: chartDataContextEpochRef\.current\.epoch \+ 1[\s\S]*lastPaintedChartDataContextEpoch === chartDataContextEpoch/,
     'rapid A-B-A selections must not reuse an older paint acknowledgement for the same context string',
   );
