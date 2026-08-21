@@ -163,6 +163,12 @@ export const CH_HTML = `
       var lastAppliedLiveTickRevision = 0;
       var lastAppliedChartDataPaintRevision = 0;
       var lastAppliedChartDataPaintToken = '';
+      // Keep the last 16 successfully painted symbol/timeframe datasets in this
+      // WebView. Revisiting one can display it immediately while fresh history
+      // loads in the background. Remounting the WebView starts with an empty cache.
+      var CHART_CONTEXT_SNAPSHOT_CACHE_CAPACITY = 16;
+      var cachedChartContextSnapshots = Object.create(null);
+      var cachedChartContextLru = [];
       // Full-series replacements can arrive while a visual-shell rebuild has
       // temporarily removed the Lightweight Charts series. Keep only the
       // newest replacement and replay it after the current init completes.
@@ -4088,6 +4094,21 @@ export const CH_HTML = `
         } catch (_e) {}
       }
 
+      function postChartContextActivated(requestId, dataContextSig, paintToken, hit) {
+        try {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'CHART_CONTEXT_ACTIVATED',
+            requestId:
+              typeof requestId === 'string' || typeof requestId === 'number'
+                ? requestId
+                : null,
+            dataContextSig: dataContextSig || '',
+            paintToken: paintToken || '',
+            hit: hit === true,
+          }));
+        } catch (_e) {}
+      }
+
       function retryChartDataPaintAcknowledgement(dataContextSig, paintToken) {
         var requestedDataContextSig =
           typeof dataContextSig === 'string' ? dataContextSig : '';
@@ -6859,6 +6880,10 @@ export const CH_HTML = `
         clearMovingVerticalGrid();
         clearChartAxisDividers();
         if (chart) {
+          // Series-marker primitives survive setData, but a full chart rebuild
+          // destroys their owner. Detach while the old series is still valid so
+          // its handle can never be mistaken for the replacement series.
+          clearOverlayMarkers();
           try { chart.remove(); } catch (_e) {}
           chart = null;
           series = null;
@@ -7130,6 +7155,16 @@ export const CH_HTML = `
           series.setData(mapped);
           detachMarketPriceLineRefsAfterSeriesReset();
           currentSeriesLength = mapped.length;
+          if (mapped.length > 0) {
+            try {
+              rememberCachedChartContextSnapshot(
+                resolvedDataContextSig,
+                seriesType,
+                lastRawSeriesData,
+                lastDisplayDecimals
+              );
+            } catch (_contextCacheInitError) {}
+          }
           lastBarTime = mapped[mapped.length - 1].time;
           if (isValidPriceRange(retainedManualPriceScaleRange)) {
             rememberManualVerticalPanRange(retainedManualPriceScaleRange);
@@ -7427,7 +7462,9 @@ export const CH_HTML = `
           }
 
           _positionLinesArr = [];
-          _overlayMarkers = null;
+          // Lightweight Charts keeps the marker primitive attached across a
+          // same-series setData. Retain its handle so the next changed/empty
+          // payload can update or detach it instead of leaving ghost arrows.
           applyOverlayPayload(_overlayPayload);
           setLivePriceLine(lastLivePrice);
           ensureDirectionPriceLine();
@@ -7790,6 +7827,142 @@ export const CH_HTML = `
           .sort(function(left, right) { return left.time - right.time; });
       }
 
+      function cloneCachedChartContextSeriesData(data) {
+        if (!Array.isArray(data) || data.length === 0) {
+          return [];
+        }
+        var cloned = new Array(data.length);
+        for (var i = 0; i < data.length; i++) {
+          var item = data[i];
+          if (!item || typeof item !== 'object') {
+            return [];
+          }
+          cloned[i] = Object.assign({}, item);
+        }
+        return cloned;
+      }
+
+      function touchCachedChartContext(dataContextSig) {
+        var existingIndex = cachedChartContextLru.indexOf(dataContextSig);
+        if (existingIndex >= 0) {
+          cachedChartContextLru.splice(existingIndex, 1);
+        }
+        cachedChartContextLru.push(dataContextSig);
+      }
+
+      function rememberCachedChartContextSnapshot(
+        dataContextSig,
+        cachedSeriesType,
+        rawSeriesData,
+        displayDecimals
+      ) {
+        var contextSig = typeof dataContextSig === 'string' ? dataContextSig : '';
+        var contextSeriesType =
+          typeof cachedSeriesType === 'string' ? cachedSeriesType : '';
+        var cachedData = cloneCachedChartContextSeriesData(rawSeriesData);
+        if (!contextSig || !contextSeriesType || cachedData.length === 0) {
+          return false;
+        }
+
+        var cachedDisplayDecimals =
+          typeof displayDecimals === 'number' &&
+          isFinite(displayDecimals) &&
+          displayDecimals >= 0
+            ? Math.max(0, Math.min(10, Math.round(displayDecimals)))
+            : null;
+        cachedChartContextSnapshots[contextSig] = {
+          dataContextSig: contextSig,
+          seriesType: contextSeriesType,
+          data: cachedData,
+          displayDecimals: cachedDisplayDecimals,
+        };
+        touchCachedChartContext(contextSig);
+
+        while (cachedChartContextLru.length > CHART_CONTEXT_SNAPSHOT_CACHE_CAPACITY) {
+          var evictedContextSig = cachedChartContextLru.shift();
+          if (evictedContextSig) {
+            delete cachedChartContextSnapshots[evictedContextSig];
+          }
+        }
+        return true;
+      }
+
+      function readCachedChartContextSnapshot(dataContextSig, requestedSeriesType) {
+        var contextSig = typeof dataContextSig === 'string' ? dataContextSig : '';
+        var contextSeriesType =
+          typeof requestedSeriesType === 'string' ? requestedSeriesType : '';
+        var cached = contextSig ? cachedChartContextSnapshots[contextSig] : null;
+        if (
+          !cached ||
+          cached.seriesType !== contextSeriesType ||
+          !Array.isArray(cached.data) ||
+          cached.data.length === 0
+        ) {
+          return null;
+        }
+
+        var clonedData = cloneCachedChartContextSeriesData(cached.data);
+        if (clonedData.length === 0) {
+          return null;
+        }
+        touchCachedChartContext(contextSig);
+        return {
+          dataContextSig: contextSig,
+          seriesType: cached.seriesType,
+          data: clonedData,
+          displayDecimals: cached.displayDecimals,
+        };
+      }
+
+      function updateCachedChartContextSnapshotWithDatum(
+        dataContextSig,
+        cachedSeriesType,
+        datum,
+        displayDecimals
+      ) {
+        var contextSig = typeof dataContextSig === 'string' ? dataContextSig : '';
+        var cached = contextSig ? cachedChartContextSnapshots[contextSig] : null;
+        if (
+          !cached ||
+          cached.seriesType !== cachedSeriesType ||
+          !datum ||
+          typeof datum !== 'object' ||
+          !Array.isArray(cached.data) ||
+          cached.data.length === 0
+        ) {
+          return false;
+        }
+
+        var cachedLastIndex = cached.data.length - 1;
+        var cachedLast = cached.data[cachedLastIndex];
+        if (
+          !cachedLast ||
+          typeof cachedLast.time !== 'number' ||
+          typeof datum.time !== 'number' ||
+          datum.time < cachedLast.time
+        ) {
+          return false;
+        }
+        var cachedDatum = Object.assign({}, datum);
+        if (datum.time === cachedLast.time) {
+          cached.data[cachedLastIndex] = cachedDatum;
+        } else {
+          cached.data.push(cachedDatum);
+        }
+        if (
+          typeof displayDecimals === 'number' &&
+          isFinite(displayDecimals) &&
+          displayDecimals >= 0
+        ) {
+          cached.displayDecimals = Math.max(
+            0,
+            Math.min(10, Math.round(displayDecimals))
+          );
+        }
+        touchCachedChartContext(contextSig);
+        return true;
+      }
+
       function upsertRawSeriesDatum(tick) {
         var normalized = normalizeRawSeriesDatum(tick);
         if (!normalized) {
@@ -7807,11 +7980,23 @@ export const CH_HTML = `
           }
           if (normalized.time === last.time) {
             lastRawSeriesData[lastIndex] = normalized;
+            updateCachedChartContextSnapshotWithDatum(
+              lastInitDataContextSig,
+              seriesType,
+              normalized,
+              lastDisplayDecimals
+            );
             return normalized;
           }
         }
 
         lastRawSeriesData.push(normalized);
+        updateCachedChartContextSnapshotWithDatum(
+          lastInitDataContextSig,
+          seriesType,
+          normalized,
+          lastDisplayDecimals
+        );
         return normalized;
       }
 
@@ -7897,8 +8082,7 @@ export const CH_HTML = `
           return false;
         }
         pendingChartDataReplacement = null;
-        updateChartData(pending.data, pending.options);
-        return true;
+        return updateChartData(pending.data, pending.options) === true;
       }
 
       function updateChartData(data, options) {
@@ -7910,11 +8094,15 @@ export const CH_HTML = `
               // native bridge immediately instead of waiting for its watchdog.
               postError('updateChartData', new Error('series not initialized; replacement queued'));
             }
-            return queuedReplacement;
+            // Queued is not the same as synchronously applied. Callers that
+            // require a paint certificate must wait for replay + acknowledgement.
+            return false;
           }
           var updateOptions = options && typeof options === 'object' ? options : {};
           var preserveVisibleLogicalSpan = updateOptions.preserveVisibleLogicalSpan === true;
           var resetVisibleRange = updateOptions.resetVisibleRange === true;
+          var suppressContextOverlayRebuild =
+            updateOptions.suppressContextOverlayRebuild === true;
           var paintedDataContextSig =
             typeof updateOptions.dataContextSig === 'string' ? updateOptions.dataContextSig : '';
           var paintToken =
@@ -7988,7 +8176,6 @@ export const CH_HTML = `
           currentSeriesLength = mapped.length;
           clearMarketPriceLineRefs();
           series.setData(mapped);
-          refreshAreaSeriesDirection(true);
           if (paintRevision !== null) {
             lastAppliedChartDataPaintRevision = paintRevision;
             lastAppliedChartDataPaintToken = paintToken;
@@ -8002,11 +8189,32 @@ export const CH_HTML = `
             // this context's legitimate manual price window.
             appliedChartDataContextSig = paintedDataContextSig;
           }
-          if (mapped.length > 0 && paintedDataContextSig && paintToken) {
-            requestAnimationFrame(function() {
-              postChartDataPainted(paintedDataContextSig, paintToken);
-            });
+          if (mapped.length > 0 && paintedDataContextSig) {
+            try {
+              rememberCachedChartContextSnapshot(
+                paintedDataContextSig,
+                seriesType,
+                lastRawSeriesData,
+                lastDisplayDecimals
+              );
+            } catch (_contextCacheUpdateError) {}
           }
+          if (mapped.length > 0 && paintedDataContextSig && paintToken) {
+            // Native keeps this WebView fully transparent until it receives the
+            // acknowledgement. Android may defer visual frame callbacks for a
+            // transparent hardware WebView, so waiting for one creates a
+            // circular wait that is only broken by the 3 s native watchdog.
+            // setData() has completed synchronously at this point; acknowledge
+            // the applied, non-empty, tokenized series now so cached A -> B -> A
+            // revisits can reveal the replacement immediately.
+            postChartDataPainted(paintedDataContextSig, paintToken);
+          }
+          // Area direction is presentation-only. Keep it downstream from the
+          // successful data-paint acknowledgement and contain any unexpected
+          // failure so style refresh work can never strand native loading.
+          try {
+            refreshAreaSeriesDirection(true);
+          } catch (_areaDirectionRefreshError) {}
           if (window._drawingManager && typeof window._drawingManager.refreshCrosshairData === 'function') {
             try { window._drawingManager.refreshCrosshairData(); } catch (_crosshairRefreshErr) {}
           }
@@ -8110,8 +8318,10 @@ export const CH_HTML = `
           // CRITICAL BUGFIX: setData natively obliterates all PriceLines previously bound to the series!
           // We must explicitly reconstruct the dynamic trade overlays immediately after setting chart data.
           _positionLinesArr = [];
-          _overlayMarkers = null;
-          if (_overlayPayload) {
+          // Do not drop the live marker handle here: setData preserves the
+          // primitive and dropping only our reference would make it impossible
+          // to detach before attaching the next history payload.
+          if (!suppressContextOverlayRebuild && _overlayPayload) {
             applyOverlayPayload(_overlayPayload);
           }
           setLivePriceLine(lastLivePrice);
@@ -8148,8 +8358,139 @@ export const CH_HTML = `
             _liveBarHasObservedRealtimeUpdate = false;
           }
           scheduleMarketPriceScaleDomOnly();
+          return true;
         } catch (e) {
           postError('updateChartData', e);
+          return false;
+        }
+      }
+
+      function clearChartContextPresentationForActivation() {
+        // A cached candle swap happens before native commits the target symbol's
+        // overlays and drawings. Remove every old-context decoration first so
+        // B's positions, Bid badge, or drawings can never flash on A.
+        lastLivePrice = null;
+        lastBidPrice = null;
+        lastAskPrice = null;
+        marketPriceLinesVisible = false;
+        pendingHorizontalOverlayApply = false;
+        pendingVerticalOverlayApply = false;
+        verticalGestureDomWorkPending = false;
+        clearMarketPriceLineRefs();
+
+        var emptyOverlayPayload = { priceLines: [], markers: [], tradeHistorySegments: [] };
+        _overlayPayload = emptyOverlayPayload;
+        _appliedOverlayPayload = emptyOverlayPayload;
+        clearOverlayPriceLines();
+        clearOverlayMarkers();
+        try { refreshOverlayDomLabels(emptyOverlayPayload); } catch (_overlayClearError) {}
+
+        // DrawingToolsManager.setSerializedDrawings is the non-publishing
+        // replacement path. Publishing clear APIs could send an empty history
+        // back to native and incorrectly erase the target symbol bucket.
+        if (
+          window._drawingManager &&
+          typeof window._drawingManager.setSerializedDrawings === 'function'
+        ) {
+          try {
+            window._drawingManager.setSerializedDrawings([]);
+          } catch (_drawingContextClearError) {}
+        }
+      }
+
+      // Warm symbol switch: remove the old symbol's overlays, apply the target
+      // symbol's cached candles and price precision, then report success only
+      // after setData succeeds. Native changes the selected symbol after this reply.
+      function activateCachedChartContext(
+        dataContextSig,
+        paintToken,
+        displayDecimals,
+        requestId
+      ) {
+        var requestedDataContextSig =
+          typeof dataContextSig === 'string' ? dataContextSig : '';
+        var requestedPaintToken = typeof paintToken === 'string' ? paintToken : '';
+        try {
+          if (
+            !requestedDataContextSig ||
+            !requestedPaintToken ||
+            !series ||
+            _pendingInit
+          ) {
+            postChartContextActivated(
+              requestId,
+              requestedDataContextSig,
+              requestedPaintToken,
+              false
+            );
+            return false;
+          }
+
+          var cachedSnapshot = readCachedChartContextSnapshot(
+            requestedDataContextSig,
+            seriesType
+          );
+          if (!cachedSnapshot || cachedSnapshot.data.length === 0) {
+            postChartContextActivated(
+              requestId,
+              requestedDataContextSig,
+              requestedPaintToken,
+              false
+            );
+            return false;
+          }
+
+          // Precision is part of the cached symbol snapshot. The caller's value
+          // may still describe B while this command activates A, so use it only
+          // for a legacy/future entry that has no cached precision.
+          var cachedDisplayDecimals = cachedSnapshot.displayDecimals;
+          var requestedDisplayDecimals =
+            typeof displayDecimals === 'number' &&
+            isFinite(displayDecimals) &&
+            displayDecimals >= 0
+              ? displayDecimals
+              : lastDisplayDecimals;
+          var targetDisplayDecimals =
+            typeof cachedDisplayDecimals === 'number' &&
+            isFinite(cachedDisplayDecimals) &&
+            cachedDisplayDecimals >= 0
+              ? cachedDisplayDecimals
+              : requestedDisplayDecimals;
+
+          clearChartContextPresentationForActivation();
+          setDisplayDecimals(targetDisplayDecimals);
+          var didApplyCachedSnapshot = updateChartData(cachedSnapshot.data, {
+            preserveVisibleLogicalSpan: false,
+            resetVisibleRange: true,
+            suppressContextOverlayRebuild: true,
+            dataContextSig: requestedDataContextSig,
+            paintToken: requestedPaintToken,
+          });
+          if (didApplyCachedSnapshot !== true) {
+            postChartContextActivated(
+              requestId,
+              requestedDataContextSig,
+              requestedPaintToken,
+              false
+            );
+            return false;
+          }
+
+          postChartContextActivated(
+            requestId,
+            requestedDataContextSig,
+            requestedPaintToken,
+            true
+          );
+          return true;
+        } catch (_cachedContextActivationError) {
+          postChartContextActivated(
+            requestId,
+            requestedDataContextSig,
+            requestedPaintToken,
+            false
+          );
+          return false;
         }
       }
 
@@ -9099,8 +9440,10 @@ export const CH_HTML = `
       var _positionLinesArr = [];
       var _overlayPriceLinesByDragKey = Object.create(null);
       var _overlayMarkers = null;
-      var _overlayPayload = { priceLines: [], markers: [] };
-      var _appliedOverlayPayload = { priceLines: [], markers: [] };
+      var _overlayMarkerSource = [];
+      var _lastTradeHistoryMarkerScaleKey = '';
+      var _overlayPayload = { priceLines: [], markers: [], tradeHistorySegments: [] };
+      var _appliedOverlayPayload = { priceLines: [], markers: [], tradeHistorySegments: [] };
       var _overlayResyncTimer = null;
       var _overlayLabelLayer = null;
       // Stable DOM nodes for trade labels/lines/boxes. Never wipe the whole
@@ -9150,6 +9493,86 @@ export const CH_HTML = `
           try { _overlayMarkers.detach(); } catch (_e) {}
         }
         _overlayMarkers = null;
+        _overlayMarkerSource = [];
+        _lastTradeHistoryMarkerScaleKey = '';
+        // A rebuilt chart can receive the same marker geometry as its previous
+        // series. Force the next payload to attach it to the new series.
+        _lastAppliedOverlayNativeSignature = '';
+      }
+
+      function resolveTradeHistoryMarkerScale() {
+        var barSpacing = ${CHART_DEFAULT_TIME_SCALE_BAR_SPACING};
+        try {
+          var timeScale = chart && typeof chart.timeScale === 'function'
+            ? chart.timeScale()
+            : null;
+          var options = timeScale && typeof timeScale.options === 'function'
+            ? timeScale.options()
+            : null;
+          if (
+            options &&
+            typeof options.barSpacing === 'number' &&
+            isFinite(options.barSpacing) &&
+            options.barSpacing > 0
+          ) {
+            barSpacing = options.barSpacing;
+          }
+        } catch (_tradeHistorySpacingErr) {}
+
+        // Lightweight Charts internally clamps its marker base to 12..30 and
+        // rounds that base down to an even pixel. Compensate only history
+        // arrows so their drawn size follows candle width at every normal zoom
+        // level while their tip remains within one pixel of the exact price.
+        var clampedBase = Math.max(12, Math.min(30, barSpacing));
+        // Match Lightweight Charts 5.1 exactly: its first helper applies its
+        // ceil-to-odd adjustment, then the marker-position helper adjusts that
+        // result once more to an even integer. The
+        // effective unscaled placement height is therefore 10..28, not 12..30.
+        var oddBaseHeight = Math.ceil(clampedBase);
+        if (oddBaseHeight % 2 === 0) oddBaseHeight -= 1;
+        var baseHeight = Math.ceil(oddBaseHeight);
+        if (baseHeight % 2 !== 0) baseHeight -= 1;
+        var desiredHeight = Math.max(12, Math.min(30, Math.round(barSpacing + 10)));
+        return {
+          key: desiredHeight + ':' + baseHeight,
+          size: desiredHeight / baseHeight,
+        };
+      }
+
+      function scaleTradeHistoryMarkers(markers, scale) {
+        if (!Array.isArray(markers) || markers.length === 0) return [];
+        return markers.map(function(marker) {
+          if (
+            !marker ||
+            typeof marker.id !== 'string' ||
+            marker.id.indexOf('trade-history-') !== 0
+          ) {
+            return marker;
+          }
+          return Object.assign({}, marker, { size: scale.size });
+        });
+      }
+
+      function refreshTradeHistoryMarkerScale(force) {
+        if (
+          !_overlayMarkers ||
+          typeof _overlayMarkers.setMarkers !== 'function' ||
+          !_overlayMarkerSource.length
+        ) {
+          return;
+        }
+        if (
+          typeof _overlayMarkers.getSeries === 'function' &&
+          _overlayMarkers.getSeries() !== series
+        ) {
+          return;
+        }
+        var scale = resolveTradeHistoryMarkerScale();
+        if (force !== true && scale.key === _lastTradeHistoryMarkerScaleKey) return;
+        try {
+          _overlayMarkers.setMarkers(scaleTradeHistoryMarkers(_overlayMarkerSource, scale));
+          _lastTradeHistoryMarkerScaleKey = scale.key;
+        } catch (_tradeHistoryMarkerScaleErr) {}
       }
 
       function ensureOverlayLabelLayer() {
@@ -9222,6 +9645,7 @@ export const CH_HTML = `
             key.indexOf('label:') !== 0 &&
             key.indexOf('line:') !== 0 &&
             key.indexOf('box:') !== 0 &&
+            key.indexOf('history-segment:') !== 0 &&
             key !== 'move-badge'
           ) {
             continue;
@@ -9277,23 +9701,150 @@ export const CH_HTML = `
         return y >= bounds.top && y <= bounds.bottom;
       }
 
+      function pruneTradeHistorySegmentDomNodes(liveKeys) {
+        var live = Object.create(null);
+        if (Array.isArray(liveKeys)) {
+          for (var i = 0; i < liveKeys.length; i++) {
+            if (liveKeys[i]) live[liveKeys[i]] = true;
+          }
+        }
+        var keys = Object.keys(_overlayDomNodesByKey);
+        for (var k = 0; k < keys.length; k++) {
+          var key = keys[k];
+          if (key.indexOf('history-segment:') !== 0 || live[key]) continue;
+          var node = _overlayDomNodesByKey[key];
+          if (node && node.parentNode) {
+            try { node.parentNode.removeChild(node); } catch (_e) {}
+          }
+          delete _overlayDomNodesByKey[key];
+        }
+      }
+
+      // Closed-trade connectors are DOM lines because Lightweight Charts
+      // series markers cannot join two exact time/price coordinates. The line
+      // starts at the opening deal and ends at the closing deal, while the
+      // shared overlay layer clips it to the visible price pane.
+      function renderTradeHistorySegmentDom(layer, payload, liveOverlayKeys, pruneHistoryOnly) {
+        var liveHistoryKeys = [];
+        try {
+          if (
+            !layer ||
+            !chart ||
+            !series ||
+            typeof chart.timeScale !== 'function' ||
+            typeof series.priceToCoordinate !== 'function'
+          ) {
+            if (pruneHistoryOnly === true) {
+              pruneTradeHistorySegmentDomNodes(liveHistoryKeys);
+            }
+            return;
+          }
+          syncOverlayLabelLayerPaneClip(layer);
+          var timeScale = chart.timeScale();
+          if (!timeScale || typeof timeScale.timeToCoordinate !== 'function') {
+            if (pruneHistoryOnly === true) {
+              pruneTradeHistorySegmentDomNodes(liveHistoryKeys);
+            }
+            return;
+          }
+          var segments = payload && Array.isArray(payload.tradeHistorySegments)
+            ? payload.tradeHistorySegments
+            : [];
+          for (var i = 0; i < segments.length; i++) {
+            var segment = segments[i];
+            if (!segment || typeof segment.id !== 'string' || !segment.id) continue;
+            if (
+              typeof segment.fromTime !== 'number' || !isFinite(segment.fromTime) ||
+              typeof segment.fromPrice !== 'number' || !isFinite(segment.fromPrice) ||
+              typeof segment.toTime !== 'number' || !isFinite(segment.toTime) ||
+              typeof segment.toPrice !== 'number' || !isFinite(segment.toPrice)
+            ) {
+              continue;
+            }
+
+            var fromX = timeScale.timeToCoordinate(segment.fromTime);
+            var toX = timeScale.timeToCoordinate(segment.toTime);
+            var fromY = series.priceToCoordinate(segment.fromPrice);
+            var toY = series.priceToCoordinate(segment.toPrice);
+            if (
+              typeof fromX !== 'number' || !isFinite(fromX) ||
+              typeof toX !== 'number' || !isFinite(toX) ||
+              typeof fromY !== 'number' || !isFinite(fromY) ||
+              typeof toY !== 'number' || !isFinite(toY)
+            ) {
+              continue;
+            }
+
+            var deltaX = toX - fromX;
+            var deltaY = toY - fromY;
+            var length = Math.hypot(deltaX, deltaY);
+            var angle = Math.atan2(deltaY, deltaX);
+            if (!isFinite(length) || !isFinite(angle)) continue;
+
+            var key = 'history-segment:' + segment.id;
+            var line = upsertOverlayDomNode(layer, key, 'rtx5-trade-history-segment');
+            if (!line) continue;
+            liveHistoryKeys.push(key);
+            if (Array.isArray(liveOverlayKeys)) liveOverlayKeys.push(key);
+
+            var lineWidth =
+              typeof segment.lineWidth === 'number' && isFinite(segment.lineWidth)
+                ? Math.max(1, Math.min(4, segment.lineWidth))
+                : 1;
+            var color = typeof segment.color === 'string' && segment.color
+              ? segment.color
+              : '#2962FF';
+            line.setAttribute('data-rtx5-role', 'trade-history-segment');
+            line.setAttribute('aria-hidden', 'true');
+            line.style.position = 'absolute';
+            line.style.left = fromX + 'px';
+            line.style.top = fromY + 'px';
+            line.style.width = length + 'px';
+            line.style.height = '0';
+            line.style.boxSizing = 'border-box';
+            line.style.borderTopWidth = lineWidth + 'px';
+            line.style.borderTopStyle = 'dotted';
+            line.style.borderTopColor = color;
+            line.style.transformOrigin = '0 0';
+            line.style.transform = 'rotate(' + angle + 'rad)';
+            line.style.opacity = '0.78';
+            line.style.pointerEvents = 'none';
+            line.style.zIndex = '7';
+            line.style.visibility = 'visible';
+          }
+        } catch (_tradeHistorySegmentRenderError) {}
+        if (pruneHistoryOnly === true) {
+          pruneTradeHistorySegmentDomNodes(liveHistoryKeys);
+        }
+      }
+
       // Position-only pass over the trade-anchored overlay DOM (entry/SL/TP
       // dotted lines, their BUY/SELL labels, right-axis price boxes). It
       // recomputes each node's y from the trade's REAL price via
       // series.priceToCoordinate on every visible-range change — including
       // active pan / pinch / momentum frames — so markers stay glued to their
-      // price while the chart moves. It never creates, removes, or measures
-      // nodes; it reapplies the same lightweight row sort used by the full
-      // refresh so labels, connector lines, and price boxes stay aligned.
+      // price while the chart moves. Price-line nodes are never rebuilt here;
+      // keyed closed-trade connectors are recalculated from their two exact
+      // coordinates and pruned independently when history changes.
       function repositionTradeOverlayDomNodes() {
         try {
           if (!series || typeof series.priceToCoordinate !== 'function') return;
-          var payload =
+          var appliedHasDomGeometry =
             _appliedOverlayPayload &&
-            Array.isArray(_appliedOverlayPayload.priceLines) &&
-            _appliedOverlayPayload.priceLines.length > 0
+            (
+              (Array.isArray(_appliedOverlayPayload.priceLines) &&
+                _appliedOverlayPayload.priceLines.length > 0) ||
+              (Array.isArray(_appliedOverlayPayload.tradeHistorySegments) &&
+                _appliedOverlayPayload.tradeHistorySegments.length > 0)
+            );
+          var payload =
+            appliedHasDomGeometry
               ? _appliedOverlayPayload
               : _overlayPayload;
+          var historyLayer = ensureOverlayLabelLayer();
+          if (historyLayer) {
+            renderTradeHistorySegmentDom(historyLayer, payload, null, true);
+          }
           var lines = payload && Array.isArray(payload.priceLines) ? payload.priceLines : [];
           if (lines.length === 0) return;
           var bounds = resolveTradeOverlayPaneBounds();
@@ -9371,10 +9922,12 @@ export const CH_HTML = `
         try {
           tradeOverlayRepositionRaf = requestAnimationFrame(function() {
             tradeOverlayRepositionRaf = 0;
+            refreshTradeHistoryMarkerScale(false);
             repositionTradeOverlayDomNodes();
           });
         } catch (_scheduleTradeRepositionErr) {
           tradeOverlayRepositionRaf = 0;
+          refreshTradeHistoryMarkerScale(false);
           repositionTradeOverlayDomNodes();
         }
       }
@@ -10377,6 +10930,7 @@ export const CH_HTML = `
           var layer = ensureOverlayLabelLayer();
           if (!layer) return;
           var liveOverlayKeys = [];
+          renderTradeHistorySegmentDom(layer, payload, liveOverlayKeys, false);
           refreshMarketPriceScaleDom();
           renderMoveDirectionOverlayBadge(layer, liveOverlayKeys);
           var lines = Array.isArray(payload && payload.priceLines) ? payload.priceLines : [];
@@ -10672,17 +11226,44 @@ export const CH_HTML = `
         for (var m = 0; m < markers.length; m++) {
           var mk = markers[m] || {};
           markerParts.push([
+            String(mk.id || ''),
             String(mk.time || ''),
+            String(mk.price || ''),
             String(mk.position || ''),
             String(mk.color || ''),
             String(mk.shape || ''),
+            String(mk.size || ''),
             String(mk.text || ''),
           ].join(':'));
         }
-        return parts.join('|') + '##' + markerParts.join('|');
+        var historySegments = payload && Array.isArray(payload.tradeHistorySegments)
+          ? payload.tradeHistorySegments
+          : [];
+        var historyParts = [];
+        for (var h = 0; h < historySegments.length; h++) {
+          var segment = historySegments[h] || {};
+          historyParts.push([
+            String(segment.id || ''),
+            String(segment.fromTime || ''),
+            String(segment.fromPrice || ''),
+            String(segment.toTime || ''),
+            String(segment.toPrice || ''),
+            String(segment.color || ''),
+            String(segment.lineWidth || 1),
+          ].join(':'));
+        }
+        return parts.join('|') + '##' + markerParts.join('|') + '##' + historyParts.join('|');
       }
 
       var _lastAppliedOverlayNativeSignature = '';
+
+      function isChartOverlayWriteContextCurrent(dataContextSig) {
+        var requestedDataContextSig =
+          typeof dataContextSig === 'string' ? dataContextSig : '';
+        // Internal same-document calls may omit a context. Native bridge writes
+        // always provide one so a delayed B payload cannot decorate activated A.
+        return !requestedDataContextSig || requestedDataContextSig === lastInitDataContextSig;
+      }
 
       // Prefer label-only updates when native line geometry is unchanged.
       // Full nuke/recreate remains the path when lines are added/removed
@@ -10690,7 +11271,7 @@ export const CH_HTML = `
       function applyOverlayPayload(payload) {
         try {
           if (!payload || typeof payload !== 'object') {
-            payload = { priceLines: [], markers: [] };
+            payload = { priceLines: [], markers: [], tradeHistorySegments: [] };
           }
           if (!series) return;
           if (isHorizontalScrollMotionActive()) {
@@ -10707,9 +11288,20 @@ export const CH_HTML = `
           }
 
           var nextNativeSignature = buildOverlayNativeLineSignature(payload);
+          var expectedMarkers = Array.isArray(payload.markers) ? payload.markers : [];
+          var markersAttachedToCurrentSeries = expectedMarkers.length === 0
+            ? _overlayMarkers === null
+            : Boolean(
+                _overlayMarkers &&
+                (
+                  typeof _overlayMarkers.getSeries !== 'function' ||
+                  _overlayMarkers.getSeries() === series
+                )
+              );
           var nativeGeometryUnchanged =
             nextNativeSignature === _lastAppliedOverlayNativeSignature &&
-            _positionLinesArr.length === countOverlayNativePriceLines(payload.priceLines);
+            _positionLinesArr.length === countOverlayNativePriceLines(payload.priceLines) &&
+            markersAttachedToCurrentSeries;
 
           if (nativeGeometryUnchanged) {
             // Tick P/L label refresh only — keep horizontal candle scale stable.
@@ -10755,8 +11347,11 @@ export const CH_HTML = `
           // not match canonical candle-time trade/alert markers.
           clearOverlayMarkers();
           var markers = Array.isArray(payload.markers) ? payload.markers : [];
-          if (lines.length === 0 && markers.length === 0) {
-            postWebViewOverlayLog('emptyPayloadClearConfirmed: empty payload cleared stale price lines and markers');
+          var tradeHistorySegments = Array.isArray(payload.tradeHistorySegments)
+            ? payload.tradeHistorySegments
+            : [];
+          if (lines.length === 0 && markers.length === 0 && tradeHistorySegments.length === 0) {
+            postWebViewOverlayLog('emptyPayloadClearConfirmed: empty payload cleared stale price lines, markers, and trade history');
           }
           if (
             markers.length > 0 &&
@@ -10764,9 +11359,17 @@ export const CH_HTML = `
             typeof LightweightCharts.createSeriesMarkers === 'function'
           ) {
             try {
-              _overlayMarkers = LightweightCharts.createSeriesMarkers(series, markers);
+              _overlayMarkerSource = markers.slice();
+              var markerScale = resolveTradeHistoryMarkerScale();
+              _overlayMarkers = LightweightCharts.createSeriesMarkers(
+                series,
+                scaleTradeHistoryMarkers(_overlayMarkerSource, markerScale)
+              );
+              _lastTradeHistoryMarkerScaleKey = markerScale.key;
             } catch (markerErr) {
               _overlayMarkers = null;
+              _overlayMarkerSource = [];
+              _lastTradeHistoryMarkerScaleKey = '';
               postError('createSeriesMarkers', markerErr);
             }
           }
@@ -10779,12 +11382,18 @@ export const CH_HTML = `
       }
 
       function setChartOverlays(payload) {
+        if (!isChartOverlayWriteContextCurrent(arguments[1])) {
+          return false;
+        }
         var nextOverlayPayload = payload && typeof payload === 'object'
           ? payload
-          : { priceLines: [], markers: [] };
+          : { priceLines: [], markers: [], tradeHistorySegments: [] };
         postWebViewOverlayLog('setChartOverlays received', {
           priceLines: Array.isArray(nextOverlayPayload.priceLines) ? nextOverlayPayload.priceLines.length : 0,
           markers: Array.isArray(nextOverlayPayload.markers) ? nextOverlayPayload.markers.length : 0,
+          tradeHistorySegments: Array.isArray(nextOverlayPayload.tradeHistorySegments)
+            ? nextOverlayPayload.tradeHistorySegments.length
+            : 0,
         });
         nextOverlayPayload = preserveActiveTradeLineDragPayload(nextOverlayPayload);
         _overlayPayload = nextOverlayPayload;
@@ -10859,6 +11468,7 @@ export const CH_HTML = `
       // sorts, repositions, removes, or recreates any overlay geometry.
       function updateOverlayTradeLabelValues(patches) {
         try {
+          if (!isChartOverlayWriteContextCurrent(arguments[1])) return false;
           if (!Array.isArray(patches) || patches.length === 0) return;
           var patchById = Object.create(null);
           for (var i = 0; i < patches.length; i++) {
@@ -10895,9 +11505,10 @@ export const CH_HTML = `
       // or re-fits scale, but may re-run DOM layout for structural changes.
       function updateOverlayTradeLabels(payload) {
         try {
+          if (!isChartOverlayWriteContextCurrent(arguments[1])) return false;
           var nextPayload = payload && typeof payload === 'object'
             ? payload
-            : { priceLines: [], markers: [] };
+            : { priceLines: [], markers: [], tradeHistorySegments: [] };
           nextPayload = preserveActiveTradeLineDragPayload(nextPayload);
           _overlayPayload = nextPayload;
           if (activeTradeLineDrag) {
@@ -10929,6 +11540,9 @@ export const CH_HTML = `
           setChartOverlays({
             priceLines: Array.isArray(lines) ? lines : [],
             markers: Array.isArray(_overlayPayload.markers) ? _overlayPayload.markers : [],
+            tradeHistorySegments: Array.isArray(_overlayPayload.tradeHistorySegments)
+              ? _overlayPayload.tradeHistorySegments
+              : [],
           });
         } catch (e) { postError('setPriceLines', e); }
       }
@@ -11008,6 +11622,7 @@ export const CH_HTML = `
       window.__rtx5SetAreaDirectionOverride = setAreaDirectionOverride;
       window.refreshAreaSeriesDirection = refreshAreaSeriesDirection;
       window.updateChartData = updateChartData;
+      window.activateCachedChartContext = activateCachedChartContext;
       window.updateTick = updateTick;
       window.updateLiveTick = updateLiveTick;
       window.setDisplayDecimals = setDisplayDecimals;

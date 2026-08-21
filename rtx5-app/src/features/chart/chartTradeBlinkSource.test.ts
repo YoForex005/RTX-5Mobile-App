@@ -58,7 +58,7 @@ test('chart overlay geometry stays isolated while open-trade labels follow every
   );
   assert.match(
     native,
-    /updateOverlayTradeLabelValues\(\$\{JSON\.stringify\(patches\)\}\)/,
+    /updateOverlayTradeLabelValues\([\s\S]*\$\{JSON\.stringify\(patches\)\},[\s\S]*\$\{JSON\.stringify\(chartDataContextSig\)\}[\s\S]*\)/,
   );
   assert.match(
     native,
@@ -77,7 +77,7 @@ test('chart overlay geometry stays isolated while open-trade labels follow every
   );
   assert.match(
     native,
-    /chartCanvasReady,\s*chartOpenPositionLabelPatchContextKey,\s*chartReadyEpoch,/,
+    /chartCanvasReady,\s*chartDataContextSig,\s*chartOpenPositionLabelPatchContextKey,\s*chartReadyEpoch,/,
   );
   assert.match(html, /function updateOverlayTradeLabelValues\(patches\)/);
   assert.match(html, /window\.updateOverlayTradeLabelValues = updateOverlayTradeLabelValues/);

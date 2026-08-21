@@ -134,8 +134,8 @@ test('historyless CHART_READY and paint acknowledgements stay concealed', () => 
   );
   assertSourceContains(
     paintBranch,
-    /const pendingPaint = pendingChartDataPaintRef\.current;[\s\S]*if \(!pendingPaint\.confirmsUsableChart\) \{[\s\S]*return;[\s\S]*setHasPaintedChartOnce\(true\);[\s\S]*setLastPaintedChartDataContextSig\(paintedDataContextSig\)/,
-    'empty and live-only paint acknowledgements must return before changing visible readiness',
+    /const pendingPaint = pendingChartDataPaintRef\.current;[\s\S]*if \(!pendingPaint\.confirmsUsableChart\) \{[\s\S]*pendingChartDataPaintRef\.current = \{[\s\S]*return;[\s\S]*const paintedCandles = candlesRef\.current;[\s\S]*candlesRefContextSigRef\.current !== paintedDataContextSig[\s\S]*paintedCandles\.length === 0[\s\S]*return;[\s\S]*pendingChartDataPaintRef\.current = \{[\s\S]*setHasPaintedChartOnce\(true\);[\s\S]*setLastPaintedChartDataContextSig\(paintedDataContextSig\)/,
+    'non-usable acknowledgements may be consumed, but a usable token must survive a transient empty or mismatched native candle ref',
   );
   assertSourceContains(
     source,
@@ -144,7 +144,39 @@ test('historyless CHART_READY and paint acknowledgements stay concealed', () => 
   );
 });
 
-test('watchdog retries init and exact usable-paint acknowledgements without revealing the chart', () => {
+test('a successful data replacement acknowledges before a transparent WebView can defer animation frames', () => {
+  const updateBody = extractFunctionBody(source, 'updateChartData');
+  const setDataIndex = updateBody.indexOf('series.setData(mapped)');
+  const acknowledgementIndex = updateBody.indexOf(
+    'postChartDataPainted(paintedDataContextSig, paintToken)',
+  );
+  const areaDirectionRefreshIndex = updateBody.indexOf(
+    'refreshAreaSeriesDirection(true)',
+    setDataIndex,
+  );
+
+  assert.notEqual(setDataIndex, -1, 'updateChartData must apply the replacement series');
+  assert.ok(
+    acknowledgementIndex > setDataIndex,
+    'the tokenized acknowledgement must follow a successful setData call',
+  );
+  assert.doesNotMatch(
+    updateBody.slice(setDataIndex, acknowledgementIndex),
+    /requestAnimationFrame/,
+    'the acknowledgement must not depend on an animation frame while native opacity is zero',
+  );
+  assert.ok(
+    areaDirectionRefreshIndex > acknowledgementIndex,
+    'optional Area presentation work must run after the usable paint acknowledgement',
+  );
+  assert.match(
+    updateBody,
+    /postChartDataPainted\(paintedDataContextSig, paintToken\);[\s\S]*try \{[\s\S]*refreshAreaSeriesDirection\(true\);[\s\S]*\} catch \(_areaDirectionRefreshError\) \{\}/,
+    'an Area direction refresh throw must be contained after native receives the paint acknowledgement',
+  );
+});
+
+test('watchdog retries init and exact usable-paint transactions without revealing the chart', () => {
   assertSourceContains(
     source,
     /watchdogRef\.current = setInterval\(\(\) => \{[\s\S]*if \(!webViewReady\) \{[\s\S]*return;[\s\S]*if \(!chartInitializedRef\.current\) \{[\s\S]*sendInit\(true\)/,
@@ -152,8 +184,8 @@ test('watchdog retries init and exact usable-paint acknowledgements without reve
   );
   assertSourceContains(
     source,
-    /const hasTimedOutCurrentUsablePaint =[\s\S]*pendingPaint\.confirmsUsableChart[\s\S]*pendingPaint\.dataContextSig === chartDataContextSigRef\.current[\s\S]*pendingPaint\.ackRetryCount < CHART_DATA_PAINT_ACK_RETRY_MAX[\s\S]*retryChartDataPaintAcknowledgement\([\s\S]*JSON\.stringify\(pendingPaint\.dataContextSig\)[\s\S]*JSON\.stringify\(pendingPaint\.token\)[\s\S]*ackRetryCount: pendingPaint\.ackRetryCount \+ 1[\s\S]*resetChartBridgeState\(\);[\s\S]*sendInit\(true\)/,
-    'watchdog must retry the exact pending usable paint up to the shared maximum, then rebuild without hiding the loader',
+    /const hasTimedOutCurrentUsablePaint =[\s\S]*pendingPaint\.confirmsUsableChart[\s\S]*pendingPaint\.dataContextSig === chartDataContextSigRef\.current[\s\S]*pendingPaint\.ackRetryCount < CHART_DATA_PAINT_ACK_RETRY_MAX[\s\S]*pendingPaint\.retryScript\.length > 0[\s\S]*injectJavaScript\(pendingPaint\.retryScript\)[\s\S]*ackRetryCount: pendingPaint\.ackRetryCount \+ 1[\s\S]*recoverChartWebViewAfterPaintStall\([\s\S]*pendingPaint\.dataContextSig,[\s\S]*chartDataContextEpochRef\.current\.epoch,[\s\S]*chartWebViewGeneration/,
+    'watchdog must replay the exact pending usable transaction up to the shared maximum, then recreate the wedged chart surface',
   );
   const paintAckRetryBody = extractFunctionBody(source, 'retryChartDataPaintAcknowledgement');
   assertSourceContains(
@@ -165,6 +197,19 @@ test('watchdog retries init and exact usable-paint acknowledgements without reve
     source,
     /\}, CHART_WATCHDOG_INTERVAL_MS\);/,
     'watchdog retry cadence must come from the shared startup interval constant',
+  );
+});
+
+test('paint-stall recovery remounts at most twice per exact chart visit and stays focus gated', () => {
+  assertSourceContains(
+    source,
+    /const CHART_WEBVIEW_PAINT_STALL_RECOVERY_MAX = 2;/,
+    'silent renderer recovery must have an explicit per-visit remount bound',
+  );
+  assertSourceContains(
+    source,
+    /const recoverChartWebViewAfterPaintStall = useCallback\([\s\S]*failedDataContextSig !== chartDataContextSigRef\.current[\s\S]*failedDataContextEpoch !== chartDataContextEpochRef\.current\.epoch[\s\S]*lastRecoveredChartWebViewGenerationRef\.current === failedGeneration[\s\S]*attemptCount >= CHART_WEBVIEW_PAINT_STALL_RECOVERY_MAX[\s\S]*return false;[\s\S]*lastRecoveredChartWebViewGenerationRef\.current = failedGeneration;[\s\S]*resetChartBridgeState\(\);[\s\S]*setWebViewReady\(false\);[\s\S]*if \(!isScreenFocusedRef\.current\) \{[\s\S]*pendingChartWebViewRecoveryRef\.current = true;[\s\S]*return true;[\s\S]*setChartWebViewGeneration\(\(generation\) => generation \+ 1\)/,
+    'stall recovery must reject stale/double ownership, enforce its cap, reset readiness, and defer hidden remounts',
   );
 });
 

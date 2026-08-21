@@ -103,9 +103,9 @@ export type StreamEntry = {
   listeners: Set<StreamListener>;
   /** Number of active UI components demanding this stream. */
   consumers: number;
-  /** True if currently bootstrapping or syncing data. */
+  /** True only while the chart has no usable history and its cold load is pending. */
   loading: boolean;
-  /** True if the initial REST history fetch is still in progress. */
+  /** True only for a blocking cold REST history fetch. Warm refreshes use abortController instead. */
   historyLoading: boolean;
   /** True when a left-scroll older-history page fetch is in progress. */
   historyPageLoading: boolean;
@@ -113,6 +113,8 @@ export type StreamEntry = {
   isLiveConnected: boolean;
   lastUpdateTime: number | null;
   abortController: AbortController | null;
+  /** Bounded watchdog for the request currently owned by abortController. */
+  historyRequestTimeoutTimer: ReturnType<typeof setTimeout> | null;
   /** Events waiting to be flushed into the liveCandleMap on the next tick. */
   bufferedEvents: BufferedLiveEvent[];
   pendingEvents: BufferedLiveEvent[];

@@ -28,6 +28,7 @@ test('every Chart Preferences display filter is listed and wired into the native
     'periodSeparators',
     'showObjectDescriptions',
     'showTradeLevels',
+    'showTradeHistory',
   ] as const;
 
   for (const key of displayKeys) {
@@ -55,6 +56,7 @@ test('every Chart Preferences display filter is listed and wired into the native
     'object-description visibility must be applied before both saved-drawing replay paths',
   );
   assert.match(nativeSource, /chartShowOnChart/);
+  assert.match(nativeSource, /chartDisplay\.showTradeHistory/);
   assert.match(nativeSource, /buildChartOverlayPayload\([\s\S]*showOnChart: chartShowOnChart/);
 
   // Trade side filters (buy / sell / SL·TP).

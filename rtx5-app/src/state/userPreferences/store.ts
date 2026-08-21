@@ -450,6 +450,16 @@ export function normalizePersistedUserPreferencesState(
   const nextChartColors = nextChartColorScheme === 'custom'
     ? normalizeChartColors(state.chartColors)
     : buildChartColorsForScheme(nextChartColorScheme);
+  const nextChartDisplay = normalizeChartDisplay(state.chartDisplay);
+  const persistedChartDisplay = asRecord(state.chartDisplay);
+  if (
+    typeof persistedChartDisplay.showTradeHistory !== 'boolean'
+    && typeof legacyShowOnChartState.showClosedPositions === 'boolean'
+  ) {
+    // Older builds stored this preference as showClosedPositions. Preserve
+    // the user's choice when migrating to the clearer Show trade history row.
+    nextChartDisplay.showTradeHistory = legacyShowOnChartState.showClosedPositions;
+  }
 
   return {
     themeMode: isThemeMode(state.themeMode) ? state.themeMode : 'dark',
@@ -497,7 +507,7 @@ export function normalizePersistedUserPreferencesState(
     accountDetails,
     chartColorScheme: nextChartColorScheme,
     chartColors: nextChartColors,
-    chartDisplay: normalizeChartDisplay(state.chartDisplay),
+    chartDisplay: nextChartDisplay,
     language: normalizeLanguageCode(state.language),
   };
 }

@@ -23,6 +23,11 @@ test('persisted user preferences are normalized before second-launch hydration r
   assert.match(storeSource, /hasPersistedLivePriceLine = typeof record\.showLivePriceLine === 'boolean'/);
   assert.match(storeSource, /!hasPersistedLivePriceLine && typeof record\.showBidPriceLine === 'boolean'[\s\S]*next\.showLivePriceLine = record\.showBidPriceLine/);
   assert.match(storeSource, /next\.showAskPriceLine = false/);
+  assert.match(
+    storeSource,
+    /typeof persistedChartDisplay\.showTradeHistory !== 'boolean'[\s\S]*nextChartDisplay\.showTradeHistory = legacyShowOnChartState\.showClosedPositions/,
+  );
+  assert.match(storeSource, /chartDisplay: nextChartDisplay/);
   assert.match(storeSource, /DEFAULT_CHART_COLOR_SCHEME/);
   assert.match(storeSource, /LEGACY_BLUE_DEFAULT_CHART_COLORS/);
   assert.match(storeSource, /isLegacyBlueDefaultChartColors\(state\.chartColors\)/);

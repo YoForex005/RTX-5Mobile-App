@@ -245,10 +245,42 @@ test('webview bridge: symbol switches isolate candle state before the context hi
     /live\.error = error instanceof Error \? error\.message : String\(error\)[\s\S]*manager\.commit\(live\)[\s\S]*manager\.notify\(live\)/,
     'history failures must notify subscribers even when the candle series stays empty',
   );
+  const successfulHistorySettlementStart = liveCandleHistoryFetchingSource.indexOf(
+    'live.historyLoading = false;',
+    liveCandleHistoryFetchingSource.indexOf("logDebug('history_request'"),
+  );
+  const successfulHistorySettlementEnd = liveCandleHistoryFetchingSource.indexOf(
+    "logDebug('history_success'",
+    successfulHistorySettlementStart,
+  );
+  assert.notEqual(
+    successfulHistorySettlementStart,
+    -1,
+    'successful history loading settlement was not found',
+  );
+  assert.notEqual(
+    successfulHistorySettlementEnd,
+    -1,
+    'successful history commit boundary was not found',
+  );
+  const successfulHistorySettlement = liveCandleHistoryFetchingSource.slice(
+    successfulHistorySettlementStart,
+    successfulHistorySettlementEnd,
+  );
+  assertSourceContains(
+    successfulHistorySettlement,
+    /live\.historyLoading = false;[\s\S]*live\.historyPageLoading = false;[\s\S]*manager\.commit\(live\);/,
+    'history success must release request-owned flags before the aggregate loading commit',
+  );
+  assert.doesNotMatch(
+    successfulHistorySettlement,
+    /live\.loading = false;/,
+    'history success must let commit observe and publish the aggregate loading transition',
+  );
   assertSourceContains(
     source,
-    /const hasChartDataError = Boolean\(chartDataError && !candlesAvailable\)[\s\S]*const isError = hasChartDataError/,
-    'native chart must show actual candle REST failures instead of hard-coding no error state',
+    /const hasChartDataError = Boolean\([\s\S]*chartDataError && !candlesAvailable[\s\S]*chartSurfaceRecoveryExhausted[\s\S]*const isError = hasChartDataError/,
+    'native chart must show candle REST failures and terminal renderer failures instead of hard-coding no error state',
   );
   assert.doesNotMatch(source, /shouldShowChartLoginPrompt|CANDLE_HISTORY_LOGIN_REQUIRED_MESSAGE/);
   assertSourceContains(
@@ -752,7 +784,7 @@ test('closed-market chart intent warms a deeper exact history window without bro
   );
   assertSourceContains(
     prefetchHistoryBody,
-    /finiteRequestedLimit = Number\.isFinite\(limit\)[\s\S]*\? Math\.floor\(limit\)[\s\S]*: INITIAL_HISTORY_LIMIT[\s\S]*requestedLimit = Math\.min\([\s\S]*Math\.max\(INITIAL_HISTORY_LIMIT, finiteRequestedLimit\)[\s\S]*existing && existing\.limit >= requestedLimit[\s\S]*getCandleHistory\([\s\S]*requestedLimit/,
+    /finiteRequestedLimit = Number\.isFinite\(limit\)[\s\S]*\? Math\.floor\(limit\)[\s\S]*: INITIAL_HISTORY_LIMIT[\s\S]*requestedLimit = Math\.min\([\s\S]*Math\.max\(INITIAL_HISTORY_LIMIT, finiteRequestedLimit\)[\s\S]*existing && existing\.limit >= requestedLimit[\s\S]*manager\.fetchHistory\([\s\S]*requestedLimit/,
     'history prefetch must honor a deeper requested limit and reuse an equal or deeper in-flight request',
   );
   assertSourceContains(
@@ -1330,8 +1362,8 @@ test('native chart status overlays do not block symbol recovery controls', () =>
   );
   assertSourceContains(
     source,
-    /const hasPaintedCurrentChartContext =[\s\S]*hasPaintedChartOnce[\s\S]*lastPaintedChartDataContextSig === chartDataContextSig[\s\S]*lastPaintedChartDataContextEpoch === chartDataContextEpoch[\s\S]*const hasUsableRetainedChart =[\s\S]*hasPaintedCurrentChartContext && webViewReady && chartCanvasReady[\s\S]*const shouldShowChartLoadingOverlay =[\s\S]*!hasUsableRetainedChart &&[\s\S]*\(!loadingFallback \|\| candlesAvailable\) &&[\s\S]*!hasChartDataError &&[\s\S]*\(!chartSurfaceReady \|\| isLoading \|\| candlesAvailable\)/,
-    'loading overlay must reject a stale same-symbol selection epoch and stay visible for available history until its usable paint is confirmed',
+    /const hasPaintedCurrentChartContext =[\s\S]*hasPaintedChartOnce[\s\S]*lastPaintedChartDataContextSig === chartDataContextSig[\s\S]*lastPaintedChartDataContextEpoch === chartDataContextEpoch[\s\S]*const hasPreactivatedCurrentChartContext =[\s\S]*preactivatedChartContext\.dataContextSig === chartDataContextSig[\s\S]*const hasUsableRetainedChart =[\s\S]*hasPaintedCurrentChartContext \|\| hasPreactivatedCurrentChartContext[\s\S]*webViewReady[\s\S]*chartCanvasReady[\s\S]*const shouldShowChartLoadingOverlay =[\s\S]*!hasUsableRetainedChart &&[\s\S]*\(!loadingFallback \|\| candlesAvailable\) &&[\s\S]*!hasChartDataError &&[\s\S]*\(!chartSurfaceReady \|\| isLoading \|\| candlesAvailable\)/,
+    'loading overlay must reject stale ownership while an exact preactivated or painted context stays visible',
   );
   assertSourceContains(
     source,
@@ -2085,6 +2117,20 @@ test('webview bridge: native handler accepts CHART_READY geometry drag and error
   assertSourceContains(source, /if \(readyCandles\.length > 0 && webViewRef\.current\) \{[\s\S]*readyInitSignature === readySnapshotInitSignature[\s\S]*if \(readyHasHistoryCandles\) \{[\s\S]*setHasPaintedChartOnce\(true\)/, 'CHART_READY may latch first paint only when retained candles include committed history');
   assertSourceContains(chartWebViewHtmlSource, /function postChartDataPainted\(dataContextSig, paintToken\)[\s\S]*type: 'CHART_DATA_PAINTED'[\s\S]*paintToken: paintToken \|\| ''/, 'WebView data replacement must publish a tokenized paint acknowledgement');
   assertSourceContains(chartWebViewHtmlSource, /series\.setData\(mapped\);[\s\S]*mapped\.length > 0 && paintedDataContextSig && paintToken[\s\S]*postChartDataPainted\(paintedDataContextSig, paintToken\)/, 'data paint acknowledgement must happen only after non-empty setData succeeds');
+  const replacementUpdateBody = extractFunctionBody(
+    chartWebViewHtmlSource,
+    'updateChartData',
+  );
+  const replacementPaintStart = replacementUpdateBody.indexOf('series.setData(mapped);');
+  const replacementPaintAck = replacementUpdateBody.indexOf(
+    'postChartDataPainted(paintedDataContextSig, paintToken);',
+    replacementPaintStart,
+  );
+  assert.doesNotMatch(
+    replacementUpdateBody.slice(replacementPaintStart, replacementPaintAck),
+    /requestAnimationFrame/,
+    'a transparent native WebView must acknowledge applied cached history without waiting for a visual frame',
+  );
   assertSourceContains(source, /if \(didInject\) \{[\s\S]*renderedSeriesSnapshotRef\.current = nextSnapshot;[\s\S]*\}[\s\S]*msg\.type === 'CHART_DATA_PAINTED'[\s\S]*if \(!pendingPaint\.confirmsUsableChart\) \{[\s\S]*return;[\s\S]*setHasPaintedChartOnce\(true\)/, 'native loading state must wait for a canonical-history WebView data-paint acknowledgement');
   assertSourceContains(source, /readySnapshotInitSignature = buildChartInitSignature\([\s\S]*chartDataContextEpochRef\.current\.epoch,[\s\S]*`\$\{chartDataContextSig\}:\$\{currentSig\}:\$\{getChartSnapshotSignature\(readySnapshot\)\}`,[\s\S]*\)[\s\S]*readyInitSignature === readySnapshotInitSignature[\s\S]*issueChartDataPaintToken\([\s\S]*chartDataContextSig,[\s\S]*readyHasHistoryCandles,[\s\S]*\)/, 'CHART_READY must compare an epoch-prefixed exact init paint with a latest-candle replacement and tag whether that replacement has committed history');
   assertSourceContains(source, /msg\.type === 'CHART_GEOMETRY'[\s\S]*setChartPlotArea/, 'CHART_GEOMETRY must update plot area');
@@ -2098,8 +2144,8 @@ test('webview bridge: watchdog recovers missing ready and exact data-paint ackno
   assertSourceContains(source, /watchdogRef\.current = setInterval\(\(\) => \{[\s\S]*if \(!webViewReady\) \{[\s\S]*return;[\s\S]*if \(!chartInitializedRef\.current\) \{[\s\S]*sendInit\(true\)/, 'watchdog must retry init while chart is not confirmed');
   assertSourceContains(
     source,
-    /const hasTimedOutCurrentUsablePaint =[\s\S]*chartInitializedRef\.current[\s\S]*pendingPaint\.confirmsUsableChart[\s\S]*pendingPaint\.token\.length > 0[\s\S]*pendingPaint\.dataContextSig === chartDataContextSigRef\.current[\s\S]*pendingPaint\.ackRetryCount < CHART_DATA_PAINT_ACK_RETRY_MAX[\s\S]*retryChartDataPaintAcknowledgement === 'function'[\s\S]*JSON\.stringify\(pendingPaint\.dataContextSig\)[\s\S]*JSON\.stringify\(pendingPaint\.token\)[\s\S]*pendingChartDataPaintRef\.current\.token === pendingPaint\.token[\s\S]*ackRetryCount: pendingPaint\.ackRetryCount \+ 1[\s\S]*resetChartBridgeState\(\);[\s\S]*sendInit\(true\)/,
-    'paint watchdog must retry only the exact pending usable context and token up to its maximum before resetting and reinitializing',
+    /const hasTimedOutCurrentUsablePaint =[\s\S]*chartInitializedRef\.current[\s\S]*pendingPaint\.confirmsUsableChart[\s\S]*pendingPaint\.token\.length > 0[\s\S]*pendingPaint\.dataContextSig === chartDataContextSigRef\.current[\s\S]*pendingPaint\.ackRetryCount < CHART_DATA_PAINT_ACK_RETRY_MAX[\s\S]*pendingPaint\.retryScript\.length > 0[\s\S]*injectJavaScript\(pendingPaint\.retryScript\)[\s\S]*pendingChartDataPaintRef\.current\.token === pendingPaint\.token[\s\S]*ackRetryCount: pendingPaint\.ackRetryCount \+ 1[\s\S]*recoverChartWebViewAfterPaintStall\([\s\S]*pendingPaint\.dataContextSig/,
+    'paint watchdog must replay the exact pending usable transaction up to its maximum before recreating the renderer',
   );
   const paintAckRetryBody = extractFunctionBody(
     chartWebViewHtmlSource,

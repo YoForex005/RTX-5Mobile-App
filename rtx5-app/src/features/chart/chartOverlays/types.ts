@@ -57,9 +57,24 @@ export type ChartOverlayMarker = {
   price?: number;
 };
 
+/**
+ * A completed trade's entry-to-exit path. Times are candle-open Unix seconds,
+ * while prices remain the exact execution prices returned by trade history.
+ */
+export type ChartOverlayTradeHistorySegment = {
+  id: string;
+  fromTime: number;
+  fromPrice: number;
+  toTime: number;
+  toPrice: number;
+  color: string;
+  lineWidth: number;
+};
+
 export type ChartOverlayPayload = {
   priceLines: ChartOverlayPriceLine[];
   markers: ChartOverlayMarker[];
+  tradeHistorySegments: ChartOverlayTradeHistorySegment[];
 };
 
 export type ChartOverlayCandle = {
@@ -79,8 +94,10 @@ export type ChartOverlayLiveAccount = {
 
 export const EMPTY_OVERLAY_PRICE_LINES: ChartOverlayPriceLine[] = [];
 export const EMPTY_OVERLAY_MARKERS: ChartOverlayMarker[] = [];
+export const EMPTY_OVERLAY_TRADE_HISTORY_SEGMENTS: ChartOverlayTradeHistorySegment[] = [];
 export const EMPTY_OVERLAY_CANDLES: ChartOverlayCandle[] = [];
 export const EMPTY_CHART_OVERLAY_PAYLOAD: ChartOverlayPayload = {
   priceLines: EMPTY_OVERLAY_PRICE_LINES,
   markers: EMPTY_OVERLAY_MARKERS,
+  tradeHistorySegments: EMPTY_OVERLAY_TRADE_HISTORY_SEGMENTS,
 };

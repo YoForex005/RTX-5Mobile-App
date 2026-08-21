@@ -64,6 +64,12 @@ const CHART_SETTINGS_DISPLAY_ITEMS: Array<{
   { key: 'periodSeparators', label: 'Period separators', description: 'Show MT5-style period separator lines', icon: 'reorder-three-outline' },
   { key: 'showObjectDescriptions', label: 'Show object descriptions', description: 'Show labels for chart objects', icon: 'text-outline' },
   { key: 'showTradeLevels', label: 'Show trade levels', description: 'Show trade level lines on the chart', icon: 'shield-checkmark-outline' },
+  {
+    key: 'showTradeHistory',
+    label: 'Show trade history',
+    description: 'Show completed trade entry and exit arrows with a dotted connecting line',
+    icon: 'git-compare-outline',
+  },
 ];
 
 const CHART_DISPLAY_TO_SHOW_ON_CHART_KEY: Partial<Record<keyof ChartDisplaySettings, ChartShowOnChartKey>> = {

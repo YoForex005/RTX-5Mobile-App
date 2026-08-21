@@ -28,6 +28,15 @@ import {
 export const DEALS_KEY = 'deals';
 export const ACCOUNT_DEALS_KEY = 'accountDeals';
 
+/**
+ * Chart history must not inherit the History screen's date filter. Keeping the
+ * accountDeals root also means the existing realtime invalidation refreshes it.
+ */
+export const getChartDealsQueryKey = (
+  cacheNamespace: string,
+  login?: number,
+) => [ACCOUNT_DEALS_KEY, cacheNamespace, login ?? 'session', 'chart-unfiltered'] as const;
+
 export const getDealsQueryKey = (
   cacheNamespace: string,
   login?: number,
@@ -47,6 +56,8 @@ type PollingQueryOptions = {
   to?: number;
   login?: number;
 };
+
+type ChartDealsQueryOptions = Omit<PollingQueryOptions, 'from' | 'to' | 'login'>;
 
 const resolvePollingRefetchInterval = (
   enabled: boolean,
@@ -154,6 +165,34 @@ export function useAccountDealsQuery(options: PollingQueryOptions = {}) {
 // Kept for cases where the MT5 login is known but no JWT-based account is set
 // (e.g. admin viewing another account's deals).
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Load all available executions for chart entry/exit markers. Some brokers
+ * return history only from the account endpoint, while others require the
+ * login endpoint, so the two sources are merged and deduplicated here. This
+ * deliberately has no from/to options and never reads the History date filter.
+ */
+export function useChartDealsQuery(
+  login: number | undefined,
+  options: ChartDealsQueryOptions = {},
+) {
+  const session = useActiveBrokerQuerySession();
+  const cacheNamespace = getSessionQueryCacheNamespace(session);
+  const enabled = Boolean(session) && (options.enabled ?? true);
+
+  return useQuery({
+    queryKey: getChartDealsQueryKey(cacheNamespace, login),
+    queryFn: () => runSessionBoundQuery(
+      cacheNamespace,
+      () => fetchAccountDealsWithLoginFallback(login),
+    ),
+    enabled,
+    refetchInterval: resolvePollingRefetchInterval(enabled, 5_000, options.refetchInterval),
+    refetchOnMount: options.refetchOnMount,
+    staleTime: options.staleTime,
+    subscribed: options.subscribed,
+  });
+}
 
 /**
  * Fetch deal history for a specific MT5 account login.

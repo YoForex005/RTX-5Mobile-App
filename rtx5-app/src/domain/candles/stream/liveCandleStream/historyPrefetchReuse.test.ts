@@ -16,7 +16,7 @@ test('completed Quotes warm-up is reused before another candle REST prefetch', (
     'candleMemoryCache.get(normalizedSymbol, normalizedTimeframe)',
   );
   const networkRead = prefetchSource.indexOf(
-    'const prefetch = getCandleHistory(',
+    'const prefetch = manager.fetchHistory(',
   );
 
   assert.ok(memoryRead >= 0, 'prefetch must inspect the exact symbol/timeframe memory seed');

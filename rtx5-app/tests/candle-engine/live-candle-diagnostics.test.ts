@@ -58,11 +58,19 @@ test('canonical live stream exposes safe REST history prefetch for fast timefram
   assert.match(source, /const existing = manager\.historyPrefetches\.get\(key\)/);
   assert.match(source, /existing && existing\.limit >= requestedLimit[\s\S]*return existing\.promise/);
   assert.doesNotMatch(source, /this\.historyPrefetches\.has\(entry\.key\)/);
-  assert.match(source, /const pendingPrefetch = this\.historyPrefetches\.get\(entry\.key\)\?\.promise/);
-  // Both settle paths run the same handler: a rejected warm-up must not leave
-  // the chain dangling with the spinner raised.
-  assert.match(source, /const settlePendingPrefetch = \(\) => \{/);
-  assert.match(source, /void pendingPrefetch\.then\(settlePendingPrefetch, settlePendingPrefetch\)/);
+  assert.match(source, /const pendingPrefetchRecord = this\.historyPrefetches\.get\(entry\.key\)/);
+  // Rejected and never-settling warm-ups share one bounded join. A transport
+  // hang must relinquish the key so future revisits cannot keep joining the
+  // same dead promise until the app is restarted.
+  assert.match(source, /const settlePendingPrefetch = \(result: 'settled' \| 'timed_out'\) => \{/);
+  assert.match(
+    source,
+    /result === 'timed_out'[\s\S]*this\.historyPrefetches\.get\(entry\.key\) === pendingPrefetchRecord[\s\S]*this\.historyPrefetches\.delete\(entry\.key\)/,
+  );
+  assert.match(
+    source,
+    /waitForHistoryPrefetchSettlement\(pendingPrefetchRecord\.promise\)[\s\S]*\.then\(settlePendingPrefetch\)/,
+  );
   assert.match(source, /live\.historyCandles\.length > 0[\s\S]*const fallbackLoadLimit = Math\.min\([\s\S]*live\.renderHistoryLimit[\s\S]*runLoadHistory\(this, live, fallbackLoadLimit\)/);
   // A warm revisit is cache-seeded, so the chained prefetch always takes the
   // "already has history" branch and issues no load of its own. Nothing else

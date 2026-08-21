@@ -15,7 +15,10 @@ import { candleKeys } from './candles';
 export const ORRNN_DEMO_PUBLIC_CANDLE_INITIAL_LIMIT = 120;
 export const ORRNN_DEMO_PUBLIC_CANDLE_LIMIT = 500;
 export const ORRNN_DEMO_PUBLIC_CANDLE_STALE_MS = 30_000;
-export const ORRNN_DEMO_PUBLIC_CANDLE_GC_MS = 5 * 60_000;
+// Preserve visited public-chart histories for the lifetime of this QueryClient
+// (the app session). Staleness still triggers background refreshes, while an
+// inactive symbol is no longer discarded and forced through a cold load.
+export const ORRNN_DEMO_PUBLIC_CANDLE_GC_MS = Number.POSITIVE_INFINITY;
 const PUBLIC_CANDLE_RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000] as const;
 
 export type OrrnnDemoPublicCandleSelection = Readonly<{

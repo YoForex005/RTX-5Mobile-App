@@ -87,6 +87,7 @@ import {
 import { LiveClock } from '../../ui/components/LiveClock';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 import { usePositionHistoryQuery } from '../../query/positions';
+import { useChartDealsQuery } from '../../query/deals';
 import { useAlertsQuery } from '../../query/alerts';
 import { requestOrrnnDemoTradeAuth } from '../trade/tradeAuthPrompt';
 import {
@@ -1045,6 +1046,9 @@ export function ChartScreen() {
   const { data: closedPositions = [], refetch: refetchClosedPositions } = usePositionHistoryQuery(accountLogin, {
     enabled: isScreenFocused,
   });
+  const { data: chartDeals = [], refetch: refetchChartDeals } = useChartDealsQuery(accountLogin, {
+    enabled: isScreenFocused,
+  });
   const { data: orders = [], refetch: refetchOrders } = useOrdersByLoginQuery(accountLogin, {
     enabled: isScreenFocused,
   });
@@ -1087,6 +1091,7 @@ export function ChartScreen() {
     }
     void refetchOrders();
     void refetchClosedPositions();
+    void refetchChartDeals();
     void refetchAlerts();
     void refetchAccountSummary();
   }, [
@@ -1094,6 +1099,7 @@ export function ChartScreen() {
     refreshPositions,
     refetchOrders,
     refetchClosedPositions,
+    refetchChartDeals,
     refetchAlerts,
     refetchAccountSummary,
     requestOverlaySync,
@@ -1635,7 +1641,7 @@ export function ChartScreen() {
   const overlayPayload = useMemo(
     () => {
       if (!preferencesHydrated) {
-        return { priceLines: [], markers: [] };
+        return { priceLines: [], markers: [], tradeHistorySegments: [] };
       }
 
       const nextPayload = buildChartOverlayPayload({
@@ -1644,6 +1650,7 @@ export function ChartScreen() {
         positions,
         orders,
         closedPositions,
+        deals: chartDeals,
         alerts,
         colors: resolvedChartColors,
         sellColor: RED,
@@ -1652,6 +1659,8 @@ export function ChartScreen() {
         liveQuote: hasLiveChartQuote ? chartLiveQuote : undefined,
         liveAccount: overlayAccountMetrics,
         showOnChart: chartShowOnChart,
+        showTradeHistory: chartDisplay.showTradeHistory,
+        chartTimeframe,
         activeTool,
       });
       // Canonical candle-time markers cannot be attached safely to synthetic
@@ -1667,6 +1676,7 @@ export function ChartScreen() {
       positions,
       orders,
       closedPositions,
+      chartDeals,
       alerts,
       resolvedChartColors,
       RED,
@@ -1676,6 +1686,8 @@ export function ChartScreen() {
       overlayLiveAsk,
       overlayAccountMetrics,
       chartShowOnChart,
+      chartDisplay.showTradeHistory,
+      chartTimeframe,
       chartType,
       activeTool,
     ],

@@ -6,11 +6,13 @@
  * The chart only draws the trader's own open positions, gated by side: the
  * "Show buy trade" / "Show sell trade" preferences. A shown position is drawn
  * with its open line, while the MT5-style "SL/TP levels" preference controls
- * its protective Stop Loss / Take Profit lines. Pattern markers from the
- * drawing tools are independent of these preferences and still render when
- * active.
+ * its protective Stop Loss / Take Profit lines. Completed trade history is a
+ * separate preference: exact entry/exit arrows and their finite dotted path
+ * stay independent from open-position visibility. Pattern markers from the
+ * drawing tools are independent too and still render when active.
  */
 import type { PriceAlert } from '../../../api/alerts';
+import type { Deal } from '../../../api/deals';
 import type { LoginOrder } from '../../../api/orders';
 import type { ClosedPosition } from '../../../api/positions';
 import type { PositionItem, QuoteItem } from '../../../dev/mock/tradingData';
@@ -23,10 +25,10 @@ import type { ChartShowOnChartSettings } from '../chartShowOnChart';
 import {
   addUniqueMarker,
   addUniquePriceLine,
-  buildClosedPositionMarkers,
   buildPatternMarkers,
   sanitizeCandles,
 } from './markerCollections';
+import { buildChartTradeHistoryOverlay } from './tradeHistory';
 import {
   formatPositionVolumeLabel,
   formatTpSlOverlayLabel,
@@ -53,6 +55,7 @@ type BuildChartOverlayPayloadInput = {
   positions: PositionItem[];
   orders?: LoginOrder[];
   closedPositions?: ClosedPosition[];
+  deals?: Deal[];
   alerts?: PriceAlert[];
   colors: ChartColorsConfig;
   sellColor: string;
@@ -61,6 +64,9 @@ type BuildChartOverlayPayloadInput = {
   liveQuote?: Partial<QuoteItem>;
   liveAccount?: ChartOverlayLiveAccount | null;
   showOnChart: ChartShowOnChartSettings;
+  /** Independent from open-position Buy/Sell visibility. */
+  showTradeHistory?: boolean;
+  chartTimeframe?: string;
   activeTool?: string;
   /**
    * Existing-position protection remains visible while backend modification is
@@ -80,8 +86,14 @@ const isTradeSideEnabled = (
 
 type BuildChartOverlayMarkersInput = Pick<
   BuildChartOverlayPayloadInput,
-  'chartSymbol' | 'candles' | 'closedPositions' | 'showOnChart' | 'activeTool'
->;
+  'chartSymbol' | 'candles' | 'closedPositions' | 'deals' | 'showOnChart' | 'activeTool'
+> & {
+  positions?: PositionItem[];
+  chartTimeframe?: string;
+  showTradeHistory?: boolean;
+  buyColor?: string;
+  sellColor?: string;
+};
 
 /**
  * Build candle-anchored markers independently from quote-driven price lines.
@@ -93,12 +105,20 @@ type BuildChartOverlayMarkersInput = Pick<
 export const buildChartOverlayMarkers = ({
   chartSymbol,
   candles,
+  positions = [],
   closedPositions = [],
-  showOnChart,
+  deals = [],
   activeTool,
+  chartTimeframe = 'M1',
+  showTradeHistory = true,
+  buyColor = '#2962FF',
+  sellColor = '#F23645',
 }: BuildChartOverlayMarkersInput): ChartOverlayMarker[] => {
   const needsPatternMarkers = activeTool === 'patterns';
-  const needsClosedTradeMarkers = hasEnabledTradeSides(showOnChart) && closedPositions.length > 0;
+  // Execution arrows have their own toggle. Open-position Buy/Sell filters
+  // must never hide either a still-open entry or completed trade history.
+  const needsClosedTradeMarkers =
+    showTradeHistory && (positions.length > 0 || closedPositions.length > 0 || deals.length > 0);
   if (!needsPatternMarkers && !needsClosedTradeMarkers) {
     return EMPTY_OVERLAY_MARKERS;
   }
@@ -113,7 +133,16 @@ export const buildChartOverlayMarkers = ({
     buildPatternMarkers(sanitizedCandles, activeTool).forEach((marker) => addUniqueMarker(markers, marker));
   }
   if (needsClosedTradeMarkers) {
-    buildClosedPositionMarkers(sanitizedCandles, closedPositions, chartSymbol).forEach((marker) =>
+    buildChartTradeHistoryOverlay({
+      chartSymbol,
+      chartTimeframe,
+      candles: sanitizedCandles,
+      openPositions: positions,
+      deals,
+      closedPositions,
+      buyColor,
+      sellColor,
+    }).markers.forEach((marker) =>
       addUniqueMarker(markers, marker),
     );
   }
@@ -264,18 +293,23 @@ export const buildChartOverlayPayload = ({
   candles,
   positions,
   closedPositions = [],
+  deals = [],
   colors,
   sellColor,
   liveBid,
   liveAsk,
   liveQuote,
   showOnChart,
+  showTradeHistory = true,
+  chartTimeframe = 'M1',
   activeTool,
   allowPositionStopDragging = false,
 }: BuildChartOverlayPayloadInput): ChartOverlayPayload => {
   const needsPatternMarkers = activeTool === 'patterns';
   const showTradeSides = hasEnabledTradeSides(showOnChart);
-  if (!showTradeSides && !needsPatternMarkers) {
+  const needsTradeHistory =
+    showTradeHistory && (positions.length > 0 || closedPositions.length > 0 || deals.length > 0);
+  if (!showTradeSides && !needsPatternMarkers && !needsTradeHistory) {
     return EMPTY_CHART_OVERLAY_PAYLOAD;
   }
 
@@ -421,28 +455,51 @@ export const buildChartOverlayPayload = ({
     }
   });
 
-  const markers = buildChartOverlayMarkers({
+  const historyOverlay = needsTradeHistory
+    ? buildChartTradeHistoryOverlay({
+      chartSymbol,
+      chartTimeframe,
+      candles,
+      openPositions: positions,
+      deals,
+      closedPositions,
+      buyColor: colors.tradeOpen || '#2962FF',
+      sellColor: sellColor || '#F23645',
+    })
+    : { markers: [], tradeHistorySegments: [] };
+  const patternMarkers = buildChartOverlayMarkers({
     chartSymbol,
     candles,
-    closedPositions,
+    closedPositions: [],
     showOnChart,
     activeTool,
+    showTradeHistory: false,
   });
+  const markers = patternMarkers.length === 0
+    ? historyOverlay.markers
+    : [...patternMarkers, ...historyOverlay.markers]
+      .sort((left, right) => left.time - right.time || left.id.localeCompare(right.id));
 
   const result = {
     priceLines: applyRightAxisLabelVisibility(
       Array.from(priceLines.values()).sort((left, right) => left.price - right.price),
     ),
     markers,
+    tradeHistorySegments: historyOverlay.tradeHistorySegments,
   };
 
-  if (result.priceLines.length === 0 && result.markers.length === 0) {
+  if (
+    result.priceLines.length === 0
+    && result.markers.length === 0
+    && result.tradeHistorySegments.length === 0
+  ) {
     return EMPTY_CHART_OVERLAY_PAYLOAD;
   }
 
   if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_OVERLAY_DEBUG) {
     console.log(
-      `[ChartOverlay] OUTPUT: ${result.priceLines.length} priceLines, ${result.markers.length} markers`,
+      `[ChartOverlay] OUTPUT: ${result.priceLines.length} priceLines, ${result.markers.length} markers, ` +
+      `${result.tradeHistorySegments.length} trade-history segments`,
     );
     result.priceLines.forEach((l) => console.log(`  line id=${l.id} price=${l.price} title="${l.title}"`));
   }

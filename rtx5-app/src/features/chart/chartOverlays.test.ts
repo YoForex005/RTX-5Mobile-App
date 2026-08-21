@@ -66,6 +66,10 @@ test('normalizeChartOverlaySymbol strips broker suffix variants consistently', (
   assert.equal(normalizeChartOverlaySymbol('XAUUSDpro'), 'XAUUSD');
   assert.equal(normalizeChartOverlaySymbol('BTCUSDm'), 'BTCUSD');
   assert.equal(normalizeChartOverlaySymbol('BTCUSDpro'), 'BTCUSD');
+  assert.equal(normalizeChartOverlaySymbol('US30m'), 'US30');
+  assert.equal(normalizeChartOverlaySymbol('GER40m'), 'GER40');
+  assert.equal(normalizeChartOverlaySymbol('USOILm'), 'USOIL');
+  assert.equal(normalizeChartOverlaySymbol('SPX500pro'), 'SPX500');
 
   // Plain symbols (no suffix)
   assert.equal(normalizeChartOverlaySymbol('GBPUSD'), 'GBPUSD');
@@ -139,7 +143,9 @@ test('buildChartOverlayPayload maps open positions for the chart symbol with the
   );
   assert.equal(payload.priceLines.find((line: any) => line.id === 'tp-1')?.dragKey, buildChartPositionStopDragKey('1', 'tp'));
   assert.equal(payload.priceLines.find((line: any) => line.id === 'sl-1')?.dragKey, buildChartPositionStopDragKey('1', 'sl'));
-  assert.equal(payload.markers.length, 0);
+  assert.equal(payload.markers.length, 1);
+  assert.equal(payload.markers[0].price, 1.11111);
+  assert.equal(payload.markers[0].shape, 'arrowUp');
 
   const lockedPayload = buildChartOverlayPayload(input);
   assert.equal(
@@ -699,7 +705,7 @@ test('buildChartOverlayPayload still renders pattern markers from the drawing to
   assert.ok(payload.markers.some((marker: any) => marker.id.startsWith('pattern-')));
 });
 
-test('buildChartOverlayPayload returns one shared empty payload when both trade sides are disabled', () => {
+test('buildChartOverlayPayload returns one shared empty payload when trade sides and history are disabled', () => {
   const baseInput = {
     chartSymbol: 'BTCUSD',
     candles,
@@ -720,6 +726,7 @@ test('buildChartOverlayPayload returns one shared empty payload when both trade 
     sellColor: '#EF5350',
     liveAccount: null,
     showOnChart: NO_SIDES,
+    showTradeHistory: false,
   };
 
   const payloadA = buildChartOverlayPayload(baseInput);
@@ -729,7 +736,7 @@ test('buildChartOverlayPayload returns one shared empty payload when both trade 
   });
 
   assert.equal(payloadA, payloadB);
-  assert.deepEqual(payloadA, { priceLines: [], markers: [] });
+  assert.deepEqual(payloadA, { priceLines: [], markers: [], tradeHistorySegments: [] });
 });
 
 test('buildChartOverlayPayload shows or hides trades directly from the buy/sell toggles', () => {

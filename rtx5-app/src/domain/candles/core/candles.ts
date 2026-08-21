@@ -68,7 +68,10 @@ export {
 export const MAX_CANDLE_SERIES_LENGTH = 2_500;
 export const DEFAULT_CANDLE_HISTORY_LIMIT = MAX_CANDLE_SERIES_LENGTH;
 export const MIN_TRUSTED_BOOTSTRAP_CANDLE_COUNT = 8;
-export const MAX_CANDLE_CACHE_ENTRIES = 8;
+// Keep enough chart contexts in the authenticated runtime cache for a normal
+// multi-symbol browsing session. The smaller persisted cap below remains
+// intentionally separate so this does not increase AsyncStorage usage.
+export const MAX_CANDLE_CACHE_ENTRIES = 24;
 export const MAX_PERSISTED_CANDLE_CACHE_ENTRIES = 8;
 export const CANDLE_HISTORY_QUERY_GC_MS = 60_000;
 export const LATEST_DAILY_CANDLE_HISTORY_LIMIT = 2;

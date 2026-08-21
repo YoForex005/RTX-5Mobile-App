@@ -42,6 +42,10 @@ import {
 import {
   runLoadHistory,
   runPrefetchHistory,
+  waitForHistoryPrefetchSettlement,
+  defaultCandleHistoryFetcher,
+  HISTORY_REQUEST_TIMEOUT_MS,
+  type CandleHistoryFetcher,
   type HistoryPrefetchRecord,
   type HistoryFetchManagerBridge,
 } from './historyFetching';
@@ -68,11 +72,26 @@ const getHistoryPageLookbackMultiplier = (timeframe: Timeframe): number => {
  * 
  * Note: Implements `HistoryFetchManagerBridge` to allow history fetching logic to live in a separate, testable file.
  */
+export type LiveCandleStreamManagerOptions = Readonly<{
+  fetchHistory?: CandleHistoryFetcher;
+  historyRequestTimeoutMs?: number;
+}>;
+
 export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
   /** @internal Exposed only for sibling modules in this folder. */
   public readonly entries = new Map<string, StreamEntry>();
   /** @internal Exposed only for sibling modules in this folder. */
   public readonly historyPrefetches = new Map<string, HistoryPrefetchRecord>();
+  /** @internal Injectable so request lifecycle tests never depend on network timing. */
+  public readonly fetchHistory: CandleHistoryFetcher;
+  public readonly historyRequestTimeoutMs: number;
+
+  public constructor(options: LiveCandleStreamManagerOptions = {}) {
+    this.fetchHistory = options.fetchHistory ?? defaultCandleHistoryFetcher;
+    this.historyRequestTimeoutMs = Number.isFinite(options.historyRequestTimeoutMs)
+      ? Math.max(1, Math.floor(options.historyRequestTimeoutMs as number))
+      : HISTORY_REQUEST_TIMEOUT_MS;
+  }
 
   /**
    * Subscribes a UI component to a specific (symbol, timeframe) candle stream.
@@ -568,6 +587,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       isLiveConnected: false,
       lastUpdateTime: null,
       abortController: null,
+      historyRequestTimeoutTimer: null,
       bufferedEvents: [],
       pendingEvents: [],
       flushFrame: null,
@@ -626,13 +646,24 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     entry.renderHistoryLimit = initialLoadLimit;
     entry.historyPaginationCursorTime = null;
 
-    const pendingPrefetch = this.historyPrefetches.get(entry.key)?.promise;
-    if (pendingPrefetch) {
+    const pendingPrefetchRecord = this.historyPrefetches.get(entry.key);
+    if (pendingPrefetchRecord) {
       // If a warm-up is already fetching this history, wait for it.
       // Start another request only if it produced no usable candles.
-      entry.loading = true;
+      // A warm-up join is background work when a cache seed already exists.
+      // Keep that seed visible and keep live ticks flowing while it settles.
+      entry.loading = entry.historyCandles.length === 0;
       this.notify(entry);
-      const settlePendingPrefetch = () => {
+      const settlePendingPrefetch = (result: 'settled' | 'timed_out') => {
+        // A timed-out warm-up must stop owning this key. Otherwise every future
+        // A -> B -> A revisit joins the same never-settling promise and only a
+        // full JS-runtime/app restart can recover it.
+        if (
+          result === 'timed_out'
+          && this.historyPrefetches.get(entry.key) === pendingPrefetchRecord
+        ) {
+          this.historyPrefetches.delete(entry.key);
+        }
         const live = this.entries.get(entry.key);
         if (!live) {
           return;
@@ -660,9 +691,10 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
         );
         runLoadHistory(this, live, fallbackLoadLimit);
       };
-      // A rejected warm-up must settle the entry too: without the second handler
-      // the chain dangles and the spinner never comes down.
-      void pendingPrefetch.then(settlePendingPrefetch, settlePendingPrefetch);
+      // Rejections and transport-level hangs both settle this join. The latter
+      // falls back after a bounded wait instead of gating this context forever.
+      void waitForHistoryPrefetchSettlement(pendingPrefetchRecord.promise)
+        .then(settlePendingPrefetch);
       return;
     }
 
@@ -711,6 +743,10 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     }
 
     entry.abortController?.abort();
+    if (entry.historyRequestTimeoutTimer) {
+      clearTimeout(entry.historyRequestTimeoutTimer);
+      entry.historyRequestTimeoutTimer = null;
+    }
     if (entry.flushFrame !== null) {
       if (typeof globalThis.cancelAnimationFrame === 'function') {
         globalThis.cancelAnimationFrame(entry.flushFrame);

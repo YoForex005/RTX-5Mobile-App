@@ -7,6 +7,7 @@ import {
   resetOrrnnDemoPublicMarketCatalogCache,
 } from '../../../api/orrnnDemoPublicMarket';
 import {
+  ORRNN_DEMO_PUBLIC_CANDLE_GC_MS,
   getOrrnnDemoPublicCandleQueryKey,
   getOrrnnDemoPublicCandleQueryOptions,
   resolveOrrnnDemoPublicCandleSelection,
@@ -31,6 +32,13 @@ test('public candle query keys isolate the anonymous namespace, symbol, and time
     { symbol: 'XAUUSD', timeframe: 'H4' },
   );
   assert.equal(resolveOrrnnDemoPublicCandleSelection('EURUSD', 'W1'), null);
+});
+
+test('public candle histories remain cached for the app session after their chart unmounts', () => {
+  const options = getOrrnnDemoPublicCandleQueryOptions('EURUSD', 'M1');
+
+  assert.equal(ORRNN_DEMO_PUBLIC_CANDLE_GC_MS, Number.POSITIVE_INFINITY);
+  assert.equal(options.gcTime, Number.POSITIVE_INFINITY);
 });
 
 test('navigation prefetch and the chart query join one public REST request and reuse its cache', async (t) => {

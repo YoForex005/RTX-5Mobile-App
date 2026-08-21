@@ -11,10 +11,13 @@ const KNOWN_BASE_SYMBOLS = new Set([
   'US30', 'SPX500', 'NAS100', 'GER40', 'UK100', 'FRA40', 'JP225',
   'USOIL', 'UKOIL', 'NGAS',
 ]);
+const KNOWN_BASE_SYMBOLS_BY_LENGTH = [...KNOWN_BASE_SYMBOLS]
+  .sort((left, right) => right.length - left.length);
 
 // Common MT5 broker suffixes that get concatenated without a separator.
 // e.g. GBPUSDpro, EURUSDecn, XAUUSDmicro, BTCUSDstd
 const BROKER_SUFFIXES_RE = /(?:PRO|ECN|STD|STP|RAW|ZERO|CENT|MICRO|MINI|NANO|FIX|VAR|SWAP|NDD|PRIME|CLASSIC|STANDARD|M|C|E|X|S|R|B|F|K)$/;
+const BROKER_SUFFIX_ONLY_RE = /^(?:PRO|ECN|STD|STP|RAW|ZERO|CENT|MICRO|MINI|NANO|FIX|VAR|SWAP|NDD|PRIME|CLASSIC|STANDARD|M|C|E|X|S|R|B|F|K)$/;
 
 export const normalizeChartOverlaySymbol = (symbol: string): string => {
   const normalized = normalizeSymbol(symbol ?? '');
@@ -24,6 +27,18 @@ export const normalizeChartOverlaySymbol = (symbol: string): string => {
 
   // Step 2: if already a known non-6-char base symbol, return it
   if (KNOWN_BASE_SYMBOLS.has(upper)) return upper;
+
+  // Indices and commodities can be shorter than a forex pair, so remove a
+  // broker suffix from their complete known base before applying the generic
+  // six-character rule. For example: US30m -> US30, GER40m -> GER40, and
+  // USOILm -> USOIL. Requiring the entire remainder to be a known suffix keeps
+  // genuine symbols that merely start with the same letters distinct.
+  const knownSuffixedBase = KNOWN_BASE_SYMBOLS_BY_LENGTH.find((base) => (
+    upper.startsWith(base)
+    && upper.length > base.length
+    && BROKER_SUFFIX_ONLY_RE.test(upper.slice(base.length))
+  ));
+  if (knownSuffixedBase) return knownSuffixedBase;
 
   // Step 3: for 6-char symbols (standard forex pair), return as-is
   if (upper.length === 6) return upper;

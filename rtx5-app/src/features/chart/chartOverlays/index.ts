@@ -5,6 +5,7 @@
  *   - `symbolUtils.ts`        — broker-symbol normalization + precision helpers
  *   - `orderHelpers.ts`       — order/status normalize + label formatters
  *   - `markerCollections.ts`  — pattern / signal / HMR / closed-position markers
+ *   - `tradeHistory.ts`       — exact entry/exit arrows + connecting segments
  *   - `lineBuilders.ts`       — pending-order / alert / stop-out lines
  *   - `buildPayload.ts`       — top-level `buildChartOverlayPayload`
  */
@@ -14,8 +15,10 @@ export {
   type ChartOverlayMarkerPosition,
   type ChartOverlayMarkerShape,
   type ChartOverlayMarker,
+  type ChartOverlayTradeHistorySegment,
   type ChartOverlayPayload,
   type ChartOverlayCandle,
+  EMPTY_OVERLAY_TRADE_HISTORY_SEGMENTS,
 } from './types';
 export { normalizeChartOverlaySymbol } from './symbolUtils';
 export { LIVE_CHART_PNL_COLORS, resolveLiveChartPnlColor } from './livePnlColors';
@@ -37,3 +40,9 @@ export {
   type ChartPositionStopDragTarget,
   type ChartPositionStopKind,
 } from './positionStopDragKeys';
+export {
+  buildChartTradeHistoryOverlay,
+  type BuildChartTradeHistoryOverlayInput,
+  type ChartTradeHistoryOpenPosition,
+  type ChartTradeHistoryOverlay,
+} from './tradeHistory';

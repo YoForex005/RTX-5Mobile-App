@@ -34,6 +34,8 @@ import {
 export interface HistoryFetchManagerBridge {
   readonly entries: Map<string, StreamEntry>;
   readonly historyPrefetches: Map<string, HistoryPrefetchRecord>;
+  readonly fetchHistory: CandleHistoryFetcher;
+  readonly historyRequestTimeoutMs: number;
   notify(entry: StreamEntry): void;
   applyLiveEvents(entry: StreamEntry, events: BufferedLiveEvent[]): boolean;
   commit(entry: StreamEntry): void;
@@ -43,6 +45,40 @@ export type HistoryPrefetchRecord = {
   limit: number;
   promise: Promise<number>;
 };
+
+export type CandleHistoryFetcher = typeof getCandleHistory;
+export const defaultCandleHistoryFetcher: CandleHistoryFetcher = getCandleHistory;
+export const HISTORY_REQUEST_TIMEOUT_MS = 15_000;
+export const HISTORY_REQUEST_TIMEOUT_ERROR_MESSAGE = 'Candle history request timed out.';
+
+export const HISTORY_PREFETCH_JOIN_TIMEOUT_MS = 5_000;
+
+/**
+ * A picker warm-up is intentionally best-effort. Never let an unresolved
+ * warm-up promise become a permanent gate for the real chart subscription:
+ * mobile transports can occasionally leave a request pending until the JS
+ * runtime is destroyed, which previously made every revisit join the same
+ * dead promise and spin until the app was restarted.
+ */
+export const waitForHistoryPrefetchSettlement = (
+  promise: Promise<number>,
+  timeoutMs = HISTORY_PREFETCH_JOIN_TIMEOUT_MS,
+): Promise<'settled' | 'timed_out'> => new Promise((resolve) => {
+  let finished = false;
+  const finish = (result: 'settled' | 'timed_out') => {
+    if (finished) {
+      return;
+    }
+    finished = true;
+    clearTimeout(timeout);
+    resolve(result);
+  };
+  const timeout = setTimeout(() => finish('timed_out'), Math.max(0, timeoutMs));
+  void promise.then(
+    () => finish('settled'),
+    () => finish('settled'),
+  );
+});
 
 import { sanitizeCandlesForChart } from '../../normalization/chartAdapter';
 import { computeHistoryRetryPlan } from './historyRetryPolicy';
@@ -127,6 +163,58 @@ const releaseSupersededHistoryRequest = (
   manager.notify(live);
 };
 
+const clearHistoryRequestTimeout = (entry: StreamEntry): void => {
+  if (entry.historyRequestTimeoutTimer) {
+    clearTimeout(entry.historyRequestTimeoutTimer);
+    entry.historyRequestTimeoutTimer = null;
+  }
+};
+
+/**
+ * Owns the terminal state transition for a transport that never settles.
+ * Aborting the fetch is not enough by itself because the normal catch handler
+ * deliberately ignores owned AbortErrors. Release the flags, replay any cold-
+ * load ticks, publish the retained series, and let the empty-history retry
+ * policy schedule the next self-heal attempt.
+ */
+const releaseTimedOutHistoryRequest = (
+  manager: HistoryFetchManagerBridge,
+  entry: StreamEntry,
+  requestId: number,
+  controller: AbortController,
+  limit: number,
+  isPaginationRequest: boolean,
+): void => {
+  const live = manager.entries.get(entry.key);
+  if (
+    !live
+    || live.requestId !== requestId
+    || live.abortController !== controller
+  ) {
+    return;
+  }
+
+  clearHistoryRequestTimeout(live);
+  controller.abort();
+  live.abortController = null;
+  live.historyLoading = false;
+  live.historyPageLoading = false;
+  live.error = HISTORY_REQUEST_TIMEOUT_ERROR_MESSAGE;
+  const replayEvents = live.bufferedEvents
+    .splice(0)
+    .sort((left, right) => getEventTime(left) - getEventTime(right) || left.order - right.order);
+  manager.applyLiveEvents(live, replayEvents);
+  manager.commit(live);
+  manager.notify(live);
+  logDebug('history_timeout', {
+    symbol: live.symbol,
+    timeframe: live.timeframe,
+    requestId,
+    replayedLiveEvents: replayEvents.length,
+  });
+  scheduleInitialHistoryRetry(manager, live, limit, requestId, isPaginationRequest);
+};
+
 /**
  * Executes an async fetch of authoritative historical candles from the REST API.
  *
@@ -174,10 +262,14 @@ export const runLoadHistory = (
   }
   entry.requestId += 1;
   const requestId = entry.requestId;
+  clearHistoryRequestTimeout(entry);
   entry.abortController?.abort();
   const controller = new AbortController();
   entry.abortController = controller;
-  entry.loading = true;
+  const hasRenderableHistorySeed = !isPaginationRequest && entry.historyCandles.length > 0;
+  // Cached candles already make this chart renderable. Refresh them in the
+  // background without showing the loader again or buffering live ticks.
+  entry.loading = !hasRenderableHistorySeed;
   entry.error = null;
   if (isPaginationRequest) {
     entry.historyPageLoading = true;
@@ -190,9 +282,11 @@ export const runLoadHistory = (
       Math.max(INITIAL_HISTORY_LIMIT, limit),
     );
     entry.historyPaginationCursorTime = null;
-    entry.historyLoading = true;
+    entry.historyLoading = !hasRenderableHistorySeed;
     entry.historyPageLoading = false;
-    entry.bufferedEvents = [];
+    if (!hasRenderableHistorySeed) {
+      entry.bufferedEvents = [];
+    }
   }
   manager.notify(entry);
 
@@ -200,7 +294,18 @@ export const runLoadHistory = (
   const timeframe = entry.timeframe;
   logDebug('history_request', { symbol, timeframe, requestId, to: options?.to });
 
-  void getCandleHistory(symbol, timeframe, limit, {
+  entry.historyRequestTimeoutTimer = setTimeout(() => {
+    releaseTimedOutHistoryRequest(
+      manager,
+      entry,
+      requestId,
+      controller,
+      limit,
+      isPaginationRequest,
+    );
+  }, manager.historyRequestTimeoutMs);
+
+  void manager.fetchHistory(symbol, timeframe, limit, {
     signal: controller.signal,
     to: options?.to,
     from: options?.from,
@@ -211,6 +316,7 @@ export const runLoadHistory = (
       if (!live || live.requestId !== requestId || controller.signal.aborted) {
         return;
       }
+      clearHistoryRequestTimeout(live);
       if (!isActiveBrokerSessionProvenanceCurrent(history.provenance)) {
         releaseSupersededHistoryRequest(manager, live);
         return;
@@ -275,7 +381,10 @@ export const runLoadHistory = (
         });
       }
 
-      live.loading = false;
+      // `loading` is the aggregate of the two request-owned flags below and is
+      // recomputed by commit(). Do not clear it first: a warm symbol revisit can
+      // return history identical to its cache seed, and commit() must still see
+      // the true -> false transition so React is notified to remove its loader.
       live.historyLoading = false;
       live.historyPageLoading = false;
       live.error = null;
@@ -306,6 +415,7 @@ export const runLoadHistory = (
       if (!live || live.requestId !== requestId || controller.signal.aborted) {
         return;
       }
+      clearHistoryRequestTimeout(live);
       if (!isActiveBrokerSessionProvenanceCurrent(sessionProvenance)) {
         releaseSupersededHistoryRequest(manager, live);
         return;
@@ -340,6 +450,7 @@ export const runLoadHistory = (
     .finally(() => {
       const live = manager.entries.get(entry.key);
       if (live && live.requestId === requestId) {
+        clearHistoryRequestTimeout(live);
         live.abortController = null;
       }
     });
@@ -405,7 +516,7 @@ export const runPrefetchHistory = (
   }
 
   let prefetchRecord: HistoryPrefetchRecord;
-  const prefetch = getCandleHistory(
+  const prefetch = manager.fetchHistory(
     normalizedSymbol,
     normalizedTimeframe,
     requestedLimit,

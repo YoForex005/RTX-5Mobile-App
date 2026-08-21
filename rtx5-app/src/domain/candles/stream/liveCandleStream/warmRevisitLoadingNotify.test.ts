@@ -1,7 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { candleMemoryCache } from '../candleMemoryCache';
+import {
+  __resetActiveBrokerSessionForTests,
+  activateBrokerSession,
+  beginActiveBrokerSessionTransition,
+} from '../../../../state/activeBrokerSession';
 import { LiveCandleStreamManager } from './manager';
+import {
+  HISTORY_REQUEST_TIMEOUT_ERROR_MESSAGE,
+  waitForHistoryPrefetchSettlement,
+  type CandleHistoryFetcher,
+} from './historyFetching';
 import type { StreamEntry } from './types';
 
 /**
@@ -37,13 +48,44 @@ const buildHistoryCandles = (count: number, startTime: number) =>
     closed: true,
   }));
 
+const activateHistoryTestSession = (): void => {
+  __resetActiveBrokerSessionForTests();
+  activateBrokerSession(beginActiveBrokerSessionTransition(), {
+    brokerId: 'broker-history-test',
+    accountLogin: '10001',
+    apiBase: 'https://services.history-test.example/api/v2',
+    feedWsBase: 'wss://services.history-test.example/ws/feed',
+    feedStatusUrl: 'https://services.history-test.example/ws/feed/status',
+    servicesDomain: 'services.history-test.example',
+    feedAuthContext: { mode: 'none' },
+    configVersion: 'cfg-history-test',
+  }, {
+    accessToken: 'history-access',
+    refreshToken: '',
+    expiresAt: '2099-01-01T00:00:00.000Z',
+  });
+};
+
+const createNeverSettlingHistoryFetcher = (
+  observedSignals: AbortSignal[],
+): CandleHistoryFetcher => (_symbol, _timeframe, _count, options) => {
+  if (options) {
+    const signal = 'aborted' in options ? options : options.signal;
+    if (signal) {
+      observedSignals.push(signal);
+    }
+  }
+  return new Promise(() => {});
+};
+
 const createSeededEntry = (
   manager: LiveCandleStreamManager,
   onNotify: () => void,
+  symbol = 'BTCUSD',
 ): StreamEntry => {
   const entry = {
-    key: 'BTCUSD:M5',
-    symbol: 'BTCUSD',
+    key: `${symbol}:M5`,
+    symbol,
     timeframe: 'M5',
     streamKey: 'BTCUSD:M5',
     requestId: 1,
@@ -65,6 +107,7 @@ const createSeededEntry = (
     isLiveConnected: false,
     lastUpdateTime: null,
     abortController: null,
+    historyRequestTimeoutTimer: null,
     bufferedEvents: [],
     pendingEvents: [],
     flushFrame: null,
@@ -129,7 +172,7 @@ test('commit() stays quiet when neither the series nor the observable state chan
   );
 });
 
-test('a warm revisit that chains onto a pending prefetch still settles loading', async () => {
+test('a warm revisit that joins a pending prefetch never re-enters blocking loading', async () => {
   const manager = new LiveCandleStreamManager();
   let notifications = 0;
   const entry = createSeededEntry(manager, () => {
@@ -155,7 +198,7 @@ test('a warm revisit that chains onto a pending prefetch still settles loading',
     loadFreshHistory: (target: StreamEntry) => void;
   }).loadFreshHistory(entry);
 
-  assert.equal(entry.loading, true, 'chaining onto a prefetch raises the spinner');
+  assert.equal(entry.loading, false, 'cached history must stay renderable during the warm-up join');
 
   // The warm-up completes and commits its own history.
   resolvePrefetch(120);
@@ -174,7 +217,7 @@ test('a warm revisit that chains onto a pending prefetch still settles loading',
   );
 });
 
-test('a prefetch that rejects still settles loading instead of dangling', async () => {
+test('a rejected warm prefetch leaves cached history outside blocking loading', async () => {
   const manager = new LiveCandleStreamManager();
   const entry = createSeededEntry(manager, () => {});
   entry.historyLoading = false;
@@ -192,12 +235,130 @@ test('a prefetch that rejects still settles loading instead of dangling', async 
   (manager as unknown as {
     loadFreshHistory: (target: StreamEntry) => void;
   }).loadFreshHistory(entry);
-  assert.equal(entry.loading, true);
+  assert.equal(entry.loading, false);
 
   rejectPrefetch(new Error('warm-up failed'));
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.equal(entry.loading, false, 'a failed warm-up must not strand the spinner');
+});
+
+test('a never-settling picker prefetch is bounded instead of gating revisits until restart', async () => {
+  const result = await waitForHistoryPrefetchSettlement(
+    new Promise<number>(() => {}),
+    5,
+  );
+
+  assert.equal(result, 'timed_out');
+});
+
+test('a completed picker prefetch clears its watchdog immediately', async () => {
+  const result = await waitForHistoryPrefetchSettlement(Promise.resolve(120), 60_000);
+
+  assert.equal(result, 'settled');
+});
+
+test('cached A -> B -> A stays renderable and aborts a never-settling freshness refresh', async (t) => {
+  activateHistoryTestSession();
+  candleMemoryCache.clear();
+  const observedSignals: AbortSignal[] = [];
+  const manager = new LiveCandleStreamManager({
+    fetchHistory: createNeverSettlingHistoryFetcher(observedSignals),
+    historyRequestTimeoutMs: 10,
+  });
+  t.after(() => {
+    manager.dispose();
+    candleMemoryCache.clear();
+    __resetActiveBrokerSessionForTests();
+  });
+
+  candleMemoryCache.set('EURUSD', 'M5', buildHistoryCandles(120, 1_775_000_000));
+  candleMemoryCache.set('BTCUSD', 'M5', buildHistoryCandles(120, 1_776_000_000));
+
+  const leaveFirstA = manager.subscribe('EURUSD', 'M5', () => {});
+  assert.equal(manager.getState('EURUSD', 'M5')?.loading, false);
+  leaveFirstA();
+
+  const leaveB = manager.subscribe('BTCUSD', 'M5', () => {});
+  assert.equal(manager.getState('BTCUSD', 'M5')?.loading, false);
+  leaveB();
+
+  const leaveRevisitedA = manager.subscribe('EURUSD', 'M5', () => {});
+  const revisitedEntry = manager.entries.get('EURUSD:M5');
+  assert.ok(revisitedEntry);
+  assert.equal(revisitedEntry.loading, false);
+  assert.equal(revisitedEntry.historyLoading, false);
+  assert.equal(revisitedEntry.historyCandles.length, 120);
+  assert.ok(revisitedEntry.abortController, 'freshness refresh should still run in the background');
+
+  manager.extendActiveCandlesFromQuoteTick('EURUSD', {
+    price: 250,
+    time: 1_775_100_000,
+    allowFlatNewBucket: true,
+  });
+  assert.equal(revisitedEntry.bufferedEvents.length, 0, 'warm refresh must not buffer live ticks');
+  assert.equal(revisitedEntry.pendingEvents.length, 1, 'live tick must stay on the normal flush path');
+
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  assert.equal(revisitedEntry.loading, false);
+  assert.equal(revisitedEntry.historyLoading, false);
+  assert.equal(revisitedEntry.abortController, null);
+  assert.equal(revisitedEntry.historyRequestTimeoutTimer, null);
+  assert.equal(revisitedEntry.error, HISTORY_REQUEST_TIMEOUT_ERROR_MESSAGE);
+  assert.equal(observedSignals.length, 3);
+  assert.equal(observedSignals[observedSignals.length - 1]?.aborted, true);
+  leaveRevisitedA();
+});
+
+test('cold history keeps blocking semantics until its bounded request times out and self-heals', async (t) => {
+  activateHistoryTestSession();
+  candleMemoryCache.clear();
+  const observedSignals: AbortSignal[] = [];
+  const manager = new LiveCandleStreamManager({
+    fetchHistory: createNeverSettlingHistoryFetcher(observedSignals),
+    historyRequestTimeoutMs: 10,
+  });
+  t.after(() => {
+    manager.dispose();
+    candleMemoryCache.clear();
+    __resetActiveBrokerSessionForTests();
+  });
+
+  const entry = createSeededEntry(manager, () => {}, 'USDCAD');
+  entry.requestId = 0;
+  entry.historyCandles = [];
+  entry.candles = [];
+  entry.historyLastTime = null;
+  entry.loading = true;
+  entry.historyLoading = false;
+  entry.isLiveConnected = false;
+  (manager as unknown as {
+    loadFreshHistory: (target: StreamEntry) => void;
+  }).loadFreshHistory(entry);
+
+  assert.equal(entry.historyCandles.length, 0);
+  assert.equal(entry.loading, true);
+  assert.equal(entry.historyLoading, true);
+
+  manager.extendActiveCandlesFromQuoteTick('USDCAD', {
+    price: 1.35,
+    time: 1_775_100_000,
+    allowFlatNewBucket: true,
+  });
+  assert.equal(entry.bufferedEvents.length, 1, 'cold load must continue buffering its live tick');
+  assert.equal(entry.pendingEvents.length, 0);
+
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  assert.equal(entry.loading, false);
+  assert.equal(entry.historyLoading, false);
+  assert.equal(entry.abortController, null);
+  assert.equal(entry.historyRequestTimeoutTimer, null);
+  assert.equal(entry.error, HISTORY_REQUEST_TIMEOUT_ERROR_MESSAGE);
+  assert.equal(entry.bufferedEvents.length, 0, 'timeout self-heal must replay the cold-load buffer');
+  assert.ok(entry.historyRetryTimer, 'an empty cold load must schedule its bounded retry loop');
+  assert.equal(observedSignals[0]?.aborted, true);
 });
 
 test('commit() notifies when live connectivity is regained without changing the series', () => {

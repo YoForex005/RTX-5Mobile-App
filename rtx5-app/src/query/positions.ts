@@ -157,6 +157,7 @@ export function useClosePositionMutation() {
         POSITIONS_KEY,
         POSITION_HISTORY_KEY,
         'deals',
+        'accountDeals',
         'accountSummary',
         'exposure',
         'transactions',

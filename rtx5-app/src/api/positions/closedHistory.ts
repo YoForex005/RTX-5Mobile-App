@@ -150,11 +150,15 @@ export async function getPositionHistory(
       }
     });
 
-    if (pageRows.length < pageSize || appendedCount === 0) {
+    if (appendedCount === 0) {
       break;
     }
 
-    nextOffset += pageSize;
+    // Some broker gateways silently cap a requested page (for example, a
+    // requested 1000 rows may return only 50). A short page is therefore not
+    // proof that history ended. Advance by the rows the server actually
+    // returned and let an empty or repeated next page terminate the walk.
+    nextOffset += pageRows.length;
   }
 
   return records;

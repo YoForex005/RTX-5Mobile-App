@@ -77,20 +77,50 @@ const candles: ChartOverlayCandle[] = Array.from({ length: 30 }, (_, index) => (
   volume: 10 + index,
 }));
 
-test('overlay bridge: price lines are recreated after setData full reload', () => {
+test('overlay bridge: price lines are recreated while marker primitive survives same-series setData', () => {
   const body = extractFunctionBody(source, 'updateChartData');
 
   assertSourceContains(body, /series\.setData\(mapped\)/, 'chart data reload must call setData');
   assertSourceContains(body, /_positionLinesArr = \[\]/, 'stale price-line refs must be cleared after setData');
-  assertSourceContains(body, /_overlayMarkers = null/, 'stale marker refs must be cleared after setData');
   assertSourceContains(body, /applyOverlayPayload\(_overlayPayload\)/, 'overlay payload must be recreated after setData');
+  assert.doesNotMatch(
+    body,
+    /_overlayMarkers = null/,
+    'same-series setData must retain the attached marker handle so it can still be updated or detached',
+  );
+});
+
+test('overlay bridge: full chart rebuild detaches markers and forces attachment to the replacement series', () => {
+  const doInitBody = extractFunctionBody(source, '_doInitChart');
+  const clearMarkersBody = extractFunctionBody(source, 'clearOverlayMarkers');
+  const applyBody = extractFunctionBody(source, 'applyOverlayPayload');
+
+  assertSourceContains(
+    doInitBody,
+    /if \(chart\) \{[\s\S]*clearOverlayMarkers\(\)[\s\S]*chart\.remove\(\)/,
+    'full chart teardown must detach markers before destroying their series',
+  );
+  assertSourceContains(
+    clearMarkersBody,
+    /_overlayMarkers\.detach\(\)[\s\S]*_overlayMarkers = null[\s\S]*_lastAppliedOverlayNativeSignature = ''/,
+    'marker cleanup must release the primitive and invalidate the old-series signature',
+  );
+  assertSourceContains(
+    applyBody,
+    /markersAttachedToCurrentSeries[\s\S]*typeof _overlayMarkers\.getSeries !== 'function'[\s\S]*_overlayMarkers\.getSeries\(\) === series[\s\S]*nativeGeometryUnchanged/,
+    'the unchanged fast path must prove expected markers belong to the current series',
+  );
 });
 
 test('overlay bridge: overlays reapply after chart init and CHART_READY', () => {
   const doInitBody = extractFunctionBody(source, '_doInitChart');
 
   assertSourceContains(doInitBody, /applyOverlayPayload\(_overlayPayload\)/, 'chart init must apply cached overlays once series exists');
-  assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*setChartOverlays\(\$\{JSON\.stringify\(latestOverlay\)\}\)/, 'CHART_READY must immediately push latest overlay payload');
+  assertSourceContains(
+    source,
+    /msg\.type === 'CHART_READY'[\s\S]*setChartOverlays\(\s*\$\{JSON\.stringify\(latestOverlay\)\},\s*\$\{JSON\.stringify\(chartDataContextSig\)\}\s*\)/,
+    'CHART_READY must immediately push the latest overlay for the active chart context',
+  );
 });
 
 test('overlay bridge: overlay resync timer repairs missed injection', () => {
@@ -101,7 +131,7 @@ test('overlay bridge: overlay resync timer repairs missed injection', () => {
   assertSourceContains(body, /applyOverlayPayload\(_overlayPayload\)/, 'resync must recreate missing overlays');
   assertSourceContains(
     source,
-    /const resyncInterval = setInterval\(\(\) => \{[\s\S]*setChartOverlays\(\$\{JSON\.stringify\(payload\)\}\)[\s\S]*\}, 5000\)/,
+    /const resyncInterval = setInterval\(\(\) => \{[\s\S]*setChartOverlays\(\s*\$\{JSON\.stringify\(payload\)\},\s*\$\{JSON\.stringify\(chartDataContextSig\)\}\s*\)[\s\S]*\}, 5000\)/,
     'native overlay bridge must periodically re-push overlays on the geometry path',
   );
 });

@@ -3,6 +3,7 @@ import test, { afterEach, beforeEach } from 'node:test';
 
 import {
   MAX_CANDLE_CACHE_ENTRIES,
+  MAX_PERSISTED_CANDLE_CACHE_ENTRIES,
   isRenderableCandleBootstrapSeed,
   isTrustworthyCandleBootstrapSeed,
   sortAndDedupeCandles,
@@ -200,6 +201,24 @@ test('in-memory candle cache keeps only the most recent chart contexts', () => {
   assert.equal(cache.get('S00001', 'M1').length, 0);
   assert.deepEqual(cache.get('S00002', 'M1').map((candle) => candle.time), second.slice(-3).map((candle) => candle.time));
   assert.deepEqual(cache.get('S00003', 'M1').map((candle) => candle.time), third.slice(-3).map((candle) => candle.time));
+});
+
+test('authenticated runtime cache retains at least ten visited chart contexts without growing the persisted cap', () => {
+  assert.equal(MAX_CANDLE_CACHE_ENTRIES >= 10, true);
+  assert.equal(MAX_PERSISTED_CANDLE_CACHE_ENTRIES, 8);
+
+  const cache = new CandleMemoryCache();
+  const startTime = secondsUtc(2024, 3, 22, 12, 0, 0);
+  for (let index = 0; index < 10; index += 1) {
+    cache.set(
+      `S${String(index).padStart(5, '0')}`,
+      'M1',
+      buildContiguousHistory(startTime + index * 3600, 10, 'M1'),
+    );
+  }
+
+  assert.equal(cache.get('S00000', 'M1').length, 10);
+  assert.equal(cache.get('S00009', 'M1').length, 10);
 });
 
 test('zustand candle cache evicts older inactive histories instead of growing without bound', () => {
