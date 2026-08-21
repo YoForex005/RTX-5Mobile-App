@@ -248,6 +248,41 @@ test('atomic opening deal replaces the matching open-position fallback without d
   assert.equal(result.markers[0].id, 'trade-history-open-deal-15');
 });
 
+test('retained opening stays visible and connects when only the close deal has arrived', () => {
+  const retainedOpening = {
+    id: '505',
+    symbol: 'EURUSD',
+    side: 'sell',
+    volume: 0.1,
+    openPrice: 1.108,
+    openTime: new Date((BASE + 5) * 1_000).toISOString(),
+  } as const;
+  const whileOpen = build({ openPositions: [retainedOpening] });
+  const afterClose = build({
+    openPositions: [retainedOpening],
+    deals: [deal({
+      ticket: 16,
+      position_ticket: 505,
+      action: 'deal_buy',
+      entry: 'entry_out',
+      time: BASE + 65,
+      price: 1.106,
+    })],
+  });
+
+  const openingMarker = whileOpen.markers[0];
+  assert.equal(whileOpen.markers.length, 1);
+  assert.deepEqual(
+    afterClose.markers.find((marker) => marker.id === openingMarker.id),
+    openingMarker,
+    'the original entry arrow must survive the live-position to history handoff',
+  );
+  assert.equal(afterClose.markers.length, 2);
+  assert.equal(afterClose.tradeHistorySegments.length, 1);
+  assert.equal(afterClose.tradeHistorySegments[0].fromPrice, 1.108);
+  assert.equal(afterClose.tradeHistorySegments[0].toPrice, 1.106);
+});
+
 test('sell entry and buy exit in the same candle share one candle time', () => {
   const result = build({
     deals: [

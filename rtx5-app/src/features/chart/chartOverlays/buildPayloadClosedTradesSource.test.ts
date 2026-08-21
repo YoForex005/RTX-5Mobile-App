@@ -111,3 +111,36 @@ test('trade history toggle is independent from open Buy/Sell visibility', () => 
   assert.deepEqual(hidden.markers, []);
   assert.deepEqual(hidden.tradeHistorySegments, []);
 });
+
+test('trade history toggle hides a still-open arrow as well as completed arrows and connectors', () => {
+  const baseInput: Parameters<typeof buildChartOverlayPayload>[0] = {
+    chartSymbol: 'EURUSD',
+    chartTimeframe: 'M1',
+    candles,
+    positions: [{
+      id: '9',
+      symbol: 'EURUSD',
+      side: 'sell',
+      volume: 0.1,
+      openPrice: 1.19,
+      currentPrice: 1.18,
+      pnl: 1,
+      swap: 0,
+      openTime: new Date(1_700_000_010 * 1_000).toISOString(),
+    }],
+    colors: {
+      tradeOpen: '#2962FF',
+      tradeTpSl: '#089981',
+      tradeStopOut: '#F23645',
+    } as any,
+    sellColor: '#F23645',
+    showOnChart: { buyTrade: false, sellTrade: false, slTpLevels: false },
+  };
+
+  const visible = buildChartOverlayPayload({ ...baseInput, showTradeHistory: true });
+  assert.equal(visible.markers.length, 1);
+  assert.deepEqual(visible.tradeHistorySegments, []);
+
+  const hidden = buildChartOverlayPayload({ ...baseInput, showTradeHistory: false });
+  assert.deepEqual(hidden, { priceLines: [], markers: [], tradeHistorySegments: [] });
+});

@@ -12,8 +12,9 @@ test('native chart builds execution history from deals with closed-position fall
   assert.match(source, /useChartDealsQuery\(accountLogin,/);
   assert.match(
     source,
-    /buildChartTradeHistoryOverlay\(\{[\s\S]*chartSymbol,[\s\S]*chartTimeframe,[\s\S]*candles: overlayMarkerCandles,[\s\S]*openPositions: positions,[\s\S]*deals: chartDeals,[\s\S]*closedPositions,/,
+    /buildChartTradeHistoryOverlay\(\{[\s\S]*chartSymbol,[\s\S]*chartTimeframe,[\s\S]*candles: overlayMarkerCandles,[\s\S]*openPositions: retainedChartTradeOpenings,[\s\S]*deals: chartDeals,[\s\S]*closedPositions,/,
   );
+  assert.match(source, /retainChartTradeOpenings\([\s\S]*chartMarketDataCacheNamespace,[\s\S]*positions/);
   assert.match(source, /refetchClosedPositions\(\)[\s\S]*refetchChartDeals\(\)/);
 });
 
