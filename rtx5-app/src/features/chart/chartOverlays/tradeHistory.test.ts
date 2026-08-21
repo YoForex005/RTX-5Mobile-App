@@ -7,6 +7,10 @@ import {
   getBucketStart,
   getExpectedNextCandleTime,
 } from '../../../domain/candles/core/timeframeUtils';
+import {
+  createChartTradeOpeningRetentionState,
+  retainChartTradeOpenings,
+} from '../chartTradeOpeningRetention';
 import type { ChartOverlayCandle } from './types';
 import { buildChartTradeHistoryOverlay } from './tradeHistory';
 
@@ -246,6 +250,83 @@ test('atomic opening deal replaces the matching open-position fallback without d
 
   assert.equal(result.markers.length, 1);
   assert.equal(result.markers[0].id, 'trade-history-open-deal-15');
+});
+
+test('unticketed atomic opening replaces a ticketed retained opening at the exact location', () => {
+  const result = build({
+    openPositions: [{
+      id: '506',
+      symbol: 'EURUSD',
+      side: 'sell',
+      volume: 0.1,
+      openPrice: 1.1071,
+      openTime: new Date((BASE + 5) * 1_000).toISOString(),
+    }],
+    deals: [deal({
+      ticket: 16,
+      position_ticket: 0,
+      action: 'deal_sell',
+      entry: 'entry_in',
+      time: BASE + 5,
+      price: 1.1071,
+    })],
+  });
+
+  assert.equal(result.markers.length, 1);
+  assert.equal(result.markers[0].id, 'trade-history-open-deal-16');
+});
+
+test('retained original volume connects every partial close after the live position shrinks', () => {
+  const retentionState = createChartTradeOpeningRetentionState();
+  const originalOpening = {
+    id: '507',
+    symbol: 'EURUSD',
+    side: 'sell' as const,
+    volume: 1,
+    openPrice: 1.108,
+    openTime: new Date((BASE + 5) * 1_000).toISOString(),
+  };
+  retainChartTradeOpenings(retentionState, 'broker-a:200156:7', [originalOpening]);
+  retainChartTradeOpenings(retentionState, 'broker-a:200156:7', [{
+    ...originalOpening,
+    volume: 0.4,
+  }]);
+  const retainedAfterClose = retainChartTradeOpenings(
+    retentionState,
+    'broker-a:200156:7',
+    [],
+  );
+
+  const result = build({
+    openPositions: retainedAfterClose,
+    deals: [
+      deal({
+        ticket: 17,
+        position_ticket: 507,
+        action: 'deal_buy',
+        entry: 'entry_out',
+        volume: 0.6,
+        time: BASE + 65,
+        price: 1.106,
+      }),
+      deal({
+        ticket: 18,
+        position_ticket: 507,
+        action: 'deal_buy',
+        entry: 'entry_out',
+        volume: 0.4,
+        time: BASE + 125,
+        price: 1.105,
+      }),
+    ],
+  });
+
+  assert.equal(result.markers.length, 3);
+  assert.equal(result.tradeHistorySegments.length, 2);
+  assert.deepEqual(
+    result.tradeHistorySegments.map((segment) => segment.toPrice),
+    [1.106, 1.105],
+  );
 });
 
 test('retained opening stays visible and connects when only the close deal has arrived', () => {

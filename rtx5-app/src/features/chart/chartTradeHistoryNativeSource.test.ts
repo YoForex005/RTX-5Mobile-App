@@ -18,6 +18,21 @@ test('native chart builds execution history from deals with closed-position fall
   assert.match(source, /refetchClosedPositions\(\)[\s\S]*refetchChartDeals\(\)/);
 });
 
+test('inactive chart never seeds a new account scope from the previous session positions', () => {
+  const retentionStart = source.indexOf('const chartTradeOpeningRetentionRef');
+  const retentionEnd = source.indexOf('const preferencesHydrated', retentionStart);
+  assert.notEqual(retentionStart, -1);
+  assert.notEqual(retentionEnd, -1);
+
+  const retentionSource = source.slice(retentionStart, retentionEnd);
+  const activeFirstGate = /chartRuntimeActive\s*\?\s*positions\s*:\s*(?:\[\]|EMPTY_[A-Z0-9_]+)/;
+  const inactiveFirstGate = /!chartRuntimeActive\s*\?\s*(?:\[\]|EMPTY_[A-Z0-9_]+)\s*:\s*positions/;
+  assert.ok(
+    activeFirstGate.test(retentionSource) || inactiveFirstGate.test(retentionSource),
+    'retention must receive no positions while the chart is inactive because its retained array can belong to the prior account',
+  );
+});
+
 test('trade history follows only its own persisted toggle and stays off Renko', () => {
   assert.match(
     source,

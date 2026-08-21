@@ -37,6 +37,22 @@ const copyOpening = (
   volume: position.volume,
 });
 
+const preserveLargestObservedVolume = (
+  previous: ChartTradeHistoryOpenPosition | undefined,
+  current: ChartTradeHistoryOpenPosition,
+): ChartTradeHistoryOpenPosition => {
+  const previousVolume = Number(previous?.volume);
+  const currentVolume = Number(current.volume);
+  if (
+    Number.isFinite(previousVolume)
+    && previousVolume > 0
+    && (!Number.isFinite(currentVolume) || previousVolume > currentVolume)
+  ) {
+    return { ...current, volume: previousVolume };
+  }
+  return current;
+};
+
 /**
  * Remembers each broker-confirmed opening after its live position disappears.
  * Closing and history endpoints can settle in different polls; retaining the
@@ -61,10 +77,16 @@ export const retainChartTradeOpenings = (
 
   currentPositions.forEach((position) => {
     const key = buildOpeningKey(position);
+    const opening = preserveLargestObservedVolume(
+      state.openings.get(key),
+      copyOpening(position),
+    );
     // Refresh insertion order so the bounded map evicts the oldest observed
-    // trade rather than a currently-active one.
+    // trade rather than a currently-active one. Preserve the largest observed
+    // lot size because a partial close reduces the live position before every
+    // closing execution has reached deal history.
     state.openings.delete(key);
-    state.openings.set(key, copyOpening(position));
+    state.openings.set(key, opening);
   });
 
   const limit = Math.max(1, Math.floor(maxEntries));

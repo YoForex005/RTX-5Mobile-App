@@ -511,6 +511,7 @@ export const buildChartTradeHistoryOverlay = ({
   const pairedOpeningSignatures = new Set<string>();
   const pairedOpeningLocationSignatures = new Set<string>();
   const atomicOpeningPositionTickets = new Set<string>();
+  const unticketedAtomicOpeningLocations = new Map<string, number>();
   const pairedFallbackSignatures = new Set<string>();
   const normalizedDeals = normalizeDealExecutions(deals ?? [], normalizedChartSymbol);
 
@@ -518,6 +519,16 @@ export const buildChartTradeHistoryOverlay = ({
     if (execution.entry !== 'in') return;
     if (execution.positionTicket) {
       atomicOpeningPositionTickets.add(execution.positionTicket);
+    } else {
+      const locationSignature = fallbackOpeningLocationSignature(
+        execution.action,
+        execution.time,
+        execution.price,
+      );
+      unticketedAtomicOpeningLocations.set(
+        locationSignature,
+        (unticketedAtomicOpeningLocations.get(locationSignature) ?? 0) + 1,
+      );
     }
     pairedOpeningSignatures.add(fallbackOpeningSignature(
       execution.positionTicket,
@@ -538,15 +549,36 @@ export const buildChartTradeHistoryOverlay = ({
   const retainedOpeningExecutions = normalizeOpenPositionExecutions(
     openPositions ?? [],
     normalizedChartSymbol,
-  ).filter((execution) => (
-    execution.positionTicket
-      ? !atomicOpeningPositionTickets.has(execution.positionTicket)
-      : !pairedOpeningLocationSignatures.has(fallbackOpeningLocationSignature(
-        execution.action,
-        execution.time,
-        execution.price,
-      ))
-  ));
+  ).filter((execution) => {
+    if (
+      execution.positionTicket
+      && atomicOpeningPositionTickets.has(execution.positionTicket)
+    ) {
+      return false;
+    }
+
+    // Some brokers publish the atomic entry before its position_ticket link.
+    // Match one retained position by exact side/time/price so the temporary
+    // fallback is replaced without suppressing separate trades at that point.
+    const locationSignature = fallbackOpeningLocationSignature(
+      execution.action,
+      execution.time,
+      execution.price,
+    );
+    const remainingLocationMatches = unticketedAtomicOpeningLocations.get(
+      locationSignature,
+    ) ?? 0;
+    if (remainingLocationMatches <= 0) return true;
+    if (remainingLocationMatches === 1) {
+      unticketedAtomicOpeningLocations.delete(locationSignature);
+    } else {
+      unticketedAtomicOpeningLocations.set(
+        locationSignature,
+        remainingLocationMatches - 1,
+      );
+    }
+    return false;
+  });
   retainedOpeningExecutions.forEach((execution) => {
     pairedOpeningSignatures.add(fallbackOpeningSignature(
       execution.positionTicket,

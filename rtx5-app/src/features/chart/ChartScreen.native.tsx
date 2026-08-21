@@ -900,9 +900,13 @@ const ChartScreenInner = React.memo(function ChartScreenInner({
     () => retainChartTradeOpenings(
       chartTradeOpeningRetentionRef.current,
       chartMarketDataCacheNamespace,
-      positions,
+      // The retained position array can belong to the previous account while
+      // this screen is suspended. Do not let that stale snapshot seed a newly
+      // selected broker/account scope; the active chart will supply the
+      // current session's positions as soon as it resumes.
+      chartRuntimeActive ? positions : [],
     ),
-    [chartMarketDataCacheNamespace, positions],
+    [chartMarketDataCacheNamespace, chartRuntimeActive, positions],
   );
   const preferencesHydrated = useUserPreferences((s) => s.hasHydrated);
   const chartShowOnChart = useUserPreferences((s) => s.chartShowOnChart);
