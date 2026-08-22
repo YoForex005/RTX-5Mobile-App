@@ -257,8 +257,11 @@ compatibility for every later change.
   HBC bytecode 96); Android and iOS production exports then passed.
 - Live `channel:view`/`update:list` and both `update:view` checks: passed
   before and after publishing.
-- Physical-device delivery confirmation: pending; no Android device was
-  connected to this workstation during the release verification.
+- Physical-device delivery confirmation: Android confirmed on the connected
+  test phone (`com.rtx5.app` 1.1.11/vc28, the compatible `30cba832...` build):
+  the app's update prompt downloaded and installed the OTA on first launch and
+  the About screen then showed `Version 1.1.42`. iOS physical confirmation
+  still pending (no iOS device connected).
 
 The previous `1.1.41` groups were Android
 `ffe5adbd-82c6-4648-a2eb-a4b73bfbf486` and iOS

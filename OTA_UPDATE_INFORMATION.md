@@ -182,3 +182,8 @@ After publishing, record here and in the production baseline:
 - iOS runtime, group, update ID, timestamp, message, manifest, and dashboard
 - Target binary/build record and safety-comparison base
 - Validation results and physical-device delivery confirmation
+
+`1.1.42` physical-device delivery was confirmed on Android (test phone running
+the compatible `com.rtx5.app` 1.1.11/vc28 build: update prompt installed the
+OTA on first launch; About screen then showed `Version 1.1.42`). iOS physical
+confirmation is still pending (no iOS device connected).
