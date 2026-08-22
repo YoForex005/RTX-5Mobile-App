@@ -198,18 +198,18 @@ test('stranded gesture flags cannot permanently freeze or hide trade markers', (
   );
 });
 
-test('history refresh and context replacement preserve a user-owned vertical pan', () => {
+test('history refresh preserves a user-owned vertical pan while an explicit context reset wins', () => {
   const updateBody = extractFunctionBody(source, 'updateChartData');
 
   assertSourceContains(
     updateBody,
-    /var manualRangeBeforeUpdate = isManualVerticalPanRangeLocked\(\)[\s\S]*normalizePriceRange\(manualVerticalPanLockedRange\)[\s\S]*var shouldPreserveManualPriceScale = isValidPriceRange\(manualRangeBeforeUpdate\)/,
+    /var manualRangeBeforeUpdate = isManualVerticalPanRangeLocked\(\)[\s\S]*normalizePriceRange\(manualVerticalPanLockedRange\)[\s\S]*var shouldPreserveManualPriceScale =[\s\S]*!resetVisibleRange && isValidPriceRange\(manualRangeBeforeUpdate\)/,
     'update must capture the user-owned numeric range before setData',
   );
   assertSourceContains(
     updateBody,
-    /This ownership also crosses symbol\/timeframe contexts/,
-    'manual price-scale ownership must survive a selected chart context change',
+    /Manual vertical ownership is scoped to the current symbol and[\s\S]*timeframe\. An explicit reset \(used for context replacement\) must[\s\S]*win over an old numeric window/,
+    'manual price-scale ownership must stay context-scoped with an explicit reset winning over an old window',
   );
   assertSourceContains(
     updateBody,

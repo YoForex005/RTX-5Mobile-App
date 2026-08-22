@@ -82,7 +82,7 @@ test('does not permanently blank chart after rapid switching', () => {
 test('empty history and empty live data surfaces a no-market-data state', () => {
   assertSourceContains(
     chartSource,
-    /const hasChartDataError = Boolean\(chartDataError && !candlesAvailable\)[\s\S]*const isLoading =[\s\S]*!hasChartDataError[\s\S]*\(!chartCanvasReady \|\| !candlesAvailable \|\| chartDataLoading\)[\s\S]*!loadingFallback/,
+    /const hasChartDataError = Boolean\([\s\S]*chartDataError && !candlesAvailable[\s\S]*\|\| chartSurfaceRecoveryExhausted[\s\S]*const isLoading =[\s\S]*!hasChartDataError[\s\S]*\(!chartCanvasReady \|\| !candlesAvailable \|\| chartDataLoading\)[\s\S]*!loadingFallback/,
     'native chart must keep loading visible before candles arrive while allowing real history errors through',
   );
   assertSourceContains(

@@ -13,8 +13,22 @@ test('setData full reload clears and recreates overlay price lines and markers',
   const body = extractFunctionBody(source, 'updateChartData');
 
   assertSourceContains(body, /_positionLinesArr = \[\]/, 'full data reload must clear stale price-line refs');
-  assertSourceContains(body, /_overlayMarkers = null/, 'full data reload must clear stale marker refs');
+  assertSourceContains(
+    body,
+    /Do not drop the live marker handle here: setData preserves the/,
+    'full data reload must keep the live marker primitive attached to the series',
+  );
   assertSourceContains(body, /applyOverlayPayload\(_overlayPayload\)/, 'full data reload must recreate overlays');
+  assertSourceContains(
+    extractFunctionBody(source, 'applyOverlayPayload'),
+    /clearOverlayMarkers\(\)/,
+    'overlay recreation must clear stale marker refs before creating new ones',
+  );
+  assertSourceContains(
+    extractFunctionBody(source, 'clearOverlayMarkers'),
+    /_overlayMarkers = null/,
+    'marker clearing must drop the stale marker refs',
+  );
 });
 
 test('applyOverlayPayload always starts from a clean slate before creating lines', () => {
@@ -103,12 +117,12 @@ test('overlay injection before series exists self-heals through init, native res
   );
   assertSourceContains(
     source,
-    /const resyncInterval = setInterval\(\(\) => \{[\s\S]*setChartOverlays\(\$\{JSON\.stringify\(payload\)\}\)[\s\S]*\}, 5000\)/,
+    /const resyncInterval = setInterval\(\(\) => \{[\s\S]*setChartOverlays\([\s\S]*\$\{JSON\.stringify\(payload\)\},[\s\S]*\$\{JSON\.stringify\(chartDataContextSig\)\}[\s\S]*\}, 5000\)/,
     'native side must periodically re-push overlays on the geometry path',
   );
   assertSourceContains(
     source,
-    /empty payload[\s\S]*stale price lines and markers/,
+    /empty payload[\s\S]*stale price lines, markers, and trade history/,
     'native resync must include empty payload clears',
   );
   assertSourceContains(
@@ -121,7 +135,7 @@ test('overlay injection before series exists self-heals through init, native res
 test('CHART_READY immediately pushes latest overlays and the live price line', () => {
   assertSourceContains(
     source,
-    /msg\.type === 'CHART_READY'[\s\S]*const latestOverlay = overlayPayloadRef\.current[\s\S]*setChartOverlays\(\$\{JSON\.stringify\(latestOverlay\)\}\)[\s\S]*setLivePriceLine/,
+    /msg\.type === 'CHART_READY'[\s\S]*const latestOverlay = overlayPayloadRef\.current \?\? \{[\s\S]*setChartOverlays\([\s\S]*\$\{JSON\.stringify\(latestOverlay\)\},[\s\S]*\$\{JSON\.stringify\(chartDataContextSig\)\}[\s\S]*setLivePriceLineForContext/,
     'CHART_READY must immediately restore overlays and the live price line',
   );
 });

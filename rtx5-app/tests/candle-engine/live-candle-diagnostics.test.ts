@@ -43,7 +43,7 @@ test('canonical live stream exposes safe REST history prefetch for fast timefram
   assert.match(source, /const INITIAL_HISTORY_LIMIT = Math\.min\(INITIAL_VIEWPORT_HISTORY_LIMIT, MAX_CANDLE_SERIES_LENGTH\)/);
   assert.match(source, /const CLOSED_MARKET_HISTORY_WARM_LIMIT = PAGINATED_HISTORY_LIMIT/);
   assert.match(source, /public async prefetchHistory\([\s\S]*limit = INITIAL_HISTORY_LIMIT,[\s\S]*\): Promise<number>/);
-  assert.match(source, /getCandleHistory\([\s\S]*normalizedSymbol,[\s\S]*normalizedTimeframe,[\s\S]*requestedLimit,[\s\S]*cacheNamespace: sessionProvenance\.cacheNamespace/);
+  assert.match(source, /manager\.fetchHistory\(symbol, timeframe, limit, \{[\s\S]*cacheNamespace: sessionProvenance\.cacheNamespace/);
   assert.match(source, /slice\(-MAX_RETAINED_HISTORY_CANDLES\)/);
   assert.match(source, /renderHistoryLimit: INITIAL_HISTORY_LIMIT/);
   assert.match(source, /entry\.renderHistoryLimit = initialLoadLimit/);

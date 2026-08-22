@@ -43,7 +43,7 @@ test('auxiliary symbol taps activate their pane before opening the existing pick
   const handlerSource = screenSource.slice(handlerStart, handlerEnd);
   assert.match(
     handlerSource,
-    /chartWindows\.selectPaneFromTap\(paneId, \(confirmedPane, confirmedContext\) => \{[\s\S]*confirmedPane\.id !== paneId[\s\S]*confirmedPane\.symbol !== confirmedContext\.symbol[\s\S]*confirmedPane\.timeframe !== confirmedContext\.timeframe[\s\S]*confirmedPaneSymbolPickerRef\.current\(\)/,
+    /chartWindows\.selectPaneFromTap\(paneId, \(confirmedPane\) => \{[\s\S]*confirmedPane\.id !== paneId[\s\S]*confirmedPane\.symbol !== chartSymbol[\s\S]*confirmedPane\.timeframe !== chartTimeframe[\s\S]*confirmedPaneSymbolPickerRef\.current\(\)/,
     'the picker must wait for pane-selection confirmation',
   );
   assert.match(

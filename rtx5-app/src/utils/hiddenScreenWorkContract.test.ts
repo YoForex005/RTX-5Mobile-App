@@ -266,7 +266,7 @@ test('hidden tab screens gate heavy work while a visited chart keeps one atomic 
   assert.match(chartSource, /const refreshShowOnChartSources = useCallback\(\(\) => \{[\s\S]*if \(!chartRuntimeActive\) \{[\s\S]*return;[\s\S]*\}/);
   assert.match(chartSource, /scheduleIdleWork\([\s\S]*refreshShowOnChartSources\(\);[\s\S]*requestChartViewportRecovery\(3\);[\s\S]*delayMs: CHART_FOCUS_WORK_DELAY_MS/);
   assert.match(chartSource, /const hasPaintedCurrentChartContext =[\s\S]*lastPaintedChartDataContextSig === chartDataContextSig/);
-  assert.match(chartSource, /const hasUsableRetainedChart =[\s\S]*hasPaintedCurrentChartContext && webViewReady && chartCanvasReady/);
+  assert.match(chartSource, /const hasUsableRetainedChart =[\s\S]*\(hasPaintedCurrentChartContext \|\| hasPreactivatedCurrentChartContext\)[\s\S]*&& webViewReady[\s\S]*&& chartCanvasReady/);
   assert.match(chartSource, /const shouldShowChartLoadingOverlay =[\s\S]*!hasUsableRetainedChart &&[\s\S]*!hasChartDataError &&[\s\S]*\(!chartSurfaceReady \|\| isLoading \|\| candlesAvailable\)/);
   assert.match(chartSource, /\{shouldShowChartLoadingOverlay && \(/);
   assert.match(chartSource, /\{chartSurfaceReady \? \(\s*<WebView/);
