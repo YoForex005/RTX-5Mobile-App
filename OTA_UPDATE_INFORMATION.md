@@ -1,10 +1,64 @@
 # RTX5 OTA Update Information
 
-> **Current live production OTA: `1.1.49` for Android and iOS.**
+> **Current live production OTA: `1.1.50` for Android and iOS.**
 >
-> Published and production manifests/CDN bundles verified `2026-10-02` (Asia/Calcutta).
+> Published and production manifests/CDN bundles verified `2026-10-07` (Asia/Calcutta).
 >
-> This release includes current local application changes. It was explicitly requested by the user; this document does not authorize a later release.
+> Released following the user's explicit request for the next Android and iOS OTA, including the current codebase. This record does not authorize another release.
+
+## Current Production OTA - `1.1.50`
+
+| Field | Android | iOS |
+| --- | --- | --- |
+| OTA-visible version | `1.1.50` | `1.1.50` |
+| State | **LIVE; production manifest and CDN bundle verified** | **LIVE; production manifest and CDN bundle verified** |
+| Runtime | `30cba83220fc6c92180eed477863c3e3e3087ce6` | `ef38da275b765380037fc377f5c596de31690b7d` |
+| Update group | `98b59fdc-fd11-41ac-ba16-07d0ca418e99` | `4c94e68f-a047-40c0-b62c-827d64ea55ef` |
+| Update ID | `01a11577-e826-7f05-b852-ab72c17b7d5d` | `01a11578-f1d1-7fa7-acdc-0cb2b5625463` |
+| Created (UTC) | `2026-10-07T08:25:42.182Z` | `2026-10-07T08:26:50.193Z` |
+| Message | Android production OTA 1.1.50 current guest login and demo flow, broker session restore, chart and UI updates; reviewed legacy native compatibility | iOS production OTA 1.1.50 current guest login and demo flow, broker session restore, chart and UI updates; reviewed legacy native compatibility |
+| EAS source commit/status | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` (dirty fresh release worktree) | Same release source |
+| Safety-comparison base | `2975156c15199c21bb3a4c73af8bd35189aaa2bd` | Same |
+| Main application source snapshot | `ed91c67e` plus OTA version/fallback type changes; SHA-256 inventory below | Same |
+| Compatible native binary | `cfe3b101-ab15-4e18-854b-ef808e96d708` / 1.1.11, vc28 | `1b1bd2e3-da6c-4c8b-94c2-285b0329dce2` / 1.1.10, build30 |
+| Manifest | https://u.expo.dev/update/01a11577-e826-7f05-b852-ab72c17b7d5d | https://u.expo.dev/update/01a11578-f1d1-7fa7-acdc-0cb2b5625463 |
+| Dashboard | https://expo.dev/accounts/yoforex-organisation/projects/rtx5-app/updates/98b59fdc-fd11-41ac-ba16-07d0ca418e99 | https://expo.dev/accounts/yoforex-organisation/projects/rtx5-app/updates/4c94e68f-a047-40c0-b62c-827d64ea55ef |
+| Physical-device confirmation | Pending; ADB reported no connected devices | Pending; no iOS device tested |
+
+Project: `yoforex-organisation/rtx5-app`; EAS project `092a58db-dea9-469a-a383-f27300598812`. Channel, branch and environment: `production`. Update endpoint: `https://u.expo.dev/092a58db-dea9-469a-a383-f27300598812`. Effective release config: `rtx5-app/app.config.js`, based on `app.json`. Native Expo version remains `1.1.30`; OTA-visible version is `src/config/appDisplayVersion.ts`.
+
+## Included Source and Compatibility for `1.1.50`
+
+- Fresh worktree: `.codex-tmp/ota-release-1.1.50`, assembled from current local `app`, `src`, `tests`, `scripts` and OTA assets. Compared with the actual `1.1.49` release inventory: **212 changed / 125 added / 0 removed files**.
+- **1306 files inventoried and verified; 1302 match local source exactly.** Four files have recorded optional-native fallbacks: `bugReportAttachments.ts`, `bugReportFilePicker.ts`, `BugReportScreen.tsx`, and `shakeToReport/ShakeToReportBugHost.tsx`.
+- Includes current guest browsing, shared login/demo authentication modal, broker selection, public market routing and snapshots, account/session restore and persistence, chart changes, theme/colors, sidebar/tab/modal interaction updates and text bug reports. Guest authentication can return an approved order draft; it does not replay a trade mutation.
+- The new file-picker type import also maps to the fallback contract. The shared fallback defines the picker option/result types, including cancellation, so legacy release TypeScript passes without installing the new native picker. Main native builds continue using the actual package.
+- The native dependency/lockfile/config/build/icon baseline matches `1.1.49` byte for byte. Local native-only icons, plugins, permissions and new attachment/clipboard/shake capabilities require new binaries and are not delivered by this OTA. Unsupported attachment pickers explain the required installed-app update; text reports remain available; shake remains inactive.
+
+## Validation and Delivery Evidence for `1.1.50`
+
+- Full main and release suites: **465 test files passed in each**; TypeScript passed in both. Fresh release dependencies installed from the compatible lockfile. The first concurrent release run hit two wall-clock recovery assertions while export/fingerprints were running; both affected files passed in isolation (6 tests), and the complete final release suite passed with test files executed serially. Initial failure logs are retained; no assertions were removed or relaxed.
+- Repository startup support (root package scripts, START.bat and workspace toolchain metadata) synchronized for the current startup tests; hashes are recorded in repository-support-parity.json. App-level native dependencies/configuration remain on the compatible baseline. Validation ran with local Node 26.9.0/npm 11.19.1; EAS CLI remained workspace-pinned 21.4.0.
+- EAS authentication, live production channel/branch, both compatible native build records and all 12 required production environment variables reverified. Before publication, both `1.1.49` production manifests and CDN bundles were freshly downloaded and hash checked.
+- Natural fingerprints: Android `1e1ad87a1fafdfca676015eb142abdfb0188d811`; iOS `5d2be9c332fb6660513531f40f6ffff3254d8048`. Both equal the previous measured compatible baseline. These differ from the installed binary runtime strings: publication uses the reviewed continuation of those platform runtime lines, after checking each effective target. This is not permission to force legacy runtimes onto raw main.
+- Broad safety script returned exit **2**, flagging only `app.json` and `app.config.js`. Exact diffs are the previously reviewed owner metadata and two `extra` API fallback URLs. No new native-surface change was found; this exception is not recorded as a safety-script pass.
+- Production-environment Android and iOS Hermes exports passed. Both bundles contain `1.1.50`, the production API URL, retained bug-report functionality and three representative guest/session feature markers absent from the freshly served `1.1.49` bundles. Hermes bytecode remains v96. Optional native loader compatibility was checked.
+- Source hashes reverified after export and before publishing. Platforms published separately; live EAS groups and production manifests select the new IDs above. Both CDN launch bundles downloaded, contain `1.1.50`, and match their manifest SHA-256 hashes and validated local export hashes.
+- Physical-device receipt and visual smoke checks remain pending. ADB reported no connected Android device; no iOS device was tested. Current store-distributed binaries were not independently verified.
+- Evidence: `.codex-tmp/ota-1.1.50-evidence`. Inventory `source-parity.json` SHA-256: `a14304053ebe467ac5fa748f014cb013b1b2151639e73aa42ed55f43b45966fa`. Source delta: `changes-from-1.1.49.json`; bundle checks: `bundle-validation.json`; full test/typecheck, config diff, fingerprint, export, publish, live EAS, manifest and served bundle records are preserved there.
+
+## Repeatable Flow for the Next OTA
+
+1. Obtain an explicit release request, verify the latest live platform releases, and choose the next version. This snapshot is not authorization for a future release.
+2. Use a fresh compatible-baseline worktree and the current `rtx5-app/scripts/ota/assemble-compatible-release.js`. Also synchronize the current workspace toolchain metadata and repository startup support needed by source tests (root package scripts and START.bat), preserving native dependency sections. Review every source adaptation/native exclusion and the delta against the prior published inventory; do not change only a stale worktree's version label.
+3. Validate exact source parity, full tests, TypeScript, production environment, native-sensitive diffs and both natural fingerprints. Export with the production environment. Check the new version and representative changed code absent from previous live bundles, then recheck all source hashes.
+4. Publish normally when native fingerprint runtimes match. Legacy continuation is limited to this reviewed native baseline and its verified compatible binaries. New native capabilities require new binaries.
+5. When platform runtime lines differ, use platform-scoped EAS commands separately. The `update:prod` wrapper owns `--platform all` and must not be overridden. For this release the input directory was `ota-export-1.1.50` with `--channel production --environment production --platform <android|ios> --skip-bundler --non-interactive --json`.
+6. Record new EAS identifiers and verify live manifests/CDN hashes and physical devices when available. Update this file and [the production baseline](docs/guide/OTA_PRODUCTION_BASELINE.md) with actual outcomes.
+
+## Archived `1.1.49` and Earlier Records
+
+The following preserves publication-time evidence. The `1.1.50` record above supersedes all current-state labels in this archive.
 
 ## Why Local Changes Were Missing in `1.1.48`
 
@@ -14,12 +68,12 @@ The correction is a fresh release worktree at `.codex-tmp/ota-release-1.1.49`, w
 
 The reusable [release assembler](rtx5-app/scripts/ota/assemble-compatible-release.js) now records local/release SHA-256 values for every copied file and lists each deliberate native compatibility adaptation. Verify this inventory before publishing; do not bump only a stale worktree's display version again.
 
-## Current Production OTA - `1.1.49`
+## Previous Production OTA - `1.1.49`
 
 | Field | Android | iOS |
 | --- | --- | --- |
 | OTA-visible version | `1.1.49` | `1.1.49` |
-| State | **LIVE; manifest and delivered bundle verified** | **LIVE; manifest and delivered bundle verified** |
+| State | **Historical; superseded by 1.1.50; manifest/bundle verified at publication** | **Historical; superseded by 1.1.50; manifest/bundle verified at publication** |
 | Runtime | `30cba83220fc6c92180eed477863c3e3e3087ce6` | `ef38da275b765380037fc377f5c596de31690b7d` |
 | Update group | `07f67708-49f7-47f7-838f-92e6a8740470` | `07c0c58f-b90f-493d-9e1f-dd3067f78a03` |
 | Update ID | `01a0fb4c-3e03-7195-85b1-894fb65bc0a9` | `01a0fb4f-3e72-728a-bac4-f64ba6112f9d` |

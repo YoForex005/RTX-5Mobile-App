@@ -1,6 +1,19 @@
 # RTX5 Production OTA Baseline
 
-> **CURRENT 2026-10-02: PRODUCTION OTA `1.1.49` IS LIVE FOR ANDROID AND IOS.**
+> **CURRENT 2026-10-07: PRODUCTION OTA `1.1.50` IS LIVE FOR ANDROID AND IOS.**
+>
+> Current local application/source/tests/scripts/OTA assets assembled in fresh worktree `.codex-tmp/ota-release-1.1.50` at `2975156c15199c21bb3a4c73af8bd35189aaa2bd` (dirty). 212 changed / 125 added / 0 removed files versus `1.1.49`; 1306 inventoried, 1302 identical to local, four recorded native fallbacks. Includes guest/login/demo flow, broker/public market/session restoration, charts and interaction/UI changes. Native-only features require new binaries.
+>
+> Android: runtime `30cba83220fc6c92180eed477863c3e3e3087ce6`, group `98b59fdc-fd11-41ac-ba16-07d0ca418e99`, update `01a11577-e826-7f05-b852-ab72c17b7d5d`, created `2026-10-07T08:25:42.182Z`. Compatible EAS binary `cfe3b101-ab15-4e18-854b-ef808e96d708` (1.1.11/vc28), freshly verified.
+>
+> iOS: runtime `ef38da275b765380037fc377f5c596de31690b7d`, group `4c94e68f-a047-40c0-b62c-827d64ea55ef`, update `01a11578-f1d1-7fa7-acdc-0cb2b5625463`, created `2026-10-07T08:26:50.193Z`. Compatible EAS binary `1b1bd2e3-da6c-4c8b-94c2-285b0329dce2` (1.1.10/build30), freshly verified.
+>
+> 465 test files passed in main and release; both TypeScript checks passed; production environment and both exports passed. Natural fingerprints remain `1e1ad87a1fafdfca676015eb142abdfb0188d811` / `5d2be9c332fb6660513531f40f6ffff3254d8048`. Broad safety check returned exit 2 for only the same reviewed owner metadata/extra API URLs. Production manifests and downloaded CDN bundles match the new IDs, version, local exports and SHA-256 hashes. Physical-device receipt/visual checks and current store distribution remain unconfirmed; no Android device was connected.
+>
+> [Current release scope, identifiers, source parity and next-release procedure](../../OTA_UPDATE_INFORMATION.md). Evidence: `.codex-tmp/ota-1.1.50-evidence`; inventory SHA-256 `a14304053ebe467ac5fa748f014cb013b1b2151639e73aa42ed55f43b45966fa`. Records below are historical. Do not publish raw main or blindly force legacy runtimes.
+
+
+> **PREVIOUS 2026-10-02: PRODUCTION OTA `1.1.49` WAS PUBLISHED FOR ANDROID AND IOS; SUPERSEDED BY `1.1.50`.**
 >
 > Fixed the stale-source issue in `1.1.48`. Current local app/source/tests/scripts/OTA assets are assembled in fresh worktree `.codex-tmp/ota-release-1.1.49` at `2975156c15199c21bb3a4c73af8bd35189aaa2bd` (dirty). Coverage: 142 changed / 46 added source files versus `1.1.48`; 1181 inventoried files, 1178 identical to local, three narrowly adapted for absent native capabilities. Main startup imports were guarded. Native icons/plugins/new modules still require new binaries; text bug reports and other current local UI/logic are included.
 >
